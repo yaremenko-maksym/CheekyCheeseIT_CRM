@@ -2213,6 +2213,16 @@ export class TransactionsService {
       where: eq(users.id, currentUser.id),
     })
     if (!senior) throw new NotFoundException('Senior not found')
+    // task-archive-pending-modal (AC1): a NEW PENDING accrual must never be
+    // minted for an archived person — `JwtAuthGuard` already rejects an
+    // archived session, but its role/archived cache has a 60s TTL (see
+    // jwt.guard.ts), so a request already in flight when the archive commits
+    // can still reach here within that window. Same "creates a NEW
+    // entitlement → refuse" rule `createSalary` / `createMonthlySalaries`
+    // apply, defense-in-depth over the auth layer's TOCTOU gap.
+    if (senior.archivedAt) {
+      throw new ForbiddenException('Пользователь архивирован — доход не декларируется')
+    }
 
     // task-team-senior-share-override. Hierarchy resolution:
     //   project.seniorSharePercentOverride
@@ -2328,6 +2338,12 @@ export class TransactionsService {
     const dropUser = await this.db.db.query.users.findFirst({
       where: eq(users.id, currentUser.id),
     })
+    // task-archive-pending-modal (AC1): mirrors the guard in createSeniorIncome
+    // — see its comment for the full TOCTOU rationale (JwtAuthGuard's 60s
+    // role/archived cache).
+    if (dropUser?.archivedAt) {
+      throw new ForbiddenException('Пользователь архивирован — доход не декларируется')
+    }
     const resolvedDrop = resolveDropShare(
       { dropSharePercentOverride: project.dropSharePercentOverride },
       { dropSharePercent: dropUser?.dropSharePercent },
@@ -2458,6 +2474,19 @@ export class TransactionsService {
       throw new BadRequestException('Can only edit REJECTED transactions')
     if (tx.receiverId !== currentUser.id) throw new ForbiddenException()
 
+    // task-archive-pending-modal (round 2, security MED-1): resubmitting a
+    // REJECTED income back to PENDING with a caller-supplied amount mints a
+    // NEW entitlement — the exact same "must be active" rule this PR already
+    // enforces in createSeniorIncome, same TOCTOU rationale (JwtAuthGuard's
+    // 60s archived-status cache lets an in-flight request from a
+    // just-archived session still reach here).
+    const receiver = await this.db.db.query.users.findFirst({
+      where: eq(users.id, currentUser.id),
+    })
+    if (receiver?.archivedAt) {
+      throw new ForbiddenException('Пользователь архивирован — доход не декларируется')
+    }
+
     // ── XOR receipt resolution ──────────────────────────────────────────────
     // Exactly one of receiptDocumentId / receiptExternalUrl may be set at a
     // time (DB CHECK enforces this). Rules:
@@ -2543,6 +2572,16 @@ export class TransactionsService {
     if (tx.status !== 'REJECTED')
       throw new BadRequestException('Can only edit REJECTED transactions')
     if (tx.receiverId !== currentUser.id) throw new ForbiddenException()
+
+    // task-archive-pending-modal (round 2, security MED-1): mirrors the guard
+    // just added to updateSeniorIncome — see its comment for the full
+    // TOCTOU rationale.
+    const dropReceiver = await this.db.db.query.users.findFirst({
+      where: eq(users.id, currentUser.id),
+    })
+    if (dropReceiver?.archivedAt) {
+      throw new ForbiddenException('Пользователь архивирован — доход не декларируется')
+    }
 
     // XOR receipt resolution — mirrors updateSeniorIncome
     const receiptDocChanged = data.receiptDocumentId !== undefined

@@ -42,7 +42,7 @@ async function withDropTeamFixtures(page: import('@playwright/test').Page) {
         teamType: 'DROP',
         projectsCount: 2,
         seniorWillBeDetached: true,
-        hrAccountantsToBeRemoved: 2,
+        hrAccountantsOnTeam: 2,
       }),
     })
   })

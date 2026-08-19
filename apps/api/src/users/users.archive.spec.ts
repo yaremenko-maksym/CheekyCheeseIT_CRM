@@ -8,7 +8,21 @@
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
+import type { SessionUser } from '@crm/shared'
 import { UsersService } from './users.service'
+
+// task-archive-pending-modal (round 2, security MED-2): getArchiveImpact now
+// requires a `currentUser` for its own inline RBAC check (mirrors
+// TeamsService/ProjectsService.getArchiveImpact) instead of relying solely on
+// the controller's @Roles('ADMIN').
+const adminUser: SessionUser = {
+  id: 'admin-x',
+  role: 'ADMIN',
+  displayName: 'Admin',
+  email: 'admin@x.com',
+  avatarUrl: null,
+  seniorSharePercent: 26,
+}
 
 // ---------------------------------------------------------------------------
 // Drizzle fake — in-memory tables + a chainable query builder that supports the
@@ -26,6 +40,9 @@ interface FakeStore {
   userAuditLog: Array<Record<string, unknown>>
   teamAuditLog: Array<Record<string, unknown>>
   projectAuditLog: Array<Record<string, unknown>>
+  // task-archive-pending-modal (AC2): getArchiveImpact now also reads
+  // pending transactions for the warning list.
+  transactions: Array<Record<string, unknown>>
 }
 
 function emptyStore(): FakeStore {
@@ -38,6 +55,7 @@ function emptyStore(): FakeStore {
     userAuditLog: [],
     teamAuditLog: [],
     projectAuditLog: [],
+    transactions: [],
   }
 }
 
@@ -57,6 +75,7 @@ import {
   projects as projectsTable,
   teamMembers as teamMembersTable,
   teams as teamsTable,
+  transactions as transactionsTable,
   users as usersTable,
 } from '../database/schema'
 
@@ -78,6 +97,7 @@ function makeDb(store: FakeStore) {
     [teamMembersTable, 'teamMembers'],
     [projectsTable, 'projects'],
     [projectMembersTable, 'projectMembers'],
+    [transactionsTable, 'transactions'],
   ])
 
   // Each Drizzle `where(...)` returns an expression that we don't introspect —
@@ -122,12 +142,32 @@ function makeDb(store: FakeStore) {
         const pred = toPredicate(expr ?? predicate)
         // Return live references so updates inside the same tx still reflect.
         const rows = tableKey ? store[tableKey].filter(pred) : []
-        const thenable = {
+        const thenable: {
+          then: (onF: (v: Array<Record<string, unknown>>) => unknown) => Promise<unknown>
+          orderBy: () => typeof thenable
+          limit: () => typeof thenable
+          offset: () => typeof thenable
+          innerJoin: () => typeof thenable
+          for: (mode: string) => typeof thenable
+        } = {
           then: (onF: (v: Array<Record<string, unknown>>) => unknown) => Promise.resolve(onF(rows)),
           orderBy: () => thenable,
           limit: () => thenable,
           offset: () => thenable,
           innerJoin: () => thenable,
+          // security-review PR #584 round 2 (MED-4): archive()/archiveDrop()
+          // now lock the row with `.for('update')` before reading it. This
+          // fake has no real transaction isolation to enforce, but STILL
+          // validates the literal string argument — accepting any string
+          // (or none) would make `.for('update')` and a regressed
+          // `.for('')` indistinguishable, which is exactly the
+          // mutation-gate survivor this strictness closes.
+          for: (mode: string) => {
+            if (mode !== 'update') {
+              throw new Error(`[fake db] .for(${JSON.stringify(mode)}) — expected 'update'`)
+            }
+            return thenable
+          },
         }
         return thenable as unknown as Promise<Array<Record<string, unknown>>>
       },
@@ -275,9 +315,16 @@ function makeDb(store: FakeStore) {
   }
 
   const makeHandle = (target: 'db' | 'tx') => ({
-    select: (_proj?: unknown) => ({
+    // `vi.fn(...)` wrapping is pure instrumentation — identical return value,
+    // identical behaviour — added so specs can assert on the PROJECTION a
+    // caller passed (`select.mock.calls`), the same technique
+    // archived-entitlement.unit.spec.ts uses. The fake ignores the projection
+    // when computing rows (it always returns full raw store objects), so
+    // without this a `.select({...})` → `.select({})` mutation is invisible
+    // to every assertion that only reads returned VALUES.
+    select: vi.fn((_proj?: unknown) => ({
       from: (table: unknown) => selectChain(table),
-    }),
+    })),
     insert: wrapMutation(buildInsert, 'insert', target),
     update: wrapMutation(buildUpdate, 'update', target),
     delete: wrapMutation(buildDelete, 'delete', target),
@@ -301,6 +348,7 @@ function makeDb(store: FakeStore) {
         userAuditLog: store.userAuditLog.map((r) => ({ ...r })),
         teamAuditLog: store.teamAuditLog.map((r) => ({ ...r })),
         projectAuditLog: store.projectAuditLog.map((r) => ({ ...r })),
+        transactions: store.transactions.map((r) => ({ ...r })),
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const tx: any = makeHandle('tx')
@@ -497,7 +545,13 @@ vi.mock('drizzle-orm', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.archive — SENIOR (pair cascade)', () => {
-  it('archives senior + team + projects, sets leftAt for HR/Acc but NOT senior himself', async () => {
+  // task-archive-pending-modal (AC9, owner decision 2026-08-19): a SENIOR/DROP
+  // cascade archive touches the TEAM and the PROJECTS — never the membership
+  // of a third party sitting on them. HR/ACCOUNTANT/JUNIOR keep earning off
+  // their own `archivedAt` (see the salary cron), so leaving `leftAt` alone
+  // here is what keeps that true. Renamed from the pre-AC9 title, which
+  // asserted the opposite.
+  it('archives senior + team + projects; HR/Acc/Junior membership is left untouched', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
     const { service } = buildService(store)
@@ -509,16 +563,18 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
     expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
     expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
 
-    // HR + ACCOUNTANT team_members are deactivated.
-    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeInstanceOf(Date)
-    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeInstanceOf(Date)
+    // AC9: HR + ACCOUNTANT team_members stay active — archiving the team is
+    // not archiving them.
+    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeNull()
+    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeNull()
 
-    // SENIOR's own team_member row stays leftAt = NULL.
+    // SENIOR's own team_member row stays leftAt = NULL (unchanged by AC9).
     expect(store.teamMembers.find((m) => m.userId === 'senior-1')?.leftAt).toBeNull()
 
-    // Active JUNIORs in archived projects are detached.
-    expect(store.projectMembers.find((m) => m.userId === 'junior-1')?.leftAt).toBeInstanceOf(Date)
-    expect(store.projectMembers.find((m) => m.userId === 'junior-2')?.leftAt).toBeInstanceOf(Date)
+    // AC9: active JUNIORs on the now-archived projects stay attached — their
+    // salary keeps accruing off their own `archivedAt`, not the project's.
+    expect(store.projectMembers.find((m) => m.userId === 'junior-1')?.leftAt).toBeNull()
+    expect(store.projectMembers.find((m) => m.userId === 'junior-2')?.leftAt).toBeNull()
   })
 
   it('writes audit log entries to user / team / project tables', async () => {
@@ -535,6 +591,11 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
     expect(userActions).toContain('user_archived')
     expect(teamActions).toContain('team_archived')
     expect(projectActions.filter((a) => a === 'project_archived')).toHaveLength(2)
+    // AC9: nobody is being removed from the team/projects any more — the
+    // per-member 'team_member_removed'/'project_member_removed' entries this
+    // cascade used to write are gone.
+    expect(teamActions).not.toContain('team_member_removed')
+    expect(projectActions).not.toContain('project_member_removed')
   })
 
   it('throws BadRequestException on double-archive (idempotency)', async () => {
@@ -693,7 +754,10 @@ describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.unarchive — SENIOR (pair restore)', () => {
-  it('restores senior + team; leaves projects archived; HR/Acc leftAt NOT restored', async () => {
+  // task-archive-pending-modal (AC9): HR/Acc membership was never closed by
+  // archive() any more, so "NOT restored" is now simply "never touched" —
+  // title + body updated to say so instead of the pre-AC9 claim.
+  it('restores senior + team; leaves projects archived; HR/Acc/Junior membership was never touched', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
     const { service } = buildService(store)
@@ -713,9 +777,14 @@ describe('UsersService.unarchive — SENIOR (pair restore)', () => {
     expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
     expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
 
-    // HR/Acc memberships stay closed.
-    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeInstanceOf(Date)
-    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeInstanceOf(Date)
+    // AC9: HR/Acc memberships were never closed — still active before AND
+    // after unarchive.
+    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeNull()
+    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeNull()
+
+    // JUNIOR project memberships were never closed either.
+    expect(store.projectMembers.find((m) => m.userId === 'junior-1')?.leftAt).toBeNull()
+    expect(store.projectMembers.find((m) => m.userId === 'junior-2')?.leftAt).toBeNull()
 
     // SENIOR's row remains active.
     expect(store.teamMembers.find((m) => m.userId === 'senior-1')?.leftAt).toBeNull()
@@ -765,20 +834,152 @@ describe('UsersService.unarchive — HR / JUNIOR / ADMIN', () => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.getArchiveImpact', () => {
-  it('SENIOR: returns paired cascade counts', async () => {
+  it('SENIOR: returns paired cascade counts + named projects', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
-    const { service } = buildService(store)
-    const impact = await service.getArchiveImpact('senior-1')
+    const { service, db } = buildService(store)
+    const impact = await service.getArchiveImpact('senior-1', adminUser)
     expect(impact).toMatchObject({
       type: 'user',
       role: 'SENIOR',
       isPaired: true,
       teamName: 'Команда Senior',
       projectsCount: 2,
+      // task-archive-pending-modal (AC8): named list, not just a count.
+      projectNames: ['P1', 'P2'],
       juniorsAffected: 2,
-      hrAccountantsToBeRemoved: 2,
+      hrAccountantsOnTeam: 2,
+      pendingTransactions: [],
     })
+    // The projectNames above come from a `.select({ id, name })` that
+    // actually asked for `name` — not from the fake happening to return the
+    // full row regardless of projection.
+    const projectSelectCall = (db.select as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown> | undefined
+        return arg && 'name' in arg && 'id' in arg
+      },
+    )
+    expect(projectSelectCall).toBeDefined()
+    expect(Object.keys(projectSelectCall![0] as Record<string, unknown>).sort()).toEqual([
+      'id',
+      'name',
+    ])
+  })
+
+  // task-archive-pending-modal (AC2). Seeds a still-open SALARY reminder
+  // addressed to the senior AND a PAID one (must be excluded — settled,
+  // nothing "remains hanging") AND a SENIOR_INCOME PENDING (senior's own
+  // unpaid-share income, the second category the owner named).
+  it('SENIOR: surfaces PENDING salary + income rows, excludes PAID/other-receiver rows', async () => {
+    const store = emptyStore()
+    seedSeniorWithTeamAndProjects(store)
+    store.transactions.push(
+      {
+        id: 'tx-salary-pending',
+        type: 'SALARY',
+        status: 'PENDING',
+        receiverId: 'senior-1',
+        salaryMonth: '2026-07',
+        txDate: null,
+        amount: '1500.00',
+        currency: 'USD',
+        deletedAt: null,
+      },
+      {
+        id: 'tx-income-pending',
+        type: 'SENIOR_INCOME',
+        status: 'PENDING',
+        receiverId: 'senior-1',
+        salaryMonth: null,
+        txDate: new Date('2026-07-15T00:00:00.000Z'),
+        amount: '900.00',
+        currency: 'USDT',
+        deletedAt: null,
+      },
+      // Already settled — must NOT appear (nothing is "hanging").
+      {
+        id: 'tx-salary-paid',
+        type: 'SALARY',
+        status: 'PAID',
+        receiverId: 'senior-1',
+        salaryMonth: '2026-06',
+        txDate: null,
+        amount: '1500.00',
+        currency: 'USD',
+        deletedAt: null,
+      },
+      // Someone else's PENDING salary — must NOT appear.
+      {
+        id: 'tx-other-receiver',
+        type: 'SALARY',
+        status: 'PENDING',
+        receiverId: 'hr-1',
+        salaryMonth: '2026-07',
+        txDate: null,
+        amount: '1200.00',
+        currency: 'USD',
+        deletedAt: null,
+      },
+      // Soft-deleted PENDING salary — must NOT appear.
+      {
+        id: 'tx-deleted',
+        type: 'SALARY',
+        status: 'PENDING',
+        receiverId: 'senior-1',
+        salaryMonth: '2026-05',
+        txDate: null,
+        amount: '1500.00',
+        currency: 'USD',
+        deletedAt: new Date(),
+      },
+      // DROP_INCOME PENDING — the third AC1 category. `senior-1` is not
+      // actually a DROP in this fixture; the filter itself does not key on
+      // the receiver's role, only on receiverId + type + status, so this
+      // pins that DROP_INCOME is genuinely in the allow-list (not merely
+      // "happens to also be SALARY/SENIOR_INCOME").
+      {
+        id: 'tx-drop-income-pending',
+        type: 'DROP_INCOME',
+        status: 'PENDING',
+        receiverId: 'senior-1',
+        salaryMonth: null,
+        txDate: new Date('2026-07-20T00:00:00.000Z'),
+        amount: '300.00',
+        currency: 'USDT',
+        deletedAt: null,
+      },
+    )
+    const { service, db } = buildService(store)
+
+    const impact = await service.getArchiveImpact('senior-1', adminUser)
+
+    expect(impact.type).toBe('user')
+    const pending =
+      impact.type === 'user' && impact.role === 'SENIOR' ? impact.pendingTransactions : undefined
+    expect(pending?.map((t) => t.id).sort()).toEqual([
+      'tx-drop-income-pending',
+      'tx-income-pending',
+      'tx-salary-pending',
+    ])
+
+    // The projection actually asked for all six columns the modal renders —
+    // not a coincidence of the fake returning full rows regardless of it.
+    const pendingSelectCall = (db.select as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown> | undefined
+        return arg && 'salaryMonth' in arg && 'txDate' in arg
+      },
+    )
+    expect(pendingSelectCall).toBeDefined()
+    expect(Object.keys(pendingSelectCall![0] as Record<string, unknown>).sort()).toEqual([
+      'amount',
+      'currency',
+      'id',
+      'salaryMonth',
+      'txDate',
+      'type',
+    ])
   })
 
   it('HR: returns teamsCount', async () => {
@@ -789,8 +990,13 @@ describe('UsersService.getArchiveImpact', () => {
       { id: 'tm-2', teamId: 'team-B', userId: 'hr-1', leftAt: null },
     )
     const { service } = buildService(store)
-    const impact = await service.getArchiveImpact('hr-1')
-    expect(impact).toMatchObject({ type: 'user', role: 'HR', teamsCount: 2 })
+    const impact = await service.getArchiveImpact('hr-1', adminUser)
+    expect(impact).toMatchObject({
+      type: 'user',
+      role: 'HR',
+      teamsCount: 2,
+      pendingTransactions: [],
+    })
   })
 
   it('JUNIOR: returns projectsCount', async () => {
@@ -798,7 +1004,7 @@ describe('UsersService.getArchiveImpact', () => {
     store.users.push({ id: 'j-1', role: 'JUNIOR', archivedAt: null })
     store.projectMembers.push({ id: 'pm-1', projectId: 'proj-1', userId: 'j-1', leftAt: null })
     const { service } = buildService(store)
-    const impact = await service.getArchiveImpact('j-1')
+    const impact = await service.getArchiveImpact('j-1', adminUser)
     expect(impact).toMatchObject({ type: 'user', role: 'JUNIOR', projectsCount: 1 })
   })
 
@@ -806,7 +1012,26 @@ describe('UsersService.getArchiveImpact', () => {
     const store = emptyStore()
     store.users.push({ id: 'adm', role: 'ADMIN', archivedAt: null })
     const { service } = buildService(store)
-    const impact = await service.getArchiveImpact('adm')
+    const impact = await service.getArchiveImpact('adm', adminUser)
     expect(impact).toMatchObject({ type: 'user', role: 'ADMIN', noDependencies: true })
+  })
+
+  // task-archive-pending-modal (round 2, security MED-2): the payload now
+  // carries salary/income sums — inline RBAC must not be single-point
+  // (controller @Roles only). Mirrors the equivalent test on
+  // TeamsService.getArchiveImpact / ProjectsService.getArchiveImpact.
+  it('non-ADMIN currentUser is rejected (inline RBAC, not just the controller @Roles)', async () => {
+    const store = emptyStore()
+    seedSeniorWithTeamAndProjects(store)
+    const { service } = buildService(store)
+    const nonAdmin: SessionUser = {
+      id: 'hr-x',
+      role: 'HR',
+      displayName: 'HR actor',
+      email: 'hr-x@x.com',
+      avatarUrl: null,
+      seniorSharePercent: 26,
+    }
+    await expect(service.getArchiveImpact('senior-1', nonAdmin)).rejects.toThrow(ForbiddenException)
   })
 })

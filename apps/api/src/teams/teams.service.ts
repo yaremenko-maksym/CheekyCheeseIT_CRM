@@ -608,7 +608,8 @@ export class TeamsService {
    * Soft-archive a team. By business invariant, archiving the team is equivalent
    * to archiving its SENIOR — the two are inseparable. We delegate to
    * UsersService.archive(team.seniorId) which performs the pair-cascade
-   * (archive senior + projects + remove HR/Acc team_members).
+   * (archive senior + projects; membership of HR/Acc/Junior is left alone —
+   * see task-archive-pending-modal AC9).
    */
   async archive(teamId: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
@@ -621,10 +622,16 @@ export class TeamsService {
 
     // Drop-archive round 2 (B1): dispatch by team type. Drop-teams use the
     // dedicated `archiveDropTeam` primitive (drop archived + projects
-    // cascade + HR/Acc detached + senior detached *without* archiving).
-    // Senior-teams keep the existing pair-cascade through UsersService.
+    // cascade + senior detached *without* archiving).
+    //
+    // task-archive-pending-modal (AC10): `archiveDropTeam` issues several
+    // sequential writes (team, projects, the drop's own user row) — calling
+    // it bare (no `tx`) meant a failure partway left the DB in whatever state
+    // the writes-so-far produced. Wrapping the call in `db.transaction()` is
+    // what makes AC7's "одной операцией, а не по одному" true at the
+    // database level, not just in the code's shape.
     if (team.type === 'DROP') {
-      await this.archiveDropTeam(teamId)
+      await this.db.db.transaction((tx) => this.archiveDropTeam(teamId, tx))
       return this.findOne(teamId, currentUser)
     }
 
@@ -704,9 +711,11 @@ export class TeamsService {
           and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)),
         )
         .then((rows) => rows[0])
-      // Active HR/Accountant count — all will be detached (leftAt=now) by
-      // `archiveDropTeam`. Computed cheaply with a single query excluding
-      // the drop + senior rows.
+      // Active HR/Accountant count. task-archive-pending-modal (AC9): these
+      // are NOT detached by `archiveDropTeam` any more — they keep their
+      // membership and keep earning. Kept as "how many are on this team" for
+      // the warning copy. Computed cheaply with a single query excluding the
+      // drop + senior rows.
       const others = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
@@ -725,12 +734,23 @@ export class TeamsService {
             eq(users.role, 'ACCOUNTANT'),
           ),
         )
-      // Drop-projects count.
+      // Drop-projects count + names (AC8).
       const dropProjects = dropRow
         ? await this.db.db
-            .select({ id: projects.id })
+            .select({ id: projects.id, name: projects.name })
             .from(projects)
             .where(and(eq(projects.dropId, dropRow.id), isNull(projects.archivedAt)))
+        : []
+      // task-archive-pending-modal (AC2): the drop's own pending
+      // transactions — delegate to UsersService so the rule lives in ONE
+      // place. Only reachable when the drop resolved (a team with no active
+      // drop member has nothing to forward).
+      const dropPendingTransactions = dropRow
+        ? await this.usersService
+            .getArchiveImpact(dropRow.id, currentUser)
+            .then((i) =>
+              i.type === 'user' && i.role === 'DROP' ? (i.pendingTransactions ?? []) : [],
+            )
         : []
       return {
         type: 'team',
@@ -740,10 +760,12 @@ export class TeamsService {
         // The new `dropName` field is what the v2 UI keys on.
         seniorName: seniorRow?.displayName ?? '',
         projectsCount: dropProjects.length,
+        projectNames: dropProjects.map((p) => p.name),
         membersAffected: others.length + accountants.length,
         teamType: 'DROP',
         dropName: dropRow?.displayName ?? '',
         seniorWillBeDetached: !!seniorRow,
+        pendingTransactions: dropPendingTransactions,
       }
     }
 
@@ -767,7 +789,7 @@ export class TeamsService {
         teamType: 'SENIOR',
       }
     }
-    const userImpact = await this.usersService.getArchiveImpact(seniorRow.id)
+    const userImpact = await this.usersService.getArchiveImpact(seniorRow.id, currentUser)
     const seniorImpact =
       userImpact.type === 'user' && userImpact.role === 'SENIOR' ? userImpact : null
     return {
@@ -776,8 +798,12 @@ export class TeamsService {
       teamName: team.name,
       seniorName: seniorRow.displayName,
       projectsCount: seniorImpact?.projectsCount ?? 0,
-      membersAffected: seniorImpact?.hrAccountantsToBeRemoved ?? 0,
+      // task-archive-pending-modal (AC8/AC2): forwarded 1:1 from the senior's
+      // own user-impact — archiving the team IS archiving the senior.
+      projectNames: seniorImpact?.projectNames ?? [],
+      membersAffected: seniorImpact?.hrAccountantsOnTeam ?? 0,
       teamType: 'SENIOR',
+      pendingTransactions: seniorImpact?.pendingTransactions ?? [],
     }
   }
 
@@ -1085,14 +1111,22 @@ export class TeamsService {
 
   /**
    * Archive a drop-team. Caller is `UsersService.archiveDrop` (drop-user
-   * archive cascade) or a future explicit `DELETE /api/teams/:id` endpoint
-   * for drop-teams.
+   * archive cascade) or `TeamsService.archive` (explicit team-archive entry
+   * point, itself now wrapped in a transaction — see AC10 note on the
+   * caller).
    *
-   * Cascades (per spec §7):
+   * Cascades (per spec §7, revised by task-archive-pending-modal AC9):
    *  - Drop-projects of this team's drop → `archivedAt=now()`.
    *  - Active SENIOR in this team → `team_members.leftAt=now()`. SENIOR is
    *    NOT archived (their user row stays active; they become teamless).
-   *  - HR + ACCOUNTANT in this team → `leftAt=now()`.
+   *    Pre-existing rotation mechanic, unrelated to AC9 — a senior is never a
+   *    project_member/team_member the salary cron reads for THIS person's own
+   *    pay (their income comes via `projects.seniorId`, not team membership).
+   *  - HR + ACCOUNTANT in this team, and JUNIOR on the drop-projects, are
+   *    LEFT ALONE (owner decision 2026-08-19, AC9): archiving the drop's
+   *    team/projects is not archiving them — their own `archivedAt` is what
+   *    the salary cron reads, and the cascade never touches it. An earlier
+   *    revision of this method DID detach both; that was removed here.
    *  - `teams.archivedAt=now()`.
    *
    * Returns `{ archivedProjects, detachedSeniorId }` so the UI can render
@@ -1103,10 +1137,19 @@ export class TeamsService {
     tx?: DrizzleTx,
   ): Promise<{ archivedProjects: number; detachedSeniorId: string | null }> {
     const handle = tx ?? this.db.db
+    // security-review PR #584 round 2 (MED-4): same row-lock rationale as
+    // UsersService.archive/archiveDrop — this is the SECOND layer, reached
+    // from all three entry points (TeamsService.archive DROP branch,
+    // UsersService.archiveDrop, UsersService.archive DROP branch), so it
+    // closes the race even for a caller that forgot its own lock. `.for()`
+    // is a no-op outside an open transaction (no caller does that today —
+    // all three pass `tx`), so this stays harmless if `handle` is ever the
+    // bare pool.
     const team = await handle
       .select()
       .from(teams)
       .where(eq(teams.id, teamId))
+      .for('update')
       .then((rows) => rows[0])
     if (!team) throw new NotFoundException('Команда не найдена')
     if (team.type !== 'DROP') {
@@ -1166,7 +1209,8 @@ export class TeamsService {
       )
     }
 
-    // Archive drop-projects (projects.dropId === this team's drop user)
+    // Archive drop-projects (projects.dropId === this team's drop user).
+    // AC9: project_members (JUNIOR) are NOT detached — see the docblock above.
     let archivedProjects = 0
     if (dropId) {
       const dropProjects = await handle
@@ -1178,20 +1222,13 @@ export class TeamsService {
           .update(projects)
           .set({ archivedAt: now, updatedAt: now })
           .where(eq(projects.id, p.id))
-        // Cascade: detach active project_members.
-        await handle
-          .update(projectMembers)
-          .set({ leftAt: now })
-          .where(and(eq(projectMembers.projectId, p.id), isNull(projectMembers.leftAt)))
         archivedProjects += 1
       }
     }
 
-    // Detach HR/Accountant — leftAt=now on remaining active rows except SENIOR (already done).
-    await handle
-      .update(teamMembers)
-      .set({ leftAt: now })
-      .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt)))
+    // AC9: HR/ACCOUNTANT team_members are NOT detached any more — see the
+    // docblock above. (SENIOR was already detached above — pre-existing,
+    // unrelated rotation mechanic.)
 
     // Drop-archive round 2 (B1): archive the DROP user itself — the team
     // and the drop are a paired entity, mirrored from the SENIOR-team pair

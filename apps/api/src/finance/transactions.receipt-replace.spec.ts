@@ -129,6 +129,15 @@ function makeHarness(opts: HarnessOpts = {}) {
             return docRow ? { ...docRow } : undefined
           }),
         },
+        // security-review PR #584 round 2 (MED-1): updateSeniorIncome now
+        // re-reads the caller's own row for an archived-status check before
+        // resubmitting — active by default; these tests exercise the
+        // receipt-replace mechanic, not the archived guard.
+        users: {
+          findFirst: vi.fn().mockImplementation(async () => {
+            return { id: txRow.receiverId, archivedAt: null }
+          }),
+        },
       },
       transaction: vi.fn().mockImplementation(async (cb: (dbtx: unknown) => Promise<void>) => {
         dbTxStarted = true
@@ -357,6 +366,15 @@ function makeIdorHarnessV2(opts: {
             if (lastQueriedDocId === null) return undefined
             return opts.docsById[lastQueriedDocId] ?? undefined
           }),
+        },
+        // security-review PR #584 round 2 (MED-1): see makeHarness above —
+        // active by default; these tests exercise the IDOR guard, not the
+        // archived guard.
+        users: {
+          findFirst: vi.fn().mockImplementation(async () => ({
+            id: txRow.receiverId,
+            archivedAt: null,
+          })),
         },
       },
       transaction: vi.fn().mockImplementation(async (cb: (dbtx: unknown) => Promise<void>) => {

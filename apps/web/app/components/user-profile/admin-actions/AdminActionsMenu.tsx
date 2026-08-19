@@ -118,9 +118,7 @@ export function AdminActionsMenu({
       {open === 'set-note' && (
         <AdminNoteDialog userId={userId} currentNote={user.adminNote} onClose={close} />
       )}
-      {open === 'archive' && (
-        <ArchiveUserDialog userId={userId} userName={user.displayName} onClose={close} />
-      )}
+      {open === 'archive' && <ArchiveUserDialog user={user} onClose={close} />}
     </>
   )
 }

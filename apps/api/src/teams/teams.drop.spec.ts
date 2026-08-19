@@ -281,22 +281,27 @@ describe('TeamsService.archiveDropTeam', () => {
       teamMembers: [],
       projects: [],
     })
-    // Force select().from(teams).where().then(rows=>rows[0]) to return our SENIOR team
+    // Force select().from(teams).where().for('update').then(rows=>rows[0]) to
+    // return our SENIOR team. security-review PR #584 round 2 (MED-4):
+    // archiveDropTeam's row-read now locks with `.for('update')` before the
+    // type check below runs — the mock chain needs the extra link.
     db.select = vi.fn().mockImplementation(() => ({
       from: () => ({
         where: () => ({
-          then: (fn: (rows: unknown[]) => unknown) =>
-            Promise.resolve(
-              fn([
-                {
-                  id: 'team-1',
-                  name: 'X',
-                  type: 'SENIOR',
-                  archivedAt: null,
-                  telegramChannel: null,
-                },
-              ]),
-            ),
+          for: () => ({
+            then: (fn: (rows: unknown[]) => unknown) =>
+              Promise.resolve(
+                fn([
+                  {
+                    id: 'team-1',
+                    name: 'X',
+                    type: 'SENIOR',
+                    archivedAt: null,
+                    telegramChannel: null,
+                  },
+                ]),
+              ),
+          }),
         }),
       }),
     }))

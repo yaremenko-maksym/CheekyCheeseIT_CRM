@@ -1,52 +1,100 @@
 import { useState } from 'react'
 import {
+  CrmDialogBody,
+  CrmDialogContent,
+  CrmDialogFooter,
+  CrmDialogHeader,
   Dialog,
-  DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { UserProfileDto } from '@crm/shared'
 import { useArchiveUser } from '@/hooks/use-user-profile'
+import { useArchiveImpact } from '@/hooks/use-archive'
+import { ImpactWarning } from '@/components/users/ArchiveConfirmDialog'
+import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePendingTransactionsList'
 
+/**
+ * task-archive-pending-modal (AC2/AC8). Used to render a bare "type the name
+ * to confirm" prompt with NO cascade information at all — the profile page
+ * was the one archive entry point that never surfaced what archiving this
+ * person would actually do. Now fetches the same `GET /users/:id/archive-
+ * impact` the other two archive dialogs use and reuses their exact copy
+ * (`ImpactWarning`, exported from `components/users/ArchiveConfirmDialog`)
+ * plus the shared pending-transactions warning — one rule, three surfaces,
+ * not three copies of it.
+ *
+ * task-archive-pending-modal (round 2, design fidelity BLOCK): originally
+ * built on the bare `DialogContent` (no max-height/overflow-y-auto) — on
+ * 320/375 with a real PENDING+cascade payload the dialog grew to ~840px
+ * against a 568px viewport, cutting off the title, the close button, AND
+ * BOTH footer buttons at once (this was the worse of the two broken
+ * dialogs — this one never even had scrollable impact text before this
+ * fix). `CrmDialogContent`/`CrmDialogBody`/`CrmDialogFooter` (same pattern
+ * `components/users/ArchiveConfirmDialog.tsx` already used correctly) fixes
+ * it: max-h-[90dvh], scrollable body, header/footer pinned.
+ */
 export function ArchiveUserDialog({
-  userId,
-  userName,
+  user,
   onClose,
 }: {
-  userId: string
-  userName: string
+  user: UserProfileDto
   onClose: () => void
 }) {
-  const mutation = useArchiveUser(userId)
+  const mutation = useArchiveUser(user.id)
+  const { data: impact, isLoading } = useArchiveImpact('user', user.id)
   const [typed, setTyped] = useState('')
-  const matches = typed.trim() === userName.trim()
+  const matches = typed.trim() === user.displayName.trim()
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
-        <DialogHeader>
+      <CrmDialogContent
+        maxWidth="sm:max-w-lg"
+        // Stryker disable next-line ArrowFunction: `open` above is a hardcoded `true` literal — this component only leaves the DOM when the PARENT stops rendering it (on `onClose`), never via Radix's own open-state transition; Radix's FocusScope only dispatches `onCloseAutoFocus` on that internal open→closed unmount path, which this component's shape never exercises, and jsdom/RTL cannot trigger it without reimplementing Radix's dismissal internals.
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        <CrmDialogHeader>
           <DialogTitle className="text-destructive">Архивировать пользователя</DialogTitle>
           <DialogDescription className="sr-only">
             Подтверждение архивации пользователя. Введите имя для подтверждения.
           </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 text-sm">
-          <p className="text-muted-foreground">
-            Пользователь будет перемещён в архив. Связанные проекты, выплаты и история остаются.
-          </p>
-          <p>
-            Для подтверждения введите имя: <strong className="text-foreground">{userName}</strong>
-          </p>
-          <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={userName} />
-        </div>
-        <DialogFooter>
+        </CrmDialogHeader>
+        <CrmDialogBody className="pb-2">
+          <div className="space-y-3 text-sm">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+              </>
+            ) : (
+              <>
+                <ImpactWarning user={user} impact={impact} />
+                {impact?.type === 'user' && (
+                  <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
+                )}
+              </>
+            )}
+            <p>
+              Для подтверждения введите имя:{' '}
+              <strong className="text-foreground">{user.displayName}</strong>
+            </p>
+            <Input
+              data-testid="archive-confirm-name-input"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={user.displayName}
+            />
+          </div>
+        </CrmDialogBody>
+        <CrmDialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Отмена
           </Button>
           <Button
+            data-testid="archive-confirm-submit"
             variant="destructive"
             disabled={!matches || mutation.isPending}
             onClick={async () => {
@@ -56,8 +104,8 @@ export function ArchiveUserDialog({
           >
             Архивировать
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </CrmDialogFooter>
+      </CrmDialogContent>
     </Dialog>
   )
 }

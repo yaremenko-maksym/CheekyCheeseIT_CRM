@@ -17,15 +17,22 @@ import {
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/axios'
+import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePendingTransactionsList'
 
 /**
  * Replaces the old DeleteUserDialog. Behaviour:
  *  - On open, fetches GET /users/:id/archive-impact for cascade counts
  *  - Warning text varies by role:
- *      SENIOR    — pair-archive (team + N projects + JUNIORs unattached)
- *      HR/ACC    — removed from N teams (teams stay active)
- *      JUNIOR    — removed from M projects (projects stay active)
- *      ADMIN     — no cascades
+ *      SENIOR/DROP — cascade-archive (team + N named projects, one operation).
+ *                    HR/ACCOUNTANT on the team and JUNIOR on the projects keep
+ *                    their membership and keep earning — task-archive-pending-
+ *                    modal AC9 (owner decision 2026-08-19).
+ *      HR/ACC      — removed from N teams (teams stay active)
+ *      JUNIOR      — removed from M projects (projects stay active)
+ *      ADMIN       — no cascades
+ *  - Any PENDING salary/income addressed to the user is listed separately
+ *    (ArchivePendingTransactionsList) — it survives the archive and stays
+ *    payable (task-archive-pending-modal AC2).
  *  - Confirm disabled until name input matches displayName exactly
  *  - On confirm, DELETE /users/:id → invalidate ['users-admin'], teams, projects
  */
@@ -50,12 +57,42 @@ export function ArchiveConfirmDialog({
     mutationFn: () => api.delete(`/users/${user!.id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
-      if (user?.role === 'SENIOR') {
+      // task-archive-pending-modal (AC7): DROP cascades team+projects exactly
+      // like SENIOR — both need the same invalidation.
+      //
+      // security-review PR #584 round 3: `onSuccess` reads `user` from
+      // WHATEVER render was current when the mutation settled, not the
+      // render active at `.mutate()` time (TanStack Query v5 stores the
+      // latest options on every render and invokes the CURRENT callback on
+      // settle — @tanstack/query-core's `createMutation`/`setOptions`).
+      // `mutationFn`'s `user!.id` above is captured once, at call time,
+      // inside the async function already in flight — it does NOT prove
+      // anything about what `onSuccess` sees later. Without a guard, a
+      // dismiss gesture mid-mutation (Cancel, Escape, overlay click) could
+      // re-render this component with `user=null` before the delete
+      // resolves, and `onSuccess` would then run against that null. The
+      // `<Dialog>` below now refuses to close while `mutation.isPending`
+      // (Cancel is disabled AND `onOpenChange` ignores Escape/overlay
+      // dismissal during the pending window), so `user` cannot become null
+      // between `.mutate()` and this callback firing — `?.` stays as
+      // defence-in-depth for a state this component's OWN interaction
+      // surface can no longer produce, not a line this test suite can drive
+      // to a genuinely different outcome (the component's own guards make
+      // it unreachable, not the old — incorrect — "mutationFn already
+      // proved it" reasoning this replaces).
+      // Stryker disable next-line OptionalChaining: see the paragraph above — user cannot be null here once the Dialog blocks all dismissal during mutation.isPending.
+      if (user?.role === 'SENIOR' || user?.role === 'DROP') {
         void queryClient.invalidateQueries({ queryKey: ['teams'] })
         void queryClient.invalidateQueries({ queryKey: ['projects'] })
       }
       const msg =
-        user?.role === 'SENIOR' ? 'Синьор и команда архивированы' : 'Пользователь архивирован'
+        // Stryker disable next-line OptionalChaining: same invariant as the `if` above — see the long comment there.
+        user?.role === 'SENIOR'
+          ? 'Синьор и команда архивированы'
+          : // Stryker disable next-line OptionalChaining: same invariant.
+            user?.role === 'DROP'
+            ? 'Дроп и команда архивированы'
+            : 'Пользователь архивирован'
       toast.success(msg)
       handleClose()
     },
@@ -72,7 +109,11 @@ export function ArchiveConfirmDialog({
   const matches = !!user && typed.trim() === user.displayName.trim()
 
   return (
-    <Dialog open={!!user} onOpenChange={(o) => !o && handleClose()}>
+    // security-review PR #584 round 3: ignore any dismiss gesture (Escape,
+    // overlay click) while the archive DELETE is in flight — see the long
+    // comment on mutation.onSuccess above for why this is what makes `user`
+    // provably non-null there, not just the disabled Cancel button below.
+    <Dialog open={!!user} onOpenChange={(o) => !o && !mutation.isPending && handleClose()}>
       <CrmDialogContent maxWidth="sm:max-w-md" data-testid="archive-confirm-dialog">
         <CrmDialogHeader>
           <DialogTitle className="flex items-center gap-2 text-destructive">
@@ -90,7 +131,12 @@ export function ArchiveConfirmDialog({
                 <Skeleton className="h-4 w-2/3" />
               </>
             ) : (
-              <ImpactWarning user={user} impact={impact} />
+              <>
+                <ImpactWarning user={user} impact={impact} />
+                {impact?.type === 'user' && (
+                  <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
+                )}
+              </>
             )}
 
             {user && (
@@ -116,7 +162,7 @@ export function ArchiveConfirmDialog({
           </div>
         </CrmDialogBody>
         <CrmDialogFooter>
-          <Button variant="ghost" onClick={handleClose}>
+          <Button variant="ghost" onClick={handleClose} disabled={mutation.isPending}>
             Отмена
           </Button>
           <Button
@@ -133,7 +179,12 @@ export function ArchiveConfirmDialog({
   )
 }
 
-function ImpactWarning({
+/**
+ * Exported so `ArchiveUserDialog` (profile-page admin-actions variant) can
+ * reuse the SAME role-aware copy instead of a third hand-maintained copy of
+ * it — see that file's docblock.
+ */
+export function ImpactWarning({
   user,
   impact,
 }: {
@@ -146,50 +197,62 @@ function ImpactWarning({
     </strong>
   )
 
-  if (user.role === 'SENIOR') {
+  // task-archive-pending-modal (AC7/AC9, owner decision 2026-08-19): SENIOR
+  // and DROP share the same cascade shape — команда+проекты archived as one
+  // operation, third parties (HR/ACCOUNTANT on the team, JUNIOR on the
+  // projects) keep their membership and keep earning off their OWN
+  // `archivedAt`, untouched by this cascade.
+  if (user.role === 'SENIOR' || user.role === 'DROP') {
+    const roleLabel = user.role === 'SENIOR' ? 'синьора' : 'дропа'
     const teamName =
-      impact && impact.type === 'user' && impact.role === 'SENIOR' && impact.teamName
+      impact && impact.type === 'user' && impact.isPaired && impact.teamName
         ? impact.teamName
-        : 'команда синьора'
+        : `команда ${roleLabel}`
     const projectsCount =
-      impact &&
-      impact.type === 'user' &&
-      impact.role === 'SENIOR' &&
-      impact.projectsCount !== undefined
+      impact && impact.type === 'user' && impact.isPaired && impact.projectsCount !== undefined
         ? impact.projectsCount
         : 0
+    const projectNames =
+      impact && impact.type === 'user' && impact.isPaired ? (impact.projectNames ?? []) : []
     const juniorsAffected =
-      impact &&
-      impact.type === 'user' &&
-      impact.role === 'SENIOR' &&
-      impact.juniorsAffected !== undefined
+      impact && impact.type === 'user' && impact.isPaired && impact.juniorsAffected !== undefined
         ? impact.juniorsAffected
         : 0
-    const hrAccountantsToBeRemoved =
+    const hrAccountantsOnTeam =
       impact &&
       impact.type === 'user' &&
-      impact.role === 'SENIOR' &&
-      impact.hrAccountantsToBeRemoved !== undefined
-        ? impact.hrAccountantsToBeRemoved
+      impact.isPaired &&
+      impact.hrAccountantsOnTeam !== undefined
+        ? impact.hrAccountantsOnTeam
         : 0
 
     return (
       <div className="space-y-2">
         <p data-testid="archive-warning-senior">
           {name} и его команда <strong className="text-foreground">{teamName}</strong> — связанная
-          пара.
+          пара. Убрать по одному нельзя — архивируются одной операцией.
         </p>
         <p className="text-muted-foreground">
-          При архивации будут архивированы: профиль синьора, команда{' '}
-          <strong className="text-foreground">{teamName}</strong> (HR/бухгалтеры будут отвязаны —{' '}
-          <strong className="text-foreground">{hrAccountantsToBeRemoved}</strong>), и все его
-          проекты (<strong className="text-foreground">{projectsCount}</strong> штук,{' '}
-          <strong className="text-foreground">{juniorsAffected}</strong> активных JUNIORов будут
-          отвязаны).
+          При архивации будут архивированы: профиль {roleLabel}, команда{' '}
+          <strong className="text-foreground">{teamName}</strong> и все её проекты (
+          <strong className="text-foreground">{projectsCount}</strong> шт.
+          {projectNames.length > 0 && (
+            <>
+              : <strong className="text-foreground">{projectNames.join(', ')}</strong>
+            </>
+          )}
+          ).
+        </p>
+        <p className="text-muted-foreground">
+          HR/бухгалтеры на команде (
+          <strong className="text-foreground">{hrAccountantsOnTeam}</strong>) и JUNIOR на этих
+          проектах (<strong className="text-foreground">{juniorsAffected}</strong>)
+          <strong className="text-foreground"> остаются активными членами</strong> и продолжают
+          получать оплату на общих основаниях — архивация команды/проектов их не касается.
         </p>
         <p className="text-xs text-muted-foreground/80">
-          Восстановление возможно — пара senior+team вернётся, но проекты нужно будет
-          восстанавливать отдельно с cascade-подтверждением.
+          Восстановление возможно — пара {roleLabel === 'синьора' ? 'senior' : 'drop'}+team
+          вернётся, но проекты нужно будет восстанавливать отдельно с cascade-подтверждением.
         </p>
       </div>
     )

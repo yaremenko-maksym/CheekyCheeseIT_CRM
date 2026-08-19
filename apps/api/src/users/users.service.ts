@@ -8,7 +8,12 @@ import {
   forwardRef,
 } from '@nestjs/common'
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
-import type { ArchiveImpact, AuditChange, SessionUser } from '@crm/shared'
+import type {
+  ArchiveImpact,
+  ArchivePendingTransaction,
+  AuditChange,
+  SessionUser,
+} from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -16,6 +21,7 @@ import {
   projects,
   teamMembers,
   teams,
+  transactions,
   userAuditLog,
   users,
   type User,
@@ -1057,10 +1063,20 @@ export class UsersService {
    */
   async archive(id: string, actorId: string | null = null): Promise<User> {
     return this.db.db.transaction(async (tx) => {
+      // security-review PR #584 round 2 (MED-4): SELECT ... FOR UPDATE locks
+      // this row for the lifetime of the transaction. Without it, two
+      // concurrent archive requests for the same user both read
+      // `archivedAt: null` under READ COMMITTED, both pass the check below,
+      // and both run the cascade — duplicate audit-trail rows and
+      // timestamp drift (no money moves, no privilege is gained, but the
+      // audit trail lies about how many times this happened). The second
+      // concurrent caller now blocks here until the first commits, then
+      // re-reads `archivedAt` already set and hits the throw below instead.
       const user = await tx
         .select()
         .from(users)
         .where(eq(users.id, id))
+        .for('update')
         .then((rows) => rows[0])
       if (!user) throw new NotFoundException('User not found')
       if (user.archivedAt) throw new BadRequestException('User is already archived')
@@ -1077,6 +1093,19 @@ export class UsersService {
 
       if (user.role === 'SENIOR') {
         // Pair-archive: senior's team + projects. SENIOR's own team_member row is NOT touched.
+        //
+        // task-archive-pending-modal (AC7/AC9, owner decision 2026-08-19):
+        // archiving the team/projects here must NOT touch anyone ELSE's
+        // membership — HR/ACCOUNTANT on the team, JUNIOR on the projects stay
+        // exactly as they were. `archivedAt` on a TEAM/PROJECT is not the same
+        // thing as `archivedAt` on a PERSON: the salary cron
+        // (`TransactionsService.createMonthlySalaries`) decides whether to
+        // accrue a JUNIOR/HR/ACCOUNTANT their next PENDING salary by reading
+        // ONLY their own `users.archivedAt` — never `projects.archivedAt` or
+        // `teams.archivedAt` — so leaving `leftAt` untouched here is exactly
+        // what keeps their pay flowing, not an oversight. An earlier revision
+        // of this cascade DID set `leftAt` on both (see git history) — that
+        // was a deliberate removal, not a regression.
         const seniorMembership = await tx
           .select()
           .from(teamMembers)
@@ -1097,52 +1126,10 @@ export class UsersService {
             },
             tx,
           )
-
-          // Snapshot HR/Acc that get detached so we can write per-member audit entries
-          // BEFORE the bulk UPDATE marks them as left.
-          const hrAccToRemove = await tx
-            .select({ userId: teamMembers.userId, role: users.role })
-            .from(teamMembers)
-            .innerJoin(users, eq(users.id, teamMembers.userId))
-            .where(
-              and(
-                eq(teamMembers.teamId, teamId),
-                isNull(teamMembers.leftAt),
-                ne(teamMembers.userId, id),
-              ),
-            )
-
-          // Set leftAt for HR/Acc — keep SENIOR's own row untouched (ne userId, id).
-          await tx
-            .update(teamMembers)
-            .set({ leftAt: now })
-            .where(
-              and(
-                eq(teamMembers.teamId, teamId),
-                isNull(teamMembers.leftAt),
-                ne(teamMembers.userId, id),
-              ),
-            )
-
-          // One team_member_removed audit entry per detached HR/Accountant, so the
-          // team's history mirrors a manual removal (matches HR-only branch below).
-          for (const m of hrAccToRemove) {
-            await this.teamAuditLogService.record(
-              {
-                actorId,
-                targetId: teamId,
-                action: 'team_member_removed',
-                changes: {
-                  userId: { before: m.userId, after: null },
-                  role: { before: m.role, after: null },
-                },
-              },
-              tx,
-            )
-          }
         }
 
-        // Archive all of senior's active projects + remove active project_members.
+        // Archive all of senior's active projects. JUNIOR project_members are
+        // left untouched — see the AC9 note above.
         const ownedProjects = await tx
           .select()
           .from(projects)
@@ -1162,11 +1149,6 @@ export class UsersService {
             },
             tx,
           )
-          // Cascade-remove active JUNIORs from project_members.
-          await tx
-            .update(projectMembers)
-            .set({ leftAt: now })
-            .where(and(eq(projectMembers.projectId, p.id), isNull(projectMembers.leftAt)))
         }
       } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
         // Set leftAt across all team memberships.
@@ -1354,17 +1336,59 @@ export class UsersService {
           )
         }
       }
-      // Projects intentionally stay archived; HR/Acc team_members.leftAt stays.
+      // Projects intentionally stay archived (admin re-unarchives them
+      // separately, with cascade if needed — see ProjectsService.unarchive).
+      // HR/ACCOUNTANT team_members.leftAt was never touched by archive() in
+      // the first place (task-archive-pending-modal AC9) — nothing to restore.
     }
+  }
+
+  /**
+   * task-archive-pending-modal (AC2). Earned-but-unpaid rows addressed to this
+   * user that will survive the archive — scope matches AC1 exactly (SALARY /
+   * SENIOR_INCOME / DROP_INCOME, `status='PENDING'`). Deliberately excludes
+   * the `*_PENDING_PAYMENT` obligation rows — those were never blocked from an
+   * archived receiver (AC4), so there is nothing new to warn about there.
+   */
+  private async getPendingTransactionsForArchiveWarning(
+    userId: string,
+  ): Promise<ArchivePendingTransaction[]> {
+    const rows = await this.db.db
+      .select({
+        id: transactions.id,
+        type: transactions.type,
+        salaryMonth: transactions.salaryMonth,
+        txDate: transactions.txDate,
+        amount: transactions.amount,
+        currency: transactions.currency,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.receiverId, userId),
+          eq(transactions.status, 'PENDING'),
+          inArray(transactions.type, ['SALARY', 'SENIOR_INCOME', 'DROP_INCOME']),
+          isNull(transactions.deletedAt),
+        ),
+      )
+    return rows as ArchivePendingTransaction[]
   }
 
   /**
    * Returns the cascade impact summary the UI shows before the admin confirms archive.
    * Shape varies by role — see ArchiveImpact union in @crm/shared.
    */
-  async getArchiveImpact(id: string): Promise<ArchiveImpact> {
+  async getArchiveImpact(id: string, currentUser: SessionUser): Promise<ArchiveImpact> {
+    // security-review PR #584 (round 2, MED-2): this payload now carries
+    // salary/income sums (`pendingTransactions`) — mirror the inline RBAC
+    // TeamsService/ProjectsService.getArchiveImpact already do, so
+    // enforcement on the money-bearing path isn't single-point (controller
+    // @Roles only).
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
     const user = await this.findById(id)
     if (!user) throw new NotFoundException('User not found')
+
+    const pendingTransactions = await this.getPendingTransactionsForArchiveWarning(id)
 
     if (user.role === 'SENIOR') {
       // Find senior's team via team_members.
@@ -1372,7 +1396,7 @@ export class UsersService {
         where: and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)),
       })
       let teamName: string | null = null
-      let hrAccountantsToBeRemoved = 0
+      let hrAccountantsOnTeam = 0
       if (seniorMembership) {
         const team = await this.db.db.query.teams.findFirst({
           where: eq(teams.id, seniorMembership.teamId),
@@ -1388,10 +1412,10 @@ export class UsersService {
               ne(teamMembers.userId, id),
             ),
           )
-        hrAccountantsToBeRemoved = others.length
+        hrAccountantsOnTeam = others.length
       }
       const seniorProjects = await this.db.db
-        .select({ id: projects.id })
+        .select({ id: projects.id, name: projects.name })
         .from(projects)
         .where(and(eq(projects.seniorId, id), isNull(projects.archivedAt)))
       const projectIds = seniorProjects.map((p) => p.id)
@@ -1409,8 +1433,10 @@ export class UsersService {
         isPaired: true,
         teamName,
         projectsCount: seniorProjects.length,
+        projectNames: seniorProjects.map((p) => p.name),
         juniorsAffected,
-        hrAccountantsToBeRemoved,
+        hrAccountantsOnTeam,
+        pendingTransactions,
       }
     }
 
@@ -1419,7 +1445,7 @@ export class UsersService {
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
         .where(and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)))
-      return { type: 'user', role: user.role, teamsCount: memberships.length }
+      return { type: 'user', role: user.role, teamsCount: memberships.length, pendingTransactions }
     }
 
     if (user.role === 'JUNIOR') {
@@ -1427,7 +1453,12 @@ export class UsersService {
         .select({ projectId: projectMembers.projectId })
         .from(projectMembers)
         .where(and(eq(projectMembers.userId, id), isNull(projectMembers.leftAt)))
-      return { type: 'user', role: 'JUNIOR', projectsCount: memberships.length }
+      return {
+        type: 'user',
+        role: 'JUNIOR',
+        projectsCount: memberships.length,
+        pendingTransactions,
+      }
     }
 
     if (user.role === 'DROP') {
@@ -1437,7 +1468,7 @@ export class UsersService {
         where: and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)),
       })
       let teamName: string | null = null
-      let hrAccountantsToBeRemoved = 0
+      let hrAccountantsOnTeam = 0
       if (dropMembership) {
         const team = await this.db.db.query.teams.findFirst({
           where: eq(teams.id, dropMembership.teamId),
@@ -1453,24 +1484,38 @@ export class UsersService {
               ne(teamMembers.userId, id),
             ),
           )
-        hrAccountantsToBeRemoved = others.length
+        hrAccountantsOnTeam = others.length
       }
       const dropProjects = await this.db.db
-        .select({ id: projects.id })
+        .select({ id: projects.id, name: projects.name })
         .from(projects)
         .where(and(eq(projects.dropId, id), isNull(projects.archivedAt)))
+      const dropProjectIds = dropProjects.map((p) => p.id)
+      let juniorsAffected = 0
+      if (dropProjectIds.length > 0) {
+        const activeJuniors = await this.db.db
+          .select({ userId: projectMembers.userId })
+          .from(projectMembers)
+          .where(
+            and(inArray(projectMembers.projectId, dropProjectIds), isNull(projectMembers.leftAt)),
+          )
+        juniorsAffected = activeJuniors.length
+      }
       return {
         type: 'user',
         role: 'DROP',
         isPaired: true,
         teamName,
         projectsCount: dropProjects.length,
-        hrAccountantsToBeRemoved,
+        projectNames: dropProjects.map((p) => p.name),
+        juniorsAffected,
+        hrAccountantsOnTeam,
+        pendingTransactions,
       }
     }
 
     // ADMIN
-    return { type: 'user', role: 'ADMIN', noDependencies: true }
+    return { type: 'user', role: 'ADMIN', noDependencies: true, pendingTransactions }
   }
 
   /**
@@ -2116,10 +2161,15 @@ export class UsersService {
     // comment above for the full rationale.
     const effectiveActorId = actor.impersonatorId ?? actor.id
     return this.db.db.transaction(async (tx) => {
+      // security-review PR #584 round 2 (MED-4): same row-lock rationale as
+      // `archive()` above — prevents two concurrent DELETE /users/drops/:id
+      // calls on the same drop from both passing the archivedAt check and
+      // both running archiveDropTeam's cascade.
       const user = await tx
         .select()
         .from(users)
         .where(eq(users.id, dropId))
+        .for('update')
         .then((rows) => rows[0])
       if (!user) throw new NotFoundException('Пользователь не найден')
       if (user.role !== 'DROP') {

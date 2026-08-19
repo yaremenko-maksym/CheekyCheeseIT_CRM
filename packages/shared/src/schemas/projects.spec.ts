@@ -15,7 +15,13 @@
  * Coder's zone-of-write on this task.
  */
 import { describe, expect, it } from 'vitest'
-import { createProjectSchema, updateProjectSchema, PROJECT_PAYMENT_TYPES } from './projects'
+import {
+  createProjectSchema,
+  updateProjectSchema,
+  PROJECT_PAYMENT_TYPES,
+  archivePendingTransactionSchema,
+  archiveImpactSchema,
+} from './projects'
 
 const baseCreate = {
   name: 'Acme Project',
@@ -67,5 +73,136 @@ describe('updateProjectSchema.paymentType — runtime-strict, type-loose (LOW-1)
 
   it('rejects an invalid free-text value at parse time', () => {
     expect(() => updateProjectSchema.parse({ paymentType: 'gig' })).toThrow()
+  })
+})
+
+// task-archive-pending-modal (AC2/AC8): the "what stays hanging" warning row
+// shape, and the union it plugs into.
+describe('archivePendingTransactionSchema — AC1/AC2 accrual kinds', () => {
+  const base = {
+    id: 'a0000000-0000-4000-8000-000000000009',
+    salaryMonth: null,
+    txDate: null,
+    amount: '1500.00',
+    currency: 'USD',
+  }
+
+  it.each(['SALARY', 'SENIOR_INCOME', 'DROP_INCOME'] as const)(
+    'accepts type=%s (the exact three AC1 categories, no more, no fewer)',
+    (type) => {
+      const result = archivePendingTransactionSchema.parse({ ...base, type })
+      expect(result.type).toBe(type)
+    },
+  )
+
+  it('rejects a type outside the three accrual kinds — this schema is not a generic transaction type', () => {
+    expect(() => archivePendingTransactionSchema.parse({ ...base, type: 'PAYOUT' })).toThrow()
+  })
+
+  it('rejects an empty type (the whole enum emptied out)', () => {
+    expect(() => archivePendingTransactionSchema.parse({ ...base, type: '' })).toThrow()
+  })
+
+  it('parses a SALARY row carrying salaryMonth (txDate null)', () => {
+    const result = archivePendingTransactionSchema.parse({
+      ...base,
+      type: 'SALARY',
+      salaryMonth: '2026-07',
+    })
+    expect(result.salaryMonth).toBe('2026-07')
+    expect(result.txDate).toBeNull()
+  })
+
+  it('parses a SENIOR_INCOME row carrying txDate (salaryMonth null)', () => {
+    const result = archivePendingTransactionSchema.parse({
+      ...base,
+      type: 'SENIOR_INCOME',
+      txDate: '2026-07-15T00:00:00.000Z',
+    })
+    expect(result.txDate).toBeInstanceOf(Date)
+    expect(result.salaryMonth).toBeNull()
+  })
+
+  it('requires every field — an empty object does not parse', () => {
+    expect(() => archivePendingTransactionSchema.parse({})).toThrow()
+  })
+})
+
+describe('archiveImpactSchema — user/team variants carry pendingTransactions + projectNames', () => {
+  it('parses a SENIOR user-impact with pendingTransactions + projectNames', () => {
+    const result = archiveImpactSchema.parse({
+      type: 'user',
+      role: 'SENIOR',
+      isPaired: true,
+      teamName: 'Team X',
+      projectsCount: 1,
+      projectNames: ['Project A'],
+      juniorsAffected: 1,
+      hrAccountantsOnTeam: 2,
+      pendingTransactions: [
+        {
+          id: 'a0000000-0000-4000-8000-000000000001',
+          type: 'SENIOR_INCOME',
+          salaryMonth: null,
+          txDate: '2026-07-15T00:00:00.000Z',
+          amount: '4000.00',
+          currency: 'USD',
+        },
+      ],
+    })
+    expect(result.type).toBe('user')
+    const userResult = result as Extract<typeof result, { type: 'user' }>
+    expect(userResult.pendingTransactions).toHaveLength(1)
+    expect(userResult.projectNames).toEqual(['Project A'])
+  })
+
+  it('parses a user-impact with pendingTransactions omitted (back-compat — old shape still parses)', () => {
+    const result = archiveImpactSchema.parse({ type: 'user', role: 'ADMIN', noDependencies: true })
+    expect(result.type).toBe('user')
+  })
+
+  it('parses a team-impact carrying pendingTransactions + projectNames forwarded from the senior/drop', () => {
+    const result = archiveImpactSchema.parse({
+      type: 'team',
+      isPaired: true,
+      teamName: 'Team X',
+      seniorName: 'Senior One',
+      projectsCount: 1,
+      projectNames: ['Project A'],
+      membersAffected: 2,
+      pendingTransactions: [
+        {
+          id: 'a0000000-0000-4000-8000-000000000002',
+          type: 'SALARY',
+          salaryMonth: '2026-07',
+          txDate: null,
+          amount: '1500.00',
+          currency: 'USD',
+        },
+      ],
+    })
+    expect(result.type).toBe('team')
+    const teamResult = result as Extract<typeof result, { type: 'team' }>
+    expect(teamResult.pendingTransactions).toHaveLength(1)
+  })
+
+  it('rejects a pendingTransactions entry with an out-of-union type', () => {
+    expect(() =>
+      archiveImpactSchema.parse({
+        type: 'user',
+        role: 'JUNIOR',
+        projectsCount: 0,
+        pendingTransactions: [
+          {
+            id: 'a0000000-0000-4000-8000-000000000003',
+            type: 'PAYOUT',
+            salaryMonth: null,
+            txDate: null,
+            amount: '10.00',
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).toThrow()
   })
 })

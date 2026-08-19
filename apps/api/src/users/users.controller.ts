@@ -396,8 +396,11 @@ export class UsersController {
 
   @Get(':id/archive-impact')
   @Roles('ADMIN')
-  async archiveImpact(@Param('id', ParseUUIDPipe) id: string) {
-    return this.usersService.getArchiveImpact(id)
+  async archiveImpact(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.usersService.getArchiveImpact(id, currentUser)
   }
 
   /**

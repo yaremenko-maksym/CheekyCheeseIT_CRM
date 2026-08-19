@@ -1,17 +1,19 @@
 import { useState } from 'react'
 import {
+  CrmDialogBody,
+  CrmDialogContent,
+  CrmDialogFooter,
+  CrmDialogHeader,
   Dialog,
-  DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useArchiveImpact, useArchiveEntity, type EntityType } from '@/hooks/use-archive'
 import type { ArchiveImpact } from '@crm/shared'
+import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePendingTransactionsList'
 
 /**
  * Per-entity dialog titles. The team variant has a drop-team sibling that
@@ -44,16 +46,25 @@ function renderImpactText(
 
   if (entityType === 'user' && impact.type === 'user') {
     const role = impact.role
-    if (role === 'SENIOR') {
+    // task-archive-pending-modal (AC7/AC9, owner decision 2026-08-19): SENIOR
+    // and DROP cascade команда+проекты as one operation; HR/ACCOUNTANT on the
+    // team and JUNIOR on the projects keep their membership and keep earning
+    // off their own `archivedAt` — the cascade never touches it.
+    if (role === 'SENIOR' || role === 'DROP') {
+      const roleGenitive = role === 'SENIOR' ? 'синьора' : 'дропа'
       const teamPart = impact.teamName ? ` и его команда «${impact.teamName}»` : ''
+      const projectNames = impact.projectNames ?? []
       return (
         <>
           <strong className="text-foreground">{entityName}</strong>
-          {teamPart} — связанная пара. Будут архивированы: профиль синьора, команда (
-          {impact.hrAccountantsToBeRemoved ?? 0} HR/бухгалтеров будут отвязаны), и все его проекты (
-          {impact.projectsCount ?? 0} шт., {impact.juniorsAffected ?? 0} активных джунов будут
-          отвязаны). Восстановление возможно — пара синьор+команда вернётся, но проекты
-          восстанавливать отдельно.
+          {teamPart} — связанная пара, убрать по одному нельзя. Будут архивированы: профиль{' '}
+          {roleGenitive}, команда и все её проекты ({impact.projectsCount ?? 0} шт.
+          {projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''}). HR/бухгалтеры на команде
+          ({impact.hrAccountantsOnTeam ?? 0}) и JUNIOR на этих проектах (
+          {impact.juniorsAffected ?? 0}) остаются активными членами и продолжают получать оплату —
+          архивация команды/проектов их не касается. Восстановление возможно — пара{' '}
+          {role === 'SENIOR' ? 'senior' : 'drop'}
+          +команда вернётся, но проекты восстанавливать отдельно.
         </>
       )
     }
@@ -94,7 +105,13 @@ function renderImpactText(
     }
   }
 
+  // task-archive-pending-modal (AC9): archiving a team means archiving the
+  // paired senior/drop — third parties (HR/бухгалтеры on the team) keep
+  // their membership and keep earning; the copy below says so explicitly
+  // instead of the old "будут отвязаны".
   if (entityType === 'team' && impact.type === 'team') {
+    const projectNames = impact.projectNames ?? []
+    const projectNamesSuffix = projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
     // Drop-archive round 2 (B3): branch by `teamType`. Drop-teams have a
     // *drop* as the paired entity (not a senior) — the senior, if any,
     // is detached without being archived. The legacy SENIOR copy renders
@@ -107,18 +124,22 @@ function renderImpactText(
       return (
         <>
           Команда <strong className="text-foreground">{impact.teamName}</strong> и её дроп{' '}
-          <strong>{dropName}</strong> — связанная пара. При архивации будут архивированы: профиль{' '}
-          <strong>дропа</strong>, команда (HR/бухгалтер будут отвязаны — {impact.membersAffected}),
-          и все его drop-проекты ({impact.projectsCount} шт.). {seniorClause}
+          <strong>{dropName}</strong> — связанная пара, убрать по одному нельзя. При архивации будут
+          архивированы: профиль <strong>дропа</strong>, команда и все её drop-проекты (
+          {impact.projectsCount} шт.
+          {projectNamesSuffix}). HR/бухгалтеры на команде ({impact.membersAffected}) остаются
+          активными членами и продолжают получать оплату — архивация их не касается. {seniorClause}
         </>
       )
     }
     return (
       <>
         <strong className="text-foreground">{impact.teamName}</strong> и её синьор{' '}
-        <strong>{impact.seniorName || '—'}</strong> — связанная пара. При архивации будут
-        архивированы: профиль синьора, команда (HR/бухгалтеры будут отвязаны —{' '}
-        {impact.membersAffected}), и все его проекты ({impact.projectsCount} шт.). Это эквивалентно
+        <strong>{impact.seniorName || '—'}</strong> — связанная пара, убрать по одному нельзя. При
+        архивации будут архивированы: профиль синьора, команда и все его проекты (
+        {impact.projectsCount} шт.
+        {projectNamesSuffix}). HR/бухгалтеры на команде ({impact.membersAffected}) остаются
+        активными членами и продолжают получать оплату — архивация их не касается. Это эквивалентно
         архивации {ROLE_RU.SENIOR} <strong>{impact.seniorName || '—'}</strong>.
       </>
     )
@@ -187,35 +208,50 @@ export function ArchiveConfirmDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
+      {/* task-archive-pending-modal (round 2, design fidelity BLOCK): the
+          original bare DialogContent had no max-height/overflow-y-auto, so
+          on 320/375 with a real PENDING+cascade payload the dialog grew
+          taller than the viewport with nothing to scroll it — header, close
+          button, and (worst case) both footer buttons went off-screen.
+          maxWidth="sm:max-w-lg" keeps this dialog's ORIGINAL width (the
+          generic DialogContent's unconditional max-w-lg) — only the
+          height/scroll behaviour changes here. */}
+      <CrmDialogContent maxWidth="sm:max-w-lg">
+        <CrmDialogHeader>
           <DialogTitle className="text-destructive">{title}</DialogTitle>
           <DialogDescription className="sr-only">
             Подтверждение архивации. Введите имя для подтверждения действия.
           </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 text-sm">
-          {isLoading ? (
-            <Skeleton className="h-16 w-full" />
-          ) : (
-            <p className="text-muted-foreground">
-              {renderImpactText(entityType, entityName, impact)}
-            </p>
-          )}
-          {expected && (
-            <p>
-              Для подтверждения введите {confirmInputLabel}:{' '}
-              <strong className="text-foreground">{expected}</strong>
-            </p>
-          )}
-          <Input
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder={expected}
-            data-testid="archive-confirm-input"
-          />
-        </div>
-        <DialogFooter>
+        </CrmDialogHeader>
+        <CrmDialogBody className="pb-2">
+          <div className="space-y-3 text-sm">
+            {isLoading ? (
+              <Skeleton className="h-16 w-full" />
+            ) : (
+              <>
+                <p className="text-muted-foreground">
+                  {renderImpactText(entityType, entityName, impact)}
+                </p>
+                {(impact?.type === 'user' || impact?.type === 'team') && (
+                  <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
+                )}
+              </>
+            )}
+            {expected && (
+              <p>
+                Для подтверждения введите {confirmInputLabel}:{' '}
+                <strong className="text-foreground">{expected}</strong>
+              </p>
+            )}
+            <Input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={expected}
+              data-testid="archive-confirm-input"
+            />
+          </div>
+        </CrmDialogBody>
+        <CrmDialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Отмена
           </Button>
@@ -230,8 +266,8 @@ export function ArchiveConfirmDialog({
           >
             Архивировать
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </CrmDialogFooter>
+      </CrmDialogContent>
     </Dialog>
   )
 }
