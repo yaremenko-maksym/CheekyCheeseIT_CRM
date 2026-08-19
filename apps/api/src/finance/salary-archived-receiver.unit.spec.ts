@@ -239,6 +239,45 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
     await expect(svc.createMonthlySalaries('2099-12')).resolves.toBeUndefined()
     expect(insertedValues.map((v) => v['receiverId'])).toEqual(['jr-active'])
   })
+
+  // task-archive-pending-modal (AC9, owner decision 2026-08-19): archiving the
+  // JUNIOR's SENIOR/DROP must NOT stop the JUNIOR's own salary. Composes two
+  // independently-pinned facts into the one scenario AC9 asks to be shown
+  // explicitly:
+  //   (1) `UsersService.archive`'s SENIOR/DROP cascade no longer touches
+  //       `project_members.leftAt` (pinned in users.archive.spec.ts /
+  //       teams.archive.spec.ts) — so the membership below (`leftAt: null`,
+  //       sitting on a `project.archivedAt` that IS set) is the REAL shape a
+  //       junior's row has after that cascade, not a hypothetical fixture.
+  //   (2) this loop's own filter is `isNull(projectMembers.leftAt)` PLUS
+  //       `user.archivedAt` — it never reads `project.archivedAt` at all.
+  // Together: a junior on a project whose SENIOR/DROP just got archived keeps
+  // accruing "on general grounds" — no special-case code needed, because
+  // nothing here was ever coupled to the project's own archival state.
+  it('AC9: a JUNIOR on a project whose senior/drop was JUST archived still accrues', async () => {
+    const JUNIOR_ON_ARCHIVED_SENIORS_PROJECT = {
+      ...ACTIVE_JUNIOR,
+      id: 'jr-survivor',
+    }
+    const { svc, insertedValues } = makeCronService([
+      {
+        leftAt: null, // AC9: cascade left this untouched.
+        user: JUNIOR_ON_ARCHIVED_SENIORS_PROJECT,
+        project: {
+          id: 'proj-of-archived-senior',
+          // The project itself WAS archived by the SENIOR/DROP cascade —
+          // the point of this test is that this field is irrelevant here.
+          archivedAt: new Date('2026-08-19T00:00:00.000Z'),
+          financeSettings: null,
+        },
+      },
+    ])
+
+    await svc.createMonthlySalaries('2099-12')
+
+    expect(insertedValues.map((v) => v['receiverId'])).toEqual(['jr-survivor'])
+    expect(insertedValues[0]).toMatchObject({ type: 'SALARY', status: 'PENDING' })
+  })
 })
 
 // ── AC2: createSalary refuses an archived receiver ──────────────────────────
