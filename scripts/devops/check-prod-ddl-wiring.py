@@ -139,6 +139,39 @@ any apps/api/drizzle/manual-private/*.sql filename appears anywhere under
 .github/workflows/**, and prints that directory's inventory every run so a new
 file landing there is visible to a human, not just to this check.
 
+ON_ERROR_STOP INVARIANT (task-ddl-flag-audit, backlog item 141, 2026-08-19)
+---------------------------------------------------------------------------------
+Everything above proves a migration file is copied AND applied. Neither half
+says anything about whether the apply actually SUCCEEDED. Measured twice,
+independently, on scratch Postgres 16.14, against this repo's real migration
+text: a psql invocation WITHOUT `-v ON_ERROR_STOP=1` that hits two `ERROR:`
+lines mid-script still exits 0, and the constraint it was supposed to add is
+absent from `pg_constraint` afterwards — a half-applied migration reports
+SUCCESS. WITH the flag: exit code 3, psql stops at the first error. Every one
+of this repo's manual DDL applies has depended, this whole time, on ONE flag
+being present on the psql invocation that runs it — nothing in the SQL text
+itself enforces it, and nothing until this fix would have caught a deploy
+step that forgot it.
+
+`find_psql_without_on_error_stop()` below re-walks the same `steps` this
+module already parses for the wiring check and asserts, for every REAL psql
+invocation (same definition as the apply-side check above — echoed-only
+lines excluded via `ECHO_LINE_RE`, backslash-continued lines joined into one
+logical command via `join_logical_commands`) that `-v ON_ERROR_STOP=1`
+appears on that same logical command. Deliberately scoped to ALL of
+deploy.yml, not just the manual-DDL apply steps the rest of this module
+tracks — a health-check or report query is just as capable of masking a real
+failure behind a false "success" if it is ever changed into something that
+can fail loudly mid-script, and the cost of requiring the flag everywhere is
+zero (`-v ON_ERROR_STOP=1` is a no-op for a query that cannot itself error
+out of a valid syntax). No allowlist/escape-hatch for this one, unlike
+KNOWN_NOT_WIRED above — every psql invocation in today's deploy.yml already
+carries the flag (verified: 30/30, `grep -c 'psql -U' deploy.yml` ==
+`grep -c` of the same restricted to lines that also carry the flag), so there
+is no real exception to encode. If one is ever genuinely needed, add a
+reasoned comment at the call site and a matching allowlist entry then —
+never a silent omission.
+
 Tests: scripts/devops/tests/test-check-prod-ddl-wiring.sh (positive AND negative
 cases — including the comment-only cheat above, which must go red).
 
@@ -489,6 +522,48 @@ def join_logical_commands(lines):
     return logical
 
 
+# ---------------------------------------------------------------------------
+# ON_ERROR_STOP invariant (task-ddl-flag-audit, item 141, 2026-08-19 — see the
+# module docstring section of the same name for the measured incident this
+# guards against).
+# ---------------------------------------------------------------------------
+ON_ERROR_STOP_RE = re.compile(r"-v\s+ON_ERROR_STOP=1")
+
+
+def find_psql_without_on_error_stop(steps):
+    """Every real psql invocation across ALL of deploy.yml must carry
+    `-v ON_ERROR_STOP=1` on the SAME logical (backslash-joined) command —
+    otherwise a failing statement partway through a multi-statement DDL file
+    can leave psql to keep going, exit 0, and report success on a migration
+    that only partially applied.
+
+    Reuses PSQL_INVOCATION_RE / ECHO_LINE_RE / join_logical_commands from the
+    wiring check above — same definition of "a real invocation" (an echoed
+    `psql ...` inside a string does not count; a bare `docker compose exec
+    postgres psql ...` line does), same edge cases already fought over there.
+
+    Returns a list of (job_id, evidence_line) pairs, one per offending
+    invocation. `evidence_line` is the line carrying the actual `psql` call
+    (not just any line of the joined command), so the report points a human
+    straight at the thing to fix.
+    """
+    missing = []
+    for step in steps:
+        for cmd in join_logical_commands(step.lines):
+            cmd_lines = cmd.split("\n")
+            invokes_psql = any(
+                PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in cmd_lines
+            )
+            if not invokes_psql or ON_ERROR_STOP_RE.search(cmd):
+                continue
+            evidence = next(
+                (ln.strip() for ln in cmd_lines if PSQL_INVOCATION_RE.search(ln)),
+                cmd_lines[0].strip(),
+            )
+            missing.append((step.job_id, evidence))
+    return missing
+
+
 def resolve_applied_files(step, var_files):
     """Server-side paths this step's psql invocation(s) genuinely consume.
 
@@ -608,6 +683,8 @@ def main():
     private_files = collect_all_ddl_files(MANUAL_PRIVATE_DIR)
     private_leaks = find_private_leaks(private_files)
 
+    flag_gaps = find_psql_without_on_error_stop(steps)
+
     print("Prod DDL Wiring Guard")
     print("  Total manual DDL files:  {}".format(len(all_files)))
     print("  Copied AND applied:      {}".format(len(fully_wired)))
@@ -616,6 +693,7 @@ def main():
     print("  BROKEN WIRING:           {}".format(len(broken)))
     print("  Manual-private files:    {}".format(len(private_files)))
     print("  Manual-private LEAKED:   {}".format(len(private_leaks)))
+    print("  psql missing ON_ERROR_STOP: {}".format(len(flag_gaps)))
 
     if ghost_allowlist:
         print()
@@ -688,13 +766,33 @@ def main():
         print("Fix: remove the reference. Files under manual-private/ must never be copied")
         print("or applied by any workflow — only run by hand, directly on the VPS.")
 
-    if broken or private_leaks:
+    if flag_gaps:
+        print()
+        print("FAIL: the following psql invocations in .github/workflows/deploy.yml do not")
+        print("pass `-v ON_ERROR_STOP=1`. Without it, a SQL error mid-script does not stop")
+        print("psql — it keeps going, exits 0, and the step (and CI) reports success on a")
+        print("migration that only partially applied. Measured twice independently on scratch")
+        print("Postgres 16.14 against this repo's real migration text (task-ddl-flag-audit,")
+        print("backlog item 141): without the flag — two ERROR: lines, exit code 0, the")
+        print("intended constraint absent from pg_constraint; with it — exit code 3, stop on")
+        print("the first error.")
+        for job_id, evidence in flag_gaps:
+            print("  job #{}: {}".format(job_id, evidence))
+        print()
+        print("Fix: add `-v ON_ERROR_STOP=1` right after `psql -U \"$PGUSER\" -d \"$PGDB\"` —")
+        print("the pattern every other psql invocation in this file already uses. If a psql")
+        print("call in this workflow genuinely must not stop on error, say so in a comment")
+        print("directly above it and add a reasoned, named exception here — never a silent")
+        print("omission.")
+
+    if broken or private_leaks or flag_gaps:
         return 1
 
     print()
     print("OK: every manual DDL file is either copied AND applied by deploy.yml, or")
-    print("explicitly acknowledged as intentionally not wired, and no manual-private")
-    print("file is referenced by any workflow.")
+    print("explicitly acknowledged as intentionally not wired, no manual-private file is")
+    print("referenced by any workflow, and every psql invocation in deploy.yml passes")
+    print("-v ON_ERROR_STOP=1.")
     return 0
 
 

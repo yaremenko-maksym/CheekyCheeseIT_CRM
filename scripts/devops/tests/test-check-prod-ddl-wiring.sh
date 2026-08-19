@@ -555,7 +555,7 @@ jobs:
         with:
           script: |
             docker compose exec -T postgres \\
-              psql -U "\$PGUSER" -d "\$PGDB" -c "SET application_name = 'deploy #1'" -f /opt/crm/apps/api/drizzle/manual/$DDL
+              psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 -c "SET application_name = 'deploy #1'" -f /opt/crm/apps/api/drizzle/manual/$DDL
 YML
 
 read -r -d '' ABSENT_YML <<YML || true
@@ -616,6 +616,38 @@ jobs:
             FIXTURE_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
             docker compose exec -T postgres \\
               psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$FIXTURE_FILE"
+YML
+
+# task-ddl-flag-audit (backlog item 141, 2026-08-19). A REAL psql invocation
+# (the file is genuinely copied AND applied — the wiring half of this guard
+# would report it green) that omits `-v ON_ERROR_STOP=1`. Proves the new
+# invariant catches the gap even when the wiring check itself sees nothing
+# wrong: a SQL error inside this file would leave psql exiting 0 and the
+# migration half-applied while the guard, before this fix, said nothing.
+read -r -d '' MISSING_ON_ERROR_STOP_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: 'apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            FIXTURE_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" < "\$FIXTURE_FILE"
 YML
 
 read -r -d '' PRIVATE_UNREFERENCED_YML <<YML || true
@@ -729,6 +761,19 @@ assert_red "a ::notice:: saying the file is ABSENT is not evidence it was copied
 assert_red "a step that only ECHOES a psql command has applied nothing -> red" \
   --contains "COPIED BUT NEVER APPLIED" \
   -- run_guard "$(make_case psql-echoed-only "$PSQL_ECHOED_ONLY_YML")"
+
+
+# ── ON_ERROR_STOP invariant (task-ddl-flag-audit, item 141) ────────────────────
+assert_green "every real psql invocation in a wired deploy.yml carries -v ON_ERROR_STOP=1 (no false positive)" \
+  --contains "psql missing ON_ERROR_STOP: 0" \
+  -- run_guard "$(make_case flag-present "$WIRED_YML")"
+
+assert_red "a genuinely copied-and-applied DDL whose psql call omits -v ON_ERROR_STOP=1 -> red" \
+  --contains "psql missing ON_ERROR_STOP: 1" \
+  --contains "the following psql invocations in .github/workflows/deploy.yml do not" \
+  --contains "pass \`-v ON_ERROR_STOP=1\`" \
+  --contains "FIXTURE_FILE" \
+  -- run_guard "$(make_case missing-on-error-stop "$MISSING_ON_ERROR_STOP_YML")"
 
 
 # ── manual-private reverse invariant ────────────────────────────────────────────
