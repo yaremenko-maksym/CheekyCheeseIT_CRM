@@ -38,14 +38,18 @@
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
 --     < apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql
 --
--- DevOps wires this file into .github/workflows/deploy.yml (copy step +
--- ON_ERROR_STOP=1 apply step, same shape every other file in this directory
--- uses — see scripts/devops/check-prod-ddl-wiring.py for the guard that fails
--- CI if a manual DDL file is left unreferenced there). apps/api/** is this
--- PR's zone-of-write; .github/workflows/** is DevOps's — the wiring is a
--- separate, coordinated PR/commit, same precedent as
--- 2026-07-14_usdt_income_idempotency_index.sql (wired by a follow-up DevOps
--- commit, not this migration's own PR).
+-- This file is wired into .github/workflows/deploy.yml in THIS SAME PR (Step
+-- 2ab, apply; a matching unconditional copy step in the copy-compose job) —
+-- corrected after security-review PR #587 round 1: an earlier version of this
+-- comment claimed 2026-07-14_usdt_income_idempotency_index.sql (PR #367) was
+-- wired by a SEPARATE follow-up DevOps commit. That was wrong — `git show
+-- 2f6c53e8 --stat` (PR #367's own squash commit) shows `deploy.yml | 73 +` in
+-- THAT SAME commit; the migration file and its deploy.yml wiring landed
+-- together. That is the correct precedent this file follows: apps/api/** is
+-- normally this PR's zone-of-write and .github/workflows/** DevOps's, but a
+-- same-PR migration+wiring pair (not a cross-PR/parallel-dispatch case — see
+-- scripts/devops/check-prod-ddl-wiring.py's guarded-vs-unconditional
+-- distinction) carries both together, same as #367.
 --
 -- Idempotent: ADD COLUMN IF NOT EXISTS + CREATE UNIQUE INDEX IF NOT EXISTS —
 -- safe to re-run.

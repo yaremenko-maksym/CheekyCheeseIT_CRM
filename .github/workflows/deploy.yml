@@ -1253,6 +1253,29 @@ jobs:
           # apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql
 
+      # backlog 73/A-3 (fix/senior-drop-income-idempotency): UNCONDITIONAL —
+      # unlike the guarded blocks above (which wire a Coder-branch migration
+      # from a SEPARATE, uncertain-merge-order PR), this migration file lands
+      # in THIS SAME PR/branch, so it is unconditionally present in the
+      # checkout by construction. This mirrors PR #367's own Step 2c, whose
+      # squash commit (2f6c53e8) carries both the migration file AND this
+      # exact deploy.yml wiring together (`--stat` shows `deploy.yml | 73 +`
+      # in that one commit) — the correct precedent, not a follow-up DevOps
+      # PR (security-review PR #587 round 1 corrected an earlier, wrong
+      # claim in this PR's own body/migration-file header that attributed
+      # #367's wiring to a separate commit).
+      - name: Copy senior/drop income idempotency DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -2533,6 +2556,42 @@ jobs:
                 < "$SENDER_RECEIVER_INVARIANT_FILE"
               echo "==> sender/receiver invariant DDL applied successfully"
             fi
+
+            # ── Step 2ab: SENIOR_INCOME / DROP_INCOME idempotency-key partial unique indexes (idempotent) ──
+            # backlog 73/A-3 (fix/senior-drop-income-idempotency, security review PR #587):
+            # `createSeniorIncome`/`createDropIncome` had no idempotency key — a double-click
+            # / network retry could create a second SENIOR_INCOME/DROP_INCOME row, which an
+            # ACCOUNTANT could independently validate and bundle into one payout request,
+            # doubling incomeAmount/payableAmount and the company obligation booked off it.
+            # Mirrors the ADMIN_INCOME contract (Step 2c above, PR #367, security-review MED-1)
+            # 1:1: `uq_transactions_senior_income_idempotency_key` /
+            # `uq_transactions_drop_income_idempotency_key`, two partial unique indexes on
+            # transactions(idempotency_key) scoped to their own `type`.
+            #
+            # UNCONDITIONAL (like Step 2c, not the guarded blocks above): the migration file
+            # lands in the SAME PR as this wiring, so it is unconditionally present in the
+            # checkout by construction — no cross-PR merge-order race to guard against.
+            # Idempotent: ADD COLUMN IF NOT EXISTS (no-op — the shared idempotency_key column
+            # already exists) + CREATE UNIQUE INDEX IF NOT EXISTS, safe to re-run on repeated
+            # deploys, same shape as every other index-only DDL file in this job.
+            # Source: apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql
+            SENIOR_DROP_INCOME_IDEMPOTENCY_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql"
+
+            if [ ! -f "$SENIOR_DROP_INCOME_IDEMPOTENCY_FILE" ]; then
+              echo "ERROR: DDL file not found at $SENIOR_DROP_INCOME_IDEMPOTENCY_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying senior/drop income idempotency index DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$SENIOR_DROP_INCOME_IDEMPOTENCY_FILE"
+            echo "==> senior/drop income idempotency index DDL applied successfully"
 
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
             # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS
