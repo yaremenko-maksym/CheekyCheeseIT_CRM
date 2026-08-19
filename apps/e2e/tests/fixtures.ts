@@ -760,7 +760,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
             teamName: 'Alpha Team',
             projectsCount: 2,
             juniorsAffected: 1,
-            hrAccountantsToBeRemoved: 2,
+            hrAccountantsOnTeam: 2,
           }
         case 'HR':
           return { type: 'user' as const, role: 'HR' as const, teamsCount: 1 }

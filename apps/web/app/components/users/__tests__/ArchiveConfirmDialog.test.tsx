@@ -490,4 +490,39 @@ describe('ArchiveConfirmDialog (users list) — confirm mutation', () => {
     expect(invalidatedKeys).not.toContainEqual(['projects'])
     expect(invalidatedKeys).toContainEqual(['users-admin'])
   })
+
+  it('Отмена is disabled while the DELETE is pending, and does not close the dialog if clicked', async () => {
+    // security-review PR #584 round 3: this is what makes `user` provably
+    // non-null inside mutation.onSuccess's `user?.role` checks — without it,
+    // a dismiss gesture mid-mutation could null out `user` before onSuccess
+    // reads it (TanStack Query v5 always uses the LATEST render's callback,
+    // not the one active at `.mutate()` time).
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'SENIOR', pendingTransactions: [] },
+    })
+    let resolveDelete!: () => void
+    ;(api.delete as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = () => resolve({ data: {} })
+      }),
+    )
+    const user = userEvent.setup()
+    const { onClose } = renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
+
+    await screen.findByRole('dialog')
+    await user.type(screen.getByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+    await user.click(screen.getByTestId('archive-confirm-submit'))
+
+    const cancel = await screen.findByRole('button', { name: 'Отмена' })
+    await vi.waitFor(() => expect(cancel).toBeDisabled())
+
+    // A disabled button ignores clicks — this proves onClose is not
+    // reachable via Cancel during the pending window, not just that the
+    // attribute is set.
+    await user.click(cancel)
+    expect(onClose).not.toHaveBeenCalled()
+
+    resolveDelete()
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
 })

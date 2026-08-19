@@ -59,16 +59,37 @@ export function ArchiveConfirmDialog({
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       // task-archive-pending-modal (AC7): DROP cascades team+projects exactly
       // like SENIOR — both need the same invalidation.
-      // Stryker disable next-line OptionalChaining: `user` is asserted non-null two lines up in this SAME callback's own `mutationFn` (`user!.id`) — onSuccess only runs after that call resolved, so `user` is already proven non-null by the time this line runs; `?.` here is a defensive no-op, not an observable branch.
+      //
+      // security-review PR #584 round 3: `onSuccess` reads `user` from
+      // WHATEVER render was current when the mutation settled, not the
+      // render active at `.mutate()` time (TanStack Query v5 stores the
+      // latest options on every render and invokes the CURRENT callback on
+      // settle — @tanstack/query-core's `createMutation`/`setOptions`).
+      // `mutationFn`'s `user!.id` above is captured once, at call time,
+      // inside the async function already in flight — it does NOT prove
+      // anything about what `onSuccess` sees later. Without a guard, a
+      // dismiss gesture mid-mutation (Cancel, Escape, overlay click) could
+      // re-render this component with `user=null` before the delete
+      // resolves, and `onSuccess` would then run against that null. The
+      // `<Dialog>` below now refuses to close while `mutation.isPending`
+      // (Cancel is disabled AND `onOpenChange` ignores Escape/overlay
+      // dismissal during the pending window), so `user` cannot become null
+      // between `.mutate()` and this callback firing — `?.` stays as
+      // defence-in-depth for a state this component's OWN interaction
+      // surface can no longer produce, not a line this test suite can drive
+      // to a genuinely different outcome (the component's own guards make
+      // it unreachable, not the old — incorrect — "mutationFn already
+      // proved it" reasoning this replaces).
+      // Stryker disable next-line OptionalChaining: see the paragraph above — user cannot be null here once the Dialog blocks all dismissal during mutation.isPending.
       if (user?.role === 'SENIOR' || user?.role === 'DROP') {
         void queryClient.invalidateQueries({ queryKey: ['teams'] })
         void queryClient.invalidateQueries({ queryKey: ['projects'] })
       }
       const msg =
-        // Stryker disable next-line OptionalChaining: same non-null invariant as the `if` above — `mutationFn`'s `user!.id` already proves `user` is defined by the time onSuccess runs.
+        // Stryker disable next-line OptionalChaining: same invariant as the `if` above — see the long comment there.
         user?.role === 'SENIOR'
           ? 'Синьор и команда архивированы'
-          : // Stryker disable next-line OptionalChaining: same non-null invariant.
+          : // Stryker disable next-line OptionalChaining: same invariant.
             user?.role === 'DROP'
             ? 'Дроп и команда архивированы'
             : 'Пользователь архивирован'
@@ -88,7 +109,11 @@ export function ArchiveConfirmDialog({
   const matches = !!user && typed.trim() === user.displayName.trim()
 
   return (
-    <Dialog open={!!user} onOpenChange={(o) => !o && handleClose()}>
+    // security-review PR #584 round 3: ignore any dismiss gesture (Escape,
+    // overlay click) while the archive DELETE is in flight — see the long
+    // comment on mutation.onSuccess above for why this is what makes `user`
+    // provably non-null there, not just the disabled Cancel button below.
+    <Dialog open={!!user} onOpenChange={(o) => !o && !mutation.isPending && handleClose()}>
       <CrmDialogContent maxWidth="sm:max-w-md" data-testid="archive-confirm-dialog">
         <CrmDialogHeader>
           <DialogTitle className="flex items-center gap-2 text-destructive">
@@ -137,7 +162,7 @@ export function ArchiveConfirmDialog({
           </div>
         </CrmDialogBody>
         <CrmDialogFooter>
-          <Button variant="ghost" onClick={handleClose}>
+          <Button variant="ghost" onClick={handleClose} disabled={mutation.isPending}>
             Отмена
           </Button>
           <Button
