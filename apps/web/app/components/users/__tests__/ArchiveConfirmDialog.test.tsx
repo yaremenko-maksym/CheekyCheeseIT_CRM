@@ -228,6 +228,70 @@ describe('ArchiveConfirmDialog (users list) — role-aware ImpactWarning + AC2 p
     },
   )
 
+  it.each(['SENIOR', 'DROP'] as const)(
+    '%s: impact.type !== "user" is ALSO a hard gate, independent of isPaired — a mismatched payload is ignored even fully paired',
+    async (role) => {
+      // security-review PR #584 round 2 (mutation-gate survivors, round 2).
+      // Stryker's LogicalOperator mutant on `impact && impact.type ===
+      // 'user' && impact.isPaired && impact.X` flips the FIRST `&&` (between
+      // `impact` and the type check) to `||` — because the AST node it
+      // targets is the SUB-expression `impact && impact.type === 'user'`,
+      // NOT the whole chain. Since `impact` is always a truthy object in
+      // every test, `(impact || impact.type === 'user')` always reduces to
+      // `impact` (truthy) regardless of the real type — which makes the
+      // type check disappear ENTIRELY once isPaired is true. The
+      // isPaired:false test above cannot catch this: it makes BOTH the
+      // real code and the mutant evaluate to `false` (short-circuiting on
+      // isPaired either way), so the type-check operand is never the
+      // deciding factor there. This fixture isolates it: isPaired:TRUE (so
+      // nothing else short-circuits first) with a type that is NOT 'user'.
+      ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: {
+          type: 'team',
+          teamName: 'WRONG-TEAM-SHOULD-NOT-RENDER',
+          isPaired: true,
+          projectsCount: 99,
+          projectNames: ['WRONG-PROJECT-SHOULD-NOT-RENDER'],
+          hrAccountantsOnTeam: 88,
+          juniorsAffected: 77,
+        },
+      })
+      renderDialog(makeUser({ role, displayName: 'Oleksiy Kovalenko' }))
+
+      await screen.findByTestId('archive-warning-senior')
+      const dialog = screen.getByRole('dialog')
+      const text = dialog.textContent ?? ''
+
+      expect(text).not.toContain('WRONG-TEAM-SHOULD-NOT-RENDER')
+      expect(text).not.toContain('WRONG-PROJECT-SHOULD-NOT-RENDER')
+      expect(text).not.toContain('99')
+      expect(text).not.toContain('88')
+      expect(text).not.toContain('77')
+      expect(text).toContain(role === 'SENIOR' ? 'команда синьора' : 'команда дропа')
+      expect(text).toContain('(0 шт.)')
+      expect(text).not.toContain('(0 шт.:')
+      expect(text).toContain('HR/бухгалтеры на команде (0)')
+      expect(text).toContain('JUNIOR на этих проектах (0)')
+    },
+  )
+
+  it('SENIOR: the archive-impact query FAILING does not crash — impact stays undefined, no pending list, cascade copy falls back to defaults', async () => {
+    // security-review PR #584 round 2 (mutation-gate survivor, OptionalChaining
+    // on `impact?.type`). `isLoading: false` does NOT guarantee `impact` is
+    // defined — a query ERROR also settles `isLoading` to false while `data`
+    // stays `undefined`, and this component has no explicit isError branch.
+    // That is a REAL reachable state (a 500 from GET .../archive-impact), not
+    // just defensive typing — proven here rather than suppressed.
+    ;(api.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
+
+    const dialog = await screen.findByRole('dialog')
+    // Waits for the query to settle (isLoading -> false on error) and the
+    // fallback cascade copy to appear — the definitive post-load marker.
+    await vi.waitFor(() => expect(dialog.textContent ?? '').toContain('команда синьора'))
+    expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
+  })
+
   it('SENIOR: isPaired true but every optional count OMITTED — each falls back independently (not just via isPaired)', async () => {
     // Companion to the isPaired:false test above: THIS fixture proves the
     // per-field `!== undefined` checks are independently load-bearing, not

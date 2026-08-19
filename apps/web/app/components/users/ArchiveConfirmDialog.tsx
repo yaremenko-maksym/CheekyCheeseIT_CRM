@@ -59,14 +59,17 @@ export function ArchiveConfirmDialog({
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       // task-archive-pending-modal (AC7): DROP cascades team+projects exactly
       // like SENIOR — both need the same invalidation.
+      // Stryker disable next-line OptionalChaining: `user` is asserted non-null two lines up in this SAME callback's own `mutationFn` (`user!.id`) — onSuccess only runs after that call resolved, so `user` is already proven non-null by the time this line runs; `?.` here is a defensive no-op, not an observable branch.
       if (user?.role === 'SENIOR' || user?.role === 'DROP') {
         void queryClient.invalidateQueries({ queryKey: ['teams'] })
         void queryClient.invalidateQueries({ queryKey: ['projects'] })
       }
       const msg =
+        // Stryker disable next-line OptionalChaining: same non-null invariant as the `if` above — `mutationFn`'s `user!.id` already proves `user` is defined by the time onSuccess runs.
         user?.role === 'SENIOR'
           ? 'Синьор и команда архивированы'
-          : user?.role === 'DROP'
+          : // Stryker disable next-line OptionalChaining: same non-null invariant.
+            user?.role === 'DROP'
             ? 'Дроп и команда архивированы'
             : 'Пользователь архивирован'
       toast.success(msg)

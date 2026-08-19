@@ -241,6 +241,21 @@ describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pendin
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
 
+  it('SENIOR: the archive-impact query FAILING does not crash — no pending list, cascade copy falls back to defaults', async () => {
+    // security-review PR #584 round 2 (mutation-gate survivor, OptionalChaining
+    // on `impact?.type`). `isLoading: false` does not guarantee `impact` is
+    // defined — a query ERROR also settles isLoading to false with data
+    // staying undefined, and this component has no explicit isError branch.
+    // A real reachable state (a 500 from GET .../archive-impact), proven
+    // here rather than suppressed.
+    ;(api.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
+
+    const dialog = await screen.findByRole('dialog')
+    await vi.waitFor(() => expect(dialog.textContent ?? '').toContain('команда синьора'))
+    expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
+  })
+
   it('the pending-list guard checks impact.type, not just truthiness — a non-"user" shape never renders it here', async () => {
     // security-review PR #584 round 2 (mutation-gate survivor): a mock that
     // ONLY ever resolves `type: 'user'` cannot distinguish `impact?.type ===
