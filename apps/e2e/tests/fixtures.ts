@@ -2078,6 +2078,10 @@ export async function createSeniorProjectViaAPI(
  *     and a non-explorer URL is rejected. An explorer link is also a valid
  *     plain http(s) URL, so this same default stays valid for callers that
  *     override `currency` to a non-USDT value too).
+ *   - idempotencyKey: fresh `crypto.randomUUID()` per call (task-senior-drop-
+ *     income-idempotency, backlog 73/A-3) — same optional-override contract
+ *     as `declareUsdtIncomeViaAPI` above; a caller exercising the replay
+ *     behaviour passes the SAME key across two calls explicitly.
  */
 export async function createDropIncomeViaAPI(
   page: Page,
@@ -2085,6 +2089,7 @@ export async function createDropIncomeViaAPI(
     projectId: string
     amount?: number
     currency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
+    idempotencyKey?: string
     receiptExternalUrl?: string
     receiptDocumentId?: string
     notes?: string | null
@@ -2095,6 +2100,7 @@ export async function createDropIncomeViaAPI(
     projectId: opts.projectId,
     amount: opts.amount ?? 1000,
     currency: opts.currency ?? 'USDT',
+    idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
     ...(opts.receiptDocumentId
       ? { receiptDocumentId: opts.receiptDocumentId }
       : {
@@ -2125,6 +2131,10 @@ export async function createDropIncomeViaAPI(
  * — the default currency is USDT, so the default receipt must be an
  * allowlisted blockchain-explorer link (a `drive.example.com` URL is rejected
  * by the mandatory currency-aware receipt refine).
+ *
+ * task-senior-drop-income-idempotency (backlog 73/A-3): `idempotencyKey`
+ * defaults to a fresh `crypto.randomUUID()` per call — same optional-override
+ * contract as `createDropIncomeViaAPI` above.
  */
 export async function createSeniorIncomeViaAPI(
   page: Page,
@@ -2132,6 +2142,7 @@ export async function createSeniorIncomeViaAPI(
     projectId: string
     amount?: number
     currency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
+    idempotencyKey?: string
     receiptExternalUrl?: string
     receiptDocumentId?: string
     notes?: string | null
@@ -2142,6 +2153,7 @@ export async function createSeniorIncomeViaAPI(
     projectId: opts.projectId,
     amount: opts.amount ?? 1000,
     currency: opts.currency ?? 'USDT',
+    idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
     ...(opts.receiptDocumentId
       ? { receiptDocumentId: opts.receiptDocumentId }
       : {

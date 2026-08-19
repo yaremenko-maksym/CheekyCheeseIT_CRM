@@ -16,6 +16,7 @@ import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
+import { randomUUID } from 'crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -692,6 +693,11 @@ describe.skipIf(!hasDatabaseUrl())('Admin-as-Senior RBAC — real DB integration
       projectId: ADMIN_PROJ_ID,
       amount: 1000,
       currency: 'USDT',
+      // task-senior-drop-income-idempotency (backlog 73/A-3): now a required
+      // field on createSeniorIncome's parameter type — irrelevant to THIS
+      // test (the role guard throws before the field is ever read), but
+      // needed to satisfy the type.
+      idempotencyKey: randomUUID(),
       receiptDocumentId: null,
     }
 

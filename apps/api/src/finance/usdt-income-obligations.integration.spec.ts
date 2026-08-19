@@ -478,11 +478,24 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
   // ── AC9: paymentType declaration gate ──────────────────────────────────────
   it('AC9: SENIOR/DROP cannot declare income on a USDT project (403); FOP project is OK', async () => {
     await expect(
-      svc.createDropIncome({ projectId: USDT_DROP_PROJECT, amount: 500, currency: 'USDT' }, DROP),
+      svc.createDropIncome(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 500,
+          currency: 'USDT',
+          idempotencyKey: randomUUID(),
+        },
+        DROP,
+      ),
     ).rejects.toThrow(/USDT-проекте/)
     await expect(
       svc.createSeniorIncome(
-        { projectId: USDT_SENIOR_PROJECT, amount: 500, currency: 'USDT' },
+        {
+          projectId: USDT_SENIOR_PROJECT,
+          amount: 500,
+          currency: 'USDT',
+          idempotencyKey: randomUUID(),
+        },
         SENIOR,
       ),
     ).rejects.toThrow(/USDT-проекте/)
@@ -495,6 +508,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         projectId: FOP_DROP_PROJECT,
         amount: 500,
         currency: 'USDT',
+        idempotencyKey: randomUUID(),
         receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeobligationsspecac9',
       },
       DROP,
