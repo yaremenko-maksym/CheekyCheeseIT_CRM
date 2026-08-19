@@ -135,8 +135,10 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
         isPaired: true,
         teamName: 'Alpha Team',
         seniorName: 'Senior One',
-        projectsCount: 1,
-        projectNames: ['Project A'],
+        projectsCount: 2,
+        // TWO entries — proves the join separator is really ', ' and not
+        // just "whatever a single-element array renders regardless of it".
+        projectNames: ['Project A', 'Project B'],
         membersAffected: 2,
         pendingTransactions: [
           {
@@ -158,9 +160,8 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
 
     expect(await screen.findByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
     expect(screen.getByText(/Незакрытые PENDING-транзакции/)).toBeInTheDocument()
-    // The named-projects list actually renders the NAME, joined with ", " —
-    // not a coincidence of a non-empty array alone.
-    expect(screen.getByText(/Project A/)).toBeInTheDocument()
+    // The named-projects list actually renders BOTH names joined with ", ".
+    expect(screen.getByText(/Project A, Project B/)).toBeInTheDocument()
     // seniorName renders as given (also used as the confirm-input's expected
     // value) — the `|| '—'` fallback did NOT fire anywhere.
     expect(screen.getAllByText(/Senior One/).length).toBeGreaterThanOrEqual(2)
@@ -244,4 +245,45 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
 
     expect(await screen.findByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
   })
+
+  // task-archive-pending-modal (AC7/AC9). `role === 'SENIOR' || role ===
+  // 'DROP'` picks the cascade-copy branch. The JUNIOR test above never makes
+  // that condition true, so every mutation of it (flipping either operand,
+  // the whole condition, or the string literals) survived unnoticed. SENIOR
+  // and DROP are exercised separately — they render DIFFERENT genitive
+  // words ("синьора" vs "дропа"), so a truthiness-only assertion would still
+  // miss a mutant that swaps `role === 'SENIOR' ? 'синьора' : 'дропа'`
+  // (pinned instead by the users/ArchiveConfirmDialog + ArchiveUserDialog
+  // paths, which share the identical pattern).
+  it.each(['SENIOR', 'DROP'] as const)(
+    'renders the cascade-pair copy for a %s user-type impact (entityType="user")',
+    async (role) => {
+      const { api } = await import('@/lib/axios')
+      ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: {
+          type: 'user',
+          role,
+          isPaired: true,
+          teamName: 'Alpha Team',
+          projectsCount: 1,
+          projectNames: ['Project A'],
+          hrAccountantsToBeRemoved: 1,
+          juniorsAffected: 1,
+        },
+      })
+      const user = userEvent.setup()
+      renderMenu({ isArchived: false, entityType: 'user' })
+
+      await user.click(screen.getByTestId('admin-actions-trigger'))
+      await user.click(await screen.findByTestId('admin-action-archive'))
+
+      const dialog = await screen.findByRole('dialog')
+      expect(
+        within(dialog).getByText(/связанная пара, убрать по одному нельзя/),
+      ).toBeInTheDocument()
+      expect(
+        within(dialog).getByText(role === 'SENIOR' ? /профиль синьора/ : /профиль дропа/),
+      ).toBeInTheDocument()
+    },
+  )
 })
