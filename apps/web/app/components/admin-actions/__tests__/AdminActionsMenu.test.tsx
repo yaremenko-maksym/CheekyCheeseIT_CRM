@@ -218,6 +218,12 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
   // 'team'`) from its OTHER side — every test above only ever resolves
   // `type: 'team'`, so the `'user'` alternative was never independently
   // load-bearing until this one.
+  //
+  // AC7/AC9 also rides on this fixture: JUNIOR must NOT take the
+  // SENIOR/DROP cascade-copy branch (`role === 'SENIOR' || role ===
+  // 'DROP'` mutated to `if (true)` previously survived because nothing
+  // asserted the JUNIOR-specific copy or the ABSENCE of the cascade
+  // wording for a role that is neither SENIOR nor DROP).
   it('shows the pending-transactions warning for a user-type impact too (entityType="user")', async () => {
     const { api } = await import('@/lib/axios')
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -244,6 +250,10 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     await user.click(await screen.findByTestId('admin-action-archive'))
 
     expect(await screen.findByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
+    const dialog = await screen.findByRole('dialog')
+    const dialogText = dialog.textContent ?? ''
+    expect(dialogText).toContain('1 активных проектов')
+    expect(dialogText).not.toContain('связанная пара, убрать по одному нельзя')
   })
 
   // task-archive-pending-modal (AC7/AC9). `role === 'SENIOR' || role ===
@@ -290,8 +300,11 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
       expect(dialogText).toContain('3')
       expect(dialogText).toContain('4')
       expect(dialogText).toContain('остаются активными членами')
-      // The closing sentence's role-specific English pair word.
-      expect(dialogText).toContain(role === 'SENIOR' ? 'senior+команда' : 'drop+команда')
+      // The closing sentence's role-specific English pair word — pinned
+      // WITH the leading space from the `{' '}` JSX expression container,
+      // otherwise a mutant collapsing it to `{''}` ("параsenior" instead
+      // of "пара senior") is invisible to a substring-only check.
+      expect(dialogText).toContain(`пара ${role === 'SENIOR' ? 'senior' : 'drop'}+команда`)
     },
   )
 
