@@ -525,4 +525,50 @@ describe('ArchiveConfirmDialog (users list) — confirm mutation', () => {
     resolveDelete()
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
   })
+
+  it('Escape closes the dialog normally when NOT pending (baseline for the guard below)', async () => {
+    // Proves onOpenChange -> handleClose actually wires up to a REAL Radix
+    // dismiss gesture (Escape), not just the Cancel button's own onClick —
+    // the two are separate code paths (onOpenChange also covers overlay-click).
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'SENIOR', pendingTransactions: [] },
+    })
+    const user = userEvent.setup()
+    const { onClose } = renderDialog(makeUser({ role: 'SENIOR' }))
+
+    await screen.findByRole('dialog')
+    await user.keyboard('{Escape}')
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape does NOT close the dialog while the DELETE is pending', async () => {
+    // security-review PR #584 round 3: the SAME guard as the disabled
+    // Cancel button, reached through the OTHER dismiss path (Radix's
+    // built-in Escape handling goes through onOpenChange, not the Cancel
+    // button's onClick) — both must be closed for `user` to be provably
+    // non-null in mutation.onSuccess.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'SENIOR', pendingTransactions: [] },
+    })
+    let resolveDelete!: () => void
+    ;(api.delete as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = () => resolve({ data: {} })
+      }),
+    )
+    const user = userEvent.setup()
+    const { onClose } = renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
+
+    await screen.findByRole('dialog')
+    await user.type(screen.getByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+    await user.click(screen.getByTestId('archive-confirm-submit'))
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Отмена' })).toBeDisabled())
+
+    await user.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
+
+    resolveDelete()
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
 })
