@@ -281,15 +281,17 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
  * substantive reason (checked by the guard — see module doc).
  */
 export const EXEMPT_FIELDS: Record<string, string> = {
-  // ---- archive/ArchiveConfirmDialog.tsx + users/ArchiveConfirmDialog.tsx ----
+  // ---- archive/ArchiveConfirmDialog.tsx + users/ArchiveConfirmDialog.tsx +
+  //      user-profile/admin-actions/ArchiveUserDialog.tsx ----
   'testid:archive-confirm-input':
     'Type-to-confirm box — user retypes an existing name to confirm a destructive action; not a data field, and autofill would defeat the point of typing it manually.',
+  // task-archive-pending-modal: ArchiveUserDialog (profile-page admin-actions
+  // variant) now carries the SAME `archive-confirm-name-input` testid as the
+  // users-list dialog (both retype-to-confirm the same way) — one exemption
+  // key covers both call sites; the old positional
+  // `.../ArchiveUserDialog.tsx#1` key this used to be keyed under is gone.
   'testid:archive-confirm-name-input':
-    'Same type-to-confirm pattern as archive-confirm-input, in the users list archive dialog.',
-
-  // ---- user-profile/admin-actions/ArchiveUserDialog.tsx ----
-  'app/components/user-profile/admin-actions/ArchiveUserDialog.tsx#1':
-    "Type-to-confirm box (retype the profile owner's display name) before archiving — same pattern as archive-confirm-input.",
+    'Same type-to-confirm pattern as archive-confirm-input — used by both the users-list archive dialog and the profile-page ArchiveUserDialog.',
 
   // ---- user-profile/admin-actions/AdminNoteDialog.tsx ----
   'app/components/user-profile/admin-actions/AdminNoteDialog.tsx#1':

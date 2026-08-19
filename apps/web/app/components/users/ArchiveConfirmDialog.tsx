@@ -151,7 +151,12 @@ export function ArchiveConfirmDialog({
   )
 }
 
-function ImpactWarning({
+/**
+ * Exported so `ArchiveUserDialog` (profile-page admin-actions variant) can
+ * reuse the SAME role-aware copy instead of a third hand-maintained copy of
+ * it — see that file's docblock.
+ */
+export function ImpactWarning({
   user,
   impact,
 }: {
