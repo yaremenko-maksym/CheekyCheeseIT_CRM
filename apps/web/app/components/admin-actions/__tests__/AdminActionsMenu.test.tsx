@@ -256,7 +256,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
   // (pinned instead by the users/ArchiveConfirmDialog + ArchiveUserDialog
   // paths, which share the identical pattern).
   it.each(['SENIOR', 'DROP'] as const)(
-    'renders the cascade-pair copy for a %s user-type impact (entityType="user")',
+    'renders the FULL cascade-pair copy for a %s user-type impact (entityType="user")',
     async (role) => {
       const { api } = await import('@/lib/axios')
       ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -265,10 +265,12 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
           role,
           isPaired: true,
           teamName: 'Alpha Team',
-          projectsCount: 1,
-          projectNames: ['Project A'],
-          hrAccountantsToBeRemoved: 1,
-          juniorsAffected: 1,
+          projectsCount: 2,
+          // TWO entries — pins the ', ' join separator, same reason as the
+          // team-type test above.
+          projectNames: ['Project A', 'Project B'],
+          hrAccountantsToBeRemoved: 3,
+          juniorsAffected: 4,
         },
       })
       const user = userEvent.setup()
@@ -278,12 +280,47 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
       await user.click(await screen.findByTestId('admin-action-archive'))
 
       const dialog = await screen.findByRole('dialog')
-      expect(
-        within(dialog).getByText(/связанная пара, убрать по одному нельзя/),
-      ).toBeInTheDocument()
-      expect(
-        within(dialog).getByText(role === 'SENIOR' ? /профиль синьора/ : /профиль дропа/),
-      ).toBeInTheDocument()
+      const dialogText = dialog.textContent ?? ''
+      expect(dialogText).toContain('связанная пара, убрать по одному нельзя')
+      expect(dialogText).toContain(role === 'SENIOR' ? 'профиль синьора' : 'профиль дропа')
+      // Named projects, joined with ", " — not a coincidence of a single item.
+      expect(dialogText).toContain('Project A, Project B')
+      expect(dialogText).toContain('2')
+      // The two "third parties stay active" counts.
+      expect(dialogText).toContain('3')
+      expect(dialogText).toContain('4')
+      expect(dialogText).toContain('остаются активными членами')
+      // The closing sentence's role-specific English pair word.
+      expect(dialogText).toContain(role === 'SENIOR' ? 'senior+команда' : 'drop+команда')
     },
   )
+
+  // task-archive-pending-modal (AC8): the empty-projectNames / zero-counts
+  // side of the SAME branch — a single richly-populated fixture cannot prove
+  // `?? 0` / `.length > 0 ? … : ''` are load-bearing (see the team-type
+  // "EMPTY projectNames" test above for the identical reasoning).
+  it('user-type SENIOR impact with zero counts and no projectNames: no ": " suffix, "0" everywhere', async () => {
+    const { api } = await import('@/lib/axios')
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        type: 'user',
+        role: 'SENIOR',
+        isPaired: true,
+        teamName: 'Alpha Team',
+        projectsCount: 0,
+        projectNames: [],
+        hrAccountantsToBeRemoved: 0,
+        juniorsAffected: 0,
+      },
+    })
+    const user = userEvent.setup()
+    renderMenu({ isArchived: false, entityType: 'user' })
+
+    await user.click(screen.getByTestId('admin-actions-trigger'))
+    await user.click(await screen.findByTestId('admin-action-archive'))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/\(0 шт\.\)/)).toBeInTheDocument()
+    expect(within(dialog).queryByText(/\(0 шт\.:/)).not.toBeInTheDocument()
+  })
 })
