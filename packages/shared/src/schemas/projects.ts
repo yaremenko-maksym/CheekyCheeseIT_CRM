@@ -323,6 +323,28 @@ export const projectAuditLogListSchema = z.object({
   limit: z.number().int().positive(),
 })
 
+// task-archive-pending-modal (AC2/AC8, backlog 129/89-MED-2, owner decision
+// 2026-08-18/19). A PENDING transaction earned before archival stays in the
+// system and stays payable — see `assertSalaryReceiverNotArchived`'s docblock
+// in transactions.service.ts for the full "already earned vs not yet earned"
+// distinction this modal exists to warn about. Scope matches AC1 exactly:
+// the three accrual kinds that mint a `status='PENDING'` row addressed to a
+// named person (SALARY / SENIOR_INCOME / DROP_INCOME) — NOT the
+// `*_PENDING_PAYMENT` company-obligation rows (those were never blocked from
+// archived receivers, see AC4, so they carry no "will this still get paid"
+// anxiety this warning is meant to resolve).
+export const archivePendingTransactionSchema = z.object({
+  id: z.string().uuid(),
+  type: z.enum(['SALARY', 'SENIOR_INCOME', 'DROP_INCOME']),
+  // SALARY rows carry `salaryMonth` ('YYYY-MM'); SENIOR_INCOME/DROP_INCOME
+  // carry a business `txDate` instead. Exactly one of the two is non-null.
+  salaryMonth: z.string().nullable(),
+  txDate: z.coerce.date().nullable(),
+  amount: z.string(),
+  currency: z.string(),
+})
+export type ArchivePendingTransaction = z.infer<typeof archivePendingTransactionSchema>
+
 // Returned to UI to show warning before archive (cascade impact summary).
 export const archiveImpactSchema = z.union([
   // User impact
@@ -333,9 +355,23 @@ export const archiveImpactSchema = z.union([
     teamName: z.string().nullable().optional(),
     teamsCount: z.number().int().nonnegative().optional(),
     projectsCount: z.number().int().nonnegative().optional(),
+    // task-archive-pending-modal (AC8): named list of the active projects
+    // that will be archived alongside a SENIOR/DROP — the count alone cannot
+    // be "enumerated" in the modal's copy.
+    projectNames: z.array(z.string()).optional(),
+    // owner decision 2026-08-19 (AC9): these two counts NO LONGER mean "will
+    // be removed" — HR/ACCOUNTANT/JUNIOR keep their membership through a
+    // SENIOR/DROP cascade archive (only the team/projects themselves gain
+    // `archivedAt`). Kept as "how many people are on the affected
+    // team/projects" — still useful for the warning copy, renamed nothing
+    // to avoid an unrelated schema churn across teams.service.ts.
     juniorsAffected: z.number().int().nonnegative().optional(),
     hrAccountantsToBeRemoved: z.number().int().nonnegative().optional(),
     noDependencies: z.boolean().optional(),
+    // task-archive-pending-modal (AC2): earned-but-unpaid rows that will
+    // stay in the system after this archive. Empty/absent ⇒ modal renders
+    // its old (no-warning) shape.
+    pendingTransactions: z.array(archivePendingTransactionSchema).optional(),
   }),
   // Team impact (alias for senior's pair OR drop-team standalone)
   z.object({
@@ -360,6 +396,13 @@ export const archiveImpactSchema = z.union([
     // detached (not archived) by `archiveDropTeam`. Surfaces in the
     // confirmation dialog so admin knows the senior is released.
     seniorWillBeDetached: z.boolean().optional(),
+    // task-archive-pending-modal (AC8): named list of the paired
+    // senior's/drop's active projects, forwarded 1:1 from the user impact.
+    projectNames: z.array(z.string()).optional(),
+    // task-archive-pending-modal (AC2): the paired senior's/drop's own
+    // pending transactions, forwarded 1:1 from `UsersService.getArchiveImpact`
+    // — archiving the team IS archiving the senior/drop (they are one pair).
+    pendingTransactions: z.array(archivePendingTransactionSchema).optional(),
   }),
   // Project impact (independent)
   z.object({
