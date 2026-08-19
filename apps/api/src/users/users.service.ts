@@ -1063,10 +1063,20 @@ export class UsersService {
    */
   async archive(id: string, actorId: string | null = null): Promise<User> {
     return this.db.db.transaction(async (tx) => {
+      // security-review PR #584 round 2 (MED-4): SELECT ... FOR UPDATE locks
+      // this row for the lifetime of the transaction. Without it, two
+      // concurrent archive requests for the same user both read
+      // `archivedAt: null` under READ COMMITTED, both pass the check below,
+      // and both run the cascade — duplicate audit-trail rows and
+      // timestamp drift (no money moves, no privilege is gained, but the
+      // audit trail lies about how many times this happened). The second
+      // concurrent caller now blocks here until the first commits, then
+      // re-reads `archivedAt` already set and hits the throw below instead.
       const user = await tx
         .select()
         .from(users)
         .where(eq(users.id, id))
+        .for('update')
         .then((rows) => rows[0])
       if (!user) throw new NotFoundException('User not found')
       if (user.archivedAt) throw new BadRequestException('User is already archived')
@@ -1368,7 +1378,13 @@ export class UsersService {
    * Returns the cascade impact summary the UI shows before the admin confirms archive.
    * Shape varies by role — see ArchiveImpact union in @crm/shared.
    */
-  async getArchiveImpact(id: string): Promise<ArchiveImpact> {
+  async getArchiveImpact(id: string, currentUser: SessionUser): Promise<ArchiveImpact> {
+    // security-review PR #584 (round 2, MED-2): this payload now carries
+    // salary/income sums (`pendingTransactions`) — mirror the inline RBAC
+    // TeamsService/ProjectsService.getArchiveImpact already do, so
+    // enforcement on the money-bearing path isn't single-point (controller
+    // @Roles only).
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
     const user = await this.findById(id)
     if (!user) throw new NotFoundException('User not found')
 
@@ -2145,10 +2161,15 @@ export class UsersService {
     // comment above for the full rationale.
     const effectiveActorId = actor.impersonatorId ?? actor.id
     return this.db.db.transaction(async (tx) => {
+      // security-review PR #584 round 2 (MED-4): same row-lock rationale as
+      // `archive()` above — prevents two concurrent DELETE /users/drops/:id
+      // calls on the same drop from both passing the archivedAt check and
+      // both running archiveDropTeam's cascade.
       const user = await tx
         .select()
         .from(users)
         .where(eq(users.id, dropId))
+        .for('update')
         .then((rows) => rows[0])
       if (!user) throw new NotFoundException('Пользователь не найден')
       if (user.role !== 'DROP') {

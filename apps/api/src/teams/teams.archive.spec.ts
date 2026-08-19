@@ -299,7 +299,29 @@ describe('TeamsService.archive', () => {
   // against a snapshot/rollback-capable fake store (same technique as
   // `users.archive.spec.ts`'s SENIOR rollback test), and asserts the store is
   // back to its PRE-archive shape — not "the write we happened to check".
-  it('AC10: interrupting the DROP cascade mid-way leaves NOTHING changed (atomic)', async () => {
+  // task-archive-pending-modal (round 2, security MED-3). The original
+  // version of this fixture handed `db.transaction()`'s callback `db`
+  // ITSELF as the `tx` argument — so a regression where `archiveDropTeam`
+  // silently fell through to `this.db.db` (its OWN fallback,
+  // `const handle = tx ?? this.db.db`) instead of the tx it was actually
+  // given would have been byte-for-byte indistinguishable from correct
+  // usage: same object either way. Security review measured this by name
+  // ("The tx handle IS `db` itself here").
+  //
+  // Fixed by building TWO distinct handle objects that share the same
+  // underlying `store` but are otherwise unrelated JS objects — exactly
+  // like a real Postgres pool connection (`this.db.db`) vs a transaction
+  // client (`tx`) are two different objects during an open transaction.
+  // `baseDb` (what the service is CONSTRUCTED with) throws loudly the
+  // moment anything calls `select`/`update` on it — the only legitimate
+  // base-handle call in this call path is the ONE pre-transaction
+  // `query.teams.findFirst` read `TeamsService.archive` does before ever
+  // opening the transaction. Every read/write `archiveDropTeam` itself
+  // performs MUST go through the `txHandle` passed into the callback; if a
+  // future edit swaps even one call back to `this.db.db`, that call now
+  // hits the throwing base and the test fails with a diagnostic message
+  // instead of silently passing.
+  function buildAtomicityFixture(opts: { throwOnNthProjectUpdate?: number }) {
     const dropId = 'drop-1'
     const teamId = 'team-drop-1'
     const store = {
@@ -333,8 +355,8 @@ describe('TeamsService.archive', () => {
     // enough surface for archiveDropTeam's own calls (select/innerJoin/where,
     // update/set/where). WHERE expressions arrive as `{ __predicate }` (this
     // file's top-level `vi.mock('drizzle-orm', ...)` — same convention as
-    // `users.archive.spec.ts`). Forces a throw on the SECOND projects UPDATE
-    // (i.e. partway through the drop-projects loop).
+    // `users.archive.spec.ts`). Optionally forces a throw on the Nth
+    // projects UPDATE (i.e. partway through the drop-projects loop).
     type Pred = { __predicate: (row: Record<string, unknown>) => boolean }
     const asPredicate = (expr: unknown): ((row: Record<string, unknown>) => boolean) =>
       expr && typeof expr === 'object' && '__predicate' in expr
@@ -361,20 +383,21 @@ describe('TeamsService.archive', () => {
       const rows = (store[resolveTable(table)] as Array<Record<string, unknown>>).filter(
         asPredicate(expr),
       )
-      const thenable = {
+      const thenable: {
+        then: (onF: (v: unknown[]) => unknown) => Promise<unknown>
+        for: () => typeof thenable
+      } = {
         then: (onF: (v: unknown[]) => unknown) => Promise.resolve(onF(rows)),
+        // security-review PR #584 round 2 (MED-4): archiveDropTeam's own
+        // team-row read now locks with `.for('update')` — no-op here (chain
+        // shape only, this fake has no real transaction isolation).
+        for: () => thenable,
       }
       return thenable
     }
-    const db = {
-      // `TeamsService.archive` reads the team via `db.query.teams.findFirst`
-      // BEFORE dispatching to archiveDropTeam — needs its own stub, separate
-      // from the plain `select` chain archiveDropTeam itself uses.
-      query: {
-        teams: {
-          findFirst: () => Promise.resolve(store.teams.find((t) => t.id === teamId) as unknown),
-        },
-      },
+
+    // The correct handle — everything archiveDropTeam does must route here.
+    const txHandle = {
       select: () => ({
         from: (table: unknown) => ({
           where: (expr: unknown) => selectChain(table, expr),
@@ -389,8 +412,8 @@ describe('TeamsService.archive', () => {
             const key = resolveTable(table)
             if (key === 'projects') {
               projectUpdateCount += 1
-              if (projectUpdateCount === 2) {
-                throw new Error('Simulated failure archiving the 2nd drop-project')
+              if (projectUpdateCount === opts.throwOnNthProjectUpdate) {
+                throw new Error(`Simulated failure archiving drop-project #${projectUpdateCount}`)
               }
             }
             const pred = asPredicate(expr)
@@ -401,12 +424,30 @@ describe('TeamsService.archive', () => {
           },
         }),
       }),
+    }
+
+    const BYPASS_MESSAGE =
+      '[AC10 fake db] a read/write reached this.db.db directly instead of the tx handed to the ' +
+      'transaction callback — archiveDropTeam bypassed the transaction boundary'
+    const baseDb = {
+      // The ONE legitimate base-handle call in this path: `TeamsService.archive`
+      // reads the team via `db.query.teams.findFirst` BEFORE it ever opens the
+      // transaction — that read is genuinely outside the atomic operation.
+      query: {
+        teams: {
+          findFirst: () => Promise.resolve(store.teams.find((t) => t.id === teamId) as unknown),
+        },
+      },
+      select: (): never => {
+        throw new Error(BYPASS_MESSAGE)
+      },
+      update: (): never => {
+        throw new Error(BYPASS_MESSAGE)
+      },
       transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
         const snap = snapshot()
         try {
-          // The tx handle IS `db` itself here — the fake has no separate
-          // tx-vs-base-connection distinction, only rollback-on-throw.
-          return await fn(db)
+          return await fn(txHandle)
         } catch (err) {
           restore(snap)
           throw err
@@ -414,6 +455,11 @@ describe('TeamsService.archive', () => {
       },
     }
 
+    return { db: baseDb, store, teamId, dropId }
+  }
+
+  it('AC10: interrupting the DROP cascade mid-way leaves NOTHING changed (atomic)', async () => {
+    const { db, store, teamId, dropId } = buildAtomicityFixture({ throwOnNthProjectUpdate: 2 })
     const usersService = { archive: vi.fn(), unarchive: vi.fn(), getArchiveImpact: vi.fn() }
     const service = new TeamsService(
       { db } as never,
@@ -422,7 +468,7 @@ describe('TeamsService.archive', () => {
     )
 
     await expect(service.archive(teamId, adminUser)).rejects.toThrow(
-      'Simulated failure archiving the 2nd drop-project',
+      'Simulated failure archiving drop-project #2',
     )
 
     // Nothing moved: team, drop user, and BOTH projects (including the first
@@ -431,6 +477,38 @@ describe('TeamsService.archive', () => {
     expect(store.users.find((u) => u.id === dropId)?.archivedAt).toBeNull()
     expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeNull()
     expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeNull()
+  })
+
+  // task-archive-pending-modal (round 2, security MED-3). Companion to the
+  // interruption test above: that one only exercises archiveDropTeam's
+  // reads plus the FIRST successful project write before it throws — the
+  // drop-user update and the final team update, which come AFTER the
+  // projects loop, are never reached there. This test runs the cascade to
+  // completion (no interruption) against the SAME throwing-base fixture, so
+  // EVERY read/write the method performs — not just the ones before an
+  // interruption point — is proven to route through `tx`, not `this.db.db`.
+  it('AC10: the full DROP cascade completes with every read/write routed through tx', async () => {
+    const { db, store, teamId, dropId } = buildAtomicityFixture({})
+    const usersService = { archive: vi.fn(), unarchive: vi.fn(), getArchiveImpact: vi.fn() }
+    const service = new TeamsService(
+      { db } as never,
+      usersService as never,
+      makeTeamAuditLogService() as never,
+    )
+
+    // `findOne` runs after the transaction commits — stub it directly so this
+    // test stays scoped to the atomicity question, not team-shape mapping.
+    vi.spyOn(service, 'findOne').mockResolvedValue({ id: teamId } as never)
+
+    // Resolves cleanly — had ANY step fallen through to `this.db.db`, the
+    // throwing base handle would have rejected this with BYPASS_MESSAGE
+    // instead.
+    await expect(service.archive(teamId, adminUser)).resolves.toBeDefined()
+
+    expect(store.teams.find((t) => t.id === teamId)?.archivedAt).toBeInstanceOf(Date)
+    expect(store.users.find((u) => u.id === dropId)?.archivedAt).toBeInstanceOf(Date)
+    expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
+    expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
   })
 })
 
@@ -610,7 +688,7 @@ describe('TeamsService.getArchiveImpact', () => {
       projectsCount: 3,
       membersAffected: 3, // 2 HR + 1 ACCOUNTANT
     })
-    expect(usersService.getArchiveImpact).toHaveBeenCalledWith('drop-1')
+    expect(usersService.getArchiveImpact).toHaveBeenCalledWith('drop-1', adminUser)
     // The `.select({...})` projection actually asked for `name` — not just
     // `id` — so `projectNames` above is drawn from a real column, not a
     // coincidence of the fake ignoring the projection.

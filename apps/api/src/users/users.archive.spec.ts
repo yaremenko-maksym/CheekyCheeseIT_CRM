@@ -8,7 +8,21 @@
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
+import type { SessionUser } from '@crm/shared'
 import { UsersService } from './users.service'
+
+// task-archive-pending-modal (round 2, security MED-2): getArchiveImpact now
+// requires a `currentUser` for its own inline RBAC check (mirrors
+// TeamsService/ProjectsService.getArchiveImpact) instead of relying solely on
+// the controller's @Roles('ADMIN').
+const adminUser: SessionUser = {
+  id: 'admin-x',
+  role: 'ADMIN',
+  displayName: 'Admin',
+  email: 'admin@x.com',
+  avatarUrl: null,
+  seniorSharePercent: 26,
+}
 
 // ---------------------------------------------------------------------------
 // Drizzle fake — in-memory tables + a chainable query builder that supports the
@@ -134,6 +148,11 @@ function makeDb(store: FakeStore) {
           limit: () => thenable,
           offset: () => thenable,
           innerJoin: () => thenable,
+          // security-review PR #584 round 2 (MED-4): archive()/archiveDrop()
+          // now lock the row with `.for('update')` before reading it — a
+          // no-op here (the fake has no real transaction isolation to
+          // enforce), just chain-shape compatibility.
+          for: () => thenable,
         }
         return thenable as unknown as Promise<Array<Record<string, unknown>>>
       },
@@ -804,7 +823,7 @@ describe('UsersService.getArchiveImpact', () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
     const { service, db } = buildService(store)
-    const impact = await service.getArchiveImpact('senior-1')
+    const impact = await service.getArchiveImpact('senior-1', adminUser)
     expect(impact).toMatchObject({
       type: 'user',
       role: 'SENIOR',
@@ -918,7 +937,7 @@ describe('UsersService.getArchiveImpact', () => {
     )
     const { service, db } = buildService(store)
 
-    const impact = await service.getArchiveImpact('senior-1')
+    const impact = await service.getArchiveImpact('senior-1', adminUser)
 
     expect(impact.type).toBe('user')
     const pending =
@@ -956,7 +975,7 @@ describe('UsersService.getArchiveImpact', () => {
       { id: 'tm-2', teamId: 'team-B', userId: 'hr-1', leftAt: null },
     )
     const { service } = buildService(store)
-    const impact = await service.getArchiveImpact('hr-1')
+    const impact = await service.getArchiveImpact('hr-1', adminUser)
     expect(impact).toMatchObject({
       type: 'user',
       role: 'HR',
@@ -970,7 +989,7 @@ describe('UsersService.getArchiveImpact', () => {
     store.users.push({ id: 'j-1', role: 'JUNIOR', archivedAt: null })
     store.projectMembers.push({ id: 'pm-1', projectId: 'proj-1', userId: 'j-1', leftAt: null })
     const { service } = buildService(store)
-    const impact = await service.getArchiveImpact('j-1')
+    const impact = await service.getArchiveImpact('j-1', adminUser)
     expect(impact).toMatchObject({ type: 'user', role: 'JUNIOR', projectsCount: 1 })
   })
 
@@ -978,7 +997,26 @@ describe('UsersService.getArchiveImpact', () => {
     const store = emptyStore()
     store.users.push({ id: 'adm', role: 'ADMIN', archivedAt: null })
     const { service } = buildService(store)
-    const impact = await service.getArchiveImpact('adm')
+    const impact = await service.getArchiveImpact('adm', adminUser)
     expect(impact).toMatchObject({ type: 'user', role: 'ADMIN', noDependencies: true })
+  })
+
+  // task-archive-pending-modal (round 2, security MED-2): the payload now
+  // carries salary/income sums — inline RBAC must not be single-point
+  // (controller @Roles only). Mirrors the equivalent test on
+  // TeamsService.getArchiveImpact / ProjectsService.getArchiveImpact.
+  it('non-ADMIN currentUser is rejected (inline RBAC, not just the controller @Roles)', async () => {
+    const store = emptyStore()
+    seedSeniorWithTeamAndProjects(store)
+    const { service } = buildService(store)
+    const nonAdmin: SessionUser = {
+      id: 'hr-x',
+      role: 'HR',
+      displayName: 'HR actor',
+      email: 'hr-x@x.com',
+      avatarUrl: null,
+      seniorSharePercent: 26,
+    }
+    await expect(service.getArchiveImpact('senior-1', nonAdmin)).rejects.toThrow(ForbiddenException)
   })
 })

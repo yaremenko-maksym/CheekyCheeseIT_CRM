@@ -678,6 +678,12 @@ describe('AC4 BIZ-17 — updateDropIncome: resubmit REJECTED DROP_INCOME', () =>
               payoutRequest: null,
             }),
           },
+          // security-review PR #584 round 2 (MED-1): updateDropIncome now
+          // re-reads the caller's own row for an archived-status check
+          // before resubmitting — active by default here.
+          users: {
+            findFirst: async () => ({ id: fullTx.receiverId, archivedAt: null }),
+          },
         },
         transaction: async (cb: (dbtx: unknown) => Promise<unknown>) => {
           // security-review PR #456 (MED-1): replaceReceiptAtomic's UPDATE

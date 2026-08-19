@@ -747,7 +747,7 @@ export class TeamsService {
       // drop member has nothing to forward).
       const dropPendingTransactions = dropRow
         ? await this.usersService
-            .getArchiveImpact(dropRow.id)
+            .getArchiveImpact(dropRow.id, currentUser)
             .then((i) =>
               i.type === 'user' && i.role === 'DROP' ? (i.pendingTransactions ?? []) : [],
             )
@@ -789,7 +789,7 @@ export class TeamsService {
         teamType: 'SENIOR',
       }
     }
-    const userImpact = await this.usersService.getArchiveImpact(seniorRow.id)
+    const userImpact = await this.usersService.getArchiveImpact(seniorRow.id, currentUser)
     const seniorImpact =
       userImpact.type === 'user' && userImpact.role === 'SENIOR' ? userImpact : null
     return {
@@ -1137,10 +1137,19 @@ export class TeamsService {
     tx?: DrizzleTx,
   ): Promise<{ archivedProjects: number; detachedSeniorId: string | null }> {
     const handle = tx ?? this.db.db
+    // security-review PR #584 round 2 (MED-4): same row-lock rationale as
+    // UsersService.archive/archiveDrop — this is the SECOND layer, reached
+    // from all three entry points (TeamsService.archive DROP branch,
+    // UsersService.archiveDrop, UsersService.archive DROP branch), so it
+    // closes the race even for a caller that forgot its own lock. `.for()`
+    // is a no-op outside an open transaction (no caller does that today —
+    // all three pass `tx`), so this stays harmless if `handle` is ever the
+    // bare pool.
     const team = await handle
       .select()
       .from(teams)
       .where(eq(teams.id, teamId))
+      .for('update')
       .then((rows) => rows[0])
     if (!team) throw new NotFoundException('Команда не найдена')
     if (team.type !== 'DROP') {
