@@ -4123,6 +4123,22 @@ export class TransactionsService {
       // for the payout_request detail page. The same row is mutated to PAID in
       // payPayoutRequest (txHash + status flip + fundingSource marker) — no
       // fresh PAYOUT is inserted there.
+      //
+      // backlog 144: this row used to be inserted WITHOUT `projectId`, so
+      // `GET /api/transactions?projectId=` (and anything else that filters on
+      // it) could never see it — no matter its status. `confirmPayout` later
+      // snapshots `projectId: payoutTx.projectId` from THIS row onto the
+      // PAYOUT_CONFIRMED row it creates, so the gap propagated there too.
+      // `applyPayoutPaidCascade` already treats "the first linked income's
+      // project" as the batch's primary project for the SAME reason (see its
+      // `primaryProjectId` — the standing UX is "a payout = one project"; a
+      // DROP batch is additionally hard-enforced to a single project above).
+      // Mirror that here. `lockedRows[0]` always exists — the count-mismatch
+      // guard above already threw if the batch were empty. `?? null` is
+      // defense-in-depth only: `createSeniorIncome`/`createDropIncome` require
+      // a resolvable `projectId` at creation time, so a locked SENIOR_INCOME/
+      // DROP_INCOME row is never legitimately projectless today.
+      const primaryProjectId = lockedRows[0]?.projectId ?? null
       await dbtx.insert(transactions).values({
         type: 'PAYOUT',
         status: 'PENDING_PAYMENT',
@@ -4131,6 +4147,7 @@ export class TransactionsService {
         senderId: currentUser.id,
         receiverLabel: 'CheekyCheeseIT',
         payoutRequestId: req!.id,
+        projectId: primaryProjectId,
         createdBy: currentUser.id,
       })
 
