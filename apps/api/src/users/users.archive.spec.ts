@@ -26,6 +26,9 @@ interface FakeStore {
   userAuditLog: Array<Record<string, unknown>>
   teamAuditLog: Array<Record<string, unknown>>
   projectAuditLog: Array<Record<string, unknown>>
+  // task-archive-pending-modal (AC2): getArchiveImpact now also reads
+  // pending transactions for the warning list.
+  transactions: Array<Record<string, unknown>>
 }
 
 function emptyStore(): FakeStore {
@@ -38,6 +41,7 @@ function emptyStore(): FakeStore {
     userAuditLog: [],
     teamAuditLog: [],
     projectAuditLog: [],
+    transactions: [],
   }
 }
 
@@ -57,6 +61,7 @@ import {
   projects as projectsTable,
   teamMembers as teamMembersTable,
   teams as teamsTable,
+  transactions as transactionsTable,
   users as usersTable,
 } from '../database/schema'
 
@@ -78,6 +83,7 @@ function makeDb(store: FakeStore) {
     [teamMembersTable, 'teamMembers'],
     [projectsTable, 'projects'],
     [projectMembersTable, 'projectMembers'],
+    [transactionsTable, 'transactions'],
   ])
 
   // Each Drizzle `where(...)` returns an expression that we don't introspect —
@@ -301,6 +307,7 @@ function makeDb(store: FakeStore) {
         userAuditLog: store.userAuditLog.map((r) => ({ ...r })),
         teamAuditLog: store.teamAuditLog.map((r) => ({ ...r })),
         projectAuditLog: store.projectAuditLog.map((r) => ({ ...r })),
+        transactions: store.transactions.map((r) => ({ ...r })),
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const tx: any = makeHandle('tx')
@@ -786,7 +793,7 @@ describe('UsersService.unarchive — HR / JUNIOR / ADMIN', () => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.getArchiveImpact', () => {
-  it('SENIOR: returns paired cascade counts', async () => {
+  it('SENIOR: returns paired cascade counts + named projects', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
     const { service } = buildService(store)
@@ -797,9 +804,89 @@ describe('UsersService.getArchiveImpact', () => {
       isPaired: true,
       teamName: 'Команда Senior',
       projectsCount: 2,
+      // task-archive-pending-modal (AC8): named list, not just a count.
+      projectNames: ['P1', 'P2'],
       juniorsAffected: 2,
       hrAccountantsToBeRemoved: 2,
+      pendingTransactions: [],
     })
+  })
+
+  // task-archive-pending-modal (AC2). Seeds a still-open SALARY reminder
+  // addressed to the senior AND a PAID one (must be excluded — settled,
+  // nothing "remains hanging") AND a SENIOR_INCOME PENDING (senior's own
+  // unpaid-share income, the second category the owner named).
+  it('SENIOR: surfaces PENDING salary + income rows, excludes PAID/other-receiver rows', async () => {
+    const store = emptyStore()
+    seedSeniorWithTeamAndProjects(store)
+    store.transactions.push(
+      {
+        id: 'tx-salary-pending',
+        type: 'SALARY',
+        status: 'PENDING',
+        receiverId: 'senior-1',
+        salaryMonth: '2026-07',
+        txDate: null,
+        amount: '1500.00',
+        currency: 'USD',
+        deletedAt: null,
+      },
+      {
+        id: 'tx-income-pending',
+        type: 'SENIOR_INCOME',
+        status: 'PENDING',
+        receiverId: 'senior-1',
+        salaryMonth: null,
+        txDate: new Date('2026-07-15T00:00:00.000Z'),
+        amount: '900.00',
+        currency: 'USDT',
+        deletedAt: null,
+      },
+      // Already settled — must NOT appear (nothing is "hanging").
+      {
+        id: 'tx-salary-paid',
+        type: 'SALARY',
+        status: 'PAID',
+        receiverId: 'senior-1',
+        salaryMonth: '2026-06',
+        txDate: null,
+        amount: '1500.00',
+        currency: 'USD',
+        deletedAt: null,
+      },
+      // Someone else's PENDING salary — must NOT appear.
+      {
+        id: 'tx-other-receiver',
+        type: 'SALARY',
+        status: 'PENDING',
+        receiverId: 'hr-1',
+        salaryMonth: '2026-07',
+        txDate: null,
+        amount: '1200.00',
+        currency: 'USD',
+        deletedAt: null,
+      },
+      // Soft-deleted PENDING salary — must NOT appear.
+      {
+        id: 'tx-deleted',
+        type: 'SALARY',
+        status: 'PENDING',
+        receiverId: 'senior-1',
+        salaryMonth: '2026-05',
+        txDate: null,
+        amount: '1500.00',
+        currency: 'USD',
+        deletedAt: new Date(),
+      },
+    )
+    const { service } = buildService(store)
+
+    const impact = await service.getArchiveImpact('senior-1')
+
+    expect(impact.type).toBe('user')
+    const pending =
+      impact.type === 'user' && impact.role === 'SENIOR' ? impact.pendingTransactions : undefined
+    expect(pending?.map((t) => t.id).sort()).toEqual(['tx-income-pending', 'tx-salary-pending'])
   })
 
   it('HR: returns teamsCount', async () => {
@@ -811,7 +898,12 @@ describe('UsersService.getArchiveImpact', () => {
     )
     const { service } = buildService(store)
     const impact = await service.getArchiveImpact('hr-1')
-    expect(impact).toMatchObject({ type: 'user', role: 'HR', teamsCount: 2 })
+    expect(impact).toMatchObject({
+      type: 'user',
+      role: 'HR',
+      teamsCount: 2,
+      pendingTransactions: [],
+    })
   })
 
   it('JUNIOR: returns projectsCount', async () => {
