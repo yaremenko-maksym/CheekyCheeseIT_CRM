@@ -2321,9 +2321,14 @@ export async function listPayoutRequestTransactionsViaAPI(
  *
  * Backlog AC5 (resolved): PAYOUT_ADMIN rows for senior-projects now carry
  * `projectId` (cascade was updated to insert it explicitly), so the
- * `?projectId=` filter captures them on both drop and senior flows. The
- * legacy workaround (`listPayoutRequestTransactionsViaAPI`) is still useful
- * when you want a single payout's rows in order.
+ * `?projectId=` filter captures them on both drop and senior flows.
+ *
+ * Backlog 144 (resolved): the placeholder PAYOUT row `createPayoutRequest`
+ * inserts — and the PAYOUT_CONFIRMED row `confirmPayout` snapshots from it —
+ * now ALSO carry `projectId` (see `TransactionsService.createPayoutRequest`),
+ * so this filter finds those too. The legacy workaround
+ * (`listPayoutRequestTransactionsViaAPI`) is still useful when you want a
+ * single payout's rows in deterministic order regardless of project.
  */
 export async function listTransactionsByProjectViaAPI(
   page: Page,
@@ -2334,6 +2339,12 @@ export async function listTransactionsByProjectViaAPI(
     type: string
     status: string
     amount: string
+    // backlog 144: same undeclared-field gap as `payoutRequestId` below —
+    // `mapTx` has always returned `currency`, the shape here just never said
+    // so. drop-confirm-payout.spec.ts needs it now that it reads the PAYOUT
+    // / PAYOUT_CONFIRMED rows straight off this helper (the `?projectId=`
+    // filter finds them directly — see the fixed TRAP note above).
+    currency: string
     senderId: string | null
     receiverId: string | null
     recipientId: string | null
@@ -2512,21 +2523,25 @@ export async function confirmPayoutRawViaAPI(
  * Caller must be ADMIN or ACCOUNTANT to see the full unfiltered list. Other
  * roles get a partial slice per RBAC and may miss PAYOUT rows.
  *
- * TRAP (backlog item 139, found while de-flaking the drop specs): the
- * placeholder PAYOUT row `TransactionsService.createPayoutRequest` inserts
- * (and later flips to PAID in `applyPayoutPaidCascade`) is NEVER stamped
- * with `projectId` — unlike PAYOUT_ADMIN / SENIOR_PENDING_PAYOUT /
- * DROP_PENDING_PAYOUT, which the same cascade DOES stamp (see
- * `bookCompanyObligations` in transactions.service.ts). This helper's
- * `?projectId=` filter (same one `listTransactionsByProjectViaAPI` uses)
- * therefore NEVER returns that PAYOUT row, at any status, before or after
- * payment — this is a standing backend gap, not a timing issue. To find the
- * placeholder/paid PAYOUT row for a payout_request, use
- * `listPayoutRequestTransactionsViaAPI(page, payoutRequestId)` instead — it
- * joins on `payoutRequestId`, not `projectId`. See the money-path specs
- * (drop-confirm-payout*.spec.ts, drop-distribution*.spec.ts) for the
- * pattern. Left un-fixed at the source (apps/api/** is outside this repo's
- * AutoTest zone-of-write) — flagged for a Coder follow-up.
+ * TRAP (backlog item 139, found while de-flaking the drop specs) — FIXED
+ * 2026-08 (backlog item 144, `TransactionsService.createPayoutRequest`,
+ * apps/api/src/finance/transactions.service.ts). The placeholder PAYOUT row
+ * `createPayoutRequest` inserts (and later flips to PAID in
+ * `applyPayoutPaidCascade`) used to be inserted WITHOUT `projectId` — unlike
+ * PAYOUT_ADMIN / SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT, which the same
+ * cascade DOES stamp (see `bookCompanyObligations` in
+ * transactions.service.ts) — so this helper's `?projectId=` filter (same one
+ * `listTransactionsByProjectViaAPI` uses) never returned it, at any status,
+ * before or after payment. `createPayoutRequest` now stamps `projectId` on
+ * that row (the batch's "primary project" — first linked income's project,
+ * same convention `applyPayoutPaidCascade` already used), and `confirmPayout`
+ * inherits it onto PAYOUT_CONFIRMED via its existing `projectId:
+ * payoutTx.projectId` snapshot, so both are found by this filter (and by
+ * `listTransactionsByProjectViaAPI`) directly now. `listPayoutRequestTransactionsViaAPI(page,
+ * payoutRequestId)` (joins on `payoutRequestId`, not `projectId`) remains a
+ * valid alternative when you want a single payout's rows in deterministic
+ * order regardless of project — it was never REQUIRED for this, just the
+ * only thing that worked before the fix.
  */
 export async function findPendingPayoutsForProjectViaAPI(
   page: Page,
