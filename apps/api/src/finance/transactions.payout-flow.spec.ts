@@ -691,6 +691,73 @@ describe('createPayoutRequest (#7)', () => {
     expect(prInsertArg['contractAddress']).toBe(COMPANY_WALLET)
   })
 
+  // ── backlog 144 (AC2/AC5) — the placeholder PAYOUT row must carry
+  // `projectId`, or `GET /api/transactions?projectId=` (and `confirmPayout`,
+  // which snapshots `projectId: payoutTx.projectId` onto PAYOUT_CONFIRMED)
+  // never see it. Regression test for the fix — revert the `projectId:
+  // primaryProjectId` line in `createPayoutRequest` and these go red.
+  describe('backlog 144 — PAYOUT row carries projectId', () => {
+    it('single-project batch: PAYOUT row projectId = the income tx projectId', async () => {
+      const tx = makeTx({ id: 'tx-1', currency: 'USDT' as const, projectId: 'proj-77' })
+      const prRow = makePayoutRequestRow('pr-proj-1')
+      const { svc, mocks } = makeServiceWithTransaction([tx], prRow)
+
+      await svc.createPayoutRequest(['tx-1'], SENIOR_USER)
+
+      // Second insert() call = the PAYOUT row (first is payout_requests).
+      const payoutInsertArg = (
+        mocks.insertMock.mock.results[1]?.value as { values: ReturnType<typeof vi.fn> }
+      ).values.mock.calls[0]?.[0] as Record<string, unknown>
+      expect(payoutInsertArg['projectId']).toBe('proj-77')
+    })
+
+    it('multi-project SENIOR batch: PAYOUT row projectId = the FIRST linked income’s project (primary-project convention, matches applyPayoutPaidCascade)', async () => {
+      const tx1 = makeTx({ id: 'tx-1', currency: 'USDT' as const, projectId: 'proj-first' })
+      const tx2 = makeTx({ id: 'tx-2', currency: 'USDT' as const, projectId: 'proj-second' })
+      const prRow = makePayoutRequestRow('pr-proj-2')
+      const { svc, mocks } = makeServiceWithTransaction([tx1, tx2], prRow)
+
+      await svc.createPayoutRequest(['tx-1', 'tx-2'], SENIOR_USER)
+
+      const payoutInsertArg = (
+        mocks.insertMock.mock.results[1]?.value as { values: ReturnType<typeof vi.fn> }
+      ).values.mock.calls[0]?.[0] as Record<string, unknown>
+      expect(payoutInsertArg['projectId']).toBe('proj-first')
+    })
+
+    it('defense-in-depth: a projectless locked income row does not throw — PAYOUT row projectId is null', async () => {
+      const tx = makeTx({ id: 'tx-1', currency: 'USDT' as const, projectId: null })
+      const prRow = makePayoutRequestRow('pr-proj-3')
+      const { svc, mocks } = makeServiceWithTransaction([tx], prRow)
+
+      await svc.createPayoutRequest(['tx-1'], SENIOR_USER)
+
+      const payoutInsertArg = (
+        mocks.insertMock.mock.results[1]?.value as { values: ReturnType<typeof vi.fn> }
+      ).values.mock.calls[0]?.[0] as Record<string, unknown>
+      expect(payoutInsertArg['projectId']).toBeNull()
+    })
+
+    // Mutation-gate (task-mutation-gate): kills the `OptionalChaining` mutant
+    // on `lockedRows[0]?.projectId ?? null` — mutating it to `lockedRows[0]
+    // .projectId ?? null` survived every OTHER test here because a locked
+    // batch is never actually empty through the real HTTP path (the DTO's
+    // `.min(1)` on `transactionIds` — packages/shared/src/schemas/finance.ts
+    // — guarantees at least one id, and the count-mismatch guard right above
+    // this line only fires when `lockedRows.length !== transactionIds.length`,
+    // which `0 !== 0` does not). The ONLY way to observe the `?.` is to call
+    // the service directly with an empty array, bypassing the DTO — exactly
+    // like this test suite's other RBAC/guard tests already do. Without the
+    // `?.`, `lockedRows[0]` is `undefined` and `.projectId` throws
+    // `Cannot read properties of undefined`.
+    it('mutation-gate: an empty locked-rows batch (DTO-bypassing direct call) does not throw — proves the `?.` on lockedRows[0] is load-bearing', async () => {
+      const prRow = makePayoutRequestRow('pr-empty-1')
+      const { svc } = makeServiceWithTransaction([], prRow)
+
+      await expect(svc.createPayoutRequest([], SENIOR_USER)).resolves.toBeDefined()
+    })
+  })
+
   it('throws BadRequest when the company wallet is not configured', async () => {
     const tx = makeTx({ id: 'tx-1', currency: 'USDT' as const, amount: '1000' })
     const prRow = makePayoutRequestRow('pr-nowallet-1')

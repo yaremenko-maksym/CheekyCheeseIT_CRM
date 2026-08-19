@@ -49,7 +49,7 @@ import {
   createPayoutRequestViaAPI,
   onboardDropViaAPI,
   ensureCompanyWalletViaAPI,
-  listPayoutRequestTransactionsViaAPI,
+  listTransactionsByProjectViaAPI,
   getTransactionViaAPI,
 } from './fixtures'
 
@@ -120,11 +120,12 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       // ── Pre-confirmation invariant ───────────────────────────────────
       // PAYOUT row exists, status=PENDING_PAYMENT, recipientId unset
       // (Phase 3 will populate it via the new PAYOUT_CONFIRMED row).
-      // `createPayoutRequest` never stamps `projectId` on this row — see the
-      // TRAP note on `findPendingPayoutsForProjectViaAPI` in fixtures.ts —
-      // so it's found by payout_request id instead.
+      // Backlog 144 (fixed): `createPayoutRequest` now stamps `projectId` on
+      // this row, so the plain `?projectId=` filter finds it directly — no
+      // more payout_request-id workaround (see `findPendingPayoutsForProjectViaAPI`'s
+      // former TRAP note in fixtures.ts, now updated to reflect the fix).
       await loginViaApi(page, SEED_ADMIN_EMAIL)
-      const payoutRequestTxs = await listPayoutRequestTransactionsViaAPI(page, payoutRequestId)
+      const payoutRequestTxs = await listTransactionsByProjectViaAPI(page, projectId)
       const pendingPayouts = payoutRequestTxs.filter((t) => t.type === 'PAYOUT')
       expect(pendingPayouts).toHaveLength(1)
       const payoutTx = pendingPayouts[0]!
@@ -192,14 +193,16 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
 
       // New PAYOUT_CONFIRMED row exists with the right shape. It carries the
       // same `payoutRequestId` as the placeholder PAYOUT (confirmPayout
-      // snapshots it — transactions.service.ts), so it's discoverable via
-      // the same payout_request join used above. NOT via
-      // `listTransactionsByProjectViaAPI` — `confirmPayout` snapshots
-      // `projectId` FROM the source PAYOUT row (`projectId:
-      // payoutTx.projectId`), which is null per the TRAP note on
-      // `findPendingPayoutsForProjectViaAPI`, so PAYOUT_CONFIRMED inherits
-      // the same null and a `?projectId=` filter would miss it too.
-      const projectTxs = await listPayoutRequestTransactionsViaAPI(page, payoutRequestId)
+      // snapshots it — transactions.service.ts).
+      //
+      // Backlog 144 (fixed): `confirmPayout` snapshots `projectId` FROM the
+      // source PAYOUT row (`projectId: payoutTx.projectId`), and
+      // `createPayoutRequest` now sets that (see the fixed TRAP note on
+      // `findPendingPayoutsForProjectViaAPI` in fixtures.ts), so
+      // PAYOUT_CONFIRMED carries the real project id and the plain
+      // `?projectId=` filter (`listTransactionsByProjectViaAPI`) finds it
+      // directly — no more `listPayoutRequestTransactionsViaAPI` workaround.
+      const projectTxs = await listTransactionsByProjectViaAPI(page, projectId)
       const confirmedRows = projectTxs.filter((t) => t.type === 'PAYOUT_CONFIRMED')
       expect(confirmedRows).toHaveLength(1)
       const confirmedRow = confirmedRows[0]!
@@ -207,16 +210,10 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       expect(parseFloat(confirmedRow.amount)).toBeCloseTo(payoutAmount, 2)
       expect(confirmedRow.recipientId).toBe(MAKSYM_ID)
       expect(confirmedRow.receiverId).toBe(MAKSYM_ID)
-      // Backlog item 144: pins the KNOWN DEFECT, not the desired behaviour —
-      // `confirmPayout` snapshots `projectId` from the source PAYOUT row
-      // (`projectId: payoutTx.projectId`), which `createPayoutRequest` never
-      // sets (see the TRAP note on `findPendingPayoutsForProjectViaAPI` in
-      // fixtures.ts), so PAYOUT_CONFIRMED.projectId is always null too, never
-      // the real project id. If this ever turns red, the backend bug was
-      // fixed — replace this with `expect(confirmedRow.projectId).toBe(projectId)`
-      // and drop the `listPayoutRequestTransactionsViaAPI` workaround above
-      // (`listTransactionsByProjectViaAPI` would then find this row directly).
-      expect(confirmedRow.projectId).toBeNull()
+      // Pins the FIX (backlog 144) — used to be pinned `.toBeNull()` (the
+      // known defect). Revert `createPayoutRequest`'s `projectId:
+      // primaryProjectId` and this goes red again.
+      expect(confirmedRow.projectId).toBe(projectId)
       // Pull the row again with the full shape to check currency.
       const confirmedFull = await page.request.get(`${REAL_API}/transactions/${confirmedRow.id}`)
       expect(confirmedFull.status()).toBe(200)

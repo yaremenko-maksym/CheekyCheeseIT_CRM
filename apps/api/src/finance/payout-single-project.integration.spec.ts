@@ -54,8 +54,16 @@ const DROP: SessionUser = {
   displayName: 'PSP Drop',
   role: 'DROP',
 }
+// backlog 144 — recipient ADMIN for the confirmPayout real-DB assertion below.
+const ADMIN: SessionUser = {
+  ...SENIOR,
+  id: 'a5500000-0000-4000-bb00-000000000003',
+  email: 'psp-admin@test.spec',
+  displayName: 'PSP Admin',
+  role: 'ADMIN',
+}
 
-const TEST_USERS = [SENIOR, DROP]
+const TEST_USERS = [SENIOR, DROP, ADMIN]
 const TEST_USER_IDS = TEST_USERS.map((u) => u.id)
 const ACCOUNT_ID = 'a5500000-0000-4000-cc00-000000000001'
 const PROJECT_A = 'a5500000-0000-4000-dd00-000000000001'
@@ -265,5 +273,45 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(pr).toBeDefined()
       expect(pr.status).toBe('PENDING')
     }, 30_000)
+
+    // ── backlog 144 (real DB) ────────────────────────────────────────────────
+    // The placeholder PAYOUT row `createPayoutRequest` inserts must carry
+    // `projectId` — checked against REAL Postgres (not a mocked dbtx), and
+    // `confirmPayout`'s snapshot of it onto PAYOUT_CONFIRMED is checked in the
+    // same round trip. Revert `transactions.service.ts`'s `projectId:
+    // primaryProjectId` line and BOTH assertions below go red (the PAYOUT row
+    // read back from Postgres has `project_id IS NULL`).
+    describe('backlog 144 — PAYOUT/PAYOUT_CONFIRMED rows carry projectId (real DB)', () => {
+      it('createPayoutRequest: the placeholder PAYOUT row read back from Postgres has projectId = the income’s project', async () => {
+        const a = await seedValidatedDropIncome(PROJECT_A, '500')
+        const pr = await svc.createPayoutRequest([a], DROP)
+
+        const payoutRow = await dbSvc.db.query.transactions.findFirst({
+          where: (tbl, { eq, and: andOp }) =>
+            andOp(eq(tbl.payoutRequestId, pr.id), eq(tbl.type, 'PAYOUT')),
+        })
+        expect(payoutRow).toBeDefined()
+        expect(payoutRow?.projectId).toBe(PROJECT_A)
+      }, 30_000)
+
+      it('confirmPayout: PAYOUT_CONFIRMED inherits projectId from the now-fixed PAYOUT row', async () => {
+        const a = await seedValidatedDropIncome(PROJECT_A, '500')
+        const pr = await svc.createPayoutRequest([a], DROP)
+        const payoutRow = await dbSvc.db.query.transactions.findFirst({
+          where: (tbl, { eq, and: andOp }) =>
+            andOp(eq(tbl.payoutRequestId, pr.id), eq(tbl.type, 'PAYOUT')),
+        })
+        expect(payoutRow).toBeDefined()
+
+        await svc.confirmPayout(payoutRow!.id, ADMIN.id, ADMIN, { method: 'CASH' })
+
+        const confirmedRow = await dbSvc.db.query.transactions.findFirst({
+          where: (tbl, { eq, and: andOp }) =>
+            andOp(eq(tbl.payoutRequestId, pr.id), eq(tbl.type, 'PAYOUT_CONFIRMED')),
+        })
+        expect(confirmedRow).toBeDefined()
+        expect(confirmedRow?.projectId).toBe(PROJECT_A)
+      }, 30_000)
+    })
   },
 )
