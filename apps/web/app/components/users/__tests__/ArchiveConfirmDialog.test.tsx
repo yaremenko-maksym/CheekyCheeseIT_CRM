@@ -168,18 +168,93 @@ describe('ArchiveConfirmDialog (users list) — role-aware ImpactWarning + AC2 p
       const dialog = screen.getByRole('dialog')
       const text = dialog.textContent ?? ''
       expect(text).toContain('связанная пара')
-      expect(text).toContain('Alpha Team')
-      expect(text).toContain('Project A, Project B')
-      expect(text).toContain('2')
-      expect(text).toContain('3')
-      expect(text).toContain('4')
+      // Precise, position-pinned substrings — not loose single-digit
+      // `.toContain('2')` checks, which a mutant swapping the SOURCE of the
+      // digit (e.g. reading a different field, or defaulting to 0) can
+      // still satisfy by coincidence elsewhere in the paragraph.
+      expect(text).toContain(role === 'SENIOR' ? 'профиль синьора' : 'профиль дропа')
+      expect(text).toContain('команда Alpha Team и все её проекты (2 шт.: Project A, Project B)')
+      expect(text).toContain('HR/бухгалтеры на команде (3)')
+      expect(text).toContain('JUNIOR на этих проектах (4)')
       expect(text).toContain('остаются активными членами')
+      // The closing sentence's space-preserved pair word.
+      expect(text).toContain(`пара ${role === 'SENIOR' ? 'senior' : 'drop'}+team`)
 
       // AC2: the pending-transactions warning renders alongside the cascade copy.
       expect(within(dialog).getByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
       expect(text).toContain('500')
     },
   )
+
+  it.each(['SENIOR', 'DROP'] as const)(
+    '%s: impact.isPaired === false is a HARD gate — populated-but-unpaired fields are ALL ignored',
+    async (role) => {
+      // security-review PR #584 round 2 (mutation-gate survivors): every
+      // derived value in the SENIOR/DROP branch is guarded by
+      // `impact.isPaired &&` before it is used. A fixture that only ever
+      // sets isPaired:true cannot prove that guard is load-bearing — a
+      // mutant deleting it would render byte-for-byte the same output.
+      // Here isPaired is false while every OTHER field is populated with
+      // values that would be obviously wrong if used — proving they are not.
+      ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: {
+          type: 'user',
+          role,
+          isPaired: false,
+          teamName: 'WRONG-TEAM-SHOULD-NOT-RENDER',
+          projectsCount: 99,
+          projectNames: ['WRONG-PROJECT-SHOULD-NOT-RENDER'],
+          hrAccountantsOnTeam: 88,
+          juniorsAffected: 77,
+        },
+      })
+      renderDialog(makeUser({ role, displayName: 'Oleksiy Kovalenko' }))
+
+      await screen.findByTestId('archive-warning-senior')
+      const dialog = screen.getByRole('dialog')
+      const text = dialog.textContent ?? ''
+
+      expect(text).not.toContain('WRONG-TEAM-SHOULD-NOT-RENDER')
+      expect(text).not.toContain('WRONG-PROJECT-SHOULD-NOT-RENDER')
+      expect(text).not.toContain('99')
+      expect(text).not.toContain('88')
+      expect(text).not.toContain('77')
+      // Every value falls back to its default instead.
+      expect(text).toContain(role === 'SENIOR' ? 'команда синьора' : 'команда дропа')
+      expect(text).toContain('(0 шт.)')
+      expect(text).not.toContain('(0 шт.:')
+      expect(text).toContain('HR/бухгалтеры на команде (0)')
+      expect(text).toContain('JUNIOR на этих проектах (0)')
+    },
+  )
+
+  it('SENIOR: isPaired true but every optional count OMITTED — each falls back independently (not just via isPaired)', async () => {
+    // Companion to the isPaired:false test above: THIS fixture proves the
+    // per-field `!== undefined` checks are independently load-bearing, not
+    // just shadowed by the outer isPaired gate. If any one of them were
+    // mutated to `true` (always use impact.X), the omitted field would
+    // render as nothing (React silently drops `undefined` children) instead
+    // of the "0" the default is supposed to produce.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        type: 'user',
+        role: 'SENIOR',
+        isPaired: true,
+        // teamName, projectsCount, projectNames, juniorsAffected,
+        // hrAccountantsOnTeam all deliberately OMITTED.
+      },
+    })
+    renderDialog(makeUser({ role: 'SENIOR' }))
+
+    await screen.findByTestId('archive-warning-senior')
+    const dialog = screen.getByRole('dialog')
+    const text = dialog.textContent ?? ''
+    expect(text).toContain('команда синьора')
+    expect(text).toContain('(0 шт.)')
+    expect(text).not.toContain('(0 шт.:')
+    expect(text).toContain('HR/бухгалтеры на команде (0)')
+    expect(text).toContain('JUNIOR на этих проектах (0)')
+  })
 
   it('HR: shows teams-removed copy, no cascade wording', async () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -223,7 +298,7 @@ describe('ArchiveConfirmDialog (users list) — role-aware ImpactWarning + AC2 p
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
 
-  it('SENIOR with zero counts and no projectNames: falls back to "—" team name, no ": " suffix', async () => {
+  it('SENIOR with zero counts and no projectNames: falls back to fallback team name, no ": " suffix', async () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: {
         type: 'user',
@@ -240,7 +315,38 @@ describe('ArchiveConfirmDialog (users list) — role-aware ImpactWarning + AC2 p
 
     await screen.findByTestId('archive-warning-senior')
     const dialog = screen.getByRole('dialog')
-    expect(dialog.textContent ?? '').toContain('команда синьора')
+    const text = dialog.textContent ?? ''
+    expect(text).toContain('команда синьора')
+    expect(text).toContain('(0 шт.)')
+    expect(text).not.toContain('(0 шт.:')
+    expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
+  })
+
+  it('the pending-list guard checks impact.type, not just truthiness — a non-"user" shape never renders it here', async () => {
+    // security-review PR #584 round 2 (mutation-gate survivor): mirrors the
+    // identical fix in ArchiveUserDialog.test.tsx — a fake that only ever
+    // resolves `type: 'user'` cannot distinguish `impact?.type === 'user'`
+    // from an unconditional `true`. A team-shaped-but-truthy-
+    // pendingTransactions fixture makes the two observably different.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        type: 'team',
+        teamName: 'Not This User',
+        pendingTransactions: [
+          {
+            id: 'tx-x',
+            type: 'SALARY',
+            salaryMonth: '2026-01',
+            txDate: null,
+            amount: '100.00',
+            currency: 'USD',
+          },
+        ],
+      },
+    })
+    renderDialog(makeUser({ role: 'JUNIOR' }))
+
+    await screen.findByTestId('archive-warning-junior')
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
 })
@@ -269,5 +375,55 @@ describe('ArchiveConfirmDialog (users list) — confirm mutation', () => {
     expect(api.delete).toHaveBeenCalledWith('/users/u-1')
     await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith(expectedToast))
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it.each(['SENIOR', 'DROP'] as const)(
+    '%s: also invalidates teams + projects queries on success (cascade side-effects)',
+    async (role) => {
+      ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: { type: 'user', role, pendingTransactions: [] },
+      })
+      ;(api.delete as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} })
+      const user = userEvent.setup()
+      const { queryClient, onClose } = renderDialog(
+        makeUser({ role, displayName: 'Oleksiy Kovalenko' }),
+      )
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      await screen.findByRole('dialog')
+      await user.type(screen.getByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+      await user.click(screen.getByTestId('archive-confirm-submit'))
+
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
+      const invalidatedKeys = invalidateSpy.mock.calls.map(
+        (call) => (call[0] as { queryKey: unknown[] } | undefined)?.queryKey,
+      )
+      expect(invalidatedKeys).toContainEqual(['teams'])
+      expect(invalidatedKeys).toContainEqual(['projects'])
+    },
+  )
+
+  it('JUNIOR: does NOT invalidate teams/projects queries on success (no cascade)', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'JUNIOR', pendingTransactions: [] },
+    })
+    ;(api.delete as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    const { queryClient, onClose } = renderDialog(
+      makeUser({ role: 'JUNIOR', displayName: 'Oleksiy Kovalenko' }),
+    )
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await screen.findByRole('dialog')
+    await user.type(screen.getByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+    await user.click(screen.getByTestId('archive-confirm-submit'))
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
+    const invalidatedKeys = invalidateSpy.mock.calls.map(
+      (call) => (call[0] as { queryKey: unknown[] } | undefined)?.queryKey,
+    )
+    expect(invalidatedKeys).not.toContainEqual(['teams'])
+    expect(invalidatedKeys).not.toContainEqual(['projects'])
+    expect(invalidatedKeys).toContainEqual(['users-admin'])
   })
 })
