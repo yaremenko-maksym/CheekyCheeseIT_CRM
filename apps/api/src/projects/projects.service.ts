@@ -1344,6 +1344,13 @@ export class ProjectsService {
    * failure here orphaned the interview in HIRED with no project. With `tx`
    * threaded through every write, a failure rolls the stage change back too.
    * When `tx` is omitted, behaviour is unchanged (`this.db.db`).
+   *
+   * Backlog #136: the HR/ACCOUNTANT this seeds onto the new project come from
+   * the senior's team membership below — see the `isNull(teamMembers.leftAt)`
+   * filters on both queries it runs. Both must stay: one keeps a team the
+   * senior has LEFT from contributing staff at all, the other keeps a
+   * teammate who left THAT team from being seated even while the team is
+   * still active for the senior.
    */
   async createFromInterview(
     interview: Interview & { senior: User | null },
