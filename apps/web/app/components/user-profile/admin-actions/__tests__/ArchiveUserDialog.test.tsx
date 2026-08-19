@@ -94,6 +94,16 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
     expect(screen.getByTestId('archive-confirm-submit')).toBeInTheDocument()
   })
 
+  it('fetches the archive-impact for THIS user (not an empty/mistyped entity type)', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    renderDialog(makeUser({ role: 'ADMIN' }))
+
+    await screen.findByRole('dialog')
+    expect(api.get).toHaveBeenCalledWith('/users/u-1/archive-impact')
+  })
+
   it('confirm button stays disabled until the typed name matches exactly', async () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { type: 'user', role: 'ADMIN', noDependencies: true },
@@ -109,6 +119,37 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
     expect(submit).toBeDisabled()
 
     await user.clear(input)
+    await user.type(input, 'Oleksiy Kovalenko')
+    expect(submit).toBeEnabled()
+  })
+
+  it('trims WHITESPACE ON THE TYPED VALUE before comparing — padded input still matches', async () => {
+    // Pins `typed.trim()` — without it, the padded input would never equal
+    // the clean displayName and the button would stay disabled forever.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const submit = await screen.findByTestId('archive-confirm-submit')
+    const input = screen.getByTestId('archive-confirm-name-input')
+    await user.type(input, '  Oleksiy Kovalenko  ')
+    expect(submit).toBeEnabled()
+  })
+
+  it('trims WHITESPACE ON user.displayName before comparing — padded stored name still matches a clean type', async () => {
+    // Pins `user.displayName.trim()` specifically (the OTHER side of the
+    // comparison) — a displayName with stray whitespace from bad data
+    // must not become permanently unconfirmable.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: '  Oleksiy Kovalenko  ' }))
+
+    const submit = await screen.findByTestId('archive-confirm-submit')
+    const input = screen.getByTestId('archive-confirm-name-input')
     await user.type(input, 'Oleksiy Kovalenko')
     expect(submit).toBeEnabled()
   })
@@ -198,6 +239,47 @@ describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pendin
 
     await screen.findByTestId('archive-warning-admin')
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
+  })
+
+  it('the pending-list guard checks impact.type, not just truthiness — a non-"user" shape never renders it here', async () => {
+    // security-review PR #584 round 2 (mutation-gate survivor): a mock that
+    // ONLY ever resolves `type: 'user'` cannot distinguish `impact?.type ===
+    // 'user'` from an unconditional `true` — both render identically. Give
+    // it a `team`-shaped payload that STILL carries a non-empty
+    // `pendingTransactions` array (contrived, but type-valid: the schema's
+    // team variant carries the same optional field) so the two are
+    // observably different: correct code hides the warning, `{true}` would
+    // still try to render it.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        type: 'team',
+        teamName: 'Not This User',
+        pendingTransactions: [
+          {
+            id: 'tx-x',
+            type: 'SALARY',
+            salaryMonth: '2026-01',
+            txDate: null,
+            amount: '100.00',
+            currency: 'USD',
+          },
+        ],
+      },
+    })
+    renderDialog(makeUser({ role: 'JUNIOR' }))
+
+    await screen.findByTestId('archive-warning-junior')
+    expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
+  })
+
+  it('preserves the SPACE before the confirm-name value (no run-together text)', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent ?? '').toContain('имя: Oleksiy Kovalenko')
   })
 })
 

@@ -142,17 +142,32 @@ function makeDb(store: FakeStore) {
         const pred = toPredicate(expr ?? predicate)
         // Return live references so updates inside the same tx still reflect.
         const rows = tableKey ? store[tableKey].filter(pred) : []
-        const thenable = {
+        const thenable: {
+          then: (onF: (v: Array<Record<string, unknown>>) => unknown) => Promise<unknown>
+          orderBy: () => typeof thenable
+          limit: () => typeof thenable
+          offset: () => typeof thenable
+          innerJoin: () => typeof thenable
+          for: (mode: string) => typeof thenable
+        } = {
           then: (onF: (v: Array<Record<string, unknown>>) => unknown) => Promise.resolve(onF(rows)),
           orderBy: () => thenable,
           limit: () => thenable,
           offset: () => thenable,
           innerJoin: () => thenable,
           // security-review PR #584 round 2 (MED-4): archive()/archiveDrop()
-          // now lock the row with `.for('update')` before reading it — a
-          // no-op here (the fake has no real transaction isolation to
-          // enforce), just chain-shape compatibility.
-          for: () => thenable,
+          // now lock the row with `.for('update')` before reading it. This
+          // fake has no real transaction isolation to enforce, but STILL
+          // validates the literal string argument — accepting any string
+          // (or none) would make `.for('update')` and a regressed
+          // `.for('')` indistinguishable, which is exactly the
+          // mutation-gate survivor this strictness closes.
+          for: (mode: string) => {
+            if (mode !== 'update') {
+              throw new Error(`[fake db] .for(${JSON.stringify(mode)}) — expected 'update'`)
+            }
+            return thenable
+          },
         }
         return thenable as unknown as Promise<Array<Record<string, unknown>>>
       },

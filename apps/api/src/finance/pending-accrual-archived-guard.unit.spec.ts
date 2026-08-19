@@ -399,11 +399,12 @@ const REJECTED_DROP_INCOME = {
 
 describe('updateSeniorIncome — AC1/MED-1: an archived receiver is refused before any resubmit', () => {
   function makeService(receiver: unknown) {
+    const usersFindFirst = vi.fn().mockResolvedValue(receiver)
     const db = {
       db: {
         query: {
           transactions: { findFirst: vi.fn().mockResolvedValue(REJECTED_SENIOR_INCOME) },
-          users: { findFirst: vi.fn().mockResolvedValue(receiver) },
+          users: { findFirst: usersFindFirst },
         },
       },
     } as never
@@ -415,11 +416,11 @@ describe('updateSeniorIncome — AC1/MED-1: an archived receiver is refused befo
       svc as unknown as { replaceReceiptAtomic: () => Promise<never> },
       'replaceReceiptAtomic',
     ).mockRejectedValue(new Error('REPLACE REACHED'))
-    return svc
+    return { svc, usersFindFirst }
   }
 
   it('refuses with the archived-receiver message; does not reach the resubmit', async () => {
-    const svc = makeService(ARCHIVED_SENIOR)
+    const { svc } = makeService(ARCHIVED_SENIOR)
 
     await expect(
       svc.updateSeniorIncome(REJECTED_SENIOR_INCOME.id, {}, CURRENT_SENIOR_SESSION),
@@ -430,21 +431,51 @@ describe('updateSeniorIncome — AC1/MED-1: an archived receiver is refused befo
   })
 
   it('lets an ACTIVE senior through the gate (reaches the resubmit)', async () => {
-    const svc = makeService(ACTIVE_SENIOR)
+    const { svc } = makeService(ACTIVE_SENIOR)
 
     await expect(
       svc.updateSeniorIncome(REJECTED_SENIOR_INCOME.id, { amount: 1200 }, CURRENT_SENIOR_SESSION),
     ).rejects.toThrow('REPLACE REACHED')
   })
+
+  it('does not fire when the receiver row failed to resolve (undefined, not archived)', async () => {
+    // Mirrors the createSeniorIncome/updateDropIncome test of the same name —
+    // `receiver?.archivedAt` must not throw or false-positive on `undefined`.
+    const { svc } = makeService(undefined)
+
+    await expect(
+      svc.updateSeniorIncome(REJECTED_SENIOR_INCOME.id, {}, CURRENT_SENIOR_SESSION),
+    ).rejects.toThrow('REPLACE REACHED')
+  })
+
+  it("queries the CALLER's own row (WHERE eq(users.id, currentUser.id)), not an empty read", async () => {
+    // security-review PR #584 round 2 (mutation-gate survivor): a fake that
+    // only checks the RESOLVED value, never the query shape, cannot tell
+    // `findFirst({ where: eq(users.id, currentUser.id) })` apart from
+    // `findFirst({})` — both resolve to whatever the mock was told to
+    // return regardless of the argument. Assert the call shape directly.
+    const { svc, usersFindFirst } = makeService(ACTIVE_SENIOR)
+
+    await expect(
+      svc.updateSeniorIncome(REJECTED_SENIOR_INCOME.id, {}, CURRENT_SENIOR_SESSION),
+    ).rejects.toThrow('REPLACE REACHED')
+
+    expect(usersFindFirst).toHaveBeenCalledTimes(1)
+    const callArg = usersFindFirst.mock.calls[0]?.[0] as Record<string, unknown> | undefined
+    expect(callArg).toBeDefined()
+    expect(callArg).toHaveProperty('where')
+    expect(callArg!.where).toBeDefined()
+  })
 })
 
 describe('updateDropIncome — AC1/MED-1: an archived receiver is refused before any resubmit', () => {
   function makeService(receiver: unknown) {
+    const usersFindFirst = vi.fn().mockResolvedValue(receiver)
     const db = {
       db: {
         query: {
           transactions: { findFirst: vi.fn().mockResolvedValue(REJECTED_DROP_INCOME) },
-          users: { findFirst: vi.fn().mockResolvedValue(receiver) },
+          users: { findFirst: usersFindFirst },
         },
       },
     } as never
@@ -453,11 +484,11 @@ describe('updateDropIncome — AC1/MED-1: an archived receiver is refused before
       svc as unknown as { replaceReceiptAtomic: () => Promise<never> },
       'replaceReceiptAtomic',
     ).mockRejectedValue(new Error('REPLACE REACHED'))
-    return svc
+    return { svc, usersFindFirst }
   }
 
   it('refuses with the archived-receiver message; does not reach the resubmit', async () => {
-    const svc = makeService(ARCHIVED_DROP)
+    const { svc } = makeService(ARCHIVED_DROP)
 
     await expect(
       svc.updateDropIncome(REJECTED_DROP_INCOME.id, {}, CURRENT_DROP_SESSION),
@@ -468,7 +499,7 @@ describe('updateDropIncome — AC1/MED-1: an archived receiver is refused before
   })
 
   it('lets an ACTIVE drop through the gate (reaches the resubmit)', async () => {
-    const svc = makeService(ACTIVE_DROP)
+    const { svc } = makeService(ACTIVE_DROP)
 
     await expect(
       svc.updateDropIncome(REJECTED_DROP_INCOME.id, { amount: 600 }, CURRENT_DROP_SESSION),
@@ -478,10 +509,24 @@ describe('updateDropIncome — AC1/MED-1: an archived receiver is refused before
   it('does not fire when the receiver row failed to resolve (undefined, not archived)', async () => {
     // Mirrors the createDropIncome test of the same name — `dropReceiver?.archivedAt`
     // must not throw or false-positive on `undefined`.
-    const svc = makeService(undefined)
+    const { svc } = makeService(undefined)
 
     await expect(
       svc.updateDropIncome(REJECTED_DROP_INCOME.id, {}, CURRENT_DROP_SESSION),
     ).rejects.toThrow('REPLACE REACHED')
+  })
+
+  it("queries the CALLER's own row (WHERE eq(users.id, currentUser.id)), not an empty read", async () => {
+    const { svc, usersFindFirst } = makeService(ACTIVE_DROP)
+
+    await expect(
+      svc.updateDropIncome(REJECTED_DROP_INCOME.id, {}, CURRENT_DROP_SESSION),
+    ).rejects.toThrow('REPLACE REACHED')
+
+    expect(usersFindFirst).toHaveBeenCalledTimes(1)
+    const callArg = usersFindFirst.mock.calls[0]?.[0] as Record<string, unknown> | undefined
+    expect(callArg).toBeDefined()
+    expect(callArg).toHaveProperty('where')
+    expect(callArg!.where).toBeDefined()
   })
 })

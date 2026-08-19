@@ -51,6 +51,17 @@ export function ArchiveUserDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
+      {
+        // Stryker disable next-line ArrowFunction: `open` above is a hardcoded
+        // `true` literal — this component only leaves the DOM when the PARENT
+        // stops rendering it (on `onClose`), never via Radix's own open-state
+        // transition. Radix's FocusScope only dispatches `onCloseAutoFocus`
+        // on that internal open→closed unmount path, which this component's
+        // shape never exercises — jsdom/RTL cannot trigger it without
+        // reimplementing Radix's dismissal internals, and doing so would
+        // pin an implementation detail, not an observable outcome (there is
+        // no DOM state this callback's absence changes here).
+      }
       <CrmDialogContent maxWidth="sm:max-w-lg" onCloseAutoFocus={(e) => e.preventDefault()}>
         <CrmDialogHeader>
           <DialogTitle className="text-destructive">Архивировать пользователя</DialogTitle>

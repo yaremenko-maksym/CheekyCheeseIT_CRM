@@ -336,4 +336,35 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     expect(within(dialog).getByText(/\(0 шт\.\)/)).toBeInTheDocument()
     expect(within(dialog).queryByText(/\(0 шт\.:/)).not.toBeInTheDocument()
   })
+
+  // task-archive-pending-modal (round 2, mutation-gate survivors). The
+  // confirm-input-label paragraph and the input's onChange were previously
+  // in scope but ZERO tests exercised them directly — this section became
+  // part of the changed-diff window once the CrmDialogContent migration
+  // touched the surrounding JSX, exposing pre-existing gaps.
+  it('confirm-name prompt shows the expected value WITH a space, and typing it enables submit', async () => {
+    const { api } = await import('@/lib/axios')
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    const user = userEvent.setup()
+    renderMenu({ isArchived: false, entityType: 'user' })
+
+    await user.click(screen.getByTestId('admin-actions-trigger'))
+    await user.click(await screen.findByTestId('admin-action-archive'))
+
+    const dialog = await screen.findByRole('dialog')
+    // The space between "имя:" and the expected value is a `{' '}` JSX
+    // expression container — pin it explicitly (a mutant collapsing it to
+    // `{''}` would run the words together).
+    expect(dialog.textContent ?? '').toContain('имя: Alpha Team')
+
+    const input = within(dialog).getByTestId('archive-confirm-input')
+    expect(input).toHaveAttribute('placeholder', 'Alpha Team')
+    const submit = within(dialog).getByTestId('archive-confirm-submit')
+    expect(submit).toBeDisabled()
+
+    await user.type(input, 'Alpha Team')
+    expect(submit).toBeEnabled()
+  })
 })

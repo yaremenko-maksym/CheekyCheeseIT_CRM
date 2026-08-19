@@ -402,13 +402,22 @@ describe('TeamsService.archive', () => {
       )
       const thenable: {
         then: (onF: (v: unknown[]) => unknown) => Promise<unknown>
-        for: () => typeof thenable
+        for: (mode: string) => typeof thenable
       } = {
         then: (onF: (v: unknown[]) => unknown) => Promise.resolve(onF(rows)),
         // security-review PR #584 round 2 (MED-4): archiveDropTeam's own
-        // team-row read now locks with `.for('update')` — no-op here (chain
-        // shape only, this fake has no real transaction isolation).
-        for: () => thenable,
+        // team-row read now locks with `.for('update')`. This fake has no
+        // real transaction isolation to enforce, but STILL validates the
+        // literal string argument — a fake that accepted any string (or
+        // none) would make `.for('update')` and a regressed `.for('')` byte
+        // -for-byte indistinguishable, which is exactly the mutation-gate
+        // survivor this strictness closes.
+        for: (mode: string) => {
+          if (mode !== 'update') {
+            throw new Error(`[AC10 fake db] .for(${JSON.stringify(mode)}) — expected 'update'`)
+          }
+          return thenable
+        },
       }
       return thenable
     }
