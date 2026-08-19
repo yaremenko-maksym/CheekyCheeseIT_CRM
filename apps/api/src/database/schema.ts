@@ -1048,12 +1048,18 @@ export const transactions = pgTable(
     // second company obligation for the same piece of work once the payout
     // reaches validation. Partial + type-scoped so it stays DISJOINT from every
     // other index on this shared column.
+    // mutation-gate closure: senior-drop-income-idempotency-schema.spec.ts
+    // pins BOTH this index's name and its WHERE clause against the prod
+    // migration file's literal DDL (same pattern as
+    // source-income-drop-link-schema.spec.ts) — no Stryker suppression
+    // needed here, unlike the DB-only-testable columns elsewhere in this file.
     uniqueIndex('uq_transactions_senior_income_idempotency_key')
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'SENIOR_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
     // backlog 73/A-3: idempotency key for DROP_INCOME (createDropIncome). Same
     // contract as the SENIOR_INCOME index directly above, mirrored onto the
-    // DROP role's own income-declaration path.
+    // DROP role's own income-declaration path. Same mutation-gate closure —
+    // senior-drop-income-idempotency-schema.spec.ts.
     uniqueIndex('uq_transactions_drop_income_idempotency_key')
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'DROP_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
