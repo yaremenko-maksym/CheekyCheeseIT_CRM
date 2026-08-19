@@ -467,7 +467,6 @@ function TeamPage() {
   const navigate = useNavigate()
   const routeSearch = Route.useSearch()
   const isArchivedView = routeSearch.archived === true
-  if (denied) return null
 
   const isHr = user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
@@ -561,6 +560,16 @@ function TeamPage() {
 
     return result
   }, [teams, activeProjectCountByTeamSenior, search, sortBy])
+
+  // Rules of Hooks: moved here — after every hook above — instead of
+  // between `useSearch` and the ~10 hooks that follow it (useState/
+  // useQuery/useEffect/useMemo). `denied` flips false→true mid-mount once
+  // `useAuth`'s `isLoading` resolves to a disallowed role; a guard sitting
+  // in the middle of the hook list made that transition change the hook
+  // count between renders ("Rendered fewer hooks than expected"). This
+  // route is also gated at the layout level (see use-role-guard.ts), so
+  // this remains defense-in-depth, not the only guard.
+  if (denied) return null
 
   // ut-25 + ut-33 + ut-44: tabs for teams page — «Все | Активные | Архив»
   // for ADMIN, unified through SegmentedToggle so the gold-pill animation

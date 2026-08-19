@@ -527,7 +527,6 @@ function FinancePage() {
   // Deep-link status filter (?status=PENDING) — from the AccountantDashboard CTA.
   // useSearch is hook-order-safe (called before the early returns below).
   const { status: deepLinkStatus } = Route.useSearch()
-  if (denied) return null
   const role = user?.role ?? ''
   const userId = user?.id ?? ''
 
@@ -683,6 +682,19 @@ function FinancePage() {
       ),
     [transactions],
   )
+
+  // Rules of Hooks: every hook above must run on every render regardless of
+  // `denied`, so the guard-return moved here — after the last hook call —
+  // instead of sitting between `useAuth`/`useSearch` and the ~24 hooks below
+  // it (useState/useQuery/useMemo/useMutation). `denied` flips false→true
+  // mid-mount once `useAuth`'s `isLoading` resolves to a disallowed role; a
+  // guard sitting in the middle of the hook list made that transition change
+  // the hook count between renders — "Rendered fewer hooks than expected."
+  // useRoleGuard's own effect below still redirects; this route is also
+  // gated at the layout level (see use-role-guard.ts), so this is
+  // defense-in-depth, not the only line standing between a denied viewer and
+  // this page.
+  if (denied) return null
 
   // Drop role - phase 2. DROP gets their own dedicated finance cabinet that
   // shows only their own incomes/payments via self-scoped API endpoints.

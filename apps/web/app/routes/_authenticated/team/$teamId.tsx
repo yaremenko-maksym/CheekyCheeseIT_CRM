@@ -160,8 +160,6 @@ function TeamDetailPage() {
     },
   })
 
-  if (denied) return null
-
   const {
     data: team,
     isLoading,
@@ -318,6 +316,18 @@ function TeamDetailPage() {
       ),
     [team?.members],
   )
+
+  // Rules of Hooks: moved here — after every hook above — instead of
+  // between the mutations near the top and the ~10 hooks that follow it
+  // (useQuery x4/useMemo/useForm/useMutation/useState/useMutation/useMemo).
+  // `denied` flips false→true mid-mount once `useAuth`'s `isLoading`
+  // resolves to a disallowed role; a guard sitting in the middle of the
+  // hook list made that transition change the hook count between renders
+  // ("Rendered fewer hooks than expected") — the exact same failure class
+  // the `membersByRole` comment above already documents for this file. This
+  // route is also gated at the layout level (see use-role-guard.ts), so
+  // this remains defense-in-depth, not the only guard.
+  if (denied) return null
 
   if (isLoading) {
     return (
