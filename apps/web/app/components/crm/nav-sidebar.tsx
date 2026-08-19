@@ -128,10 +128,12 @@ export function NavSidebar({
   const isTeamlessSenior = user.role === 'SENIOR' && isTeamless
 
   // backlog #137: chrome-level hint tooltips (this file) must not open while
-  // a modal Dialog/Sheet is up elsewhere — see use-any-dialog-open.ts for the
-  // full root-cause writeup (a transient Tooltip mounting its own Radix
-  // DismissableLayer can silently swallow the next Escape meant for the
-  // modal). Threaded through DesktopNavLink + the collapse-toggle Tooltip
+  // a Dialog/AlertDialog/Sheet is up elsewhere — see use-any-dialog-open.ts
+  // for the full root-cause writeup (a transient Tooltip mounting its own
+  // Radix DismissableLayer can silently swallow the next Escape meant for
+  // the modal) AND for exactly what counts as "open" here (deliberately
+  // narrower than "any modal-ish overlay" — Select/DropdownMenu don't
+  // count). Threaded through DesktopNavLink + the collapse-toggle Tooltip
   // below, both of which can be hovered/focused without a mouse actually
   // being over the sidebar (keyboard focus restoration, etc).
   const dialogOpen = useAnyDialogOpen()

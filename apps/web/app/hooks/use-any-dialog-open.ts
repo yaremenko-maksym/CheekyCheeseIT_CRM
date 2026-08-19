@@ -1,20 +1,36 @@
 import { useEffect, useState } from 'react'
 
-// react-remove-scroll-bar (a dependency of @radix-ui/react-dialog, used by
-// every Dialog/AlertDialog/Sheet in this app — Sheet is @radix-ui/react-dialog
-// under a different skin, see components/ui/sheet.tsx) sets this attribute
-// on <body> for as long as at least one modal is open, and reference-counts
-// it so it stays correct with nested/stacked modals. We piggy-back on it
-// instead of building our own "is a dialog open" tracker.
-const LOCK_ATTR = 'data-scroll-locked'
+// Matches exactly what Radix itself calls a "dialog": Dialog (role="dialog")
+// and AlertDialog (role="alertdialog") — Sheet is @radix-ui/react-dialog
+// under a different skin (see components/ui/sheet.tsx), so it's covered by
+// "dialog" too. Both packages hard-code this role on the content element
+// (verified in the installed @radix-ui/react-dialog and
+// @radix-ui/react-alert-dialog source), and `data-state` is "open" for
+// exactly as long as the modal is actually up (Radix keeps the node mounted
+// with data-state="closed" during its own exit animation).
+//
+// Deliberately does NOT use react-remove-scroll-bar's `data-scroll-locked`
+// attribute on <body> — an earlier version of this hook did, and it looked
+// right (every Dialog/AlertDialog/Sheet sets it, since all three use
+// `modal=true` by default) but review caught that it's NOT specific to
+// dialogs: Radix's Select and DropdownMenu are ALSO `modal=true` by default
+// and ALSO drive the same `RemoveScroll` internals, so that attribute is
+// live for those too (confirmed: 21 files use <Select>, 5 use
+// <DropdownMenu>, none override `modal`). This selector is scoped to
+// exactly what the PR describes — Dialog/AlertDialog/Sheet — and nothing
+// else; Select/DropdownMenu/Popover content render role="listbox"/"menu"
+// (verified in their installed source too), so they never match.
+const DIALOG_SELECTOR =
+  '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'
 
-function bodyIsLocked(): boolean {
-  return typeof document !== 'undefined' && document.body.hasAttribute(LOCK_ATTR)
+function aDialogIsOpen(): boolean {
+  return typeof document !== 'undefined' && document.querySelector(DIALOG_SELECTOR) !== null
 }
 
 /**
- * True while at least one Radix modal overlay (Dialog / AlertDialog / Sheet)
- * is open anywhere in the app.
+ * True while at least one Radix Dialog / AlertDialog / Sheet is open
+ * anywhere in the app (see DIALOG_SELECTOR above for exactly what counts —
+ * notably NOT Select/DropdownMenu/Popover).
  *
  * backlog #137 ("Escape sometimes doesn't close a dialog"): every
  * @radix-ui/react-dismissable-layer instance registers into ONE unscoped,
@@ -35,12 +51,17 @@ function bodyIsLocked(): boolean {
  * an open dialog are untouched — they don't consult this hook.
  */
 export function useAnyDialogOpen(): boolean {
-  const [open, setOpen] = useState(bodyIsLocked)
+  const [open, setOpen] = useState(aDialogIsOpen)
 
   useEffect(() => {
-    setOpen(bodyIsLocked())
-    const observer = new MutationObserver(() => setOpen(bodyIsLocked()))
-    observer.observe(document.body, { attributes: true, attributeFilter: [LOCK_ATTR] })
+    setOpen(aDialogIsOpen())
+    const observer = new MutationObserver(() => setOpen(aDialogIsOpen()))
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['role', 'data-state'],
+      childList: true,
+      subtree: true,
+    })
     return () => observer.disconnect()
   }, [])
 
