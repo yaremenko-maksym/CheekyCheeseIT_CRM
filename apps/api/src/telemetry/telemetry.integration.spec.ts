@@ -225,6 +225,58 @@ async function buildApp(): Promise<NestFastifyApplication> {
 }
 
 // ---------------------------------------------------------------------------
+// Poll helper (task-telemetry-flake-async-write, backlog 164)
+// ---------------------------------------------------------------------------
+
+/**
+ * `TelemetryExceptionFilter.catch()` does NOT await its own DB write — it
+ * fires `this.recordIfEligible(exception, host).catch(...)` detached, then
+ * calls `super.catch(exception, host)` right after, which flushes the HTTP
+ * response synchronously (see that file's own doc comment). So a test that
+ * reads `telemetry_errors` immediately after `app.inject()` resolves races
+ * the INSERT: verified against `origin/main` 2026-08-21 — same commit,
+ * green on CI PR #585 (17:54–17:57) and red on CI PR #587 (17:48–17:50) six
+ * minutes apart, neither branch touching telemetry code.
+ *
+ * By contrast, `POST /api/telemetry/errors` (TelemetryController.reportError)
+ * DOES `await this.errorsService.recordError(...)` before Nest sends its
+ * response — no race there, so every OTHER presence assertion in this file
+ * (which all go through that controller, not the exception filter) needs no
+ * poll. Only routes that reach `telemetry_errors` via the exception filter's
+ * fire-and-forget path are affected — see this file's `waitForTelemetryErrorByMessage`
+ * call sites for the one place that is.
+ *
+ * A fixed `sleep` is explicitly rejected here (AC2) — slower than the common
+ * case (the row is USUALLY already committed by the time we look) and still
+ * capable of flaking on a loaded runner. Polling with a deadline absorbs the
+ * race without either cost, and the descriptive error on exhaustion (AC4)
+ * keeps this a test that can still fail for real if the write itself breaks.
+ */
+async function waitForTelemetryErrorByMessage(
+  dbSvc: DatabaseService,
+  message: string,
+  { timeoutMs = 5_000, intervalMs = 50 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<typeof telemetryErrors.$inferSelect> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const row = await dbSvc.db.query.telemetryErrors.findFirst({
+      where: (e, { eq: eqOp }) => eqOp(e.message, message),
+    })
+    if (row) return row
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `[telemetry integration] timed out after ${timeoutMs}ms waiting for a ` +
+          `telemetry_errors row with message=${JSON.stringify(message)} — ` +
+          `TelemetryExceptionFilter's write is fire-and-forget (see its own doc ` +
+          `comment), so either the write itself is broken/the message doesn't ` +
+          `match, or the timeout is too short for this runner.`,
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
 
@@ -372,12 +424,13 @@ describe.skipIf(!hasDatabaseUrl())('Telemetry — real backend integration', () 
 
       expect(res.statusCode).toBe(500)
 
-      const row = await dbSvc.db.query.telemetryErrors.findFirst({
-        where: (e, { eq: eqOp }) =>
-          eqOp(e.message, 'artificial error on a NORMAL route (AC4 control case)'),
-      })
-      expect(row).toBeDefined()
-      expect(row?.route).toBe('/api/debug/debug-throw-normal')
+      // Fire-and-forget write (see `waitForTelemetryErrorByMessage`'s own doc
+      // comment) — poll instead of reading immediately.
+      const row = await waitForTelemetryErrorByMessage(
+        dbSvc,
+        'artificial error on a NORMAL route (AC4 control case)',
+      )
+      expect(row.route).toBe('/api/debug/debug-throw-normal')
     })
   })
 
