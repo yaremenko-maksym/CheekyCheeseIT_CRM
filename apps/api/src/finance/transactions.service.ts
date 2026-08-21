@@ -4664,6 +4664,12 @@ export class TransactionsService {
           amount: String(seniorAmount),
           currency: 'USDT',
           status: 'PENDING',
+          // task-settle-payout-link-lost (backlog 74/B-1): same payoutRequestId
+          // the source IOU row gets — this column SURVIVES settleByCompany's
+          // reset of `transactions.payoutRequestId` on the flip (see the column
+          // comment in schema.ts), so a payout's detail read can still resolve
+          // this obligation after it is settled.
+          payoutRequestId: payoutRequestId ?? null,
         })
       }
     }
@@ -4708,6 +4714,9 @@ export class TransactionsService {
           amount: String(dropAmount),
           currency: 'USDT',
           status: 'PENDING',
+          // task-settle-payout-link-lost: see the matching comment on the
+          // senior branch above — same reasoning, same source value.
+          payoutRequestId: payoutRequestId ?? null,
         })
       }
     }
@@ -5268,6 +5277,57 @@ export class TransactionsService {
       req.seniorId === currentUser.id
     if (!isPrivileged && !isOwner) throw new ForbiddenException()
 
+    // task-settle-payout-link-lost (backlog 74/B-1). `req.transactions` above
+    // is a live Drizzle relation keyed on `transactions.payoutRequestId` —
+    // but `settleByCompany` flips a cascade-booked obligation's source IOU
+    // row IN PLACE and resets THAT column to null on the flip (task-settle-
+    // in-place ADR — deliberate, avoids bleeding a paid obligation into
+    // `autoCreateForPayout`'s aggregation and the `findOne`
+    // SENIOR_INCOME-by-payoutRequestId enrichment elsewhere). The live
+    // relation therefore silently drops a settled obligation from THIS
+    // payout's detail view — this payout looks like it produced no senior/
+    // drop obligation at all, even though the money is correct.
+    // `pending_obligations.payoutRequestId` is a SEPARATE column, stamped
+    // once at booking time (bookCompanyObligations) and never touched by
+    // settle, so it still resolves the obligation's CURRENT row (via
+    // `sourceTransactionId` — the flip reuses the same id, task-settle-
+    // in-place) regardless of whether it has since been paid off. Merge
+    // (dedup by id) rather than replace — a still-PENDING obligation is
+    // already present via the live relation above; this only recovers the
+    // ones settle detached.
+    // security-review round on #590 (MED-1): the recovered obligation may
+    // belong to a DIFFERENT person than the payout's owner — e.g. a DROP's
+    // cascade payout books a SEPARATE senior IOU (creditorUserId=senior),
+    // which the DROP owns the PAYOUT for but never owned the obligation
+    // itself. Before settle, that SENIOR_PENDING_PAYOUT row never passed the
+    // client's `isIncomeTransaction` filter (wrong type) and was never
+    // rendered to the DROP; recovering it here must not be the FIRST time
+    // that DROP viewer sees the senior's name + share amount. `mapTx` masks
+    // company/ADMIN counterparties but never the senior/drop side — this
+    // repo's rule on that surface is allowlist, not denylist (prior leaks on
+    // this exact class), so narrow explicitly rather than trust downstream
+    // masking. Reuses the SAME `isPrivileged` this function already computed
+    // for the whole-request gate above — not a new predicate.
+    const reqTransactions = (req as typeof req & { transactions: TxWithRelations[] }).transactions
+    const seenTxIds = new Set(reqTransactions.map((tx) => tx.id))
+    const obligationRows = (await this.db.db.query.pendingObligations.findMany({
+      where: eq(pendingObligations.payoutRequestId, id),
+      with: {
+        sourceTransaction: {
+          with: {
+            sender: { columns: { displayName: true, role: true } },
+            receiver: { columns: { displayName: true, role: true } },
+            project: { columns: { name: true } },
+          },
+        },
+      },
+    })) as { creditorUserId: string; sourceTransaction: TxWithRelations | null }[]
+    const recoveredTxs = obligationRows
+      .filter((o) => isPrivileged || o.creditorUserId === currentUser.id)
+      .map((o) => o.sourceTransaction)
+      .filter((tx): tx is TxWithRelations => tx != null && !seenTxIds.has(tx.id))
+    const allTransactions = [...reqTransactions, ...recoveredTxs]
+
     return {
       id: req.id,
       seniorId: req.seniorId,
@@ -5280,9 +5340,7 @@ export class TransactionsService {
       // Audit field — ADMIN/ACCOUNTANT only (see findPayoutRequests).
       txFromAddress: isPrivileged ? req.txFromAddress : null,
       status: req.status,
-      transactions: (req as typeof req & { transactions: TxWithRelations[] }).transactions.map(
-        (tx) => this.mapTx(tx, currentUser),
-      ),
+      transactions: allTransactions.map((tx) => this.mapTx(tx, currentUser)),
       createdAt: req.createdAt.toISOString(),
       updatedAt: req.updatedAt.toISOString(),
     }

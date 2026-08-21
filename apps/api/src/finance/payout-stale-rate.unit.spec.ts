@@ -150,6 +150,10 @@ function makeService(lockedRows: unknown[], nbu: 'live' | 'weekend' | 'outage') 
           }),
         },
         teamMembers: { findMany: vi.fn().mockResolvedValue([]) },
+        // task-settle-payout-link-lost: findPayoutRequest also merges
+        // obligation-derived transactions (pending_obligations.payoutRequestId)
+        // to recover settled obligations the live relation above drops.
+        pendingObligations: { findMany: vi.fn().mockResolvedValue([]) },
       },
       transaction: vi.fn().mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(dbtx)),
     },
