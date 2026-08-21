@@ -602,6 +602,72 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await displayBalance()).toBeCloseTo(await gateBalance(), 6)
     })
 
+    // ── task-settle-payout-link-lost (backlog 74/B-1, AC4). Before the fix,
+    // settleByCompany's reset of transactions.payoutRequestId (task-settle-
+    // in-place ADR) makes the flipped SENIOR_INCOME row invisible to
+    // findPayoutRequest's live `transactions` relation — the payout's detail
+    // read looks like it produced ZERO obligations, even though the money is
+    // correct (proven by INV2 above). This test reads obligations through the
+    // SAME path the detail screen uses (`TransactionsService.findPayoutRequest`)
+    // and proves the settled obligation is still there.
+    it('AC4 findPayoutRequest still lists the settled senior obligation after settleByCompany resets its payoutRequestId', async () => {
+      const I = 1000
+      const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))
+      const pr = await svc.createPayoutRequest([incomeId], DROP_A)
+      const payable = parseFloat(pr.payableAmount)
+      const HASH = '0x' + 'c'.repeat(64)
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        confirmed: true,
+        confirmations: THRESHOLD,
+        amountUsdt: payable,
+      })
+      await svc.payPayoutRequest(pr.id, HASH, DROP_A)
+
+      // Sanity: BEFORE settle, the live relation already surfaces the
+      // cascade-booked SENIOR_PENDING_PAYOUT obligation (payoutRequestId is
+      // still set at this point — settle has not run yet).
+      const beforeSettle = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
+      const pendingObligationTx = beforeSettle.transactions.find(
+        (t) => t.type === 'SENIOR_PENDING_PAYOUT',
+      )
+      expect(pendingObligationTx).toBeTruthy()
+
+      // Close the senior obligation — settleByCompany flips the SAME row
+      // in place (task-settle-in-place) and resets ITS payoutRequestId.
+      const [obligation] = await pendingObligationsFor(SENIOR.id)
+      const obRow = await dbSvc.db.query.pendingObligations.findFirst({
+        where: eq(pendingObligations.sourceTransactionId, obligation!.sourceTransactionId),
+      })
+      const settled = await settleSvc.settleByCompany(obRow!.id, ACCOUNTANT)
+      const flippedId = settled.created.find((c) => c.type === 'SENIOR_INCOME')!.id
+
+      // The flip reuses the SAME row id (task-settle-in-place) — its OWN
+      // payoutRequestId is confirmed reset (this is the pre-existing,
+      // deliberate behaviour this fix does NOT touch — see AC1/AC2 of the
+      // task, and pending-settlement.spec.ts's own assertion on it).
+      const flippedRow = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, flippedId),
+      })
+      expect(flippedRow!.payoutRequestId).toBeNull()
+
+      // THE FIX: findPayoutRequest still resolves the obligation via
+      // pending_obligations.payoutRequestId (a separate column, never reset)
+      // — the payout's detail read no longer looks like it produced zero
+      // obligations. Without this fix, `recovered` is `undefined` here.
+      const afterSettle = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
+      const recovered = afterSettle.transactions.find((t) => t.id === flippedId)
+      expect(recovered).toBeTruthy()
+      expect(recovered!.type).toBe('SENIOR_INCOME')
+      expect(recovered!.status).toBe('PAID')
+      expect(parseFloat(recovered!.amount)).toBeCloseTo((I * SENIOR_SHARE) / 100, 6)
+
+      // No duplicate entries (merge is dedup-by-id).
+      const matchingIds = afterSettle.transactions.filter((t) => t.id === flippedId)
+      expect(matchingIds).toHaveLength(1)
+    })
+
     // ── INV2b (task-drop-share-pending-parity, AC1-3): drop settle → PAYOUT_DROP,
     // drop's OWN balance moves only after settle; company balance untouched by
     // an ADMIN_PERSONAL-funded drop settle (the money never sat in the pool).
