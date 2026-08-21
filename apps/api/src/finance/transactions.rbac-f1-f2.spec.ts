@@ -104,6 +104,13 @@ function makeServiceWithPayoutRequest(
     createdAt: Date
     updatedAt: Date
   } | null,
+  // task-settle-payout-link-lost: the live relation's OWN transactions
+  // (`payoutRequests.transactions`, keyed on transactions.payoutRequestId).
+  reqTransactions: TxStub[] = [],
+  // pending_obligations rows recovered via the SEPARATE, never-reset
+  // payoutRequestId column — each resolves (via sourceTransactionId) to the
+  // obligation's current transaction row, or `null` if unresolvable.
+  obligationRows: { sourceTransaction: TxStub | null }[] = [],
 ): TransactionsService {
   const dbStub = {
     db: {
@@ -121,7 +128,7 @@ function makeServiceWithPayoutRequest(
                 ? {
                     ...req,
                     senior: { displayName: 'Test Senior' },
-                    transactions: [],
+                    transactions: reqTransactions,
                   }
                 : null,
             ),
@@ -130,7 +137,7 @@ function makeServiceWithPayoutRequest(
         // obligation-derived transactions (pending_obligations.payoutRequestId)
         // to recover settled obligations the live relation above drops.
         pendingObligations: {
-          findMany: () => Promise.resolve([]),
+          findMany: () => Promise.resolve(obligationRows),
         },
       },
     },
@@ -306,5 +313,62 @@ describe('F2 — payout-request IDOR: findPayoutRequest', () => {
     const admin = user('ADMIN')
 
     await expect(svc.findPayoutRequest('req-missing', admin)).rejects.toThrow(NotFoundException)
+  })
+})
+
+// ── task-settle-payout-link-lost (backlog 74/B-1): findPayoutRequest merges
+// obligation-derived transactions (recovered via pending_obligations
+// .payoutRequestId) into the live relation's own transactions — proves the
+// merge/dedup logic Stryker flagged as SURVIVED with zero unit coverage
+// (the real end-to-end proof lives in drop-payout-company-account
+// .integration.spec.ts's AC4 test, which the mutation gate cannot see).
+describe('F2b — findPayoutRequest merges obligation-derived transactions', () => {
+  it('recovers an obligation transaction NOT already in the live relation (settled obligation link)', async () => {
+    const liveTx = makeTx({ id: 'tx-live', type: 'DROP_INCOME' })
+    const recoveredTx = makeTx({ id: 'tx-recovered-settled', type: 'SENIOR_INCOME' })
+    const svc = makeServiceWithPayoutRequest(
+      baseReq,
+      [liveTx],
+      [{ sourceTransaction: recoveredTx }],
+    )
+    const admin = user('ADMIN')
+
+    const result = await svc.findPayoutRequest('req-1', admin)
+
+    expect(result.transactions).toHaveLength(2)
+    expect(result.transactions.map((t) => t.id).sort()).toEqual(
+      ['tx-live', 'tx-recovered-settled'].sort(),
+    )
+  })
+
+  it('does NOT duplicate an obligation transaction that is already present in the live relation', async () => {
+    const sharedTx = makeTx({ id: 'tx-shared', type: 'SENIOR_INCOME' })
+    const svc = makeServiceWithPayoutRequest(baseReq, [sharedTx], [{ sourceTransaction: sharedTx }])
+    const admin = user('ADMIN')
+
+    const result = await svc.findPayoutRequest('req-1', admin)
+
+    expect(result.transactions).toHaveLength(1)
+    expect(result.transactions.filter((t) => t.id === 'tx-shared')).toHaveLength(1)
+  })
+
+  it('skips an obligation row whose source transaction cannot be resolved (null)', async () => {
+    const liveTx = makeTx({ id: 'tx-live-only', type: 'DROP_INCOME' })
+    const svc = makeServiceWithPayoutRequest(baseReq, [liveTx], [{ sourceTransaction: null }])
+    const admin = user('ADMIN')
+
+    const result = await svc.findPayoutRequest('req-1', admin)
+
+    expect(result.transactions).toHaveLength(1)
+    expect(result.transactions[0]?.id).toBe('tx-live-only')
+  })
+
+  it('returns an empty transactions list when neither the live relation nor obligations have any rows', async () => {
+    const svc = makeServiceWithPayoutRequest(baseReq, [], [])
+    const admin = user('ADMIN')
+
+    const result = await svc.findPayoutRequest('req-1', admin)
+
+    expect(result.transactions).toEqual([])
   })
 })
