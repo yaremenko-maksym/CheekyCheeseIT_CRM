@@ -129,6 +129,11 @@ describe('createSeniorIncomeSchema.amount — floor + the computed-path trap (AC
   const base = {
     projectId: PROJECT_ID,
     currency: 'USD' as const,
+    // task-senior-drop-income-idempotency (backlog 73/A-3): required field —
+    // present in `base` so every case below isolates the amount-floor
+    // behaviour under test, unaffected by the (now separately-tested)
+    // idempotencyKey requirement.
+    idempotencyKey: IDEMPOTENCY_KEY,
     receiptExternalUrl: HTTPS_RECEIPT,
   }
 
@@ -177,6 +182,9 @@ describe('createDropIncomeSchema.amount — floor', () => {
   const base = {
     projectId: PROJECT_ID,
     currency: 'USD' as const,
+    // task-senior-drop-income-idempotency (backlog 73/A-3): see the identical
+    // note on createSeniorIncomeSchema's `base` above.
+    idempotencyKey: IDEMPOTENCY_KEY,
     receiptExternalUrl: HTTPS_RECEIPT,
   }
 

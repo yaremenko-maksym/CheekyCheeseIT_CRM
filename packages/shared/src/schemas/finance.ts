@@ -879,6 +879,17 @@ export const createSeniorIncomeSchema = z
     // entered by the SENIOR registering income — floor added.
     amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    // task-senior-drop-income-idempotency (backlog 73/A-3): REQUIRED client-
+    // generated UUID, mirroring the ADMIN_INCOME (PR #367, MED-1) / dividend
+    // (BIZ-19, MED-2) idempotency contract 1:1 — see createUsdtIncomeSchema
+    // above. The frontend generates a fresh UUID at dialog OPEN (not per
+    // render/submit) and sends it on every submit within that session. A
+    // double-submit (double click / network retry) with the SAME key returns
+    // the EXISTING SENIOR_INCOME row instead of creating a second one — the
+    // second income used to book a second company obligation for the same
+    // piece of work once it reached payout validation. Zod rejects a missing
+    // / non-uuid key with 400.
+    idempotencyKey: z.string().uuid(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
     txDate: z
@@ -909,6 +920,10 @@ export const createDropIncomeSchema = z
     // entered by the DROP registering income — floor added.
     amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    // task-senior-drop-income-idempotency (backlog 73/A-3): same REQUIRED
+    // client-generated UUID contract as createSeniorIncomeSchema above (see
+    // its comment for the full rationale) — mirrored 1:1 onto DROP_INCOME.
+    idempotencyKey: z.string().uuid(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
     txDate: z

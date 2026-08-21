@@ -130,7 +130,10 @@ describe('receiptMandatoryError', () => {
 // ── currency-aware mandatory refine on the create schemas ────────────────────
 
 describe('createSeniorIncomeSchema — mandatory + currency-aware', () => {
-  const base = { projectId: UUID, amount: 100 }
+  // task-senior-drop-income-idempotency (backlog 73/A-3): idempotencyKey is
+  // now a required field — present in `base` so every case below isolates
+  // the receipt-refine behaviour under test.
+  const base = { projectId: UUID, amount: 100, idempotencyKey: UUID }
 
   it('rejects when receipt is missing (mandatory on server)', () => {
     expect(createSeniorIncomeSchema.safeParse({ ...base, currency: 'USD' }).success).toBe(false)

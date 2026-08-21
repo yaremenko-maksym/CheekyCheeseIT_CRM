@@ -51,11 +51,25 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { ForbiddenException } from '@nestjs/common'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 const SRC_FILE = path.resolve(import.meta.dirname, 'transactions.service.ts')
+
+// backlog 73/A-3 (mutation-gate round 2): compiles a Drizzle `where` SQL
+// object (e.g. `and(eq(transactions.type, 'SENIOR_INCOME'), eq(...)))`) down
+// to its bound PARAMS array — `.toHaveProperty('where')` alone cannot tell a
+// correct where-clause apart from `and(eq(transactions.type, ''), eq(...))`
+// (a StringLiteral mutant): both are "defined" objects. Same technique as
+// senior-drop-income-idempotency-schema.spec.ts (compile-and-compare against
+// real Drizzle output, never a hand-typed restatement).
+function whereParams(callArg: unknown): unknown[] {
+  const where = (callArg as { where?: unknown } | undefined)?.where
+  expect(where, 'expected a `where` clause on the findFirst call').toBeDefined()
+  return new PgDialect().sqlToQuery(where as Parameters<PgDialect['sqlToQuery']>[0]).params
+}
 
 // ── Part 1: enumerating completeness ────────────────────────────────────────
 
@@ -117,7 +131,27 @@ const KNOWN_PENDING_ACCRUAL_SITES: Record<string, string> = {
 function scanPendingAccrualSites(): Array<{ method: string; line: number }> {
   const METHOD =
     /^ {2}(?:private |public |protected |readonly |static )*(?:async )?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\(/
-  const STATUS_PENDING = /^\s*status:\s*'PENDING'(\s+as const)?,\s*$/
+  // backlog 73/A-3: widened from an EXACT-match anchor
+  // (`/^\s*status:\s*'PENDING'(\s+as const)?,\s*$/`) after this scanner broke
+  // under Stryker's OWN instrumentation of THIS repo's mutation gate — verified
+  // by hand in apps/api/.stryker-tmp/sandbox-*/src/finance/transactions.service.ts
+  // during that task: any `status: 'PENDING'` LITERAL that falls inside a
+  // changed-line range (per mutation-gate.mjs's --changed scoping) gets
+  // rewritten by Stryker's AST printer to
+  // `status: stryMutAct_XXXX("N") ? "" : (stryCov_XXXX("N"), 'PENDING'),` before
+  // this test ever runs (Stryker's dry run executes the WHOLE suite against
+  // its instrumented sandbox copy, not the original file) — the old anchored
+  // regex requires 'PENDING' immediately after `status:`, so it silently
+  // stopped matching the two sites this task's diff touches
+  // (createSeniorIncome/createDropIncome), and the completeness assertion
+  // failed with "the test suite itself is red before any mutation is
+  // applied" (mutation-gate's own documented category — see
+  // scripts/devops/mutation-gate-runbook.md), not a real regression. `status:`
+  // still anchors the line (so an unrelated PENDING elsewhere on the same
+  // line can't false-positive), but what comes between `status:` and the
+  // `'PENDING'`/trailing `,` is now permissive — matches the plain form AND
+  // the Stryker-wrapped ternary form identically.
+  const STATUS_PENDING = /^\s*status:.*'PENDING'.*,\s*$/
   const INSERT_TRANSACTIONS = /\.insert\(\s*transactions\s*\)/
   const INSERT_OTHER_TABLE = /\.insert\(\s*(?:pendingObligations|payoutRequests)\s*\)/
   const RESUBMIT_UPDATE_CALL = /replaceReceiptAtomic\(/
@@ -266,9 +300,21 @@ const CURRENT_DROP_SESSION = {
 
 describe('createSeniorIncome — AC1: an archived senior is refused before any INSERT', () => {
   function makeService(project: unknown, senior: unknown, onInsert?: () => never) {
+    // backlog 73/A-3: createSeniorIncome's idempotency replay-SELECT
+    // (`query.transactions.findFirst`) now runs BEFORE the archived guard
+    // this file tests — default resolves to no-replay (undefined) so the
+    // flow reaches the archived check/INSERT exactly as these AC1 cases
+    // expect, same as a genuine first-time submit. Exposed (not inline) so
+    // mutation-gate coverage (backlog 73/A-3 round 2) can assert the exact
+    // call shape below — a fake that only checks the RESOLVED value can't
+    // tell `findFirst({ where: and(eq(type,'SENIOR_INCOME'), eq(idempotencyKey,…)) })`
+    // apart from `findFirst({})`, both resolving to whatever this mock
+    // returns regardless of the argument.
+    const transactionsFindFirst = vi.fn().mockResolvedValue(undefined)
     const db = {
       db: {
         query: {
+          transactions: { findFirst: transactionsFindFirst },
           projects: { findFirst: vi.fn().mockResolvedValue(project) },
           users: { findFirst: vi.fn().mockResolvedValue(senior) },
           teamMembers: { findMany: vi.fn().mockRejectedValue(new Error('unstubbed')) },
@@ -280,18 +326,20 @@ describe('createSeniorIncome — AC1: an archived senior is refused before any I
           }),
       },
     } as never
-    return makeTransactionsService({ db })
+    const svc = makeTransactionsService({ db })
+    return { svc, transactionsFindFirst }
   }
 
   const payload = {
     projectId: SENIOR_PROJECT.id,
     amount: 1000,
     currency: 'USD',
+    idempotencyKey: 'a1a1a1a1-1111-4111-8111-111111111111',
     receiptExternalUrl: 'https://drive.google.com/file/d/1abc/view',
   }
 
   it('refuses with the archived-receiver message; does not reach the INSERT', async () => {
-    const svc = makeService(SENIOR_PROJECT, ARCHIVED_SENIOR)
+    const { svc } = makeService(SENIOR_PROJECT, ARCHIVED_SENIOR)
 
     await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toThrow(
       'Пользователь архивирован — доход не декларируется',
@@ -302,19 +350,117 @@ describe('createSeniorIncome — AC1: an archived senior is refused before any I
   })
 
   it('lets an ACTIVE senior through the gate (reaches the INSERT)', async () => {
-    const svc = makeService(SENIOR_PROJECT, ACTIVE_SENIOR)
+    const { svc } = makeService(SENIOR_PROJECT, ACTIVE_SENIOR)
 
     await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toThrow(
       'INSERT REACHED',
+    )
+  })
+
+  it('replay-SELECT queries by (type=SENIOR_INCOME, idempotencyKey) — not an empty/wrong-literal read (backlog 73/A-3, mutation-gate)', async () => {
+    const { svc, transactionsFindFirst } = makeService(SENIOR_PROJECT, ACTIVE_SENIOR)
+
+    await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toThrow(
+      'INSERT REACHED',
+    )
+
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(1)
+    const callArg = transactionsFindFirst.mock.calls[0]?.[0]
+    // Kills the ObjectLiteral->{} AND the StringLiteral->"" mutants on this
+    // where-clause — an empty object or an emptied 'SENIOR_INCOME' literal
+    // would compile to different (or no) bound params.
+    expect(whereParams(callArg)).toEqual(['SENIOR_INCOME', payload.idempotencyKey])
+  })
+
+  it('same idempotencyKey returns the EXISTING row (early-SELECT hit) — never reaches the INSERT (backlog 73/A-3)', async () => {
+    const existing = { id: 'existing-senior-income-1' }
+    const { svc, transactionsFindFirst } = makeService(SENIOR_PROJECT, ACTIVE_SENIOR)
+    transactionsFindFirst.mockResolvedValueOnce(existing)
+    const findOneSpy = vi
+      .spyOn(svc as unknown as { findOne: (id: string, u: unknown) => Promise<unknown> }, 'findOne')
+      .mockResolvedValue('FOUND_EXISTING' as never)
+
+    const result = await svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)
+
+    expect(result).toBe('FOUND_EXISTING')
+    expect(findOneSpy).toHaveBeenCalledWith(existing.id, CURRENT_SENIOR_SESSION)
+  })
+
+  it('a concurrent duplicate submit (genuine 23505 on the SENIOR_INCOME idempotency index) re-reads the committed winner instead of raising a 500 (backlog 73/A-3)', async () => {
+    // Real pg errors carry `.code`/`.constraint` — `uniqueViolationConstraint`
+    // walks the `.cause` chain for exactly this shape (see pg-errors.ts).
+    const pgUniqueViolation = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      constraint: 'uq_transactions_senior_income_idempotency_key',
+    })
+    const { svc, transactionsFindFirst } = makeService(SENIOR_PROJECT, ACTIVE_SENIOR, () => {
+      throw pgUniqueViolation
+    })
+    const committed = { id: 'committed-senior-income-1' }
+    // First call = early-SELECT (miss, undefined); second = catch-block re-read (hit).
+    transactionsFindFirst.mockResolvedValueOnce(undefined).mockResolvedValueOnce(committed)
+    const findOneSpy = vi
+      .spyOn(svc as unknown as { findOne: (id: string, u: unknown) => Promise<unknown> }, 'findOne')
+      .mockResolvedValue('FOUND_COMMITTED' as never)
+
+    const result = await svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)
+
+    expect(result).toBe('FOUND_COMMITTED')
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(2)
+    // Kills the ObjectLiteral->{} / StringLiteral->"" mutants on the
+    // CATCH-BLOCK's own where-clause (a separate `and(eq(...), eq(...))`
+    // literal from the early-SELECT's, one call earlier).
+    const catchCallArg = transactionsFindFirst.mock.calls[1]?.[0]
+    expect(whereParams(catchCallArg)).toEqual(['SENIOR_INCOME', payload.idempotencyKey])
+    expect(findOneSpy).toHaveBeenCalledWith(committed.id, CURRENT_SENIOR_SESSION)
+  })
+
+  it('the constraint-name IF collides but NO committed row is found (should be unreachable in practice) → rethrows, never silently swallows (backlog 73/A-3, mutation-gate)', async () => {
+    // Kills the ConditionalExpression->true mutant on `if (committed) return
+    // …` — the other test above only ever exercises the TRUE branch (a row
+    // IS found), so forcing the condition to a hardcoded `true` changes
+    // nothing there. This scenario is genuinely `committed` falsy — the
+    // real `if` must still fall through to `throw err` unchanged.
+    const pgUniqueViolation = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      constraint: 'uq_transactions_senior_income_idempotency_key',
+    })
+    const { svc, transactionsFindFirst } = makeService(SENIOR_PROJECT, ACTIVE_SENIOR, () => {
+      throw pgUniqueViolation
+    })
+    transactionsFindFirst.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+
+    await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toBe(
+      pgUniqueViolation,
+    )
+  })
+
+  it('an UNRELATED unique-violation (e.g. the receipt-document index) is rethrown, not misattributed as an idempotency race (backlog 73/A-3)', async () => {
+    const unrelatedViolation = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      constraint: 'uq_transactions_receipt_document_id',
+    })
+    const { svc } = makeService(SENIOR_PROJECT, ACTIVE_SENIOR, () => {
+      throw unrelatedViolation
+    })
+
+    await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toBe(
+      unrelatedViolation,
     )
   })
 })
 
 describe('createDropIncome — AC1: an archived drop is refused before any INSERT', () => {
   function makeService(project: unknown, dropUser: unknown, onInsert?: () => never) {
+    // backlog 73/A-3: same reasoning as createSeniorIncome's makeService
+    // above — createDropIncome's replay-SELECT runs before the archived
+    // guard; default no-replay lets these AC1 cases reach it unchanged.
+    // Exposed for the same mutation-gate call-shape assertions.
+    const transactionsFindFirst = vi.fn().mockResolvedValue(undefined)
     const db = {
       db: {
         query: {
+          transactions: { findFirst: transactionsFindFirst },
           projects: { findFirst: vi.fn().mockResolvedValue(project) },
           users: { findFirst: vi.fn().mockResolvedValue(dropUser) },
         },
@@ -325,18 +471,20 @@ describe('createDropIncome — AC1: an archived drop is refused before any INSER
           }),
       },
     } as never
-    return makeTransactionsService({ db })
+    const svc = makeTransactionsService({ db })
+    return { svc, transactionsFindFirst }
   }
 
   const payload = {
     projectId: DROP_PROJECT.id,
     amount: 500,
     currency: 'USD',
+    idempotencyKey: 'd2d2d2d2-2222-4222-8222-222222222222',
     receiptExternalUrl: 'https://drive.google.com/file/d/2def/view',
   }
 
   it('refuses with the archived-receiver message; does not reach the INSERT', async () => {
-    const svc = makeService(DROP_PROJECT, ARCHIVED_DROP)
+    const { svc } = makeService(DROP_PROJECT, ARCHIVED_DROP)
 
     await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toThrow(
       'Пользователь архивирован — доход не декларируется',
@@ -347,7 +495,7 @@ describe('createDropIncome — AC1: an archived drop is refused before any INSER
   })
 
   it('lets an ACTIVE drop through the gate (reaches the INSERT)', async () => {
-    const svc = makeService(DROP_PROJECT, ACTIVE_DROP)
+    const { svc } = makeService(DROP_PROJECT, ACTIVE_DROP)
 
     await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toThrow(
       'INSERT REACHED',
@@ -357,10 +505,88 @@ describe('createDropIncome — AC1: an archived drop is refused before any INSER
   it('does not fire when the drop user row failed to resolve (undefined, not archived)', async () => {
     // `dropUser` is looked up with no NotFoundException guard in the source —
     // `dropUser?.archivedAt` must not throw or false-positive on `undefined`.
-    const svc = makeService(DROP_PROJECT, undefined)
+    const { svc } = makeService(DROP_PROJECT, undefined)
 
     await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toThrow(
       'INSERT REACHED',
+    )
+  })
+
+  it('replay-SELECT queries by (type=DROP_INCOME, idempotencyKey) — not an empty/wrong-literal read (backlog 73/A-3, mutation-gate)', async () => {
+    const { svc, transactionsFindFirst } = makeService(DROP_PROJECT, ACTIVE_DROP)
+
+    await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toThrow(
+      'INSERT REACHED',
+    )
+
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(1)
+    const callArg = transactionsFindFirst.mock.calls[0]?.[0]
+    expect(whereParams(callArg)).toEqual(['DROP_INCOME', payload.idempotencyKey])
+  })
+
+  it('same idempotencyKey returns the EXISTING row (early-SELECT hit) — never reaches the INSERT (backlog 73/A-3)', async () => {
+    const existing = { id: 'existing-drop-income-1' }
+    const { svc, transactionsFindFirst } = makeService(DROP_PROJECT, ACTIVE_DROP)
+    transactionsFindFirst.mockResolvedValueOnce(existing)
+    const findOneSpy = vi
+      .spyOn(svc as unknown as { findOne: (id: string, u: unknown) => Promise<unknown> }, 'findOne')
+      .mockResolvedValue('FOUND_EXISTING' as never)
+
+    const result = await svc.createDropIncome(payload, CURRENT_DROP_SESSION)
+
+    expect(result).toBe('FOUND_EXISTING')
+    expect(findOneSpy).toHaveBeenCalledWith(existing.id, CURRENT_DROP_SESSION)
+  })
+
+  it('a concurrent duplicate submit (genuine 23505 on the DROP_INCOME idempotency index) re-reads the committed winner instead of raising a 500 (backlog 73/A-3)', async () => {
+    const pgUniqueViolation = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      constraint: 'uq_transactions_drop_income_idempotency_key',
+    })
+    const { svc, transactionsFindFirst } = makeService(DROP_PROJECT, ACTIVE_DROP, () => {
+      throw pgUniqueViolation
+    })
+    const committed = { id: 'committed-drop-income-1' }
+    transactionsFindFirst.mockResolvedValueOnce(undefined).mockResolvedValueOnce(committed)
+    const findOneSpy = vi
+      .spyOn(svc as unknown as { findOne: (id: string, u: unknown) => Promise<unknown> }, 'findOne')
+      .mockResolvedValue('FOUND_COMMITTED' as never)
+
+    const result = await svc.createDropIncome(payload, CURRENT_DROP_SESSION)
+
+    expect(result).toBe('FOUND_COMMITTED')
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(2)
+    const catchCallArg = transactionsFindFirst.mock.calls[1]?.[0]
+    expect(whereParams(catchCallArg)).toEqual(['DROP_INCOME', payload.idempotencyKey])
+    expect(findOneSpy).toHaveBeenCalledWith(committed.id, CURRENT_DROP_SESSION)
+  })
+
+  it('the constraint-name IF collides but NO committed row is found (should be unreachable in practice) → rethrows, never silently swallows (backlog 73/A-3, mutation-gate)', async () => {
+    const pgUniqueViolation = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      constraint: 'uq_transactions_drop_income_idempotency_key',
+    })
+    const { svc, transactionsFindFirst } = makeService(DROP_PROJECT, ACTIVE_DROP, () => {
+      throw pgUniqueViolation
+    })
+    transactionsFindFirst.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+
+    await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toBe(
+      pgUniqueViolation,
+    )
+  })
+
+  it('an UNRELATED unique-violation (e.g. the receipt-document index) is rethrown, not misattributed as an idempotency race (backlog 73/A-3)', async () => {
+    const unrelatedViolation = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      constraint: 'uq_transactions_receipt_document_id',
+    })
+    const { svc } = makeService(DROP_PROJECT, ACTIVE_DROP, () => {
+      throw unrelatedViolation
+    })
+
+    await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toBe(
+      unrelatedViolation,
     )
   })
 })

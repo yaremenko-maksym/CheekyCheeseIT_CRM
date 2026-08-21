@@ -2184,6 +2184,16 @@ export class TransactionsService {
       projectId: string
       amount: number
       currency: string
+      // backlog 73/A-3 (security): REQUIRED client-generated UUID, mirroring
+      // the ADMIN_INCOME (PR #367, MED-1) / dividend (BIZ-19, MED-2)
+      // idempotency contract 1:1 — see declareUsdtProjectIncome's own comment
+      // for the full rationale. The frontend generates a fresh UUID at dialog
+      // OPEN and sends it on every submit within that session. A double-submit
+      // (double click / network retry) with the SAME key returns the EXISTING
+      // SENIOR_INCOME row instead of creating a second one — the second income
+      // used to book a second company obligation for the same piece of work
+      // once it reached payout validation (bookCompanyObligations).
+      idempotencyKey: string
       receiptDocumentId?: string | null | undefined
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
@@ -2192,6 +2202,33 @@ export class TransactionsService {
     currentUser: SessionUser,
   ) {
     if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
+
+    // backlog 73/A-3: idempotency replay guard. Runs FIRST, right after the
+    // RBAC gate above and BEFORE any RBAC-independent logic (project lookup,
+    // ownership check, receipt validation) — same placement
+    // declareUsdtProjectIncome uses, for the same reason: an unauthorized
+    // replay still gets 403 from the role check above, never a leaked row.
+    // A caller replaying a key that belongs to a DIFFERENT senior's income
+    // still cannot read it — `findOne` below re-applies `assertReadAccess`,
+    // which rejects a SENIOR who is neither the sender nor the receiver of
+    // the row, so this early-SELECT does not need its own ownership filter.
+    //
+    // This is a plain SELECT (no lock) — the genuine concurrent race where two
+    // submits both miss it is caught by the partial unique index (23505) at
+    // the insert below.
+    //
+    // Key = INTENT (same contract as ADMIN_INCOME/dividend): replaying a key
+    // with a DIFFERENT payload still returns the FIRST committed row — a
+    // silent no-op, not a 409. Acceptable by design: the dialog generates a
+    // fresh UUID per open, so a key/payload mismatch can only come from a
+    // stale client retry, where returning the original row is the safe answer.
+    const seniorIncomeReplay = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'SENIOR_INCOME'),
+        eq(transactions.idempotencyKey, data.idempotencyKey),
+      ),
+    })
+    if (seniorIncomeReplay) return this.findOne(seniorIncomeReplay.id, currentUser)
 
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, data.projectId),
@@ -2255,26 +2292,55 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'SENIOR_INCOME',
-        status: 'PENDING',
-        amount: String(data.amount),
-        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-        senderId: null,
-        senderLabel: project.companyName,
-        receiverId: currentUser.id,
-        projectId: data.projectId,
-        seniorSharePercent: resolved.value,
-        seniorSharePercentSource: resolved.source,
-        receiptDocumentId: data.receiptDocumentId ?? null,
-        receiptExternalUrl: data.receiptExternalUrl ?? null,
-        notes: data.notes ?? null,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
-      })
-      .returning()
+    let tx: typeof transactions.$inferSelect | undefined
+    try {
+      ;[tx] = await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: String(data.amount),
+          currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+          senderId: null,
+          senderLabel: project.companyName,
+          receiverId: currentUser.id,
+          projectId: data.projectId,
+          seniorSharePercent: resolved.value,
+          seniorSharePercentSource: resolved.source,
+          // backlog 73/A-3: persist the key so
+          // uq_transactions_senior_income_idempotency_key enforces
+          // single-income-per-key as a DB-level backstop for concurrent
+          // submits that slip past the early-SELECT above.
+          idempotencyKey: data.idempotencyKey,
+          receiptDocumentId: data.receiptDocumentId ?? null,
+          receiptExternalUrl: data.receiptExternalUrl ?? null,
+          notes: data.notes ?? null,
+          txDate: this.resolveTxDate(data.txDate),
+          createdBy: currentUser.id,
+        })
+        .returning()
+    } catch (err) {
+      // backlog 73/A-3 race: two concurrent submits with the SAME key both
+      // miss the early-SELECT (it runs outside any lock); A commits, B's
+      // insert hits uq_transactions_senior_income_idempotency_key (23505).
+      // Re-read the committed winner and return it — idempotent response,
+      // not a 500. Match on the CONSTRAINT NAME (not a blanket
+      // isUniqueViolation) so an unrelated collision on this table (e.g.
+      // uq_transactions_receipt_document_id) rethrows instead of being
+      // misattributed as an idempotency race (security-review PR #438
+      // rationale — see pg-errors.ts's own doc comment on
+      // uniqueViolationConstraint).
+      if (uniqueViolationConstraint(err) === 'uq_transactions_senior_income_idempotency_key') {
+        const committed = await this.db.db.query.transactions.findFirst({
+          where: and(
+            eq(transactions.type, 'SENIOR_INCOME'),
+            eq(transactions.idempotencyKey, data.idempotencyKey),
+          ),
+        })
+        if (committed) return this.findOne(committed.id, currentUser)
+      }
+      throw err
+    }
 
     await this.recordCreationAudit(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
@@ -2292,6 +2358,10 @@ export class TransactionsService {
       projectId: string
       amount: number
       currency: string
+      // backlog 73/A-3 (security): same REQUIRED idempotency-key contract as
+      // createSeniorIncome above (see its comment for the full rationale) —
+      // mirrored 1:1 onto DROP_INCOME.
+      idempotencyKey: string
       receiptDocumentId?: string | null | undefined
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
@@ -2300,6 +2370,19 @@ export class TransactionsService {
     currentUser: SessionUser,
   ) {
     if (currentUser.role !== 'DROP') throw new ForbiddenException()
+
+    // backlog 73/A-3: idempotency replay guard — same placement + rationale
+    // as createSeniorIncome's own guard (see its comment). `findOne` below
+    // re-applies `assertReadAccess`, which rejects a DROP who is neither the
+    // sender nor the receiver of the replayed row, so a replay of someone
+    // else's key still cannot leak that row's data.
+    const dropIncomeReplay = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'DROP_INCOME'),
+        eq(transactions.idempotencyKey, data.idempotencyKey),
+      ),
+    })
+    if (dropIncomeReplay) return this.findOne(dropIncomeReplay.id, currentUser)
 
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, data.projectId),
@@ -2349,27 +2432,49 @@ export class TransactionsService {
       { dropSharePercent: dropUser?.dropSharePercent },
     )
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'DROP_INCOME',
-        status: 'PENDING',
-        amount: String(data.amount),
-        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-        senderId: null,
-        senderLabel: project.companyName,
-        receiverId: currentUser.id,
-        recipientId: currentUser.id,
-        projectId: data.projectId,
-        dropSharePercent: resolvedDrop.value,
-        dropSharePercentSource: resolvedDrop.source,
-        receiptDocumentId: data.receiptDocumentId ?? null,
-        receiptExternalUrl: data.receiptExternalUrl ?? null,
-        notes: data.notes ?? null,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
-      })
-      .returning()
+    let tx: typeof transactions.$inferSelect | undefined
+    try {
+      ;[tx] = await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'DROP_INCOME',
+          status: 'PENDING',
+          amount: String(data.amount),
+          currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+          senderId: null,
+          senderLabel: project.companyName,
+          receiverId: currentUser.id,
+          recipientId: currentUser.id,
+          projectId: data.projectId,
+          dropSharePercent: resolvedDrop.value,
+          dropSharePercentSource: resolvedDrop.source,
+          // backlog 73/A-3: persist the key so
+          // uq_transactions_drop_income_idempotency_key enforces
+          // single-income-per-key as a DB-level backstop for concurrent
+          // submits that slip past the early-SELECT above.
+          idempotencyKey: data.idempotencyKey,
+          receiptDocumentId: data.receiptDocumentId ?? null,
+          receiptExternalUrl: data.receiptExternalUrl ?? null,
+          notes: data.notes ?? null,
+          txDate: this.resolveTxDate(data.txDate),
+          createdBy: currentUser.id,
+        })
+        .returning()
+    } catch (err) {
+      // backlog 73/A-3 race: same shape as createSeniorIncome's own catch —
+      // match on the CONSTRAINT NAME so an unrelated collision on this table
+      // rethrows instead of being misattributed as an idempotency race.
+      if (uniqueViolationConstraint(err) === 'uq_transactions_drop_income_idempotency_key') {
+        const committed = await this.db.db.query.transactions.findFirst({
+          where: and(
+            eq(transactions.type, 'DROP_INCOME'),
+            eq(transactions.idempotencyKey, data.idempotencyKey),
+          ),
+        })
+        if (committed) return this.findOne(committed.id, currentUser)
+      }
+      throw err
+    }
 
     await this.recordCreationAudit(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)

@@ -297,6 +297,21 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const [usdtIncomeIdempotencyKey, setUsdtIncomeIdempotencyKey] = useState(() =>
     crypto.randomUUID(),
   )
+  // task-senior-drop-income-idempotency (backlog 73/A-3): same per-open-UUID
+  // contract as usdtIncomeIdempotencyKey/dividendIdempotencyKey above, one key
+  // per intent. SENIOR_INCOME and DROP_INCOME are mutually exclusive within a
+  // single dialog session (a caller is either SENIOR or DROP — `availableTypes`
+  // above never offers both), so only one of these two is ever actually sent,
+  // but both are generated up front for the same reason usdtIncomeIdempotencyKey
+  // is: stable for the WHOLE open session, so a double-click / retry on submit
+  // reuses the SAME key and the backend's replay guard returns the existing row
+  // instead of creating a second income + a second company obligation.
+  const [seniorIncomeIdempotencyKey, setSeniorIncomeIdempotencyKey] = useState(() =>
+    crypto.randomUUID(),
+  )
+  const [dropIncomeIdempotencyKey, setDropIncomeIdempotencyKey] = useState(() =>
+    crypto.randomUUID(),
+  )
   const [txDate, setTxDate] = useState(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -618,6 +633,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           projectId,
           amount: amt,
           currency,
+          // task-senior-drop-income-idempotency (backlog 73/A-3): stable
+          // per-open key so a double-click / retry does not create a second
+          // income (and, once it reaches payout validation, a second
+          // company obligation for the same piece of work).
+          idempotencyKey: seniorIncomeIdempotencyKey,
           receiptDocumentId,
           receiptExternalUrl,
           notes: notes || null,
@@ -631,6 +651,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           projectId,
           amount: amt,
           currency,
+          // task-senior-drop-income-idempotency (backlog 73/A-3): same
+          // contract as SENIOR_INCOME above.
+          idempotencyKey: dropIncomeIdempotencyKey,
           receiptDocumentId,
           receiptExternalUrl,
           notes: notes || null,
@@ -752,6 +775,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setDividendIdempotencyKey(crypto.randomUUID())
     // MED-1 (PR #367): likewise refresh the USDT-income key (new open = new intent).
     setUsdtIncomeIdempotencyKey(crypto.randomUUID())
+    // backlog 73/A-3: likewise refresh the SENIOR/DROP income keys (new open =
+    // new intent).
+    setSeniorIncomeIdempotencyKey(crypto.randomUUID())
+    setDropIncomeIdempotencyKey(crypto.randomUUID())
   }
 
   // EXPENSE and ADMIN_INCOME's ACCOUNTANT branch render the SAME two-button
