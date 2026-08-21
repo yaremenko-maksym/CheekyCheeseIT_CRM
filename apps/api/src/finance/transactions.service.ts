@@ -6871,7 +6871,13 @@ export class TransactionsService {
    * and archiving a junior sets that `leftAt`. See that resolver's comment.)
    */
   private async resolveHrAccountantSalaryReceivers(): Promise<
-    Array<{ id: string; email: string; role: 'HR' | 'ACCOUNTANT'; monthlySalary: string }>
+    Array<{
+      id: string
+      email: string
+      displayName: string
+      role: 'HR' | 'ACCOUNTANT'
+      monthlySalary: string
+    }>
   > {
     const employees = await this.db.db.query.users.findMany({
       where: and(or(eq(users.role, 'HR'), eq(users.role, 'ACCOUNTANT')), isNull(users.archivedAt)),
@@ -6880,6 +6886,7 @@ export class TransactionsService {
     const receivers: Array<{
       id: string
       email: string
+      displayName: string
       role: 'HR' | 'ACCOUNTANT'
       monthlySalary: string
     }> = []
@@ -6888,6 +6895,7 @@ export class TransactionsService {
       receivers.push({
         id: emp.id,
         email: emp.email,
+        displayName: emp.displayName,
         role: emp.role as 'HR' | 'ACCOUNTANT',
         monthlySalary: emp.monthlySalary,
       })
@@ -6930,6 +6938,7 @@ export class TransactionsService {
     Array<{
       id: string
       email: string
+      displayName: string
       monthlySalary: string
       projectId: string
       projectName: string
@@ -6946,6 +6955,7 @@ export class TransactionsService {
     const receivers: Array<{
       id: string
       email: string
+      displayName: string
       monthlySalary: string
       projectId: string
       projectName: string
@@ -6973,6 +6983,7 @@ export class TransactionsService {
       receivers.push({
         id: user.id,
         email: user.email,
+        displayName: user.displayName,
         monthlySalary: String(salaryAmount),
         projectId: project.id,
         projectName: project.name,
@@ -7127,7 +7138,7 @@ export class TransactionsService {
     const expected: SalaryMonthGapReceiverDto[] = [
       ...hrAccountant.map((r) => ({
         userId: r.id,
-        displayName: r.email,
+        displayName: r.displayName,
         role: r.role,
         expectedAmount: Number(r.monthlySalary),
         projectId: null,
@@ -7135,7 +7146,7 @@ export class TransactionsService {
       })),
       ...juniors.map((r) => ({
         userId: r.id,
-        displayName: r.email,
+        displayName: r.displayName,
         role: 'JUNIOR' as const,
         expectedAmount: Number(r.monthlySalary),
         projectId: r.projectId,
