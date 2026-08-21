@@ -44,12 +44,21 @@
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
 --     < apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql
 --
--- DevOps owns wiring this into `.github/workflows/deploy.yml` (copy +
--- apply steps, same precedent as PR #571 for
--- 2026-08-18_sender_receiver_invariant.sql) — this PR does not touch
--- `.github/workflows/**` (zone-of-write: apps/api/** is Coder's,
--- .github/workflows/** is DevOps's). Safe to leave wired permanently —
--- every statement below is idempotent.
+-- Wired into `.github/workflows/deploy.yml` in THIS SAME PR (copy step in
+-- copy-compose + fail-loud apply step in deploy, both unconditional — the
+-- migration file and its wiring land together) — the same precedent as PR
+-- #367's own squash commit (2f6c53e8: `deploy.yml | 73 +` alongside its
+-- migration file in ONE commit) and PR #587 round 1 (security-review
+-- sanctioned the identical same-PR shape for
+-- 2026-08-19_senior_drop_income_idempotency_index.sql, the step directly
+-- above this file's in deploy.yml). `.github/workflows/**` is normally
+-- DevOps's zone-of-write, not Coder's — this is a deliberate, reviewed
+-- exception for this one file (security-review on PR #590), not an
+-- unreviewed violation and not "DevOps wires it separately later"
+-- (corrected: an earlier version of this header wrongly claimed the #571/
+-- #568 follow-up-PR shape — security-review on #590 caught the drift; the
+-- correct precedent is same-PR, as stated above). Safe to leave wired
+-- permanently — every statement below is idempotent.
 --
 -- Idempotent: `ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, and
 -- the backfill UPDATE only ever touches rows still matching
