@@ -21,10 +21,19 @@
  *    scoped to true dialogs only, per the PR's actual claim.
  * 8. Does NOT flip true for an open DropdownMenu (role="menu") either.
  * 9. Ignores unrelated attribute changes on body.
+ * 10. Observes the `role` attribute specifically — an element already in the
+ *     DOM that becomes a dialog by role change alone (no childList mutation,
+ *     no data-state change) still flips the hook. Without 'role' in
+ *     attributeFilter this is invisible.
+ * 11. Disconnects the observer on unmount — a leaked observer keeps calling
+ *     setState on an unmounted hook for the lifetime of the page.
+ * 12. Attaches exactly ONE observer across re-renders (the effect's empty
+ *     dependency array). A non-empty/unstable dep array re-runs the effect
+ *     every render, stacking one live observer per render.
  */
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
-import { useAnyDialogOpen } from '../use-any-dialog-open'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { aDialogIsOpen, useAnyDialogOpen } from '../use-any-dialog-open'
 
 function appendOverlay(role: string, state: string): HTMLElement {
   const el = document.createElement('div')
@@ -133,5 +142,93 @@ describe('useAnyDialogOpen', () => {
 
     await new Promise((r) => setTimeout(r, 0))
     expect(result.current).toBe(false)
+  })
+
+  it('observes the role attribute itself — an already-mounted node that BECOMES a dialog flips the hook', async () => {
+    // Mutates `role` only: the node is already in the DOM (no childList
+    // mutation) and its data-state never changes. The sole signal is the
+    // `role` attribute, so this fails if 'role' is missing from
+    // attributeFilter — the other tests all ride on childList or data-state
+    // and cannot tell the two filter entries apart.
+    const el = appendOverlay('listbox', 'open')
+    const { result } = renderHook(() => useAnyDialogOpen())
+    expect(result.current).toBe(false)
+
+    act(() => {
+      el.setAttribute('role', 'dialog')
+    })
+
+    await waitFor(() => expect(result.current).toBe(true))
+  })
+
+  it('disconnects the observer on unmount — no further callbacks after teardown', async () => {
+    const disconnect = vi.fn()
+    const observe = vi.fn()
+    const RealObserver = globalThis.MutationObserver
+    class SpyObserver {
+      observe = observe
+      disconnect = disconnect
+      takeRecords = () => []
+      constructor(_cb: MutationCallback) {}
+    }
+    vi.stubGlobal('MutationObserver', SpyObserver)
+
+    try {
+      const { unmount } = renderHook(() => useAnyDialogOpen())
+      expect(observe).toHaveBeenCalledTimes(1)
+      expect(disconnect).not.toHaveBeenCalled()
+
+      unmount()
+
+      expect(disconnect).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.stubGlobal('MutationObserver', RealObserver)
+    }
+  })
+
+  it('aDialogIsOpen returns false (never throws) when there is no document at all — SSR', () => {
+    // The hook itself cannot be rendered without a document (its useState
+    // initialiser calls this during render), so the guard is only reachable
+    // through a direct call. Without the guard this throws a TypeError on
+    // `document.querySelector`; with it inverted it would return false even
+    // when a dialog IS present, which the case below pins.
+    vi.stubGlobal('document', undefined)
+    try {
+      expect(aDialogIsOpen()).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('aDialogIsOpen returns true for a present open dialog — the guard must not short-circuit that', () => {
+    appendOverlay('dialog', 'open')
+    expect(aDialogIsOpen()).toBe(true)
+  })
+
+  it('attaches exactly ONE observer across re-renders (empty dep array)', () => {
+    const disconnect = vi.fn()
+    const observe = vi.fn()
+    const RealObserver = globalThis.MutationObserver
+    class SpyObserver {
+      observe = observe
+      disconnect = disconnect
+      takeRecords = () => []
+      constructor(_cb: MutationCallback) {}
+    }
+    vi.stubGlobal('MutationObserver', SpyObserver)
+
+    try {
+      const { rerender } = renderHook(() => useAnyDialogOpen())
+      rerender()
+      rerender()
+
+      // An unstable/non-empty dep array re-runs the effect on every render,
+      // which would show up here as one observe() (and one disconnect()) per
+      // render instead of a single attach for the hook's whole lifetime.
+      expect(observe).toHaveBeenCalledTimes(1)
+      expect(disconnect).not.toHaveBeenCalled()
+    } finally {
+      vi.stubGlobal('MutationObserver', RealObserver)
+    }
   })
 })

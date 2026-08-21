@@ -247,6 +247,7 @@ function ContractEditorPage() {
   // route instance stays mounted — e.g. editing the `:role` URL segment
   // directly — that flips the hook count between renders, same failure
   // class as stats.tsx / the sibling route pages fixed alongside this one.
+  // Stryker disable next-line StringLiteral: covers exactly 1 mutant, provably equivalent. This literal is the placeholder branch, reachable ONLY when `parsed.success` is false — and in that state every consumer of `role` is inert: the query carries `enabled: parsed.success`, the mutation callbacks need a user action on JSX that never mounts, and the guard-return below yields null before any render that reads it. Emptying the literal therefore cannot change observable behaviour. Its value matters only to a human reading the fallback, which is why it names a real role rather than ''.
   const role = parsed.success ? parsed.data : 'SENIOR'
 
   useEffect(() => {

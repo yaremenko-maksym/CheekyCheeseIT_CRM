@@ -232,20 +232,38 @@ describe('ContractEditorPage layout', () => {
     } as ReturnType<typeof useQuery>)
   })
 
-  async function renderContractEditor() {
+  async function renderContractEditor(role = 'senior') {
     // Dynamically import to get the component after mocks are in place
     const mod = await import('../contracts.$role')
 
     // Patch Route.useParams inside the module (TanStack Router mock doesn't
     // provide params at unit-test level — we inject directly)
     const { Route } = mod
-    vi.spyOn(Route, 'useParams').mockReturnValue({ role: 'senior' })
+    vi.spyOn(Route, 'useParams').mockReturnValue({ role })
 
     // ContractEditorPage is not exported — access via Route.options.component
     const Page = mod.Route.options?.component as React.ComponentType | undefined
     if (!Page) throw new Error('ContractEditorPage component not found on Route')
     return render(<Page />)
   }
+
+  // The `:role` URL segment is user-editable, so an unparseable value must
+  // render nothing rather than fall through to the editor. That guard moved
+  // BELOW every hook in this PR (Rules of Hooks — see the comment at its new
+  // site); this pins that relocating it did not defang it. Without the guard
+  // the page renders the SENIOR editor — `role` falls back to 'SENIOR' so the
+  // hooks can be declared unconditionally — which would silently serve the
+  // wrong template for a bogus URL.
+  it.each(['bogus', 'admin', ''])(
+    'renders nothing when the :role param does not parse (%j)',
+    async (badRole) => {
+      await renderContractEditor(badRole)
+      await resolveFlushPromises()
+
+      expect(screen.queryByTestId('contract-editor-wrapper')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('variables-panel-wrapper')).not.toBeInTheDocument()
+    },
+  )
 
   it('renders full-width editor wrapper (not 2-column grid)', async () => {
     await renderContractEditor()

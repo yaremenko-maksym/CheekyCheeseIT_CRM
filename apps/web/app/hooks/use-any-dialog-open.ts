@@ -23,8 +23,29 @@ import { useEffect, useState } from 'react'
 const DIALOG_SELECTOR =
   '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'
 
-function aDialogIsOpen(): boolean {
-  return typeof document !== 'undefined' && document.querySelector(DIALOG_SELECTOR) !== null
+// Exported ONLY so the SSR guard below is reachable from a test without a
+// render: `useAnyDialogOpen` calls this during render (useState initialiser),
+// so a document-less render is impossible by construction — but a direct call
+// with `document` stubbed away is not. That is what makes the guard a real,
+// mutation-killable branch instead of a suppressed one.
+export function aDialogIsOpen(): boolean {
+  if (typeof document === 'undefined') return false
+  return document.querySelector(DIALOG_SELECTOR) !== null
+}
+
+// Effect body hoisted out of the useEffect call so the dependency array does
+// NOT sit on a line beginning with `}` — a Stryker suppression placed there is
+// silently ignored (a trap this repo has hit before).
+function subscribeToDialogState(setOpen: (value: boolean) => void): () => void {
+  setOpen(aDialogIsOpen())
+  const observer = new MutationObserver(() => setOpen(aDialogIsOpen()))
+  observer.observe(document.body, {
+    attributes: true,
+    attributeFilter: ['role', 'data-state'],
+    childList: true,
+    subtree: true,
+  })
+  return () => observer.disconnect()
 }
 
 /**
@@ -53,17 +74,8 @@ function aDialogIsOpen(): boolean {
 export function useAnyDialogOpen(): boolean {
   const [open, setOpen] = useState(aDialogIsOpen)
 
-  useEffect(() => {
-    setOpen(aDialogIsOpen())
-    const observer = new MutationObserver(() => setOpen(aDialogIsOpen()))
-    observer.observe(document.body, {
-      attributes: true,
-      attributeFilter: ['role', 'data-state'],
-      childList: true,
-      subtree: true,
-    })
-    return () => observer.disconnect()
-  }, [])
+  // Stryker disable next-line ArrayDeclaration: exactly one mutant, provably equivalent. Stryker rewrites `[]` to `["Stryker was here"]` — a CONSTANT literal — and React diffs dependency arrays element-wise with Object.is, so a fresh array holding the same constant reads as unchanged and the effect still runs exactly once per mount. No test can distinguish them. The property this array actually encodes IS pinned: see the spec's "attaches exactly ONE observer across re-renders", which fails against an unstable dep such as `[{}]`.
+  useEffect(() => subscribeToDialogState(setOpen), [])
 
   return open
 }

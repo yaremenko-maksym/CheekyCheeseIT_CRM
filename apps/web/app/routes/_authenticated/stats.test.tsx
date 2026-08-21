@@ -730,6 +730,35 @@ describe('StatsPage — Rules of Hooks (backlog #132 regression)', () => {
     expect(() => rerender(<StatsPage />)).not.toThrow()
     expect(screen.getByTestId('stats-page-accountant')).toBeInTheDocument()
   })
+
+  // The guard is `!user || !isPrivilegedViewer` — the two cases below hit it
+  // with exactly ONE side true each, which is what distinguishes `||` from
+  // `&&`. Under `&&` a signed-in non-privileged viewer (JUNIOR/SENIOR/HR)
+  // would fall through the guard and render the finance page — the exact
+  // leak this early return exists to prevent. Both roots are asserted absent
+  // because ADMIN and ACCOUNTANT render different testids.
+  it.each(['JUNIOR', 'SENIOR', 'HR', 'DROP'] as const)(
+    'renders nothing for a signed-in non-privileged viewer (%s)',
+    (role) => {
+      useAuthMock.mockReturnValue({ user: makeUser(role), isLoading: false })
+      mockResolvedQueries()
+
+      render(<StatsPage />)
+
+      expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('stats-page-accountant')).not.toBeInTheDocument()
+    },
+  )
+
+  it('renders nothing when there is no user at all (other side of the same guard)', () => {
+    useAuthMock.mockReturnValue({ user: null, isLoading: false })
+    mockResolvedQueries()
+
+    render(<StatsPage />)
+
+    expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stats-page-accountant')).not.toBeInTheDocument()
+  })
 })
 
 // task-compliance-overview-pending-types (mutation-gate). `receiverStatus`
