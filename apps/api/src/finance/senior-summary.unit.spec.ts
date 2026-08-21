@@ -403,4 +403,17 @@ describe('getSeniorSummary — mySalaryStatus mapping', () => {
     const r = await svc.getSeniorSummary(user('SENIOR'))
     expect(r.mySalaryStatus).toEqual({ state: 'AWAITING_CREATION' })
   })
+
+  // mutation-gate: `selfUser` genuinely CAN be undefined here (the `users`
+  // row lookup by `selfId` has no guarantee of a hit) — `Boolean(selfUser?.
+  // monthlySalary)` must not throw when it's missing entirely. Without this
+  // test, `selfUser?.monthlySalary` → `selfUser.monthlySalary` survived: every
+  // other fixture always supplies a `selfUser` object, so nothing exercised
+  // the `undefined` branch the `?.` guards.
+  it('does not throw when selfUser is undefined (users lookup miss) — resolves to NOT_CONFIGURED', async () => {
+    const svc = makeService({ selfUser: undefined, salaryRow: undefined })
+    await expect(svc.getSeniorSummary(user('SENIOR'))).resolves.toBeDefined()
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.mySalaryStatus).toEqual({ state: 'NOT_CONFIGURED' })
+  })
 })

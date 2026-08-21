@@ -16,9 +16,20 @@
  * needed. What "existing" means (a real non-deleted SALARY row) is exercised
  * against Postgres separately in salary-month-gap.integration.spec.ts.
  *
+ * mutation-gate (AC6): a stub whose `findMany`/`where` executor ignores the
+ * arguments it was called with and just returns canned rows regardless is
+ * blind to THAT query's own shape (same limitation documented in
+ * income-compliance.unit.spec.ts / drizzle-where-introspection.ts). Where the
+ * gate found that blind spot here — the JUNIOR relational `with` shape, the
+ * existing-rows `select` projection, and the `receiverIds` actually bound
+ * into the `where` — `makeService` below CAPTURES the real argument (a real
+ * Drizzle AST/plain object, only the executor is stubbed) and the relevant
+ * `it` asserts on it directly, via `compileWhere`/`collectParamValues`.
+ *
  * Covers:
  *   - RBAC: getSalaryMonthGapReport → ADMIN/ACCOUNTANT only, 403 for everyone
- *     else BEFORE any DB access; backfillSalaryMonth → ADMIN ONLY (narrower —
+ *     else BEFORE any DB access (with the exact refusal message pinned, not
+ *     just instanceof); backfillSalaryMonth → ADMIN ONLY (narrower —
  *     ACCOUNTANT is refused too, matching paySalary's ADMIN-only bar).
  *   - AC5 positive: HR/ACCOUNTANT with monthlySalary set and no row this
  *     month → appears in `missing`.
@@ -30,6 +41,7 @@
  *   - AC5 negative ("law says they shouldn't be there"): no monthlySalary
  *     configured → excluded. Archived JUNIOR → excluded. Non-eligible role on
  *     a project membership (e.g. SENIOR) → excluded.
+ *   - The empty-population early return (nobody eligible at all this month).
  *   - backfillSalaryMonth re-invokes createMonthlySalaries (idempotent insert
  *     path is exercised) and returns the post-backfill gap.
  */
@@ -37,6 +49,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -69,6 +82,10 @@ interface StubData {
 function makeService(data: StubData = {}): {
   svc: TransactionsService
   insertedValues: Record<string, unknown>[]
+  getProjectMembersArgs: () => { where: unknown; with: unknown } | undefined
+  getSelectColumns: () => Record<string, unknown> | undefined
+  getExistingRowsWhere: () => unknown
+  getSelectCallCount: () => number
 } {
   const insertedValues: Record<string, unknown>[] = []
   const insert = vi.fn(() => ({
@@ -78,6 +95,11 @@ function makeService(data: StubData = {}): {
     }),
   }))
 
+  let projectMembersArgs: { where: unknown; with: unknown } | undefined
+  let selectColumns: Record<string, unknown> | undefined
+  let existingRowsWhere: unknown
+  let selectCallCount = 0
+
   const dbStub = {
     db: {
       query: {
@@ -86,21 +108,37 @@ function makeService(data: StubData = {}): {
           findFirst: () => Promise.resolve(data.admin ?? { id: 'admin-1', role: 'ADMIN' }),
         },
         projectMembers: {
-          findMany: () => Promise.resolve(data.activeMembers ?? []),
+          findMany: (args: { where: unknown; with: unknown }) => {
+            projectMembersArgs = args
+            return Promise.resolve(data.activeMembers ?? [])
+          },
         },
       },
-      select: () => ({
-        from: () => ({
-          where: () =>
-            Promise.resolve(
-              (data.existingSalaryReceiverIds ?? []).map((receiverId) => ({ receiverId })),
-            ),
-        }),
-      }),
+      select: (columns: Record<string, unknown>) => {
+        selectCallCount += 1
+        selectColumns = columns
+        return {
+          from: () => ({
+            where: (whereArg: unknown) => {
+              existingRowsWhere = whereArg
+              return Promise.resolve(
+                (data.existingSalaryReceiverIds ?? []).map((receiverId) => ({ receiverId })),
+              )
+            },
+          }),
+        }
+      },
       insert,
     },
   }
-  return { svc: makeTransactionsService({ db: dbStub as never }), insertedValues }
+  return {
+    svc: makeTransactionsService({ db: dbStub as never }),
+    insertedValues,
+    getProjectMembersArgs: () => projectMembersArgs,
+    getSelectCallCount: () => selectCallCount,
+    getSelectColumns: () => selectColumns,
+    getExistingRowsWhere: () => existingRowsWhere,
+  }
 }
 
 function hrEmployee(overrides: Partial<AnyRow> = {}): AnyRow {
@@ -148,6 +186,14 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
     })
   }
 
+  it('refuses with the exact "ADMIN or ACCOUNTANT" message, not a generic one', async () => {
+    const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
+    const svc = makeTransactionsService({ db: throwingDb as never })
+    await expect(svc.getSalaryMonthGapReport(user('SENIOR'), MONTH)).rejects.toThrow(
+      'Access denied: salary month gap report requires ADMIN or ACCOUNTANT role',
+    )
+  })
+
   it('resolves for ADMIN', async () => {
     const { svc } = makeService()
     await expect(svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)).resolves.toBeDefined()
@@ -182,6 +228,14 @@ describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the repo
     })
   }
 
+  it('refuses with the exact "requires ADMIN role" message, not a generic one', async () => {
+    const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
+    const svc = makeTransactionsService({ db: throwingDb as never })
+    await expect(svc.backfillSalaryMonth(user('ACCOUNTANT'), MONTH)).rejects.toThrow(
+      'Access denied: salary month backfill requires ADMIN role',
+    )
+  })
+
   it('resolves for ADMIN', async () => {
     const { svc } = makeService()
     await expect(svc.backfillSalaryMonth(user('ADMIN'), MONTH)).resolves.toBeDefined()
@@ -189,6 +243,21 @@ describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the repo
 })
 
 describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, never who legitimately has none', () => {
+  it('nobody eligible at all this month → { month, missing: [] } WITHOUT querying existing rows (the early-return branch)', async () => {
+    const { svc, getSelectCallCount } = makeService({
+      hrAccountantEmployees: [],
+      activeMembers: [],
+    })
+    const report = await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
+    expect(report).toEqual({ month: MONTH, missing: [] })
+    // With nobody expected, `[].filter(...)` would ALSO end up `[]` even if
+    // the early return were removed — a stub whose `.where()` ignores its
+    // argument can't tell "queried with an empty receiverIds list" from
+    // "never queried at all". Asserting the call count is what actually pins
+    // the early return (kills `if (expected.length === 0)` → `if (false)`).
+    expect(getSelectCallCount()).toBe(0)
+  })
+
   it('an HR with monthlySalary set and no row this month is missing', async () => {
     const { svc } = makeService({ hrAccountantEmployees: [hrEmployee()] })
     const report = await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
@@ -340,6 +409,46 @@ describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, n
     const now = new Date()
     const expectedMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
     expect(report.month).toBe(expectedMonth)
+  })
+
+  // mutation-gate: pins the JUNIOR resolver's relational-query SHAPE itself —
+  // a stub that ignores `findMany`'s arguments and returns canned rows
+  // regardless cannot tell an emptied `with` from the real one.
+  it('resolveJuniorSalaryReceivers requests the isNull(leftAt) filter and the user+project(+financeSettings) relational shape', async () => {
+    const { svc, getProjectMembersArgs } = makeService({ activeMembers: [] })
+    await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
+    const args = getProjectMembersArgs()
+    expect(args).toBeDefined()
+    const { sql } = compileWhere(args!.where)
+    expect(sql).toContain('"left_at" is null')
+    expect(args!.with).toEqual({ user: true, project: { with: { financeSettings: true } } })
+  })
+
+  // mutation-gate: pins that the "existing SALARY rows" read actually scopes
+  // by type/month/receiverIds AND projects only `receiverId` — a stub whose
+  // `.where()` ignores its argument cannot tell `receiverIds.map(() =>
+  // undefined)` from the real ids, or `eq(type, 'SALARY')` from `eq(type,
+  // '')`, or `.select({})` from `.select({ receiverId: ... })`.
+  it('the existing-rows read selects only receiverId, scoped to type=SALARY/month/the expected receiverIds', async () => {
+    const { svc, getSelectColumns, getExistingRowsWhere } = makeService({
+      hrAccountantEmployees: [hrEmployee(), hrEmployee({ id: 'hr-2', displayName: 'HR Two' })],
+    })
+    await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
+
+    expect(Object.keys(getSelectColumns() ?? {})).toEqual(['receiverId'])
+
+    const { sql, params } = compileWhere(getExistingRowsWhere())
+    expect(sql).toContain('"type" = $1')
+    expect(sql).toContain('"salary_month" = $2')
+    expect(params).toContain('SALARY')
+    expect(params).toContain(MONTH)
+    // The REAL receiver ids the resolver computed, not `undefined`×2 (kills
+    // `expected.map(() => undefined)`). `compileWhere`'s own params list is
+    // used here (not the generic `collectParamValues` walker) — that walker
+    // recurses into `nonDeletedTransactions`' aliased-column proxies and
+    // blows the call stack; `PgDialect().sqlToQuery()` handles the same view
+    // correctly since it is the REAL code path that builds runnable SQL.
+    expect(params).toEqual(expect.arrayContaining(['hr-1', 'hr-2']))
   })
 })
 

@@ -150,7 +150,11 @@ function scanPendingAccrualSites(): Array<{ method: string; line: number }> {
   // still anchors the line (so an unrelated PENDING elsewhere on the same
   // line can't false-positive), but what comes between `status:` and the
   // `'PENDING'`/trailing `,` is now permissive — matches the plain form AND
-  // the Stryker-wrapped ternary form identically.
+  // the Stryker-wrapped ternary form identically. task-salary-month-gap-and-
+  // status (mutation-gate AC6) hit the SAME phenomenon independently on a
+  // DIFFERENT pair of sites (the new resolver methods further down this
+  // file) and confirms this single permissive regex is sufficient — no
+  // separate "unwrap the ternary first" preprocessing pass is needed.
   const STATUS_PENDING = /^\s*status:.*'PENDING'.*,\s*$/
   const INSERT_TRANSACTIONS = /\.insert\(\s*transactions\s*\)/
   const INSERT_OTHER_TABLE = /\.insert\(\s*(?:pendingObligations|payoutRequests)\s*\)/
