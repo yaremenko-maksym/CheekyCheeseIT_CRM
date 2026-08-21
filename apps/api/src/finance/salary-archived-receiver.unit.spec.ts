@@ -140,7 +140,17 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
     const insert = vi.fn(() => ({
       values: vi.fn((values: Record<string, unknown>) => {
         insertedValues.push(values)
-        return { onConflictDoNothing: vi.fn().mockResolvedValue([]) }
+        // task-salary-month-gap-and-status (HIGH-1): createMonthlySalaries now
+        // chains `.returning(...)` after `.onConflictDoNothing(...)` (to tell
+        // a real insert apart from a real conflict for the audit-log gate) —
+        // no test in this file passes an `actor`, so the exact resolved value
+        // is inert here; it just has to be a chainable object, not a bare
+        // resolved Promise (which has no `.returning` method).
+        return {
+          onConflictDoNothing: vi.fn(() => ({
+            returning: vi.fn().mockResolvedValue([]),
+          })),
+        }
       }),
     }))
 
