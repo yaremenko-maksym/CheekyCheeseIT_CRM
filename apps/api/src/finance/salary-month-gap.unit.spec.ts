@@ -50,6 +50,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
+import { previousSalaryMonthKey } from './salary-month.util'
+import { transactions } from '../database/schema'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -77,21 +79,50 @@ interface StubData {
   // matches the `.select({ receiverId: ... })` projection).
   existingSalaryReceiverIds?: string[]
   admin?: AnyRow | undefined
+  // security-review HIGH-1: receiver ids for whom the SALARY insert should
+  // simulate a REAL `ON CONFLICT DO NOTHING` no-op (RETURNING comes back
+  // empty) — the only way `createMonthlySalaries` can tell "already existed"
+  // from "just created", which gates whether `recordCreationAudit` fires.
+  conflictReceiverIds?: string[]
 }
 
 function makeService(data: StubData = {}): {
   svc: TransactionsService
   insertedValues: Record<string, unknown>[]
+  auditValues: Record<string, unknown>[]
   getProjectMembersArgs: () => { where: unknown; with: unknown } | undefined
   getSelectColumns: () => Record<string, unknown> | undefined
   getExistingRowsWhere: () => unknown
   getSelectCallCount: () => number
 } {
   const insertedValues: Record<string, unknown>[] = []
-  const insert = vi.fn(() => ({
+  const auditValues: Record<string, unknown>[] = []
+  let insertedRowCounter = 0
+  // `insert(table)` branches on WHICH table the caller is inserting into:
+  //   - `transactions` (the actual SALARY rows) — chainable
+  //     `.onConflictDoNothing().returning(...)`, matching production. Resolves
+  //     to a fake inserted row UNLESS `data.conflictReceiverIds` names this
+  //     receiver (simulating a real `ON CONFLICT DO NOTHING` no-op) — needed
+  //     to prove security-review HIGH-1's audit-only-on-REAL-insert guarantee.
+  //   - `transactionAuditLog` (recordCreationAudit) — plain `.values()` await,
+  //     no further chain, captured separately so it never pollutes
+  //     `insertedValues` (which several existing assertions count exactly).
+  const insert = vi.fn((table: unknown) => ({
     values: vi.fn((values: Record<string, unknown>) => {
-      insertedValues.push(values)
-      return { onConflictDoNothing: vi.fn().mockResolvedValue([]) }
+      if (table === transactions) {
+        insertedValues.push(values)
+        const receiverId = values['receiverId'] as string | undefined
+        const conflicted = receiverId && (data.conflictReceiverIds ?? []).includes(receiverId)
+        return {
+          onConflictDoNothing: vi.fn(() => ({
+            returning: vi
+              .fn()
+              .mockResolvedValue(conflicted ? [] : [{ id: `fake-tx-${++insertedRowCounter}` }]),
+          })),
+        }
+      }
+      auditValues.push(values)
+      return Promise.resolve([])
     }),
   }))
 
@@ -134,6 +165,7 @@ function makeService(data: StubData = {}): {
   return {
     svc: makeTransactionsService({ db: dbStub as never }),
     insertedValues,
+    auditValues,
     getProjectMembersArgs: () => projectMembersArgs,
     getSelectCallCount: () => selectCallCount,
     getSelectColumns: () => selectColumns,
@@ -403,12 +435,27 @@ describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, n
     expect(report.missing).toHaveLength(0)
   })
 
-  it('defaults `month` to the current UTC month when omitted', async () => {
+  // security-review HIGH-2: this test used to pin a HARD-CODED "current UTC
+  // month" default — which was ITSELF the bug (the cron never touches the
+  // current month; see salary-month.util.ts), so the test PINNED the
+  // regression instead of catching it. Rewritten to assert MATCH-TO-CRON via
+  // the SAME shared resolver `SalaryCronService` uses, so a future shift in
+  // what the cron targets and a drift in the report's default can never
+  // silently diverge again — changing the cron's month resolver would move
+  // BOTH sides of this assertion together, keeping the test green for the
+  // RIGHT reason instead of the wrong one.
+  it('defaults `month` to previousSalaryMonthKey() — the SAME month the cron itself last targeted', async () => {
+    const { svc } = makeService({ hrAccountantEmployees: [hrEmployee()] })
+    const report = await svc.getSalaryMonthGapReport(user('ADMIN'))
+    expect(report.month).toBe(previousSalaryMonthKey())
+  })
+
+  it('the default month is NEVER the current calendar month (the cron has not touched it yet)', async () => {
     const { svc } = makeService({ hrAccountantEmployees: [hrEmployee()] })
     const report = await svc.getSalaryMonthGapReport(user('ADMIN'))
     const now = new Date()
-    const expectedMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
-    expect(report.month).toBe(expectedMonth)
+    const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+    expect(report.month).not.toBe(currentMonth)
   })
 
   // mutation-gate: pins the JUNIOR resolver's relational-query SHAPE itself —
@@ -479,17 +526,79 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
 
   it('backfilling a month with nothing missing reports a clean post-backfill gap', async () => {
     // `createMonthlySalaries` always ATTEMPTS the insert per eligible receiver
-    // (real de-duplication is the DB's `ON CONFLICT DO NOTHING` against the
-    // unique index — a unit-level insert-recorder stub cannot observe a real
-    // conflict, only that the attempt was made). What this test proves at the
+    // — real de-duplication is the DB's `ON CONFLICT DO NOTHING` against the
+    // unique index, simulated here via `conflictReceiverIds` (RETURNING comes
+    // back empty, exactly like a real conflict). What this test proves at the
     // unit level is the report's own read: with the row already existing, the
     // POST-backfill `resolveSalaryMonthGap` reports nothing missing.
-    const { svc, insertedValues } = makeService({
+    const { svc, insertedValues, auditValues } = makeService({
       hrAccountantEmployees: [hrEmployee()],
       existingSalaryReceiverIds: ['hr-1'],
+      conflictReceiverIds: ['hr-1'],
     })
     const result = await svc.backfillSalaryMonth(user('ADMIN'), MONTH)
     expect(insertedValues).toHaveLength(1) // the (harmless, ON CONFLICT DO NOTHING) attempt
     expect(result.missing).toHaveLength(0)
+    // security-review HIGH-1: the attempt CONFLICTED (no row actually
+    // created) — must NOT be audited as a creation that never happened.
+    expect(auditValues).toHaveLength(0)
+  })
+
+  // security-review HIGH-1: `createdBy` used to always be an arbitrary admin
+  // (`findFirst({role:'ADMIN'})`, no `orderBy`) — correct for the CRON (no
+  // human actor exists), wrong for a button an ADMIN just clicked. The row
+  // must be attributed to the ADMIN who ACTUALLY triggered the backfill, and
+  // that creation must be journalled — exactly like every other user-facing
+  // creation entry point in this file (createSalary etc.), which the cron
+  // itself is deliberately exempt from (system-derived, not a human decision).
+  it('attributes createdBy to the REAL calling admin, not an arbitrary one, and journals the creation', async () => {
+    const CALLING_ADMIN = user('ADMIN', 'the-real-caller')
+    const { svc, insertedValues, auditValues } = makeService({
+      hrAccountantEmployees: [hrEmployee()],
+      admin: { id: 'some-other-admin-arbitrary-lookup', role: 'ADMIN' },
+    })
+    await svc.backfillSalaryMonth(CALLING_ADMIN, MONTH)
+
+    expect(insertedValues[0]).toMatchObject({ createdBy: CALLING_ADMIN.id })
+    expect(insertedValues[0]?.['createdBy']).not.toBe('some-other-admin-arbitrary-lookup')
+
+    expect(auditValues).toHaveLength(1)
+    expect(auditValues[0]).toMatchObject({
+      actorId: CALLING_ADMIN.id,
+      action: 'CREATE',
+      metadata: { type: 'SALARY', amount: '1500', currency: 'USD' },
+    })
+  })
+
+  // security-review pattern (mirrors adminDeleteTransaction / paySalary):
+  // under impersonation, attribute to the REAL admin operator, never the
+  // impersonated target.
+  it('attributes to the REAL admin operator under impersonation (impersonatorId wins)', async () => {
+    const IMPERSONATING_ADMIN: SessionUser = {
+      ...user('ADMIN', 'impersonated-target'),
+      impersonatorId: 'real-admin-operator-id',
+    }
+    const { svc, insertedValues, auditValues } = makeService({
+      hrAccountantEmployees: [hrEmployee()],
+    })
+    await svc.backfillSalaryMonth(IMPERSONATING_ADMIN, MONTH)
+
+    expect(insertedValues[0]).toMatchObject({ createdBy: 'real-admin-operator-id' })
+    expect(auditValues[0]).toMatchObject({ actorId: 'real-admin-operator-id' })
+  })
+
+  // The cron path (createMonthlySalaries called with NO actor) must be
+  // COMPLETELY unaffected by this task — no audit entries, "any admin" is
+  // still the createdBy (RBAC/backfill-specific behaviour must not leak into
+  // the unaudited system path).
+  it('createMonthlySalaries called WITHOUT an actor (the cron path) never journals — unchanged from before this task', async () => {
+    const { svc, insertedValues, auditValues } = makeService({
+      hrAccountantEmployees: [hrEmployee()],
+      admin: { id: 'cron-arbitrary-admin', role: 'ADMIN' },
+    })
+    await svc.createMonthlySalaries(MONTH)
+
+    expect(insertedValues[0]).toMatchObject({ createdBy: 'cron-arbitrary-admin' })
+    expect(auditValues).toHaveLength(0)
   })
 })

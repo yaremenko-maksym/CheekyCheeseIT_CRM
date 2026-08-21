@@ -531,7 +531,9 @@ export class FinanceSummaryController {
   // making a missed/failed cron run OBSERVABLE instead of silently losing a
   // month. GET /api/finance/salary-month-gap?month=YYYY-MM — ADMIN + ACCOUNTANT
   // ONLY (same gate as income-compliance: company-wide aggregate, not
-  // self-scoped). `month` defaults to the current UTC month when omitted.
+  // self-scoped). `month` defaults to the PREVIOUS calendar month when
+  // omitted — the one the cron itself last targeted (security-review
+  // HIGH-2: NOT the current month, which the cron never touches).
   @Get('salary-month-gap')
   @Roles('ADMIN', 'ACCOUNTANT')
   getSalaryMonthGap(@CurrentUser() user: SessionUser, @Query() query: unknown) {

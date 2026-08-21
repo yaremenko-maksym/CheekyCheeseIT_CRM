@@ -157,7 +157,11 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
         insert: () => ({
           values: (v: unknown) => {
             insertValues(v)
-            return { onConflictDoNothing: () => Promise.resolve(undefined) }
+            // task-salary-month-gap-and-status (HIGH-1): createMonthlySalaries
+            // now chains `.returning(...)` after `.onConflictDoNothing(...)`
+            // — no test in this block passes an `actor`, so the resolved
+            // value is inert; it just has to be chainable.
+            return { onConflictDoNothing: () => ({ returning: () => Promise.resolve([]) }) }
           },
         }),
       },

@@ -16,7 +16,9 @@
  *     over PAID SENIOR_INCOME, split total vs this-month by txDate ?? createdAt.
  *   - pendingPayouts = Σ payableAmount of own PENDING payout_requests.
  *   - activeProjects share% resolution (project override wins; else user default).
- *   - mySalaryStatus mapping (valid status → {amount,status}; none → null).
+ *   - mySalaryState mapping (4-state: NOT_CONFIGURED / NOT_CRON_ELIGIBLE /
+ *     AWAITING_CREATION / EXISTS) + the DEPRECATED mySalaryStatus field
+ *     derived from it (security-review MED-3, task-salary-month-gap-and-status).
  */
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
@@ -127,8 +129,12 @@ describe('getSeniorSummary — empty state maps to zero KPI', () => {
     expect(r.seniorShareIncome).toEqual({ total: 0, thisMonth: 0, currency: 'USD' })
     expect(r.pendingPayouts).toEqual({ count: 0, amount: 0 })
     // task-salary-month-gap-and-status (E-6): no `monthlySalary` on the stub
-    // selfUser → NOT_CONFIGURED (not a bare null — see mySalaryStatusSchema).
-    expect(r.mySalaryStatus).toEqual({ state: 'NOT_CONFIGURED' })
+    // selfUser → NOT_CONFIGURED on the new `mySalaryState` field (not a bare
+    // null — see mySalaryStateSchema). `mySalaryStatus` is the DEPRECATED
+    // field kept byte-identical to the pre-E-6 shape (security-review MED-3)
+    // — null whenever state !== EXISTS, exactly as before this task.
+    expect(r.mySalaryState).toEqual({ state: 'NOT_CONFIGURED' })
+    expect(r.mySalaryStatus).toBeNull()
     expect(r.earningsStats.lastMonthIncome).toBe(0)
     expect(r.earningsStats.monthlyHistory).toHaveLength(8)
     expect(r.earningsStats.monthlyHistory.every((p) => p.amount === 0)).toBe(true)
@@ -373,14 +379,22 @@ describe('getSeniorSummary — activeProjects share% resolution (AC1)', () => {
   })
 })
 
-describe('getSeniorSummary — mySalaryStatus mapping', () => {
-  it('maps a current-month SALARY row to EXISTS {amount,status}', async () => {
+describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
+  it('maps a current-month SALARY row to EXISTS on mySalaryState, and the legacy shape on mySalaryStatus', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26 },
-      salaryRow: { amount: '1500', status: 'PENDING' },
+      salaryRow: { amount: '1500', status: 'PENDING', currency: 'USD' },
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r.mySalaryStatus).toEqual({ state: 'EXISTS', amount: 1500, status: 'PENDING' })
+    expect(r.mySalaryState).toEqual({
+      state: 'EXISTS',
+      amount: 1500,
+      status: 'PENDING',
+      currency: 'USD',
+    })
+    // security-review MED-3: the DEPRECATED field is DERIVED from the SAME
+    // EXISTS row, not a second independent computation.
+    expect(r.mySalaryStatus).toEqual({ amount: 1500, status: 'PENDING', currency: 'USD' })
   })
 
   it('maps an invalid salary status to NOT_CONFIGURED when monthlySalary is unset (defensive)', async () => {
@@ -389,19 +403,26 @@ describe('getSeniorSummary — mySalaryStatus mapping', () => {
       salaryRow: { amount: '1500', status: 'REJECTED' },
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r.mySalaryStatus).toEqual({ state: 'NOT_CONFIGURED' })
+    expect(r.mySalaryState).toEqual({ state: 'NOT_CONFIGURED' })
+    expect(r.mySalaryStatus).toBeNull()
   })
 
-  // task-salary-month-gap-and-status (E-6): the state a missed/not-yet-run
-  // cron month produces — `monthlySalary` IS configured, but the row for the
-  // CURRENT month has not been created yet (`salaryRow` undefined).
-  it('maps "monthlySalary configured, no row yet" to AWAITING_CREATION — the E-5 gap state', async () => {
+  // task-salary-month-gap-and-status security-review MED-3: `getSeniorSummary`
+  // is reached ONLY by SENIOR/ADMIN (the RBAC gate at the top of the method),
+  // and the monthly cron NEVER processes either role (only HR/ACCOUNTANT/
+  // JUNIOR are cron-eligible — see CRON_ELIGIBLE_SALARY_ROLES). A SENIOR with
+  // `monthlySalary` configured and no row yet must NOT read as
+  // AWAITING_CREATION (that would falsely imply an automatic accrual is
+  // coming) — it reads as NOT_CRON_ELIGIBLE, the same distinction E-5 already
+  // draws for the gap report's own population.
+  it('maps "monthlySalary configured, no row yet" to NOT_CRON_ELIGIBLE for a SENIOR — the cron will never fill this in on its own', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26, monthlySalary: '2000' },
       salaryRow: undefined,
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r.mySalaryStatus).toEqual({ state: 'AWAITING_CREATION' })
+    expect(r.mySalaryState).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
+    expect(r.mySalaryStatus).toBeNull()
   })
 
   // mutation-gate: `selfUser` genuinely CAN be undefined here (the `users`
@@ -414,6 +435,16 @@ describe('getSeniorSummary — mySalaryStatus mapping', () => {
     const svc = makeService({ selfUser: undefined, salaryRow: undefined })
     await expect(svc.getSeniorSummary(user('SENIOR'))).resolves.toBeDefined()
     const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r.mySalaryStatus).toEqual({ state: 'NOT_CONFIGURED' })
+    expect(r.mySalaryState).toEqual({ state: 'NOT_CONFIGURED' })
+    expect(r.mySalaryStatus).toBeNull()
+  })
+
+  it('an ADMIN caller (debugging as themselves) is also never cron-eligible', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26, monthlySalary: '5000' },
+      salaryRow: undefined,
+    })
+    const r = await svc.getSeniorSummary(user('ADMIN'))
+    expect(r.mySalaryState).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
   })
 })

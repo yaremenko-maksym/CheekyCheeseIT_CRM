@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { TransactionsService } from './transactions.service'
+import { previousSalaryMonthKey } from './salary-month.util'
 
 @Injectable()
 export class SalaryCronService {
@@ -24,9 +25,11 @@ export class SalaryCronService {
    */
   @Cron('0 0 1 * *')
   async handleMonthlySalaries(): Promise<void> {
-    const now = new Date()
-    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const month = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`
+    // task-salary-month-gap-and-status (HIGH-2): shared with
+    // TransactionsService.getSalaryMonthGapReport's default — see
+    // salary-month.util.ts for why this must be the ONE place this
+    // computation lives.
+    const month = previousSalaryMonthKey()
     this.logger.log(`Creating monthly salary transactions for ${month}`)
     try {
       await this.txService.createMonthlySalaries(month)

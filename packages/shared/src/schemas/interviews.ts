@@ -98,36 +98,73 @@ export type MoveInterviewDto = z.infer<typeof moveInterviewSchema>
 //                     Uses the same team-scope logic as openInterviews.
 export const salaryStatusSchema = z.enum(['PENDING', 'PAID', 'LOCKED'])
 
-// Single source of truth for the «my salary status» payload. Currently
-// surfaced ONLY by the SENIOR summary (finance/senior-summary) — the HR
-// summary field of the same name was removed (see hr-summary.integration.spec
-// «schema has no mySalaryStatus field»). Kept here (not inlined in finance.ts)
-// so a future re-add for HR reuses the identical shape instead of drifting.
+// DEPRECATED — kept BYTE-IDENTICAL to the pre-E-6 shape (nullable, no `state`
+// key) for backward compatibility with an already-loaded OLD frontend bundle.
 //
-// task-salary-month-gap-and-status (E-6): a bare `.nullable()` collapsed TWO
-// different truths into the same wire value — "this role never gets a salary"
-// (no `monthlySalary` configured) and "a salary IS configured but this
-// month's row has not been created yet" (cron gap, see E-5) both read back as
-// `null`. A person investigating "why is this null" on a live incident could
-// not tell the two apart from the API response alone (see
+// task-salary-month-gap-and-status security-review MED-3: the client does a
+// STRICT `seniorSummarySchema.parse()` (use-senior-summary.ts) — a shape
+// mismatch on ANY field throws and fails the WHOLE query, not just this one.
+// An open browser tab running yesterday's JS still parses TODAY's API
+// response the moment it refetches; changing this field's TYPE (not just
+// adding to it) would crash that tab's entire SENIOR dashboard the instant
+// the backend deploys, for every SENIOR without `monthlySalary` set (i.e.
+// nearly all of them — see `mySalaryStateSchema` below for why). Reusing the
+// SAME field name for the new shape was tried first and rejected for exactly
+// this reason. Instead: this field stays computed EXACTLY as before (null
+// unless a valid row exists), and the disambiguation this task set out to
+// fix lives on the NEW, ADDITIVE `mySalaryState` field — an old client that
+// doesn't know about `mySalaryState` simply ignores it (Zod objects here are
+// not `.strict()`; unknown keys are dropped, not rejected).
+//
+// Not removed outright either: removing a REQUIRED key an old client's
+// schema still expects fails it exactly the same way as reshaping it. Safe
+// to delete once no stale client is a plausible concern (a later, separate
+// cleanup task — this file is not the place to decide that clock).
+export const mySalaryStatusSchema = z
+  .object({
+    amount: z.number(),
+    currency: currencySchema,
+    status: salaryStatusSchema,
+  })
+  .nullable()
+
+// task-salary-month-gap-and-status (E-6) — the actual fix, additive (see the
+// deprecation note on `mySalaryStatusSchema` above for why it is a NEW field
+// rather than a reshape of the old one). A bare `.nullable()` collapsed
+// several different truths into the same wire value — "this role never gets
+// a salary" (no `monthlySalary` configured), "this role IS configured but
+// the monthly cron does not process it at all" (SENIOR/DROP — see
+// `SALARY_ELIGIBLE_ROLES`: they CAN receive a manually-created salary, but
+// `createMonthlySalaries` never auto-accrues one for them), and "a salary IS
+// configured for a cron-processed role but this month's row has not been
+// created yet" (cron gap, see E-5) — all three read back as `null` before
+// this task. A person investigating "why is this null" on a live incident
+// could not tell them apart from the API response alone (see
 // project_salary_cron_prod_config_gap memory — the exact same ambiguity, one
 // level up, cost a live investigation). Replaced with an explicit
-// discriminated union so the three states are distinguishable BY SHAPE, not
-// by re-deriving them from other endpoints:
-//   - NOT_CONFIGURED     — `users.monthlySalary` is not set for this person;
-//                          no SALARY row will ever be created for them by the
-//                          monthly cron.
-//   - AWAITING_CREATION  — `monthlySalary` IS set, but no SALARY row exists
-//                          yet for the requested month (cron has not run yet
-//                          this month, or the month was missed — see E-5's
-//                          gap report for making that visible company-wide).
-//   - EXISTS             — the row exists; same fields as before (`currency`,
-//                          task-senior-dashboard-enhance: the salary row
-//                          carries its own transaction currency (USDT / USD /
-//                          EUR / UAH) so the client formats the amount in its
-//                          OWN currency, no hard-coded `$`).
-export const mySalaryStatusSchema = z.discriminatedUnion('state', [
+// discriminated union so every state is distinguishable BY SHAPE:
+//   - NOT_CONFIGURED     — `users.monthlySalary` is not set for this person.
+//   - NOT_CRON_ELIGIBLE  — `monthlySalary` IS set, but this person's ROLE is
+//                          not one `createMonthlySalaries` processes at all
+//                          (only HR/ACCOUNTANT/JUNIOR are cron-eligible —
+//                          SENIOR/DROP can only ever get a MANUALLY created
+//                          salary). Distinct from AWAITING_CREATION: there is
+//                          no cron run, past or future, that will ever fill
+//                          this in on its own.
+//   - AWAITING_CREATION  — `monthlySalary` IS set AND the role IS cron-
+//                          eligible, but no SALARY row exists yet for the
+//                          requested month (cron has not run yet this month,
+//                          or the month was missed — see E-5's gap report for
+//                          making that visible company-wide).
+//   - EXISTS             — the row exists; same fields as the deprecated
+//                          field above (`currency`, task-senior-dashboard-
+//                          enhance: the salary row carries its own
+//                          transaction currency (USDT / USD / EUR / UAH) so
+//                          the client formats the amount in its OWN currency,
+//                          no hard-coded `$`).
+export const mySalaryStateSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('NOT_CONFIGURED') }),
+  z.object({ state: z.literal('NOT_CRON_ELIGIBLE') }),
   z.object({ state: z.literal('AWAITING_CREATION') }),
   z.object({
     state: z.literal('EXISTS'),
@@ -145,4 +182,5 @@ export const hrSummarySchema = z.object({
 
 export type SalaryStatus = z.infer<typeof salaryStatusSchema>
 export type MySalaryStatusDto = z.infer<typeof mySalaryStatusSchema>
+export type MySalaryStateDto = z.infer<typeof mySalaryStateSchema>
 export type HrSummaryDto = z.infer<typeof hrSummarySchema>

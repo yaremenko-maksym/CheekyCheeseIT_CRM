@@ -3,19 +3,22 @@
  * TransactionsService and InterviewsService).
  *
  * Returns the caller's own SALARY transaction for `salaryMonth` (YYYY-MM) as
- * one of THREE explicit states (task-salary-month-gap-and-status, E-6 — see
- * the module comment on `mySalaryStatusSchema` in @crm/shared for the full
- * rationale): `NOT_CONFIGURED` (no `monthlySalary` set — this person will
- * never get a row), `AWAITING_CREATION` (configured, but no row yet for this
- * month), or `EXISTS` (the row, same fields as before). Only PENDING / PAID /
- * LOCKED statuses count as a valid EXISTS row; any other status degrades to
- * the same NOT_CONFIGURED/AWAITING_CREATION branching as a missing row
+ * one of FOUR explicit states (task-salary-month-gap-and-status, E-6 — see
+ * the module comment on `mySalaryStateSchema` in @crm/shared for the full
+ * rationale): `NOT_CONFIGURED` (no `monthlySalary` set), `NOT_CRON_ELIGIBLE`
+ * (configured, but this role is never processed by the monthly cron —
+ * security-review MED-3: without this a SENIOR/DROP with `monthlySalary` set
+ * would be permanently, falsely reported as "awaiting" a row the cron will
+ * never create), `AWAITING_CREATION` (configured, cron-eligible, no row yet
+ * for this month), or `EXISTS` (the row, same fields as before). Only
+ * PENDING / PAID / LOCKED statuses count as a valid EXISTS row; any other
+ * status degrades to the same three-way branching as a missing row
  * (defensive — should not occur in practice).
  *
- * `hasSalaryConfigured` is passed in by the caller (not re-derived here) —
- * the caller already has the user row in hand (`getSeniorSummary` fetches
+ * `salaryConfig` is passed in by the caller (not re-derived here) — the
+ * caller already has the user row in hand (`getSeniorSummary` fetches
  * `selfUser` for the share-percent resolution regardless), so a second query
- * here would be a redundant round-trip for a single boolean.
+ * here would be a redundant round-trip.
  *
  * Extracted in task-dedup-salary-status (#234 MED review): both
  * `getSeniorSummary` and `getHrSummary` contained byte-for-byte identical
@@ -30,7 +33,7 @@
  */
 
 import { and, eq } from 'drizzle-orm'
-import type { MySalaryStatusDto, SalaryStatus } from '@crm/shared'
+import type { MySalaryStateDto, SalaryStatus } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 // security-review PR #456 round 2: reads the `nonDeletedTransactions` VIEW —
 // a deleted SALARY reminder cannot resurface here no matter what, see
@@ -48,8 +51,8 @@ export async function getOwnSalaryStatus(
   db: DatabaseService['db'],
   userId: string,
   salaryMonth: string,
-  hasSalaryConfigured: boolean,
-): Promise<MySalaryStatusDto> {
+  salaryConfig: { hasMonthlySalary: boolean; isCronEligibleRole: boolean },
+): Promise<MySalaryStateDto> {
   const [salaryRow] = await db
     .select()
     .from(nonDeletedTransactions)
@@ -64,7 +67,9 @@ export async function getOwnSalaryStatus(
 
   const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
   if (!salaryRow || !validStatuses.includes(salaryRow.status as SalaryStatus)) {
-    return hasSalaryConfigured ? { state: 'AWAITING_CREATION' } : { state: 'NOT_CONFIGURED' }
+    if (!salaryConfig.hasMonthlySalary) return { state: 'NOT_CONFIGURED' }
+    if (!salaryConfig.isCronEligibleRole) return { state: 'NOT_CRON_ELIGIBLE' }
+    return { state: 'AWAITING_CREATION' }
   }
 
   return {
