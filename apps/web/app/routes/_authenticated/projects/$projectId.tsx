@@ -635,7 +635,6 @@ function ProjectDetailPage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { projectId } = Route.useParams()
   const { user } = useAuth()
-  if (denied) return null
   const qc = useQueryClient()
 
   const isAdmin = user?.role === 'ADMIN'
@@ -864,6 +863,16 @@ function ProjectDetailPage() {
     editForm.setFieldValue('notesGeneral', project.notesGeneral ?? '')
     setEditOpen(true)
   }
+
+  // Rules of Hooks: moved here — after every hook above — instead of
+  // between `useAuth` and the ~14 hooks that follow it (useState/useQuery/
+  // useForm/useMutation). `denied` flips false→true mid-mount once
+  // `useAuth`'s `isLoading` resolves to a disallowed role; a guard sitting
+  // in the middle of the hook list made that transition change the hook
+  // count between renders ("Rendered fewer hooks than expected"). This
+  // route is also gated at the layout level (see use-role-guard.ts), so
+  // this remains defense-in-depth, not the only guard.
+  if (denied) return null
 
   if (isLoading || !project) {
     return (

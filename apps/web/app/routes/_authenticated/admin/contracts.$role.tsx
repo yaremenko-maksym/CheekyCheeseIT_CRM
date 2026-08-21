@@ -236,6 +236,19 @@ function ContractEditorPage() {
 
   const roleUpper = roleParam.toUpperCase()
   const parsed = contractTargetRoleSchema.safeParse(roleUpper)
+  // Rules of Hooks: every hook below must run on every render regardless of
+  // whether `roleParam` parses, so `role` falls back to an arbitrary valid
+  // role for the hook declarations themselves — `enabled: parsed.success`
+  // on the query keeps it from ever actually fetching with that
+  // placeholder, and the guard-return below (moved to AFTER every hook)
+  // means no mutation tied to it is ever reachable from the JSX. The guard
+  // previously sat between this `useEffect` and the ~20 hooks below it;
+  // if `roleParam` changes from invalid to valid (or vice versa) while this
+  // route instance stays mounted — e.g. editing the `:role` URL segment
+  // directly — that flips the hook count between renders, same failure
+  // class as stats.tsx / the sibling route pages fixed alongside this one.
+  // Stryker disable next-line StringLiteral: covers exactly 1 mutant, provably equivalent. This literal is the placeholder branch, reachable ONLY when `parsed.success` is false — and in that state every consumer of `role` is inert: the query carries `enabled: parsed.success`, the mutation callbacks need a user action on JSX that never mounts, and the guard-return below yields null before any render that reads it. Emptying the literal therefore cannot change observable behaviour. Its value matters only to a human reading the fallback, which is why it names a real role rather than ''.
+  const role = parsed.success ? parsed.data : 'SENIOR'
 
   useEffect(() => {
     if (!parsed.success) {
@@ -243,18 +256,13 @@ function ContractEditorPage() {
     }
   }, [parsed.success, navigate])
 
-  if (!parsed.success) {
-    return null
-  }
-
-  const role = parsed.data
-
   const { data: template, isLoading } = useQuery<ContractTemplateRow | null>({
     queryKey: ['contract-template', role],
     queryFn: async () => {
       const res = await api.get<ContractTemplateRow | null>(`/contracts/templates/current/${role}`)
       return res.data
     },
+    enabled: parsed.success,
     staleTime: 30_000,
   })
 
@@ -395,6 +403,10 @@ function ContractEditorPage() {
 
   // Revoke on unmount.
   useEffect(() => revokePdfUrl, [revokePdfUrl])
+
+  if (!parsed.success) {
+    return null
+  }
 
   if (isLoading) {
     return (

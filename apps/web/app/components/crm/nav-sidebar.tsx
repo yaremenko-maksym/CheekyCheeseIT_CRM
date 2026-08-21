@@ -26,6 +26,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useActiveTeam } from '@/hooks/use-active-team'
+import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 
 type Role = SessionUser['role']
 type RouteTo = FileRouteTypes['to']
@@ -126,6 +127,17 @@ export function NavSidebar({
   const { isTeamless } = useActiveTeam()
   const isTeamlessSenior = user.role === 'SENIOR' && isTeamless
 
+  // backlog #137: chrome-level hint tooltips (this file) must not open while
+  // a Dialog/AlertDialog/Sheet is up elsewhere — see use-any-dialog-open.ts
+  // for the full root-cause writeup (a transient Tooltip mounting its own
+  // Radix DismissableLayer can silently swallow the next Escape meant for
+  // the modal) AND for exactly what counts as "open" here (deliberately
+  // narrower than "any modal-ish overlay" — Select/DropdownMenu don't
+  // count). Threaded through DesktopNavLink + the collapse-toggle Tooltip
+  // below, both of which can be hovered/focused without a mouse actually
+  // being over the sidebar (keyboard focus restoration, etc).
+  const dialogOpen = useAnyDialogOpen()
+
   const items = NAV_ITEMS.filter((item) => {
     if (!item.roles.includes(user.role)) return false
     if (isTeamlessSenior && (item.to === '/projects' || item.to === '/interviews')) {
@@ -158,14 +170,19 @@ export function NavSidebar({
               }
             >
               {items.map((item) => (
-                <DesktopNavLink key={item.to} item={item} collapsed={collapsed} />
+                <DesktopNavLink
+                  key={item.to}
+                  item={item}
+                  collapsed={collapsed}
+                  dialogOpen={dialogOpen}
+                />
               ))}
             </nav>
           </ScrollArea>
 
           <div className="border-t border-border/60 p-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
+            {(() => {
+              const toggleButton = (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -179,9 +196,20 @@ export function NavSidebar({
                     <ChevronLeft className="h-4 w-4" />
                   )}
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{collapsed ? 'Развернуть' : 'Свернуть'}</TooltipContent>
-            </Tooltip>
+              )
+              // backlog #137: this button is the ONE nav-sidebar tooltip
+              // trigger that's always mounted regardless of `collapsed` —
+              // see `dialogOpen` comment above.
+              if (dialogOpen) return toggleButton
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>{toggleButton}</TooltipTrigger>
+                  <TooltipContent side="right">
+                    {collapsed ? 'Развернуть' : 'Свернуть'}
+                  </TooltipContent>
+                </Tooltip>
+              )
+            })()}
           </div>
         </aside>
       </TooltipProvider>
@@ -221,7 +249,15 @@ export function NavSidebar({
   )
 }
 
-function DesktopNavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+function DesktopNavLink({
+  item,
+  collapsed,
+  dialogOpen,
+}: {
+  item: NavItem
+  collapsed: boolean
+  dialogOpen: boolean
+}) {
   const link = (
     <Link
       to={item.to}
@@ -242,7 +278,10 @@ function DesktopNavLink({ item, collapsed }: { item: NavItem; collapsed: boolean
     </Link>
   )
 
-  if (!collapsed) return link
+  // backlog #137: while a modal is open, don't let a hover/focus on a
+  // collapsed nav icon open its label tooltip — see `dialogOpen` comment in
+  // NavSidebar above.
+  if (!collapsed || dialogOpen) return link
 
   return (
     <Tooltip>

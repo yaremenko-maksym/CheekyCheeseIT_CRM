@@ -852,9 +852,12 @@ export function StatsPage() {
     enabled: isPrivilegedViewer,
   })
 
-  if (!user || !isPrivilegedViewer) return null
-
+  // Every hook must run on every render regardless of the early return below
+  // (Rules of Hooks) — `summary` is still `undefined` pre-fetch or for a
+  // non-privileged viewer, which `computeExtraStats`'s ternary already covers.
   const extra = useMemo(() => (summary ? computeExtraStats(summary) : null), [summary])
+
+  if (!user || !isPrivilegedViewer) return null
 
   return (
     <div

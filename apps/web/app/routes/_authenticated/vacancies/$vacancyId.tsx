@@ -149,7 +149,6 @@ function VacancyDetailPage() {
   const { denied } = useRoleGuard(['ADMIN', 'HR'])
   const { vacancyId } = Route.useParams()
   const search = Route.useSearch()
-  if (denied) return null
 
   const { data: vacancy, isLoading } = useVacancy(vacancyId)
   const applicationsQuery = useVacancyApplications(vacancyId)
@@ -235,6 +234,18 @@ function VacancyDetailPage() {
       return rest
     })
   }
+
+  // Rules of Hooks: moved here — after every hook above — instead of
+  // between `useSearch` and the ~11 hooks that follow it (useVacancy/
+  // useVacancyApplications/useUpdateVacancy/useDeleteVacancy/useState/
+  // useForm/useEffect). `denied` flips false→true mid-mount once
+  // `useAuth`'s `isLoading` (inside `useRoleGuard`) resolves to a
+  // disallowed role; a guard sitting in the middle of the hook list made
+  // that transition change the hook count between renders ("Rendered fewer
+  // hooks than expected"). This route is also gated at the layout level
+  // (see use-role-guard.ts), so this remains defense-in-depth, not the
+  // only guard.
+  if (denied) return null
 
   if (isLoading) {
     return (

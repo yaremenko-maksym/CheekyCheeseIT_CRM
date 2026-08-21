@@ -31,7 +31,6 @@ type StatusFilter = 'ALL' | VacancyStatus
 // `ProjectEditFields` in `projects/$projectId.tsx`.
 export function VacanciesListPage() {
   const { denied } = useRoleGuard(['ADMIN', 'HR'])
-  if (denied) return null
 
   const { data: vacancies, isLoading } = useVacancies()
   const [filter, setFilter] = useState<StatusFilter>('ALL')
@@ -70,6 +69,16 @@ export function VacanciesListPage() {
     { value: 'DRAFT', label: `Черн. ${counts.DRAFT}` },
     { value: 'CLOSED', label: `Закр. ${counts.CLOSED}` },
   ]
+
+  // Rules of Hooks: moved here — after every hook above — instead of being
+  // the very first statement, before `useVacancies`/`useState`/`useMemo`.
+  // `denied` flips false→true mid-mount once `useAuth`'s `isLoading`
+  // (inside `useRoleGuard`) resolves to a disallowed role; a guard sitting
+  // before other hooks made that transition change the hook count between
+  // renders ("Rendered fewer hooks than expected"). This route is also
+  // gated at the layout level (see use-role-guard.ts), so this remains
+  // defense-in-depth, not the only guard.
+  if (denied) return null
 
   if (isLoading) {
     return (
