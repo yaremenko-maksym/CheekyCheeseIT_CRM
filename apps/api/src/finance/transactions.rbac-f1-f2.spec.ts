@@ -110,7 +110,9 @@ function makeServiceWithPayoutRequest(
   // pending_obligations rows recovered via the SEPARATE, never-reset
   // payoutRequestId column — each resolves (via sourceTransactionId) to the
   // obligation's current transaction row, or `null` if unresolvable.
-  obligationRows: { sourceTransaction: TxStub | null }[] = [],
+  // `creditorUserId` drives the MED-1 narrowing (security-review on #590):
+  // an unprivileged viewer only recovers rows they are the creditor of.
+  obligationRows: { creditorUserId: string; sourceTransaction: TxStub | null }[] = [],
 ): TransactionsService {
   const dbStub = {
     db: {
@@ -329,7 +331,7 @@ describe('F2b — findPayoutRequest merges obligation-derived transactions', () 
     const svc = makeServiceWithPayoutRequest(
       baseReq,
       [liveTx],
-      [{ sourceTransaction: recoveredTx }],
+      [{ creditorUserId: 'someone-else-id', sourceTransaction: recoveredTx }],
     )
     const admin = user('ADMIN')
 
@@ -343,7 +345,11 @@ describe('F2b — findPayoutRequest merges obligation-derived transactions', () 
 
   it('does NOT duplicate an obligation transaction that is already present in the live relation', async () => {
     const sharedTx = makeTx({ id: 'tx-shared', type: 'SENIOR_INCOME' })
-    const svc = makeServiceWithPayoutRequest(baseReq, [sharedTx], [{ sourceTransaction: sharedTx }])
+    const svc = makeServiceWithPayoutRequest(
+      baseReq,
+      [sharedTx],
+      [{ creditorUserId: 'someone-else-id', sourceTransaction: sharedTx }],
+    )
     const admin = user('ADMIN')
 
     const result = await svc.findPayoutRequest('req-1', admin)
@@ -354,7 +360,11 @@ describe('F2b — findPayoutRequest merges obligation-derived transactions', () 
 
   it('skips an obligation row whose source transaction cannot be resolved (null)', async () => {
     const liveTx = makeTx({ id: 'tx-live-only', type: 'DROP_INCOME' })
-    const svc = makeServiceWithPayoutRequest(baseReq, [liveTx], [{ sourceTransaction: null }])
+    const svc = makeServiceWithPayoutRequest(
+      baseReq,
+      [liveTx],
+      [{ creditorUserId: 'someone-else-id', sourceTransaction: null }],
+    )
     const admin = user('ADMIN')
 
     const result = await svc.findPayoutRequest('req-1', admin)
@@ -370,5 +380,58 @@ describe('F2b — findPayoutRequest merges obligation-derived transactions', () 
     const result = await svc.findPayoutRequest('req-1', admin)
 
     expect(result.transactions).toEqual([])
+  })
+})
+
+// ── security-review on #590 (MED-1): the recovered obligation may belong to
+// a DIFFERENT person than the payout's owner (a DROP's cascade payout books
+// a SEPARATE senior IOU) — recovering it must not be the first time an
+// unprivileged, non-creditor viewer sees it. Before settle that row never
+// passed the client's isIncomeTransaction filter (wrong type); after settle
+// it must still only reach ADMIN/ACCOUNTANT or the obligation's own creditor.
+describe('F2c — findPayoutRequest narrows recovered obligations to their own creditor', () => {
+  it('the creditor themselves sees their own recovered obligation', async () => {
+    const recoveredTx = makeTx({ id: 'tx-own-obligation', type: 'SENIOR_INCOME' })
+    const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
+    const svc = makeServiceWithPayoutRequest(
+      dropOwnerReq,
+      [],
+      [{ creditorUserId: 'drop-owner-id', sourceTransaction: recoveredTx }],
+    )
+    const ownerDrop = user('DROP', 'drop-owner-id')
+
+    const result = await svc.findPayoutRequest('req-1', ownerDrop)
+
+    expect(result.transactions.map((t) => t.id)).toEqual(['tx-own-obligation'])
+  })
+
+  it('a non-privileged payout OWNER does NOT see a recovered obligation that belongs to someone else (the DROP/senior leak this fix closes)', async () => {
+    const seniorsTx = makeTx({ id: 'tx-senior-obligation', type: 'SENIOR_INCOME' })
+    const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
+    const svc = makeServiceWithPayoutRequest(
+      dropOwnerReq,
+      [],
+      [{ creditorUserId: SENIOR_ID, sourceTransaction: seniorsTx }],
+    )
+    const ownerDrop = user('DROP', 'drop-owner-id')
+
+    const result = await svc.findPayoutRequest('req-1', ownerDrop)
+
+    expect(result.transactions).toEqual([])
+  })
+
+  it('ADMIN/ACCOUNTANT (privileged) see a recovered obligation regardless of who the creditor is', async () => {
+    const seniorsTx = makeTx({ id: 'tx-senior-obligation-2', type: 'SENIOR_INCOME' })
+    const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
+    const svc = makeServiceWithPayoutRequest(
+      dropOwnerReq,
+      [],
+      [{ creditorUserId: SENIOR_ID, sourceTransaction: seniorsTx }],
+    )
+    const accountant = user('ACCOUNTANT')
+
+    const result = await svc.findPayoutRequest('req-1', accountant)
+
+    expect(result.transactions.map((t) => t.id)).toEqual(['tx-senior-obligation-2'])
   })
 })

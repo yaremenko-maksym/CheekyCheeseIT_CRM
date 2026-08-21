@@ -5295,6 +5295,19 @@ export class TransactionsService {
     // (dedup by id) rather than replace — a still-PENDING obligation is
     // already present via the live relation above; this only recovers the
     // ones settle detached.
+    // security-review round on #590 (MED-1): the recovered obligation may
+    // belong to a DIFFERENT person than the payout's owner — e.g. a DROP's
+    // cascade payout books a SEPARATE senior IOU (creditorUserId=senior),
+    // which the DROP owns the PAYOUT for but never owned the obligation
+    // itself. Before settle, that SENIOR_PENDING_PAYOUT row never passed the
+    // client's `isIncomeTransaction` filter (wrong type) and was never
+    // rendered to the DROP; recovering it here must not be the FIRST time
+    // that DROP viewer sees the senior's name + share amount. `mapTx` masks
+    // company/ADMIN counterparties but never the senior/drop side — this
+    // repo's rule on that surface is allowlist, not denylist (prior leaks on
+    // this exact class), so narrow explicitly rather than trust downstream
+    // masking. Reuses the SAME `isPrivileged` this function already computed
+    // for the whole-request gate above — not a new predicate.
     const reqTransactions = (req as typeof req & { transactions: TxWithRelations[] }).transactions
     const seenTxIds = new Set(reqTransactions.map((tx) => tx.id))
     const obligationRows = (await this.db.db.query.pendingObligations.findMany({
@@ -5308,8 +5321,9 @@ export class TransactionsService {
           },
         },
       },
-    })) as { sourceTransaction: TxWithRelations | null }[]
+    })) as { creditorUserId: string; sourceTransaction: TxWithRelations | null }[]
     const recoveredTxs = obligationRows
+      .filter((o) => isPrivileged || o.creditorUserId === currentUser.id)
       .map((o) => o.sourceTransaction)
       .filter((tx): tx is TxWithRelations => tx != null && !seenTxIds.has(tx.id))
     const allTransactions = [...reqTransactions, ...recoveredTxs]
