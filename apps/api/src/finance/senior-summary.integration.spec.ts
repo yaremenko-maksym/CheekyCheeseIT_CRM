@@ -581,12 +581,13 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('mySalaryStatus: own current-month salary in its REAL currency (UAH, no $-hardcode)', async () => {
       const body = await summaryAs(SENIOR_A)
-      expect(body.mySalaryStatus).not.toBeNull()
-      expect(body.mySalaryStatus!.amount).toBe(50000)
-      expect(body.mySalaryStatus!.status).toBe('PENDING')
+      expect(body.mySalaryStatus.state).toBe('EXISTS')
+      if (body.mySalaryStatus.state !== 'EXISTS') throw new Error('unreachable')
+      expect(body.mySalaryStatus.amount).toBe(50000)
+      expect(body.mySalaryStatus.status).toBe('PENDING')
       // The salary-currency bug fix: the DTO echoes the row's real currency (UAH),
       // NOT a hard-coded USD — so the dashboard can render «50 000,00 UAH».
-      expect(body.mySalaryStatus!.currency).toBe('UAH')
+      expect(body.mySalaryStatus.currency).toBe('UAH')
     })
 
     // ── «Статистика заработка» (task-senior-stats-block) ──────────────────────────
@@ -682,8 +683,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // B pending payout = 3000.
       expect(b.pendingPayouts.count).toBe(1)
       expect(b.pendingPayouts.amount).toBeCloseTo(3000, 6)
-      // B has no salary row → null.
-      expect(b.mySalaryStatus).toBeNull()
+      // B has no salary row AND no monthlySalary configured → NOT_CONFIGURED
+      // (task-salary-month-gap-and-status E-6 — not a bare null).
+      expect(b.mySalaryStatus).toEqual({ state: 'NOT_CONFIGURED' })
     })
   },
 )

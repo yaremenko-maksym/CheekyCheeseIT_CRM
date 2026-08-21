@@ -126,7 +126,9 @@ describe('getSeniorSummary — empty state maps to zero KPI', () => {
     expect(r.activeProjects).toEqual({ count: 0, items: [] })
     expect(r.seniorShareIncome).toEqual({ total: 0, thisMonth: 0, currency: 'USD' })
     expect(r.pendingPayouts).toEqual({ count: 0, amount: 0 })
-    expect(r.mySalaryStatus).toBeNull()
+    // task-salary-month-gap-and-status (E-6): no `monthlySalary` on the stub
+    // selfUser → NOT_CONFIGURED (not a bare null — see mySalaryStatusSchema).
+    expect(r.mySalaryStatus).toEqual({ state: 'NOT_CONFIGURED' })
     expect(r.earningsStats.lastMonthIncome).toBe(0)
     expect(r.earningsStats.monthlyHistory).toHaveLength(8)
     expect(r.earningsStats.monthlyHistory.every((p) => p.amount === 0)).toBe(true)
@@ -372,21 +374,33 @@ describe('getSeniorSummary — activeProjects share% resolution (AC1)', () => {
 })
 
 describe('getSeniorSummary — mySalaryStatus mapping', () => {
-  it('maps a current-month SALARY row to {amount,status}', async () => {
+  it('maps a current-month SALARY row to EXISTS {amount,status}', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26 },
       salaryRow: { amount: '1500', status: 'PENDING' },
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r.mySalaryStatus).toEqual({ amount: 1500, status: 'PENDING' })
+    expect(r.mySalaryStatus).toEqual({ state: 'EXISTS', amount: 1500, status: 'PENDING' })
   })
 
-  it('maps an invalid salary status to null (defensive)', async () => {
+  it('maps an invalid salary status to NOT_CONFIGURED when monthlySalary is unset (defensive)', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26 },
       salaryRow: { amount: '1500', status: 'REJECTED' },
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r.mySalaryStatus).toBeNull()
+    expect(r.mySalaryStatus).toEqual({ state: 'NOT_CONFIGURED' })
+  })
+
+  // task-salary-month-gap-and-status (E-6): the state a missed/not-yet-run
+  // cron month produces — `monthlySalary` IS configured, but the row for the
+  // CURRENT month has not been created yet (`salaryRow` undefined).
+  it('maps "monthlySalary configured, no row yet" to AWAITING_CREATION — the E-5 gap state', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26, monthlySalary: '2000' },
+      salaryRow: undefined,
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.mySalaryStatus).toEqual({ state: 'AWAITING_CREATION' })
   })
 })
