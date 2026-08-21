@@ -579,15 +579,18 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(body.pendingPayouts.amount).toBeCloseTo(1000, 6)
     })
 
-    it('mySalaryStatus: own current-month salary in its REAL currency (UAH, no $-hardcode)', async () => {
+    it('mySalaryState: own current-month salary in its REAL currency (UAH, no $-hardcode)', async () => {
       const body = await summaryAs(SENIOR_A)
-      expect(body.mySalaryStatus.state).toBe('EXISTS')
-      if (body.mySalaryStatus.state !== 'EXISTS') throw new Error('unreachable')
-      expect(body.mySalaryStatus.amount).toBe(50000)
-      expect(body.mySalaryStatus.status).toBe('PENDING')
+      expect(body.mySalaryState.state).toBe('EXISTS')
+      if (body.mySalaryState.state !== 'EXISTS') throw new Error('unreachable')
+      expect(body.mySalaryState.amount).toBe(50000)
+      expect(body.mySalaryState.status).toBe('PENDING')
       // The salary-currency bug fix: the DTO echoes the row's real currency (UAH),
       // NOT a hard-coded USD — so the dashboard can render «50 000,00 UAH».
-      expect(body.mySalaryStatus.currency).toBe('UAH')
+      expect(body.mySalaryState.currency).toBe('UAH')
+      // security-review MED-3: the DEPRECATED `mySalaryStatus` field is
+      // derived from the SAME row — old clients still parse this correctly.
+      expect(body.mySalaryStatus).toEqual({ amount: 50000, currency: 'UAH', status: 'PENDING' })
     })
 
     // ── «Статистика заработка» (task-senior-stats-block) ──────────────────────────
@@ -684,8 +687,11 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(b.pendingPayouts.count).toBe(1)
       expect(b.pendingPayouts.amount).toBeCloseTo(3000, 6)
       // B has no salary row AND no monthlySalary configured → NOT_CONFIGURED
-      // (task-salary-month-gap-and-status E-6 — not a bare null).
-      expect(b.mySalaryStatus).toEqual({ state: 'NOT_CONFIGURED' })
+      // on the new `mySalaryState` field (task-salary-month-gap-and-status
+      // E-6). `mySalaryStatus` (deprecated) stays a bare null, exactly as
+      // before this task (security-review MED-3).
+      expect(b.mySalaryState).toEqual({ state: 'NOT_CONFIGURED' })
+      expect(b.mySalaryStatus).toBeNull()
     })
   },
 )

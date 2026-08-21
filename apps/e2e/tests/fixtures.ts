@@ -1209,11 +1209,13 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       },
       seniorShareIncome: { total: 8400, thisMonth: 1200, currency: 'USD' },
       pendingPayouts: { count: 1, amount: 600 },
-      // task-salary-month-gap-and-status (E-6): mySalaryStatus is a 3-state
-      // discriminated union now, not a plain {amount,currency,status} object —
-      // the hook .parse()s this response, so a stale shape (missing `state`)
-      // makes the SENIOR dashboard render its error state.
-      mySalaryStatus: { state: 'EXISTS', amount: 1200, currency: 'USD', status: 'PENDING' },
+      // task-salary-month-gap-and-status (E-6, security-review MED-3):
+      // `mySalaryStatus` stays the pre-E-6 shape (deprecated, kept for old-
+      // client compat); `mySalaryState` is the new 4-state discriminated
+      // union. The hook .parse()s this response, so BOTH must be present or
+      // the SENIOR dashboard renders its error state.
+      mySalaryStatus: { amount: 1200, currency: 'USD', status: 'PENDING' },
+      mySalaryState: { state: 'EXISTS', amount: 1200, currency: 'USD', status: 'PENDING' },
       // task-senior-stats-block — «Статистика заработка» (required in DTO). The
       // hook .parse()s the response, so this MUST carry the new shape or the
       // SENIOR dashboard renders the error state. Values keep the dashboard in a

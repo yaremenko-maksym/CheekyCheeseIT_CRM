@@ -565,11 +565,14 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('getOwnSalaryStatus — a soft-deleted SALARY reads back as "no salary yet"', async () => {
       const salaryMonth = '2099-01' // far-future month this spec namespace never otherwise touches
-      // `hasSalaryConfigured: true` throughout — this test is about the ROW's
-      // soft-delete visibility (nonDeletedTransactions view), orthogonal to the
-      // E-6 configured/not-configured branching (covered separately in
-      // salary-status.helper.spec.ts).
-      const before = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth, true)
+      // `{ hasMonthlySalary: true, isCronEligibleRole: true }` throughout —
+      // this test is about the ROW's soft-delete visibility
+      // (nonDeletedTransactions view), orthogonal to the E-6
+      // configured/eligible/awaiting branching (covered separately in
+      // salary-status.helper.spec.ts) — pinning both flags `true` collapses
+      // that branching to the same AWAITING_CREATION/EXISTS pair it always had.
+      const salaryConfig = { hasMonthlySalary: true, isCronEligibleRole: true }
+      const before = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth, salaryConfig)
       expect(before).toEqual({ state: 'AWAITING_CREATION' })
 
       const db = drizzle(_pool!, { schema })
@@ -585,7 +588,7 @@ describe.skipIf(!hasDatabaseUrl())(
         createdBy: ADMIN_1.id,
       })
 
-      const afterInsert = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth, true)
+      const afterInsert = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth, salaryConfig)
       expect(afterInsert.state).toBe('EXISTS')
       if (afterInsert.state !== 'EXISTS') throw new Error('unreachable')
       expect(afterInsert.amount).toBeCloseTo(444, 6)
@@ -593,9 +596,9 @@ describe.skipIf(!hasDatabaseUrl())(
       await svc.adminDeleteTransaction(ALL_EXTRA_TX_IDS[12]!, 'regression test cleanup', ADMIN_1)
 
       // Deleted → must read back exactly as "no salary yet" (AWAITING_CREATION,
-      // since hasSalaryConfigured=true here), not resurface a mistakenly-booked
-      // reminder.
-      const afterDelete = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth, true)
+      // since salaryConfig is configured+cron-eligible here), not resurface a
+      // mistakenly-booked reminder.
+      const afterDelete = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth, salaryConfig)
       expect(afterDelete).toEqual({ state: 'AWAITING_CREATION' })
     })
   },

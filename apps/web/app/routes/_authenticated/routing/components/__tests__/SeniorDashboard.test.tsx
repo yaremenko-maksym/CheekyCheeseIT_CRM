@@ -85,7 +85,10 @@ function makeSummary(overrides: Partial<SeniorSummaryDto> = {}): SeniorSummaryDt
     seniorShareIncome: { total: 5500, thisMonth: 1200, currency: 'USD' },
     pendingPayouts: { count: 3, amount: 2400 },
     // Salary is now currency-aware — UAH proves the bug fix end-to-end.
-    mySalaryStatus: { state: 'EXISTS', amount: 50000, currency: 'UAH', status: 'PENDING' },
+    // `mySalaryStatus` — DEPRECATED, kept byte-identical to the pre-E-6 shape
+    // (security-review MED-3); `mySalaryState` is the new, disambiguated field.
+    mySalaryStatus: { amount: 50000, currency: 'UAH', status: 'PENDING' },
+    mySalaryState: { state: 'EXISTS', amount: 50000, currency: 'UAH', status: 'PENDING' },
     // task-senior-stats-block — «Статистика заработка» (additive). 8-month
     // history (oldest → newest); newest = «this month», prev = «last month».
     earningsStats: {
@@ -242,7 +245,8 @@ describe('SeniorDashboard', () => {
 
   describe('«Статус моих выплат» panel — removed (§3 refactor)', () => {
     // Panel was removed in §3 detitle/dashboard refactor.
-    // Guard: the panel must NOT appear in the DOM regardless of mySalaryStatus.
+    // Guard: the panel must NOT appear in the DOM regardless of mySalaryStatus
+    // / mySalaryState.
     it('does NOT render the «Статус моих выплат» panel', () => {
       useSeniorSummaryMock.mockReturnValue({
         data: makeSummary(),
@@ -253,10 +257,11 @@ describe('SeniorDashboard', () => {
       expect(screen.queryByTestId('senior-salary-status')).not.toBeInTheDocument()
     })
 
-    it('does NOT render salary panel even with mySalaryStatus data', () => {
+    it('does NOT render salary panel even with mySalaryState EXISTS data', () => {
       useSeniorSummaryMock.mockReturnValue({
         data: makeSummary({
-          mySalaryStatus: { state: 'EXISTS', amount: 2000, currency: 'USD', status: 'PAID' },
+          mySalaryStatus: { amount: 2000, currency: 'USD', status: 'PAID' },
+          mySalaryState: { state: 'EXISTS', amount: 2000, currency: 'USD', status: 'PAID' },
         }),
         isLoading: false,
         isError: false,
@@ -265,13 +270,17 @@ describe('SeniorDashboard', () => {
       expect(screen.queryByTestId('senior-salary-status')).not.toBeInTheDocument()
     })
 
-    // task-salary-month-gap-and-status (E-6): mySalaryStatus is no longer a
-    // bare nullable — NOT_CONFIGURED / AWAITING_CREATION are the two "no row"
-    // states now (see mySalaryStatusSchema in @crm/shared). The guard must
-    // hold for both, since the panel reads neither.
-    it('does NOT render salary panel when mySalaryStatus is NOT_CONFIGURED', () => {
+    // task-salary-month-gap-and-status (E-6): `mySalaryState` is no longer a
+    // bare nullable — NOT_CONFIGURED / NOT_CRON_ELIGIBLE / AWAITING_CREATION
+    // are the three "no row" states now (see mySalaryStateSchema in
+    // @crm/shared). The guard must hold for all of them, since the panel
+    // reads neither field.
+    it('does NOT render salary panel when mySalaryState is NOT_CONFIGURED', () => {
       useSeniorSummaryMock.mockReturnValue({
-        data: makeSummary({ mySalaryStatus: { state: 'NOT_CONFIGURED' } }),
+        data: makeSummary({
+          mySalaryStatus: null,
+          mySalaryState: { state: 'NOT_CONFIGURED' },
+        }),
         isLoading: false,
         isError: false,
       })
@@ -279,9 +288,25 @@ describe('SeniorDashboard', () => {
       expect(screen.queryByTestId('senior-salary-status')).not.toBeInTheDocument()
     })
 
-    it('does NOT render salary panel when mySalaryStatus is AWAITING_CREATION', () => {
+    it('does NOT render salary panel when mySalaryState is NOT_CRON_ELIGIBLE', () => {
       useSeniorSummaryMock.mockReturnValue({
-        data: makeSummary({ mySalaryStatus: { state: 'AWAITING_CREATION' } }),
+        data: makeSummary({
+          mySalaryStatus: null,
+          mySalaryState: { state: 'NOT_CRON_ELIGIBLE' },
+        }),
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+      expect(screen.queryByTestId('senior-salary-status')).not.toBeInTheDocument()
+    })
+
+    it('does NOT render salary panel when mySalaryState is AWAITING_CREATION', () => {
+      useSeniorSummaryMock.mockReturnValue({
+        data: makeSummary({
+          mySalaryStatus: null,
+          mySalaryState: { state: 'AWAITING_CREATION' },
+        }),
         isLoading: false,
         isError: false,
       })
