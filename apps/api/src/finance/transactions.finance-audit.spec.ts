@@ -19,10 +19,11 @@
  * The flows that need real transactional / FOR-UPDATE semantics (#3 cascade, #5
  * multi-project lock) are covered by the integration specs.
  */
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
 
 function admin(id = 'admin-1'): SessionUser {
   return {
@@ -140,6 +141,7 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
   }) {
     const insertValues = vi.fn()
     let findManyCall = 0
+    let findFirstWhereArg: unknown
     const dbStub = {
       db: {
         query: {
@@ -149,7 +151,16 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
               findManyCall += 1
               return Promise.resolve(findManyCall === 1 ? opts.employees : (opts.juniors ?? []))
             },
-            findFirst: () => Promise.resolve(opts.admin),
+            // security-review round 3 (mutation gate): CAPTURE the `where`
+            // arg instead of ignoring it — a stub that always resolves
+            // `opts.admin` regardless of what it was asked for cannot tell
+            // `eq(users.role, 'ADMIN')` from `eq(users.role, '')` or from no
+            // filter at all (`{}`). See the "queries by role=ADMIN..." test
+            // below, which asserts the captured arg's compiled SQL/params.
+            findFirst: (args: { where: unknown }) => {
+              findFirstWhereArg = args?.where
+              return Promise.resolve(opts.admin)
+            },
           },
           projects: { findMany: () => Promise.resolve([]) },
           projectMembers: { findMany: () => Promise.resolve([]) },
@@ -167,7 +178,7 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
       },
     }
     const svc = makeTransactionsService({ db: dbStub as never })
-    return { svc, insertValues }
+    return { svc, insertValues, getFindFirstWhereArg: () => findFirstWhereArg }
   }
 
   it('uses a NON-MAKSYM admin id as createdBy and still inserts salary reminders', async () => {
@@ -185,13 +196,38 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
     })
   })
 
+  // security-review round 3: the test above only proves the RESULT of
+  // `findFirst` is used correctly — it says nothing about what `findFirst`
+  // was actually ASKED for, because the stub used to ignore its argument
+  // entirely. Killing `findFirst({})` (WHERE gone — matches ANY user) and
+  // `eq(users.role, '')` (WHERE that matches no role at all) requires
+  // capturing and compiling the real Drizzle `where` fragment.
+  it('queries by role=ADMIN specifically — not "any user", not an empty/broken filter', async () => {
+    const { svc, getFindFirstWhereArg } = makeSvc({
+      employees: [{ id: 'hr-1', monthlySalary: '1500' }],
+      admin: { id: 'admin-1' },
+    })
+    await svc.createMonthlySalaries('2099-11')
+    const { sql, params } = compileWhere(getFindFirstWhereArg())
+    expect(sql).toContain('"role" = $1')
+    expect(params).toEqual(['ADMIN'])
+  })
+
   it('no admin present → logs error and creates NOTHING (does not throw)', async () => {
+    const loggerErrorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
     const { svc, insertValues } = makeSvc({
       employees: [{ id: 'hr-1', monthlySalary: '1500' }],
       admin: undefined,
     })
     await expect(svc.createMonthlySalaries('2099-11')).resolves.toBeUndefined()
     expect(insertValues).not.toHaveBeenCalled()
+    // security-review round 3: pins the log MESSAGE text itself (was
+    // asserted only by "did not throw" before — a blanked message string
+    // survived, since nothing ever read it).
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('no ADMIN user found — cannot create salary reminders'),
+    )
+    loggerErrorSpy.mockRestore()
   })
 })
 

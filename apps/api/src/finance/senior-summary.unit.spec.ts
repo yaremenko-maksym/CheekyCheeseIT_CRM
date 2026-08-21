@@ -24,6 +24,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { CRON_ELIGIBLE_SALARY_ROLES } from './transactions.service'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -446,5 +447,27 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
     })
     const r = await svc.getSeniorSummary(user('ADMIN'))
     expect(r.mySalaryState).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
+  })
+})
+
+// security-review round 3 (mutation gate on origin/main): CRON_ELIGIBLE_SALARY_ROLES's
+// only current runtime call site is getSeniorSummary above, whose RBAC guard
+// restricts callers to SENIOR/ADMIN — NEITHER of which is ever a member of
+// this set, so `.has(currentUser.role)` is FALSE for every real caller no
+// matter what the set actually contains. Emptying it, or blanking any one
+// of its 3 literals, changed nothing the tests above could observe (all 4
+// mutants survived). Pinned directly here instead — the exact membership
+// the const's own docblock claims ("mirrors exactly what
+// resolveHrAccountantSalaryReceivers / resolveJuniorSalaryReceivers
+// target").
+describe('CRON_ELIGIBLE_SALARY_ROLES — exact membership (pinned directly, not through a caller)', () => {
+  it('contains exactly HR, ACCOUNTANT, JUNIOR — the roles createMonthlySalaries actually accrues to', () => {
+    expect([...CRON_ELIGIBLE_SALARY_ROLES].sort()).toEqual(['ACCOUNTANT', 'HR', 'JUNIOR'])
+  })
+
+  it('does NOT contain SENIOR, DROP, or ADMIN — they can only ever get a MANUALLY created salary', () => {
+    expect(CRON_ELIGIBLE_SALARY_ROLES.has('SENIOR')).toBe(false)
+    expect(CRON_ELIGIBLE_SALARY_ROLES.has('DROP')).toBe(false)
+    expect(CRON_ELIGIBLE_SALARY_ROLES.has('ADMIN')).toBe(false)
   })
 })

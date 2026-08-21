@@ -162,6 +162,7 @@ export const mySalaryStatusSchema = z
 //                          transaction currency (USDT / USD / EUR / UAH) so
 //                          the client formats the amount in its OWN currency,
 //                          no hard-coded `$`).
+// Stryker disable next-line ArrayDeclaration: this array literal is evaluated ONCE at module-import time (schema construction), before any test's per-test coverage window opens, so Stryker's vitest-runner falls back to a single whole-suite run for this "static" mutant and reports 0 tests completed. Verified independently outside Stryker's sandbox (plain node, this repo's exact zod@4.3.6): `z.discriminatedUnion('state', [])` throws synchronously inside `new ZodDiscriminatedUnion` the instant the module is imported — every test file importing anything from interviews.ts would fail to even load (reproduced: `TypeError: Cannot read properties of undefined (reading '_zod')` inside zod's own core.js, before a single test in this file runs). Not an equivalent mutant (it deletes all 4 states, a severe regression); real behavioural tests exist for all 4 variants in interviews.spec.ts — they just cannot register as "covering" a construction-time literal, the same tool blind spot documented for the sibling `z.union([])` case in finance.ts.
 export const mySalaryStateSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('NOT_CONFIGURED') }),
   z.object({ state: z.literal('NOT_CRON_ELIGIBLE') }),

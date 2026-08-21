@@ -114,9 +114,24 @@ function makeService(data: StubData = {}): {
         const conflicted = receiverId && (data.conflictReceiverIds ?? []).includes(receiverId)
         return {
           onConflictDoNothing: vi.fn(() => ({
-            returning: vi
-              .fn()
-              .mockResolvedValue(conflicted ? [] : [{ id: `fake-tx-${++insertedRowCounter}` }]),
+            // security-review round 3 (mutation gate): `.returning({id:
+            // transactions.id})` used to resolve a HARDCODED `{id:
+            // 'fake-tx-N'}` regardless of what projection it was actually
+            // called with — a mutated `.returning({})` (the real column
+            // projection gone) was invisible, since the stub never
+            // inspected its own argument. Made projection-AWARE instead:
+            // only synthesize an `id` when the requested projection
+            // actually asks for one — a real Postgres `RETURNING` with an
+            // empty column list would come back with rows that have no
+            // `id` field either, so `inserted[0].id` would genuinely be
+            // `undefined` and propagate into `recordCreationAudit`'s
+            // `targetId` — which the HIGH-1 tests now assert directly.
+            returning: vi.fn((projection: Record<string, unknown> | undefined) => {
+              if (conflicted) return Promise.resolve([])
+              const row: Record<string, unknown> = {}
+              if (projection && 'id' in projection) row['id'] = `fake-tx-${++insertedRowCounter}`
+              return Promise.resolve([row])
+            }),
           })),
         }
       }
@@ -392,6 +407,48 @@ describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, n
     expect(report.missing[0]?.expectedAmount).toBe(1234)
   })
 
+  // security-review round 3 (mutation gate): MED-2's dedup guard
+  // (`seenReceiverIds`) previously had ONLY integration-level coverage
+  // (salary-month-gap.integration.spec.ts, real Postgres) — invisible to
+  // the mutation gate, which never runs integration specs. Mutating
+  // `seenReceiverIds.has(user.id)` to `false` (never skip an already-seen
+  // receiver) survived every unit test in this file. Pinned directly here:
+  // a JUNIOR on TWO active project memberships must appear exactly ONCE in
+  // `missing`, carrying the FIRST membership's resolved amount — matching
+  // what the unique index would let the cron actually write (measured +21%
+  // inflation on real data before this fix).
+  it('MED-2: a JUNIOR on TWO active project memberships is counted exactly ONCE, not twice', async () => {
+    const jr = {
+      id: 'jr-multi',
+      email: 'jr-multi@test.spec',
+      displayName: 'Junior Multi',
+      role: 'JUNIOR',
+      monthlySalary: '900',
+      archivedAt: null,
+    }
+    const { svc } = makeService({
+      activeMembers: [
+        juniorMember(jr, {
+          id: 'proj-multi-a',
+          name: 'Proj Multi A',
+          financeSettings: { juniorSalaryOverride: '1234' },
+        }),
+        juniorMember(jr, {
+          id: 'proj-multi-b',
+          name: 'Proj Multi B',
+          financeSettings: { juniorSalaryOverride: '5678' },
+        }),
+      ],
+    })
+    const report = await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
+    const entries = report.missing.filter((m) => m.userId === 'jr-multi')
+    expect(entries).toHaveLength(1)
+    // First membership in iteration order wins — 1234 (proj-multi-a), never
+    // 5678 (the second) and never their sum (6912).
+    expect(entries[0]?.expectedAmount).toBe(1234)
+    expect(entries[0]?.projectId).toBe('proj-multi-a')
+  })
+
   it('an ARCHIVED junior is NEVER missing (legitimately absent — a re-opened membership must not count)', async () => {
     const jr = {
       id: 'jr-archived',
@@ -603,6 +660,12 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       actorId: CALLING_ADMIN.id,
       action: 'CREATE',
       metadata: { type: 'SALARY', amount: '1500', currency: 'USD' },
+      // security-review round 3 (mutation gate): the audit row's targetId
+      // is `inserted[0].id` — the REAL `.returning({id: transactions.id})`
+      // projection's result, not a hardcoded stub value. Proves the actual
+      // just-inserted row's id (not `undefined`, not some other row) is
+      // what gets journalled.
+      targetId: 'fake-tx-1',
     })
   })
 
@@ -657,6 +720,11 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       actorId: CALLING_ADMIN.id,
       action: 'CREATE',
       metadata: { type: 'SALARY', amount: '900', currency: 'USD' },
+      // security-review round 3 (mutation gate): same as the HR/ACCOUNTANT
+      // test above — the JUNIOR branch has its OWN `.returning({id:
+      // transactions.id})` call, a separate mutant Stryker generates
+      // independently of the HR/ACCOUNTANT one.
+      targetId: 'fake-tx-1',
     })
   })
 

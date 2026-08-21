@@ -88,6 +88,29 @@ describe('salaryMonthGapReportSchema — month format', () => {
     expect(salaryMonthGapReportSchema.safeParse(reportWith('aaaa-08')).success).toBe(false)
   })
 
+  // security-review round 3 (mutation gate against origin/main): the input
+  // schemas below already had this exact test, but code-review round 2's
+  // fix (unifying this OUTPUT schema onto the SAME `01-12` alternation, not
+  // the old looser `\d{2}`) landed with no equivalent negative-value test of
+  // its own — the shared `(0[1-9]|1[0-2])` alternation survived being
+  // widened to `1[^0-2]` (matches "any month starting with 1 that ISN'T
+  // 10-12", e.g. "13"/"19") because nothing here ever fed it an
+  // out-of-range month.
+  it('rejects month 00 (kills a widened 0[1-9] alternative)', () => {
+    expect(salaryMonthGapReportSchema.safeParse(reportWith('2026-00')).success).toBe(false)
+  })
+
+  it('rejects month 13 (kills a widened 1[0-2] alternative)', () => {
+    expect(salaryMonthGapReportSchema.safeParse(reportWith('2026-13')).success).toBe(false)
+  })
+
+  it('accepts every real month 01..12', () => {
+    for (let m = 1; m <= 12; m++) {
+      const month = `2026-${String(m).padStart(2, '0')}`
+      expect(salaryMonthGapReportSchema.safeParse(reportWith(month)).success).toBe(true)
+    }
+  })
+
   it('surfaces the exact "YYYY-MM" error message on rejection', () => {
     // ZodError#message is the issues array JSON-stringified — the custom
     // message text still appears verbatim inside it, so a substring `toThrow`
