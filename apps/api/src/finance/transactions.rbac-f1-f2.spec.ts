@@ -126,6 +126,12 @@ function makeServiceWithPayoutRequest(
                 : null,
             ),
         },
+        // task-settle-payout-link-lost: findPayoutRequest also merges
+        // obligation-derived transactions (pending_obligations.payoutRequestId)
+        // to recover settled obligations the live relation above drops.
+        pendingObligations: {
+          findMany: () => Promise.resolve([]),
+        },
       },
     },
   }
