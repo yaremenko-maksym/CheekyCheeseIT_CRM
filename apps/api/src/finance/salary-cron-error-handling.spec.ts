@@ -87,3 +87,72 @@ describe('SalaryCronService — error handling (AC1)', () => {
     expect(cronLevelError).toBeUndefined()
   })
 })
+
+/**
+ * task-salary-month-gap-and-status security-review round 3 — the
+ * bidirectional-invariant gap.
+ *
+ * `salary-month-gap.unit.spec.ts` proves the GAP REPORT's default month
+ * tracks `previousSalaryMonthKey()`. That alone does NOT prove the CRON's
+ * real handler does too — a reviewer proved this by hand: diverging
+ * `handleMonthlySalaries` from the shared resolver left EVERY existing test
+ * green, because `salary-cron-idempotency.integration.spec.ts` calls
+ * `createMonthlySalaries(MONTH)` directly, bypassing `handleMonthlySalaries`
+ * entirely — the "cannot drift apart" guarantee rested on both call sites
+ * merely IMPORTING the same function, never on a test that would actually
+ * catch one of them stopping.
+ *
+ * This test drives the REAL `handleMonthlySalaries()` entry point (the
+ * `@Cron`-decorated method — same one production invokes) with a stubbed
+ * `TransactionsService.createMonthlySalaries` that just RECORDS its `month`
+ * argument, then asserts that argument against a LITERAL, hardcoded month
+ * string for a FIXED, faked system clock — never by calling
+ * `previousSalaryMonthKey()` a second time (that would be the exact
+ * tautology mutation testing already caught once: `salary-month.util.ts`
+ * scored 0.00%, survived `BlockStatement → {}`, because
+ * `expect(x).toBe(previousSalaryMonthKey())` compares `undefined` to
+ * `undefined` the moment the function body is gutted).
+ */
+describe('SalaryCronService — handleMonthlySalaries computes the previous month (security-review round 3)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('passes a LITERAL previous-month string to createMonthlySalaries for a fixed clock — never derived by re-calling previousSalaryMonthKey', async () => {
+    vi.useFakeTimers()
+    // 2026-08-15 (any day in August) → the cron must target July.
+    vi.setSystemTime(new Date(2026, 7, 15))
+
+    let capturedMonth: string | undefined
+    const txService = {
+      createMonthlySalaries: vi.fn((month: string) => {
+        capturedMonth = month
+        return Promise.resolve()
+      }),
+    } as unknown as TransactionsService
+
+    const cron = new SalaryCronService(txService)
+    await cron.handleMonthlySalaries()
+
+    expect(capturedMonth).toBe('2026-07')
+    expect(txService.createMonthlySalaries).toHaveBeenCalledTimes(1)
+  })
+
+  it('rolls over the year boundary — January 2027 clock → the cron targets December 2026', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2027, 0, 1))
+
+    let capturedMonth: string | undefined
+    const txService = {
+      createMonthlySalaries: vi.fn((month: string) => {
+        capturedMonth = month
+        return Promise.resolve()
+      }),
+    } as unknown as TransactionsService
+
+    const cron = new SalaryCronService(txService)
+    await cron.handleMonthlySalaries()
+
+    expect(capturedMonth).toBe('2026-12')
+  })
+})

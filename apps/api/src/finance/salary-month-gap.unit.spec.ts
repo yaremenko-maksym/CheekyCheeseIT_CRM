@@ -50,7 +50,6 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
-import { previousSalaryMonthKey } from './salary-month.util'
 import { transactions } from '../database/schema'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
@@ -444,19 +443,56 @@ describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, n
   // silently diverge again — changing the cron's month resolver would move
   // BOTH sides of this assertion together, keeping the test green for the
   // RIGHT reason instead of the wrong one.
-  it('defaults `month` to previousSalaryMonthKey() — the SAME month the cron itself last targeted', async () => {
-    const { svc } = makeService({ hrAccountantEmployees: [hrEmployee()] })
-    const report = await svc.getSalaryMonthGapReport(user('ADMIN'))
-    expect(report.month).toBe(previousSalaryMonthKey())
+  // security-review round 3: the PREVIOUS version of this test compared
+  // `report.month` against a SECOND, independent call to
+  // `previousSalaryMonthKey()` — a tautology mutation testing caught
+  // (`salary-month.util.ts` mutation score 0.00%, survives `BlockStatement
+  // → {}`: gut the function to always return `undefined`, and
+  // `expect(undefined).toBe(undefined)` still passes). A test must pin a
+  // VALUE, not the equality of two calls to the same function. Fixed by
+  // fixing the system clock to a literal, hardcoded date and asserting a
+  // literal, hardcoded month string — no call to `previousSalaryMonthKey()`
+  // anywhere in this test.
+  it('defaults `month` to a LITERAL previous-month string for a fixed clock (not a second call to previousSalaryMonthKey)', async () => {
+    vi.useFakeTimers()
+    try {
+      // 2026-08-15 (any day in August) → the cron/report both target July.
+      vi.setSystemTime(new Date(2026, 7, 15))
+      const { svc } = makeService({ hrAccountantEmployees: [hrEmployee()] })
+      const report = await svc.getSalaryMonthGapReport(user('ADMIN'))
+      expect(report.month).toBe('2026-07')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('the default month is NEVER the current calendar month (the cron has not touched it yet)', async () => {
-    const { svc } = makeService({ hrAccountantEmployees: [hrEmployee()] })
-    const report = await svc.getSalaryMonthGapReport(user('ADMIN'))
-    const now = new Date()
-    const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
-    expect(report.month).not.toBe(currentMonth)
+  it('the default month is NEVER the current calendar month (the cron has not touched it yet) — literal fixed-clock proof', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 7, 15))
+      const { svc } = makeService({ hrAccountantEmployees: [hrEmployee()] })
+      const report = await svc.getSalaryMonthGapReport(user('ADMIN'))
+      expect(report.month).not.toBe('2026-08')
+      expect(report.month).toBe('2026-07')
+    } finally {
+      vi.useRealTimers()
+    }
   })
+
+  // security-review round 3 (bidirectional-invariant gap): the two tests
+  // above only prove the REPORT tracks previousSalaryMonthKey() — they say
+  // NOTHING about whether the CRON's real handler does too. A reviewer
+  // proved this gap by hand: diverging `SalaryCronService.handleMonthlySalaries`
+  // from the shared resolver left this file's OWN idempotency spec
+  // (salary-cron-idempotency.integration.spec.ts, which calls
+  // `createMonthlySalaries(MONTH)` directly, bypassing the handler) 100%
+  // green — the "cannot drift apart" guarantee rested entirely on both call
+  // sites importing the same function, not on any test enforcing it. The
+  // CRON side of this invariant is pinned in `salary-cron-error-handling.spec.ts`
+  // ("handleMonthlySalaries computes the previous month...") — that test
+  // drives the REAL `handleMonthlySalaries()` handler (not a direct
+  // `createMonthlySalaries(month)` call) and pins the literal month it
+  // computes and passes on.
 
   // mutation-gate: pins the JUNIOR resolver's relational-query SHAPE itself —
   // a stub that ignores `findMany`'s arguments and returns canned rows
@@ -587,18 +623,99 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
     expect(auditValues[0]).toMatchObject({ actorId: 'real-admin-operator-id' })
   })
 
+  // security-review round 3: the HIGH-1 audit tests above ALL use an
+  // HR/ACCOUNTANT persona — `createMonthlySalaries`'s audit call is
+  // DUPLICATED (once in the HR/ACCOUNTANT loop, once in the JUNIOR loop),
+  // and nothing exercised the JUNIOR copy. A reviewer proved this by
+  // mutation: `if (actor && inserted[0])` on the JUNIOR branch survives
+  // being flipped to BOTH `true` (always audit) and `false` (never audit)
+  // — every existing test stays green either way, because none of them
+  // ever put a JUNIOR receiver through `backfillSalaryMonth`.
+  it('backfilling a missing JUNIOR journals the creation too — not just HR/ACCOUNTANT (audit coverage gap)', async () => {
+    const jr = {
+      id: 'jr-audit-1',
+      email: 'jr-audit-1@test.spec',
+      displayName: 'Junior Audit',
+      role: 'JUNIOR',
+      monthlySalary: '900',
+      archivedAt: null,
+    }
+    const CALLING_ADMIN = user('ADMIN', 'the-real-caller')
+    const { svc, insertedValues, auditValues } = makeService({
+      activeMembers: [juniorMember(jr, { id: 'proj-1', name: 'Proj One', financeSettings: null })],
+    })
+    await svc.backfillSalaryMonth(CALLING_ADMIN, MONTH)
+
+    expect(insertedValues).toHaveLength(1)
+    expect(insertedValues[0]).toMatchObject({
+      receiverId: 'jr-audit-1',
+      createdBy: CALLING_ADMIN.id,
+    })
+
+    expect(auditValues).toHaveLength(1)
+    expect(auditValues[0]).toMatchObject({
+      actorId: CALLING_ADMIN.id,
+      action: 'CREATE',
+      metadata: { type: 'SALARY', amount: '900', currency: 'USD' },
+    })
+  })
+
   // The cron path (createMonthlySalaries called with NO actor) must be
   // COMPLETELY unaffected by this task — no audit entries, "any admin" is
   // still the createdBy (RBAC/backfill-specific behaviour must not leak into
   // the unaudited system path).
+  //
+  // security-review round 3: asserting `auditValues.toHaveLength(0)` ALONE
+  // does not distinguish "correctly skipped" from "attempted, then crashed
+  // and was silently swallowed" — `recordCreationAudit`'s own try/catch logs
+  // and eats ANY error, including `TypeError: Cannot read properties of
+  // undefined (reading 'impersonatorId')` if it is ever called with
+  // `actor=undefined` (the mutant `actor && inserted[0]` → `actor ||
+  // inserted[0]` does exactly this for the cron path: `inserted[0]` is
+  // truthy, so the call fires with `actor=undefined`, throws inside
+  // `recordCreationAudit`, gets caught there, and `auditValues` ends up
+  // empty either way — the previous version of this test could not tell the
+  // two apart). Spying on `recordCreationAudit` itself — not just its
+  // observable side effect — proves it was never CALLED, not merely that it
+  // failed to write anything.
   it('createMonthlySalaries called WITHOUT an actor (the cron path) never journals — unchanged from before this task', async () => {
+    const jr = {
+      id: 'jr-cron-1',
+      email: 'jr-cron-1@test.spec',
+      displayName: 'Junior Cron',
+      role: 'JUNIOR',
+      monthlySalary: '900',
+      archivedAt: null,
+    }
     const { svc, insertedValues, auditValues } = makeService({
+      // BOTH loops populated — the spy assertion below must hold for
+      // whichever loop's `actor && inserted[0]` guard a mutant flips.
       hrAccountantEmployees: [hrEmployee()],
+      activeMembers: [juniorMember(jr, { id: 'proj-1', name: 'Proj One', financeSettings: null })],
       admin: { id: 'cron-arbitrary-admin', role: 'ADMIN' },
     })
+    const recordCreationAuditSpy = vi.spyOn(
+      svc as unknown as {
+        recordCreationAudit: (
+          txId: string,
+          created: { type: string; amount: string; currency: string },
+          currentUser: SessionUser,
+        ) => Promise<void>
+      },
+      'recordCreationAudit',
+    )
     await svc.createMonthlySalaries(MONTH)
 
+    expect(insertedValues).toHaveLength(2) // 1 HR/ACCOUNTANT + 1 JUNIOR row
     expect(insertedValues[0]).toMatchObject({ createdBy: 'cron-arbitrary-admin' })
+    expect(insertedValues[1]).toMatchObject({ createdBy: 'cron-arbitrary-admin' })
     expect(auditValues).toHaveLength(0)
+    // The decisive assertion: recordCreationAudit must never even be
+    // INVOKED for the cron path — not just "produced no visible row". Kills
+    // the `actor && inserted[0]` → `actor || inserted[0]` mutant on EITHER
+    // loop: with `||`, `inserted[0]` alone (truthy for a real insert) would
+    // fire the call with `actor=undefined`, which `auditValues.toHaveLength(0)`
+    // alone cannot distinguish from a correct skip (see the comment above).
+    expect(recordCreationAuditSpy).not.toHaveBeenCalled()
   })
 })
