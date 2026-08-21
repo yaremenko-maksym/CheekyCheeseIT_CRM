@@ -242,9 +242,13 @@ async function buildApp(): Promise<NestFastifyApplication> {
  * DOES `await this.errorsService.recordError(...)` before Nest sends its
  * response — no race there, so every OTHER presence assertion in this file
  * (which all go through that controller, not the exception filter) needs no
- * poll. Only routes that reach `telemetry_errors` via the exception filter's
- * fire-and-forget path are affected — see this file's `waitForTelemetryErrorByMessage`
- * call sites for the one place that is.
+ * poll. Audited the whole file (backlog 164 AC3): the ONLY route reaching
+ * `telemetry_errors` via the exception filter's fire-and-forget path AND
+ * asserting presence (not absence) right after is the single call site below
+ * — every other read here is either behind the awaited controller path,
+ * a direct `dbSvc.db.insert(...)` with no HTTP write in between, or an
+ * absence check (stable by construction: nothing async needs to land for
+ * "no row appeared" to hold).
  *
  * A fixed `sleep` is explicitly rejected here (AC2) — slower than the common
  * case (the row is USUALLY already committed by the time we look) and still
