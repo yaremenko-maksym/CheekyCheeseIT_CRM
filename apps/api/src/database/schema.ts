@@ -1307,6 +1307,27 @@ export const pendingObligations = pgTable(
     amount: numeric('amount', { precision: 20, scale: 6 }).notNull(),
     currency: currencyEnum().notNull().default('USDT'),
     status: pendingObligationStatusEnum('status').notNull().default('PENDING'),
+    // task-settle-payout-link-lost (backlog 74/B-1). Durable "which payout
+    // request caused this obligation" link — stamped ONCE at booking time
+    // (bookCompanyObligations, transactions.service.ts) from the SAME
+    // payoutRequestId the source IOU transaction receives. Deliberately a
+    // SEPARATE column from (and never touched by) settleByCompany's reset of
+    // `transactions.payoutRequestId` on the flipped row (pending-settlement
+    // .service.ts — that reset is intentional, see the CRITICAL comment
+    // there: keeping it would bleed a settled row into
+    // autoCreateForPayout's payoutRequestId aggregation and the findOne
+    // SENIOR_INCOME-by-payoutRequestId enrichment). This column exists
+    // purely so a payout's detail read can still resolve "which obligations
+    // arose from it" — via `sourceTransactionId` — AFTER the obligation is
+    // settled, when the transaction-level link is already gone. NULL for an
+    // obligation booked outside a payout cascade (declareUsdtProjectIncome —
+    // no payout_requests row exists at that point). ON DELETE SET NULL
+    // mirrors `transactions.payoutRequestId`'s own FK behaviour — this
+    // column is informational (display only), never a security/money gate,
+    // so a future payout_requests cleanup nulling it is harmless.
+    payoutRequestId: uuid('payout_request_id').references(() => payoutRequests.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1314,6 +1335,7 @@ export const pendingObligations = pgTable(
     index('idx_pending_obligations_creditor').on(t.creditorUserId),
     index('idx_pending_obligations_status').on(t.status),
     index('idx_pending_obligations_source').on(t.sourceTransactionId),
+    index('idx_pending_obligations_payout_request').on(t.payoutRequestId),
     // BIZ-11 (2026-07-03): one PENDING obligation per source transaction.
     // Prevents a double-pending-obligation race when two concurrent income flows
     // both try to create an obligation for the same source transaction.

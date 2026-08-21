@@ -1119,6 +1119,11 @@ export class PendingSettlementService {
     amount: string
     currency: string
     status: 'PENDING' | 'PAID' | 'CANCELLED'
+    // task-settle-payout-link-lost: optional on the input shape so every
+    // pre-existing call site (all built the row from a real `pendingObligations`
+    // select and never carried this column before) keeps compiling untouched;
+    // `?? null` below normalises the omitted case to the DTO's required `null`.
+    payoutRequestId?: string | null
     createdAt: Date | string
     updatedAt: Date | string
   }): PendingObligationDto {
@@ -1133,6 +1138,7 @@ export class PendingSettlementService {
       amount: row.amount,
       currency: row.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
       status: row.status,
+      payoutRequestId: row.payoutRequestId ?? null,
       createdAt: toIso(row.createdAt),
       updatedAt: toIso(row.updatedAt),
     }

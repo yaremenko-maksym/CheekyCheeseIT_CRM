@@ -602,6 +602,133 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await displayBalance()).toBeCloseTo(await gateBalance(), 6)
     })
 
+    // ── task-settle-payout-link-lost (backlog 74/B-1, AC4). Before the fix,
+    // settleByCompany's reset of transactions.payoutRequestId (task-settle-
+    // in-place ADR) makes the flipped SENIOR_INCOME row invisible to
+    // findPayoutRequest's live `transactions` relation — the payout's detail
+    // read looks like it produced ZERO obligations, even though the money is
+    // correct (proven by INV2 above). This test reads obligations through the
+    // SAME path the detail screen uses (`TransactionsService.findPayoutRequest`)
+    // and proves the settled obligation is still there.
+    it('AC4 findPayoutRequest still lists the settled senior obligation after settleByCompany resets its payoutRequestId', async () => {
+      const I = 1000
+      const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))
+      const pr = await svc.createPayoutRequest([incomeId], DROP_A)
+      const payable = parseFloat(pr.payableAmount)
+      const HASH = '0x' + 'c'.repeat(64)
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        confirmed: true,
+        confirmations: THRESHOLD,
+        amountUsdt: payable,
+      })
+      await svc.payPayoutRequest(pr.id, HASH, DROP_A)
+
+      // Sanity: BEFORE settle, the live relation already surfaces the
+      // cascade-booked SENIOR_PENDING_PAYOUT obligation (payoutRequestId is
+      // still set at this point — settle has not run yet).
+      const beforeSettle = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
+      const pendingObligationTx = beforeSettle.transactions.find(
+        (t) => t.type === 'SENIOR_PENDING_PAYOUT',
+      )
+      expect(pendingObligationTx).toBeTruthy()
+
+      // Close the senior obligation — settleByCompany flips the SAME row
+      // in place (task-settle-in-place) and resets ITS payoutRequestId.
+      const [obligation] = await pendingObligationsFor(SENIOR.id)
+      const obRow = await dbSvc.db.query.pendingObligations.findFirst({
+        where: eq(pendingObligations.sourceTransactionId, obligation!.sourceTransactionId),
+      })
+      const settled = await settleSvc.settleByCompany(obRow!.id, ACCOUNTANT)
+      const flippedId = settled.created.find((c) => c.type === 'SENIOR_INCOME')!.id
+
+      // The flip reuses the SAME row id (task-settle-in-place) — its OWN
+      // payoutRequestId is confirmed reset (this is the pre-existing,
+      // deliberate behaviour this fix does NOT touch — see AC1/AC2 of the
+      // task, and pending-settlement.spec.ts's own assertion on it).
+      const flippedRow = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, flippedId),
+      })
+      expect(flippedRow!.payoutRequestId).toBeNull()
+
+      // THE FIX: findPayoutRequest still resolves the obligation via
+      // pending_obligations.payoutRequestId (a separate column, never reset)
+      // — the payout's detail read no longer looks like it produced zero
+      // obligations. Without this fix, `recovered` is `undefined` here.
+      const afterSettle = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
+      const recovered = afterSettle.transactions.find((t) => t.id === flippedId)
+      expect(recovered).toBeTruthy()
+      expect(recovered!.type).toBe('SENIOR_INCOME')
+      expect(recovered!.status).toBe('PAID')
+      expect(parseFloat(recovered!.amount)).toBeCloseTo((I * SENIOR_SHARE) / 100, 6)
+
+      // No duplicate entries (merge is dedup-by-id).
+      const matchingIds = afterSettle.transactions.filter((t) => t.id === flippedId)
+      expect(matchingIds).toHaveLength(1)
+    })
+
+    // ── security-review on #590 (MED-1). The obligation AC4 above recovers
+    // may belong to a DIFFERENT person than the payout's owner: THIS drop
+    // payout books a SEPARATE senior IOU (creditorUserId=SENIOR), which
+    // DROP_A owns the PAYOUT for but never owned the obligation itself.
+    // Before settle, that SENIOR_PENDING_PAYOUT row never passed the
+    // client's isIncomeTransaction filter (wrong type) and was never
+    // rendered to DROP_A — recovering it via findPayoutRequest must not be
+    // the FIRST time DROP_A sees the senior's name + share amount. AC4 only
+    // reads through ACCOUNTANT's eyes, the one viewer who never had a
+    // question here; this test reads through DROP_A's — the viewer the leak
+    // actually affects — and additionally proves DROP_A DOES still see
+    // their OWN settled obligation (the narrowing is per-creditor, not a
+    // blanket hide).
+    it('MED-1 findPayoutRequest does NOT leak the settled SENIOR obligation to the DROP payout owner, but DOES show the DROP their own settled obligation', async () => {
+      const I = 1000
+      const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))
+      const pr = await svc.createPayoutRequest([incomeId], DROP_A)
+      const payable = parseFloat(pr.payableAmount)
+      const HASH = '0x' + '9'.repeat(64)
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        confirmed: true,
+        confirmations: THRESHOLD,
+        amountUsdt: payable,
+      })
+      await svc.payPayoutRequest(pr.id, HASH, DROP_A)
+
+      // Settle BOTH obligations that arose from this one payout.
+      const [seniorObligation] = await pendingObligationsFor(SENIOR.id)
+      const seniorObRow = await dbSvc.db.query.pendingObligations.findFirst({
+        where: eq(pendingObligations.sourceTransactionId, seniorObligation!.sourceTransactionId),
+      })
+      const seniorSettled = await settleSvc.settleByCompany(seniorObRow!.id, ACCOUNTANT)
+      const seniorFlippedId = seniorSettled.created.find((c) => c.type === 'SENIOR_INCOME')!.id
+
+      const [dropObligation] = await pendingObligationsFor(DROP_A.id)
+      const dropObRow = await dbSvc.db.query.pendingObligations.findFirst({
+        where: eq(pendingObligations.sourceTransactionId, dropObligation!.sourceTransactionId),
+      })
+      const dropSettled = await settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_MAKSYM.id,
+        receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed1001',
+      })
+      const dropFlippedId = dropSettled.created.find((c) => c.type === 'PAYOUT_DROP')!.id
+
+      // DROP_A owns this payout (findPayoutRequest's isOwner branch), but is
+      // NOT the creditor of the senior's obligation — must not see it.
+      const asDropOwner = await svc.findPayoutRequest(pr.id, DROP_A)
+      expect(asDropOwner.transactions.find((t) => t.id === seniorFlippedId)).toBeUndefined()
+      // DROP_A IS the creditor of their own obligation — must still see it
+      // (the narrowing is per-creditor, not a blanket hide of recovered rows).
+      expect(asDropOwner.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
+
+      // ACCOUNTANT (privileged) sees both regardless of who the creditor is.
+      const asAccountant = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
+      expect(asAccountant.transactions.find((t) => t.id === seniorFlippedId)).toBeTruthy()
+      expect(asAccountant.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
+    })
+
     // ── INV2b (task-drop-share-pending-parity, AC1-3): drop settle → PAYOUT_DROP,
     // drop's OWN balance moves only after settle; company balance untouched by
     // an ADMIN_PERSONAL-funded drop settle (the money never sat in the pool).

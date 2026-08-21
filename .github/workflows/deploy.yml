@@ -1276,6 +1276,28 @@ jobs:
           # apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql
 
+      # backlog 74/B-1 (fix/settle-payout-link): UNCONDITIONAL — same shape as
+      # the senior/drop income idempotency step directly above and PR #367's
+      # own Step 2c (squash commit 2f6c53e8, `deploy.yml | 73 +` in that ONE
+      # commit) — this migration file lands in THIS SAME PR/branch, so it is
+      # unconditionally present in the checkout by construction, no cross-PR
+      # merge-order race to guard against. `.github/workflows/**` is normally
+      # DevOps's zone (not Coder's) — this edit is a deliberate, coordinator-
+      # sanctioned exception for this one file, the same exception #587
+      # round 1 granted for the step directly above, not an unreviewed
+      # zone-of-write violation.
+      - name: Copy pending_obligations payout-link DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -2592,6 +2614,47 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$SENIOR_DROP_INCOME_IDEMPOTENCY_FILE"
             echo "==> senior/drop income idempotency index DDL applied successfully"
+
+            # ── Step 2ac: pending_obligations.payout_request_id durable payout link (idempotent) ──
+            # backlog 74/B-1 (fix/settle-payout-link): `settleByCompany` flips a cascade-
+            # booked obligation's source IOU row in place and deliberately resets ITS
+            # `transactions.payout_request_id` to NULL on the flip (task-settle-in-place ADR
+            # — avoids bleeding a settled row into `autoCreateForPayout`'s aggregation / the
+            # `findOne` SENIOR_INCOME-by-payoutRequestId enrichment). `pending_obligations`
+            # never stored `payout_request_id` at all, so the only surviving link after
+            # settle was the self-referential `closing_transaction_id` — a payout's detail
+            # read (`findPayoutRequest`) silently dropped a settled obligation from its
+            # transactions list. This migration adds a SEPARATE, never-reset
+            # `payout_request_id` column on `pending_obligations`, stamped once at booking
+            # time (`bookCompanyObligations`), plus a backfill for still-PENDING rows.
+            # Informational only — nothing branches on this column's value the way
+            # `drop_cascade_origin` does, so no fail-safe-default concern.
+            #
+            # UNCONDITIONAL (like Step 2ab/2c above): the migration file lands in the SAME
+            # PR as this wiring, so it is unconditionally present in the checkout by
+            # construction — no cross-PR merge-order race to guard against. Idempotent:
+            # ADD COLUMN IF NOT EXISTS + CREATE INDEX IF NOT EXISTS + a backfill UPDATE that
+            # only ever touches rows still matching `payout_request_id IS NULL`, safe to
+            # re-run on every deploy. `-v ON_ERROR_STOP=1` passed explicitly, same as every
+            # apply step in this job (backlog 141, PR #581's guard verifies this repo-wide).
+            # Source: apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql
+            PENDING_OBLIGATIONS_PAYOUT_LINK_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql"
+
+            if [ ! -f "$PENDING_OBLIGATIONS_PAYOUT_LINK_FILE" ]; then
+              echo "ERROR: DDL file not found at $PENDING_OBLIGATIONS_PAYOUT_LINK_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying pending_obligations payout-link DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$PENDING_OBLIGATIONS_PAYOUT_LINK_FILE"
+            echo "==> pending_obligations payout-link DDL applied successfully"
 
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
             # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS

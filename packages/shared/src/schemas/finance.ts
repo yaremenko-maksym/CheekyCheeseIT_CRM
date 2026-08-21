@@ -1488,6 +1488,11 @@ export const pendingObligationSchema = z.object({
   amount: z.string(), // numeric string from DB to avoid float drift
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
   status: pendingObligationStatusSchema,
+  // task-settle-payout-link-lost (backlog 74/B-1): durable link to the
+  // payout_requests row that caused this obligation — see the column
+  // comment in schema.ts. NULL for obligations booked outside a payout
+  // cascade (declareUsdtProjectIncome).
+  payoutRequestId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })

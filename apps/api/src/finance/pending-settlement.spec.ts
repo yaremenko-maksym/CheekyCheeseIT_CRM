@@ -502,6 +502,22 @@ describe('PendingSettlementService.settleByCompany', () => {
     expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PAID')
   })
 
+  // task-settle-payout-link-lost (backlog 74/B-1, mutation gate). settle
+  // never WRITES pending_obligations.payoutRequestId (it is stamped once at
+  // booking time by bookCompanyObligations, transactions.service.ts) — but
+  // toObligationDto MUST pass whatever it already holds through unchanged.
+  // Uses `??`, not `&&`: a TRUTHY payoutRequestId must survive the mapping,
+  // not collapse to null (kills the `??`→`&&` LogicalOperator mutant on
+  // pending-settlement.service.ts's toObligationDto).
+  it('returned obligation DTO carries a non-null pending_obligations.payoutRequestId through unchanged', async () => {
+    const REQUEST_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const { svc } = makeService({
+      obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ payoutRequestId: REQUEST_ID })]]),
+    })
+    const result = await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    expect(result.obligation.payoutRequestId).toBe(REQUEST_ID)
+  })
+
   it('triggers invoice auto-create on the flipped SENIOR_INCOME row (self id)', async () => {
     const { svc, state } = makeService()
     await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
