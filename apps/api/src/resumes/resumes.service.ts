@@ -839,23 +839,45 @@ export class SeniorResumesService {
           ? err.message
           : 'Не удалось собрать PDF резюме. Попробуйте позже.'
       this.logger.warn(`Resume ${resumeId}: render failed — ${message}`)
-      await this.db.db
-        .update(seniorResumes)
-        .set({
-          pdfRenderStatus: 'FAILED',
-          pdfRenderError: message,
-          pdfRenderStartedAt: null,
-          pdfRenderRunId: null,
-          // Recorded so a repeated request for the SAME input reports the
-          // failure instead of queuing a render that will fail identically.
-          pdfFingerprint: fingerprint,
-        })
-        .where(this.ownedByRenderRun(resumeId, runId))
+      // Recorded so a repeated request for the SAME input reports the
+      // failure instead of queuing a render that will fail identically — a
+      // Typst error is a pure function of the input, so retrying it changes
+      // nothing.
+      await this.failRender(resumeId, runId, message, fingerprint)
       return
     }
 
     const key = `senior-resumes/${row.userId}/pdf/${row.id}-${fingerprint.slice(0, 16)}.pdf`
-    await this.s3.upload(key, pdf, 'application/pdf', 'RESUME')
+    try {
+      await this.s3.upload(key, pdf, 'application/pdf', 'RESUME')
+    } catch (err: unknown) {
+      // bug-44: this used to sit OUTSIDE any try/catch, so a rejected upload
+      // propagated out of `runRender` uncaught and the row stayed RUNNING —
+      // exactly as it had just been claimed — until the stuck-render sweep
+      // reclaimed it two minutes later. The document itself is fine, Typst
+      // already produced it; the bytes simply never reached the bucket.
+      //
+      // Deliberately NOT retried here and NOT persisted anywhere for manual
+      // recovery: a PutObject either lands whole or not at all, so there is
+      // no partial object at `key` to finish or clean up, and the S3 client
+      // already retries transient errors internally before rejecting — a
+      // second attempt in-process would mostly repeat a failure that just
+      // repeated itself. The in-memory `pdf` buffer is simply dropped.
+      //
+      // `pdfFingerprint`/`pdfS3Key` are deliberately left UNTOUCHED (unlike
+      // the render-failure path above): a storage failure says nothing
+      // about the INPUT the way a Typst error does, so the row keeps citing
+      // its last successfully uploaded PDF, if any, rather than being
+      // marked "this content is doomed". Recovery is the same motion as a
+      // render failure — the next explicit save re-renders and re-uploads
+      // from scratch.
+      const message = 'PDF собрался, но не сохранился в хранилище. Попробуйте позже.'
+      this.logger.warn(
+        `Resume ${resumeId}: PDF upload failed — ${err instanceof Error ? err.message : 'unknown'}`,
+      )
+      await this.failRender(resumeId, runId, message)
+      return
+    }
 
     const written = await this.db.db
       .update(seniorResumes)
@@ -908,6 +930,39 @@ export class SeniorResumesService {
       eq(seniorResumes.pdfRenderStatus, 'RUNNING'),
       eq(seniorResumes.pdfRenderRunId, runId),
     )
+  }
+
+  /**
+   * The one place `runRender` writes a terminal FAILURE — shared by BOTH
+   * halves of the pipeline (Typst render, S3 upload) so a storage failure
+   * cannot invent a second way of telling the user "this attempt did not
+   * work" (bug-44 AC2). Scoped by `ownedByRenderRun`, same as the READY
+   * write: a run superseded mid-flight must not stamp failure over a newer
+   * attempt's state.
+   *
+   * `fingerprint` is optional and caller-decided: pass it when the failure is
+   * a pure function of the render INPUT (Typst error — retrying changes
+   * nothing, so recording it stops an identical request from re-queuing);
+   * omit it when the failure says nothing about the input (a storage
+   * hiccup), so the row keeps citing whatever it pointed at before this
+   * attempt instead of being marked "this content is doomed".
+   */
+  private async failRender(
+    resumeId: string,
+    runId: string,
+    message: string,
+    fingerprint?: string,
+  ): Promise<void> {
+    await this.db.db
+      .update(seniorResumes)
+      .set({
+        pdfRenderStatus: 'FAILED',
+        pdfRenderError: message,
+        pdfRenderStartedAt: null,
+        pdfRenderRunId: null,
+        ...(fingerprint === undefined ? {} : { pdfFingerprint: fingerprint }),
+      })
+      .where(this.ownedByRenderRun(resumeId, runId))
   }
 
   /**
