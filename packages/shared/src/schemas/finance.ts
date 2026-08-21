@@ -2330,3 +2330,72 @@ export const createDividendSchema = z
   .superRefine(mandatoryReceiptRefine(() => 'USDT'))
 export type CreateDividendDto = z.infer<typeof createDividendSchema>
 export type IncomeComplianceQuery = z.infer<typeof incomeComplianceQuerySchema>
+
+// ---------------------------------------------------------------------------
+// Salary month gap report + backfill — task-salary-month-gap-and-status (E-5)
+// ---------------------------------------------------------------------------
+//
+// `createMonthlySalaries` (the monthly cron) is the ONLY thing that mints
+// PENDING SALARY rows for HR / ACCOUNTANT (unconditionally, if `monthlySalary`
+// is set) and JUNIOR (via an active project membership, project override ??
+// user default). It always targets "the previous calendar month, right now" —
+// there was no way to see a month it silently missed (cron didn't fire, died
+// mid-run, or ran before someone's `monthlySalary` was configured) until this
+// report existed. See the E-5 module comment on
+// `TransactionsService.resolveExpectedSalaryReceivers` for why the report's
+// population is drawn from the EXACT SAME query the cron uses (not a
+// hand-duplicated one) — that is what makes "missing" here mean the same
+// thing "missing" means to the cron, not a second, possibly-drifted opinion.
+//
+// Deliberately OUT of scope: SENIOR / DROP salaries. `SALARY_ELIGIBLE_ROLES`
+// (users.ts) also allows those two roles to receive a MANUALLY created salary
+// (`createSalary`), but the cron never auto-creates one for them — so a
+// SENIOR/DROP with `monthlySalary` set and no row this month is not a
+// cron-gap (nothing failed to run); it would show as a permanent, unfixable
+// "gap" that this report's own backfill could never close. That is a
+// different, legitimate question ("should the cron cover these roles too?")
+// this task does not decide.
+export const salaryMonthGapQuerySchema = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM')
+    .optional(),
+})
+export type SalaryMonthGapQuery = z.infer<typeof salaryMonthGapQuerySchema>
+
+// One person the cron SHOULD have accrued a SALARY for this month but did
+// not. `expectedAmount` mirrors the cron's own resolution (project override
+// ?? user default for JUNIOR; `monthlySalary` for HR/ACCOUNTANT) — always USD
+// (the cron never writes any other currency for these rows). `projectId` /
+// `projectName` are set for JUNIOR only (the accrual is per active
+// membership); null for HR/ACCOUNTANT.
+export const salaryMonthGapReceiverSchema = z.object({
+  userId: z.string().uuid(),
+  displayName: z.string(),
+  role: z.enum(['HR', 'ACCOUNTANT', 'JUNIOR']),
+  expectedAmount: z.number(),
+  projectId: z.string().uuid().nullable(),
+  projectName: z.string().nullable(),
+})
+export type SalaryMonthGapReceiverDto = z.infer<typeof salaryMonthGapReceiverSchema>
+
+// GET /api/finance/salary-month-gap?month=YYYY-MM — ADMIN + ACCOUNTANT only.
+// `month` resolved server-side (explicit ?month, else current UTC month) —
+// mirrors `incomeComplianceOverviewSchema.month`.
+export const salaryMonthGapReportSchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/, "Expected 'YYYY-MM' format"),
+  missing: z.array(salaryMonthGapReceiverSchema),
+})
+export type SalaryMonthGapReportDto = z.infer<typeof salaryMonthGapReportSchema>
+
+// POST /api/finance/salary-month-backfill — ADMIN only. `month` is REQUIRED
+// (unlike the report's optional query) — a backfill must never silently
+// default to "whatever month it happens to be run in"; the caller states
+// which month's gap they are closing. Idempotent: the handler re-invokes the
+// SAME `createMonthlySalaries(month)` the cron itself calls (unique index +
+// `ON CONFLICT DO NOTHING`), so running it twice — or running it for a month
+// the cron already fully covered — creates nothing extra.
+export const salaryMonthBackfillSchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM'),
+})
+export type SalaryMonthBackfillDto = z.infer<typeof salaryMonthBackfillSchema>

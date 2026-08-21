@@ -98,24 +98,44 @@ export type MoveInterviewDto = z.infer<typeof moveInterviewSchema>
 //                     Uses the same team-scope logic as openInterviews.
 export const salaryStatusSchema = z.enum(['PENDING', 'PAID', 'LOCKED'])
 
-// Single source of truth for the «my salary status» payload, shared by BOTH the
-// HR summary (interviews/hr-summary) and the SENIOR summary (finance/senior-
-// summary) — they surface the SAME current-month SALARY row of the caller.
+// Single source of truth for the «my salary status» payload. Currently
+// surfaced ONLY by the SENIOR summary (finance/senior-summary) — the HR
+// summary field of the same name was removed (see hr-summary.integration.spec
+// «schema has no mySalaryStatus field»). Kept here (not inlined in finance.ts)
+// so a future re-add for HR reuses the identical shape instead of drifting.
 //
-// `currency` (task-senior-dashboard-enhance): the salary row carries its own
-// transaction currency (USDT / USD / EUR / UAH). The previous DTO omitted it,
-// so the dashboards hard-coded a `$` and showed e.g. a 50 000 UAH salary as
-// $50 000. Surfacing the real currency lets the client format the amount in its
-// OWN currency with NO conversion (50 000,00 UAH). Defined here (next to
-// `salaryStatusSchema`) so both summary schemas reuse the identical shape and
-// can never drift apart.
-export const mySalaryStatusSchema = z
-  .object({
+// task-salary-month-gap-and-status (E-6): a bare `.nullable()` collapsed TWO
+// different truths into the same wire value — "this role never gets a salary"
+// (no `monthlySalary` configured) and "a salary IS configured but this
+// month's row has not been created yet" (cron gap, see E-5) both read back as
+// `null`. A person investigating "why is this null" on a live incident could
+// not tell the two apart from the API response alone (see
+// project_salary_cron_prod_config_gap memory — the exact same ambiguity, one
+// level up, cost a live investigation). Replaced with an explicit
+// discriminated union so the three states are distinguishable BY SHAPE, not
+// by re-deriving them from other endpoints:
+//   - NOT_CONFIGURED     — `users.monthlySalary` is not set for this person;
+//                          no SALARY row will ever be created for them by the
+//                          monthly cron.
+//   - AWAITING_CREATION  — `monthlySalary` IS set, but no SALARY row exists
+//                          yet for the requested month (cron has not run yet
+//                          this month, or the month was missed — see E-5's
+//                          gap report for making that visible company-wide).
+//   - EXISTS             — the row exists; same fields as before (`currency`,
+//                          task-senior-dashboard-enhance: the salary row
+//                          carries its own transaction currency (USDT / USD /
+//                          EUR / UAH) so the client formats the amount in its
+//                          OWN currency, no hard-coded `$`).
+export const mySalaryStatusSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('NOT_CONFIGURED') }),
+  z.object({ state: z.literal('AWAITING_CREATION') }),
+  z.object({
+    state: z.literal('EXISTS'),
     amount: z.number(),
     currency: currencySchema,
     status: salaryStatusSchema,
-  })
-  .nullable()
+  }),
+])
 
 export const hrSummarySchema = z.object({
   openInterviews: z.number().int().nonnegative(),
