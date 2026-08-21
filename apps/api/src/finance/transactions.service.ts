@@ -29,6 +29,8 @@ import type {
   ManualPayoutMethod,
   CurrencyEnum,
   TransactionAuditLogEntryDto,
+  SalaryMonthGapReportDto,
+  SalaryMonthGapReceiverDto,
 } from '@crm/shared'
 import { SALARY_ELIGIBLE_ROLES, COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -43,6 +45,7 @@ import {
   transactions,
   transactionAuditLog,
   users,
+  nonDeletedTransactions,
   type Transaction,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -5869,7 +5872,16 @@ export class TransactionsService {
     }, 0)
 
     // ── 4. Own current-month salary status (same shape as HR dashboard) ────────
-    const mySalaryStatus = await getOwnSalaryStatus(this.db.db, selfId, salaryMonth)
+    // task-salary-month-gap-and-status (E-6): `hasSalaryConfigured` mirrors the
+    // cron's own `if (!emp.monthlySalary) continue` truthiness check, so
+    // AWAITING_CREATION vs NOT_CONFIGURED agrees with whether the cron would
+    // ever accrue this person a row — not a second, possibly-drifted opinion.
+    const mySalaryStatus = await getOwnSalaryStatus(
+      this.db.db,
+      selfId,
+      salaryMonth,
+      Boolean(selfUser?.monthlySalary),
+    )
 
     return {
       activeProjects: {
@@ -6827,29 +6839,151 @@ export class TransactionsService {
 
   // ── Cron helpers ──────────────────────────────────────────────────────────
 
-  async createMonthlySalaries(month: string) {
-    // Create PENDING salary for HR and ACCOUNTANT
-    //
-    // task-finance-fix-wave1 (E-1): the `archivedAt` term is NOT decoration —
-    // without it a DISMISSED employee kept being paid. `UsersService.archive`
-    // does exactly one thing for these two roles beyond stamping `archivedAt`:
-    // it sets `leftAt` on their `team_members` rows. It does NOT zero
-    // `monthlySalary` and does NOT change the role — so a role-only SELECT went
-    // on matching them forever, the `if (!emp.monthlySalary) continue` guard
-    // below waved them through, and the partial unique index only dedupes
-    // WITHIN one month, so every following month produced a fresh PENDING
-    // salary. Those rows are not hidden anywhere in the UI either: paying one
-    // was an ordinary ADMIN click on the finance page.
-    //
-    // The filter belongs in the QUERY, not in the loop: the loop's only guard
-    // is about a MISSING salary figure, and a reader adding the next condition
-    // there would have no reason to suspect archival is handled elsewhere.
-    // (The JUNIOR loop further down needs no equivalent term — it selects
-    // through `projectMembers` with `isNull(projectMembers.leftAt)`, and
-    // archiving a junior sets that `leftAt`. See the comment there.)
+  // task-salary-month-gap-and-status (E-5): the two resolvers below are the
+  // ONLY definition of "who does the monthly cron accrue a SALARY to, and how
+  // much". Extracted (2026-08) out of `createMonthlySalaries` itself so the
+  // gap report / backfill (`resolveSalaryMonthGap`, further down) share the
+  // EXACT SAME query — not a hand-duplicated read that could silently drift
+  // from what the cron actually does. Read-only; the insert + idempotency
+  // (unique index + ON CONFLICT DO NOTHING) stays in `createMonthlySalaries`,
+  // the only writer.
+
+  /**
+   * HR / ACCOUNTANT eligible for this month's salary — unconditional on
+   * `monthlySalary` being set, same as the cron always was.
+   *
+   * task-finance-fix-wave1 (E-1): the `archivedAt` term is NOT decoration —
+   * without it a DISMISSED employee kept being paid. `UsersService.archive`
+   * does exactly one thing for these two roles beyond stamping `archivedAt`:
+   * it sets `leftAt` on their `team_members` rows. It does NOT zero
+   * `monthlySalary` and does NOT change the role — so a role-only SELECT went
+   * on matching them forever, the `if (!emp.monthlySalary) continue` guard
+   * below waved them through, and the partial unique index only dedupes
+   * WITHIN one month, so every following month produced a fresh PENDING
+   * salary. Those rows are not hidden anywhere in the UI either: paying one
+   * was an ordinary ADMIN click on the finance page.
+   *
+   * The filter belongs in the QUERY, not in the loop below: the loop's only
+   * guard is about a MISSING salary figure, and a reader adding the next
+   * condition there would have no reason to suspect archival is handled
+   * elsewhere. (The JUNIOR resolver needs no equivalent QUERY term — it
+   * selects through `projectMembers` with `isNull(projectMembers.leftAt)`,
+   * and archiving a junior sets that `leftAt`. See that resolver's comment.)
+   */
+  private async resolveHrAccountantSalaryReceivers(): Promise<
+    Array<{ id: string; email: string; role: 'HR' | 'ACCOUNTANT'; monthlySalary: string }>
+  > {
     const employees = await this.db.db.query.users.findMany({
       where: and(or(eq(users.role, 'HR'), eq(users.role, 'ACCOUNTANT')), isNull(users.archivedAt)),
     })
+
+    const receivers: Array<{
+      id: string
+      email: string
+      role: 'HR' | 'ACCOUNTANT'
+      monthlySalary: string
+    }> = []
+    for (const emp of employees) {
+      if (!emp.monthlySalary) continue
+      receivers.push({
+        id: emp.id,
+        email: emp.email,
+        role: emp.role as 'HR' | 'ACCOUNTANT',
+        monthlySalary: emp.monthlySalary,
+      })
+    }
+    return receivers
+  }
+
+  /**
+   * JUNIORs on an active project membership — salary = project override ??
+   * user default.
+   *
+   * task-salary-company-account: the LOCKED-until-validated-income mechanic is
+   * GONE — juniors always get a PENDING salary regardless of whether the
+   * project's senior/drop income has been validated yet. (The
+   * unlockJuniorSalaryForProject method + its callers were removed.)
+   *
+   * task-finance-fix-wave1 (E-1), round-2 correction (MED-1). The first
+   * version of this fix left the JUNIOR branch alone, reasoning that
+   * archiving a junior sets `leftAt` on their memberships and
+   * `isNull(projectMembers.leftAt)` below therefore excludes them. A reviewer
+   * showed that holds only AT THE MOMENT of archiving: `ProjectsService`
+   * re-opens a membership (`leftAt = null`) when someone is added to a
+   * project, without consulting `archivedAt` — so an archived junior can be
+   * re-attached and start collecting monthly salaries again. `leftAt` tracks
+   * PROJECT membership; `archivedAt` tracks EMPLOYMENT. They are not
+   * interchangeable, and the salary decision belongs to the second one.
+   *
+   * The archival term sits in the LOOP here, not in the query as it does for
+   * HR/ACCOUNTANT, for a mechanical reason: this query selects
+   * `project_members` and reaches the person through a `with: { user }`
+   * relation, and Drizzle's relational API cannot filter parent rows by a
+   * related table's column. The loop below is already where every USER-level
+   * condition is applied (`user.role !== 'JUNIOR'`), so the check is next to
+   * its siblings rather than in a place a reader would not look.
+   *
+   * Not fixed here (deliberately, different zone + PR #541, since merged): the
+   * re-attach itself in `ProjectsService.addMember`. Tracked separately.
+   */
+  private async resolveJuniorSalaryReceivers(): Promise<
+    Array<{
+      id: string
+      email: string
+      monthlySalary: string
+      projectId: string
+      projectName: string
+    }>
+  > {
+    const activeMembers = await this.db.db.query.projectMembers.findMany({
+      where: isNull(projectMembers.leftAt),
+      with: {
+        user: true,
+        project: { with: { financeSettings: true } },
+      },
+    })
+
+    const receivers: Array<{
+      id: string
+      email: string
+      monthlySalary: string
+      projectId: string
+      projectName: string
+    }> = []
+    for (const member of activeMembers) {
+      const user = (member as typeof member & { user: typeof users.$inferSelect | null }).user
+      const project = (
+        member as typeof member & {
+          project:
+            | (typeof projects.$inferSelect & {
+                financeSettings: typeof projectFinanceSettings.$inferSelect | null
+              })
+            | null
+        }
+      ).project
+
+      // `user.archivedAt` — see the method comment: a dismissed junior whose
+      // membership was re-opened must not be accrued a new salary.
+      if (!user || user.role !== 'JUNIOR' || user.archivedAt || !project) continue
+
+      // Resolve salary: project override → user default
+      const salaryAmount = project.financeSettings?.juniorSalaryOverride ?? user.monthlySalary
+      if (!salaryAmount) continue
+
+      receivers.push({
+        id: user.id,
+        email: user.email,
+        monthlySalary: String(salaryAmount),
+        projectId: project.id,
+        projectName: project.name,
+      })
+    }
+    return receivers
+  }
+
+  async createMonthlySalaries(month: string) {
+    // Create PENDING salary for HR and ACCOUNTANT
+    const hrAccountantReceivers = await this.resolveHrAccountantSalaryReceivers()
 
     // Find the admin who creates the rows. Used ONLY as `createdBy` for audit —
     // the cron creates neutral PENDING reminders, no money moves until an ADMIN
@@ -6871,9 +7005,7 @@ export class TransactionsService {
     }
 
     const hrAccountantFailures: string[] = []
-    for (const emp of employees) {
-      if (!emp.monthlySalary) continue
-
+    for (const emp of hrAccountantReceivers) {
       // task-salary-pay-flow: monthly salaries are NEUTRAL PENDING reminders —
       // no funding source, no currency lock, no balance impact at creation. The
       // funding source (company account vs admin personal) and the actual
@@ -6930,61 +7062,10 @@ export class TransactionsService {
     }
 
     // Create PENDING salary for JUNIORs on active projects.
-    // task-salary-company-account: the LOCKED-until-validated-income mechanic is
-    // GONE — juniors always get a PENDING salary regardless of whether the
-    // project's senior/drop income has been validated yet. (The
-    // unlockJuniorSalaryForProject method + its callers were removed.)
-    //
-    // task-finance-fix-wave1 (E-1), round-2 correction (MED-1). The first
-    // version of this fix left the JUNIOR branch alone, reasoning that
-    // archiving a junior sets `leftAt` on their memberships and
-    // `isNull(projectMembers.leftAt)` below therefore excludes them. A reviewer
-    // showed that holds only AT THE MOMENT of archiving: `ProjectsService`
-    // re-opens a membership (`leftAt = null`) when someone is added to a
-    // project, without consulting `archivedAt` — so an archived junior can be
-    // re-attached and start collecting monthly salaries again. `leftAt` tracks
-    // PROJECT membership; `archivedAt` tracks EMPLOYMENT. They are not
-    // interchangeable, and the salary decision belongs to the second one.
-    //
-    // The archival term sits in the LOOP here, not in the query as it does for
-    // HR/ACCOUNTANT, for a mechanical reason: this query selects
-    // `project_members` and reaches the person through a `with: { user }`
-    // relation, and Drizzle's relational API cannot filter parent rows by a
-    // related table's column. The loop below is already where every USER-level
-    // condition is applied (`user.role !== 'JUNIOR'`), so the check is next to
-    // its siblings rather than in a place a reader would not look.
-    //
-    // Not fixed here (deliberately, different zone + PR #541 in flight): the
-    // re-attach itself in `ProjectsService.addMember`. Tracked separately.
-    const activeMembers = await this.db.db.query.projectMembers.findMany({
-      where: isNull(projectMembers.leftAt),
-      with: {
-        user: true,
-        project: { with: { financeSettings: true } },
-      },
-    })
+    const juniorReceivers = await this.resolveJuniorSalaryReceivers()
 
     const juniorFailures: string[] = []
-    for (const member of activeMembers) {
-      const user = (member as typeof member & { user: typeof users.$inferSelect | null }).user
-      const project = (
-        member as typeof member & {
-          project:
-            | (typeof projects.$inferSelect & {
-                financeSettings: typeof projectFinanceSettings.$inferSelect | null
-              })
-            | null
-        }
-      ).project
-
-      // `user.archivedAt` — see the block above the query: a dismissed junior
-      // whose membership was re-opened must not be accrued a new salary.
-      if (!user || user.role !== 'JUNIOR' || user.archivedAt || !project) continue
-
-      // Resolve salary: project override → user default
-      const salaryAmount = project.financeSettings?.juniorSalaryOverride ?? user.monthlySalary
-      if (!salaryAmount) continue
-
+    for (const jr of juniorReceivers) {
       // Audit 2026-06-27 (LOW #5): idempotent, race-free salary creation — see the
       // HR/ACCOUNTANT loop above. ON CONFLICT DO NOTHING against the partial
       // unique index replaces the find-then-insert TOCTOU + N+1 read.
@@ -6996,12 +7077,12 @@ export class TransactionsService {
           .values({
             type: 'SALARY',
             status: 'PENDING',
-            amount: String(salaryAmount),
+            amount: jr.monthlySalary,
             currency: 'USD',
             senderId: null,
             senderLabel: 'CheekyCheeseIT',
-            receiverId: user.id,
-            projectId: project.id,
+            receiverId: jr.id,
+            projectId: jr.projectId,
             salaryMonth: month,
             fundingSource: null,
             createdBy: admin.id,
@@ -7016,10 +7097,10 @@ export class TransactionsService {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         this.logger.error(
-          `createMonthlySalaries: failed for junior ${user.id} (${user.email}) project=${project.id} month=${month} — ${msg}`,
+          `createMonthlySalaries: failed for junior ${jr.id} (${jr.email}) project=${jr.projectId} month=${month} — ${msg}`,
           err instanceof Error ? err.stack : undefined,
         )
-        juniorFailures.push(user.id)
+        juniorFailures.push(jr.id)
       }
     }
     if (juniorFailures.length > 0) {
@@ -7027,6 +7108,102 @@ export class TransactionsService {
         `createMonthlySalaries: ${juniorFailures.length} JUNIOR salary(ies) failed for month=${month}. Failed employee ids: ${juniorFailures.join(', ')}`,
       )
     }
+  }
+
+  /**
+   * task-salary-month-gap-and-status (E-5) — «who was the cron supposed to
+   * accrue this month, and didn't». Pure read: resolves the SAME two
+   * populations `createMonthlySalaries` targets (see the resolvers above),
+   * then subtracts whoever already has a non-deleted SALARY row for `month`.
+   * No RBAC here — both public callers below gate first, this is shared,
+   * unauthenticated-by-itself plumbing.
+   */
+  private async resolveSalaryMonthGap(month: string): Promise<SalaryMonthGapReportDto> {
+    const [hrAccountant, juniors] = await Promise.all([
+      this.resolveHrAccountantSalaryReceivers(),
+      this.resolveJuniorSalaryReceivers(),
+    ])
+
+    const expected: SalaryMonthGapReceiverDto[] = [
+      ...hrAccountant.map((r) => ({
+        userId: r.id,
+        displayName: r.email,
+        role: r.role,
+        expectedAmount: Number(r.monthlySalary),
+        projectId: null,
+        projectName: null,
+      })),
+      ...juniors.map((r) => ({
+        userId: r.id,
+        displayName: r.email,
+        role: 'JUNIOR' as const,
+        expectedAmount: Number(r.monthlySalary),
+        projectId: r.projectId,
+        projectName: r.projectName,
+      })),
+    ]
+
+    if (expected.length === 0) return { month, missing: [] }
+
+    // security-review convention (schema.ts nonDeletedTransactions doc): reads
+    // that must never see a soft-deleted row go through the VIEW, not a
+    // hand-written `isNull(deletedAt)` on the raw table.
+    const receiverIds = expected.map((r) => r.userId)
+    const existingRows = await this.db.db
+      .select({ receiverId: nonDeletedTransactions.receiverId })
+      .from(nonDeletedTransactions)
+      .where(
+        and(
+          eq(nonDeletedTransactions.type, 'SALARY'),
+          eq(nonDeletedTransactions.salaryMonth, month),
+          inArray(nonDeletedTransactions.receiverId, receiverIds),
+        ),
+      )
+    const existingReceiverIds = new Set(existingRows.map((r) => r.receiverId))
+
+    return {
+      month,
+      missing: expected.filter((r) => !existingReceiverIds.has(r.userId)),
+    }
+  }
+
+  /** GET /api/finance/salary-month-gap — ADMIN + ACCOUNTANT only. */
+  async getSalaryMonthGapReport(
+    currentUser: SessionUser,
+    month?: string,
+  ): Promise<SalaryMonthGapReportDto> {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException(
+        'Access denied: salary month gap report requires ADMIN or ACCOUNTANT role',
+      )
+    }
+    // Default to the current UTC month, same convention as
+    // getIncomeComplianceOverview / getSeniorSummary.
+    const now = new Date()
+    const targetMonth =
+      month ?? `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+    return this.resolveSalaryMonthGap(targetMonth)
+  }
+
+  /**
+   * POST /api/finance/salary-month-backfill — ADMIN only. Dozapolnenie: closes
+   * this month's gap for whoever `resolveSalaryMonthGap` (== the cron's own
+   * eligibility) says is missing, by re-invoking `createMonthlySalaries` for
+   * the EXACT SAME month — no separate insert logic, so the idempotency
+   * guarantee (unique index + ON CONFLICT DO NOTHING) is inherited verbatim,
+   * not re-implemented. Returns the POST-backfill gap so the caller sees
+   * immediately whether anything is still missing (e.g. a per-employee DB
+   * error the cron's own try/catch already logged).
+   */
+  async backfillSalaryMonth(
+    currentUser: SessionUser,
+    month: string,
+  ): Promise<SalaryMonthGapReportDto> {
+    if (currentUser.role !== 'ADMIN') {
+      throw new ForbiddenException('Access denied: salary month backfill requires ADMIN role')
+    }
+    await this.createMonthlySalaries(month)
+    return this.resolveSalaryMonthGap(month)
   }
 
   // ── Access guard ──────────────────────────────────────────────────────────

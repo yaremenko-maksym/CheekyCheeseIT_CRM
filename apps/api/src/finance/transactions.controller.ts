@@ -34,6 +34,8 @@ import {
   payPayoutRequestSchema,
   paySalarySchema,
   restoreTransactionSchema,
+  salaryMonthGapQuerySchema,
+  salaryMonthBackfillSchema,
   updateProjectFinanceSettingsSchema,
   updateDropIncomeSchema,
   updateSeniorIncomeSchema,
@@ -521,6 +523,34 @@ export class FinanceSummaryController {
   getIncomeCompliance(@CurrentUser() user: SessionUser, @Query() query: unknown) {
     const { month } = incomeComplianceQuerySchema.parse(query ?? {})
     return this.svc.getIncomeComplianceOverview(user, month)
+  }
+
+  // task-salary-month-gap-and-status (E-5). Company-wide visibility into who
+  // the monthly SALARY cron was SUPPOSED to accrue for `month` and didn't
+  // (HR/ACCOUNTANT with `monthlySalary` set, JUNIOR on an active project) —
+  // making a missed/failed cron run OBSERVABLE instead of silently losing a
+  // month. GET /api/finance/salary-month-gap?month=YYYY-MM — ADMIN + ACCOUNTANT
+  // ONLY (same gate as income-compliance: company-wide aggregate, not
+  // self-scoped). `month` defaults to the current UTC month when omitted.
+  @Get('salary-month-gap')
+  @Roles('ADMIN', 'ACCOUNTANT')
+  getSalaryMonthGap(@CurrentUser() user: SessionUser, @Query() query: unknown) {
+    const { month } = salaryMonthGapQuerySchema.parse(query ?? {})
+    return this.svc.getSalaryMonthGapReport(user, month)
+  }
+
+  // task-salary-month-gap-and-status (E-5/AC4). Explicit «дозаполнить месяц X»
+  // — re-runs the SAME idempotent `createMonthlySalaries` the cron calls, for
+  // an explicit past (or any) month, then reports what (if anything) is still
+  // missing. ADMIN ONLY, deliberately narrower than the read-only gap report
+  // above (ACCOUNTANT can SEE the gap; only ADMIN closes it) — same
+  // requirement `paySalary` in this controller already enforces for the
+  // adjacent "move money on a SALARY row" action.
+  @Post('salary-month-backfill')
+  @Roles('ADMIN')
+  backfillSalaryMonth(@CurrentUser() user: SessionUser, @Body() body: unknown) {
+    const { month } = salaryMonthBackfillSchema.parse(body)
+    return this.svc.backfillSalaryMonth(user, month)
   }
 
   // SENIOR dashboard (task-senior-dashboard). Self-scoped KPI snapshot for the
