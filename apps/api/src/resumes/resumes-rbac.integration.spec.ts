@@ -1216,6 +1216,56 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       /**
+       * bug-44 (AC4) — a storage failure AFTER a successful render must not
+       * leave the row RUNNING.
+       *
+       * Before the fix, `s3.upload` sat outside the try/catch that guards the
+       * Typst render, so a rejected upload propagated out of `runRender`
+       * uncaught: the row stayed exactly as `runRender` had just claimed it
+       * (RUNNING, `pdfRenderStartedAt` still null because the fire-and-forget
+       * `markRenderStarted` call may not have landed yet) until the stuck-render
+       * sweep re-queued it two minutes later. The user watched a spinner with
+       * no error for up to that long.
+       */
+      it('an upload failure after a successful render fails the row instead of leaving it RUNNING', async () => {
+        // Self-contained fixture (not relying on an earlier test in this
+        // describe block having already created SENIOR_A's row) — same
+        // get-or-create the service itself uses.
+        await dbSvc.db
+          .insert(seniorResumes)
+          .values({ userId: SENIOR_A.id, content: EMPTY_RESUME_CONTENT })
+          .onConflictDoNothing({ target: seniorResumes.userId })
+        const [row] = await dbSvc.db
+          .select()
+          .from(seniorResumes)
+          .where(eq(seniorResumes.userId, SENIOR_A.id))
+        const resumeId = row?.id
+        if (!resumeId) throw new Error('fixture missing')
+
+        await dbSvc.db
+          .update(seniorResumes)
+          .set({ pdfRenderStatus: 'QUEUED', pdfRenderRunId: null })
+          .where(eq(seniorResumes.id, resumeId))
+
+        s3.upload.mockRejectedValueOnce(new Error('storage unreachable'))
+
+        await service.runRender(resumeId, 'Синьор А')
+
+        const [after] = await dbSvc.db
+          .select()
+          .from(seniorResumes)
+          .where(eq(seniorResumes.id, resumeId))
+
+        // The whole point of the bug: this must NOT be RUNNING.
+        expect(after?.pdfRenderStatus).not.toBe('RUNNING')
+        expect(after?.pdfRenderStatus).toBe('FAILED')
+        // A human-readable reason, same field the render-failure path fills.
+        expect(after?.pdfRenderError).toBeTruthy()
+        // The claim is released — nothing keeps pointing at a dead run.
+        expect(after?.pdfRenderRunId).toBeNull()
+      })
+
+      /**
        * The stuck-render sweep, and the trap in enabling it.
        *
        * `sweepStuckRenders` existed but was called from nowhere, so a render
