@@ -17,6 +17,7 @@ import type { SessionUser } from '@crm/shared'
 import {
   adminUpdateTransactionSchema,
   attachReceiptSchema,
+  cascadeEditPreviewQuerySchema,
   confirmPayoutSchema,
   createAdminIncomeSchema,
   createAdminTransferSchema,
@@ -241,6 +242,23 @@ export class TransactionsController {
   @Roles('ADMIN')
   adminEdit(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.adminUpdateTransaction(id, adminUpdateTransactionSchema.parse(body), user)
+  }
+
+  // task-cascade-resolver-preview (task 2 of the paid-transaction-edit-cascade
+  // decomposition). Read-only preview of what editing `amount` on this row
+  // would cascade to — same RBAC as `adminEdit` above (ADMIN only), writes
+  // nothing. `:id/edit-preview` never collides with `:id` (line 99): a
+  // Nest/Express `:id` route segment matches exactly one path component, so
+  // it never matches a two-segment path regardless of declaration order.
+  @Get(':id/edit-preview')
+  @Roles('ADMIN')
+  getEditCascadePreview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { amount } = cascadeEditPreviewQuerySchema.parse(query)
+    return this.svc.getEditCascadePreview(id, amount, user)
   }
 
   // task-receipts-backend (pm-brief §6): generic attach/replace of a receipt on
