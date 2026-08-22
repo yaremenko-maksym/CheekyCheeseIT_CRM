@@ -780,6 +780,80 @@ export const transactions = pgTable(
     // team level for the drop). Nullable for legacy / non-drop rows.
     dropSharePercentSource: varchar('drop_share_percent_source', { length: 16 }),
     /**
+     * task-settled-amount-snapshot (Task 1 of the paid-transaction-edit-cascade
+     * decomposition — docs/architecture/2026-08-22-paid-transaction-edit-cascade.md,
+     * AC3 "Где хранится «сколько уже выплачено»"). Three columns, written together
+     * by `PendingSettlementService.settleByCompany` at the SAME PENDING_PAYMENT →
+     * PAID flip that nulls `seniorSharePercent`/`dropSharePercent` above.
+     *
+     * WHY THIS EXISTS. Once an edit to the source income can return an already-
+     * PAID derivative to PENDING for re-confirmation (a LATER task in this same
+     * decomposition), the UI needs "how much of this obligation is already
+     * paid" — and today there is nowhere to read that number from:
+     *   - `seniorSharePercent`/`dropSharePercent` are DELIBERATELY nulled on
+     *     every settle (see the CRITICAL comment above) — the one place that
+     *     would need the percent to recompute a share has it erased.
+     *   - `transaction_audit_log`'s `PAY` entry is best-effort, written AFTER
+     *     the settle transaction commits, and its own failure is only logged
+     *     (see `settleByCompany`'s fire-and-forget audit insert) — a log that
+     *     can silently miss a real payment is not a source for money.
+     *   - `pending_obligations` stores the OBLIGATION amount, never "how much
+     *     of it has been closed" — closure is modelled wholesale via `status`
+     *     + `closingTransactionId`; there is no partial-payment concept there.
+     *
+     *   settled_amount        — MONOTONIC accumulator: the sum of every actual
+     *                            payout this ROW has ever settled. Increments on
+     *                            every settle, NEVER decreases, NEVER gets
+     *                            overwritten. "К доплате" (amount still owed) is
+     *                            deliberately NOT stored — it is the derived
+     *                            `amount − settled_amount`, computed by a reader.
+     *                            Storing the difference instead would go stale
+     *                            the instant `amount` is edited again, which is
+     *                            exactly the problem this column exists to avoid
+     *                            — the SAME "store the immutable member, derive
+     *                            the mutable one" contract `originalAmount`/
+     *                            `exchangeRate` above already use on this row.
+     *   settled_currency       — the currency of the settle(s) accumulated into
+     *                            `settled_amount`. A SEPARATE column, not an
+     *                            assumption that it always matches the
+     *                            obligation's own USDT currency: a DROP
+     *                            obligation can be settled in a different
+     *                            currency — `settleByCompany` writes `amount` =
+     *                            the FACT in the payment currency (see the
+     *                            DROP-only amount-conversion block below). One
+     *                            number with no currency label would already be
+     *                            a wrong answer.
+     *   settled_share_percent  — a snapshot of whichever of
+     *                            `seniorSharePercent`/`dropSharePercent` was on
+     *                            this row immediately BEFORE this settle nulled
+     *                            it — written to its OWN column instead of
+     *                            being lost, so a future cascade can recompute
+     *                            a share after the row returns to PENDING.
+     *                            Overwritten fresh on every settle (unlike
+     *                            `settled_amount`, this one is NOT accumulated
+     *                            — only the most recent percent is meaningful).
+     *
+     * There is no READER of these three columns yet — the cascade that returns
+     * a derivative to PENDING and needs "already paid" to show a diff is a
+     * LATER task in the same decomposition (2-3). This task is pure
+     * infrastructure: write only, and that is by design (see the task file).
+     *
+     * NULLABLE, NO DEFAULT, NO BACKFILL — same contract as `originalAmount`/
+     * `sourceIncomeTransactionId` above: `NULL` reads as "this row never went
+     * through the settle-snapshot mechanism", which is the literal truth for
+     * every row created before this column existed AND every row that has
+     * never been settled at all.
+     *
+     * ADD COLUMN DDL (prod is applied via deploy.yml — there is no SSH; see
+     * apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql):
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS settled_amount numeric(18,6);
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS settled_currency currency;
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS settled_share_percent integer;
+     */
+    settledAmount: numeric('settled_amount', { precision: 18, scale: 6 }),
+    settledCurrency: currencyEnum('settled_currency'),
+    settledSharePercent: integer('settled_share_percent'),
+    /**
      * task-admin-income-drop-backfill (2026-08-12). Links a SENIOR_PENDING_PAYOUT
      * / DROP_PENDING_PAYOUT obligation row back to the ADMIN_INCOME (or other
      * admin-USDT declaration) transaction it was booked FROM, when known.

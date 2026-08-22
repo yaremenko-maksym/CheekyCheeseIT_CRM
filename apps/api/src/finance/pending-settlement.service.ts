@@ -285,13 +285,24 @@ export class PendingSettlementService {
       throw new BadRequestException('Долг уже закрыт или отменён')
     }
 
-    // We only need the source IOU's TYPE (the drop-vs-senior discriminator)
-    // and, since PR #443 (HIGH-1 / MED-B), its `dropCascadeOrigin` marker
-    // (cascade-vs-declaration discriminator — see the guard below). The
+    // We only need the source IOU's TYPE (the drop-vs-senior discriminator),
+    // its `dropCascadeOrigin` marker (cascade-vs-declaration discriminator —
+    // see the guard below, since PR #443 HIGH-1/MED-B), and — task-settled-
+    // amount-snapshot — its CURRENT share-percent snapshot and settled-amount
+    // accumulator. All five are read HERE, before the transaction, for the
+    // SAME reason `sourceType`/`sourceDropCascadeOrigin` already are: this
+    // method's own atomic conditional claim on `pending_obligations` (below)
+    // is what actually serialises concurrent settles of this row, so a
+    // pre-transaction read of values nothing else can write between here and
+    // the flip is exactly as safe as trusting `sourceType` already is. The
     // flipped row keeps its own projectId booked on the IOU — no re-stamp.
-    const { sourceType, sourceDropCascadeOrigin } = await this.resolveSource(
-      obligation.sourceTransactionId,
-    )
+    const {
+      sourceType,
+      sourceDropCascadeOrigin,
+      sourceSeniorSharePercent,
+      sourceDropSharePercent,
+      sourceSettledAmount,
+    } = await this.resolveSource(obligation.sourceTransactionId)
 
     // task-drop-share-override-and-receiver (D5). Branch by the source IOU type:
     //   - DROP_PENDING_PAYOUT → settle by flipping the SOURCE row in place to
@@ -737,6 +748,21 @@ export class PendingSettlementService {
       }
     }
 
+    // task-settled-amount-snapshot (AC4, MONOTONIC accumulator). The FACT
+    // amount THIS settle records — for a DROP settle that IS `paidAmount`
+    // (currency-converted above, guaranteed assigned inside the
+    // `isDropObligation` block reached above without throwing); a SENIOR
+    // settle never touches `amount` at all (see the `.set()` comment below),
+    // so its contribution is the pre-existing obligation amount — the same
+    // value `amount` already holds and will keep holding after this flip.
+    const settledAmountThisSettle = isDropObligation ? paidAmount! : parseFloat(obligation.amount)
+    // Add to the row's PRIOR total (0 for a first-time settle) — never
+    // replace it. A later settle of the SAME row (once the return-to-PENDING
+    // cascade exists) must see this grow, not reset.
+    const settledAmountTotal = (
+      (sourceSettledAmount ? parseFloat(sourceSettledAmount) : 0) + settledAmountThisSettle
+    ).toFixed(6)
+
     const created: Transaction[] = []
     await this.db.db.transaction(async (dbtx) => {
       // SECURITY (TOCTOU, MED — PR #262): the PENDING→PAID transition is the
@@ -910,6 +936,20 @@ export class PendingSettlementService {
           seniorSharePercentSource: null,
           dropSharePercent: null,
           dropSharePercentSource: null,
+          // task-settled-amount-snapshot (AC5 + AC4, architecture doc §AC3
+          // "Где хранится «сколько уже выплачено»"). Snapshot what was JUST
+          // nulled two lines up into its OWN column instead of losing it — a
+          // later cascade needs the percent that was in effect at THIS
+          // settle to recompute a share once the row returns to PENDING.
+          // Written fresh on EVERY settle (not accumulated — only the latest
+          // percent is meaningful, unlike settledAmount right below it).
+          settledSharePercent: isDropObligation ? sourceDropSharePercent : sourceSeniorSharePercent,
+          // MONOTONIC accumulator (computed above, before this transaction) +
+          // the currency it was recorded in. Never decreases, never gets
+          // overwritten with a smaller/unrelated figure — always PRIOR +
+          // this settle's own fact amount.
+          settledAmount: settledAmountTotal,
+          settledCurrency: currency,
           notes: isDropObligation
             ? `Выплата drop IOU (obligation ${obligation.id})`
             : `Выплата senior IOU (obligation ${obligation.id})`,
@@ -1085,11 +1125,31 @@ export class PendingSettlementService {
     // treats that as unknown-origin (BLOCK), same as `true`. Only an
     // explicit `false` means "verified non-cascade, safe".
     sourceDropCascadeOrigin: boolean | null
+    // task-settled-amount-snapshot: the row's CURRENT share-percent snapshot,
+    // read BEFORE settleByCompany nulls it on the flip (see the
+    // `settledSharePercent` write below and the column comment on
+    // `transactions.settledSharePercent` in schema.ts). A row is either a
+    // senior or a drop IOU, never both — exactly one of the two is non-null.
+    sourceSeniorSharePercent: number | null
+    sourceDropSharePercent: number | null
+    // task-settled-amount-snapshot: the row's CURRENT settled_amount, read
+    // pre-transaction so the flip below can INCREMENT it (prior + this
+    // settle's own amount) rather than overwrite it — AC4 in the
+    // architecture doc's "Где хранится «сколько уже выплачено»" section.
+    sourceSettledAmount: string | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
     })
-    if (!source) return { project: null, sourceType: null, sourceDropCascadeOrigin: null }
+    if (!source)
+      return {
+        project: null,
+        sourceType: null,
+        sourceDropCascadeOrigin: null,
+        sourceSeniorSharePercent: null,
+        sourceDropSharePercent: null,
+        sourceSettledAmount: null,
+      }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
       : null
@@ -1097,6 +1157,9 @@ export class PendingSettlementService {
       project: project ? { id: project.id, name: project.name } : null,
       sourceType: source.type,
       sourceDropCascadeOrigin: source.dropCascadeOrigin,
+      sourceSeniorSharePercent: source.seniorSharePercent,
+      sourceDropSharePercent: source.dropSharePercent,
+      sourceSettledAmount: source.settledAmount,
     }
   }
 
