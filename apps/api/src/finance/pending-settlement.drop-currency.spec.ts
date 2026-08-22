@@ -176,6 +176,25 @@ function makeService(initial: Partial<MockState> = {}) {
   let obligationStatus: 'PENDING' | 'PAID' | 'CANCELLED' = state.obligation.status
   let ledgerSelectCount = 0
 
+  // task-settled-amount-snapshot (MED-3, security-review PR #599 round 1):
+  // settleByCompany writes `settledAmount` as a DB-native SQL fragment —
+  // `coalesce(transactions.settledAmount, 0) + delta` — via drizzle's `sql`
+  // tagged template, not a JS-computed literal. Mirrors the identical helper
+  // in pending-settlement.spec.ts — see its comment for the runtime shape.
+  const resolveSettledAmountPatch = (value: unknown, priorValue: unknown): unknown => {
+    if (
+      value &&
+      typeof value === 'object' &&
+      Array.isArray((value as { queryChunks?: unknown }).queryChunks)
+    ) {
+      const chunks = (value as { queryChunks: unknown[] }).queryChunks
+      const delta = chunks.find((c) => typeof c === 'number') as number | undefined
+      const prior = typeof priorValue === 'string' ? parseFloat(priorValue) : 0
+      return (prior + (delta ?? 0)).toFixed(6)
+    }
+    return value
+  }
+
   const mkDbtx = () => ({
     execute: vi.fn(async () => undefined),
     // computeCompanyAccountBalanceFromLedger sums N ledger terms (one select
@@ -201,9 +220,19 @@ function makeService(initial: Partial<MockState> = {}) {
               isStatusGuarded && !stillPendingPayment
                 ? []
                 : (() => {
-                    const flipped = { ...state.sourceTx, ...patch }
+                    const resolvedPatch =
+                      'settledAmount' in patch
+                        ? {
+                            ...patch,
+                            settledAmount: resolveSettledAmountPatch(
+                              patch['settledAmount'],
+                              (state.sourceTx as Record<string, unknown>)['settledAmount'],
+                            ),
+                          }
+                        : patch
+                    const flipped = { ...state.sourceTx, ...resolvedPatch }
                     state.sourceTx = flipped as ReturnType<typeof makeSourceTx>
-                    state.flips.push({ txId: SOURCE_TX_ID, set: patch })
+                    state.flips.push({ txId: SOURCE_TX_ID, set: resolvedPatch })
                     return [flipped]
                   })()
             const result = Promise.resolve(rows) as Promise<Array<Record<string, unknown>>> & {
