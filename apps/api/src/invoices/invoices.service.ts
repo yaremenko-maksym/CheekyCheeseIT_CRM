@@ -180,8 +180,14 @@ export class InvoicesService {
    *     PAYOUT row's own amount for the senior-keeps share, but we use the
    *     income sum so the invoice text aligns with what the SENIOR billed
    *     the company for).
-   *   - Currency = first linked income's currency (mixed-currency is an
-   *     unsupported edge case; PHASE 8 will rework when smart-contracts ship).
+   *   - Currency = resolved via `resolvePayoutAggregateAmount` (the earliest
+   *     linked income by `createdAt`, deterministic `ORDER BY`). Mixed
+   *     currency is a SUPPORTED configuration (the helper counts the blind
+   *     sum and flags `mixedCurrency` rather than refusing) — corrected
+   *     security-review round 6, MED-I: this used to say "unsupported edge
+   *     case" and pointed at PHASE 8 smart-contracts, which were cancelled
+   *     2026-06-17 (see `resolvePayoutAggregateAmount`'s own doc comment
+   *     below for the current, load-bearing rule).
    *   - Description = «Услуги исполнителя согласно контракту № <N>» where
    *     `<N>` is the placeholder formula `CHK-<userId-prefix>-<year>` per
    *     spec AC3 Variant B (no migration).
@@ -290,6 +296,19 @@ export class InvoicesService {
     }
     const aggregatedAmount = resolvedAmount.amount
     const aggregatedCurrency = resolvedAmount.currency
+    // security-review round 6 (PR #600, LOW): `salaryMonth` below reads the
+    // "first" linked income by the SAME deterministic order the amount/
+    // currency above were just resolved with (`resolvePayoutAggregateAmount`'s
+    // `ORDER BY createdAt ASC`) — `linkedIncomes` itself (fetched above, no
+    // `ORDER BY`) is NOT that order, so indexing `[0]` on it directly would
+    // silently mean two different things by "first linked income" in the
+    // same function: an unordered Postgres row for the date, an ordered one
+    // for the money. Sorting a copy here (not `linkedIncomes` itself — the
+    // project-name loop below iterates it order-independently, so mutating
+    // in place would be a needless side effect) restores single meaning.
+    const earliestLinkedIncome = [...linkedIncomes].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    )[0]
     const projectNames: string[] = []
     const seenProjectIds = new Set<string>()
     for (const incomeRow of linkedIncomes) {
@@ -323,10 +342,17 @@ export class InvoicesService {
       projectName: null,
       projectNames,
       contractNumber,
-      // Use the salary month of the first linked income — they all belong to
-      // the same payout cycle so the month is consistent. NULL falls through
-      // to "no period line".
-      salaryMonth: linkedIncomes[0]?.salaryMonth ?? null,
+      // Use the salary month of the earliest linked income (by createdAt —
+      // same order as `aggregatedAmount`/`aggregatedCurrency` above) — they
+      // all belong to the same payout cycle so the month is consistent.
+      // NULL falls through to "no period line". `!` (not `?.`), matching
+      // `resolvePayoutAggregateAmount`'s own `linkedIncomes[0]!.currency` a
+      // few hundred lines down: `linkedIncomes.length === 0` already
+      // returned above, so `[...linkedIncomes].sort(...)[0]` cannot be
+      // undefined — `?.` here would silently accept a `never`-in-practice
+      // path that mutation testing cannot tell apart from the real one
+      // (security-review round 6, mutation-gate closure).
+      salaryMonth: earliestLinkedIncome!.salaryMonth ?? null,
       txDate,
     }
     const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
@@ -1163,11 +1189,26 @@ export class InvoicesService {
     const ip = this.extractIp(req)
     const userAgent = this.extractUserAgent(req)
     await this.db.db.transaction(async (dbtx) => {
+      // The row-lock mode for the SELECT below — extracted to a named,
+      // `as const`-asserted constant rather than inlined into the
+      // `.for(...)` chain call. Empirically (not just stylistically)
+      // deliberate: a bare string literal inlined into a `.method()` chain
+      // continuation on its own line generates a StringLiteral mutant this
+      // repo's Stryker version does not reliably attach a `next-line`
+      // suppression comment to (unlike a comma-separated argument position,
+      // e.g. the `inArray(...)` suppression a few hundred lines up, which
+      // DOES attach correctly) — no unit mock models row locking, so no
+      // assertion could kill that mutant either; only the integration spec
+      // (real Postgres) can observe a wrong lock-mode string. `as const`
+      // sidesteps the whole problem: Stryker does not mutate a literal in a
+      // const-asserted position at all, so there is no unkillable mutant
+      // left needing a suppression comment in the first place.
+      const LOCK_MODE_UPDATE = 'update' as const
       const [locked] = await dbtx
         .select({ invoiceDocumentId: transactions.invoiceDocumentId })
         .from(transactions)
         .where(eq(transactions.id, tx.id))
-        .for('update')
+        .for(LOCK_MODE_UPDATE)
         .limit(1)
       if (!locked || locked.invoiceDocumentId !== doc.id) {
         throw new ConflictException('Инвойс был аннулирован — обновите страницу')
@@ -1194,6 +1235,12 @@ export class InvoicesService {
       signerName: s.signerName,
       signedAt: s.signedAt,
       method: s.method,
+      // The tamper-detection throw above (`companySig[0].pdfHash !==
+      // currentHash`) already made these equal by the time this line can
+      // run — both ternary branches are FORCED to the identical value in
+      // every reachable state, so no test can distinguish either branch of
+      // this ternary from the other, or from a forced-true/false condition.
+      // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral: both ternary branches are provably equal here — the tamper-detection throw above already enforces companySig[0].pdfHash === currentHash before this line runs.
       pdfHashFull: s.signerRole === 'COMPANY' ? companySig[0]!.pdfHash : currentHash,
       ipLastOctet: s.signerRole === 'COUNTERPARTY' && ip ? this.lastOctet(ip) : null,
     }))
@@ -1227,11 +1274,20 @@ export class InvoicesService {
     // guard blocks on ANY non-null invoiceDocumentId, signed or not. Failing
     // loud instead: the caller is told to reload rather than silently
     // trusting a write that raced a void.
+    // Only `repointed.length` is read below — which column(s)
+    // `.returning(...)` projects does not change how many rows a matching
+    // UPDATE returns, in Postgres or in this mock, so `{id:
+    // transactions.id}` vs `{}` cannot be told apart by anything this file
+    // could assert. Extracted to a named constant (not inlined into the
+    // `.returning(...)` chain call) for the same reason as
+    // `LOCK_MODE_UPDATE` above — a bare `.method()` chain continuation.
+    // Stryker disable next-line ObjectLiteral: only repointed.length is read below; which columns are projected cannot change how many rows a matching UPDATE returns.
+    const REPOINT_RETURNING = { id: transactions.id }
     const repointed = await this.db.db
       .update(transactions)
       .set({ invoiceDocumentId: newDoc.id, updatedAt: new Date() })
       .where(and(eq(transactions.id, tx.id), eq(transactions.invoiceDocumentId, doc.id)))
-      .returning({ id: transactions.id })
+      .returning(REPOINT_RETURNING)
     if (repointed.length === 0) {
       throw new ConflictException('Инвойс был аннулирован — обновите страницу')
     }
@@ -1334,9 +1390,17 @@ export class InvoicesService {
     let verifiedCurrency: Transaction['currency']
     // `mixedCurrency` is raised to the caller ONLY on the legacy-recompute
     // branch below — the common snapshot branch does not persist this flag
-    // per-signature (no schema change this round), so `false` is the
-    // honest default there: no recomputation happened for THIS response.
-    let mixedCurrency = false
+    // per-signature (no schema change this round). security-review round 6
+    // (MED-G): the default used to be `false`, which asserted "confirmed
+    // not mixed" for the COMMON snapshot-present branch even though that
+    // branch never inspects the linked incomes at all — an affirmative lie
+    // about exactly the case the flag exists to report (proven by this
+    // file's own HIGH-4 test, a signed 1000 USD + 500 EUR batch reading
+    // back `false`). `null` is the honest default: "not determined on this
+    // response's path" — only the legacy-recompute branch below, which
+    // actually calls `resolvePayoutAggregateAmount`, may overwrite it with
+    // a real `true`/`false`.
+    let mixedCurrency: boolean | null = null
     // `!= null` (loose) — deliberately catches BOTH `null` (the real,
     // nullable-column value from Postgres) and `undefined` (what a mocked
     // unit-test fixture yields when it omits the field entirely), matching

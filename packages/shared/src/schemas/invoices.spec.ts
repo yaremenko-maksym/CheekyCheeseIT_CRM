@@ -228,6 +228,16 @@ describe('invoiceVerifyResponseSchema (public, no private fields)', () => {
     expect(() => invoiceVerifyResponseSchema.parse(validVerify)).not.toThrow()
   })
 
+  // security-review round 6 (PR #600, MED-G): `mixedCurrency` is nullable —
+  // `null` means "not determined on this response's path" (the common
+  // signed-snapshot case), distinct from a confirmed `false`. A schema that
+  // rejected `null` here would break that path in production.
+  it('accepts mixedCurrency: null (undetermined on this path)', () => {
+    expect(() =>
+      invoiceVerifyResponseSchema.parse({ ...validVerify, mixedCurrency: null }),
+    ).not.toThrow()
+  })
+
   it('does not expose ipAddress / userAgent / signerId / pdfHash on signatures', () => {
     const sigShape = invoiceVerifyResponseSchema.shape.signatures.element.shape
     const keys = Object.keys(sigShape)

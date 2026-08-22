@@ -795,7 +795,13 @@ describe.skipIf(!hasDatabaseUrl())(
       const verify = await invoices.verifyInvoice(payoutTxId)
       expect(verify.amount).toBe('1500.000000')
       expect(verify.currency).toBe('USD')
-      expect(verify.mixedCurrency).toBe(false) // snapshot present — not the recompute branch
+      // security-review round 6 (PR #600, MED-G): snapshot present — the
+      // recompute branch never runs, so this response never actually
+      // inspected the linked incomes. `false` here used to assert
+      // "confirmed not mixed" for exactly this 1000 USD + 500 EUR batch —
+      // an affirmative lie about the one case the flag exists to catch.
+      // `null` ("not determined on this path") is the honest answer.
+      expect(verify.mixedCurrency).toBe(null)
     }, 30_000)
 
     /**
