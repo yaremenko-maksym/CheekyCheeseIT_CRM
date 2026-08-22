@@ -774,6 +774,18 @@ export class InvoicesService {
     // voided COUNTERPARTY row belongs to a PRIOR, superseded invoice (AC2)
     // and must not make a freshly-reissued (still-PENDING) invoice show up
     // as SIGNED.
+    //
+    // security-review round 2 (PR #600, MED-4): both branches below, and
+    // the `signedFlag` subquery a few lines down, are exercised DIRECTLY by
+    // invoice-signature-integrity.integration.spec.ts's void→reissue test —
+    // it calls `listInvoices({status:'PENDING'})` / `{status:'SIGNED'}`
+    // against the real database right after a reissue (asserting the fresh,
+    // unsigned invoice shows up as PENDING and NOT as SIGNED) and again
+    // after the counterparty re-signs (asserting the flip to SIGNED). This
+    // replaces the ROUND-1 claim of this comment, which pointed at SIBLING
+    // queries (`getSignaturesWithSignerNames`/`getInvoice`) that never
+    // actually called `listInvoices` itself — accurate about the SQL
+    // pattern, not about THIS call site.
     if (filters.status === 'PENDING') {
       baseConditions.push(
         sql`NOT EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY' AND voided_at IS NULL)`,
@@ -802,11 +814,11 @@ export class InvoicesService {
         // Postgres — the unit-test harness for this service is a mocked
         // Drizzle layer (invoices.service.spec.ts) that never executes SQL
         // text, so no unit test can distinguish this from an empty string.
-        // invoice-signature-integrity.integration.spec.ts's void→reissue
-        // flow exercises the same voided_at IS NULL scoping on the sibling
-        // getSignaturesWithSignerNames/getInvoice queries (a stale voided
-        // row would otherwise report the freshly-reissued invoice as
-        // already SIGNED) — the real database is what can see this line.
+        // security-review round 2 (PR #600, MED-4): DIRECTLY exercised by
+        // invoice-signature-integrity.integration.spec.ts's `listInvoices`
+        // calls (see the status-filter comment above for the exact
+        // scenario) — the real database is what can see this line, and it
+        // now actually runs this exact query, not just a sibling one.
         signedFlag: sql<boolean>`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY' AND voided_at IS NULL)`,
       })
       .from(nonDeletedTransactions)
