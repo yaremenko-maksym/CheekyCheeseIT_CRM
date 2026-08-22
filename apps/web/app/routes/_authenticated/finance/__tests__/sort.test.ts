@@ -185,6 +185,52 @@ describe('compareTxByDate', () => {
       expect(firstPage).toContain(freshDated)
     })
   })
+
+  describe('same-day granularity (real CI regression: drop-share-usdt-income.spec.ts settle-in-place)', () => {
+    // Live CI failure with the ?? createdAt fallback ALONE (no day
+    // truncation): `SettleSeniorPayoutDialog` defaults a DROP settle's date
+    // picker to the obligation's OWN `createdAt.slice(0, 10)` (day-only), so
+    // settling writes a `txDate` at MIDNIGHT UTC of the SAME day the row was
+    // already created on — see `pending-settlement.service.ts`'s
+    // `txDateToWrite`. Comparing that coarse midnight instant against
+    // another still-undated row's millisecond-precise `createdAt` fallback
+    // is an apples-to-oranges granularity mismatch: the settled row could
+    // rank BELOW same-day rows with a later time-of-day, even though its own
+    // `createdAt` (and the calendar day itself) never changed.
+
+    it('settling a same-day payout (coarse midnight txDate) does not change its rank relative to a same-day undated row', () => {
+      const rowCreatedAt = '2026-08-22T14:20:00.000Z' // afternoon, same day
+      // Still pending — its effective date is its own (earlier) createdAt.
+      const otherUndated = tx({ txDate: null, createdAt: '2026-08-22T10:00:00.000Z' })
+
+      const beforeSettle = tx({ txDate: null, createdAt: rowCreatedAt })
+      const rankBefore = [beforeSettle, otherUndated].sort((a, b) => compareTxByDate(a, b, 'desc'))
+      expect(rankBefore[0], 'before settle: 14:20 createdAt outranks 10:00').toBe(beforeSettle)
+
+      // Settling: txDate = day(createdAt) at midnight; createdAt is
+      // untouched (settle only writes txDate, per pending-settlement.service.ts).
+      const afterSettle = tx({ txDate: '2026-08-22T00:00:00.000Z', createdAt: rowCreatedAt })
+      const rankAfter = [afterSettle, otherUndated].sort((a, b) => compareTxByDate(a, b, 'desc'))
+      expect(
+        rankAfter[0],
+        'after settle: same day as before — must still outrank the 10:00 undated row, not fall behind it because its txDate reads as literal midnight',
+      ).toBe(afterSettle)
+    })
+
+    it('two rows on the same calendar day, one dated (any time-of-day) one undated, tie-break by raw createdAt — not by the coarse/precise mismatch', () => {
+      const datedMidnight = tx({
+        txDate: '2026-08-22T00:00:00.000Z',
+        createdAt: '2026-08-22T23:00:00.000Z', // created LATE in the day
+      })
+      const undatedEarly = tx({ txDate: null, createdAt: '2026-08-22T01:00:00.000Z' }) // created EARLY
+      const list = [undatedEarly, datedMidnight].sort((a, b) => compareTxByDate(a, b, 'desc'))
+      // Same day either way — createdAt (23:00 vs 01:00) decides, not the
+      // literal txDate/fallback instant (which would wrongly put the
+      // midnight-txDate row behind the 01:00 undated row).
+      expect(list[0]).toBe(datedMidnight)
+      expect(list[1]).toBe(undatedEarly)
+    })
+  })
 })
 
 describe('compareTxByAmount', () => {

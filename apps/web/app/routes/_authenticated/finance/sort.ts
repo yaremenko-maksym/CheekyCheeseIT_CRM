@@ -23,6 +23,13 @@ export type SortDir = 'asc' | 'desc'
 
 const toTime = (iso: string | null | undefined): number => (iso ? new Date(iso).getTime() : 0)
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Calendar-day index (UTC) of an ISO instant — see the "day-level, not
+// millisecond-level" paragraph in `compareTxByDate`'s docblock for why the
+// PRIMARY comparison truncates to this instead of comparing raw instants.
+const dayOf = (iso: string | null | undefined): number => Math.floor(toTime(iso) / DAY_MS)
+
 /**
  * Compare two transactions by `txDate ?? createdAt` (primary key — the row's
  * "effective date"), with `createdAt` as a tie-breaker (secondary key) for
@@ -66,12 +73,37 @@ const toTime = (iso: string | null | undefined): number => (iso ? new Date(iso).
  * - no block forms at either edge, because undated rows are interleaved by
  *   time with dated ones instead of pulled out of the timeline altogether.
  *
- * Tie-breaking: two rows whose EFFECTIVE date is equal fall back to
- * `createdAt` directly (unique, monotonic, always present). This covers
- * same-day legacy income rows (parsed `txDate` collides at midnight-UTC)
- * and, degenerately, two undated rows — whose effective date already IS
- * `createdAt`, so the tie-break re-derives the same order the primary
- * comparison already produced. Harmless, not incorrect.
+ * Primary comparison is by CALENDAR DAY (UTC), not raw millisecond instant —
+ * discovered live, not assumed: the `drop-finance` E2E shard's
+ * `drop-share-usdt-income.spec.ts` "settle in place" test still failed after
+ * the `?? createdAt` fallback above, because settling a DROP payout writes a
+ * real `txDate` (`SettleSeniorPayoutDialog` defaults the picker to the
+ * obligation's OWN `createdAt.slice(0, 10)` — see `pending-settlement.
+ * service.ts`'s `txDateToWrite`), truncated to day-only (midnight UTC) like
+ * every other `txDate` in this system (the «Дата» column itself only ever
+ * renders a day — see `fmtDate`, no time-of-day). Comparing that coarse
+ * midnight instant against ANOTHER row's still-undated, millisecond-precise
+ * `createdAt` fallback compares two different granularities: a row settled
+ * moments after midnight on a busy day could rank BELOW dozens of same-day
+ * rows that merely happen to have a later time-of-day in their raw
+ * `createdAt` — even though nothing about "which day this happened on"
+ * changed, and the settled row's OWN `createdAt` didn't move either. Once a
+ * shard accumulates enough same-day rows (exactly what a shared-DB, 16-spec
+ * CI shard does), that was enough to push a just-settled row off page 1 mid
+ * test — the identical "block/press a row off the current page" shape as
+ * H-1, just triggered by a granularity mismatch instead of a fixed edge.
+ * Truncating BOTH sides of the primary comparison to the same day-level
+ * granularity — the level the visible column actually operates at — removes
+ * the mismatch: a settle no longer moves a row's calendar day (it's the same
+ * day it was already created on), so it can no longer move the row's
+ * position on that axis at all.
+ *
+ * Tie-breaking: two rows whose day is equal fall back to raw `createdAt`
+ * (unique, monotonic, always present, and — critically — UNCHANGED by a
+ * settle, since only `txDate` is written then). This covers same-day legacy
+ * income rows (parsed `txDate` collides at midnight-UTC), two undated rows
+ * on the same day, and a row transitioning from undated to dated within the
+ * same calendar day (the settle-in-place scenario above) identically.
  */
 export function compareTxByDate(a: TxSortable, b: TxSortable, dir: SortDir): number {
   const mul = dir === 'asc' ? 1 : -1
@@ -83,18 +115,18 @@ export function compareTxByDate(a: TxSortable, b: TxSortable, dir: SortDir): num
   // does not `.parse()` it (no schema round-trip on this endpoint), so a
   // hand-built/mocked payload that omits the key entirely reaches here as
   // `undefined`, not `null` (unit-tested below).
-  const aEffective = toTime(a.txDate ?? a.createdAt)
-  const bEffective = toTime(b.txDate ?? b.createdAt)
-  const byDate = aEffective - bEffective
+  const aDay = dayOf(a.txDate ?? a.createdAt)
+  const bDay = dayOf(b.txDate ?? b.createdAt)
+  const byDay = aDay - bDay
   // Stryker disable next-line ArithmeticOperator: `mul` is always ±1, and
-  // for any nonzero `byDate`, `mul * byDate` and `mul / byDate` have the
+  // for any nonzero `byDay`, `mul * byDay` and `mul / byDay` have the
   // identical sign (dividing/multiplying by ±1 both just mirror or preserve
   // the sign of the other operand) — Array.sort only reads the sign of a
   // comparator's return value, so no sort-order assertion can ever
   // distinguish `*` from `/` here. A magnitude assertion would pin an
   // implementation detail the contract doesn't make, not a behaviour.
-  if (byDate !== 0) return mul * byDate
-  // Tie (equal effective date) — fall back to createdAt.
+  if (byDay !== 0) return mul * byDay
+  // Tie (same calendar day) — fall back to raw createdAt.
   return mul * (toTime(a.createdAt) - toTime(b.createdAt))
 }
 
