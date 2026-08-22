@@ -1423,6 +1423,21 @@ export class InvoicesService {
       .where(
         and(
           eq(nonDeletedTransactions.payoutRequestId, payoutRequestId),
+          // A raw Drizzle predicate object handed to `.where(...)` — this
+          // file's own mocked harness (invoices.service.spec.ts) is a
+          // "semantic-only stub" per its top-of-file rationale comment:
+          // `.where(_p) => chain` discards its argument entirely and
+          // resolves rows purely from a control hint
+          // (`ctrl.linkedPayoutRequestId`), never from the actual predicate
+          // value, so no unit test built on that harness can distinguish
+          // this array changing — the SAME class of gap the `signedFlag`
+          // raw-SQL suppression a few hundred lines up already documents.
+          // Covered for real by invoice-signature-integrity.integration
+          // .spec.ts's HIGH-2/AC2-bis tests, which construct actual
+          // SENIOR_INCOME/DROP_INCOME rows against real Postgres and would
+          // fail to find them (wrongly refusing, or wrongly aggregating) if
+          // this array were narrowed.
+          // Stryker disable next-line StringLiteral,ArrayDeclaration: see comment above — a raw Drizzle predicate this mocked-harness stub structurally cannot see; covered against real Postgres by invoice-signature-integrity.integration.spec.ts's HIGH-2/AC2-bis tests instead.
           inArray(nonDeletedTransactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
         ),
       )

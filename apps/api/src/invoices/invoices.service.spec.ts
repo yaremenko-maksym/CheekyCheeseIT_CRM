@@ -977,6 +977,25 @@ describe('InvoicesService', () => {
             currency: 'USDT',
             payoutRequestId: null,
           }),
+          // mutation-gate closure (round 4): a DECOY linked-income row,
+          // deliberately wired to a `ctrl.linkedPayoutRequestId` set below
+          // that does NOT match this tx's own (null) payoutRequestId. If
+          // the `if (!payoutRequestId) return null` early-return were ever
+          // deleted (mutation-gate's own BlockStatement/ConditionalExpression
+          // mutants at this line), the helper would fall through to the
+          // query — which this harness resolves purely from the CONTROL
+          // HINT below, not from the actual (null) argument passed in — and
+          // wrongly "resolve" using this decoy row instead of refusing.
+          // Asserting refusal STILL happens with a decoy present proves the
+          // early-return fires before the query is ever reached.
+          tx({
+            id: 'tx-decoy-income',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            amount: '999',
+            currency: 'EUR',
+            payoutRequestId: 'decoy-req',
+          }),
         ],
         sigs: [
           {
@@ -1011,6 +1030,10 @@ describe('InvoicesService', () => {
         projects: [],
       })
       h.ctrl.findTxId = 'tx-payout-no-req'
+      // The decoy hint: if `!payoutRequestId` were ever bypassed, the query
+      // would resolve via THIS control hint (matching the decoy row above)
+      // instead of the real (null) argument — see the decoy tx's comment.
+      h.ctrl.linkedPayoutRequestId = 'decoy-req'
       const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 
       await expect(h.svc.verifyInvoice('tx-payout-no-req')).rejects.toThrow(ConflictException)
@@ -1019,6 +1042,151 @@ describe('InvoicesService', () => {
       )
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('the linked-income aggregate could not be resolved'),
+      )
+    })
+
+    it('mutation-gate closure (round 4, HIGH-3): a NULL-snapshot PAYOUT row with a TRUTHY payoutRequestId but ZERO matching linked incomes refuses to confirm an amount', async () => {
+      // Distinguishes `if (linkedIncomes.length === 0) return null` from a
+      // deleted/always-false mutant — needs `payoutRequestId` truthy (past
+      // the earlier `!payoutRequestId` guard) with the query still
+      // resolving to an empty array. `ctrl.linkedPayoutRequestId` left
+      // unset (defaults to null) makes `resolveSelectArray` return `[]`
+      // unconditionally, regardless of what state.txs contains — exactly
+      // "the linked income was soft-deleted after signing" from the
+      // integration spec's AC2-bis test, reproduced at the unit level.
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-empty',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740',
+            currency: 'USDT',
+            payoutRequestId: 'req-empty',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-empty',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-payout-empty',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-empty'
+      // Deliberately NOT set — `resolveSelectArray` returns `[]` when
+      // `ctrl.linkedPayoutRequestId` is unset, modelling zero linked
+      // incomes for a payoutRequestId that IS truthy.
+
+      await expect(h.svc.verifyInvoice('tx-payout-empty')).rejects.toThrow(ConflictException)
+      await expect(h.svc.verifyInvoice('tx-payout-empty')).rejects.toThrow(
+        'Не удалось подтвердить сумму этого инвойса',
+      )
+    })
+
+    it('mutation-gate closure (round 4, HIGH-3): a NULL-snapshot PAYOUT row whose linked incomes span more than one currency refuses to confirm an amount (unit-level twin of the integration AC2-bis test)', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-mixed',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740',
+            currency: 'USDT',
+            payoutRequestId: 'req-mixed',
+          }),
+          tx({
+            id: 'tx-income-mixed-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            amount: '1000',
+            currency: 'USD',
+            payoutRequestId: 'req-mixed',
+          }),
+          tx({
+            id: 'tx-income-mixed-2',
+            type: 'DROP_INCOME',
+            receiverId: SENIOR.id,
+            amount: '500',
+            currency: 'EUR',
+            payoutRequestId: 'req-mixed',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-mixed',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-payout-mixed',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-mixed'
+      h.ctrl.linkedPayoutRequestId = 'req-mixed'
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+      await expect(h.svc.verifyInvoice('tx-payout-mixed')).rejects.toThrow(ConflictException)
+      await expect(h.svc.verifyInvoice('tx-payout-mixed')).rejects.toThrow(
+        'Не удалось подтвердить сумму этого инвойса',
+      )
+      // mutation-gate closure (round 4): exact text, not a substring match —
+      // pins down the `.sort()` + `.join(', ')` formatting the round-4 fix
+      // deliberately added ("an unordered SELECT backing a legal-document
+      // amount is worth pinning down explicitly rather than leaving to
+      // chance" — this log line is the one place that non-determinism was
+      // previously observable). EUR before USD proves the sort, the comma
+      // space proves the separator wasn't silently dropped.
+      expect(errorSpy).toHaveBeenCalledWith(
+        'resolvePayoutAggregateAmount: payoutRequestId=req-mixed has linked incomes in more than one currency (EUR, USD) — refusing to aggregate rather than silently summing across currencies',
       )
     })
 
