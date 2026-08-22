@@ -384,10 +384,12 @@ type TransactionRowProps = {
 }
 
 // forwardRef is required because the row is rendered inside an
-// <AnimatePresence mode="popLayout"> in TransactionsTable. framer-motion needs
-// to attach a ref to the underlying <tr> to measure layout for the enter/exit
-// animation. Without forwardRef React logs «Function components cannot be given
-// refs» once per row (50-60× on /finance) and the row animation breaks.
+// <AnimatePresence mode="sync"> in TransactionsTable (task-finance-sort-date-
+// and-jump AC4 — was "popLayout", switched because that mode can't
+// meaningfully position a <tr>). framer-motion still needs to attach a ref to
+// the underlying <tr> to measure it for the enter/exit animation below.
+// Without forwardRef React logs «Function components cannot be given refs»
+// once per row (50-60× on /finance) and the row animation breaks.
 export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProps>(
   function TransactionRow(
     {
