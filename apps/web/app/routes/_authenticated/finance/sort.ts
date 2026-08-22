@@ -61,10 +61,20 @@ export function compareTxByDate(a: TxSortable, b: TxSortable, dir: SortDir): num
     // of direction.
     return aHasDate ? -1 : 1
   }
-  if (aHasDate && bHasDate) {
-    const byTxDate = toTime(a.txDate) - toTime(b.txDate)
-    if (byTxDate !== 0) return mul * byTxDate
-  }
+  // aHasDate === bHasDate is guaranteed past this point (either both dated
+  // or both null). No extra guard is needed: `toTime(null)` is 0 on both
+  // sides when both are undated, so `byTxDate` is 0 and falls straight
+  // through to the createdAt tie-break below — same result a
+  // `both-dated`-only branch would have produced, with one fewer branch.
+  const byTxDate = toTime(a.txDate) - toTime(b.txDate)
+  // Stryker disable next-line ArithmeticOperator: `mul` is always ±1, and
+  // for any nonzero `byTxDate`, `mul * byTxDate` and `mul / byTxDate` have
+  // the identical sign (dividing/multiplying by ±1 both just mirror or
+  // preserve the sign of the other operand) — Array.sort only reads the
+  // sign of a comparator's return value, so no sort-order assertion can
+  // ever distinguish `*` from `/` here. A magnitude assertion would pin an
+  // implementation detail the contract doesn't make, not a behaviour.
+  if (byTxDate !== 0) return mul * byTxDate
   // Tie (same txDate, or both null) — fall back to createdAt.
   return mul * (toTime(a.createdAt) - toTime(b.createdAt))
 }
