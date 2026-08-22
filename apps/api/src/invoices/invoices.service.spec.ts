@@ -178,7 +178,21 @@ function buildHarness(state: HarnessState) {
             const ordered = {
               limit: async (lim: number) => resolveLimit(lim, fields, t),
               then: (resolve: (v: unknown) => void) => {
-                resolve(resolveOrderByList())
+                // security-review round 4 (PR #600, HIGH-3 mutation-gate
+                // closure): route by `fields` — a bare `.select()` (no
+                // field map, `fields` undefined) is what
+                // `resolvePayoutAggregateAmount`'s linked-income query
+                // uses (`.select().from(nonDeletedTransactions).where(...)
+                // .orderBy(...)`, awaited directly, no `.limit()`); ordering
+                // does not change a row's SHAPE, only its sequence, and
+                // this harness does not model sequence — so it belongs on
+                // the SAME raw-row path as the no-`orderBy()` bare-select
+                // case (`resolveSelectArray`), not the `listInvoices`
+                // synthesis. `select({...})` WITH a field map is the one
+                // caller that actually wants `resolveOrderByList()`
+                // (listInvoices's own `.orderBy()` call, also awaited
+                // directly with no `.limit()`).
+                resolve(fields ? resolveOrderByList() : resolveSelectArray(t))
               },
             }
             return ordered
@@ -1006,6 +1020,89 @@ describe('InvoicesService', () => {
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('the linked-income aggregate could not be resolved'),
       )
+    })
+
+    it('mutation-gate closure (round 4, HIGH-3): a NULL-snapshot PAYOUT row WITH a resolvable single-currency linked-income aggregate recomputes through resolvePayoutAggregateAmount, never falling back to (and never refusing in favour of) the unrelated live tx.amount', async () => {
+      // The one branch the two tests above cannot reach: `resolved` truthy.
+      // Without this, `resolvePayoutAggregateAmount`'s entire body (and the
+      // `!resolved`/`!payoutRequestId` checks that guard it) can be deleted
+      // by a mutant and every existing unit test still passes — both
+      // surrounding tests only ever observe the "cannot resolve, refuse"
+      // outcome, which a no-op function also produces.
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-happy',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740', // the USDT payable — must NEVER be what verify returns
+            currency: 'USDT',
+            payoutRequestId: 'req-happy',
+          }),
+          // The linked income `signInvoice` actually signed — a SEPARATE
+          // tx row sharing `payoutRequestId`, routed to
+          // `resolvePayoutAggregateAmount`'s query via
+          // `ctrl.linkedPayoutRequestId` below (same harness mechanism
+          // `autoCreateForPayout`'s own tests already use).
+          tx({
+            id: 'tx-income-happy',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            amount: '1000',
+            currency: 'USD',
+            payoutRequestId: 'req-happy',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-happy',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-payout-happy',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-happy'
+      h.ctrl.linkedPayoutRequestId = 'req-happy'
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+      const result = await h.svc.verifyInvoice('tx-payout-happy')
+
+      // `.toFixed(6)` (round 4 fix) — never the whole-number `.toString()`
+      // the pre-fix helper produced, and never the PAYOUT row's own
+      // 740/USDT.
+      expect(result.amount).toBe('1000.000000')
+      expect(result.currency).toBe('USD')
+      expect(result.amount).not.toBe('740.000000')
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('recomputed from linked incomes'),
+      )
+      expect(errorSpy).not.toHaveBeenCalled()
     })
 
     it('returns 404 for transactions without an invoice', async () => {
