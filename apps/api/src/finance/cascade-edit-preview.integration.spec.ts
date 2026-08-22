@@ -412,6 +412,49 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(senior.remainingToPay).toBeCloseTo(senior.newAmount! - senior.settledAmount, 6)
     })
 
+    // ── MED-A (security-review round 2) — real DB: the EXACT scenario the
+    // finding named. A derivative reverted to PENDING (settled_amount left
+    // untouched, same mechanic as the HIGH-1 test above), followed by a
+    // SECOND edit whose recomputed share falls below that accumulator —
+    // `remainingToPay: 0` alone is not enough, the OVERPAYMENT warning must
+    // fire even though the row currently reads PENDING, not PAID.
+    it('ADMIN: a reverted-to-PENDING derivative, edited a second time BELOW the accumulator → OVERPAYMENT warning fires despite the row being PENDING, not PAID', async () => {
+      const income = await declare(1000)
+      const obligation = await seniorObligation()
+      await settleSvc.settleByCompany(obligation.id, ADMIN_MAKSYM, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xcascadepreviewspec',
+      })
+
+      // Same hand-simulated revert as the HIGH-1 test above (task 3 does not
+      // exist yet): obligation back to PENDING, derivative row back to
+      // PENDING_PAYMENT with sharePercent restored, settled_amount left at
+      // 26% of 1000 = 260.
+      await dbSvc.db
+        .update(pendingObligations)
+        .set({ status: 'PENDING', closingTransactionId: null })
+        .where(eq(pendingObligations.id, obligation.id))
+      await dbSvc.db
+        .update(transactions)
+        .set({
+          status: 'PENDING_PAYMENT',
+          type: 'SENIOR_PENDING_PAYOUT',
+          seniorSharePercent: SENIOR_SHARE,
+        })
+        .where(eq(transactions.id, obligation.sourceTransactionId))
+
+      // Second edit: 26% of 100 = 26, below the 260 accumulator.
+      const plan = await svc.getEditCascadePreview(income.id, 100, ADMIN_MAKSYM)
+      const senior = plan.plan!.derivatives.find((d) => d.id === obligation.sourceTransactionId)!
+      expect(senior.settledAmount).toBeCloseTo((1000 * SENIOR_SHARE) / 100, 6)
+      expect(senior.newAmount).toBeCloseTo(26, 6)
+      expect(senior.remainingToPay).toBe(0)
+      // The bug this pins: the old `isSettled && ...` gate never fired here
+      // because the row is PENDING, not PAID — money already paid out went
+      // unflagged purely because of a status flip that does not undo it.
+      expect(senior.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(true)
+    })
+
     // ── HIGH-2 (security-review round 1) — real DB: a non-USDT settled_currency
     // is never subtracted from the USDT newAmount. The conversion WRITE path
     // (a real DROP settle in UAH/EUR/USD) is already proven by
@@ -436,6 +479,40 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(senior.remainingToPay).toBeNull()
       expect(senior.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(true)
       expect(senior.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(false)
+    })
+
+    // ── HIGH-2-residual (security-review round 2) — real DB: `loadCascadeSnapshot`
+    // wires the SOURCE row's own `currency` column through to the resolver —
+    // a settled_currency that matches the SOURCE row (not a hardcoded
+    // 'USDT') is NOT flagged. `declareUsdtProjectIncome` always books
+    // `currency: 'USDT'` today (BIZ-18 is what keeps it that way — task 3
+    // lifts it), so the source row's currency is mutated directly here, the
+    // same "simulate what a later task unlocks" pattern the HIGH-1 revert
+    // test above already uses.
+    it('ADMIN: a real SOURCE row whose currency is NOT USDT, settled in that SAME currency → no NON_USDT_CURRENCY warning', async () => {
+      const income = await declare(1000)
+      const obligation = await seniorObligation()
+      await settleSvc.settleByCompany(obligation.id, ADMIN_MAKSYM, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xcascadepreviewspec',
+      })
+      await dbSvc.db
+        .update(transactions)
+        .set({ currency: 'EUR' })
+        .where(eq(transactions.id, income.id))
+      await dbSvc.db
+        .update(transactions)
+        .set({ settledCurrency: 'EUR' })
+        .where(eq(transactions.id, obligation.sourceTransactionId))
+
+      const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
+      expect(plan.plan!.sourceCurrency).toBe('EUR')
+      const senior = plan.plan!.derivatives.find((d) => d.id === obligation.sourceTransactionId)!
+      // A hardcoded `!== 'USDT'` comparison would flag this row even though
+      // nothing is mismatched — both the source and the settle read EUR.
+      expect(senior.currency).toBe('EUR')
+      expect(senior.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
+      expect(senior.remainingToPay).not.toBeNull()
     })
 
     // ── MED-1 (security-review round 1) — real DB: warnings about the SOURCE

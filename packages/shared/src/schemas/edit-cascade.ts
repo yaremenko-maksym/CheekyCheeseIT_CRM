@@ -137,9 +137,16 @@ export const cascadeWarningCodeSchema = z.enum([
   // this is a human decision (write-off / claw-back), not an automatic one.
   'OVERPAYMENT',
   // AC3 / task 1 (PR #599) — `settledAmount` was accumulated in a currency
-  // other than USDT (a DROP obligation settled in UAH/EUR/USD), so it is not
-  // directly comparable to `newAmount`, which is always a USDT share of the
-  // USDT income.
+  // other than the SOURCE's own currency (a DROP obligation settled in
+  // UAH/EUR/USD against a USDT income), so it is not directly comparable to
+  // `newAmount`, which is always a share of `newSourceAmount` expressed in
+  // that SAME source currency. HIGH-2-residual (security-review round 2):
+  // the comparison is against the source's actual currency
+  // (`CascadeDerivativePlan.currency` below), never a hardcoded `'USDT'`
+  // literal — today the source is always USDT (`declareUsdtProjectIncome`),
+  // but the guard that keeps it that way (BIZ-18) is exactly what task 3
+  // lifts, so a literal would silently stop matching reality the moment
+  // that guard changes.
   'NON_USDT_CURRENCY',
   // MED-1 (security-review round 1) — the SOURCE row (the one being edited)
   // already carries a COUNTERPARTY-signed invoice (e.g. a `SALARY` row).
@@ -171,6 +178,17 @@ export const cascadeDerivativePlanSchema = z.object({
   /** The percent this plan computed `newAmount` from — `null` alongside `newAmount`. */
   sharePercent: z.number().int().nullable(),
   /**
+   * HIGH-2-residual (security-review round 2): the currency `oldAmount` AND
+   * `newAmount` are both denominated in — always the SOURCE row's own
+   * currency (`CascadeSourceSnapshot.currency`, threaded through
+   * `resolveEditCascade` → `resolveDerivative`), never assumed. Round 1
+   * left this implicit (a code comment in another package); a human reading
+   * the plan could not tell what unit `newAmount` was in without it. This is
+   * NOT necessarily the same currency as `settledCurrency` below — that is
+   * the entire point of the `NON_USDT_CURRENCY` warning.
+   */
+  currency: currencyEnumSchema,
+  /**
    * How much of `oldAmount` has already actually been paid out — the
    * MONOTONIC `transactions.settled_amount` accumulator (task 1, PR #599),
    * read unconditionally regardless of the obligation's CURRENT status
@@ -181,27 +199,30 @@ export const cascadeDerivativePlanSchema = z.object({
   /**
    * The currency `settledAmount` is denominated in — `null` alongside a
    * `settledAmount` of `0` that never went through a settle. `newAmount`
-   * itself is always a USDT share of the USDT source income; when this
-   * differs from `'USDT'` the two are NOT the same unit (HIGH-2,
-   * security-review round 1) — see `remainingToPay` below.
+   * itself is always denominated in `currency` above (the SOURCE's own
+   * currency); when this differs from that (HIGH-2-residual, round 2: a
+   * comparison, never a hardcoded `'USDT'` check) the two are NOT the same
+   * unit (HIGH-2, security-review round 1) — see `remainingToPay` below.
    */
   settledCurrency: currencyEnumSchema.nullable(),
   /**
-   * `max(0, newAmount - settledAmount)` when `settledCurrency` is `USDT` (or
-   * there is nothing settled yet). `null` when `settledCurrency` is set and
-   * NOT `USDT` — subtracting a USDT share from a non-USDT accumulator is not
-   * an approximation, it is a wrong number (HIGH-2). The `NON_USDT_CURRENCY`
-   * warning carries the explanation; `settledAmount`/`settledCurrency` above
-   * carry the real figure for a human to reconcile in task 5.
+   * `max(0, newAmount - settledAmount)` when `settledCurrency` matches
+   * `currency` above (or there is nothing settled yet). `null` when
+   * `settledCurrency` is set and does NOT match — subtracting a share from a
+   * differently-denominated accumulator is not an approximation, it is a
+   * wrong number (HIGH-2 / HIGH-2-residual). The `NON_USDT_CURRENCY` warning
+   * carries the explanation; `settledAmount`/`settledCurrency` above carry
+   * the real figure for a human to reconcile in task 5.
    */
   remainingToPay: z.number().nullable(),
   /**
    * `true` for an already-settled (`PAID`) obligation whose recomputed
    * share is STILL more than what was already paid — EXCEPT when
-   * `settledCurrency` is non-USDT, where that comparison cannot be made
-   * honestly (HIGH-2) and this stays `true` purely because the row IS
-   * settled and an edit on it always warrants a human look, never derived
-   * from the (impossible) cross-currency subtraction.
+   * `settledCurrency` does not match `currency` above, where that comparison
+   * cannot be made honestly (HIGH-2 / HIGH-2-residual) and this stays `true`
+   * purely because the row IS settled and an edit on it always warrants a
+   * human look, never derived from the (impossible) cross-currency
+   * subtraction.
    */
   needsReconfirm: z.boolean(),
   warnings: z.array(cascadeWarningSchema),
@@ -214,6 +235,12 @@ export const cascadePlanSchema = z.object({
   sourceAmountChanged: z.boolean(),
   oldSourceAmount: z.number(),
   newSourceAmount: z.number(),
+  /**
+   * HIGH-2-residual (security-review round 2): the currency `oldSourceAmount`
+   * and `newSourceAmount` are denominated in — same rationale as
+   * `cascadeDerivativePlanSchema.currency`, at the source-row level.
+   */
+  sourceCurrency: currencyEnumSchema,
   derivatives: z.array(cascadeDerivativePlanSchema),
   /**
    * MED-1 (security-review round 1) — warnings about the SOURCE row itself
@@ -249,6 +276,7 @@ export function amountsDiffer(a: number, b: number): boolean {
 function resolveDerivative(
   derivative: CascadeDerivativeSnapshot,
   newSourceAmount: number,
+  sourceCurrency: CurrencyEnum,
 ): CascadeDerivativePlan {
   const isSettled = derivative.obligation?.status === 'PAID'
   const sharePercent = isSettled ? derivative.settledSharePercent : derivative.sharePercent
@@ -276,6 +304,7 @@ function resolveDerivative(
       oldAmount,
       newAmount: null,
       sharePercent: null,
+      currency: sourceCurrency,
       settledAmount,
       settledCurrency,
       remainingToPay: null,
@@ -292,33 +321,58 @@ function resolveDerivative(
 
   const newAmount = roundShareAmount(newSourceAmount, sharePercent)
 
-  // HIGH-2 (security-review round 1): `newAmount` is always a USDT share of
-  // the USDT source income (`roundShareAmount` on `newSourceAmount`), but on
-  // a DROP-branch row `settledAmount` can be denominated in the PAYMENT
-  // currency — `settleByCompany` converts and stamps `settled_currency`
-  // (pending-settlement.service.ts). Subtracting one from the other when
-  // they are not the same unit is not an approximation, it is a wrong
-  // number — a drop obligation closed in UAH puts ~2000 into the
-  // accumulator and would call almost any edit an overpayment. The resolver
-  // is pure and has no exchange rate, and must not invent one: when
-  // currencies disagree it refuses to manufacture `remainingToPay` or an
-  // overpayment verdict from that subtraction, and leaves `needsReconfirm`
-  // to the one thing that IS a genuine status question (is this row
-  // currently settled at all) rather than the broken comparison. The plan
-  // still hands back BOTH figures with their own currencies
-  // (`settledAmount`/`settledCurrency` here, `newAmount` always USDT) plus
-  // the `NON_USDT_CURRENCY` warning below, so a human in task 5 sees
-  // "выплачено 2000 UAH, новая доля 50 USDT" instead of a fabricated
-  // difference.
-  const currencyMismatch =
-    settledAmount > 0 && settledCurrency !== null && settledCurrency !== 'USDT'
+  // HIGH-2 (security-review round 1) + HIGH-2-residual (round 2): `newAmount`
+  // is always a share of `newSourceAmount`, expressed in the SOURCE's OWN
+  // currency (`sourceCurrency`), but on a DROP-branch row `settledAmount`
+  // can be denominated in the PAYMENT currency — `settleByCompany` converts
+  // and stamps `settled_currency` (pending-settlement.service.ts).
+  // Subtracting one from the other when they are not the same unit is not
+  // an approximation, it is a wrong number — a drop obligation closed in
+  // UAH puts ~2000 into the accumulator and would call almost any edit an
+  // overpayment. The resolver is pure and has no exchange rate, and must
+  // not invent one: when currencies disagree it refuses to manufacture
+  // `remainingToPay` or an overpayment verdict from that subtraction, and
+  // leaves `needsReconfirm` to the one thing that IS a genuine status
+  // question (is this row currently settled at all) rather than the broken
+  // comparison. The plan still hands back BOTH figures with their own
+  // currencies (`settledAmount`/`settledCurrency` here, `newAmount`/
+  // `oldAmount` tagged with `currency` above) plus the `NON_USDT_CURRENCY`
+  // warning below, so a human in task 5 sees "выплачено 2000 UAH, новая
+  // доля 50 USDT" instead of a fabricated difference.
+  //
+  // Round 2 fixed TWO things in this single condition, not one:
+  //  1. Comparison target is `sourceCurrency` (read off the snapshot,
+  //     `CascadeSourceSnapshot.currency` via `resolveEditCascade`), never a
+  //     hardcoded `'USDT'` literal — today they always coincide
+  //     (`declareUsdtProjectIncome` always books `currency: 'USDT'`), but
+  //     that coincidence is an invariant task 3 is explicitly allowed to
+  //     lift (BIZ-18), not a fact this pure function may assume.
+  //  2. The `settledCurrency !== null` guard round 1 had is GONE (LOW,
+  //     round 2): `null !== sourceCurrency` is `true` for every real
+  //     currency, so a `settledAmount > 0` row whose currency was never
+  //     recorded is now treated the same as an outright mismatch — "unknown"
+  //     is not "assume it matches", the same refusal-to-guess principle
+  //     `NO_SHARE_SNAPSHOT` above already applies. Unreachable today (a
+  //     settle always stamps `settled_amount`/`settled_currency` together),
+  //     kept correct anyway so a future write path cannot silently violate it.
+  const currencyMismatch = settledAmount > 0 && settledCurrency !== sourceCurrency
 
   // Same MONEY_SCALE-safe rounding as roundShareAmount itself — avoids a
   // stray float tail like 199.99999999999997 in remainingToPay.
   const remainingToPay = currencyMismatch
     ? null
     : Math.max(0, Number((newAmount - settledAmount).toFixed(6)))
-  const overpaid = !currencyMismatch && isSettled && newAmount < settledAmount
+  // MED-A (security-review round 2): AC3 defines "переплата" purely through
+  // the MONOTONIC `settledAmount` accumulator — the exact same principle
+  // HIGH-1 (round 1) already established for reading that accumulator at
+  // all. Gating this on `isSettled` (the obligation's CURRENT status) meant
+  // a cascade revert (task 3, "Механика возврата производной в PENDING")
+  // could leave a PENDING row holding a nonzero accumulator, and a further
+  // edit dropping the recomputed share below it produced NO overpayment
+  // warning — silently losing exactly the money HIGH-1 made visible in
+  // `settledAmount` one field over. Money already paid out does not stop
+  // being paid out because the row's status flipped back.
+  const overpaid = !currencyMismatch && settledAmount > 0 && newAmount < settledAmount
   const needsReconfirm = currencyMismatch ? isSettled : isSettled && newAmount > settledAmount
 
   const warnings: CascadeWarning[] = []
@@ -338,7 +392,10 @@ function resolveDerivative(
   if (currencyMismatch) {
     warnings.push({
       code: 'NON_USDT_CURRENCY',
-      message: `Выплата по этой строке учтена в ${settledCurrency}, а не в USDT — «уже выплачено» и «новая доля» не в одной валюте`,
+      message:
+        settledCurrency === null
+          ? `Валюта уже выплаченной суммы (${settledAmount}) не зафиксирована — сравнить с новой долей в ${sourceCurrency} нельзя`
+          : `Выплата по этой строке учтена в ${settledCurrency}, а не в ${sourceCurrency} — «уже выплачено» и «новая доля» не в одной валюте`,
     })
   }
 
@@ -348,6 +405,7 @@ function resolveDerivative(
     oldAmount,
     newAmount,
     sharePercent,
+    currency: sourceCurrency,
     settledAmount,
     settledCurrency,
     remainingToPay,
@@ -410,6 +468,7 @@ export function resolveEditCascade(
       sourceAmountChanged: false,
       oldSourceAmount: source.amount,
       newSourceAmount: source.amount,
+      sourceCurrency: source.currency,
       derivatives: [],
       sourceWarnings,
     }
@@ -420,7 +479,8 @@ export function resolveEditCascade(
     sourceAmountChanged: true,
     oldSourceAmount: source.amount,
     newSourceAmount: patch.amount,
-    derivatives: derivatives.map((d) => resolveDerivative(d, patch.amount)),
+    sourceCurrency: source.currency,
+    derivatives: derivatives.map((d) => resolveDerivative(d, patch.amount, source.currency)),
     sourceWarnings,
   }
 }

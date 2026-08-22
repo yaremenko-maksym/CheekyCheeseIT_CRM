@@ -202,6 +202,30 @@ describe('resolveEditCascade — AC6 case 3: decrease WITH overpayment', () => {
     expect(d.remainingToPay).toBe(0)
     expect(d.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(false)
   })
+
+  it('mutation-gate: the `settledAmount > 0` operand of `overpaid` is load-bearing at the settledAmount===0 boundary, not equivalent to `>=0` or `true`', () => {
+    // AC1: `resolveEditCascade` is a PURE function — it validates nothing
+    // about its own input (the wire schema's `.positive()` on
+    // `cascadeEditPreviewQuerySchema.amount` is what keeps a negative amount
+    // OUT at the HTTP boundary; the resolver itself is called directly here,
+    // the way `resolveEditCascade` is documented to be exercised in this
+    // file). A NEGATIVE proposed source amount makes `roundShareAmount`
+    // return a NEGATIVE `newAmount` — the only way to make `newAmount <
+    // settledAmount` true while `settledAmount` is exactly 0, which is the
+    // one input combination that distinguishes `settledAmount > 0` from
+    // both `settledAmount >= 0` and an unconditional `true`.
+    const s = snapshot({ amount: 1000 }, [makePendingDerivative({ sharePercent: 26 })])
+    const plan = resolveEditCascade(s, { amount: -100 }) // newAmount = -26, settledAmount = 0
+    const d = plan.derivatives[0]!
+    expect(d.newAmount).toBe(roundShareAmount(-100, 26))
+    expect(d.newAmount).toBeLessThan(0)
+    expect(d.settledAmount).toBe(0)
+    // Both mutants would fire an OVERPAYMENT warning here (settledAmount>=0
+    // is true at 0, and an unconditional true never gates at all); the real
+    // rule requires a POSITIVE accumulator — nothing has actually been paid,
+    // so there is nothing to warn about.
+    expect(d.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(false)
+  })
 })
 
 describe('resolveEditCascade — AC6 case 4: no share snapshot ⇒ refuse, not guess', () => {
@@ -302,10 +326,31 @@ describe('resolveEditCascade — AC6 case 7: валюта расчёта не US
     expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
   })
 
-  it('does not warn when settled but settledCurrency is null (pins the `&&` chain, not just `isSettled`)', () => {
+  it('LOW (security-review round 2): DOES warn when settledAmount>0 but settledCurrency is null — an unrecorded currency is treated as "cannot compare", not silently assumed to match', () => {
+    // Round 1 pinned the OPPOSITE behaviour here (no warning) to prove the
+    // `settledCurrency !== null` operand was a real, live guard — the round
+    // 2 fix REMOVES that guard on purpose (`null !== sourceCurrency` is
+    // `true` for every real currency), because treating an unrecorded
+    // currency as an implicit match is the same kind of guess the resolver
+    // refuses to make everywhere else (see NO_SHARE_SNAPSHOT). Unreachable
+    // in production today (settle always stamps both columns together) —
+    // this pins the defensive behaviour anyway.
     const s = snapshot({ amount: 1000 }, [makePaidDerivative({ settledCurrency: null })])
     const plan = resolveEditCascade(s, { amount: 2000 })
-    expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
+    const d = plan.derivatives[0]!
+    // Exact message content pinned (not `expect.any(String)`) — mutation-gate
+    // (round 2 fix pass): a mutant that always takes the non-null message
+    // branch (`settledCurrency === null` → `false`) OR blanks the null-branch
+    // template to `` is otherwise invisible through a code-only assertion,
+    // since both branches produce the SAME `NON_USDT_CURRENCY` code.
+    expect(d.warnings).toEqual([
+      {
+        code: 'NON_USDT_CURRENCY',
+        message:
+          'Валюта уже выплаченной суммы (260) не зафиксирована — сравнить с новой долей в USDT нельзя',
+      },
+    ])
+    expect(d.remainingToPay).toBeNull()
   })
 
   it('does not warn on a PENDING derivative whose settledCurrency is set but settledAmount is still null/0', () => {
@@ -348,6 +393,19 @@ describe('resolveEditCascade — HIGH-1 (security-review round 1): settled_amoun
     // A gated read (old code) would have said settledAmount=0, remainingToPay=26
     // — presenting the FULL new share for (re-)payment on money already paid.
     expect(d.remainingToPay).toBe(0)
+    // MED-A (security-review round 2): this is the EXACT scenario the finding
+    // named — a revert to PENDING (settled_amount left at 260 by AC3's
+    // "Механика возврата"), then a second edit whose recomputed share (26)
+    // falls below that accumulator. `remainingToPay: 0` alone is not enough —
+    // 234 USDT that already left the building must be flagged, and the OLD
+    // `isSettled &&` gate on `overpaid` silently dropped this warning purely
+    // because the row happens to read PENDING right now.
+    expect(d.warnings).toEqual([
+      {
+        code: 'OVERPAYMENT',
+        message: expect.stringContaining('260'),
+      },
+    ])
   })
 })
 
@@ -399,6 +457,54 @@ describe('resolveEditCascade — HIGH-2 (security-review round 1): a cross-curre
     // The obligation is currently PENDING (not settled) — needsReconfirm stays
     // false regardless of the currency mismatch.
     expect(d.needsReconfirm).toBe(false)
+  })
+})
+
+describe("resolveEditCascade — HIGH-2-residual (security-review round 2): compares settledCurrency against the SOURCE's own currency, never a hardcoded USDT literal", () => {
+  // A test that only changes the literal in a fixture cannot tell "compares
+  // against sourceCurrency" apart from "compares against 'USDT'" whenever
+  // sourceCurrency happens to BE 'USDT' — every other test in this file uses
+  // the default fixture, so all of them pass identically whether the
+  // resolver reads `source.currency` or a hardcoded string. These two tests
+  // deliberately move the source OFF USDT to make the two implementations
+  // disagree.
+  it('a source booked in a non-USDT currency, settled in THAT SAME currency, is NOT flagged as a mismatch', () => {
+    const s = snapshot({ amount: 1000, currency: 'EUR' }, [
+      makePaidDerivative({ settledCurrency: 'EUR', settledAmount: 260 }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    const d = plan.derivatives[0]!
+    // A hardcoded `!== 'USDT'` check would flag this row (settledCurrency
+    // 'EUR' !== 'USDT') even though nothing here is actually mismatched —
+    // both the source and the settle are in EUR.
+    expect(d.currency).toBe('EUR')
+    expect(d.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
+    expect(d.remainingToPay).not.toBeNull()
+    expect(d.remainingToPay).toBe(Number((d.newAmount! - 260).toFixed(6)))
+  })
+
+  it('a source booked in a non-USDT currency, settled in USDT, IS flagged — proves the comparison is not simply "is settledCurrency USDT"', () => {
+    const s = snapshot({ amount: 1000, currency: 'EUR' }, [
+      makePaidDerivative({ settledCurrency: 'USDT', settledAmount: 260 }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    const d = plan.derivatives[0]!
+    // A hardcoded `!== 'USDT'` check would treat this as MATCHING (settled
+    // currency literally IS 'USDT') and silently subtract a USDT figure from
+    // a EUR share — the exact inverse of the bug HIGH-2 already fixed for
+    // the DROP/UAH case, mirrored onto the currency the source itself uses.
+    expect(d.currency).toBe('EUR')
+    expect(d.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(true)
+    expect(d.remainingToPay).toBeNull()
+  })
+
+  it('cascadePlan carries the SOURCE currency at top level, and every derivative carries the currency oldAmount/newAmount are denominated in', () => {
+    const s = snapshot({ amount: 1000, currency: 'EUR' }, [
+      makePendingDerivative({ sharePercent: 26 }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    expect(plan.sourceCurrency).toBe('EUR')
+    expect(plan.derivatives[0]!.currency).toBe('EUR')
   })
 })
 
@@ -558,6 +664,24 @@ describe('resolveEditCascade — AC7 property test', () => {
     // regress back to a generator that never exercises the disputed case.
     let pendingWithSettledHistory = 0
     let crossCurrencyMismatchCases = 0
+    // MED-A (security-review round 2): the disputed combination for the
+    // OVERPAYMENT flag specifically — obligation PENDING (isSettled=false),
+    // yet the recomputed share sits BELOW a nonzero settledAmount. Before the
+    // fix `overpaid` was gated on `isSettled`, so this exact combination
+    // could occur without ever producing a warning; asserted > 0 below so a
+    // regression back to the status-gated formula cannot silently stop being
+    // exercised.
+    let pendingOverpaidCases = 0
+
+    // HIGH-2-residual (security-review round 2): the source's OWN currency
+    // — every snapshot below uses the default fixture (`makeSource()`),
+    // which is 'USDT', so this mirrors `source.currency` exactly. Kept as an
+    // explicit local rather than the literal `'USDT'` so the intent of every
+    // comparison below reads as "against the source", matching
+    // `resolveDerivative`'s own parameter — not because this loop varies it
+    // (the two HIGH-2-residual unit tests above are what prove the resolver
+    // does not simply hardcode `'USDT'`).
+    const sourceCurrency = 'USDT' as const
 
     for (let i = 0; i < ITERATIONS; i++) {
       const income = 1 + rand() * 100_000
@@ -610,6 +734,9 @@ describe('resolveEditCascade — AC7 property test', () => {
       if (!plan.sourceAmountChanged) continue // delta==0 path — covered separately
       const d = plan.derivatives[0]!
       expect(d.newAmount).toBe(roundShareAmount(newIncome, percent))
+      // The wire contract's currency tag — always the source's own currency,
+      // regardless of everything else varied per iteration.
+      expect(d.currency).toBe(sourceCurrency)
 
       // Invariant 1 (HIGH-1): the accumulator the plan REPORTS is exactly
       // what the snapshot carried — UNCONDITIONALLY, never gated by the
@@ -617,8 +744,11 @@ describe('resolveEditCascade — AC7 property test', () => {
       expect(d.settledAmount).toBe(settledAmount)
       expect(d.settledCurrency).toBe(settledCurrency)
 
-      const currencyMismatch =
-        settledAmount > 0 && settledCurrency !== null && settledCurrency !== 'USDT'
+      // HIGH-2-residual (security-review round 2): compared against the
+      // SOURCE's currency, and the `settledCurrency !== null` guard round 1
+      // had is gone — an unrecorded currency no longer reads as an implicit
+      // match (LOW, round 2).
+      const currencyMismatch = settledAmount > 0 && settledCurrency !== sourceCurrency
       if (currencyMismatch) crossCurrencyMismatchCases++
 
       // Invariant 2 (HIGH-2): remainingToPay is the plain subtraction ONLY
@@ -629,18 +759,28 @@ describe('resolveEditCascade — AC7 property test', () => {
         : Math.max(0, Number((d.newAmount! - settledAmount).toFixed(6)))
       expect(d.remainingToPay).toBe(expectedRemaining)
 
-      // Invariant 3: needsReconfirm/OVERPAYMENT are never derived from a
-      // cross-currency comparison. Under a mismatch, needsReconfirm collapses
-      // to the pure status question (isSettled) and OVERPAYMENT never fires
-      // (HIGH-2) — expected values computed via boolean expressions (not an
-      // if/else around `expect`) so every iteration exercises the same
-      // unconditional assertions.
+      // Invariant 3: needsReconfirm is never derived from a cross-currency
+      // comparison — under a mismatch it collapses to the pure status
+      // question (isSettled).
       const expectedNeedsReconfirm = currencyMismatch
         ? isSettled
         : isSettled && d.newAmount! > settledAmount
-      const expectedOverpaymentWarning =
-        !currencyMismatch && isSettled && d.newAmount! < settledAmount
       expect(d.needsReconfirm).toBe(expectedNeedsReconfirm)
+
+      // Invariant 4 (MED-A, security-review round 2): OVERPAYMENT is driven
+      // PURELY by the monotonic accumulator (settledAmount > 0 && newAmount <
+      // settledAmount) — AC3's own definition — never by the obligation's
+      // CURRENT status. This is deliberately NOT "whatever the SUT computes"
+      // reflected back: it is the accumulator-only rule the ADR specifies,
+      // independent of `isSettled`, so a regression to the old
+      // `isSettled && ...` gate changes `d.warnings` (via the SUT) without
+      // changing this expected value — and the assertion catches the
+      // divergence, on the `pendingOverpaidCases` iterations specifically.
+      if (!currencyMismatch && obligationStatus === 'PENDING' && d.newAmount! < settledAmount) {
+        pendingOverpaidCases++
+      }
+      const expectedOverpaymentWarning =
+        !currencyMismatch && settledAmount > 0 && d.newAmount! < settledAmount
       expect(d.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(expectedOverpaymentWarning)
       expect(d.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(currencyMismatch)
     }
@@ -651,6 +791,7 @@ describe('resolveEditCascade — AC7 property test', () => {
     // cannot break).
     expect(pendingWithSettledHistory).toBeGreaterThan(0)
     expect(crossCurrencyMismatchCases).toBeGreaterThan(0)
+    expect(pendingOverpaidCases).toBeGreaterThan(0)
   })
 })
 
@@ -699,6 +840,7 @@ describe('cascadePlanSchema — full round-trip (also covers nested cascadeDeriv
       oldAmount: 260,
       newAmount: 520,
       sharePercent: 26,
+      currency: 'USDT',
       settledAmount: 260,
       settledCurrency: 'USDT',
       remainingToPay: 260,
@@ -710,6 +852,7 @@ describe('cascadePlanSchema — full round-trip (also covers nested cascadeDeriv
       sourceAmountChanged: true,
       oldSourceAmount: 1000,
       newSourceAmount: 2000,
+      sourceCurrency: 'USDT',
       derivatives: [derivativePlan],
       sourceWarnings: [sourceWarning],
     }
@@ -791,6 +934,7 @@ describe('cascadeEditPreviewResponseSchema — wire contract', () => {
         sourceAmountChanged: false,
         oldSourceAmount: 1000,
         newSourceAmount: 1000,
+        sourceCurrency: 'USDT',
         derivatives: [],
         sourceWarnings: [],
       },
