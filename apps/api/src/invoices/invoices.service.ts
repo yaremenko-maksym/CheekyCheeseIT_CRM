@@ -1264,19 +1264,35 @@ export class InvoicesService {
     // signed (frozen at sign time in `signInvoice`), never the live
     // `transactions` row — a later amount edit (or any write that bypasses
     // the AC2 void path) must not surface as "confirmed" here. Falls back
-    // to the live columns only for legacy rows signed before this
-    // migration shipped (no snapshot to read): those were signed while
-    // BIZ-18 still blocked ALL PAID-amount edits unconditionally, so no
-    // divergence was ever possible for them in the first place.
+    // to the live columns for legacy rows signed before this migration
+    // shipped (no snapshot to read): for SALARY/SENIOR_INCOME those were
+    // signed while BIZ-18 still blocked ALL PAID-amount edits
+    // unconditionally, so no divergence was ever possible for them in the
+    // first place (the migration's backfill also closes this case going
+    // forward). For PAYOUT, this branch is NOT a transient legacy-only
+    // gap: the migration's backfill deliberately EXCLUDES PAYOUT rows
+    // (security-review round 3, HIGH-2 — `tx.amount` there is the USDT
+    // payable, a different number by construction from the aggregated sum
+    // this endpoint actually needs, see the BIZ-05 comment a few lines
+    // below the `signInvoice` amount resolution), so any PAYOUT
+    // COUNTERPARTY signature created before this migration shipped falls
+    // back to the live amount permanently — safely, because it is the
+    // SAME number `signInvoice` would have written anyway (see the
+    // migration file's own comment for the full argument).
     if (counterpartySig.amountSnapshot === null) {
       // security-review round 2 (PR #600, HIGH-1): this migration's DDL
-      // backfills every row that existed when it shipped, and MED-3 makes a
-      // NULL snapshot structurally impossible for anything signed after —
-      // so reaching this branch now means either a write that bypassed
-      // signInvoice entirely, or a backfill that has not run yet. The
+      // backfills every non-PAYOUT row that existed when it shipped
+      // (PAYOUT is excluded on purpose, HIGH-2 — see above), and MED-3
+      // makes a NULL snapshot structurally impossible for anything signed
+      // after, PAYOUT included (`signInvoice` always writes the resolved
+      // `txInfo.amount` in the same INSERT) — so reaching this branch now
+      // means either a legacy PAYOUT row from before this migration
+      // shipped (expected, see above), a write that bypassed signInvoice
+      // entirely, or a non-PAYOUT backfill that has not run yet. The
       // response below has nowhere honest to point except the live amount
       // (that IS the pre-migration invariant this fallback relies on) —
-      // log it loudly so a real divergence stays VISIBLE instead of silent.
+      // log it loudly so a real (non-PAYOUT) divergence stays VISIBLE
+      // instead of silent.
       this.logger.warn(
         `verifyInvoice: tx=${tx.id} COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — falling back to live tx.amount`,
       )

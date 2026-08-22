@@ -71,6 +71,16 @@
 -- creates the COUNTERPARTY row instead of a follow-up UPDATE — lives in
 -- `InvoicesService.signInvoice`, not here; noted for cross-reference only.)
 --
+-- ROUND 3 (security-review, PR #600, HIGH-2) — the backfill below EXCLUDES
+-- `type = 'PAYOUT'` rows and the verify check is scoped the same way. See
+-- the backfill's own comment for the full reasoning: for PAYOUT,
+-- `tx.amount` is structurally a DIFFERENT number (the USDT payable) from
+-- what was actually signed (the aggregated linked-income sum,
+-- `InvoicesService.signInvoice`'s BIZ-05 branch) — backfilling it with
+-- `tx.amount` would not recover a historical fact the way it does for
+-- SALARY/SENIOR_INCOME, it would freeze a wrong number as "confirmed" and
+-- make that wrong freeze indistinguishable from a real signature forever.
+--
 -- How to apply
 -- ------------
 --   docker compose -f docker-compose.prod.yml exec -T postgres psql \
@@ -167,12 +177,32 @@ END $$;
 -- as "confirmed" for whichever row raced ahead of it. This must apply in
 -- the SAME deploy as the rest of this file.
 --
+-- security-review round 3 (PR #600, HIGH-2): `AND t.type <> 'PAYOUT'` below
+-- — the safety argument two paragraphs up does NOT hold for PAYOUT rows.
+-- `InvoicesService.signInvoice`'s BIZ-05 branch writes the COUNTERPARTY
+-- snapshot for PAYOUT from the AGGREGATED linked-income sum, never from
+-- `tx.amount` — `tx.amount` on a PAYOUT row is the payable in USDT, a
+-- different number in a different currency BY CONSTRUCTION, not by a later
+-- edit BIZ-18 happened to block. Backfilling a PAYOUT row with `tx.amount`
+-- would not recover a historical fact; it would WRITE A WRONG ONE, and
+-- because a non-NULL snapshot is exactly what this whole migration teaches
+-- `verifyInvoice` to trust unconditionally, that wrong number would become
+-- permanently indistinguishable from a real signature — closing the one
+-- diagnostic signal (`amount_snapshot IS NULL` + the logger.warn below)
+-- this same migration exists to introduce. Leaving PAYOUT rows NULL changes
+-- nothing a user can see today: `verifyInvoice`'s existing live-tx.amount
+-- fallback already returns the identical number it always has for them.
+--
 -- Idempotent: scoped to `amount_snapshot IS NULL` — a second run (or a run
 -- against a DB where every row was already signed after this shipped)
 -- finds zero targets. Wrapped in its own transaction with a fail-loud
 -- verify (STEP pattern matches the other backfills in this directory,
 -- e.g. `2026-08-12_admin_income_drop_backfill_apply.sql`) so a partial
--- backfill can never silently reach a "success" exit code.
+-- backfill can never silently reach a "success" exit code. The verify
+-- check below is scoped to exclude PAYOUT for the same HIGH-2 reason as the
+-- UPDATE — without that, it would RAISE EXCEPTION on the very rows this
+-- backfill now deliberately leaves NULL, aborting Step 2af in
+-- `.github/workflows/deploy.yml` on prod.
 BEGIN;
 
 UPDATE invoice_signatures s
@@ -182,21 +212,26 @@ UPDATE invoice_signatures s
  WHERE t.id = s.transaction_id
    AND s.signer_role = 'COUNTERPARTY'
    AND s.voided_at IS NULL
-   AND s.amount_snapshot IS NULL;
+   AND s.amount_snapshot IS NULL
+   AND t.type <> 'PAYOUT';
 
 DO $$
 DECLARE
   v_remaining integer;
 BEGIN
   SELECT count(*) INTO v_remaining
-  FROM invoice_signatures
-  WHERE signer_role = 'COUNTERPARTY' AND voided_at IS NULL AND amount_snapshot IS NULL;
+  FROM invoice_signatures s
+  JOIN transactions t ON t.id = s.transaction_id
+  WHERE s.signer_role = 'COUNTERPARTY'
+    AND s.voided_at IS NULL
+    AND s.amount_snapshot IS NULL
+    AND t.type <> 'PAYOUT';
 
   IF v_remaining <> 0 THEN
-    RAISE EXCEPTION 'invoice-signature-void-and-snapshot backfill FAILED verify: % active COUNTERPARTY row(s) still have NULL amount_snapshot — verifyInvoice would still fall back to the live amount for them', v_remaining;
+    RAISE EXCEPTION 'invoice-signature-void-and-snapshot backfill FAILED verify: % active non-PAYOUT COUNTERPARTY row(s) still have NULL amount_snapshot — verifyInvoice would still fall back to the live amount for them', v_remaining;
   END IF;
 
-  RAISE NOTICE 'invoice-signature-void-and-snapshot backfill: verify passed — 0 active COUNTERPARTY signature(s) with NULL amount_snapshot remain';
+  RAISE NOTICE 'invoice-signature-void-and-snapshot backfill: verify passed — 0 active non-PAYOUT COUNTERPARTY signature(s) with NULL amount_snapshot remain (PAYOUT rows intentionally left NULL — see the backfill comment above, HIGH-2)';
 END $$;
 
 COMMIT;
