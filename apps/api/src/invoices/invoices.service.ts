@@ -54,7 +54,7 @@ import {
   Inject,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
 import {
   type ContractTargetRole,
@@ -538,6 +538,133 @@ export class InvoicesService {
   }
 
   // ===========================================================================
+  // Void on amount edit (task-invoice-signature-integrity, AC2)
+  // ===========================================================================
+
+  /**
+   * AC2 (owner decision 2026-08-22). Called by the amount-edit path
+   * (task-3, apps/api paid-transaction-edit-cascade) for ANY transaction
+   * whose `amount` is about to change (or has just changed) and that
+   * currently carries an invoice. The invoice PDF is a legal artifact bound
+   * to specific bytes and cannot be "corrected" — this VOIDS it wholesale
+   * instead of silently re-rendering:
+   *   - soft-deletes the current document (`documentsService.softDeleteInternal`
+   *     — same call `signInvoice` already uses for its superseded doc; the
+   *     file stays in S3/audit trail, just no longer "the" active document);
+   *   - stamps `voidedAt` on every currently-active `invoice_signatures` row
+   *     for this transaction — rows are NEVER deleted. "Person X clicked
+   *     sign on file with hash H at time T" is a historical fact that stays
+   *     true forever and may be needed to investigate a dispute; only the
+   *     row's *authority* over "is this transaction currently signed" is
+   *     retired (see the schema doc comment on `voidedAt` for the full
+   *     reasoning, and the partial unique index that makes this safe to do
+   *     repeatedly without colliding with a future re-sign);
+   *   - nulls `transactions.invoiceDocumentId`, which is what makes
+   *     `autoCreate` / `autoCreateForPayout`'s existing idempotency guard
+   *     (`if (tx.invoiceDocumentId) return`) allow a FRESH invoice the next
+   *     time this transaction (re-)reaches PAID.
+   *
+   * Returns `{ hadInvoice, wasSigned }` — `reissueInvoiceIfStillPaid`
+   * (AC2-bis, below) uses `hadInvoice` to decide whether an immediate
+   * reissue is needed; a caller surfacing this to an admin can use
+   * `wasSigned` to warn "this voided a COUNTERPARTY-signed invoice, not
+   * just a pending one".
+   */
+  async voidInvoiceForAmountEdit(
+    transactionId: string,
+    actorId: string,
+  ): Promise<{ hadInvoice: boolean; wasSigned: boolean }> {
+    const [tx] = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(eq(nonDeletedTransactions.id, transactionId))
+      .limit(1)
+    if (!tx || !tx.invoiceDocumentId) return { hadInvoice: false, wasSigned: false }
+
+    const activeSigs = await this.db.db
+      .select({ signerRole: invoiceSignatures.signerRole })
+      .from(invoiceSignatures)
+      .where(
+        and(eq(invoiceSignatures.transactionId, transactionId), isNull(invoiceSignatures.voidedAt)),
+      )
+    const wasSigned = activeSigs.some((s) => s.signerRole === 'COUNTERPARTY')
+
+    await this.documentsService.softDeleteInternal(tx.invoiceDocumentId, actorId)
+    await this.db.db
+      .update(invoiceSignatures)
+      .set({ voidedAt: new Date() })
+      .where(
+        and(eq(invoiceSignatures.transactionId, transactionId), isNull(invoiceSignatures.voidedAt)),
+      )
+    await this.db.db
+      .update(transactions)
+      .set({ invoiceDocumentId: null, updatedAt: new Date() })
+      .where(eq(transactions.id, transactionId))
+
+    this.logger.log(
+      `voidInvoiceForAmountEdit: tx=${transactionId} wasSigned=${wasSigned} doc=${tx.invoiceDocumentId}`,
+    )
+    return { hadInvoice: true, wasSigned }
+  }
+
+  /**
+   * AC2-bis. Closes the gap `voidInvoiceForAmountEdit` opens on its own:
+   * `autoCreate*`'s idempotency guard only fires on the NEXT transition to
+   * PAID, but not every invoice-bearing type re-transitions after an
+   * amount edit —
+   *   - SALARY never does: it is not a cascade derivative of anything
+   *     (docs/architecture/2026-08-22-paid-transaction-edit-cascade.md
+   *     AC3, "Глубже одного уровня" — the only cascade source is
+   *     ADMIN_INCOME). `paySalary` is the sole PAID-transition trigger and
+   *     nothing re-runs it just because the amount changed;
+   *   - a directly-edited SENIOR_INCOME row that is NOT itself the
+   *     cascade-reverted derivative of an ADMIN_INCOME edit behaves the
+   *     same way — a leaf edit with no upstream to bounce it through
+   *     PENDING again;
+   *   - PAYOUT rows are structurally unreachable here: edits are blocked by
+   *     both the PAYOUT-family block and the payoutRequestId guard ("гвард
+   *     2") in `TransactionsService.adminUpdateTransaction` — nothing to
+   *     do, ever.
+   *
+   * Reading `tx.status` AFTER the caller applies the amount change (and
+   * after any cascade-driven status flip has already happened) is what
+   * makes this correct for BOTH cases without needing to know which one
+   * applies: if the row is STILL PAID, nothing else will ever re-trigger
+   * `autoCreate*` for it, so this does so immediately, with the NEW amount.
+   * If the row was instead reverted to PENDING/PENDING_PAYMENT as part of
+   * a cascade, this is a no-op — the natural re-confirmation flow
+   * (`settleByCompany` et al.) reaches PAID again on its own, and the
+   * now-null `invoiceDocumentId` lets its EXISTING trigger regenerate.
+   */
+  async reissueInvoiceIfStillPaid(transactionId: string): Promise<void> {
+    const [tx] = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(eq(nonDeletedTransactions.id, transactionId))
+      .limit(1)
+    if (!tx || tx.status !== 'PAID') return
+    if (tx.type === 'SALARY') {
+      await this.autoCreateForSalary(tx.id)
+    } else if (tx.type === 'SENIOR_INCOME') {
+      await this.autoCreateForSeniorPayout(tx.id)
+    }
+    // PAYOUT: unreachable — amount edits on PAYOUT-family rows are blocked
+    // structurally (see doc comment above). No branch needed; falling
+    // through is a defensive no-op, not a silent gap.
+  }
+
+  /**
+   * Convenience wrapper — the single call task-3's amount-edit path is
+   * expected to make. Kept separate from the two methods above (rather
+   * than inlined) so AC4's test can exercise "void only" and "void +
+   * reissue" independently.
+   */
+  async voidAndReissueInvoiceForAmountEdit(transactionId: string, actorId: string): Promise<void> {
+    const { hadInvoice } = await this.voidInvoiceForAmountEdit(transactionId, actorId)
+    if (hadInvoice) await this.reissueInvoiceIfStillPaid(transactionId)
+  }
+
+  // ===========================================================================
   // List
   // ===========================================================================
 
@@ -741,6 +868,10 @@ export class InvoicesService {
     }
 
     // ---- Conflict: already signed ----
+    // task-invoice-signature-integrity: scoped to ACTIVE (voidedAt IS NULL)
+    // rows only. A transaction that went through void → reissue (AC2) can
+    // carry a HISTORICAL COUNTERPARTY row from a prior, now-voided invoice
+    // — that must not block signing the current, freshly-issued one.
     const existing = await this.db.db
       .select()
       .from(invoiceSignatures)
@@ -748,6 +879,7 @@ export class InvoicesService {
         and(
           eq(invoiceSignatures.transactionId, tx.id),
           eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          isNull(invoiceSignatures.voidedAt),
         ),
       )
       .limit(1)
@@ -756,6 +888,8 @@ export class InvoicesService {
     }
 
     // ---- Re-fetch the COMPANY signature to verify hash equality ----
+    // Same ACTIVE-only scoping as above — the COMPANY row this compares
+    // against must be the one attesting to the CURRENT document.
     const companySig = await this.db.db
       .select()
       .from(invoiceSignatures)
@@ -763,6 +897,7 @@ export class InvoicesService {
         and(
           eq(invoiceSignatures.transactionId, tx.id),
           eq(invoiceSignatures.signerRole, 'COMPANY'),
+          isNull(invoiceSignatures.voidedAt),
         ),
       )
       .limit(1)
@@ -905,6 +1040,24 @@ export class InvoicesService {
       txDate: tx.txDate ?? tx.createdAt,
     }
 
+    // ---- AC3: freeze what the FINAL PDF actually contains on the
+    // COUNTERPARTY row, verbatim, never recomputed on read. This is what
+    // the public /verify endpoint reads instead of the live tx.amount, so
+    // a LATER amount edit (or any write that bypasses the AC2 void path)
+    // can never surface as "confirmed" by a signature that never attested
+    // to it. Scoped to voidedAt IS NULL — this is the row inserted a few
+    // lines above, in this same call.
+    await this.db.db
+      .update(invoiceSignatures)
+      .set({ amountSnapshot: txInfo.amount, currencySnapshot: txInfo.currency })
+      .where(
+        and(
+          eq(invoiceSignatures.transactionId, tx.id),
+          eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          isNull(invoiceSignatures.voidedAt),
+        ),
+      )
+
     const { pdfBuffer: newPdf } = await this.pdfService.generateSignableInvoicePdf({
       transaction: txInfo,
       company: COMPANY_INFO,
@@ -974,16 +1127,27 @@ export class InvoicesService {
     // once the counterparty has signed. Returning data for PENDING invoices
     // would expose amount and counterparty name via transactionId enumeration
     // before the employee has consented to the payment record.
-    const isSigned = sigs.some((s) => s.signerRole === 'COUNTERPARTY')
-    if (!isSigned) {
+    const counterpartySig = sigs.find((s) => s.signerRole === 'COUNTERPARTY')
+    if (!counterpartySig) {
       throw new NotFoundException('Инвойс не найден')
     }
+
+    // AC3: source amount/currency from what the counterparty ACTUALLY
+    // signed (frozen at sign time in `signInvoice`), never the live
+    // `transactions` row — a later amount edit (or any write that bypasses
+    // the AC2 void path) must not surface as "confirmed" here. Falls back
+    // to the live columns only for legacy rows signed before this
+    // migration shipped (no snapshot to read): those were signed while
+    // BIZ-18 still blocked ALL PAID-amount edits unconditionally, so no
+    // divergence was ever possible for them in the first place.
+    const verifiedAmount = counterpartySig.amountSnapshot ?? tx.amount
+    const verifiedCurrency = (counterpartySig.currencySnapshot ?? tx.currency) as typeof tx.currency
 
     return {
       transactionId: tx.id,
       status: 'SIGNED' as InvoiceStatus,
-      amount: tx.amount,
-      currency: tx.currency,
+      amount: verifiedAmount,
+      currency: verifiedCurrency,
       // Public InvoiceType enum is SENIOR_INCOME | SALARY — PAYOUT maps to
       // SENIOR_INCOME for the verify response.
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
@@ -1168,8 +1332,16 @@ export class InvoicesService {
       pdfHash: string
       pdfHashShort: string
       method: 'AUTO_COMPANY' | 'MANUAL_CLICK'
+      /** AC3 — populated only on COUNTERPARTY rows signed after this migration. */
+      amountSnapshot: string | null
+      currencySnapshot: string | null
     }>
   > {
+    // task-invoice-signature-integrity: every caller (getInvoice, signInvoice,
+    // verifyInvoice) wants signatures for the transaction's CURRENT invoice
+    // only — a voided row belongs to a PRIOR, superseded invoice generation
+    // (AC2) and must never be reported as "this is signed" for the current
+    // one. Scoping here, once, means no caller can forget it.
     const rows = await this.db.db
       .select({
         id: invoiceSignatures.id,
@@ -1180,10 +1352,14 @@ export class InvoicesService {
         signedAt: invoiceSignatures.signedAt,
         pdfHash: invoiceSignatures.pdfHash,
         method: invoiceSignatures.method,
+        amountSnapshot: invoiceSignatures.amountSnapshot,
+        currencySnapshot: invoiceSignatures.currencySnapshot,
       })
       .from(invoiceSignatures)
       .leftJoin(users, eq(users.id, invoiceSignatures.signerId))
-      .where(eq(invoiceSignatures.transactionId, transactionId))
+      .where(
+        and(eq(invoiceSignatures.transactionId, transactionId), isNull(invoiceSignatures.voidedAt)),
+      )
 
     // Sort: COMPANY first (so the PDF always renders the same order) then
     // COUNTERPARTY. Within the same role we sort by signedAt for stability.
@@ -1204,6 +1380,8 @@ export class InvoicesService {
       pdfHash: r.pdfHash,
       pdfHashShort: shortHash(r.pdfHash),
       method: r.method as 'AUTO_COMPANY' | 'MANUAL_CLICK',
+      amountSnapshot: r.amountSnapshot,
+      currencySnapshot: r.currencySnapshot,
     }))
   }
 }

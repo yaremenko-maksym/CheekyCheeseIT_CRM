@@ -1518,10 +1518,36 @@ export const invoiceSignatures = pgTable(
     ipAddress: inet('ip_address'),
     userAgent: text('user_agent'),
     method: invoiceSignatureMethodEnum('method').notNull(),
+    // task-invoice-signature-integrity (AC2, owner decision 2026-08-22):
+    // stamped once, when the amount-edit path (task-3,
+    // paid-transaction-edit-cascade) VOIDS the invoice this row attests to.
+    // NULL = still the active attestation for the transaction's CURRENT
+    // invoice. Non-null rows are kept forever, never deleted — "person X
+    // clicked sign on file with hash H at time T" stays true even after the
+    // underlying transaction amount changes and a fresh invoice is issued;
+    // only the row's *authority* over "is this tx currently signed" is
+    // retired. This is the audit trail an investigation would need.
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    // task-invoice-signature-integrity (AC3): what the FINAL rendered PDF
+    // actually contains at signing time, frozen verbatim — never recomputed
+    // on read (same discipline as `originalAmount`/`exchangeRate`, see C2 in
+    // docs/architecture/2026-08-22-paid-transaction-edit-cascade.md). Only
+    // populated on the COUNTERPARTY row — the one the public /verify
+    // endpoint reads — so a later `transactions.amount` edit (or any write
+    // that bypasses the void path in AC2) can never surface as "confirmed".
+    amountSnapshot: numeric('amount_snapshot', { precision: 18, scale: 6 }),
+    currencySnapshot: currencyEnum('currency_snapshot'),
   },
   (t) => [
-    // One signature per (transaction, role) — guards against double-sign races.
-    unique('uniq_sig').on(t.transactionId, t.signerRole),
+    // One ACTIVE signature per (transaction, role) — guards against
+    // double-sign races. Partial (WHERE voided_at IS NULL), not blanket:
+    // task-invoice-signature-integrity needs a transaction to carry more
+    // than one HISTORICAL signature per role across successive
+    // void → reissue → re-sign cycles. Same "one active, unlimited history"
+    // shape as `uq_pending_obligations_source_pending` elsewhere in this file.
+    uniqueIndex('uq_invoice_signatures_active')
+      .on(t.transactionId, t.signerRole)
+      .where(sql`${t.voidedAt} IS NULL`),
     index('idx_invoice_signatures_transaction').on(t.transactionId),
     index('idx_invoice_signatures_signer').on(t.signerId),
   ],
