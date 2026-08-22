@@ -954,6 +954,13 @@ describe('InvoicesService', () => {
       expect(result.amount).toBe('500.000000')
       expect(result.amount).not.toBe('999')
       expect(warnSpy).not.toHaveBeenCalled()
+      // security-review round 5 (PR #600, mutation-gate closure): the
+      // snapshot-present branch never recomputes through
+      // `resolvePayoutAggregateAmount`, so `mixedCurrency` stays at its
+      // declared default — pins that default down to `false` (a mutant
+      // flipping the initializer to `true` would otherwise survive, since
+      // no OTHER test on this branch reads the field at all).
+      expect(result.mixedCurrency).toBe(false)
     })
 
     it('AC2-bis (round 4, HIGH-3): a NULL-snapshot PAYOUT row with payoutRequestId IS NULL refuses to confirm an amount, instead of falling back to the unrelated live tx.amount', async () => {
@@ -1278,6 +1285,18 @@ describe('InvoicesService', () => {
         expect.stringContaining('recomputed from linked incomes'),
       )
       expect(errorSpy).not.toHaveBeenCalled()
+      // security-review round 5 (PR #600, mutation-gate closure): a SINGLE
+      // linked income is one distinct currency (`currencies.size === 1`) —
+      // pins `mixedCurrency` down to `false` here (a mutant forcing it
+      // `true`, or widening `> 1` to `>= 1`, would otherwise survive: the
+      // ONLY other test reading this field uses a genuinely mixed batch)
+      // and confirms the mixed-currency-specific warning line never fires
+      // for a single-currency aggregate (a mutant forcing that `if` to
+      // `true` would otherwise survive too).
+      expect(result.mixedCurrency).toBe(false)
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('has linked incomes in more than one currency'),
+      )
     })
 
     it('returns 404 for transactions without an invoice', async () => {
@@ -1707,6 +1726,40 @@ describe('InvoicesService', () => {
       h.ctrl.findTxId = 'tx-missing'
       await h.svc.autoCreateForPayout('tx-missing')
       expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+    })
+
+    it('defensive-only (round 5, HIGH-4 mutation-gate closure): resolvePayoutAggregateAmount unexpectedly returning null despite non-empty linked incomes is a no-op, not a crash', async () => {
+      // "Should never happen in production": the SEPARATE linked-incomes
+      // fetch above (project names / receiver resolution) already confirmed
+      // length > 0, but the shared helper is forced to return null anyway —
+      // the only way to reach this defensive branch, since both queries are
+      // structurally identical in the mocked harness and cannot diverge on
+      // their own (they read the same `ctrl.linkedPayoutRequestId` state).
+      const { h, projectRows } = makePayoutHarness({
+        incomeRows: [{ id: 'inc-1', amount: '1500', projectId: 'p-1' }],
+      })
+      h.ctrl.findTxId = PAYOUT_TX_ID
+      h.ctrl.linkedPayoutRequestId = REQ_ID
+      // Same lookup queues the happy-path tests seed — the counterparty/
+      // admin/project resolution above the mutated branch must still
+      // succeed so execution actually reaches it.
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.projectFindQueue = projectRows.map((p) => p.id)
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      vi.spyOn(
+        h.svc as unknown as {
+          resolvePayoutAggregateAmount: (id: string | null) => Promise<unknown>
+        },
+        'resolvePayoutAggregateAmount',
+      ).mockResolvedValue(null)
+
+      await h.svc.autoCreateForPayout(PAYOUT_TX_ID)
+
+      expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+      expect(h.uploadInternal).not.toHaveBeenCalled()
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('aggregate amount could not be resolved'),
+      )
     })
   })
 
