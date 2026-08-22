@@ -372,6 +372,110 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(senior.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(true)
     })
 
+    // ── HIGH-1 (security-review round 1) — real DB: settled_amount survives a
+    // cascade revert back to PENDING (AC3 "Механика возврата", task 3's future
+    // mechanic) — simulated directly here since task 3 does not exist yet. The
+    // point is `loadCascadeSnapshot` + the resolver reading the REAL row after
+    // exactly that state transition, not just a hand-built snapshot.
+    it('ADMIN: a settled derivative manually reverted to PENDING (settled_amount left untouched) still reports the REAL accumulator, not zero', async () => {
+      const income = await declare(1000)
+      const obligation = await seniorObligation()
+      await settleSvc.settleByCompany(obligation.id, ADMIN_MAKSYM, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xcascadepreviewspec',
+      })
+
+      // Simulate AC3's revert mechanic by hand (task 3 is not built yet):
+      // obligation status back to PENDING, the derivative row back to
+      // PENDING_PAYMENT with its live sharePercent snapshot RESTORED (AC3
+      // point 3) — but settled_amount/settled_currency/settled_share_percent
+      // (the monotonic accumulator from task 1) deliberately left alone.
+      await dbSvc.db
+        .update(pendingObligations)
+        .set({ status: 'PENDING', closingTransactionId: null })
+        .where(eq(pendingObligations.id, obligation.id))
+      await dbSvc.db
+        .update(transactions)
+        .set({
+          status: 'PENDING_PAYMENT',
+          type: 'SENIOR_PENDING_PAYOUT',
+          seniorSharePercent: SENIOR_SHARE,
+        })
+        .where(eq(transactions.id, obligation.sourceTransactionId))
+
+      const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
+      const senior = plan.plan!.derivatives.find((d) => d.id === obligation.sourceTransactionId)!
+      // The bug this pins: before the fix, a PENDING obligation forced
+      // settledAmount to 0 regardless of what the row actually held.
+      expect(senior.settledAmount).toBeCloseTo((1000 * SENIOR_SHARE) / 100, 6)
+      expect(senior.newAmount).toBeCloseTo((2000 * SENIOR_SHARE) / 100, 6)
+      expect(senior.remainingToPay).toBeCloseTo(senior.newAmount! - senior.settledAmount, 6)
+    })
+
+    // ── HIGH-2 (security-review round 1) — real DB: a non-USDT settled_currency
+    // is never subtracted from the USDT newAmount. The conversion WRITE path
+    // (a real DROP settle in UAH/EUR/USD) is already proven by
+    // `pending-settlement.drop-currency.spec.ts`; this spec's job is only the
+    // READ side — `loadCascadeSnapshot` handing a non-USDT settled_currency to
+    // the resolver honestly.
+    it('ADMIN: a real row whose settled_currency is not USDT → remainingToPay null, no fabricated OVERPAYMENT', async () => {
+      const income = await declare(1000)
+      const obligation = await seniorObligation()
+      await settleSvc.settleByCompany(obligation.id, ADMIN_MAKSYM, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xcascadepreviewspec',
+      })
+      await dbSvc.db
+        .update(transactions)
+        .set({ settledCurrency: 'UAH' })
+        .where(eq(transactions.id, obligation.sourceTransactionId))
+
+      const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
+      const senior = plan.plan!.derivatives.find((d) => d.id === obligation.sourceTransactionId)!
+      expect(senior.settledCurrency).toBe('UAH')
+      expect(senior.remainingToPay).toBeNull()
+      expect(senior.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(true)
+      expect(senior.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(false)
+    })
+
+    // ── MED-1 (security-review round 1) — real DB: warnings about the SOURCE
+    // row itself, not just its derivatives ───────────────────────────────────
+    it('ADMIN: the SOURCE row carrying originalAmount surfaces SOURCE_ORIGINAL_AMOUNT_SET', async () => {
+      const income = await declare(1000)
+      await dbSvc.db
+        .update(transactions)
+        .set({ originalAmount: '950.000000' })
+        .where(eq(transactions.id, income.id))
+
+      const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
+      expect(plan.plan!.sourceWarnings).toEqual([
+        { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('950') },
+      ])
+
+      await dbSvc.db
+        .update(transactions)
+        .set({ originalAmount: null })
+        .where(eq(transactions.id, income.id))
+    })
+
+    it('ADMIN: a real COUNTERPARTY invoice_signatures row on the SOURCE id surfaces SOURCE_SIGNED_INVOICE', async () => {
+      const income = await declare(1000)
+      await dbSvc.db.insert(invoiceSignatures).values({
+        transactionId: income.id,
+        signerRole: 'COUNTERPARTY',
+        signerId: SENIOR.id,
+        pdfHash: 'b'.repeat(64),
+        method: 'MANUAL_CLICK',
+      })
+
+      const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
+      expect(plan.plan!.sourceWarnings).toEqual([
+        { code: 'SOURCE_SIGNED_INVOICE', message: expect.any(String) },
+      ])
+
+      await dbSvc.db.delete(invoiceSignatures).where(eq(invoiceSignatures.transactionId, income.id))
+    })
+
     // ── AC4 warning wiring — a REAL counterparty invoice signature ───────────
     it('a real COUNTERPARTY invoice_signatures row surfaces as SIGNED_INVOICE', async () => {
       const income = await declare(1000)
@@ -478,8 +582,30 @@ describe.skipIf(!hasDatabaseUrl())(
       await dbSvc.db.delete(payoutRequests).where(eq(payoutRequests.id, payoutRequest!.id))
     })
 
+    // MED-3 (security-review round 1): row COUNTS alone are blind to an
+    // in-place UPDATE — same count, mutated content. Captures the exact rows
+    // the preview reads (source income, the settled derivative, its
+    // obligation) so an accidental write that a naive COUNT(*) would miss
+    // entirely (e.g. a stray `.update()` that touches an existing row) fails
+    // this test.
+    async function rowFingerprints(incomeId: string, derivativeId: string, obligationId: string) {
+      const [incomeRow] = await dbSvc.db
+        .select()
+        .from(transactions)
+        .where(eq(transactions.id, incomeId))
+      const [derivRow] = await dbSvc.db
+        .select()
+        .from(transactions)
+        .where(eq(transactions.id, derivativeId))
+      const [oblRow] = await dbSvc.db
+        .select()
+        .from(pendingObligations)
+        .where(eq(pendingObligations.id, obligationId))
+      return { incomeRow, derivRow, oblRow }
+    }
+
     // ── AC9 — zero DB writes, whatever the outcome ────────────────────────────
-    it('AC9: the endpoint writes NOTHING — row counts are identical before and after, across every outcome above', async () => {
+    it('AC9: the endpoint writes NOTHING — row counts AND row content are identical before and after, across every outcome above', async () => {
       const income = await declare(1000)
       const obligation = await seniorObligation()
       await settleSvc.settleByCompany(obligation.id, ADMIN_MAKSYM, {
@@ -488,6 +614,11 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       const before = await tableCounts()
+      const rowsBefore = await rowFingerprints(
+        income.id,
+        obligation.sourceTransactionId,
+        obligation.id,
+      )
 
       await svc.getEditCascadePreview(income.id, 5000, ADMIN_MAKSYM) // editable, both branches (settled + pending)
       await svc.getEditCascadePreview(income.id, 1000, ADMIN_MAKSYM) // delta == 0
@@ -496,6 +627,16 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const after = await tableCounts()
       expect(after).toEqual(before)
+
+      // MED-3: content-level check — an UPDATE that left row counts alone
+      // (e.g. a stray `updatedAt` bump) would pass the counts assert above
+      // and fail here.
+      const rowsAfter = await rowFingerprints(
+        income.id,
+        obligation.sourceTransactionId,
+        obligation.id,
+      )
+      expect(rowsAfter).toEqual(rowsBefore)
     })
   },
 )

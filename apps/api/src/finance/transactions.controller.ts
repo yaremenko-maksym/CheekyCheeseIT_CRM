@@ -248,8 +248,9 @@ export class TransactionsController {
   // decomposition). Read-only preview of what editing `amount` on this row
   // would cascade to — same RBAC as `adminEdit` above (ADMIN only), writes
   // nothing. `:id/edit-preview` never collides with `:id` (line 99): a
-  // Nest/Express `:id` route segment matches exactly one path component, so
-  // it never matches a two-segment path regardless of declaration order.
+  // Nest `:id` route segment (this app runs on `@nestjs/platform-fastify`,
+  // not Express — see version-pins.md) matches exactly one path component,
+  // so it never matches a two-segment path regardless of declaration order.
   @Get(':id/edit-preview')
   @Roles('ADMIN')
   getEditCascadePreview(

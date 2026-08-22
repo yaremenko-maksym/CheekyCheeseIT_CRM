@@ -34,6 +34,8 @@ function makeSource(overrides: Partial<CascadeSnapshot['source']> = {}): Cascade
     currency: 'USDT',
     payoutRequestId: null,
     updatedAt: '2026-08-01T00:00:00.000Z',
+    hasSignedInvoice: false,
+    originalAmount: null,
     ...overrides,
   }
 }
@@ -306,13 +308,135 @@ describe('resolveEditCascade — AC6 case 7: валюта расчёта не US
     expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
   })
 
-  it('does not warn on a still-PENDING derivative even if settledCurrency were somehow set', () => {
-    // Not a shape that ever occurs for real (settle is what sets settledCurrency),
-    // but resolveDerivative's own `isSettled &&` guard must still hold as a pure
-    // function of its input — pins the leading `isSettled &&` operand.
+  it('does not warn on a PENDING derivative whose settledCurrency is set but settledAmount is still null/0', () => {
+    // Not a shape that ever occurs for real (settle is what sets both together),
+    // but the mismatch guard is `settledAmount > 0 && settledCurrency !== null
+    // && settledCurrency !== 'USDT'` (HIGH-1/HIGH-2 fix — no longer gated on
+    // `isSettled`), and `makePendingDerivative`'s default `settledAmount: null`
+    // must still keep it from firing — pins the leading `settledAmount > 0` operand.
     const s = snapshot({ amount: 1000 }, [makePendingDerivative({ settledCurrency: 'UAH' })])
     const plan = resolveEditCascade(s, { amount: 2000 })
     expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
+  })
+})
+
+describe('resolveEditCascade — HIGH-1 (security-review round 1): settled_amount is monotonic, never gated by the CURRENT obligation status', () => {
+  it('a derivative sitting PENDING with a nonzero settled_amount accumulator (post-cascade-revert shape, AC3 "Механика возврата") reports the REAL accumulator, not zero', () => {
+    // Before the fix, `settledAmount` was `isSettled ? (derivative.settledAmount
+    // ?? 0) : 0` — for a PENDING obligation this collapsed to 0 regardless of
+    // what `transactions.settled_amount` actually held. AC3's revert mechanic
+    // (task 3) is EXACTLY this shape: obligation flips back to PENDING, the live
+    // sharePercent snapshot is restored, but `settled_amount` (monotonic) stays.
+    const s = snapshot({ amount: 1000 }, [
+      makePendingDerivative({ sharePercent: 26, settledAmount: 100, settledCurrency: 'USDT' }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 }) // new share = 520
+    const d = plan.derivatives[0]!
+    expect(d.newAmount).toBe(roundShareAmount(2000, 26))
+    // The bug this pins: the old code would report 0 here.
+    expect(d.settledAmount).toBe(100)
+    expect(d.remainingToPay).toBe(Number((d.newAmount! - 100).toFixed(6)))
+  })
+
+  it('the same PENDING + already-partially-paid shape, decreased below the accumulator, still reads the REAL remainingToPay of 0 — not the phantom "nothing paid yet" that a gated read would produce', () => {
+    const s = snapshot({ amount: 1000 }, [
+      makePendingDerivative({ sharePercent: 26, settledAmount: 260, settledCurrency: 'USDT' }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 100 }) // new share = 26 < settled 260
+    const d = plan.derivatives[0]!
+    expect(d.settledAmount).toBe(260)
+    // A gated read (old code) would have said settledAmount=0, remainingToPay=26
+    // — presenting the FULL new share for (re-)payment on money already paid.
+    expect(d.remainingToPay).toBe(0)
+  })
+})
+
+describe('resolveEditCascade — HIGH-2 (security-review round 1): a cross-currency settled_amount is never subtracted from the USDT newAmount', () => {
+  it('remainingToPay is null (not a fabricated difference) when settledCurrency is not USDT', () => {
+    const s = snapshot({ amount: 1000 }, [
+      makePaidDerivative({ settledCurrency: 'UAH', settledAmount: 9000 }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 }) // newAmount = 520 USDT
+    const d = plan.derivatives[0]!
+    expect(d.newAmount).toBe(520)
+    expect(d.settledAmount).toBe(9000)
+    expect(d.settledCurrency).toBe('UAH')
+    // The bug this pins: `max(0, 520 - 9000)` used to silently yield 0 here,
+    // reading as "fully paid" instead of "we cannot tell".
+    expect(d.remainingToPay).toBeNull()
+  })
+
+  it('does NOT claim OVERPAYMENT purely because the non-USDT figure is numerically larger than the USDT share', () => {
+    // 9000 UAH >> 520 USDT numerically — a naive cross-currency subtraction
+    // would call this an overpayment. It is not comparable at all.
+    const s = snapshot({ amount: 1000 }, [
+      makePaidDerivative({ settledCurrency: 'UAH', settledAmount: 9000 }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    expect(plan.derivatives[0]!.warnings.filter((w) => w.code === 'OVERPAYMENT')).toEqual([])
+    expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(true)
+  })
+
+  it('needsReconfirm on a currency-mismatched SETTLED row reflects that the row IS settled — never the broken subtraction', () => {
+    const s = snapshot({ amount: 1000 }, [
+      makePaidDerivative({ settledCurrency: 'UAH', settledAmount: 9000 }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    // isSettled=true, mismatch=true → true purely from status, not from
+    // "520 > 9000" (which is false and, being cross-currency, meaningless).
+    expect(plan.derivatives[0]!.needsReconfirm).toBe(true)
+  })
+
+  it('HIGH-1 + HIGH-2 combined: a PENDING derivative with a nonzero CROSS-CURRENCY accumulator also refuses to compare', () => {
+    const s = snapshot({ amount: 1000 }, [
+      makePendingDerivative({ sharePercent: 26, settledAmount: 2000, settledCurrency: 'UAH' }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 }) // newAmount = 520 USDT
+    const d = plan.derivatives[0]!
+    expect(d.settledAmount).toBe(2000)
+    expect(d.remainingToPay).toBeNull()
+    expect(d.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(true)
+    // The obligation is currently PENDING (not settled) — needsReconfirm stays
+    // false regardless of the currency mismatch.
+    expect(d.needsReconfirm).toBe(false)
+  })
+})
+
+describe('resolveEditCascade — MED-1 (security-review round 1): warnings about the SOURCE row itself', () => {
+  it('flags SOURCE_ORIGINAL_AMOUNT_SET when the row being edited already carries a fact-of-payment originalAmount', () => {
+    const s = snapshot({ originalAmount: 800 }, [])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    expect(plan.sourceWarnings).toEqual([
+      { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('800') },
+    ])
+  })
+
+  it('flags SOURCE_SIGNED_INVOICE when the row being edited already carries a counterparty-signed invoice', () => {
+    const s = snapshot({ hasSignedInvoice: true }, [])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    // Exact message content pinned (not `expect.any(String)`) — a mutant
+    // that blanks the literal string in the source is otherwise invisible
+    // here (mutation-gate finding, round 2).
+    expect(plan.sourceWarnings).toEqual([
+      {
+        code: 'SOURCE_SIGNED_INVOICE',
+        message:
+          'По этой строке уже есть инвойс, подписанный контрагентом — правка суммы не отразится в подписанном документе',
+      },
+    ])
+  })
+
+  it('is present even when the proposed amount equals the stored one — a static fact about the row, not about the edit', () => {
+    const s = snapshot({ amount: 1000, hasSignedInvoice: true }, [])
+    const plan = resolveEditCascade(s, { amount: 1000 })
+    expect(plan.sourceAmountChanged).toBe(false)
+    expect(plan.sourceWarnings.some((w) => w.code === 'SOURCE_SIGNED_INVOICE')).toBe(true)
+  })
+
+  it('is empty by default (default fixture has neither flag set)', () => {
+    const s = snapshot({}, [])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    expect(plan.sourceWarnings).toEqual([])
   })
 })
 
@@ -421,21 +545,64 @@ describe('resolveEditCascade — AC7 property test', () => {
   const SEED = 20260822
   const rand = mulberry32(SEED)
   const ITERATIONS = 500
+  const SETTLED_CURRENCIES = ['USDT', 'UAH', 'EUR', 'USD'] as const
 
-  it(`holds invariants across ${ITERATIONS} random (income, percent, settled, delta-sign) combinations (seed ${SEED})`, () => {
+  it(`holds invariants across ${ITERATIONS} random (income, percent, obligation status, settled_amount, settled_currency) combinations (seed ${SEED})`, () => {
+    // Coverage counters — HIGH-1 (security-review round 1): the ORIGINAL
+    // generator derived `settledAmount` FROM `isSettled` (`isSettled ? rand()
+    // * 150_000 : 0`), so "obligation PENDING + settled_amount > 0" — the
+    // EXACT post-cascade-revert shape (AC3 "Механика возврата") the bug lived
+    // in — could never be generated, and the property test proved nothing
+    // about it. Both dimensions below are now generated INDEPENDENTLY, and
+    // the counts are asserted > 0 after the loop so this test cannot silently
+    // regress back to a generator that never exercises the disputed case.
+    let pendingWithSettledHistory = 0
+    let crossCurrencyMismatchCases = 0
+
     for (let i = 0; i < ITERATIONS; i++) {
       const income = 1 + rand() * 100_000
       const newIncome = 1 + rand() * 100_000
       const percent = Math.floor(rand() * 101) // 0..100
-      const isSettled = rand() < 0.5
-      // settledAmount is bounded loosely — the resolver must not assume it
-      // never exceeds the theoretical old share; overpayment is exactly the
-      // case where it does.
-      const settledAmount = isSettled ? rand() * 150_000 : 0
+      const obligationStatus: 'PENDING' | 'PAID' = rand() < 0.5 ? 'PAID' : 'PENDING'
+      const isSettled = obligationStatus === 'PAID'
 
-      const deriv: CascadeDerivativeSnapshot = isSettled
-        ? makePaidDerivative({ settledAmount, settledSharePercent: percent, sharePercent: null })
-        : makePendingDerivative({ sharePercent: percent, settledAmount: null })
+      // Independent of `obligationStatus` — a monotonic accumulator (task 1,
+      // PR #599) that a PENDING row can still carry after a settle+revert
+      // cycle.
+      const hasSettledHistory = rand() < 0.6
+      const settledAmount = hasSettledHistory ? rand() * 150_000 : 0
+      const settledCurrency = hasSettledHistory
+        ? SETTLED_CURRENCIES[Math.floor(rand() * SETTLED_CURRENCIES.length)]!
+        : null
+
+      const deriv: CascadeDerivativeSnapshot = {
+        id: 'deriv-1',
+        type: isSettled ? 'SENIOR_INCOME' : 'SENIOR_PENDING_PAYOUT',
+        status: isSettled ? 'PAID' : 'PENDING_PAYMENT',
+        amount: 1,
+        currency: 'USDT',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+        // Mirrors resolveDerivative's own `isSettled ? settledSharePercent :
+        // sharePercent` selection — settle nulls the live column, a revert
+        // (AC3 point 3) restores it.
+        sharePercent: isSettled ? null : percent,
+        settledAmount: hasSettledHistory ? settledAmount : null,
+        settledCurrency,
+        settledSharePercent: isSettled
+          ? percent
+          : hasSettledHistory
+            ? Math.floor(rand() * 101)
+            : null,
+        hasSignedInvoice: false,
+        obligation: {
+          id: 'obl-1',
+          status: obligationStatus,
+          amount: 1,
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }
+
+      if (obligationStatus === 'PENDING' && settledAmount > 0) pendingWithSettledHistory++
 
       const s = snapshot({ amount: income }, [deriv])
       const plan = resolveEditCascade(s, { amount: newIncome })
@@ -444,26 +611,46 @@ describe('resolveEditCascade — AC7 property test', () => {
       const d = plan.derivatives[0]!
       expect(d.newAmount).toBe(roundShareAmount(newIncome, percent))
 
-      // Invariant 1: remainingToPay = max(0, newAmount - settledAmount).
-      const expectedRemaining = Math.max(0, Number((d.newAmount! - d.settledAmount).toFixed(6)))
+      // Invariant 1 (HIGH-1): the accumulator the plan REPORTS is exactly
+      // what the snapshot carried — UNCONDITIONALLY, never gated by the
+      // CURRENT obligation status.
+      expect(d.settledAmount).toBe(settledAmount)
+      expect(d.settledCurrency).toBe(settledCurrency)
+
+      const currencyMismatch =
+        settledAmount > 0 && settledCurrency !== null && settledCurrency !== 'USDT'
+      if (currencyMismatch) crossCurrencyMismatchCases++
+
+      // Invariant 2 (HIGH-2): remainingToPay is the plain subtraction ONLY
+      // when the two figures share a currency; a cross-currency accumulator
+      // yields `null`, never a fabricated number.
+      const expectedRemaining = currencyMismatch
+        ? null
+        : Math.max(0, Number((d.newAmount! - settledAmount).toFixed(6)))
       expect(d.remainingToPay).toBe(expectedRemaining)
 
-      // Invariant 2: the accumulator the plan REPORTS is exactly what the
-      // snapshot carried — the resolver never derives or adjusts it (only
-      // `settleByCompany`, outside this pure function, is allowed to
-      // increment it).
-      expect(d.settledAmount).toBe(settledAmount)
-
-      // Invariant 3: sign of (newAmount - settledAmount) agrees with
-      // needsReconfirm for a settled row, and needsReconfirm is always false
-      // for a not-yet-settled one. Expected values computed via boolean
-      // expressions (not an if/else around `expect`) so every iteration
-      // exercises the same unconditional assertions.
-      const expectedNeedsReconfirm = isSettled && d.newAmount! > settledAmount
-      const expectedOverpaymentWarning = isSettled && d.newAmount! < settledAmount
+      // Invariant 3: needsReconfirm/OVERPAYMENT are never derived from a
+      // cross-currency comparison. Under a mismatch, needsReconfirm collapses
+      // to the pure status question (isSettled) and OVERPAYMENT never fires
+      // (HIGH-2) — expected values computed via boolean expressions (not an
+      // if/else around `expect`) so every iteration exercises the same
+      // unconditional assertions.
+      const expectedNeedsReconfirm = currencyMismatch
+        ? isSettled
+        : isSettled && d.newAmount! > settledAmount
+      const expectedOverpaymentWarning =
+        !currencyMismatch && isSettled && d.newAmount! < settledAmount
       expect(d.needsReconfirm).toBe(expectedNeedsReconfirm)
       expect(d.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(expectedOverpaymentWarning)
+      expect(d.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(currencyMismatch)
     }
+
+    // The disputed combinations MUST actually occur across the run, or every
+    // assertion above passed vacuously on them — same failure mode as the
+    // property test the review found (an invariant "proven" only where it
+    // cannot break).
+    expect(pendingWithSettledHistory).toBeGreaterThan(0)
+    expect(crossCurrencyMismatchCases).toBeGreaterThan(0)
   })
 })
 
@@ -480,12 +667,14 @@ describe('resolveEditCascade — AC7 property test', () => {
 // ---------------------------------------------------------------------------
 
 describe('cascadeWarningCodeSchema — wire contract', () => {
-  it('accepts exactly the four defined codes, unchanged', () => {
+  it('accepts exactly the six defined codes, unchanged', () => {
     const codes = [
       'NO_SHARE_SNAPSHOT',
       'SIGNED_INVOICE',
       'OVERPAYMENT',
       'NON_USDT_CURRENCY',
+      'SOURCE_SIGNED_INVOICE',
+      'SOURCE_ORIGINAL_AMOUNT_SET',
     ] as const
     for (const code of codes) {
       expect(cascadeWarningCodeSchema.parse(code)).toBe(code)
@@ -500,6 +689,10 @@ describe('cascadeWarningCodeSchema — wire contract', () => {
 describe('cascadePlanSchema — full round-trip (also covers nested cascadeDerivativePlanSchema/cascadeWarningSchema)', () => {
   it('parses a full plan and retains every field at every nesting level', () => {
     const warning: CascadeWarning = { code: 'OVERPAYMENT', message: 'уже выплачено 260' }
+    const sourceWarning: CascadeWarning = {
+      code: 'SOURCE_ORIGINAL_AMOUNT_SET',
+      message: 'фактический платёж уже зафиксирован',
+    }
     const derivativePlan: CascadeDerivativePlan = {
       id: '11111111-1111-4111-8111-111111111111',
       type: 'SENIOR_PENDING_PAYOUT',
@@ -507,6 +700,7 @@ describe('cascadePlanSchema — full round-trip (also covers nested cascadeDeriv
       newAmount: 520,
       sharePercent: 26,
       settledAmount: 260,
+      settledCurrency: 'USDT',
       remainingToPay: 260,
       needsReconfirm: false,
       warnings: [warning],
@@ -517,6 +711,7 @@ describe('cascadePlanSchema — full round-trip (also covers nested cascadeDeriv
       oldSourceAmount: 1000,
       newSourceAmount: 2000,
       derivatives: [derivativePlan],
+      sourceWarnings: [sourceWarning],
     }
     // A gutted schema anywhere in the chain (plan / derivative / warning)
     // strips the fields it owns — `toEqual` catches ANY of the three.
@@ -597,6 +792,7 @@ describe('cascadeEditPreviewResponseSchema — wire contract', () => {
         oldSourceAmount: 1000,
         newSourceAmount: 1000,
         derivatives: [],
+        sourceWarnings: [],
       },
       version: 'src:22222222-2222-4222-8222-222222222222:2026-08-01T00:00:00.000Z',
     }

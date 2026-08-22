@@ -101,6 +101,10 @@ function sourceRow(overrides: Record<string, unknown> = {}) {
     payoutRequestId: null,
     deletedAt: null,
     updatedAt: T_SOURCE,
+    // MED-1 (security-review round 1) — `loadCascadeSnapshot` now reads these
+    // off the SOURCE row too (a SALARY source can carry its own signed
+    // invoice / originalAmount). `null` here is the common case.
+    originalAmount: null,
     ...overrides,
   }
 }
@@ -173,11 +177,16 @@ describe('getEditCascadePreview — guards 1 and 2 (blocked in the PLAN, loadCas
 })
 
 describe('getEditCascadePreview — no derivatives (zero-length skip, AC9-adjacent read minimisation)', () => {
-  it('does not query obligations/signatures at all when there are no derivative rows', async () => {
+  it('does not query obligations when there are no derivative rows, but STILL checks the source id for a signed invoice (MED-1)', async () => {
     const findFirstImpl = vi.fn().mockResolvedValue(sourceRow())
     const findManyDerivatives = vi.fn().mockResolvedValue([])
     const findManyObligations = unreachable('pendingObligations.findMany (0 derivatives)')
-    const findManySignatures = unreachable('invoiceSignatures.findMany (0 derivatives)')
+    // MED-1 (security-review round 1): unlike `obligationRows`, the
+    // signatures query is NO LONGER skippable at zero derivatives — it is
+    // also how the SOURCE row's own `hasSignedInvoice` gets read (folded
+    // into the same `inArray`, see `signatureQueryIds` in
+    // `transactions.service.ts`).
+    const findManySignatures = vi.fn().mockResolvedValue([])
     const svc = makeTransactionsService({
       db: makeDb({ findFirstImpl, findManyDerivatives, findManyObligations, findManySignatures }),
     })
@@ -187,6 +196,40 @@ describe('getEditCascadePreview — no derivatives (zero-length skip, AC9-adjace
     expect(result.plan!.derivatives).toEqual([])
     expect(result.plan!.sourceAmountChanged).toBe(true)
     expect(findManyDerivatives).toHaveBeenCalledTimes(1)
+    expect(findManySignatures).toHaveBeenCalledTimes(1)
+    // The query still ran ONLY for the source id — not a query the
+    // zero-derivative branch quietly widens.
+    expect(findManySignatures.mock.calls[0]![0]).toHaveProperty('where')
+  })
+
+  it('flags the source as signed when the (only) row in the signatures query result IS the source id', async () => {
+    const findFirstImpl = vi.fn().mockResolvedValue(sourceRow())
+    const findManyDerivatives = vi.fn().mockResolvedValue([])
+    const findManyObligations = unreachable('pendingObligations.findMany (0 derivatives)')
+    const findManySignatures = vi
+      .fn()
+      .mockResolvedValue([{ transactionId: SOURCE_ID, signerRole: 'COUNTERPARTY' }])
+    const svc = makeTransactionsService({
+      db: makeDb({ findFirstImpl, findManyDerivatives, findManyObligations, findManySignatures }),
+    })
+    const result = await svc.getEditCascadePreview(SOURCE_ID, 2000, ADMIN)
+    expect(result.plan!.sourceWarnings).toEqual([
+      { code: 'SOURCE_SIGNED_INVOICE', message: expect.any(String) },
+    ])
+  })
+
+  it('flags SOURCE_ORIGINAL_AMOUNT_SET when the source row itself carries originalAmount', async () => {
+    const findFirstImpl = vi.fn().mockResolvedValue(sourceRow({ originalAmount: '800.000000' }))
+    const findManyDerivatives = vi.fn().mockResolvedValue([])
+    const findManyObligations = unreachable('pendingObligations.findMany (0 derivatives)')
+    const findManySignatures = vi.fn().mockResolvedValue([])
+    const svc = makeTransactionsService({
+      db: makeDb({ findFirstImpl, findManyDerivatives, findManyObligations, findManySignatures }),
+    })
+    const result = await svc.getEditCascadePreview(SOURCE_ID, 2000, ADMIN)
+    expect(result.plan!.sourceWarnings).toEqual([
+      { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('800') },
+    ])
   })
 })
 
@@ -268,6 +311,10 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
         currency: 'USDT',
         payoutRequestId: null,
         updatedAt: T_SOURCE.toISOString(),
+        // MED-1: the signature fixture below only tags DROP_DERIV_ID, and
+        // `sourceRow()`'s default `originalAmount` is null.
+        hasSignedInvoice: false,
+        originalAmount: null,
       },
       derivatives: [
         {

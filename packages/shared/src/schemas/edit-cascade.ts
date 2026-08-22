@@ -5,7 +5,7 @@ import {
   type PendingObligationStatus,
 } from './finance'
 import { moneyFloorAndPrecisionError } from './money'
-import type { CurrencyEnum } from './payment-requisites'
+import { currencyEnumSchema, type CurrencyEnum } from './payment-requisites'
 import { roundShareAmount } from '../utils/money'
 
 /**
@@ -48,6 +48,22 @@ export interface CascadeSourceSnapshot {
   payoutRequestId: string | null
   /** ISO timestamp — one of the ingredients of `computeCascadeVersion`. */
   updatedAt: string
+  /**
+   * MED-1 (security-review round 1): does the row BEING EDITED already carry
+   * a COUNTERPARTY-signed invoice (`invoice_signatures`)? A cascade source is
+   * not always an `ADMIN_INCOME` — after guard 3 is lifted (task 3), any
+   * `PAID` row is editable, including a `SALARY` payment that already has its
+   * own signed invoice. AC5 §6 of the ADR: silence here is the worst option.
+   */
+  hasSignedInvoice: boolean
+  /**
+   * `transactions.original_amount` on the SOURCE row itself — non-null means
+   * this row is a fact-of-payment record (`paySalary` / a currency-converted
+   * settle), not our own estimate (C2 of the ADR). AC5 §5: editing `amount`
+   * here would desync `exchangeRate = amount / originalAmount` without
+   * anyone noticing.
+   */
+  originalAmount: number | null
 }
 
 export interface CascadeObligationSnapshot {
@@ -120,11 +136,22 @@ export const cascadeWarningCodeSchema = z.enum([
   // been settled. The row stays PAID (never marked for return to PENDING);
   // this is a human decision (write-off / claw-back), not an automatic one.
   'OVERPAYMENT',
-  // AC3 / MED-1 (PR #599) — `settledAmount` was accumulated in a currency
+  // AC3 / task 1 (PR #599) — `settledAmount` was accumulated in a currency
   // other than USDT (a DROP obligation settled in UAH/EUR/USD), so it is not
   // directly comparable to `newAmount`, which is always a USDT share of the
   // USDT income.
   'NON_USDT_CURRENCY',
+  // MED-1 (security-review round 1) — the SOURCE row (the one being edited)
+  // already carries a COUNTERPARTY-signed invoice (e.g. a `SALARY` row).
+  // Distinct from `SIGNED_INVOICE` above (which flags a DERIVATIVE) purely
+  // by which row it is attached to on the plan (`sourceWarnings` vs a
+  // derivative's own `warnings`) — same underlying concern (C3 of the ADR).
+  'SOURCE_SIGNED_INVOICE',
+  // MED-1 (security-review round 1) — the SOURCE row already carries
+  // `originalAmount` (C2 of the ADR): it is a fact-of-payment record, and
+  // editing `amount` would desync it from `exchangeRate` without anyone
+  // noticing.
+  'SOURCE_ORIGINAL_AMOUNT_SET',
 ])
 export type CascadeWarningCode = z.infer<typeof cascadeWarningCodeSchema>
 
@@ -143,11 +170,39 @@ export const cascadeDerivativePlanSchema = z.object({
   newAmount: z.number().nullable(),
   /** The percent this plan computed `newAmount` from — `null` alongside `newAmount`. */
   sharePercent: z.number().int().nullable(),
-  /** How much of `oldAmount` has already actually been paid out. `0` for a still-`PENDING` obligation. */
+  /**
+   * How much of `oldAmount` has already actually been paid out — the
+   * MONOTONIC `transactions.settled_amount` accumulator (task 1, PR #599),
+   * read unconditionally regardless of the obligation's CURRENT status
+   * (HIGH-1, security-review round 1). `0` when the row has never gone
+   * through a settle.
+   */
   settledAmount: z.number(),
-  /** `max(0, newAmount - settledAmount)`, or `null` when `newAmount` is `null`. */
+  /**
+   * The currency `settledAmount` is denominated in — `null` alongside a
+   * `settledAmount` of `0` that never went through a settle. `newAmount`
+   * itself is always a USDT share of the USDT source income; when this
+   * differs from `'USDT'` the two are NOT the same unit (HIGH-2,
+   * security-review round 1) — see `remainingToPay` below.
+   */
+  settledCurrency: currencyEnumSchema.nullable(),
+  /**
+   * `max(0, newAmount - settledAmount)` when `settledCurrency` is `USDT` (or
+   * there is nothing settled yet). `null` when `settledCurrency` is set and
+   * NOT `USDT` — subtracting a USDT share from a non-USDT accumulator is not
+   * an approximation, it is a wrong number (HIGH-2). The `NON_USDT_CURRENCY`
+   * warning carries the explanation; `settledAmount`/`settledCurrency` above
+   * carry the real figure for a human to reconcile in task 5.
+   */
   remainingToPay: z.number().nullable(),
-  /** `true` only for an already-settled (`PAID`) obligation whose recomputed share is STILL more than what was already paid. */
+  /**
+   * `true` for an already-settled (`PAID`) obligation whose recomputed
+   * share is STILL more than what was already paid — EXCEPT when
+   * `settledCurrency` is non-USDT, where that comparison cannot be made
+   * honestly (HIGH-2) and this stays `true` purely because the row IS
+   * settled and an edit on it always warrants a human look, never derived
+   * from the (impossible) cross-currency subtraction.
+   */
   needsReconfirm: z.boolean(),
   warnings: z.array(cascadeWarningSchema),
 })
@@ -160,6 +215,14 @@ export const cascadePlanSchema = z.object({
   oldSourceAmount: z.number(),
   newSourceAmount: z.number(),
   derivatives: z.array(cascadeDerivativePlanSchema),
+  /**
+   * MED-1 (security-review round 1) — warnings about the SOURCE row itself
+   * (the one being edited), independent of the proposed new amount: it
+   * already has a signed invoice, or it already carries `originalAmount`.
+   * Present even when `sourceAmountChanged` is `false` — these are static
+   * facts about the row, not about the proposed edit.
+   */
+  sourceWarnings: z.array(cascadeWarningSchema),
 })
 export type CascadePlan = z.infer<typeof cascadePlanSchema>
 
@@ -190,7 +253,21 @@ function resolveDerivative(
   const isSettled = derivative.obligation?.status === 'PAID'
   const sharePercent = isSettled ? derivative.settledSharePercent : derivative.sharePercent
   const oldAmount = derivative.obligation?.amount ?? derivative.amount
-  const settledAmount = isSettled ? (derivative.settledAmount ?? 0) : 0
+  // HIGH-1 (security-review round 1): `settled_amount` is the MONOTONIC
+  // accumulator (task 1, PR #599) — read it UNCONDITIONALLY, never gated by
+  // the obligation's CURRENT status. AC3 of the ADR: a cascade revert
+  // (task 3, "Механика возврата производной в PENDING") flips
+  // `pending_obligations.status` back to `PENDING` while leaving
+  // `settled_amount` untouched (point 3: "накопитель не перезаписывается").
+  // Gating on `isSettled` here made the plan report `0` for a row that was
+  // already partially paid — presenting the FULL obligation for repayment
+  // instead of the real difference, and silently erasing task 1's whole
+  // point. Obligation status is used ONLY where the question genuinely IS
+  // about status (`sharePercent` above — settle nulls the LIVE column;
+  // `needsReconfirm` below) — never to decide whether money that was
+  // actually paid still counts.
+  const settledAmount = derivative.settledAmount ?? 0
+  const settledCurrency = derivative.settledCurrency
 
   if (sharePercent === null) {
     return {
@@ -200,6 +277,7 @@ function resolveDerivative(
       newAmount: null,
       sharePercent: null,
       settledAmount,
+      settledCurrency,
       remainingToPay: null,
       needsReconfirm: false,
       warnings: [
@@ -213,11 +291,35 @@ function resolveDerivative(
   }
 
   const newAmount = roundShareAmount(newSourceAmount, sharePercent)
+
+  // HIGH-2 (security-review round 1): `newAmount` is always a USDT share of
+  // the USDT source income (`roundShareAmount` on `newSourceAmount`), but on
+  // a DROP-branch row `settledAmount` can be denominated in the PAYMENT
+  // currency — `settleByCompany` converts and stamps `settled_currency`
+  // (pending-settlement.service.ts). Subtracting one from the other when
+  // they are not the same unit is not an approximation, it is a wrong
+  // number — a drop obligation closed in UAH puts ~2000 into the
+  // accumulator and would call almost any edit an overpayment. The resolver
+  // is pure and has no exchange rate, and must not invent one: when
+  // currencies disagree it refuses to manufacture `remainingToPay` or an
+  // overpayment verdict from that subtraction, and leaves `needsReconfirm`
+  // to the one thing that IS a genuine status question (is this row
+  // currently settled at all) rather than the broken comparison. The plan
+  // still hands back BOTH figures with their own currencies
+  // (`settledAmount`/`settledCurrency` here, `newAmount` always USDT) plus
+  // the `NON_USDT_CURRENCY` warning below, so a human in task 5 sees
+  // "выплачено 2000 UAH, новая доля 50 USDT" instead of a fabricated
+  // difference.
+  const currencyMismatch =
+    settledAmount > 0 && settledCurrency !== null && settledCurrency !== 'USDT'
+
   // Same MONEY_SCALE-safe rounding as roundShareAmount itself — avoids a
   // stray float tail like 199.99999999999997 in remainingToPay.
-  const remainingToPay = Math.max(0, Number((newAmount - settledAmount).toFixed(6)))
-  const overpaid = isSettled && newAmount < settledAmount
-  const needsReconfirm = isSettled && newAmount > settledAmount
+  const remainingToPay = currencyMismatch
+    ? null
+    : Math.max(0, Number((newAmount - settledAmount).toFixed(6)))
+  const overpaid = !currencyMismatch && isSettled && newAmount < settledAmount
+  const needsReconfirm = currencyMismatch ? isSettled : isSettled && newAmount > settledAmount
 
   const warnings: CascadeWarning[] = []
   if (overpaid) {
@@ -233,10 +335,10 @@ function resolveDerivative(
         'По этой строке инвойс уже подписан контрагентом — правка не отразится в подписанном документе',
     })
   }
-  if (isSettled && derivative.settledCurrency && derivative.settledCurrency !== 'USDT') {
+  if (currencyMismatch) {
     warnings.push({
       code: 'NON_USDT_CURRENCY',
-      message: `Выплата по этой строке учтена в ${derivative.settledCurrency}, а не в USDT — «уже выплачено» и «новая доля» не в одной валюте`,
+      message: `Выплата по этой строке учтена в ${settledCurrency}, а не в USDT — «уже выплачено» и «новая доля» не в одной валюте`,
     })
   }
 
@@ -247,10 +349,38 @@ function resolveDerivative(
     newAmount,
     sharePercent,
     settledAmount,
+    settledCurrency,
     remainingToPay,
     needsReconfirm,
     warnings,
   }
+}
+
+/**
+ * MED-1 (security-review round 1) — warnings about the SOURCE row itself
+ * (the row `GET /edit-preview` was called ON), independent of the proposed
+ * new amount. AC5 §5/§6 of the ADR: a `PAID` row that is NOT an
+ * `ADMIN_INCOME` (a `SALARY` payment, notably) can itself already carry
+ * `originalAmount` or a counterparty-signed invoice — the same two "snapshot
+ * by design" concerns (C2/C3) the derivative-level warnings already cover,
+ * just on the row being edited rather than on what it produced.
+ */
+function resolveSourceWarnings(source: CascadeSourceSnapshot): CascadeWarning[] {
+  const warnings: CascadeWarning[] = []
+  if (source.originalAmount !== null) {
+    warnings.push({
+      code: 'SOURCE_ORIGINAL_AMOUNT_SET',
+      message: `На этой строке уже зафиксирован факт платежа (originalAmount = ${source.originalAmount}) — правка суммы разойдётся с курсом и фактическим платежом, исправляйте документ об оплате`,
+    })
+  }
+  if (source.hasSignedInvoice) {
+    warnings.push({
+      code: 'SOURCE_SIGNED_INVOICE',
+      message:
+        'По этой строке уже есть инвойс, подписанный контрагентом — правка суммы не отразится в подписанном документе',
+    })
+  }
+  return warnings
 }
 
 /**
@@ -263,6 +393,8 @@ function resolveDerivative(
  * `sourceAmountChanged === false` (patch equals the stored amount, AC4/AC3
  * idempotency point 1) always yields an EMPTY `derivatives` list — "дельта
  * == 0 трактуется как отсутствие каскада, а не нулевое обязательство".
+ * `sourceWarnings` is populated in BOTH branches — it describes the row as
+ * it stands today, not the proposed edit.
  */
 export function resolveEditCascade(
   snapshot: CascadeSnapshot,
@@ -270,6 +402,7 @@ export function resolveEditCascade(
 ): CascadePlan {
   const { source, derivatives } = snapshot
   const sourceAmountChanged = amountsDiffer(patch.amount, source.amount)
+  const sourceWarnings = resolveSourceWarnings(source)
 
   if (!sourceAmountChanged) {
     return {
@@ -278,6 +411,7 @@ export function resolveEditCascade(
       oldSourceAmount: source.amount,
       newSourceAmount: source.amount,
       derivatives: [],
+      sourceWarnings,
     }
   }
 
@@ -287,6 +421,7 @@ export function resolveEditCascade(
     oldSourceAmount: source.amount,
     newSourceAmount: patch.amount,
     derivatives: derivatives.map((d) => resolveDerivative(d, patch.amount)),
+    sourceWarnings,
   }
 }
 

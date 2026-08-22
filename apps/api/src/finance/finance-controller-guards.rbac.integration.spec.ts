@@ -417,7 +417,18 @@ describe.skipIf(!hasDatabaseUrl())(
       }
 
       it('ADMIN passes the guard (not 403) — a nonexistent id 404s past it instead', async () => {
-        expect(await get(ADMIN, url)).toBe(404)
+        // LOW (security-review round 1): a bare status-code assert here is
+        // indistinguishable from "the route does not exist at all" — the
+        // real proof that the guard let ADMIN through carries in the sibling
+        // 403 assertions above. Reading the body message pins THIS 404 to
+        // `fetchWritableTransactionOrThrow` → `assertFoundAndVisible`
+        // (`transaction-visibility.util.ts`, the FIRST read
+        // `getEditCascadePreview` makes) rather than Fastify's generic
+        // unmatched-route 404, which never reaches the controller/service at
+        // all and would carry a different message shape.
+        const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(ADMIN) } })
+        expect(res.statusCode).toBe(404)
+        expect(JSON.parse(res.payload).message).toBe('Транзакция не найдена')
       })
     })
 
