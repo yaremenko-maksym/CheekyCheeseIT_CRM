@@ -189,9 +189,24 @@ END $$;
 -- `verifyInvoice` to trust unconditionally, that wrong number would become
 -- permanently indistinguishable from a real signature — closing the one
 -- diagnostic signal (`amount_snapshot IS NULL` + the logger.warn below)
--- this same migration exists to introduce. Leaving PAYOUT rows NULL changes
--- nothing a user can see today: `verifyInvoice`'s existing live-tx.amount
--- fallback already returns the identical number it always has for them.
+-- this same migration exists to introduce.
+--
+-- ROUND 4 (security-review, PR #600, HIGH-3) CORRECTION: this comment
+-- previously claimed leaving PAYOUT rows NULL "changes nothing a user can
+-- see today" because `verifyInvoice`'s live-`tx.amount` fallback "returns
+-- the identical number it always has for them". That claim was FALSE and
+-- is retracted here — `tx.amount` on a PAYOUT row is the payable in USDT
+-- (see two paragraphs up), a DIFFERENT number/currency from the aggregated
+-- sum actually signed, by construction, not just after a later edit.
+-- Proven by `invoice-signature-integrity.integration.spec.ts`'s own HIGH-2
+-- fixture on the SAME migration file: signed `1000.000000 USD`, the old
+-- unconditional fallback answered `740.000000 USDT`. `InvoicesService`
+-- closes this directly instead: for a NULL-snapshot PAYOUT row,
+-- `verifyInvoice` now recomputes through `resolvePayoutAggregateAmount` —
+-- the same helper `signInvoice` uses to WRITE the snapshot in the first
+-- place — and refuses to answer (rather than fall back to `tx.amount`)
+-- when even that cannot be resolved honestly. PAYOUT rows still stay NULL
+-- here; only what reading a NULL one means at the API layer changed.
 --
 -- Idempotent: scoped to `amount_snapshot IS NULL` — a second run (or a run
 -- against a DB where every row was already signed after this shipped)

@@ -1068,19 +1068,21 @@ export class InvoicesService {
         counterpartyRow.role === 'ADMIN'
           ? null
           : await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
-      // Aggregate amount + currency from linked incomes — mirrors autoCreateForPayout
-      // so the re-rendered PDF uses the same values as the COMPANY-signed original.
-      if (linkedIncomes.length > 0) {
-        // parseFloat aggregation is display-only (PDF label) — not used for
-        // money movement. Mirrors autoCreateForPayout's approach exactly so
-        // the re-rendered invoice shows the same figure as the signed original.
-        // Floating-point drift is bounded to sub-cent amounts on the amounts
-        // we deal with (≤ 6 decimal places) and has no financial side-effect.
-        payoutAggregatedAmount = linkedIncomes
-          .reduce((sum, row) => sum + parseFloat(row.amount), 0)
-          .toString()
-        payoutAggregatedCurrency = linkedIncomes[0]!.currency ?? tx.currency
-      }
+      // security-review round 4 (PR #600, HIGH-3): amount/currency
+      // resolution now goes through `resolvePayoutAggregateAmount` — the
+      // SAME helper `verifyInvoice` calls to recompute this when a legacy
+      // row has no snapshot. Re-queries the linked incomes a second time
+      // (the `linkedIncomes` fetched above stays — it also drives the
+      // project-name/contract-number resolution this helper doesn't need)
+      // — a tolerated N+1 in this file already (see `autoCreateForPayout`'s
+      // own comment on the same trade-off). `null` here means the aggregate
+      // could not be honestly resolved (no linked incomes / mixed
+      // currencies — see the helper's own doc comment); the fallback to
+      // `tx.amount` a few lines below is the same defensive "should never
+      // happen in production" path this branch always had.
+      const resolvedPayoutAmount = await this.resolvePayoutAggregateAmount(tx.payoutRequestId)
+      payoutAggregatedAmount = resolvedPayoutAmount?.amount ?? null
+      payoutAggregatedCurrency = resolvedPayoutAmount?.currency ?? null
     } else if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
       const project = await this.db.db.query.projects.findFirst({
         where: eq(projects.id, tx.projectId),
@@ -1263,42 +1265,79 @@ export class InvoicesService {
     // AC3: source amount/currency from what the counterparty ACTUALLY
     // signed (frozen at sign time in `signInvoice`), never the live
     // `transactions` row — a later amount edit (or any write that bypasses
-    // the AC2 void path) must not surface as "confirmed" here. Falls back
-    // to the live columns for legacy rows signed before this migration
-    // shipped (no snapshot to read): for SALARY/SENIOR_INCOME those were
-    // signed while BIZ-18 still blocked ALL PAID-amount edits
-    // unconditionally, so no divergence was ever possible for them in the
-    // first place (the migration's backfill also closes this case going
-    // forward). For PAYOUT, this branch is NOT a transient legacy-only
-    // gap: the migration's backfill deliberately EXCLUDES PAYOUT rows
-    // (security-review round 3, HIGH-2 — `tx.amount` there is the USDT
-    // payable, a different number by construction from the aggregated sum
-    // this endpoint actually needs, see the BIZ-05 comment a few lines
-    // below the `signInvoice` amount resolution), so any PAYOUT
-    // COUNTERPARTY signature created before this migration shipped falls
-    // back to the live amount permanently — safely, because it is the
-    // SAME number `signInvoice` would have written anyway (see the
-    // migration file's own comment for the full argument).
-    if (counterpartySig.amountSnapshot === null) {
-      // security-review round 2 (PR #600, HIGH-1): this migration's DDL
-      // backfills every non-PAYOUT row that existed when it shipped
-      // (PAYOUT is excluded on purpose, HIGH-2 — see above), and MED-3
-      // makes a NULL snapshot structurally impossible for anything signed
-      // after, PAYOUT included (`signInvoice` always writes the resolved
-      // `txInfo.amount` in the same INSERT) — so reaching this branch now
-      // means either a legacy PAYOUT row from before this migration
-      // shipped (expected, see above), a write that bypassed signInvoice
-      // entirely, or a non-PAYOUT backfill that has not run yet. The
-      // response below has nowhere honest to point except the live amount
-      // (that IS the pre-migration invariant this fallback relies on) —
-      // log it loudly so a real (non-PAYOUT) divergence stays VISIBLE
-      // instead of silent.
+    // the AC2 void path) must not surface as "confirmed" here.
+    //
+    // When there IS a snapshot (the overwhelming common case post-MED-3),
+    // it is authoritative, full stop. When there is NOT, the two remaining
+    // row types get DIFFERENT honest treatment — security-review round 4
+    // (PR #600, HIGH-3) is exactly the finding that treating them the same
+    // was wrong:
+    //   - non-PAYOUT (SALARY/SENIOR_INCOME): the migration's backfill
+    //     covers every row that existed when it shipped, and MED-3 makes a
+    //     NULL snapshot structurally impossible for anything signed after
+    //     — reaching here means either the backfill has not run yet on
+    //     this DB or a write bypassed `signInvoice` entirely. Live
+    //     `tx.amount` IS the historically-safe fallback for this case: for
+    //     SALARY/SENIOR_INCOME, BIZ-18 blocked ALL PAID-amount edits
+    //     unconditionally while these rows were signed, so no divergence
+    //     was ever possible in the first place.
+    //   - PAYOUT: the migration's backfill deliberately EXCLUDES these
+    //     rows (round 3, HIGH-2) because `tx.amount` there is the USDT
+    //     payable, structurally a DIFFERENT number/currency from what was
+    //     actually signed (the aggregated linked-income sum, BIZ-05). Round
+    //     3 argued the live-`tx.amount` fallback was still SAFE for them —
+    //     that argument was FALSE (round 4, HIGH-3): proven by this file's
+    //     own integration spec, where a PAYOUT invoice signed
+    //     `1000.000000 USD` had this fallback answer `740.000000 USDT`.
+    //     Instead of the live column, recompute through
+    //     `resolvePayoutAggregateAmount` — the SAME helper `signInvoice`
+    //     uses to WRITE the snapshot, so read and write never describe the
+    //     rule differently again. If even that cannot be resolved honestly
+    //     (no linked incomes, no payoutRequestId, or linked incomes
+    //     spanning more than one currency), refuse to answer rather than
+    //     fall back to a number nobody signed.
+    let verifiedAmount: string
+    let verifiedCurrency: Transaction['currency']
+    if (counterpartySig.amountSnapshot !== null) {
+      verifiedAmount = counterpartySig.amountSnapshot
+      verifiedCurrency = (counterpartySig.currencySnapshot ??
+        tx.currency) as Transaction['currency']
+    } else if (tx.type === 'PAYOUT') {
+      const resolved = await this.resolvePayoutAggregateAmount(tx.payoutRequestId)
+      if (!resolved) {
+        // MED-D (round 4): honest refusal, not a silent fallback to
+        // tx.amount — this is the case `resolvePayoutAggregateAmount`'s own
+        // doc comment describes (no linked incomes / no payoutRequestId /
+        // mixed currencies). A public caller gets a clear error instead of
+        // a number that was never actually confirmed by anyone.
+        this.logger.error(
+          `verifyInvoice: tx=${tx.id} type=PAYOUT COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot and the linked-income aggregate could not be resolved — refusing to confirm an amount`,
+        )
+        throw new ConflictException(
+          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
+        )
+      }
+      // MED-D (round 4): this branch is now the ONLY standing source of
+      // this warning — a legacy PAYOUT row signed before this migration
+      // shipped. Every other case either has a snapshot or, post-backfill,
+      // should not exist — logged at `warn`, not `error`, because this is
+      // the EXPECTED path for those rows, not an anomaly.
       this.logger.warn(
-        `verifyInvoice: tx=${tx.id} COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — falling back to live tx.amount`,
+        `verifyInvoice: tx=${tx.id} type=PAYOUT COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — recomputed from linked incomes (legacy row signed before this migration)`,
       )
+      verifiedAmount = resolved.amount
+      verifiedCurrency = resolved.currency
+    } else {
+      // MED-D (round 4): non-PAYOUT branch, logged separately from PAYOUT
+      // above (previously one shared message covered both, discussed in
+      // the MED-D finding as noise once the PAYOUT case became the only
+      // standing source of it).
+      this.logger.warn(
+        `verifyInvoice: tx=${tx.id} type=${tx.type} COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — falling back to live tx.amount`,
+      )
+      verifiedAmount = tx.amount
+      verifiedCurrency = tx.currency
     }
-    const verifiedAmount = counterpartySig.amountSnapshot ?? tx.amount
-    const verifiedCurrency = (counterpartySig.currencySnapshot ?? tx.currency) as typeof tx.currency
 
     return {
       transactionId: tx.id,
@@ -1325,6 +1364,78 @@ export class InvoicesService {
   // ===========================================================================
   // Helpers
   // ===========================================================================
+
+  /**
+   * Resolve the amount/currency a PAYOUT-anchored invoice was (or would be)
+   * signed with — the aggregate over the linked SENIOR_INCOME/DROP_INCOME
+   * rows sharing `payoutRequestId`, assembled the exact same way as
+   * `autoCreateForPayout` (see its comment for why the read is tolerated
+   * N+1). Single source of truth for BOTH `signInvoice` (writes
+   * `amountSnapshot`/`currencySnapshot` from this) and `verifyInvoice`
+   * (recomputes from this when no snapshot exists) — same "both stay
+   * pinned to identical numbers" discipline as `roundShareAmount`
+   * (`transactions.service.ts`, `bookCompanyObligations`).
+   *
+   * security-review round 4 (PR #600, HIGH-3): before this helper existed,
+   * `signInvoice` and `verifyInvoice`'s fallback each re-derived this
+   * number independently — the fallback used `tx.amount` (the USDT
+   * payable, BIZ-05), a structurally different number/currency from the
+   * aggregate `signInvoice` actually signs. Two descriptions of one rule
+   * had drifted apart; this makes it one.
+   *
+   * Returns `null` when the aggregate cannot be honestly resolved — the
+   * caller MUST treat that as "amount cannot be confirmed", never
+   * silently substitute a different source (that substitution is exactly
+   * what caused HIGH-3):
+   *   - `payoutRequestId` is NULL — structurally shouldn't happen for a
+   *     PAYOUT row that reached `signInvoice`/`verifyInvoice`, defensive
+   *     only;
+   *   - zero linked incomes — "should never happen in production" per the
+   *     BIZ-05 comment this mirrors (`autoCreateForPayout` already refuses
+   *     to auto-create in this case);
+   *   - linked incomes span MORE THAN ONE CURRENCY — the previous inline
+   *     version of this logic summed `parseFloat` amounts across whatever
+   *     currency the FIRST row happened to carry, with no `ORDER BY`, i.e.
+   *     non-deterministically, and never validated the rows agreed on a
+   *     currency at all. Adding USD to EUR and calling the result a number
+   *     would be a silent lie, not a data point — refusing beats guessing.
+   */
+  private async resolvePayoutAggregateAmount(
+    payoutRequestId: string | null,
+  ): Promise<{ amount: string; currency: Transaction['currency'] } | null> {
+    if (!payoutRequestId) return null
+    // Deterministic ordering (round 4, HIGH-3 remediation): the previous
+    // inline version of this query had no ORDER BY, so "the first row's
+    // currency" was whichever order Postgres happened to return — harmless
+    // in practice (see the mixed-currency guard below, which now makes the
+    // single-currency case the ONLY case this ever settles on), but an
+    // unordered SELECT backing a legal-document amount is worth pinning
+    // down explicitly rather than leaving to chance.
+    const linkedIncomes = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(
+        and(
+          eq(nonDeletedTransactions.payoutRequestId, payoutRequestId),
+          inArray(nonDeletedTransactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
+        ),
+      )
+      .orderBy(asc(nonDeletedTransactions.createdAt))
+    if (linkedIncomes.length === 0) return null
+    const currencies = new Set(linkedIncomes.map((row) => row.currency))
+    if (currencies.size > 1) {
+      this.logger.error(
+        `resolvePayoutAggregateAmount: payoutRequestId=${payoutRequestId} has linked incomes in more than one currency (${[...currencies].sort().join(', ')}) — refusing to aggregate rather than silently summing across currencies`,
+      )
+      return null
+    }
+    // parseFloat aggregation is display-only (PDF label / verify response)
+    // — not used for money movement. Mirrors autoCreateForPayout's approach
+    // exactly. Floating-point drift is bounded to sub-cent amounts (≤ 6
+    // decimal places) and has no financial side-effect.
+    const amount = linkedIncomes.reduce((sum, row) => sum + parseFloat(row.amount), 0).toString()
+    return { amount, currency: linkedIncomes[0]!.currency }
+  }
 
   /**
    * Counterparty id derivation:

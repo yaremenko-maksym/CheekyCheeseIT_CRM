@@ -596,6 +596,10 @@ describe.skipIf(!hasDatabaseUrl())(
       // Execute the REAL migration file end-to-end. Must NOT throw — a
       // verify block that still counted PAYOUT rows would RAISE EXCEPTION
       // here, exactly as it would on prod (Step 2af).
+      // LOW-2 (security-review round 4, PR #600): `.resolves.not.toThrow()`
+      // on a non-function short-circuits to "the promise settled" — it does
+      // not actually assert anything useful beyond that. A plain `await`
+      // makes an unexpected rejection fail this test loudly instead.
       const migrationSql = readFileSync(
         join(
           import.meta.dirname,
@@ -603,7 +607,7 @@ describe.skipIf(!hasDatabaseUrl())(
         ),
         'utf-8',
       )
-      await expect(pool.query(migrationSql)).resolves.not.toThrow()
+      await pool.query(migrationSql)
 
       // Core HIGH-2 assertion: the backfill must NOT have touched this row.
       // Backfilling it would have written '740.000000'/'USDT' (the wrong,
@@ -621,12 +625,24 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(afterMigration!.amountSnapshot).toBeNull()
       expect(afterMigration!.currencySnapshot).toBeNull()
 
-      // verifyInvoice must still return exactly what it always returned for
-      // this row (no user-visible regression) — the live tx.amount fallback
-      // — and must NOT throw.
+      // HIGH-3 (security-review round 4, PR #600): this is the core
+      // assertion this whole test exists to make now. Round 3 left this
+      // exact scenario asserting the OLD, WRONG behavior right here (see
+      // git blame) — "verifyInvoice must still return exactly what it
+      // always returned for this row (no user-visible regression) — the
+      // live tx.amount fallback" — and that comment was the false
+      // obligation HIGH-3 identified: it locked in an external-facing
+      // discrepancy (signed 1000.000000 USD, verify answered
+      // 740.000000 USDT — a synced-in-time, not merely internally
+      // consistent, contradiction on the SAME printed document) as if it
+      // were a requirement. verifyInvoice must now recompute the aggregate
+      // from the still-live linked-income rows (the same
+      // 1000/USD `signInvoice` actually signed above), not fall back to
+      // the PAYOUT row's own `tx.amount` (740/USDT, the unrelated USDT
+      // payable — BIZ-05).
       const verify = await invoices.verifyInvoice(payoutTxId)
-      expect(verify.amount).toBe('740.000000')
-      expect(verify.currency).toBe('USDT')
+      expect(verify.amount).toBe('1000.000000')
+      expect(verify.currency).toBe('USD')
     }, 30_000)
 
     /**
