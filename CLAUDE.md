@@ -18,21 +18,26 @@ CRM для рекрутинговых воркспейсов (outsource/outstaff
 
 ## Карта указателей (где живёт правда)
 
-| Что нужно                                                                               | Где                                                                                |
-| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Фазы и статус, RBAC-матрица, бизнес-правила, миграции, схемы, auth, tech gotchas        | `.claude/agents/project-state.md`                                                  |
-| Cross-agent правила — точка входа (TOC)                                                 | `.claude/RULES.md`                                                                 |
-| Конкретные правила: MCP-first, git-policy, zone-of-write, версии, язык, skills-триггеры | `.claude/rules/common/*.md` (auto-loaded)                                          |
-| Лёгкий vs полный трек разработки                                                        | `.claude/rules/common/light-track.md`                                              |
-| Claude Design UI-гейт + workflow                                                        | `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/`   |
-| Воркфлоу/fan-out vs агент vs light-track (степень параллелизма) + codebase-audit        | `.claude/rules/common/orchestration-routing.md` + `.claude/skills/codebase-audit/` |
-| Системные промпты агентов (старт — README)                                              | `.claude/agents/<agent>.md`                                                        |
-| Cross-agent state machine                                                               | `.claude/agents/contracts.md`                                                      |
-| Активные task-файлы                                                                     | `.claude/tasks/`                                                                   |
-| ADR, deliverables, RCA                                                                  | `docs/architecture/`                                                               |
-| Бизнес-доки (BA)                                                                        | `docs/business/`                                                                   |
-| Юр. драфты контрактов                                                                   | `docs/legal/`                                                                      |
-| Уроки агентов                                                                           | `.claude/agents/memory/<agent>/lessons.md`                                         |
+| Что нужно                                                                                   | Где                                                                                |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **Язык проекта** (глоссарий домена; термин из `_Избегать_` = находка ревью)                 | `CONTEXT.md` (корень)                                                              |
+| Фазы и статус, RBAC-матрица, бизнес-правила, миграции, схемы, auth, tech gotchas            | `.claude/agents/project-state.md`                                                  |
+| Cross-agent правила — точка входа (TOC)                                                     | `.claude/RULES.md`                                                                 |
+| Конкретные правила: MCP-first, git-policy, zone-of-write, версии, язык, skills-триггеры     | `.claude/rules/common/*.md` (auto-loaded)                                          |
+| Лёгкий vs полный трек разработки                                                            | `.claude/rules/common/light-track.md`                                              |
+| **Сколько человека нужно решению** (A1 решить сам / A2 накопить / A3 стоп)                  | `.claude/rules/common/autonomy-levels.md` + `.claude/skills/decision-frontier/`    |
+| Что делать с контекстом на границе фазы (продолжить / clear / handoff / субагент / компакт) | `.claude/rules/common/phase-boundaries.md`                                         |
+| Действия, которые может выполнить только владелец (и как их убивать)                        | `docs/runbooks/human-only.md`                                                      |
+| Осознанно отклонённые запросы (чтобы не пересматривать заново)                              | `.out-of-scope/README.md`                                                          |
+| Claude Design UI-гейт + workflow                                                            | `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/`   |
+| Воркфлоу/fan-out vs агент vs light-track (степень параллелизма) + codebase-audit            | `.claude/rules/common/orchestration-routing.md` + `.claude/skills/codebase-audit/` |
+| Системные промпты агентов (старт — README)                                                  | `.claude/agents/<agent>.md`                                                        |
+| Cross-agent state machine                                                                   | `.claude/agents/contracts.md`                                                      |
+| Активные task-файлы                                                                         | `.claude/tasks/`                                                                   |
+| ADR, deliverables, RCA                                                                      | `docs/architecture/`                                                               |
+| Бизнес-доки (BA)                                                                            | `docs/business/`                                                                   |
+| Юр. драфты контрактов                                                                       | `docs/legal/`                                                                      |
+| Уроки агентов                                                                               | `.claude/agents/memory/<agent>/lessons.md`                                         |
 
 ## Стек (сводка)
 
@@ -73,6 +78,7 @@ GHA-воркфлоу агентов в `.github/workflows/archive/` — уста
 | BA                                             | Бизнес-анализ → `.claude/briefs/pm-brief-<slug>.md`             |
 | PM                                             | Декомпозиция → параллельный диспетч → мониторинг → User Testing |
 | Coder / AutoTest / DevOps                      | Реализация / E2E-спеки / CI-CD — каждый в своей zone-of-write   |
+| spec-reviewer                                  | Вторая ось ревью: дифф ↔ задание (непокрытые AC / scope creep)  |
 | code-reviewer + security-reviewer              | Review; security-reviewer ОБЯЗАТЕЛЕН для auth/finance/RBAC      |
 | manual-qa / ui-ux-designer / legal / architect | Visual QA на реальном стеке / дизайн / юр. / ADR                |
 
@@ -95,7 +101,8 @@ label `merge-approved` → CI squash-merge.
 
 Правила ниже auto-loaded из `.claude/rules/common/` — здесь только напоминание, что они существуют:
 MCP-first · git-policy (no `--no-verify`, явные `git add`, `ac_verified:`) · русский язык ·
-zone-of-write · skills-триггеры · version-pins · light-track · design-gate (любое UI → дизайнер-в-контуре) · responsive-design (адаптив mobile/tablet/laptop/large — hard-гейт, любой UI) · design-fidelity-review (макет↔localhost diff на всех экранах — обязательный гейт перед merge) · model-routing (какой тир модели какому агенту/задаче) · orchestration-routing (агент vs воркфлоу vs light-track — степень параллелизма).
+zone-of-write · skills-триггеры · version-pins · light-track ·
+autonomy-levels (факты агент добывает сам, обратимое решает сам под запись) · phase-boundaries · design-gate (любое UI → дизайнер-в-контуре) · responsive-design (адаптив mobile/tablet/laptop/large — hard-гейт, любой UI) · design-fidelity-review (макет↔localhost diff на всех экранах — обязательный гейт перед merge) · model-routing (какой тир модели какому агенту/задаче) · orchestration-routing (агент vs воркфлоу vs light-track — степень параллелизма).
 
 Сверх правил: E2E локально перед push кода (docs-only diff освобождён — см. light-track);
 merge PR — **только** по явному подтверждению USER в чате.
