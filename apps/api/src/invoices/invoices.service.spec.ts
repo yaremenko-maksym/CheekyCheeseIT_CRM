@@ -23,8 +23,8 @@
  *  - verifyInvoice: returns only public fields
  *  - verifyInvoice: 404 when invoice missing
  */
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it, vi } from 'vitest'
+import { ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
 import { InvoicesService } from './invoices.service'
@@ -76,6 +76,13 @@ interface SigRow {
   userAgent: string | null
   method: 'AUTO_COMPANY' | 'MANUAL_CLICK'
   signedAt: Date
+  // security-review round 2 (PR #600, HIGH-1/MED-3 mutation-gate closure):
+  // optional so every EXISTING fixture (which never set these) keeps
+  // getting `undefined` — same effective "no snapshot" shape as before —
+  // while a test that DOES care about the NULL-snapshot fallback branch in
+  // verifyInvoice can set `amountSnapshot: null` explicitly.
+  amountSnapshot?: string | null
+  currencySnapshot?: string | null
 }
 
 interface UserRow {
@@ -484,6 +491,18 @@ function tx(overrides: Partial<TxRow> = {}): TxRow {
 // -----------------------------------------------------------------------------
 
 describe('InvoicesService', () => {
+  // security-review round 2 (PR #600, mutation-gate closure): the MED-7
+  // tests below spy on `Logger.prototype.warn` — a SHARED prototype, not a
+  // per-harness instance — so without a restore it would leak into every
+  // test that runs after it in this file and silently swallow real warn
+  // output. `restoreAllMocks` also cleans up every `vi.spyOn(h.svc, ...)`
+  // call in this file, which previously relied on each harness being
+  // freshly constructed per test (true for the mocked methods themselves,
+  // but not for spy state on shared prototypes).
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   describe('autoCreateForSeniorPayout', () => {
     it('idempotent — second trigger with same tx is no-op', async () => {
       const h = buildHarness({
@@ -805,6 +824,122 @@ describe('InvoicesService', () => {
         expect(s).not.toHaveProperty('userAgent')
         expect(s).not.toHaveProperty('pdfHash')
       }
+    })
+
+    // security-review round 2 (PR #600, HIGH-1/MED-3 mutation-gate closure).
+    // Every OTHER verifyInvoice fixture in this file omits amountSnapshot/
+    // currencySnapshot entirely (→ `undefined`, not `null`), so the
+    // `=== null` branch is technically reached (the harness always returns
+    // SOME value for the field) but never in a way any assertion
+    // distinguishes — these two tests set the field explicitly on both
+    // sides of the check.
+    it('HIGH-1/MED-3: NULL amount_snapshot (legacy/bypassed row) falls back to live tx.amount AND logs a warning', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-null-snap',
+            type: 'SALARY',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '777',
+            currency: 'USD',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-null-snap',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-null-snap',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-null-snap'
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+      const result = await h.svc.verifyInvoice('tx-null-snap')
+
+      expect(result.amount).toBe('777')
+      expect(result.currency).toBe('USD')
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('tx=tx-null-snap'))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('NULL amount_snapshot'))
+    })
+
+    it('AC3: a POPULATED amount_snapshot is used verbatim (never the live tx.amount) AND does NOT log the NULL-snapshot warning', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-real-snap',
+            type: 'SALARY',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '999', // LIVE amount — must NOT be what verify returns
+            currency: 'USD',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-real-snap',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-real-snap',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: '500.000000',
+            currencySnapshot: 'USD',
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-real-snap'
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+      const result = await h.svc.verifyInvoice('tx-real-snap')
+
+      expect(result.amount).toBe('500.000000')
+      expect(result.amount).not.toBe('999')
+      expect(warnSpy).not.toHaveBeenCalled()
     })
 
     it('returns 404 for transactions without an invoice', async () => {
@@ -1338,8 +1473,19 @@ describe('InvoicesService', () => {
       })
       h.ctrl.findTxId = 'tx-salary'
       vi.spyOn(h.svc, 'autoCreateForSalary').mockRejectedValueOnce(new Error('S3 outage'))
+      // mutation-gate closure: assert the warn log itself, not just the
+      // resolved value — an empty catch block also "swallows" the
+      // rejection, so the resolved-value assertion alone cannot tell the
+      // two apart.
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
 
       await expect(h.svc.reissueInvoiceIfStillPaid('tx-salary')).resolves.toBeUndefined()
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'reissueInvoiceIfStillPaid: auto-create failed for tx=tx-salary: S3 outage',
+        ),
+      )
     })
 
     it('happy path unaffected: a still-PAID SALARY row with no payoutRequestId still triggers autoCreateForSalary', async () => {
@@ -1355,6 +1501,61 @@ describe('InvoicesService', () => {
       await h.svc.reissueInvoiceIfStillPaid('tx-salary-2')
 
       expect(spy).toHaveBeenCalledWith('tx-salary-2')
+    })
+
+    it('mutation-gate closure: a still-PAID SENIOR_INCOME row (no payoutRequestId) triggers autoCreateForSeniorPayout, NOT autoCreateForSalary — the type branch actually discriminates', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({ id: 'tx-senior', type: 'SENIOR_INCOME', status: 'PAID', payoutRequestId: null }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-senior'
+      const seniorSpy = vi
+        .spyOn(h.svc, 'autoCreateForSeniorPayout')
+        .mockResolvedValueOnce(undefined)
+      const salarySpy = vi.spyOn(h.svc, 'autoCreateForSalary')
+
+      await h.svc.reissueInvoiceIfStillPaid('tx-senior')
+
+      expect(seniorSpy).toHaveBeenCalledWith('tx-senior')
+      expect(salarySpy).not.toHaveBeenCalled()
+    })
+
+    it('mutation-gate closure: a NOT-PAID row (status reverted by a cascade) is a pure no-op — no autoCreateFor* call at all', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-pending', type: 'SALARY', status: 'PENDING', payoutRequestId: null })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-pending'
+      const salarySpy = vi.spyOn(h.svc, 'autoCreateForSalary')
+      const seniorSpy = vi.spyOn(h.svc, 'autoCreateForSeniorPayout')
+
+      await expect(h.svc.reissueInvoiceIfStillPaid('tx-pending')).resolves.toBeUndefined()
+
+      expect(salarySpy).not.toHaveBeenCalled()
+      expect(seniorSpy).not.toHaveBeenCalled()
+    })
+
+    it('mutation-gate closure: a still-PAID row of neither SALARY nor SENIOR_INCOME (structurally unreachable in practice, e.g. PAYOUT) is a no-op — the else-if genuinely discriminates on type, not just falls through', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-other', type: 'PAYOUT', status: 'PAID', payoutRequestId: null })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-other'
+      const salarySpy = vi.spyOn(h.svc, 'autoCreateForSalary')
+      const seniorSpy = vi.spyOn(h.svc, 'autoCreateForSeniorPayout')
+
+      await expect(h.svc.reissueInvoiceIfStillPaid('tx-other')).resolves.toBeUndefined()
+
+      expect(salarySpy).not.toHaveBeenCalled()
+      expect(seniorSpy).not.toHaveBeenCalled()
     })
   })
 })
