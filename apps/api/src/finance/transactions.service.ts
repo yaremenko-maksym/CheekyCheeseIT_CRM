@@ -3048,12 +3048,48 @@ export class TransactionsService {
           throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
         }
 
+        // task-fix-obligation-amount-divergence (backlog 181, L3 in
+        // docs/architecture/2026-08-22-paid-transaction-edit-cascade.md).
+        // `pending_obligations.amount` is a SEPARATE stored copy of the exact
+        // same number `transactions.amount` just got above — bookCompanyObligations
+        // inserts both rows with the identical share at booking time
+        // (transactions.service.ts, senior/drop IOU branches). Nothing kept
+        // them in sync afterwards: the settle-time money gate reads FROM
+        // `obligation.amount` (pending-settlement.service.ts, `computeCompanyAccountBalanceFromLedger`
+        // sufficiency check) while the company-account ledger debits BY
+        // `transactions.amount` once the row flips to PAID
+        // (company-account-balance.ts `sumLedgerTerms`). Editing only the
+        // transactions row here would let a future settle check solvency
+        // against a stale sum while the ledger debits a different one — the
+        // exact defect this diff closes. Scoped to `status = 'PENDING'`
+        // (AC3): a CLOSED obligation's amount is a historical record of a
+        // settlement that already happened (L4 in the same doc) and is
+        // deliberately out of reach here — the WHERE clause makes that a
+        // structural guarantee, not just an intent, even if amountChanged
+        // somehow fires for an already-settled source row.
+        if (amountChanged) {
+          await dbtx
+            .update(pendingObligations)
+            .set({ amount: String(data.amount), updatedAt: new Date() })
+            .where(
+              and(
+                eq(pendingObligations.sourceTransactionId, id),
+                eq(pendingObligations.status, 'PENDING'),
+              ),
+            )
+        }
+
         // task-soft-delete-and-money-audit (AC5): "изменение суммы/получателя"
         // — the money-defining fields this endpoint can mutate. Only written
         // when one of them actually changed (mirrors TeamAuditLogService's
         // skip-on-empty-diff convention) — a metadata-only edit (notes/receipt)
         // does not spam the journal.
-        if (amountChanged || currencyChanged || receiverLabelChanged) {
+        // task-fix-obligation-amount-divergence (L11 in the same doc, AC4):
+        // `salaryMonthChanged` used to be computed and enforced by BIZ-18
+        // above but never reached this condition — a salary moved between
+        // months left no journal trail at all. Added to both the condition
+        // and the metadata below.
+        if (amountChanged || currencyChanged || receiverLabelChanged || salaryMonthChanged) {
           await dbtx.insert(transactionAuditLog).values({
             actorId: currentUser.impersonatorId ?? currentUser.id,
             targetId: id,
@@ -3067,6 +3103,9 @@ export class TransactionsService {
               }),
               ...(receiverLabelChanged && {
                 receiverLabel: { before: tx.receiverLabel, after: data.category },
+              }),
+              ...(salaryMonthChanged && {
+                salaryMonth: { before: tx.salaryMonth, after: data.salaryMonth },
               }),
             },
           })
