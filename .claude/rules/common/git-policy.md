@@ -6,19 +6,27 @@
 
 ---
 
-## Zero-tolerance forbidden patterns
+## Zero-tolerance patterns — сначала целевое действие, потом запрет
 
-| Запрет                                                           | Почему                                                                                                                              | Альтернатива                                                      |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `git push --no-verify`                                           | Обходит pre-push hook, который проверяет `ac_verified:`. Реальные инциденты 2026-06-02: 3× за сессию.                               | Доделать AC → честный commit с `ac_verified:`.                    |
-| `git commit -n` / `git commit --no-verify`                       | То же.                                                                                                                              | То же.                                                            |
-| `git -c core.hooksPath=/dev/null` (любая форма bypass'а hook'ов) | То же.                                                                                                                              | То же.                                                            |
-| `--no-gpg-sign` без явного запроса USER                          | Обходит signing.                                                                                                                    | Спросить USER.                                                    |
-| `git add .` / `git add -A` / `git add *` / `git add apps/`       | Подметает чужие debug-артефакты из worktree (PR #22 round4 incident, см. `.claude/agents/memory/coder/lessons.md` 2026-05-20 [P0]). | Только явный список файлов из task-секции «Конкретные изменения». |
-| Push в `main` напрямую                                           | Branch protection — только через PR.                                                                                                | PR + label `merge-approved` → CI auto-merge.                      |
-| `git push --force` в `main` / `master`                           | Уничтожает историю.                                                                                                                 | На своих ветках `--force-with-lease`, на main — никогда.          |
-| `git reset --hard origin/main` без warning                       | Уничтожает локальную работу.                                                                                                        | `git stash` → restore.                                            |
-| `gh pr merge --admin`                                            | Обходит branch protection (required checks).                                                                                        | Дождаться зелёных checks → squash через label `merge-approved`.   |
+> **Почему в таком порядке (2026-08-22).** Управление через запрет затаскивает запрещённое
+> поведение в контекст и делает его **доступнее**: отрицание — слабый модификатор, сильно
+> активированный концепт его перебивает. Поэтому первая колонка — то, что **делать**, а запрет
+> идёт следом как жёсткий guardrail, а не как единственная формулировка. Прежняя редакция ставила
+> «Альтернативу» третьей колонкой, то есть последней из прочитанного. Рецидивы (`--no-verify`
+> трижды за сессию 2026-06-02, `git add .` на PR #22) — ровно тот класс, где формулировка могла
+> быть частью причины. Источник приёма — `mattpocock/skills`, `writing-for-agents` §Negation.
+
+| Делай так                                                             | Не так                                                           | Почему                                                                                                                              |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Доделать AC → честный commit с `ac_verified:`                         | `git push --no-verify`                                           | Обходит pre-push hook, который проверяет `ac_verified:`. Реальные инциденты 2026-06-02: 3× за сессию.                               |
+| То же                                                                 | `git commit -n` / `git commit --no-verify`                       | То же.                                                                                                                              |
+| То же                                                                 | `git -c core.hooksPath=/dev/null` (любая форма bypass'а hook'ов) | То же.                                                                                                                              |
+| Спросить USER                                                         | `--no-gpg-sign` без явного запроса USER                          | Обходит signing.                                                                                                                    |
+| Перечислить файлы явным списком из task-секции «Конкретные изменения» | `git add .` / `git add -A` / `git add *` / `git add apps/`       | Подметает чужие debug-артефакты из worktree (PR #22 round4 incident, см. `.claude/agents/memory/coder/lessons.md` 2026-05-20 [P0]). |
+| PR + label `merge-approved` → CI auto-merge                           | Push в `main` напрямую                                           | Branch protection — только через PR.                                                                                                |
+| На своих ветках `--force-with-lease`                                  | `git push --force` в `main` / `master`                           | Уничтожает историю.                                                                                                                 |
+| `git stash` → restore                                                 | `git reset --hard origin/main` без warning                       | Уничтожает локальную работу.                                                                                                        |
+| Дождаться зелёных checks → squash через label `merge-approved`        | `gh pr merge --admin`                                            | Обходит branch protection (required checks).                                                                                        |
 
 CI hard-блок: `.github/workflows/check-no-skip-hooks.yml` падает на PR если в diff появилась строка `--no-verify`. Reviewer выдаёт `Verdict: BLOCK`. PM не приближается к `merge-approved` label.
 

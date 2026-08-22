@@ -25,6 +25,7 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | **PM**                | [`pm.md`](pm.md)                               | Project Manager: 4 режима, dispatch decision, User Testing, merge gate                  |
 | **Coder**             | [`coder.md`](coder.md)                         | Fullstack developer: workflow, wip-push, watchdog, vision check                         |
 | **code-reviewer**     | [`code-reviewer.md`](code-reviewer.md)         | Narrow code review: TypeScript strict, ESLint, zone-of-write, write-then-post (default) |
+| **spec-reviewer**     | [`spec-reviewer.md`](spec-reviewer.md)         | Вторая ось ревью: дифф ↔ задание (непокрытые AC / scope creep / ложный `ac_verified`)   |
 | **security-reviewer** | [`security-reviewer.md`](security-reviewer.md) | Security review: OWASP, npm audit, secrets, USDT/ETH (для auth/finance/wallets PR)      |
 | **Architect**         | [`architect.md`](architect.md)                 | Migration architect: ECC migration phases, ADRs, rollback granularity                   |
 | **Legal**             | [`legal.md`](legal.md)                         | UA jurisdictional legal advisor: 4 modes (consult / pr-review / brief-check / strategic) |
@@ -71,6 +72,13 @@ Skills — canonical workflow surface per ECC AGENTS.upstream.md. После Pha
 | `design-system`             | `.claude/skills/design-system/SKILL.md`                                                      | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection (ECC adopt) |
 | `make-interfaces-feel-better` | `.claude/skills/make-interfaces-feel-better/SKILL.md`                                      | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas (ECC adopt) |
 | `claude-design-workflow`    | `.claude/skills/claude-design-workflow/SKILL.md`                                            | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи + handoff-артефакт (design-gate Tier 1/2, добавлен 2026-06-22) |
+| `decision-frontier`         | `.claude/skills/decision-frontier/SKILL.md`                                                  | Все: развилка без владельца — дерево решений → гашение фактами → A1/A2/A3 (2026-08-22)          |
+| `diagnosing-bugs`           | `.claude/skills/diagnosing-bugs/SKILL.md`                                                    | Все: трудный баг / флак — гейт «нет красной команды — нет гипотез» (2026-08-22)                |
+| `codebase-design`           | `.claude/skills/codebase-design/SKILL.md`                                                    | Coder / Architect / reviewer: словарь глубоких модулей, deletion-тест, спроектируй дважды       |
+| `resolving-merge-conflicts` | `.claude/skills/resolving-merge-conflicts/SKILL.md`                                          | Coder / PM / DevOps: конфликт merge/rebase по намерению из первоисточника                       |
+| `prototype`                 | `.claude/skills/prototype/SKILL.md`                                                          | Coder / designer: одноразовый прототип на один вопрос (UI-варианты либо HTML-демо логики)      |
+| `external-research`         | `.claude/skills/external-research/SKILL.md`                                                  | Все: разведка вовне по первоисточникам → цитируемый файл со сроком годности                     |
+| `writing-for-agents`        | `.claude/skills/writing-for-agents/SKILL.md`                                                 | Architect / Master: письмо и прополка документов, которые читают агенты                          |
 | `codebase-audit`            | `.claude/skills/codebase-audit/SKILL.md`                                                    | Master / PM: read-only breadth-first аудит ≥3 независимых модулей (fan-out N×haiku → opus synth), Решение 2 orchestration-routing (2026-06-22) |
 
 См. `docs/architecture/2026-06-03-phase4-deliverable.md` для full inventory + skipped candidates + cross-skill dependency graph.

@@ -23,10 +23,10 @@ model: opus
 
 ## 🔴 Golden rules (zero tolerance)
 
-1. **NEVER merge PR без explicit approval USER** — даже в full autonomy mode. PM ставит `merge-approved` label только после «мерджи» от USER в чате.
-2. **NEVER обходить красные чеки PR.** Если CI ❌ — fix-задача, не bypass.
-3. **NEVER `--admin` flag в `gh`** без явного «используй --admin / форсируй» от USER в текущем сообщении. Общее «действуй автономно» — НЕ согласие.
-4. **NEVER `gh pr merge` вручную** — мердж делает CI после `merge-approved` label.
+1. **ALWAYS дожидайся явного «мерджим» от USER в чате** и только тогда ставь label `merge-approved` — даже в full autonomy mode. Мерж без этого запрещён.
+2. **ALWAYS заводи fix-задачу на красный чек** — CI ❌ означает работу, а не препятствие. Обход красных чеков запрещён.
+3. **ALWAYS проходи через обычный гейт** (зелёные checks → label). Флаг `--admin` в `gh` — только по явному «используй --admin / форсируй» от USER **в текущем сообщении**; общее «действуй автономно» — НЕ согласие.
+4. **ALWAYS отдавай мерж в CI** — он выполняется после label `merge-approved`. Ручной `gh pr merge` запрещён.
 5. **ALWAYS write event в `pm-state.json.events[]`** для каждого решения (включая skip-decisions: `autotest_skipped` с `reason` — skip без записи запрещён).
 6. **ALWAYS dispatch агентов** через `Agent(isolation="worktree")` — НЕ редактировать код напрямую (hook `block-production-edits.sh`).
 7. **ALWAYS** после merged PR — append 1-3 lessons в `.claude/agents/memory/<agent>/lessons.md`; при threshold 20 строк / после batch — консолидировать (promote-and-prune, без архива; `RULES.md` §6.4).
@@ -245,6 +245,13 @@ ls .claude/tasks/*.blocked.md 2>/dev/null
 | ANY              | timeout (>2× expected) | **timeout fallback**  | Mode 2.F — manual fallback: проверить running агента, при необходимости перезапустить с reminder про write-then-post. |
 
 **Правило агрегации:** BLOCK от **любого** reviewer достаточно для aggregate BLOCK; PM не ждёт второй verdict перед классификацией как BLOCK (early-exit). Это совместимо с label `do-not-merge` который ставится сразу при первом BLOCK.
+
+**Spec-ось входит в КАЖДЫЙ aggregate, где у PR есть исходное задание** (см. `contracts.md` §5.4).
+`Spec Review: BLOCK` или `ISSUES` → aggregate BLOCK по тому же early-exit правилу. Ось отдельная
+намеренно: дифф, соблюдающий каждый стандарт, но реализующий не то, что просили, даёт
+`Verdict: APPROVE` при `Spec Review: BLOCK`, и слияние осей в один список позволило бы одной
+замаскировать другую. PM агрегирует **вердикты**, но в fix-задачу находки едут своими группами с
+сохранёнными префиксами (`CR-`, `SR-`, `SPEC-`, `UX-`, `QA-`, `COPY-`).
 
 **UI-PR full aggregate:** для PR с UI-surface aggregate включает ЧЕТЫРЕ verdict-а: `code_review_done` + (`security_review_done` если critical-path) + `manualqa_done` + `designer_review_done` (Mode B). ANY BLOCK любого из них → `do-not-merge` (см. `contracts.md` §5.2). Отчёт Manual QA без Design/UX-вердиктов per page — **неполный**: вернуть manual-qa на дорасследование, в aggregate не засчитывать.
 
