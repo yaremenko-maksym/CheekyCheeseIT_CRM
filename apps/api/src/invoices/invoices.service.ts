@@ -1298,7 +1298,13 @@ export class InvoicesService {
     //     fall back to a number nobody signed.
     let verifiedAmount: string
     let verifiedCurrency: Transaction['currency']
-    if (counterpartySig.amountSnapshot !== null) {
+    // `!= null` (loose) — deliberately catches BOTH `null` (the real,
+    // nullable-column value from Postgres) and `undefined` (what a mocked
+    // unit-test fixture yields when it omits the field entirely), matching
+    // the `??` fallback semantics the pre-round-4 single-expression version
+    // of this branch relied on. A strict `!== null` here would silently
+    // treat "field omitted" as "has a snapshot" in the mocked unit spec.
+    if (counterpartySig.amountSnapshot != null) {
       verifiedAmount = counterpartySig.amountSnapshot
       verifiedCurrency = (counterpartySig.currencySnapshot ??
         tx.currency) as Transaction['currency']
@@ -1433,7 +1439,16 @@ export class InvoicesService {
     // — not used for money movement. Mirrors autoCreateForPayout's approach
     // exactly. Floating-point drift is bounded to sub-cent amounts (≤ 6
     // decimal places) and has no financial side-effect.
-    const amount = linkedIncomes.reduce((sum, row) => sum + parseFloat(row.amount), 0).toString()
+    //
+    // `.toFixed(6)`, not `.toString()` (round 4 fix): every OTHER amount
+    // this service deals with is a `numeric(18,6)` column value round-
+    // tripped through Postgres, which always formats to exactly 6 decimal
+    // places on read (e.g. `tx.amount`, a written `amountSnapshot`). This
+    // helper's result reaches `verifyInvoice`'s response directly, with NO
+    // such round-trip to normalize it — a bare `.toString()` on a whole
+    // number would return `'1000'`, not `'1000.000000'`, silently breaking
+    // format parity with every other amount this same endpoint can return.
+    const amount = linkedIncomes.reduce((sum, row) => sum + parseFloat(row.amount), 0).toFixed(6)
     return { amount, currency: linkedIncomes[0]!.currency }
   }
 
