@@ -212,6 +212,7 @@ describe('invoiceVerifyResponseSchema (public, no private fields)', () => {
     status: 'SIGNED' as const,
     amount: '1234.56',
     currency: 'USDT' as const,
+    mixedCurrency: false,
     type: 'SENIOR_INCOME' as const,
     signatures: [
       {

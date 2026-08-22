@@ -267,16 +267,29 @@ export class InvoicesService {
       return
     }
 
-    // Aggregate amount + collect project names. Per-project lookup is
-    // tolerated as the linked income count is bounded by the number of
-    // active projects per senior (typically ≤ 6). The N+1 query is
-    // acceptable here — caching would over-engineer for the expected fanout.
-    // parseFloat aggregation is display-only (PDF label) — not used for money
-    // movement. Floating-point drift is bounded to sub-cent amounts and has no
-    // financial side-effect. signInvoice PAYOUT branch mirrors this exactly.
-    const aggregatedAmount = linkedIncomes
-      .reduce((sum, row) => sum + parseFloat(row.amount), 0)
-      .toString()
+    // security-review round 5 (PR #600, HIGH-4): amount/currency now come
+    // from `resolvePayoutAggregateAmount` — the SAME helper `signInvoice`
+    // and `verifyInvoice` use. This used to be a THIRD, independently
+    // maintained copy of the same arithmetic, with a comment asking future
+    // edits to keep it "in sync" with signInvoice's copy by hand — exactly
+    // the drift class round 5's finding is about. `linkedIncomes` (fetched
+    // above) stays in scope below for project-name resolution, which this
+    // helper does not need — a tolerated N+1, same trade-off already
+    // documented on that fetch.
+    const resolvedAmount = await this.resolvePayoutAggregateAmount(payoutTx.payoutRequestId)
+    if (!resolvedAmount) {
+      // Defensive-only: `payoutRequestId` was already confirmed truthy and
+      // `linkedIncomes.length > 0` was already confirmed above — this call
+      // re-queries the same rows and should always resolve. "Should never
+      // happen in production" per the same trade-off as the
+      // `linkedIncomes.length === 0` check above.
+      this.logger.error(
+        `autoCreateForPayout: PAYOUT ${payoutTxId} — aggregate amount could not be resolved despite ${linkedIncomes.length} linked income(s) present — skip`,
+      )
+      return
+    }
+    const aggregatedAmount = resolvedAmount.amount
+    const aggregatedCurrency = resolvedAmount.currency
     const projectNames: string[] = []
     const seenProjectIds = new Set<string>()
     for (const incomeRow of linkedIncomes) {
@@ -288,14 +301,9 @@ export class InvoicesService {
       if (project) projectNames.push(project.name)
     }
 
-    // Resolve txDate/period/currency for the invoice payload. The PAYOUT row
-    // itself is what the SENIOR signed on-chain — its txDate (= request paid
-    // moment) is the most precise stamp.
-    const aggregatedCurrency = (linkedIncomes[0]?.currency ?? payoutTx.currency) as
-      | 'USDT'
-      | 'USD'
-      | 'EUR'
-      | 'UAH'
+    // Resolve txDate for the invoice payload. The PAYOUT row itself is what
+    // the SENIOR signed on-chain — its txDate (= request paid moment) is
+    // the most precise stamp.
     const txDate = payoutTx.txDate ?? payoutTx.createdAt
     // ADMIN doesn't sign contracts (see signed_contracts CHECK constraint).
     // Counterparty is JUNIOR/HR/ACCOUNTANT/SENIOR/DROP in practice; defensive null for ADMIN.
@@ -1033,14 +1041,26 @@ export class InvoicesService {
     let projectName: string | null = null
     let projectNames: string[] | null = null
     let contractNumber: string | null = null
-    // BIZ-05 (MED): For PAYOUT rows, amount/currency must come from the
-    // aggregated linked income rows (exactly as autoCreateForPayout does),
-    // NOT from tx.amount/tx.currency (which is the payableAmount in USDT).
-    // Using tx.amount would produce a different amount in the re-rendered PDF
-    // than what the COMPANY signed, making the counterparty-signed copy inconsistent.
-    let payoutAggregatedAmount: string | null = null
-    let payoutAggregatedCurrency: string | null = null
-    if (tx.type === 'PAYOUT' && tx.payoutRequestId) {
+    // security-review round 5 (PR #600, HIGH-4): NEVER `?? tx.amount`. That
+    // fallback used to be exactly what silently substituted a different
+    // number into `amountSnapshot` than the one the PDF actually prints for
+    // PAYOUT rows (the USDT payable vs. the aggregated linked-income sum,
+    // BIZ-05) — the write-time twin of HIGH-3's read-time bug. For
+    // `tx.type === 'PAYOUT'` the branch below either populates this or the
+    // function has already thrown; there is no path that reaches `txInfo`
+    // construction with it still null for a PAYOUT row.
+    let payoutAmount: { amount: string; currency: Transaction['currency'] } | null = null
+    if (tx.type === 'PAYOUT') {
+      // A PAYOUT row without a payoutRequestId cannot be resolved at all —
+      // refuse rather than let a bad/undefined amount reach the snapshot.
+      if (!tx.payoutRequestId) {
+        this.logger.error(
+          `signInvoice: tx=${tx.id} type=PAYOUT has no payoutRequestId — cannot resolve a signable amount, refusing to sign`,
+        )
+        throw new ConflictException(
+          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
+        )
+      }
       // security-review PR #456 round 2: sourced from `nonDeletedTransactions`
       // (VIEW) — defensive-only (see autoCreateForPayout's identical filter),
       // but now structural rather than a condition to remember.
@@ -1068,21 +1088,29 @@ export class InvoicesService {
         counterpartyRow.role === 'ADMIN'
           ? null
           : await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
-      // security-review round 4 (PR #600, HIGH-3): amount/currency
-      // resolution now goes through `resolvePayoutAggregateAmount` — the
-      // SAME helper `verifyInvoice` calls to recompute this when a legacy
-      // row has no snapshot. Re-queries the linked incomes a second time
-      // (the `linkedIncomes` fetched above stays — it also drives the
-      // project-name/contract-number resolution this helper doesn't need)
-      // — a tolerated N+1 in this file already (see `autoCreateForPayout`'s
-      // own comment on the same trade-off). `null` here means the aggregate
-      // could not be honestly resolved (no linked incomes / mixed
-      // currencies — see the helper's own doc comment); the fallback to
-      // `tx.amount` a few lines below is the same defensive "should never
-      // happen in production" path this branch always had.
-      const resolvedPayoutAmount = await this.resolvePayoutAggregateAmount(tx.payoutRequestId)
-      payoutAggregatedAmount = resolvedPayoutAmount?.amount ?? null
-      payoutAggregatedCurrency = resolvedPayoutAmount?.currency ?? null
+      // security-review round 4 (PR #600, HIGH-3) / round 5 (PR #600,
+      // HIGH-4): amount/currency resolution goes through
+      // `resolvePayoutAggregateAmount` — the SAME helper `verifyInvoice`
+      // calls to recompute this when a legacy row has no snapshot, and
+      // `autoCreateForPayout` calls to print the initial COMPANY-only PDF.
+      // Re-queries the linked incomes a second time (the `linkedIncomes`
+      // fetched above stays — it also drives the project-name/
+      // contract-number resolution this helper doesn't need) — a tolerated
+      // N+1 in this file already (see `autoCreateForPayout`'s own comment
+      // on the same trade-off). The helper now COUNTS mixed currencies
+      // instead of refusing (see its doc comment) — `null` here means
+      // genuinely nothing to sign (no linked incomes), and this branch
+      // refuses rather than fall back to a number nobody signed.
+      const resolved = await this.resolvePayoutAggregateAmount(tx.payoutRequestId)
+      if (!resolved) {
+        this.logger.error(
+          `signInvoice: tx=${tx.id} type=PAYOUT req=${tx.payoutRequestId} — aggregate amount could not be resolved (no linked incomes) — refusing to sign`,
+        )
+        throw new ConflictException(
+          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
+        )
+      }
+      payoutAmount = resolved
     } else if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
       const project = await this.db.db.query.projects.findFirst({
         where: eq(projects.id, tx.projectId),
@@ -1095,14 +1123,11 @@ export class InvoicesService {
       // PAYOUT rows render with the SENIOR_INCOME template (АКТ ВЫПОЛНЕННЫХ
       // РАБОТ) — same legal document, just aggregated content.
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
-      // BIZ-05: Use aggregated linked income amount/currency for PAYOUT rows,
-      // falling back to tx.amount/tx.currency only when no linked incomes found
-      // (defensive — should never happen in production).
-      amount: tx.type === 'PAYOUT' ? (payoutAggregatedAmount ?? tx.amount) : tx.amount,
-      currency:
-        tx.type === 'PAYOUT'
-          ? ((payoutAggregatedCurrency ?? tx.currency) as typeof tx.currency)
-          : tx.currency,
+      // security-review round 5 (PR #600, HIGH-4): `payoutAmount!` — see
+      // the field's own comment above for why this is safe: for a PAYOUT
+      // row, the branch above either populated it or already threw.
+      amount: tx.type === 'PAYOUT' ? payoutAmount!.amount : tx.amount,
+      currency: tx.type === 'PAYOUT' ? payoutAmount!.currency : tx.currency,
       projectName,
       projectNames,
       contractNumber,
@@ -1292,12 +1317,26 @@ export class InvoicesService {
     //     Instead of the live column, recompute through
     //     `resolvePayoutAggregateAmount` — the SAME helper `signInvoice`
     //     uses to WRITE the snapshot, so read and write never describe the
-    //     rule differently again. If even that cannot be resolved honestly
-    //     (no linked incomes, no payoutRequestId, or linked incomes
-    //     spanning more than one currency), refuse to answer rather than
-    //     fall back to a number nobody signed.
+    //     rule differently again.
+    //
+    // security-review round 5 (PR #600, HIGH-4): round 4 additionally
+    // refused to answer whenever the linked incomes spanned more than one
+    // currency — that refusal landed on a COUNTERPARTY holding a validly
+    // signed act, who is entitled to see the confirmed amount, not a 409.
+    // Mixed currency is a supported configuration (see
+    // `resolvePayoutAggregateAmount`'s doc comment), so the helper no
+    // longer refuses for that reason — it counts the blind sum and flags
+    // `mixedCurrency` instead. The refusal below now fires ONLY when there
+    // is genuinely no aggregate to compute at all (no linked incomes / no
+    // payoutRequestId) — a DIFFERENT, still-legitimate case: there is no
+    // number of any kind to show, not merely a currency-quality concern.
     let verifiedAmount: string
     let verifiedCurrency: Transaction['currency']
+    // `mixedCurrency` is raised to the caller ONLY on the legacy-recompute
+    // branch below — the common snapshot branch does not persist this flag
+    // per-signature (no schema change this round), so `false` is the
+    // honest default there: no recomputation happened for THIS response.
+    let mixedCurrency = false
     // `!= null` (loose) — deliberately catches BOTH `null` (the real,
     // nullable-column value from Postgres) and `undefined` (what a mocked
     // unit-test fixture yields when it omits the field entirely), matching
@@ -1311,11 +1350,12 @@ export class InvoicesService {
     } else if (tx.type === 'PAYOUT') {
       const resolved = await this.resolvePayoutAggregateAmount(tx.payoutRequestId)
       if (!resolved) {
-        // MED-D (round 4): honest refusal, not a silent fallback to
-        // tx.amount — this is the case `resolvePayoutAggregateAmount`'s own
-        // doc comment describes (no linked incomes / no payoutRequestId /
-        // mixed currencies). A public caller gets a clear error instead of
-        // a number that was never actually confirmed by anyone.
+        // Genuinely nothing to confirm — no linked incomes / no
+        // payoutRequestId (see resolvePayoutAggregateAmount's own doc
+        // comment). Mixed currency no longer reaches this branch (round 5
+        // — it now always resolves, counted and flagged); reaching HERE
+        // means there is no aggregate AT ALL, not a currency-quality
+        // concern, so an honest refusal is still the only truthful answer.
         this.logger.error(
           `verifyInvoice: tx=${tx.id} type=PAYOUT COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot and the linked-income aggregate could not be resolved — refusing to confirm an amount`,
         )
@@ -1327,12 +1367,16 @@ export class InvoicesService {
       // this warning — a legacy PAYOUT row signed before this migration
       // shipped. Every other case either has a snapshot or, post-backfill,
       // should not exist — logged at `warn`, not `error`, because this is
-      // the EXPECTED path for those rows, not an anomaly.
+      // the EXPECTED path for those rows, not an anomaly. `mixedCurrency`
+      // appended (round 5) so the residual currency-drift risk documented
+      // on `resolvePayoutAggregateAmount` stays visible in the record for
+      // this specific legacy row, not just the helper's own log line.
       this.logger.warn(
-        `verifyInvoice: tx=${tx.id} type=PAYOUT COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — recomputed from linked incomes (legacy row signed before this migration)`,
+        `verifyInvoice: tx=${tx.id} type=PAYOUT COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — recomputed from linked incomes (legacy row signed before this migration), mixedCurrency=${resolved.mixedCurrency}`,
       )
       verifiedAmount = resolved.amount
       verifiedCurrency = resolved.currency
+      mixedCurrency = resolved.mixedCurrency
     } else {
       // MED-D (round 4): non-PAYOUT branch, logged separately from PAYOUT
       // above (previously one shared message covered both, discussed in
@@ -1350,6 +1394,7 @@ export class InvoicesService {
       status: 'SIGNED' as InvoiceStatus,
       amount: verifiedAmount,
       currency: verifiedCurrency,
+      mixedCurrency,
       // Public InvoiceType enum is SENIOR_INCOME | SALARY — PAYOUT maps to
       // SENIOR_INCOME for the verify response.
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
@@ -1374,12 +1419,13 @@ export class InvoicesService {
   /**
    * Resolve the amount/currency a PAYOUT-anchored invoice was (or would be)
    * signed with — the aggregate over the linked SENIOR_INCOME/DROP_INCOME
-   * rows sharing `payoutRequestId`, assembled the exact same way as
-   * `autoCreateForPayout` (see its comment for why the read is tolerated
-   * N+1). Single source of truth for BOTH `signInvoice` (writes
-   * `amountSnapshot`/`currencySnapshot` from this) and `verifyInvoice`
-   * (recomputes from this when no snapshot exists) — same "both stay
-   * pinned to identical numbers" discipline as `roundShareAmount`
+   * rows sharing `payoutRequestId`, assembled the exact same way as the PDF
+   * this service actually prints. Single source of truth for ALL THREE
+   * places that need this number — `autoCreateForPayout` (initial
+   * COMPANY-only PDF), `signInvoice` (writes `amountSnapshot`/
+   * `currencySnapshot` from this), and `verifyInvoice` (recomputes from
+   * this when a legacy row has no snapshot) — same "all stay pinned to
+   * identical numbers" discipline as `roundShareAmount`
    * (`transactions.service.ts`, `bookCompanyObligations`).
    *
    * security-review round 4 (PR #600, HIGH-3): before this helper existed,
@@ -1387,36 +1433,66 @@ export class InvoicesService {
    * number independently — the fallback used `tx.amount` (the USDT
    * payable, BIZ-05), a structurally different number/currency from the
    * aggregate `signInvoice` actually signs. Two descriptions of one rule
-   * had drifted apart; this makes it one.
+   * had drifted apart; this made it one — but round 4 ALSO made this
+   * helper refuse (return `null`) whenever the linked incomes spanned more
+   * than one currency.
    *
-   * Returns `null` when the aggregate cannot be honestly resolved — the
-   * caller MUST treat that as "amount cannot be confirmed", never
-   * silently substitute a different source (that substitution is exactly
-   * what caused HIGH-3):
+   * security-review round 5 (PR #600, HIGH-4): that refusal never actually
+   * reached the caller. `signInvoice`'s `?? tx.amount` fallback (removed
+   * this round — see its own call site) silently swallowed the `null` and
+   * wrote a DIFFERENT number into `amountSnapshot` than the one the PDF
+   * actually printed — the exact defect this file exists to prevent, moved
+   * from a read-time bug (HIGH-3) to a write-time one. Mixed-currency
+   * batches are also an intentionally SUPPORTED configuration
+   * (`transactions.service.ts` — the mixed-currency PAYOUT guard was
+   * deliberately removed as a bug fix, not tightened), not an edge case —
+   * so refusing was the wrong lever twice over. This helper now COUNTS
+   * (the blind sum of `parseFloat` amounts across every linked row
+   * regardless of currency — exactly what was printed before round 4,
+   * now with a deterministic `ORDER BY` instead of an unspecified one) and
+   * flags the result via `mixedCurrency` instead of refusing. The
+   * invariant this file protects is "paper == snapshot == QR", not "the
+   * printed sum is currency-correct" — the latter is a real defect in the
+   * printed DOCUMENT (summing currencies without conversion), but what
+   * gets printed is a product/legal decision, not this helper's call (see
+   * the task doc's "чего НЕ делать" section, backlog item 83).
+   *
+   * Returns `null` ONLY when there is genuinely no number to compute — the
+   * caller MUST treat that as "amount cannot be confirmed", never silently
+   * substitute a different source (that substitution is exactly what
+   * caused HIGH-3/HIGH-4):
    *   - `payoutRequestId` is NULL — structurally shouldn't happen for a
    *     PAYOUT row that reached `signInvoice`/`verifyInvoice`, defensive
    *     only;
    *   - zero linked incomes — "should never happen in production" per the
    *     BIZ-05 comment this mirrors (`autoCreateForPayout` already refuses
-   *     to auto-create in this case);
-   *   - linked incomes span MORE THAN ONE CURRENCY — the previous inline
-   *     version of this logic summed `parseFloat` amounts across whatever
-   *     currency the FIRST row happened to carry, with no `ORDER BY`, i.e.
-   *     non-deterministically, and never validated the rows agreed on a
-   *     currency at all. Adding USD to EUR and calling the result a number
-   *     would be a silent lie, not a data point — refusing beats guessing.
+   *     to auto-create in this case, so a signed PAYOUT row reaching this
+   *     state at all would mean the linked incomes were removed AFTER
+   *     signing).
+   *
+   * Residual risk (round 5, named rather than silenced): a LEGACY PAYOUT
+   * row signed before the amountSnapshot mechanism shipped has no snapshot
+   * at all — `verifyInvoice`'s legacy branch recomputes through this
+   * helper live, using TODAY'S deterministic `ORDER BY createdAt ASC`. The
+   * ORIGINAL (pre-round-4) inline computation did NOT order its rows, so
+   * for a legacy mixed-currency batch the currency label returned here
+   * (first row by `createdAt`) may not be the one actually printed on the
+   * document the counterparty is holding. There is no snapshot to recover
+   * the true original from — this cannot be fixed without data that no
+   * longer exists, only disclosed.
    */
-  private async resolvePayoutAggregateAmount(
-    payoutRequestId: string | null,
-  ): Promise<{ amount: string; currency: Transaction['currency'] } | null> {
+  private async resolvePayoutAggregateAmount(payoutRequestId: string | null): Promise<{
+    amount: string
+    currency: Transaction['currency']
+    mixedCurrency: boolean
+  } | null> {
     if (!payoutRequestId) return null
     // Deterministic ordering (round 4, HIGH-3 remediation): the previous
     // inline version of this query had no ORDER BY, so "the first row's
-    // currency" was whichever order Postgres happened to return — harmless
-    // in practice (see the mixed-currency guard below, which now makes the
-    // single-currency case the ONLY case this ever settles on), but an
+    // currency" was whichever order Postgres happened to return — an
     // unordered SELECT backing a legal-document amount is worth pinning
-    // down explicitly rather than leaving to chance.
+    // down explicitly rather than leaving to chance (see the residual-risk
+    // note in the doc comment above for the one case this cannot retroactively fix).
     const linkedIncomes = await this.db.db
       .select()
       .from(nonDeletedTransactions)
@@ -1444,11 +1520,15 @@ export class InvoicesService {
       .orderBy(asc(nonDeletedTransactions.createdAt))
     if (linkedIncomes.length === 0) return null
     const currencies = new Set(linkedIncomes.map((row) => row.currency))
-    if (currencies.size > 1) {
-      this.logger.error(
-        `resolvePayoutAggregateAmount: payoutRequestId=${payoutRequestId} has linked incomes in more than one currency (${[...currencies].sort().join(', ')}) — refusing to aggregate rather than silently summing across currencies`,
+    const mixedCurrency = currencies.size > 1
+    if (mixedCurrency) {
+      // security-review round 5 (PR #600, HIGH-4): no longer refuses — see
+      // the doc comment above. Logged explicitly and separately from every
+      // other warning this helper/its callers emit, so the drift stays
+      // visible in the record instead of vanishing into a generic message.
+      this.logger.warn(
+        `resolvePayoutAggregateAmount: payoutRequestId=${payoutRequestId} has linked incomes in more than one currency (${[...currencies].sort().join(', ')}) — printing the blind sum across currencies (mixed-currency batches are a supported configuration, see transactions.service.ts); mixedCurrency=true`,
       )
-      return null
     }
     // parseFloat aggregation is display-only (PDF label / verify response)
     // — not used for money movement. Mirrors autoCreateForPayout's approach
@@ -1464,7 +1544,7 @@ export class InvoicesService {
     // number would return `'1000'`, not `'1000.000000'`, silently breaking
     // format parity with every other amount this same endpoint can return.
     const amount = linkedIncomes.reduce((sum, row) => sum + parseFloat(row.amount), 0).toFixed(6)
-    return { amount, currency: linkedIncomes[0]!.currency }
+    return { amount, currency: linkedIncomes[0]!.currency, mixedCurrency }
   }
 
   /**

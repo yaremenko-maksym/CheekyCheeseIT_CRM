@@ -141,6 +141,16 @@ export const invoiceVerifyResponseSchema = z.object({
   status: invoiceStatusSchema,
   amount: z.string(),
   currency: invoiceCurrencySchema,
+  // security-review round 5 (PR #600, HIGH-4): raised from
+  // `resolvePayoutAggregateAmount` on the legacy no-snapshot PAYOUT
+  // recompute path — true when the linked incomes behind this amount span
+  // more than one currency (a supported configuration; the aggregate is a
+  // blind sum across currencies, not converted). `false` for every other
+  // path, including the common signed-snapshot case, which does not
+  // persist this flag per-signature. Not rendered on the public verify
+  // page yet — surfacing it in the UI is a product/legal decision, tracked
+  // separately (backlog item 83).
+  mixedCurrency: z.boolean(),
   type: invoiceTypeSchema,
   signatures: z.array(
     z.object({
