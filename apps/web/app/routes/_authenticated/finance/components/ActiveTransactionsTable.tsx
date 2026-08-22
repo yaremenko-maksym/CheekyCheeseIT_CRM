@@ -167,7 +167,11 @@ export function ActiveTransactionsTable({
               absolute-positioning reflow trick a `<tr>` couldn't use anyway;
               row enter/exit animations (`initial`/`animate`/`exit` on
               `TransactionRow`) are untouched. */}
-          <AnimatePresence mode="sync" initial={false}>
+          <AnimatePresence
+            mode="sync"
+            // Stryker disable next-line BooleanLiteral: `initial` only controls whether framer-motion plays the ENTRY animation for rows already present on first mount vs mounting them already-settled (a first-paint visual detail) — this component's own test suite (ActiveTransactionsTable.test.tsx) mocks `framer-motion` entirely (`AnimatePresence` renders children raw, `motion.tr` strips every animation prop), so no assertion here can distinguish `initial={false}` from `initial={true}`, the same untestable-by-design shape as the identical pair on the finance page's own `TransactionsTable` (index.tsx:494), which no unit test reaches at all. `false` is still correct — without it every row would replay a fade/slide-in entrance on the dashboard's initial load — confirmed by inspection, not a unit assertion.
+            initial={false}
+          >
             {rows.map((tx) => (
               <TransactionRow
                 key={tx.id}
