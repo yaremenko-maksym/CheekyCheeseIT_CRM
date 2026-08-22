@@ -154,7 +154,20 @@ export function ActiveTransactionsTable({
           </tr>
         </thead>
         <tbody>
-          <AnimatePresence mode="popLayout" initial={false}>
+          {/* task-finance-sort-date-and-jump round 2 (M-2). Same anti-pattern
+              as the finance page's TransactionsTable (see the comment there):
+              `mode="popLayout"` can't meaningfully absolutely-position a
+              `<tr>`, so it falls out of the table's layout context and jumps
+              to the top-left of the nearest positioned ancestor whenever a
+              row actually exits. The trigger here is live, not hypothetical
+              — `invalidateQueries` after confirm/settle/pay on the ADMIN
+              dashboard changes which rows qualify as "active" and reorders
+              the rest, exactly the exit+reorder combination that breaks
+              `popLayout` on table rows. `mode="sync"` drops only the
+              absolute-positioning reflow trick a `<tr>` couldn't use anyway;
+              row enter/exit animations (`initial`/`animate`/`exit` on
+              `TransactionRow`) are untouched. */}
+          <AnimatePresence mode="sync" initial={false}>
             {rows.map((tx) => (
               <TransactionRow
                 key={tx.id}

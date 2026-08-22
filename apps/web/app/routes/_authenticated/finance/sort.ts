@@ -7,11 +7,11 @@
  *
  * `compareTxByDate` sorts by `txDate` — the field actually rendered in the
  * «Дата» column — so the order the user sees matches the button they clicked.
- * `txDate` is coarse (legacy income rows carry a midnight-UTC value, from an
- * `<input type="date">`) and `null` for payouts, so `createdAt` (monotonic,
- * unique, always present) is used as a tie-breaker rather than as the
- * primary key. See the `compareTxByDate` docblock for the full rationale,
- * including where `txDate = null` rows land.
+ * `txDate` is always `null` for payouts, so a row with no `txDate` falls back
+ * to its own `createdAt` (round 2 — see the `compareTxByDate` docblock for
+ * why a fallback, not a fixed "undated first/last" edge, is the fix).
+ * `createdAt` is also used as a tie-breaker for rows whose effective date
+ * collides (legacy income rows share a midnight-UTC `txDate`).
  */
 export type TxSortable = {
   txDate: string | null
@@ -24,79 +24,77 @@ export type SortDir = 'asc' | 'desc'
 const toTime = (iso: string | null | undefined): number => (iso ? new Date(iso).getTime() : 0)
 
 /**
- * Compare two transactions by `txDate` (primary key), with `createdAt` as a
- * tie-breaker (secondary key).
+ * Compare two transactions by `txDate ?? createdAt` (primary key — the row's
+ * "effective date"), with `createdAt` as a tie-breaker (secondary key) for
+ * rows whose effective date collides.
  *
- * Why `txDate` and not `createdAt` (see task-finance-sort-date-and-jump.md):
- * the «Дата» column renders `txDate`, so sorting by anything else desyncs
- * the order the user sees from the button they clicked — they sort the
- * visible column and get the invisible field's order. A previous fix (see
- * task-fix-transactions-sort-by-createdat.md) switched the primary key to
- * `createdAt` instead, reasoning that `txDate` is too coarse to give a
+ * Why `txDate` and not `createdAt` alone (see task-finance-sort-date-and-jump.md
+ * round 1): the «Дата» column renders `txDate`, so sorting by anything else
+ * desyncs the order the user sees from the button they clicked — they sort
+ * the visible column and get the invisible field's order. A previous fix
+ * (see task-fix-transactions-sort-by-createdat.md) switched the primary key
+ * to `createdAt` instead, reasoning that `txDate` is too coarse to give a
  * stable order on its own (legacy income rows are midnight-UTC, payouts are
  * `null`). That observation is correct, but the conclusion was wrong:
  * coarseness is a tie-breaking problem, not a reason to sort by a field the
- * user never sees. This version keeps `txDate` primary and fixes the
- * coarseness with a tie-breaker instead.
+ * user never sees.
  *
- * Tie-breaking:
- * - Same `txDate` (e.g. two legacy income rows both parsed to the same
- *   midnight-UTC value) → `createdAt` decides, since it is unique and
- *   monotonic and reflects insertion order.
- * - `txDate = null` (always a payout — see `TxSortable`) → placed BEFORE
- *   every dated row, in BOTH directions (not flipped by `dir`). Two reasons,
- *   not one:
- *   1. A payout has no known "when it happened", so it cannot honestly be
- *      called newest or oldest among dated rows — it needs a fixed edge,
- *      not an arbitrary slot.
- *   2. Which edge matters in practice, and was checked live, not assumed:
- *      putting undated rows LAST regressed real usage — a freshly-created
- *      payout (txDate always null, createdAt = now) would sort behind every
- *      dated row, and once the list passes one page (50 rows — see
- *      `usePaginatedFilter`), a brand-new payout falls onto page 2 and
- *      becomes invisible right after creation. Verified against `crm_qa`
- *      (52 live rows already past that boundary) — `phase8-payout-company.spec.ts`
- *      and siblings that create a payout via the real API and immediately
- *      click its row on `/finance` timed out with "undated last" and pass
- *      with "undated first". The OLD `createdAt`-only comparator never had
- *      this failure mode (a new row is always the newest `createdAt`, so
- *      always first) — "undated first" restores that guarantee for the rows
- *      that actually need it, while still fixing the original bug for every
- *      dated row.
- *   Rows that are BOTH null still order among themselves by `createdAt`
- *   (with `dir` applied), so that group isn't left in arbitrary order.
+ * Why a FALLBACK (`?? createdAt`) and not a fixed edge for `txDate = null`
+ * rows (round 1 shipped "undated always sorts first"; round 2 reverted it —
+ * see H-1 in the task file, caught by the `drop-finance` E2E shard's
+ * required CI check): a fixed edge — "first" or "last" — clumps EVERY
+ * undated row (every payout) into one contiguous block regardless of when it
+ * actually happened. That block grows with the payout count, and once it
+ * exceeds one page (`usePaginatedFilter`'s `DEFAULT_PAGE_SIZE = 50`), it
+ * fully occupies page 1 and pushes every OTHER row off it:
+ * - "undated last" (the pre-round-1 bug): a fresh payout's own row falls
+ *   behind >50 dated rows and becomes invisible right after creation.
+ * - "undated first" (round 1's fix): once >50 payouts pile up (exactly what
+ *   16 real-API specs sharing one DB across the `drop-finance` shard do), a
+ *   freshly-dated row — no matter how recent — falls behind them instead and
+ *   becomes invisible. Same defect, block moved to the other edge.
+ * A payout has no `txDate` because it has no independent "when it happened"
+ * date distinct from when it was recorded — `createdAt` IS its most honest
+ * date, not an arbitrary placeholder for one. Falling back to it means:
+ * - a freshly-created payout's effective date is "now", so it still sorts to
+ *   the top on DESC — the guarantee round 1 needed, preserved (see the
+ *   "freshly-created payout" test below);
+ * - an old payout's effective date is however long ago it was actually
+ *   created, so a pile of old payouts no longer blocks a fresh dated row
+ *   from page 1 — the guarantee round 2 needed, restored (see the "H-1
+ *   regression" test below);
+ * - no block forms at either edge, because undated rows are interleaved by
+ *   time with dated ones instead of pulled out of the timeline altogether.
+ *
+ * Tie-breaking: two rows whose EFFECTIVE date is equal fall back to
+ * `createdAt` directly (unique, monotonic, always present). This covers
+ * same-day legacy income rows (parsed `txDate` collides at midnight-UTC)
+ * and, degenerately, two undated rows — whose effective date already IS
+ * `createdAt`, so the tie-break re-derives the same order the primary
+ * comparison already produced. Harmless, not incorrect.
  */
 export function compareTxByDate(a: TxSortable, b: TxSortable, dir: SortDir): number {
   const mul = dir === 'asc' ? 1 : -1
-  // `!= null` (loose) is deliberate, not a lint slip: `financeApi.getTransactions`
-  // types its response `TransactionDto[]` but does not `.parse()` it (no schema
-  // round-trip on this endpoint), so a hand-built/mocked payload that omits the
-  // key entirely reaches here as `undefined`, not `null`. Treat both as "no
-  // date" — a strict `!== null` would misfile an `undefined` row as dated with
-  // `toTime()`'s epoch-0 fallback, which would sort it as the OLDEST dated row
-  // instead of into the undated-first bucket, contradicting the contract below.
-  const aHasDate = a.txDate != null
-  const bHasDate = b.txDate != null
-  if (aHasDate !== bHasDate) {
-    // Exactly one side is undated — undated always sorts first, regardless
-    // of direction (see docblock above for why "first" and not "last").
-    return aHasDate ? 1 : -1
-  }
-  // aHasDate === bHasDate is guaranteed past this point (either both dated
-  // or both null). No extra guard is needed: `toTime(null)` is 0 on both
-  // sides when both are undated, so `byTxDate` is 0 and falls straight
-  // through to the createdAt tie-break below — same result a
-  // `both-dated`-only branch would have produced, with one fewer branch.
-  const byTxDate = toTime(a.txDate) - toTime(b.txDate)
+  // `??` (nullish coalescing), not `||`: an empty-string `txDate` is never a
+  // real value `financeApi` sends, but `??` documents the intent — "missing
+  // the field", not "falsy" — and, as a side effect, treats `undefined` the
+  // same as `null` with no extra branch. That matters because
+  // `financeApi.getTransactions` types its response `TransactionDto[]` but
+  // does not `.parse()` it (no schema round-trip on this endpoint), so a
+  // hand-built/mocked payload that omits the key entirely reaches here as
+  // `undefined`, not `null` (unit-tested below).
+  const aEffective = toTime(a.txDate ?? a.createdAt)
+  const bEffective = toTime(b.txDate ?? b.createdAt)
+  const byDate = aEffective - bEffective
   // Stryker disable next-line ArithmeticOperator: `mul` is always ±1, and
-  // for any nonzero `byTxDate`, `mul * byTxDate` and `mul / byTxDate` have
-  // the identical sign (dividing/multiplying by ±1 both just mirror or
-  // preserve the sign of the other operand) — Array.sort only reads the
-  // sign of a comparator's return value, so no sort-order assertion can
-  // ever distinguish `*` from `/` here. A magnitude assertion would pin an
+  // for any nonzero `byDate`, `mul * byDate` and `mul / byDate` have the
+  // identical sign (dividing/multiplying by ±1 both just mirror or preserve
+  // the sign of the other operand) — Array.sort only reads the sign of a
+  // comparator's return value, so no sort-order assertion can ever
+  // distinguish `*` from `/` here. A magnitude assertion would pin an
   // implementation detail the contract doesn't make, not a behaviour.
-  if (byTxDate !== 0) return mul * byTxDate
-  // Tie (same txDate, or both null) — fall back to createdAt.
+  if (byDate !== 0) return mul * byDate
+  // Tie (equal effective date) — fall back to createdAt.
   return mul * (toTime(a.createdAt) - toTime(b.createdAt))
 }
 
