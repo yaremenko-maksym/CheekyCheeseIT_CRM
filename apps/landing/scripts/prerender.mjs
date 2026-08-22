@@ -1069,6 +1069,45 @@ function assertSitemapMatchesDist(sitemapXml, readFileFn) {
   }
 }
 
+/**
+ * task-sitemap-missing-vacancy-locales.md (backlog #177) AC4 "first half" —
+ * the INVERSE of `assertSitemapMatchesDist` above. That function only ever
+ * checked sitemap → dist ("every advertised `<loc>` has a real, indexable
+ * file behind it") — it has nothing to say about a `<loc>` that should
+ * exist but is simply ABSENT, because an absent entry has, by definition,
+ * nothing in `sitemapXml` to iterate over. That is exactly the shape of
+ * backlog #177: `buildSitemapXml` silently dropped 6 live, indexable,
+ * self-canonical, internally-linked vacancy pages, and nothing caught it —
+ * `assertSitemapMatchesDist` had nothing to complain about (the 14
+ * addresses it DID see were all individually fine), and
+ * `assertSitemapHreflangClusters` only inspects clusters that already made
+ * it into the XML.
+ *
+ * This walks the OTHER direction: every route this build actually
+ * captured to `dist/` with `expectNoindex: false` (every entry in
+ * `routes` — see `main()`'s `captureRoute(browser, baseUrl, route.url,
+ * false, route)` call; no route in this array is ever noindex) must have
+ * a matching `<loc>` in the just-written sitemap.xml.
+ *
+ * @param {PrerenderRoute[]} routes
+ * @param {string} sitemapXml
+ * @returns {void}
+ */
+function assertEveryIndexableRouteInSitemap(routes, sitemapXml) {
+  const locs = new Set([...sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]))
+  const missing = routes
+    .map((route) => localizedUrl(route.locale ?? DEFAULT_LOCALE, route.path))
+    .filter((expected) => !locs.has(expected))
+  if (missing.length > 0) {
+    throw new Error(
+      `prerender: ${missing.length} indexable route(s) were captured to dist/ (index, follow, ` +
+        `self-canonical) but ${missing.length === 1 ? 'is' : 'are'} missing from sitemap.xml: ` +
+        `${missing.join(', ')} — a page every OTHER signal says "please index this" must also be ` +
+        'advertised in the sitemap (task-sitemap-missing-vacancy-locales.md AC4).',
+    )
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 3. robots.txt + sitemap.xml (task §2) — plain static files, no React page
 //    exists for these, so they are generated directly here.
@@ -1145,6 +1184,32 @@ function buildXhtmlAlternates(path, excludeLocales) {
 }
 
 /**
+ * task-sitemap-missing-vacancy-locales.md (backlog #177) AC1/AC3/AC5 — the
+ * hreflang cluster for a vacancy `<url>` whose OWN locale is a fallback
+ * (untranslated duplicate of `en`, see `buildSitemapXml`'s call site doc).
+ * Deliberately NOT `buildXhtmlAlternates(path, LOCALES.filter(l => l !==
+ * locale))`: that would still splice in an `en`/`uk` cross-reference this
+ * locale cannot reciprocate (their own clusters correctly do NOT list a
+ * fallback locale — backlog #39), which `assertSitemapHreflangClusters`
+ * below would then rightfully reject as non-reciprocal. A single
+ * self-referencing tag is the SEO-neutral floor: per Google's hreflang
+ * docs a page that only lists itself is equivalent to carrying no hreflang
+ * annotation at all — it claims no cross-language relationship, so it
+ * cannot misrepresent duplicate content as a translation, while still
+ * satisfying `assertSitemapHreflangClusters`' "every address must appear
+ * in its own cluster" rule (that rule exists to catch a DIFFERENT bug —
+ * an address with literally nothing describing it at all, see that
+ * function's "mutation B" test — not to forbid a deliberately minimal one).
+ *
+ * @param {string} locale
+ * @param {string} path
+ * @returns {string}
+ */
+function buildSelfOnlyXhtmlAlternate(locale, path) {
+  return `    <xhtml:link rel="alternate" hreflang="${locale}" href="${xmlEscape(localizedUrl(locale, path))}" />`
+}
+
+/**
  * @param {VacancyListItem[] | null} vacancies
  * @param {string} buildTime
  * @param {PerLocaleVacancies} perLocaleVacancies
@@ -1169,37 +1234,51 @@ function buildSitemapXml(vacancies, buildTime, perLocaleVacancies = {}) {
     })
     for (const v of vacancies ?? []) {
       const excludeLocales = vacancyHreflangExcludes(v.slug, perLocaleVacancies)
-      // task-sitemap-hreflang-clusters.md AC2/AC5 — a locale plan §3/A10
-      // already excludes from THIS vacancy's hreflang cluster (fallback/
-      // untranslated copy, "no hreflang points AT it" — duplicate-content
-      // guard) must not be ADVERTISED as its own sitemap <url> either.
-      // Before this check, the outer `for (const locale of LOCALES)` loop
-      // pushed a <loc> for EVERY locale unconditionally, while
-      // `buildXhtmlAlternates` below (fed the SAME excludeLocales for every
-      // one of those <url> blocks, since it is a pure function of
-      // `v.slug`/`perLocaleVacancies` only) never lists the excluded
-      // locale's OWN href as an alternate — not even on ITS OWN <url>
-      // block. The result was an address sitting in sitemap.xml with a
-      // hreflang cluster that does not contain itself, and that no other
-      // cluster member points back at either: reachable, but not
-      // discoverable as a language variant of anything (Search Console
-      // "discovered — currently not indexed", 2026-08-08 report). Skipping
-      // the <url> entry here does NOT remove the page from the index — it
-      // stays a real, indexable (`index, follow`), self-canonical page
-      // (see `captureRoute`'s `expectNoindex: false` for every route) that
-      // Google can still reach organically via the SAME locale's own
-      // `/careers` list, which links to `/careers/<slug>` for every
-      // PUBLISHED vacancy regardless of translation status
-      // (`careers-page-content.tsx` → `CareersList` → `VacancyCard`).
-      // Sitemap presence is an explicit "please crawl/prioritize this"
-      // signal, not the only discovery path — AC5 is satisfied because no
-      // indexable page disappears, only the sitemap's OWN promise to only
-      // list addresses that belong to a real, reciprocal hreflang cluster.
-      if (excludeLocales.includes(locale)) continue
+      const path = `/careers/${v.slug}`
+      // task-sitemap-missing-vacancy-locales.md (backlog #177, Search
+      // Console report 2026-08-22) AC1/AC2 — this used to `continue` (skip
+      // the <url> entry) whenever THIS locale itself was in its own
+      // `excludeLocales` (i.e. THIS locale's copy of the vacancy is a
+      // fallback/untranslated duplicate of `en`). That conflated two
+      // DIFFERENT signals that `vacancyHreflangExcludes` was only ever
+      // meant to answer once each:
+      //   1. "should locale L be ADVERTISED AS AN ALTERNATE inside some
+      //      OTHER locale's cluster" — yes, keep excluding L there (a
+      //      fallback page is not a genuine translation; claiming it is
+      //      would misrepresent duplicate content as a real language
+      //      variant — task-sitemap-hreflang-clusters.md AC2/AC5, backlog
+      //      #39, still enforced below).
+      //   2. "should locale L's OWN page even be IN the sitemap at all" —
+      //      this is what the `continue` actually did, and it was wrong:
+      //      the live page is `index, follow`, self-canonical, and linked
+      //      from its own `/careers` list regardless of translation status
+      //      (`captureRoute`'s `expectNoindex: false` for every route,
+      //      `careers-page-content.tsx` → `CareersList` → `VacancyCard`
+      //      has no fallback filter). Every OTHER signal the app emits for
+      //      this exact URL says "please index this" — only the sitemap
+      //      disagreed. That is precisely the contradiction Search Console
+      //      flagged (backlog #177): a page can promise itself as
+      //      indexable without being a sitemap orphan.
+      //
+      // Fix: ALWAYS emit the <url> entry (matches AC3 — "карта включает
+      // все живые индексируемые страницы"). What changes is the ALTERNATES
+      // cluster attached to THIS locale's own block:
+      //   - locale is NOT its own fallback (a real translation, or `en`
+      //     itself) → unchanged: the full reciprocal cluster minus
+      //     whichever OTHER locales are fallback for this vacancy.
+      //   - locale IS its own fallback → a SELF-ONLY cluster (one
+      //     `<xhtml:link>` pointing at itself, hreflang = its own locale).
+      //     This still does not claim to be a translation of `en`/`uk` —
+      //     preserving backlog #39's guard, `assertSitemapHreflangClusters`
+      //     below accepts this shape explicitly — while no longer being
+      //     erased from the map of every URL Google is told to crawl.
+      const ownLocaleIsFallback = excludeLocales.includes(locale)
       urls.push({
-        loc: localizedUrl(locale, `/careers/${v.slug}`),
+        loc: localizedUrl(locale, path),
         lastmod: v.publishedAt,
-        alternates: buildXhtmlAlternates(`/careers/${v.slug}`, excludeLocales),
+        alternates: ownLocaleIsFallback
+          ? buildSelfOnlyXhtmlAlternate(locale, path)
+          : buildXhtmlAlternates(path, excludeLocales),
       })
     }
   }
@@ -1264,11 +1343,19 @@ function parseSitemapClusters(sitemapXml) {
  *      above).
  *   2. Carry an `x-default` entry pointing at the SAME address as the
  *      cluster's own `en` entry (every cluster's default is always `en` —
- *      `DEFAULT_LOCALE`).
+ *      `DEFAULT_LOCALE`) — UNLESS the cluster is a deliberate SINGLETON (its
+ *      only member is itself, see `buildSelfOnlyXhtmlAlternate` — task-
+ *      sitemap-missing-vacancy-locales.md backlog #177): such a cluster
+ *      claims no relationship to any other locale at all (SEO-equivalent to
+ *      carrying no hreflang annotation), so there is no `en` to compare
+ *      against — checking `alternates.length > 1` distinguishes this
+ *      legitimate shape from the "orphan with a broken/missing en" case
+ *      (still caught below whenever the cluster claims 2+ members).
  *   3. Be RECIPROCAL — every alternate href it declares must itself be a
  *      `<loc>` present in this same sitemap, and THAT `<loc>`'s own cluster
  *      must declare an alternate pointing straight back at this block's
- *      `<loc>` (A ссылается на B ⇒ B ссылается на A, plan §1).
+ *      `<loc>` (A ссылается на B ⇒ B ссылается на A, plan §1). Trivially
+ *      true for a singleton (its one alternate IS itself).
  *
  * @param {string} sitemapXml
  * @returns {void}
@@ -1290,9 +1377,10 @@ function assertSitemapHreflangClusters(sitemapXml) {
           'other page in the cluster can reciprocate it (task-sitemap-hreflang-clusters.md AC2).',
       )
     }
+    const isSelfOnlySingleton = alternates.length === 1
     const enEntry = alternates.find((a) => a.hreflang === DEFAULT_LOCALE)
     const defaultEntry = alternates.find((a) => a.hreflang === 'x-default')
-    if (!defaultEntry || !enEntry || defaultEntry.href !== enEntry.href) {
+    if (!isSelfOnlySingleton && (!defaultEntry || !enEntry || defaultEntry.href !== enEntry.href)) {
       throw new Error(
         `prerender: sitemap ${loc}'s x-default href ("${defaultEntry?.href ?? '(missing)'}") does ` +
           `not match its own en href ("${enEntry?.href ?? '(missing)'}") — x-default must resolve ` +
@@ -1450,6 +1538,16 @@ async function main() {
       'and carries its own canonical (AC3/AC4).',
   )
 
+  // task-sitemap-missing-vacancy-locales.md (backlog #177) AC4 "first
+  // half" — the gate `assertSitemapMatchesDist` above was missing (see its
+  // own doc): every route captured to dist/ as indexable must ALSO be in
+  // sitemap.xml, not just the reverse.
+  assertEveryIndexableRouteInSitemap(routes, sitemapXml)
+  console.log(
+    'prerender: every indexable captured route is present in sitemap.xml — no orphaned page ' +
+      '(task-sitemap-missing-vacancy-locales.md AC4).',
+  )
+
   // task-sitemap-hreflang-clusters.md AC3/AC4 — runs on EVERY prerender
   // build (dev + CI's `Build landing (prerender)` step, ci.yml, which
   // already seeds a non-empty, partially-translated vacancy set beforehand
@@ -1510,6 +1608,7 @@ export {
   assertNoHomeJsonLdLeak,
   assertNotFoundDoesNotImpersonateHome,
   assertSitemapMatchesDist,
+  assertEveryIndexableRouteInSitemap,
   assertSitemapHreflangClusters,
   parseSitemapClusters,
   computeAlternateHrefs,
