@@ -569,42 +569,76 @@ export class InvoicesService {
    * reissue is needed; a caller surfacing this to an admin can use
    * `wasSigned` to warn "this voided a COUNTERPARTY-signed invoice, not
    * just a pending one".
+   *
+   * security-review round 2 (PR #600, MED-1 + MED-2): the three writes
+   * below (document soft-delete, signature void-stamp, FK null-out) now run
+   * inside ONE `db.transaction`, opened with a `SELECT … FOR UPDATE` on the
+   * transaction row —
+   *   - MED-2: a mid-sequence failure used to leave "SIGNED" pointing at a
+   *     document that had already been soft-deleted (three unguarded
+   *     writes); now it is all-or-nothing;
+   *   - MED-1: `signInvoice` takes no lock of its own (the S3 render/upload
+   *     it does in between would hold one far too long) — instead it ends
+   *     with a repoint conditioned on `invoiceDocumentId` still equalling
+   *     the document IT started from. Locking the row HERE for the
+   *     duration of the void makes that condition race-free: a concurrent
+   *     `signInvoice` either fully commits before this void starts (this
+   *     void then immediately re-voids the fresh signature — the same
+   *     outcome as any post-sign amount edit, not a new hazard) or blocks
+   *     on the lock until this void commits, then finds
+   *     `invoiceDocumentId` already nulled and its own conditional repoint
+   *     no longer matches — 409 instead of silently repointing onto a
+   *     voided document.
    */
   async voidInvoiceForAmountEdit(
     transactionId: string,
     actorId: string,
   ): Promise<{ hadInvoice: boolean; wasSigned: boolean }> {
-    const [tx] = await this.db.db
-      .select()
-      .from(nonDeletedTransactions)
-      .where(eq(nonDeletedTransactions.id, transactionId))
-      .limit(1)
-    if (!tx || !tx.invoiceDocumentId) return { hadInvoice: false, wasSigned: false }
+    return this.db.db.transaction(async (dbtx) => {
+      // Must use the select-builder against the raw table (not
+      // query.findMany / the nonDeletedTransactions VIEW) — Drizzle's
+      // relational API does not expose `.for('update')`, and locking
+      // through a view is unnecessary indirection for a single-row lock.
+      // Same pattern as transactions.service.ts's payout-batch lock.
+      const [tx] = await dbtx
+        .select()
+        .from(transactions)
+        .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)))
+        .for('update')
+        .limit(1)
+      if (!tx || !tx.invoiceDocumentId) return { hadInvoice: false, wasSigned: false }
 
-    const activeSigs = await this.db.db
-      .select({ signerRole: invoiceSignatures.signerRole })
-      .from(invoiceSignatures)
-      .where(
-        and(eq(invoiceSignatures.transactionId, transactionId), isNull(invoiceSignatures.voidedAt)),
+      const activeSigs = await dbtx
+        .select({ signerRole: invoiceSignatures.signerRole })
+        .from(invoiceSignatures)
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, transactionId),
+            isNull(invoiceSignatures.voidedAt),
+          ),
+        )
+      const wasSigned = activeSigs.some((s) => s.signerRole === 'COUNTERPARTY')
+
+      await this.documentsService.softDeleteInternal(tx.invoiceDocumentId, actorId, dbtx)
+      await dbtx
+        .update(invoiceSignatures)
+        .set({ voidedAt: new Date() })
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, transactionId),
+            isNull(invoiceSignatures.voidedAt),
+          ),
+        )
+      await dbtx
+        .update(transactions)
+        .set({ invoiceDocumentId: null, updatedAt: new Date() })
+        .where(eq(transactions.id, transactionId))
+
+      this.logger.log(
+        `voidInvoiceForAmountEdit: tx=${transactionId} wasSigned=${wasSigned} doc=${tx.invoiceDocumentId}`,
       )
-    const wasSigned = activeSigs.some((s) => s.signerRole === 'COUNTERPARTY')
-
-    await this.documentsService.softDeleteInternal(tx.invoiceDocumentId, actorId)
-    await this.db.db
-      .update(invoiceSignatures)
-      .set({ voidedAt: new Date() })
-      .where(
-        and(eq(invoiceSignatures.transactionId, transactionId), isNull(invoiceSignatures.voidedAt)),
-      )
-    await this.db.db
-      .update(transactions)
-      .set({ invoiceDocumentId: null, updatedAt: new Date() })
-      .where(eq(transactions.id, transactionId))
-
-    this.logger.log(
-      `voidInvoiceForAmountEdit: tx=${transactionId} wasSigned=${wasSigned} doc=${tx.invoiceDocumentId}`,
-    )
-    return { hadInvoice: true, wasSigned }
+      return { hadInvoice: true, wasSigned }
+    })
   }
 
   /**
@@ -635,6 +669,22 @@ export class InvoicesService {
    * a cascade, this is a no-op — the natural re-confirmation flow
    * (`settleByCompany` et al.) reaches PAID again on its own, and the
    * now-null `invoiceDocumentId` lets its EXISTING trigger regenerate.
+   *
+   * security-review round 2 (PR #600, MED-7): this method is `public` and,
+   * unlike every OTHER `autoCreate*` trigger site (all funnelled through
+   * `TransactionsService.safeAutoCreateInvoice`'s `try/catch`), called
+   * `autoCreateFor*` directly — an S3/PDF failure here would surface as a
+   * bare 500 on the amount-edit endpoint, AFTER the new amount was already
+   * committed. Swallow-and-log, same as every sibling trigger site. Also
+   * guards `payoutRequestId` explicitly: a SENIOR_INCOME/DROP_INCOME row
+   * LINKED to a payout must never get a second, per-row invoice stacked on
+   * top of the aggregated PAYOUT invoice that already anchors on the
+   * PAYOUT row itself (see MED-6's note on why that invariant today rests
+   * on `TransactionsService.adminUpdateTransaction`'s guards, not on this
+   * method's own structure) — today's only caller never reaches this case
+   * per the doc comment above (PAYOUT-family rows are structurally
+   * unreachable), but a future direct call on a linked income must not
+   * silently create a duplicate.
    */
   async reissueInvoiceIfStillPaid(transactionId: string): Promise<void> {
     const [tx] = await this.db.db
@@ -643,14 +693,21 @@ export class InvoicesService {
       .where(eq(nonDeletedTransactions.id, transactionId))
       .limit(1)
     if (!tx || tx.status !== 'PAID') return
-    if (tx.type === 'SALARY') {
-      await this.autoCreateForSalary(tx.id)
-    } else if (tx.type === 'SENIOR_INCOME') {
-      await this.autoCreateForSeniorPayout(tx.id)
+    if (tx.payoutRequestId) return
+    try {
+      if (tx.type === 'SALARY') {
+        await this.autoCreateForSalary(tx.id)
+      } else if (tx.type === 'SENIOR_INCOME') {
+        await this.autoCreateForSeniorPayout(tx.id)
+      }
+      // PAYOUT: unreachable — amount edits on PAYOUT-family rows are
+      // blocked structurally (see doc comment above). No branch needed;
+      // falling through is a defensive no-op, not a silent gap.
+    } catch (err) {
+      this.logger.warn(
+        `reissueInvoiceIfStillPaid: auto-create failed for tx=${tx.id}: ${(err as Error).message}`,
+      )
     }
-    // PAYOUT: unreachable — amount edits on PAYOUT-family rows are blocked
-    // structurally (see doc comment above). No branch needed; falling
-    // through is a defensive no-op, not a silent gap.
   }
 
   /**
@@ -931,22 +988,18 @@ export class InvoicesService {
       )
     }
 
-    // ---- Insert COUNTERPARTY signature ----
-    const signedAt = new Date()
-    const ip = this.extractIp(req)
-    const userAgent = this.extractUserAgent(req)
-    await this.db.db.insert(invoiceSignatures).values({
-      transactionId: tx.id,
-      signerRole: 'COUNTERPARTY',
-      signerId: viewer.id,
-      pdfHash: currentHash,
-      method: 'MANUAL_CLICK',
-      ipAddress: ip,
-      userAgent,
-      signedAt,
-    })
-
-    // ---- Re-render PDF with both signatures ----
+    // ---- Fetch admin + counterparty rows ----
+    // security-review round 2 (PR #600, MED-3): this fetch, the PAYOUT/
+    // SENIOR_INCOME aggregation block below, and the txInfo construction all
+    // used to run AFTER the COUNTERPARTY row was inserted — they now run
+    // BEFORE it, so the resolved amount/currency can be written in the SAME
+    // insert as amountSnapshot/currencySnapshot instead of a follow-up
+    // UPDATE several queries later. That follow-up UPDATE was the exact gap
+    // HIGH-1 found: any failure between the two round-trips left an ACTIVE
+    // signature with a NULL snapshot, falling into the same live-amount
+    // leak the migration's backfill exists to close for legacy rows — now
+    // structurally impossible for newly-signed rows, not just backfilled
+    // once.
     const adminId = await this.getAdminId()
     const adminRow = await this.db.db.query.users.findFirst({
       where: eq(users.id, adminId),
@@ -957,18 +1010,7 @@ export class InvoicesService {
     if (!adminRow || !counterpartyRow) {
       throw new ConflictException('Не удалось получить данные пользователей')
     }
-
-    const allSigs = await this.getSignaturesWithSignerNames(tx.id)
     const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
-
-    const sigBlocks: InvoiceSignatureInfo[] = allSigs.map((s) => ({
-      role: s.signerRole,
-      signerName: s.signerName,
-      signedAt: s.signedAt,
-      method: s.method,
-      pdfHashFull: s.signerRole === 'COMPANY' ? companySig[0]!.pdfHash : currentHash,
-      ipLastOctet: s.signerRole === 'COUNTERPARTY' && ip ? this.lastOctet(ip) : null,
-    }))
 
     // task-aggregate-invoice-per-payout. For PAYOUT rows we re-resolve the
     // aggregated description (contract number + project list) on every sign
@@ -1054,23 +1096,43 @@ export class InvoicesService {
       txDate: tx.txDate ?? tx.createdAt,
     }
 
-    // ---- AC3: freeze what the FINAL PDF actually contains on the
-    // COUNTERPARTY row, verbatim, never recomputed on read. This is what
-    // the public /verify endpoint reads instead of the live tx.amount, so
-    // a LATER amount edit (or any write that bypasses the AC2 void path)
-    // can never surface as "confirmed" by a signature that never attested
-    // to it. Scoped to voidedAt IS NULL — this is the row inserted a few
-    // lines above, in this same call.
-    await this.db.db
-      .update(invoiceSignatures)
-      .set({ amountSnapshot: txInfo.amount, currencySnapshot: txInfo.currency })
-      .where(
-        and(
-          eq(invoiceSignatures.transactionId, tx.id),
-          eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
-          isNull(invoiceSignatures.voidedAt),
-        ),
-      )
+    // ---- Insert COUNTERPARTY signature ----
+    // AC3 + security-review round 2 (PR #600, MED-3): amountSnapshot /
+    // currencySnapshot are frozen HERE, in the same INSERT, from `txInfo` —
+    // what the FINAL re-rendered PDF actually contains — never recomputed
+    // on read. This is what the public /verify endpoint reads instead of
+    // the live tx.amount, so a LATER amount edit (or any write that
+    // bypasses the AC2 void path) can never surface as "confirmed" by a
+    // signature that never attested to it. Previously this was a separate
+    // UPDATE issued several queries after the insert — see the comment
+    // above the admin/counterparty fetch for why that window was closed.
+    const signedAt = new Date()
+    const ip = this.extractIp(req)
+    const userAgent = this.extractUserAgent(req)
+    await this.db.db.insert(invoiceSignatures).values({
+      transactionId: tx.id,
+      signerRole: 'COUNTERPARTY',
+      signerId: viewer.id,
+      pdfHash: currentHash,
+      method: 'MANUAL_CLICK',
+      ipAddress: ip,
+      userAgent,
+      signedAt,
+      amountSnapshot: txInfo.amount,
+      currencySnapshot: txInfo.currency,
+    })
+
+    // ---- Re-render PDF with both signatures ----
+    const allSigs = await this.getSignaturesWithSignerNames(tx.id)
+
+    const sigBlocks: InvoiceSignatureInfo[] = allSigs.map((s) => ({
+      role: s.signerRole,
+      signerName: s.signerName,
+      signedAt: s.signedAt,
+      method: s.method,
+      pdfHashFull: s.signerRole === 'COMPANY' ? companySig[0]!.pdfHash : currentHash,
+      ipLastOctet: s.signerRole === 'COUNTERPARTY' && ip ? this.lastOctet(ip) : null,
+    }))
 
     const { pdfBuffer: newPdf } = await this.pdfService.generateSignableInvoicePdf({
       transaction: txInfo,
@@ -1090,10 +1152,25 @@ export class InvoicesService {
       uploadedById: adminId,
     })
     await this.documentsService.softDeleteInternal(doc.id, adminId)
-    await this.db.db
+    // security-review round 2 (PR #600, MED-1): the repoint is CONDITIONAL
+    // on invoiceDocumentId still being the document this call started from.
+    // `signInvoice` and `voidInvoiceForAmountEdit` take no shared lock (the
+    // S3 render/upload above would hold one far too long), so a concurrent
+    // void→reissue landing in this window used to let this UPDATE silently
+    // repoint onto a stale document — clobbering a fresh reissue, or (if
+    // void landed between the insert above and here) leaving the
+    // transaction permanently invoice-less, since autoCreate*'s idempotency
+    // guard blocks on ANY non-null invoiceDocumentId, signed or not. Failing
+    // loud instead: the caller is told to reload rather than silently
+    // trusting a write that raced a void.
+    const repointed = await this.db.db
       .update(transactions)
       .set({ invoiceDocumentId: newDoc.id, updatedAt: new Date() })
-      .where(eq(transactions.id, tx.id))
+      .where(and(eq(transactions.id, tx.id), eq(transactions.invoiceDocumentId, doc.id)))
+      .returning({ id: transactions.id })
+    if (repointed.length === 0) {
+      throw new ConflictException('Инвойс был аннулирован — обновите страницу')
+    }
 
     // ---- Notify ADMIN ----
     await this.notificationsService.create({
@@ -1154,6 +1231,19 @@ export class InvoicesService {
     // migration shipped (no snapshot to read): those were signed while
     // BIZ-18 still blocked ALL PAID-amount edits unconditionally, so no
     // divergence was ever possible for them in the first place.
+    if (counterpartySig.amountSnapshot === null) {
+      // security-review round 2 (PR #600, HIGH-1): this migration's DDL
+      // backfills every row that existed when it shipped, and MED-3 makes a
+      // NULL snapshot structurally impossible for anything signed after —
+      // so reaching this branch now means either a write that bypassed
+      // signInvoice entirely, or a backfill that has not run yet. The
+      // response below has nowhere honest to point except the live amount
+      // (that IS the pre-migration invariant this fallback relies on) —
+      // log it loudly so a real divergence stays VISIBLE instead of silent.
+      this.logger.warn(
+        `verifyInvoice: tx=${tx.id} COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — falling back to live tx.amount`,
+      )
+    }
     const verifiedAmount = counterpartySig.amountSnapshot ?? tx.amount
     const verifiedCurrency = (counterpartySig.currencySnapshot ?? tx.currency) as typeof tx.currency
 
