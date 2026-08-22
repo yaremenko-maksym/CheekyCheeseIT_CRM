@@ -478,7 +478,20 @@ function TransactionsTable({
               </tr>
             </thead>
             <tbody>
-              <AnimatePresence mode="popLayout" initial={false}>
+              {/* task-finance-sort-date-and-jump (AC4). `mode="popLayout"`
+                  removes exiting elements from flow via `position: absolute`
+                  so siblings can reflow immediately — but a `<tr>` cannot be
+                  meaningfully absolutely positioned: it falls out of the
+                  table's layout context and jumps to the top-left of the
+                  nearest positioned ancestor. Re-sorting keeps every row's
+                  key but changes their order, which popLayout treats as a
+                  reflow for the WHOLE list — hence the entire table visibly
+                  jumping on every sort toggle. `mode="sync"` (the default —
+                  named explicitly so it isn't mistaken for an oversight)
+                  keeps the enter/exit animations below and drops only the
+                  absolute-positioning reflow trick, which tables can't use
+                  anyway. */}
+              <AnimatePresence mode="sync" initial={false}>
                 {paged.map((tx) => (
                   <TransactionRow
                     key={tx.id}

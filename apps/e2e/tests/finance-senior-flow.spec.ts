@@ -719,20 +719,66 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
 // E2E counterpart to the existing unit tests in apps/web/app/routes/finance/
 // __tests__/sort.test.ts. The unit test pins the compareTxByDate behaviour;
 // here we verify the integrated outcome — mixed income/payout rows render
-// in the right order in the UI. Regression target: bug bf5dc2e where the
-// midnight-txDate income sorted ABOVE a later-createdAt payout because the
-// comparator used txDate ?? createdAt as the primary key.
+// in the right order in the UI.
+//
+// History (comparator has changed five times, this fixture four):
+// - bf5dc2e (original bug): primary key was `txDate ?? createdAt` — a
+//   midnight-txDate income sorted ABOVE a later-createdAt payout.
+// - task-fix-transactions-sort-by-createdat (interim fix): dropped `txDate`
+//   entirely, sorting by `createdAt` only — correct here, but silently wrong
+//   whenever `txDate` and `createdAt` actually disagreed (see sort.test.ts).
+// - task-finance-sort-date-and-jump round 1: `txDate` primary again (the
+//   «Дата» column renders it), `createdAt` a tie-breaker, and `txDate = null`
+//   rows (always payouts) pinned to sort FIRST in BOTH directions — not last.
+//   "First" was chosen after a live check against crm_qa: with undated-last,
+//   a freshly-created payout fell behind every dated row and, once the list
+//   passed 50 rows, onto page 2 — invisible right after creation.
+// - task-finance-sort-date-and-jump round 2, first amendment (H-1): "undated
+//   always first" turned out to be the SAME bug moved to the other edge —
+//   once payouts themselves exceed 50 (exactly what CI's `drop-finance`
+//   shard, 16 real-API specs sharing one DB, produces), that fixed block
+//   occupies page 1 and pushes every dated row off it instead. Fixed by
+//   making `createdAt` a FALLBACK for a missing `txDate`
+//   (`txDate ?? createdAt`), comparing raw instants — a payout sorts by ITS
+//   OWN createdAt, on equal footing with dated rows.
+// - task-finance-sort-date-and-jump round 2, second amendment (current):
+//   comparing raw instants was STILL wrong — a settled payout's `txDate`
+//   defaults to its OWN `createdAt` truncated to day-only (midnight UTC;
+//   `SettleSeniorPayoutDialog`), so a coarse `txDate` competing against
+//   another row's millisecond-precise `createdAt` fallback mixed two
+//   granularities and could rank a just-settled row below same-day rows
+//   with a later time-of-day (caught by `drop-share-usdt-income.spec.ts`'s
+//   settle-in-place test in the SAME `drop-finance` shard). Fixed by
+//   truncating the PRIMARY comparison to UTC calendar DAY for both a real
+//   `txDate` and the `createdAt` fallback — matching what the «Дата» column
+//   itself renders (day-only, no time — see `fmtDate`) — with raw
+//   `createdAt` staying the tie-breaker. See sort.ts's `compareTxByDate`
+//   docblock for the full rationale.
+//
+// This fixture's numbers land on the SAME calendar day for both rows either
+// way, so the day-truncation amendment changes the outcome here: the raw-
+// instant comparator (first amendment) ranked the payout above the income
+// (07:37 > 00:00); the day-truncated comparator (current) ties them at
+// "same day" and falls to the createdAt tie-breaker, which ranks the income
+// above the payout instead (08:17 > 07:37). Both amendments are real,
+// deliberate behaviour changes — not flakes — so the assertion below was
+// updated to match, not just the comments.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-test.describe('SENIOR INCOME — D: transactions sorted by createdAt DESC (regression bf5dc2e)', () => {
-  test('mixed income (midnight txDate) + payout (null txDate) sorted by createdAt only', async ({
+test.describe('SENIOR INCOME — D: transactions sorted by txDate DESC (same-day tie-break by createdAt)', () => {
+  test('mixed income (midnight txDate) + payout (no txDate, same day) — same-day tie-break ranks income above payout', async ({
     asAdmin,
   }) => {
     // Income created LATER but txDate=midnight (a backend default for
-    // legacy rows without an explicit pick-date). Old comparator put the
-    // payout first because txDate=null fell back to createdAt=07:37 while
-    // income.txDate=00:00 lost. New comparator ignores txDate entirely:
-    // income.createdAt=08:17 > payout.createdAt=07:37 → income first.
+    // legacy rows without an explicit pick-date) — its effective date is
+    // that midnight, 2026-05-28T00:00 → calendar day May 28. The payout
+    // carries no txDate at all (see makeTx() below — no txDate key is set),
+    // so its effective date is its own createdAt, 2026-05-28T07:37 → ALSO
+    // May 28. Same calendar day on both sides → the primary (day-level)
+    // comparison ties, and raw createdAt breaks it: income's createdAt
+    // (08:17) is later than the payout's (07:37), so income sorts first in
+    // DESC — not because it has a txDate and the payout doesn't, but because
+    // it was genuinely recorded later that same day.
     const incomeLater = {
       ...makeTx({
         id: 'sort-income-1',
@@ -779,8 +825,13 @@ test.describe('SENIOR INCOME — D: transactions sorted by createdAt DESC (regre
       .boundingBox()
     expect(incomeBox, 'income row box').not.toBeNull()
     expect(payoutBox, 'payout row box').not.toBeNull()
-    // Income has later createdAt → must appear ABOVE payout in DESC order.
-    expect(incomeBox!.y, 'income above payout').toBeLessThan(payoutBox!.y)
+    // Same calendar day (May 28) on both sides — see the setup comment above
+    // — so the day-level primary comparison ties and createdAt breaks it:
+    // the income's createdAt (08:17) is later than the payout's (07:37), so
+    // the income sorts ABOVE the payout here.
+    expect(incomeBox!.y, 'income above payout (same-day tie-break by createdAt)').toBeLessThan(
+      payoutBox!.y,
+    )
   })
 })
 

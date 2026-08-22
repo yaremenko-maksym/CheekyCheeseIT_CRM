@@ -5,7 +5,11 @@ export interface SortConfig<K extends string> {
   dir: 'asc' | 'desc'
 }
 
-const DEFAULT_PAGE_SIZE = 50
+// Exported (task-finance-sort-date-and-jump round 2, M-1's neighbour, H-1):
+// `sort.test.ts`'s pagination-regression tests slice against this exact
+// constant instead of a hand-copied `50`, so the test and the real page size
+// can't silently drift apart.
+export const DEFAULT_PAGE_SIZE = 50
 
 export function usePaginatedFilter<T, _K extends string>(
   items: T[],
@@ -23,11 +27,21 @@ export function usePaginatedFilter<T, _K extends string>(
     if (page > totalPages) setPage(totalPages)
   }, [totalPages, page])
 
-  // Reset to page 1 when filter changes (items.length change is a proxy)
+  // Reset to page 1 when the filter OR the sort changes (task-finance-sort-
+  // date-and-jump round 2, M-1): `items.length` (via `filteredLen`) is a
+  // proxy for "the filter changed", but it says nothing about sort — without
+  // this, toggling "Дата"/"Сумма" or flipping direction while parked on page
+  // 3 leaves the user on page 3 of a NEW ordering, looking at rows that have
+  // nothing to do with what was there before. `sort` is the right dependency
+  // to key this off, not a raw `sortKey`/`sortDir` pair: the caller already
+  // memoizes it with exactly those two as deps (`FinancePage`'s
+  // `useCallback(..., [sortKey, sortDir])`), so its identity changes on
+  // EITHER one changing and stays stable otherwise — one dependency instead
+  // of duplicating the caller's memoization contract here.
   const filteredLen = filtered.length
   useEffect(() => {
     setPage(1)
-  }, [filteredLen])
+  }, [filteredLen, sort])
 
   const paged = useMemo(
     () => sorted.slice((page - 1) * DEFAULT_PAGE_SIZE, page * DEFAULT_PAGE_SIZE),

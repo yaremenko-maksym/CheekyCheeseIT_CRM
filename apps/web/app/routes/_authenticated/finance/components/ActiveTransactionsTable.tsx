@@ -154,7 +154,24 @@ export function ActiveTransactionsTable({
           </tr>
         </thead>
         <tbody>
-          <AnimatePresence mode="popLayout" initial={false}>
+          {/* task-finance-sort-date-and-jump round 2 (M-2). Same anti-pattern
+              as the finance page's TransactionsTable (see the comment there):
+              `mode="popLayout"` can't meaningfully absolutely-position a
+              `<tr>`, so it falls out of the table's layout context and jumps
+              to the top-left of the nearest positioned ancestor whenever a
+              row actually exits. The trigger here is live, not hypothetical
+              — `invalidateQueries` after confirm/settle/pay on the ADMIN
+              dashboard changes which rows qualify as "active" and reorders
+              the rest, exactly the exit+reorder combination that breaks
+              `popLayout` on table rows. `mode="sync"` drops only the
+              absolute-positioning reflow trick a `<tr>` couldn't use anyway;
+              row enter/exit animations (`initial`/`animate`/`exit` on
+              `TransactionRow`) are untouched. */}
+          <AnimatePresence
+            mode="sync"
+            // Stryker disable next-line BooleanLiteral: `initial` only controls whether framer-motion plays the ENTRY animation for rows already present on first mount vs mounting them already-settled (a first-paint visual detail) — this component's own test suite (ActiveTransactionsTable.test.tsx) mocks `framer-motion` entirely (`AnimatePresence` renders children raw, `motion.tr` strips every animation prop), so no assertion here can distinguish `initial={false}` from `initial={true}`, the same untestable-by-design shape as the identical pair on the finance page's own `TransactionsTable` (index.tsx:494), which no unit test reaches at all. `false` is still correct — without it every row would replay a fade/slide-in entrance on the dashboard's initial load — confirmed by inspection, not a unit assertion.
+            initial={false}
+          >
             {rows.map((tx) => (
               <TransactionRow
                 key={tx.id}
