@@ -384,6 +384,10 @@ export class DocumentsService {
     // match a non-deleted row (there is no `deleted_at` condition to forget —
     // this replaces the round-1 `AND TRANSACTION_NOT_DELETED` join condition,
     // which relied on remembering to write it every time).
+    // task-invoice-signature-integrity: every EXISTS below is scoped to
+    // voided_at IS NULL — a voided signature row belongs to a PRIOR,
+    // superseded invoice generation (AC2) and must not drive either badge
+    // for the transaction's CURRENT (possibly freshly-reissued) invoice.
     const pendingSig = sql<boolean>`(
       CASE
         WHEN ${documents.category} = 'INVOICE'
@@ -392,6 +396,7 @@ export class DocumentsService {
             SELECT 1 FROM ${invoiceSignatures}
             WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
+              AND ${invoiceSignatures.voidedAt} IS NULL
           )
           AND (
             (${nonDeletedTransactions.type} = 'SENIOR_INCOME' AND ${nonDeletedTransactions.senderId} = ${viewerId})
@@ -412,11 +417,13 @@ export class DocumentsService {
             SELECT 1 FROM ${invoiceSignatures}
             WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COMPANY'
+              AND ${invoiceSignatures.voidedAt} IS NULL
           )
           AND EXISTS (
             SELECT 1 FROM ${invoiceSignatures}
             WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
+              AND ${invoiceSignatures.voidedAt} IS NULL
           )
         THEN TRUE
         ELSE FALSE

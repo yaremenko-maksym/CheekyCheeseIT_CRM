@@ -713,13 +713,17 @@ export class InvoicesService {
     }
 
     // ---- Status filter (computed via EXISTS on invoice_signatures) ----
+    // task-invoice-signature-integrity: scoped to voided_at IS NULL — a
+    // voided COUNTERPARTY row belongs to a PRIOR, superseded invoice (AC2)
+    // and must not make a freshly-reissued (still-PENDING) invoice show up
+    // as SIGNED.
     if (filters.status === 'PENDING') {
       baseConditions.push(
-        sql`NOT EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
+        sql`NOT EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY' AND voided_at IS NULL)`,
       )
     } else if (filters.status === 'SIGNED') {
       baseConditions.push(
-        sql`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
+        sql`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY' AND voided_at IS NULL)`,
       )
     }
 
@@ -735,8 +739,9 @@ export class InvoicesService {
         // counterparty's displayName regardless of row type.
         counterpartyName: sql<string | null>`COALESCE(${users.displayName}, '—')`,
         createdAt: nonDeletedTransactions.createdAt,
-        // Subquery flag — true when a COUNTERPARTY signature exists.
-        signedFlag: sql<boolean>`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
+        // Subquery flag — true when an ACTIVE COUNTERPARTY signature exists
+        // (voided_at IS NULL — see the status-filter comment above).
+        signedFlag: sql<boolean>`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY' AND voided_at IS NULL)`,
       })
       .from(nonDeletedTransactions)
       .leftJoin(
