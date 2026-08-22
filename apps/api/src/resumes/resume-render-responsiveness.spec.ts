@@ -145,6 +145,28 @@ interface Measurement {
 const CONCURRENT_PROBES = 3
 
 /**
+ * Max of `samples`, or the "unbounded breach" sentinel for a run that never
+ * sampled anything.
+ *
+ * Written as a `reduce`, deliberately not `Math.max(...samples)`. A spread
+ * into a call turns every element into a call argument, and a JS engine's
+ * argument-list capacity is a fixed, engine- and stack-depth-dependent
+ * ceiling — NOT a property of this test's logic. The file header measures
+ * this exact array at 26 721 entries in ordinary operation (one healthy
+ * render, on the development machine); a CI runner fast enough to schedule
+ * more probes than that in the same window pushed it over the ceiling and
+ * `Math.max(...samples)` threw `RangeError: Maximum call stack size
+ * exceeded` — not a slow machine's problem, a fast one's. `reduce` walks the
+ * array without ever materializing it as an argument list, so there is no
+ * count at which this stops working.
+ */
+function worstOf(samples: readonly number[]): number {
+  return samples.length > 0
+    ? samples.reduce((max, sample) => (sample > max ? sample : max))
+    : Number.MAX_SAFE_INTEGER
+}
+
+/**
  * Hammer `/probe` over real sockets for as long as `work` runs.
  *
  * `work` is started FIRST and the samplers run until it settles, so every
@@ -180,10 +202,28 @@ async function measureWhile(work: () => Promise<unknown>): Promise<Measurement> 
 
   return {
     samples,
-    worst: samples.length > 0 ? Math.max(...samples) : Number.MAX_SAFE_INTEGER,
+    worst: worstOf(samples),
     renderMs: Date.now() - startedAt,
   }
 }
+
+describe('worstOf — regression for the CI spread-overflow (PR #600 flake)', () => {
+  it('does not overflow the call stack on a sample count past the spread-argument ceiling', () => {
+    // The failure this guards against was a `RangeError` from
+    // `Math.max(...samples)`, thrown only on a runner fast enough to collect
+    // this many probes — see the doc comment on `worstOf`. 200 000 is
+    // comfortably past both the measured real-world count (26 721) and every
+    // engine's spread-argument ceiling, without depending on exactly where
+    // that ceiling sits.
+    const huge = Array.from({ length: 200_000 }, (_, i) => i)
+    expect(() => worstOf(huge)).not.toThrow()
+    expect(worstOf(huge)).toBe(199_999)
+  })
+
+  it('keeps the empty-run sentinel', () => {
+    expect(worstOf([])).toBe(Number.MAX_SAFE_INTEGER)
+  })
+})
 
 describe('AC3 — API responsiveness during a resume render', () => {
   /**
