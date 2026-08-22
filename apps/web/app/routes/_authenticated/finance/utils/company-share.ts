@@ -40,6 +40,53 @@ export function isIncomeTransaction(
 }
 
 /**
+ * task-split-payouts-and-obligations (backlog 174). A transaction genuinely
+ * BUNDLED INTO this payout — money the SENIOR/DROP paid IN that financed the
+ * outgoing company-share transfer. Requires BOTH the income type AND
+ * `payoutRequestId` pointing at THIS payout — the second half matters
+ * because `payout.transactions` (as `findPayoutRequest` returns it) also
+ * carries "recovered" company-obligation rows that share the SAME income
+ * type after `settleByCompany` flips them in place
+ * (task-settle-payout-link-lost) but move the OPPOSITE direction of money
+ * (COMPANY → recipient, not recipient → COMPANY) — see
+ * `isPayoutObligationTransaction` below. `isIncomeTransaction` alone cannot
+ * tell the two apart (both are SENIOR_INCOME/DROP_INCOME after the flip);
+ * without the `payoutRequestId` check those recovered rows silently inflated
+ * "Транзакции в выплате" with money the company OWES, not money that
+ * financed the payment.
+ */
+export function isBundledIncomeTransaction(
+  t: Pick<TransactionDto, 'type' | 'payoutRequestId'>,
+  payoutId: string,
+): t is Pick<TransactionDto, 'type' | 'payoutRequestId'> & {
+  type: 'SENIOR_INCOME' | 'DROP_INCOME'
+} {
+  return isIncomeTransaction(t) && t.payoutRequestId === payoutId
+}
+
+/**
+ * task-split-payouts-and-obligations (backlog 174). The mirror of
+ * `isBundledIncomeTransaction` — a row `findPayoutRequest` recovered via
+ * `pending_obligations.payoutRequestId` rather than the transaction's own FK
+ * (which `settleByCompany` resets to null on settle, task-settle-in-place
+ * ADR 2026-07-14). Represents a COMPANY → senior/drop obligation tied to
+ * this payout (still owed, or already settled) — the OPPOSITE money
+ * direction from the incomes above, so it renders in its own section and
+ * must never fold into the same count. `payoutRequestId !== payoutId` is
+ * the discriminator regardless of the row's transaction type or settle
+ * status: the live `payoutRequests.transactions` relation only ever returns
+ * rows whose own `payoutRequestId` equals this payout's id (the PAYOUT
+ * ledger row + the bundled incomes), so anything else in the array is, by
+ * construction, a recovered obligation.
+ */
+export function isPayoutObligationTransaction(
+  t: Pick<TransactionDto, 'payoutRequestId'>,
+  payoutId: string,
+): boolean {
+  return t.payoutRequestId !== payoutId
+}
+
+/**
  * Company-share preview formula — 1:1 copy of the calculation that lived in
  * `PayoutDialog.tsx` (§4.3 of the design spec). This is a CLIENT-SIDE preview
  * only; the authoritative amount is computed server-side at

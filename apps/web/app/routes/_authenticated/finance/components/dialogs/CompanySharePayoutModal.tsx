@@ -20,7 +20,7 @@ import { fmtAmount, STATUS_COLORS, STATUS_LABELS } from '../../constants'
 import {
   buildPreviewRows,
   groupByProject,
-  isIncomeTransaction,
+  isBundledIncomeTransaction,
   pluralizeIncomes,
   pluralizeProjects,
   type ProjectIncomeGroup,
@@ -297,15 +297,28 @@ export function CompanySharePayoutModal({
   // CREATED payout's own `transactions` (server-authoritative), not the
   // local `selected` set, which is stale/cleared by the time step 2 renders.
   //
-  // MUST filter to income rows (isIncomeTransaction) BEFORE counting either
-  // number — `payout.transactions` also carries the PAYOUT ledger row itself
-  // (projectId NULL), which otherwise inflates projectsCount by exactly 1 on
-  // EVERY payout (regression: fidelity-review re-audit, confirmed against
-  // the DB on both a 3-project and a 1-project payout). The same filter
-  // covers DROP payouts too — a type-specific filter here would silently
-  // zero out incomesCount for DROP (this modal's other caller, design spec §9).
+  // MUST filter to income rows (isBundledIncomeTransaction) BEFORE counting
+  // either number — `payout.transactions` also carries the PAYOUT ledger row
+  // itself (projectId NULL), which otherwise inflates projectsCount by
+  // exactly 1 on EVERY payout (regression: fidelity-review re-audit,
+  // confirmed against the DB on both a 3-project and a 1-project payout).
+  // The same filter covers DROP payouts too — a type-specific filter here
+  // would silently zero out incomesCount for DROP (this modal's other
+  // caller, design spec §9).
+  //
+  // task-split-payouts-and-obligations (backlog 174): isIncomeTransaction
+  // alone ALSO matched a settled COMPANY→recipient obligation recovered onto
+  // this payout (settleByCompany flips SENIOR_PENDING_PAYOUT → SENIOR_INCOME
+  // in place) — money flowing the OPPOSITE direction, which silently
+  // inflated this same summary line. isBundledIncomeTransaction adds the
+  // `payoutRequestId === payout.id` check that excludes it (a recovered
+  // obligation's own FK is reset to null on settle — task-settle-in-place).
+  // NOT named `payoutId` — that identifier is already the step-1→2 id state
+  // above (line ~180); shadowing it here would be a duplicate `const` in the
+  // same scope (a build error), not merely confusing.
+  const currentPayoutId = paymentState.payout?.id ?? ''
   const payoutTxs = paymentState.payout?.transactions ?? []
-  const payoutIncomeTxs = payoutTxs.filter(isIncomeTransaction)
+  const payoutIncomeTxs = payoutTxs.filter((tx) => isBundledIncomeTransaction(tx, currentPayoutId))
   const payoutSummary = {
     projectsCount: new Set(payoutIncomeTxs.map((t) => t.projectId)).size,
     incomesCount: payoutIncomeTxs.length,

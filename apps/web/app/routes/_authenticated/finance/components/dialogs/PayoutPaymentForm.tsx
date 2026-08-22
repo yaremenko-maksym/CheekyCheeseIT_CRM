@@ -16,8 +16,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { fmtAmount } from '../../constants'
-import { isIncomeTransaction } from '../../utils/company-share'
+import { fmtAmount, STATUS_COLORS, STATUS_LABELS } from '../../constants'
+import {
+  isBundledIncomeTransaction,
+  isPayoutObligationTransaction,
+} from '../../utils/company-share'
 import { SHOW_DEV_SIMULATE, type PayoutPaymentFormState } from '../../hooks/usePayoutPaymentForm'
 
 const MANUAL_METHODS: { value: ManualPayoutMethod; label: string; icon: React.ReactNode }[] = [
@@ -158,9 +161,16 @@ export function PayoutPaymentForm({
               DROP payment entry point (InProgressPanel's «Оплатить» pill,
               design spec §9): the SENIOR_INCOME-only filter silently showed
               an empty list for a DROP's own payout, same root cause as the
-              step-2 summary line's project-count bug. */}
+              step-2 summary line's project-count bug.
+              task-split-payouts-and-obligations (backlog 174): further
+              narrowed to isBundledIncomeTransaction — isIncomeTransaction
+              alone also matched a settled COMPANY→recipient obligation
+              recovered onto this payout (see the obligations block below),
+              which flows the OPPOSITE direction and must not join this
+              count. */}
           {(() => {
-            const incomeTxs = payout.transactions?.filter(isIncomeTransaction) ?? []
+            const incomeTxs =
+              payout.transactions?.filter((tx) => isBundledIncomeTransaction(tx, payout.id)) ?? []
             if (incomeTxs.length === 0) return null
             return (
               <div className="space-y-1.5">
@@ -184,6 +194,66 @@ export function PayoutPaymentForm({
                       <span className="tabular-nums font-medium shrink-0">
                         {fmtAmount(tx.amount, tx.currency)}
                       </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* task-split-payouts-and-obligations (backlog 174) — obligations
+              the COMPANY owes this payout's recipient, the OPPOSITE money
+              direction from the incomes above. `findPayoutRequest` recovers
+              these via `pending_obligations.payoutRequestId` (settleByCompany
+              resets the transaction's OWN payoutRequestId to null on settle
+              — task-settle-in-place ADR), so `isPayoutObligationTransaction`
+              (payoutRequestId !== payout.id) is what marks a row as
+              "recovered", regardless of its type or settle status. Kept in
+              its own section — never folded into "Транзакции в выплате" —
+              so that counter stays strictly about incoming money. */}
+          {(() => {
+            const obligationTxs =
+              payout.transactions?.filter((tx) => isPayoutObligationTransaction(tx, payout.id)) ??
+              []
+            if (obligationTxs.length === 0) return null
+            return (
+              <div className="space-y-1.5">
+                <Label className="text-xs" data-testid="payout-detail-obligations-count">
+                  Обязательства компании ({obligationTxs.length})
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Компания должна — не входит в сумму выплаты выше
+                </p>
+                <div className="rounded-md border border-amber-500/30 divide-y divide-amber-500/20 max-h-40 overflow-y-auto">
+                  {obligationTxs.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="flex items-center justify-between px-3 py-2 text-xs"
+                      data-testid={`payout-detail-obligation-${tx.id}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">
+                          Компания должна {tx.receiverName ?? '—'}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {tx.projectName ?? '—'} · #{tx.id.slice(0, 6)} от{' '}
+                          {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-0.5">
+                        <span className="tabular-nums font-medium">
+                          {fmtAmount(tx.amount, tx.currency)}
+                        </span>
+                        <span
+                          className={cn(
+                            'rounded-full border px-1.5 py-0 text-[9px] font-medium leading-4',
+                            STATUS_COLORS[tx.status],
+                          )}
+                          data-testid={`payout-detail-obligation-status-${tx.id}`}
+                        >
+                          {STATUS_LABELS[tx.status]}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
