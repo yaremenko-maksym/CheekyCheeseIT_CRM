@@ -5,11 +5,13 @@
  * can be unit-tested without rendering the page (TanStack Router + Query stack
  * is heavy and irrelevant for sort logic).
  *
- * `compareTxByDate` always uses `createdAt` — the row's actual insertion
- * timestamp — as the sort key. `txDate` is a presentational field (used only
- * in the «Дата» column) and may be midnight-UTC for legacy income rows or
- * `null` for payouts, so it does not give a stable "newest first" order.
- * `createdAt` is monotonic and unique, so no tie-breaker is needed.
+ * `compareTxByDate` sorts by `txDate` — the field actually rendered in the
+ * «Дата» column — so the order the user sees matches the button they clicked.
+ * `txDate` is coarse (legacy income rows carry a midnight-UTC value, from an
+ * `<input type="date">`) and `null` for payouts, so `createdAt` (monotonic,
+ * unique, always present) is used as a tie-breaker rather than as the
+ * primary key. See the `compareTxByDate` docblock for the full rationale,
+ * including where `txDate = null` rows land.
  */
 export type TxSortable = {
   txDate: string | null
@@ -22,18 +24,48 @@ export type SortDir = 'asc' | 'desc'
 const toTime = (iso: string | null | undefined): number => (iso ? new Date(iso).getTime() : 0)
 
 /**
- * Compare two transactions by `createdAt`.
+ * Compare two transactions by `txDate` (primary key), with `createdAt` as a
+ * tie-breaker (secondary key).
  *
- * Rationale (see task-fix-transactions-sort-by-createdat.md):
- * - Income rows often carry midnight-UTC `txDate` (the `<input type="date">`
- *   parses to 00:00). Payout rows carry `txDate = null`.
- * - Using `txDate` as the primary key mixes those two scales and pushes
- *   newly-created income rows below older payouts on the same calendar day.
- * - `createdAt` is set by the DB on insert, is unique per row, and reflects
- *   the user's intuition of "what got added last shows up on top".
+ * Why `txDate` and not `createdAt` (see task-finance-sort-date-and-jump.md):
+ * the «Дата» column renders `txDate`, so sorting by anything else desyncs
+ * the order the user sees from the button they clicked — they sort the
+ * visible column and get the invisible field's order. A previous fix (see
+ * task-fix-transactions-sort-by-createdat.md) switched the primary key to
+ * `createdAt` instead, reasoning that `txDate` is too coarse to give a
+ * stable order on its own (legacy income rows are midnight-UTC, payouts are
+ * `null`). That observation is correct, but the conclusion was wrong:
+ * coarseness is a tie-breaking problem, not a reason to sort by a field the
+ * user never sees. This version keeps `txDate` primary and fixes the
+ * coarseness with a tie-breaker instead.
+ *
+ * Tie-breaking:
+ * - Same `txDate` (e.g. two legacy income rows both parsed to the same
+ *   midnight-UTC value) → `createdAt` decides, since it is unique and
+ *   monotonic and reflects insertion order.
+ * - `txDate = null` (always a payout — see `TxSortable`) → placed AFTER
+ *   every dated row, in BOTH directions (not flipped by `dir`). A payout has
+ *   no known "when it happened", so it cannot honestly be called newest or
+ *   oldest; parking it at a fixed end keeps the dated rows browsable in the
+ *   requested order without an undated row misleadingly surfacing at the
+ *   top of "newest first". Rows that are BOTH null still order among
+ *   themselves by `createdAt` (with `dir` applied), so that group isn't left
+ *   in arbitrary order either.
  */
 export function compareTxByDate(a: TxSortable, b: TxSortable, dir: SortDir): number {
   const mul = dir === 'asc' ? 1 : -1
+  const aHasDate = a.txDate !== null
+  const bHasDate = b.txDate !== null
+  if (aHasDate !== bHasDate) {
+    // Exactly one side is undated — undated always sorts last, regardless
+    // of direction.
+    return aHasDate ? -1 : 1
+  }
+  if (aHasDate && bHasDate) {
+    const byTxDate = toTime(a.txDate) - toTime(b.txDate)
+    if (byTxDate !== 0) return mul * byTxDate
+  }
+  // Tie (same txDate, or both null) — fall back to createdAt.
   return mul * (toTime(a.createdAt) - toTime(b.createdAt))
 }
 
