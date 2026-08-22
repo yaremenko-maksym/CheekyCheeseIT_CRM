@@ -942,6 +942,72 @@ describe('InvoicesService', () => {
       expect(warnSpy).not.toHaveBeenCalled()
     })
 
+    it('AC2-bis (round 4, HIGH-3): a NULL-snapshot PAYOUT row with payoutRequestId IS NULL refuses to confirm an amount, instead of falling back to the unrelated live tx.amount', async () => {
+      // Defensive-only case per `resolvePayoutAggregateAmount`'s own doc
+      // comment — structurally shouldn't happen for a PAYOUT row that
+      // reached signInvoice/verifyInvoice, but the helper still has to
+      // answer something for it rather than crash. `!payoutRequestId`
+      // short-circuits BEFORE any query, so this is exercisable through the
+      // mocked harness (unlike the "no linked incomes" / "mixed currency"
+      // branches, which run a real `.orderBy()` query and are covered
+      // against real Postgres instead — see
+      // invoice-signature-integrity.integration.spec.ts's AC2-bis tests).
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-no-req',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740', // the USDT payable — must NEVER be what verify returns
+            currency: 'USDT',
+            payoutRequestId: null,
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-no-req',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-payout-no-req',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-no-req'
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+      await expect(h.svc.verifyInvoice('tx-payout-no-req')).rejects.toThrow(ConflictException)
+      await expect(h.svc.verifyInvoice('tx-payout-no-req')).rejects.toThrow(
+        'Не удалось подтвердить сумму этого инвойса',
+      )
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('the linked-income aggregate could not be resolved'),
+      )
+    })
+
     it('returns 404 for transactions without an invoice', async () => {
       const h = buildHarness({
         txs: [

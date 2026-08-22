@@ -646,6 +646,189 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 30_000)
 
     /**
+     * HIGH-3 edge case, AC2-bis (round 4, security-review, PR #600):
+     * `resolvePayoutAggregateAmount`'s own doc comment names three cases it
+     * refuses to resolve rather than guess at — this is the "linked incomes
+     * span more than one currency" one. The PRE-round-4 inline version of
+     * this logic summed `parseFloat` amounts across whatever currency the
+     * FIRST row happened to carry (no `ORDER BY`, i.e. non-deterministically)
+     * and never validated the rows agreed on a currency at all — silently
+     * adding USD to EUR and calling the result a number. This proves the
+     * refusal is real: `verifyInvoice` throws instead of returning a
+     * fabricated sum, for a NULL-snapshot PAYOUT row whose linked incomes
+     * have drifted into more than one currency SINCE it was signed (the
+     * exact "reconstruction from possibly-since-edited live rows" risk the
+     * HIGH-3 fix comment gives as the reason a backfill was rejected).
+     */
+    it('AC2-bis: verifyInvoice refuses to confirm an amount for a NULL-snapshot PAYOUT row whose linked incomes now span more than one currency, instead of silently summing across currencies', async () => {
+      const payoutRequestId = randomUUID()
+      await db.insert(payoutRequests).values({
+        id: payoutRequestId,
+        seniorId: SENIOR_ID,
+        incomeAmount: '1000',
+        payableAmount: '740',
+        contractAddress: `0x${'2'.repeat(40)}`,
+        status: 'PAID',
+      })
+
+      const incomeTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: incomeTxId,
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: '1000',
+        currency: 'USD',
+        receiverId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+      })
+
+      const payoutTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: payoutTxId,
+        type: 'PAYOUT',
+        status: 'PAID',
+        amount: '740',
+        currency: 'USDT',
+        senderId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+      })
+
+      // Sign honestly FIRST, while there is exactly one linked-income
+      // currency — this is the only way to reach a real COUNTERPARTY row at
+      // all (signInvoice's own fallback for an UNRESOLVABLE aggregate is
+      // tx.amount, not a thrown error — see the comment on
+      // `payoutAggregatedAmount` in signInvoice). The currency drift below
+      // happens AFTER signing, mirroring how a real legacy row would age.
+      await invoices.autoCreateForPayout(payoutTxId)
+      await invoices.signInvoice(
+        sessionOf({ id: SENIOR_ID, role: 'SENIOR', displayName: 'Senior' }),
+        payoutTxId,
+        fakeReq('203.0.113.61'),
+      )
+
+      // Simulate a LEGACY row (same technique as HIGH-1/HIGH-2 above).
+      await db
+        .update(invoiceSignatures)
+        .set({ amountSnapshot: null, currencySnapshot: null })
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, payoutTxId),
+            eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          ),
+        )
+
+      // Currency drift: a SECOND linked income for the SAME payoutRequestId
+      // shows up in a DIFFERENT currency. `resolvePayoutAggregateAmount`'s
+      // query has no currency filter (by design — a payout can legitimately
+      // aggregate several income rows), so this is exactly what the
+      // mixed-currency guard exists to catch.
+      const secondIncomeTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: secondIncomeTxId,
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: '500',
+        currency: 'EUR',
+        receiverId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+      })
+
+      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toThrow(ConflictException)
+      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toThrow(
+        'Не удалось подтвердить сумму этого инвойса',
+      )
+
+      // Cleanup — this row is NOT covered by afterAll's createdBy filter for
+      // `payoutTxId`/`incomeTxId` (both created here), but IS its own row
+      // with the same createdBy, so it is in fact covered. Left explicit
+      // for a future reader who moves this fixture out of `createdBy:
+      // ADMIN_ID` scope.
+    }, 30_000)
+
+    /**
+     * HIGH-3 edge case, AC2-bis (round 4, security-review, PR #600): the
+     * "zero linked incomes" case — `resolvePayoutAggregateAmount` returns
+     * `null` immediately (`linkedIncomes.length === 0`), same as the
+     * mixed-currency case above, and for the same reason: nothing here to
+     * honestly reconstruct. Modelled as the income row being soft-deleted
+     * AFTER the PAYOUT invoice was signed (a correction reversing the
+     * income), which is exactly how `nonDeletedTransactions` stops counting
+     * a row without physically removing history.
+     */
+    it('AC2-bis: verifyInvoice refuses to confirm an amount for a NULL-snapshot PAYOUT row with zero (still-live) linked incomes, instead of falling back to the unrelated tx.amount', async () => {
+      const payoutRequestId = randomUUID()
+      await db.insert(payoutRequests).values({
+        id: payoutRequestId,
+        seniorId: SENIOR_ID,
+        incomeAmount: '1000',
+        payableAmount: '740',
+        contractAddress: `0x${'3'.repeat(40)}`,
+        status: 'PAID',
+      })
+
+      const incomeTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: incomeTxId,
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: '1000',
+        currency: 'USD',
+        receiverId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+      })
+
+      const payoutTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: payoutTxId,
+        type: 'PAYOUT',
+        status: 'PAID',
+        amount: '740',
+        currency: 'USDT',
+        senderId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+      })
+
+      await invoices.autoCreateForPayout(payoutTxId)
+      await invoices.signInvoice(
+        sessionOf({ id: SENIOR_ID, role: 'SENIOR', displayName: 'Senior' }),
+        payoutTxId,
+        fakeReq('203.0.113.62'),
+      )
+      await db
+        .update(invoiceSignatures)
+        .set({ amountSnapshot: null, currencySnapshot: null })
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, payoutTxId),
+            eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          ),
+        )
+
+      // The linked income vanishes from `nonDeletedTransactions` AFTER
+      // signing — a correction reversing it, discovered after the
+      // counterparty already signed.
+      await db
+        .update(transactions)
+        .set({ deletedAt: new Date() })
+        .where(eq(transactions.id, incomeTxId))
+
+      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toThrow(ConflictException)
+      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toThrow(
+        'Не удалось подтвердить сумму этого инвойса',
+      )
+
+      // Undo the soft-delete so afterAll's plain `transactions` delete
+      // (not `nonDeletedTransactions`-scoped) still finds and removes this
+      // fixture row like every other one in this suite.
+      await db.update(transactions).set({ deletedAt: null }).where(eq(transactions.id, incomeTxId))
+    }, 30_000)
+
+    /**
      * MED-1 (security-review round 2, PR #600). `signInvoice` and
      * `voidInvoiceForAmountEdit` take no shared lock across the S3
      * render/upload `signInvoice` does — a concurrent void→reissue landing
