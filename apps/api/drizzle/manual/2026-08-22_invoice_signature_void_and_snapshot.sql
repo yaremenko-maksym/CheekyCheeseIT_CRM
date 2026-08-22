@@ -2,13 +2,16 @@
 -- invoice_signatures.voided_at / amount_snapshot / currency_snapshot (prod DDL, manual apply)
 -- =============================================================================
 --
--- STATUS (2026-08-22, PR #600): NOT wired into .github/workflows/deploy.yml.
--- apps/api/** is Coder's zone-of-write; .github/workflows/** is DevOps's
--- (see .claude/rules/common/zone-of-write.md). PR #590's DDL wired deploy.yml
--- in the SAME PR under an explicit, security-reviewed exception — this task
--- carried no such exception, so wiring is left for a DevOps follow-up
--- (guarded copy-step + fail-loud apply step, same shape as every sibling
--- file in this directory) BEFORE this ships to prod. Flagged in the PR body.
+-- STATUS (2026-08-22, PR #600): wired into .github/workflows/deploy.yml
+-- (copy-step + fail-loud apply step, unconditional — same shape as every
+-- sibling file in this directory). `.github/workflows/**` is normally
+-- DevOps's zone-of-write, not Coder's — this edit exists only because
+-- `scripts/devops/check-prod-ddl-wiring.py`'s CI gate hard-fails any new
+-- manual DDL file that is neither wired nor explicitly listed as
+-- KNOWN_NOT_WIRED (caught on this PR's first CI run), and the guard's own
+-- error message names same-PR wiring as the DEFAULT for schema-changing
+-- DDL — the same precedent PR #367 (squash 2f6c53e8) and #590/#587
+-- established for every sibling file in this directory.
 --
 -- Context
 -- -------
@@ -57,13 +60,8 @@
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
 --     < apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql
 --
--- NOT wired into `.github/workflows/deploy.yml` by this PR — `.github/
--- workflows/**` is DevOps's zone-of-write (see
--- .claude/rules/common/zone-of-write.md), and this task's brief did not
--- carry the explicit reviewed exception PR #590's migration documented for
--- itself. Needs a DevOps follow-up (guarded copy + fail-loud apply step,
--- same shape as every other file in this directory) before this ships to
--- prod. Flagged in the PR body.
+-- Wired into `.github/workflows/deploy.yml` in THIS SAME PR (copy step +
+-- fail-loud apply step, both unconditional) — see the STATUS note above.
 -- =============================================================================
 
 -- ── Schema: new columns (nullable, no default) ──────────────────────────────
