@@ -2,6 +2,14 @@
 -- invoice_signatures.voided_at / amount_snapshot / currency_snapshot (prod DDL, manual apply)
 -- =============================================================================
 --
+-- STATUS (2026-08-22, PR #600): NOT wired into .github/workflows/deploy.yml.
+-- apps/api/** is Coder's zone-of-write; .github/workflows/** is DevOps's
+-- (see .claude/rules/common/zone-of-write.md). PR #590's DDL wired deploy.yml
+-- in the SAME PR under an explicit, security-reviewed exception — this task
+-- carried no such exception, so wiring is left for a DevOps follow-up
+-- (guarded copy-step + fail-loud apply step, same shape as every sibling
+-- file in this directory) BEFORE this ships to prod. Flagged in the PR body.
+--
 -- Context
 -- -------
 -- task-invoice-signature-integrity (backlog 183; task 4 of the
