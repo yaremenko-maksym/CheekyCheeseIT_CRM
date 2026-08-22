@@ -5342,7 +5342,36 @@ export class TransactionsService {
     // this exact class), so narrow explicitly rather than trust downstream
     // masking. Reuses the SAME `isPrivileged` this function already computed
     // for the whole-request gate above — not a new predicate.
-    const reqTransactions = (req as typeof req & { transactions: TxWithRelations[] }).transactions
+    //
+    // backlog 168 (security-review on #590, found pre-existing — #590 did
+    // NOT introduce or widen this; it made the RESTORED/recovered path above
+    // stricter while leaving THIS live relation untouched). Before
+    // MED-1 only narrowed `recoveredTxs` (the rows settle detaches and this
+    // function re-attaches from `pending_obligations`). It never touched
+    // `reqTransactions` itself — but the SAME cross-person row can reach the
+    // viewer through the live relation directly: `bookCompanyObligations`
+    // stamps the cascade-booked SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT
+    // rows with THIS payout's `payoutRequestId` at creation time (still
+    // PENDING_PAYMENT, settle has not run), so they are already sitting in
+    // `req.transactions` the very first time `payPayoutRequest` returns —
+    // for a DROP-owned cascade, that includes the SEPARATE senior IOU
+    // (receiverId=senior, not the drop who owns this payout). `mapTx` never
+    // masks the senior/drop counterparty (only the company/ADMIN side), so
+    // an unfiltered pass-through leaks the senior's name + share amount to
+    // the DROP in the exact response confirming their own payment.
+    // Narrowed the same way `recoveredTxs` below already is: a live-relation
+    // row belongs to `currentUser` when they are its sender OR receiver
+    // (covers every shape actually attached here — the caller's own income
+    // rows [receiverId=caller], the PAYOUT row itself [senderId=caller], and
+    // the caller's OWN pending-payout row [receiverId=caller] — while
+    // excluding a same-payout row stamped for someone else, e.g. the senior
+    // IOU on a drop cascade). Privileged viewers are unaffected (`isPrivileged`
+    // short-circuits, same as everywhere else on this surface).
+    const reqTransactions = (
+      req as typeof req & { transactions: TxWithRelations[] }
+    ).transactions.filter(
+      (tx) => isPrivileged || tx.senderId === currentUser.id || tx.receiverId === currentUser.id,
+    )
     const seenTxIds = new Set(reqTransactions.map((tx) => tx.id))
     const obligationRows = (await this.db.db.query.pendingObligations.findMany({
       where: eq(pendingObligations.payoutRequestId, id),
