@@ -23,11 +23,12 @@
  *  - verifyInvoice: returns only public fields
  *  - verifyInvoice: 404 when invoice missing
  */
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it, vi } from 'vitest'
+import { ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
 import { InvoicesService } from './invoices.service'
+import { sha256Hex } from './invoice-pdf.utils'
 // security-review PR #456 round 2: autoCreateForSeniorPayout/autoCreateForPayout
 // /autoCreateForSalary/signInvoice's linked-income lookup now read the
 // `nonDeletedTransactions` VIEW via `.select().from(...)` instead of the
@@ -49,6 +50,15 @@ const SENIOR = u('senior-1', 'SENIOR', 'Alice')
 const SENIOR2 = u('senior-2', 'SENIOR', 'Bob')
 const JUNIOR = u('junior-1', 'JUNIOR', 'Carol')
 const ACCOUNTANT = u('acc-1', 'ACCOUNTANT', 'Dana')
+
+// security-review round 6 (PR #600, MED-H): the REAL sha256 of the harness's
+// default `pdfBuffer` (`Buffer.from('PDFDATA')`, see `buildHarness` below) —
+// NOT the `pdfHash = 'b'.repeat(64)` placeholder used elsewhere in this file
+// for the CREATE-time mock return value. `signInvoice`'s COMPANY-signature
+// hash-equality check runs the ACTUAL `sha256Hex` on the ACTUAL buffer
+// `getObject` returns, so a test that wants that check to PASS (to reach
+// code past it) must seed the real digest, not the placeholder.
+const REAL_PDF_HASH = sha256Hex(Buffer.from('PDFDATA'))
 
 interface TxRow {
   id: string
@@ -76,6 +86,13 @@ interface SigRow {
   userAgent: string | null
   method: 'AUTO_COMPANY' | 'MANUAL_CLICK'
   signedAt: Date
+  // security-review round 2 (PR #600, HIGH-1/MED-3 mutation-gate closure):
+  // optional so every EXISTING fixture (which never set these) keeps
+  // getting `undefined` — same effective "no snapshot" shape as before —
+  // while a test that DOES care about the NULL-snapshot fallback branch in
+  // verifyInvoice can set `amountSnapshot: null` explicitly.
+  amountSnapshot?: string | null
+  currencySnapshot?: string | null
 }
 
 interface UserRow {
@@ -140,6 +157,21 @@ function buildHarness(state: HarnessState) {
     // aggregated PAYOUT flow which queries the PAYOUT row via findFirst but
     // patches it via a separate update keyed on its id).
     updateTargetTxId: null as string | null,
+    // security-review round 6 (PR #600, MED-H mutation-gate closure): models
+    // the MED-1 concurrent void→reissue race `signInvoice`'s own `FOR
+    // UPDATE` lock guards against — when set, the lock-read inside
+    // `signInvoice`'s `db.transaction` returns THIS `invoiceDocumentId`
+    // instead of the live `state.txs` value, letting a test simulate "the
+    // document moved off from under us between the initial fetch and the
+    // lock" without needing real transactional concurrency.
+    lockedDocIdOverride: undefined as string | null | undefined,
+    // security-review round 6 (PR #600, MED-H mutation-gate closure): models
+    // the OTHER MED-1 race window — a void landing between the COUNTERPARTY
+    // insert and the FK-repoint UPDATE. When true, the repoint's
+    // `.returning(...)` reports zero rows regardless of `findTxId`/
+    // `updateTargetTxId`, matching "the WHERE clause's `invoiceDocumentId`
+    // condition no longer matches because it already moved".
+    simulateStaleRepoint: false,
   }
 
   // -------- select chains --------
@@ -166,12 +198,32 @@ function buildHarness(state: HarnessState) {
           where: (_p: unknown) => chain,
           leftJoin: (_t2: unknown, _on: unknown) => chain,
           innerJoin: (_t2: unknown, _on: unknown) => chain,
+          // security-review round 6 (PR #600, MED-H mutation-gate closure):
+          // `.for('update')` — the row-lock read inside `signInvoice`'s own
+          // `db.transaction` (see `resolveLimit`'s new `invoiceDocumentId`-
+          // only branch below). A no-op passthrough, same as `where`/
+          // `leftJoin` above — this harness does not model row locking.
+          for: (_mode: unknown) => chain,
           orderBy: (_o: unknown) => {
             // Make orderBy return a chainable: limit() OR awaited-list.
             const ordered = {
               limit: async (lim: number) => resolveLimit(lim, fields, t),
               then: (resolve: (v: unknown) => void) => {
-                resolve(resolveOrderByList())
+                // security-review round 4 (PR #600, HIGH-3 mutation-gate
+                // closure): route by `fields` — a bare `.select()` (no
+                // field map, `fields` undefined) is what
+                // `resolvePayoutAggregateAmount`'s linked-income query
+                // uses (`.select().from(nonDeletedTransactions).where(...)
+                // .orderBy(...)`, awaited directly, no `.limit()`); ordering
+                // does not change a row's SHAPE, only its sequence, and
+                // this harness does not model sequence — so it belongs on
+                // the SAME raw-row path as the no-`orderBy()` bare-select
+                // case (`resolveSelectArray`), not the `listInvoices`
+                // synthesis. `select({...})` WITH a field map is the one
+                // caller that actually wants `resolveOrderByList()`
+                // (listInvoices's own `.orderBy()` call, also awaited
+                // directly with no `.limit()`).
+                resolve(fields ? resolveOrderByList() : resolveSelectArray(t))
               },
             }
             return ordered
@@ -223,6 +275,31 @@ function buildHarness(state: HarnessState) {
         .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
         .slice(0, lim)
         .map((u_) => ({ id: u_.id }))
+    }
+    // security-review round 6 (PR #600, MED-H mutation-gate closure): the
+    // `SELECT … FOR UPDATE` row-lock read INSIDE `signInvoice`'s own
+    // `db.transaction` — `select({invoiceDocumentId}).from(transactions)
+    // .where(eq(id, tx.id)).for('update').limit(1)`. Same single-field
+    // routing heuristic as the two branches above; `ctrl.findTxId` is the id
+    // `signInvoice` is currently operating on (pinned by the same tests that
+    // already pin it for the initial fetch), so the "locked" row this
+    // returns is simply the current state of that tx — enough for a happy-
+    // path test to reach past the `!locked || locked.invoiceDocumentId !==
+    // doc.id` guard without actually modelling row locking.
+    if (
+      fields &&
+      typeof fields === 'object' &&
+      Object.keys(fields as object).length === 1 &&
+      'invoiceDocumentId' in (fields as object)
+    ) {
+      // `lockedDocIdOverride` (see `ctrl` above) wins when set — models the
+      // MED-1 concurrent-void race without real transactional concurrency.
+      if (ctrl.lockedDocIdOverride !== undefined) {
+        return [{ invoiceDocumentId: ctrl.lockedDocIdOverride }]
+      }
+      const id = ctrl.findTxId
+      const t = id ? state.txs.find((x) => x.id === id) : state.txs[0]
+      return t ? [{ invoiceDocumentId: t.invoiceDocumentId }] : []
     }
     // Signature lookup: select() + where(transactionId AND role) + limit(1)
     const role = ctrl.sigQueueRoles.shift() ?? null
@@ -277,6 +354,34 @@ function buildHarness(state: HarnessState) {
         ...s,
         signerName: state.users.find((u_) => u_.id === s.signerId)?.displayName ?? null,
       }))
+  }
+
+  // `insert(invoiceSignatures).values(...)` — shared by the top-level
+  // `db.db.insert` AND the `dbtx.insert` handed to `signInvoice`'s own
+  // `db.transaction(...)` callback (see `transaction` on `db.db` below),
+  // since both insert the exact same shape of row (COMPANY via
+  // `autoCreate*`, COUNTERPARTY via `signInvoice`'s locked transaction).
+  function insertHandler(_t: unknown) {
+    return {
+      values: (v: Record<string, unknown>) => {
+        const sig: SigRow = {
+          id: `s-new-${state.sigs.length}`,
+          transactionId: v['transactionId'] as string,
+          signerRole: v['signerRole'] as 'COMPANY' | 'COUNTERPARTY',
+          signerId: v['signerId'] as string,
+          pdfHash: v['pdfHash'] as string,
+          ipAddress: (v['ipAddress'] as string | null) ?? null,
+          userAgent: (v['userAgent'] as string | null) ?? null,
+          method: v['method'] as 'AUTO_COMPANY' | 'MANUAL_CLICK',
+          signedAt: (v['signedAt'] as Date) ?? new Date(),
+        }
+        state.sigs.push(sig)
+        return Object.assign(
+          { returning: async () => [sig] },
+          { then: (resolve: (v: unknown) => void) => resolve(undefined) },
+        )
+      },
+    }
   }
 
   const db = {
@@ -340,42 +445,52 @@ function buildHarness(state: HarnessState) {
         },
       },
       select: (fields?: unknown) => buildSelectBuilder(fields),
-      insert: (_t: unknown) => ({
-        values: (v: Record<string, unknown>) => {
-          const sig: SigRow = {
-            id: `s-new-${state.sigs.length}`,
-            transactionId: v['transactionId'] as string,
-            signerRole: v['signerRole'] as 'COMPANY' | 'COUNTERPARTY',
-            signerId: v['signerId'] as string,
-            pdfHash: v['pdfHash'] as string,
-            ipAddress: (v['ipAddress'] as string | null) ?? null,
-            userAgent: (v['userAgent'] as string | null) ?? null,
-            method: v['method'] as 'AUTO_COMPANY' | 'MANUAL_CLICK',
-            signedAt: (v['signedAt'] as Date) ?? new Date(),
-          }
-          state.sigs.push(sig)
-          return Object.assign(
-            { returning: async () => [sig] },
-            { then: (resolve: (v: unknown) => void) => resolve(undefined) },
-          )
-        },
-      }),
+      insert: insertHandler,
       update: (_t: unknown) => ({
         set: (v: Record<string, unknown>) => ({
-          where: async (_p: unknown) => {
-            if ('invoiceDocumentId' in v) {
-              // task-aggregate-invoice-per-payout. When `updateTargetTxId` is
-              // set, prefer that as the update target — aggregated PAYOUT
-              // flow patches the PAYOUT row, not the row matched by
-              // `findTxId` (which is the income tx the test pinned for the
-              // primary lookup). Falls back to legacy behavior when unset.
-              const id = ctrl.updateTargetTxId ?? ctrl.findTxId
-              const target = id ? state.txs.find((t) => t.id === id) : state.txs[0]
-              if (target) target.invoiceDocumentId = v['invoiceDocumentId'] as string | null
+          // security-review round 6 (PR #600, MED-H mutation-gate closure):
+          // sync (not `async`) so it can return a chainable object — the
+          // FK-repoint step at the end of `signInvoice`'s happy path calls
+          // `.returning({id: transactions.id})` on this, while every
+          // pre-existing caller (`autoCreate*`'s `invoiceDocumentId` patch)
+          // awaits `.where(...)` directly. `then` covers the latter, exactly
+          // as the `insert(...).values(...)` return above already does for
+          // the same two-shapes-one-call-site reason.
+          where: (_p: unknown) => {
+            // task-aggregate-invoice-per-payout. When `updateTargetTxId` is
+            // set, prefer that as the update target — aggregated PAYOUT
+            // flow patches the PAYOUT row, not the row matched by
+            // `findTxId` (which is the income tx the test pinned for the
+            // primary lookup). Falls back to legacy behavior when unset.
+            const id = ctrl.updateTargetTxId ?? ctrl.findTxId
+            const target = id ? state.txs.find((t) => t.id === id) : state.txs[0]
+            if (target && 'invoiceDocumentId' in v) {
+              target.invoiceDocumentId = v['invoiceDocumentId'] as string | null
+            }
+            return {
+              // `simulateStaleRepoint` (see `ctrl` above) wins when true —
+              // models the OTHER MED-1 race window (void landing between
+              // the COUNTERPARTY insert and this repoint) without the mock
+              // having to parse the real Drizzle `and(eq(...), eq(...))`
+              // predicate this harness deliberately treats as opaque.
+              returning: async (_fields: unknown) =>
+                ctrl.simulateStaleRepoint ? [] : target ? [{ id: target.id }] : [],
+              then: (resolve: (v: unknown) => void) => resolve(undefined),
             }
           },
         }),
       }),
+      // security-review round 6 (PR #600, MED-H mutation-gate closure):
+      // `signInvoice`'s own `db.transaction(async (dbtx) => {...})` around
+      // the FOR-UPDATE lock read + COUNTERPARTY insert (see the file's own
+      // comment at that call site — MED-1, serialising against a concurrent
+      // void→reissue). Reuses the SAME `buildSelectBuilder`/`insertHandler`
+      // the top-level `db.db.select`/`db.db.insert` above use — the mocked
+      // `dbtx` inside the callback behaves identically to `db.db` itself,
+      // which is accurate here: this harness does not model transactional
+      // isolation, only the call SHAPE `signInvoice` depends on.
+      transaction: async (cb: (dbtx: unknown) => Promise<unknown>) =>
+        cb({ select: (fields?: unknown) => buildSelectBuilder(fields), insert: insertHandler }),
     },
   } as unknown as ConstructorParameters<typeof InvoicesService>[0]
 
@@ -484,6 +599,18 @@ function tx(overrides: Partial<TxRow> = {}): TxRow {
 // -----------------------------------------------------------------------------
 
 describe('InvoicesService', () => {
+  // security-review round 2 (PR #600, mutation-gate closure): the MED-7
+  // tests below spy on `Logger.prototype.warn` — a SHARED prototype, not a
+  // per-harness instance — so without a restore it would leak into every
+  // test that runs after it in this file and silently swallow real warn
+  // output. `restoreAllMocks` also cleans up every `vi.spyOn(h.svc, ...)`
+  // call in this file, which previously relied on each harness being
+  // freshly constructed per test (true for the mocked methods themselves,
+  // but not for spy state on shared prototypes).
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   describe('autoCreateForSeniorPayout', () => {
     it('idempotent — second trigger with same tx is no-op', async () => {
       const h = buildHarness({
@@ -691,6 +818,432 @@ describe('InvoicesService', () => {
       await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toThrow(ConflictException)
       expect(h.state.sigs.filter((s) => s.signerRole === 'COUNTERPARTY').length).toBe(0)
     })
+
+    // security-review round 6 (PR #600, MED-H): these two PAYOUT-branch
+    // refusals were genuinely UNREACHED by any suite before this round — the
+    // three tests above all use SENIOR_INCOME fixtures and throw well
+    // before the `tx.type === 'PAYOUT'` block, and the integration spec
+    // only ever drives `signInvoice` on the PAYOUT happy path. The
+    // equivalent refusals in `verifyInvoice`'s OWN recompute branch (the
+    // `mutation-gate closure (round 4, HIGH-3)` tests above, and the
+    // integration spec's AC2-bis tests) are a DIFFERENT code path — they do
+    // not exercise these two `throw`s at all. Round 5's commit message
+    // claimed the resulting Stryker survivors were "integration-only"; that
+    // was inaccurate for exactly these two branches (see the round-6 task
+    // doc, MED-H) — these two tests close that gap for real, at the unit
+    // level, mirroring `verifyInvoice`'s own twin tests above.
+    it('mutation-gate closure (round 6, MED-H): a PAYOUT row with payoutRequestId NULL refuses to sign, instead of computing a signable amount out of nothing', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-sign-no-req',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740',
+            currency: 'USDT',
+            payoutRequestId: null,
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-sign-no-req',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            // REAL sha256 of the harness's default `getObject` buffer (see
+            // `REAL_PDF_HASH` above) — the COMPANY hash-equality check must
+            // PASS so the PAYOUT branch is actually reached, not short-
+            // circuited by an earlier guard.
+            pdfHash: REAL_PDF_HASH,
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-sign-no-req'
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      h.ctrl.userFindFirstQueue = [ADMIN.id, SENIOR.id]
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+      // ONE call, not two: `sigQueueRoles` is a FIFO the COUNTERPARTY/COMPANY
+      // sig checks each `.shift()` from — a second `signInvoice` call would
+      // find the queue drained (`role` falls back to `null`, matching ANY
+      // signature) and misreport "Инвойс уже подписан" instead of re-hitting
+      // this branch, which is exactly what a first draft of this test did.
+      const err: unknown = await h.svc
+        .signInvoice(SENIOR, 'tx-payout-sign-no-req', mkReq())
+        .catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(ConflictException)
+      expect((err as Error).message).toContain('Не удалось подтвердить сумму этого инвойса')
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('cannot resolve a signable amount'),
+      )
+    })
+
+    it('mutation-gate closure (round 6, MED-H): a PAYOUT row with a TRUTHY payoutRequestId but ZERO matching linked incomes refuses to sign, instead of computing a signable amount out of nothing', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-sign-empty',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740',
+            currency: 'USDT',
+            payoutRequestId: 'req-sign-empty',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-sign-empty',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: REAL_PDF_HASH,
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-sign-empty'
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      h.ctrl.userFindFirstQueue = [ADMIN.id, SENIOR.id]
+      // Deliberately NOT set — `resolveSelectArray` returns `[]` when
+      // `ctrl.linkedPayoutRequestId` is unset, modelling zero linked
+      // incomes for a `payoutRequestId` that IS truthy (past the earlier
+      // `!tx.payoutRequestId` guard) — same technique as `verifyInvoice`'s
+      // own round-4 twin test above.
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+      // ONE call — see the sibling test above for why a second call on the
+      // same harness cannot be trusted to re-hit this branch.
+      const err: unknown = await h.svc
+        .signInvoice(SENIOR, 'tx-payout-sign-empty', mkReq())
+        .catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(ConflictException)
+      expect((err as Error).message).toContain('Не удалось подтвердить сумму этого инвойса')
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('aggregate amount could not be resolved (no linked incomes)'),
+      )
+    })
+
+    // security-review round 6 (PR #600, MED-H mutation-gate closure): the
+    // two tests above prove the two PAYOUT-branch REFUSALS; a mutant that
+    // forces `if (tx.type === 'PAYOUT')` (or `if (!resolved)`) permanently
+    // TRUE still survives them, because both tests already have a genuinely
+    // true condition — a forced-true mutant is indistinguishable from the
+    // real one when every test's real value already agrees with it. Killing
+    // those two conditions needs a case where the REAL condition is FALSE
+    // and completes successfully where a forced-true mutant would instead
+    // throw. Until this round, `signInvoice` had no unit-level happy-path
+    // test AT ALL (only the RBAC/already-signed/hash-mismatch guards above,
+    // which all throw before this line) — the true happy path was only ever
+    // exercised by the integration spec, invisible to this file's own
+    // Stryker run (no DATABASE_URL in the mutation-gate CI job).
+    it('mutation-gate closure (round 6, MED-H): SENIOR_INCOME happy path completes without entering the PAYOUT-only branch', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-senior-income-sign-happy',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '500',
+            currency: 'USDT',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-senior-income-sign-happy',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: REAL_PDF_HASH,
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-senior-income-sign-happy'
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      h.ctrl.userFindFirstQueue = [ADMIN.id, SENIOR.id]
+
+      // A mutant forcing `tx.type === 'PAYOUT'` to `true` would make THIS
+      // SENIOR_INCOME row fall into the PAYOUT-only branch, see its own
+      // (null, unset here) `payoutRequestId`, and reject — the real branch
+      // does not, so a clean resolve is exactly what discriminates it.
+      // `signInvoice` returns `this.getInvoice(...)` (the full DTO), not
+      // `void` — matching that shape rather than asserting `undefined`.
+      await expect(
+        h.svc.signInvoice(SENIOR, 'tx-senior-income-sign-happy', mkReq()),
+      ).resolves.toMatchObject({
+        status: 'SIGNED',
+        transactionId: 'tx-senior-income-sign-happy',
+      })
+
+      const counterpartySig = h.state.sigs.find(
+        (s) => s.transactionId === 'tx-senior-income-sign-happy' && s.signerRole === 'COUNTERPARTY',
+      )
+      expect(counterpartySig).toBeDefined()
+      // StringLiteral mutation-gate closure: the COUNTERPARTY row must be
+      // recorded as a click-through consent (`MANUAL_CLICK`), never the
+      // `AUTO_COMPANY` method the initial COMPANY row uses.
+      expect(counterpartySig!.method).toBe('MANUAL_CLICK')
+      expect(h.pdfService.generateSignableInvoicePdf).toHaveBeenCalledTimes(1)
+      expect(h.uploadInternal).toHaveBeenCalledTimes(1)
+      expect(h.softDeleteInternal).toHaveBeenCalledWith('doc-1', ADMIN.id)
+      expect(h.notifCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: ADMIN.id, type: 'INVOICE_SIGNED' }),
+      )
+
+      // ArrowFunction/ObjectLiteral mutation-gate closure: `sigBlocks` (the
+      // re-render's `signatures` argument) must be a REAL two-entry array,
+      // not `[undefined, undefined]` / `[{}, {}]`. `ipLastOctet` mutation-
+      // gate closure: COMPANY never carries the caller's IP (only the
+      // COUNTERPARTY click does) — `mkReq()` defaults to `127.0.0.1`, whose
+      // last octet is `'1'`.
+      const pdfArgs = (
+        h.pdfService.generateSignableInvoicePdf as unknown as {
+          mock: { calls: unknown[][] }
+        }
+      ).mock.calls[0]?.[0] as {
+        signatures: Array<{ role: string; method: string; ipLastOctet: string | null }>
+      }
+      expect(pdfArgs.signatures).toHaveLength(2)
+      const companyBlock = pdfArgs.signatures.find((s) => s.role === 'COMPANY')
+      const counterpartyBlock = pdfArgs.signatures.find((s) => s.role === 'COUNTERPARTY')
+      expect(companyBlock).toMatchObject({
+        role: 'COMPANY',
+        method: 'AUTO_COMPANY',
+        ipLastOctet: null,
+      })
+      expect(counterpartyBlock).toMatchObject({
+        role: 'COUNTERPARTY',
+        method: 'MANUAL_CLICK',
+        ipLastOctet: '1',
+      })
+    })
+
+    it('mutation-gate closure (round 6, MED-H): PAYOUT happy path resolves the aggregate and completes, instead of refusing', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-sign-happy',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740',
+            currency: 'USDT',
+            payoutRequestId: 'req-sign-happy',
+          }),
+          tx({
+            id: 'inc-sign-happy',
+            type: 'SENIOR_INCOME',
+            status: 'PAID',
+            amount: '1000',
+            // Deliberately DIFFERENT from the PAYOUT row's own `currency`
+            // ('USDT') above — mutation-gate closure: a mutant forcing
+            // `tx.type === 'PAYOUT' ? payoutAmount!.currency : tx.currency`
+            // to always take the `tx.currency` branch would otherwise
+            // survive undetected if both values happened to coincide.
+            currency: 'USD',
+            receiverId: SENIOR.id,
+            payoutRequestId: 'req-sign-happy',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-sign-happy',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: REAL_PDF_HASH,
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-sign-happy'
+      h.ctrl.linkedPayoutRequestId = 'req-sign-happy'
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      h.ctrl.userFindFirstQueue = [ADMIN.id, SENIOR.id]
+
+      // A mutant forcing `!resolved` to `true` would refuse even though the
+      // aggregate DID resolve (one linked income, one currency) — the real
+      // branch proceeds, so a clean resolve is what discriminates it.
+      await expect(
+        h.svc.signInvoice(SENIOR, 'tx-payout-sign-happy', mkReq()),
+      ).resolves.toMatchObject({
+        status: 'SIGNED',
+        transactionId: 'tx-payout-sign-happy',
+      })
+
+      expect(
+        h.state.sigs.find(
+          (s) => s.transactionId === 'tx-payout-sign-happy' && s.signerRole === 'COUNTERPARTY',
+        ),
+      ).toBeDefined()
+      // Same "sum of linked incomes, .toFixed(6)" source of truth as every
+      // other PAYOUT amount in this file (`resolvePayoutAggregateAmount`) —
+      // proves the PAYOUT branch actually resolved a real amount, not a
+      // vacuous pass.
+      const pdfArgs = (
+        h.pdfService.generateSignableInvoicePdf as unknown as {
+          mock: { calls: unknown[][] }
+        }
+      ).mock.calls[0]?.[0] as { transaction: { amount: string; currency: string } }
+      expect(pdfArgs.transaction.amount).toBe('1000.000000')
+      expect(pdfArgs.transaction.currency).toBe('USD')
+      expect(pdfArgs.transaction.currency).not.toBe('USDT')
+    })
+
+    // security-review round 6 (PR #600, MED-H mutation-gate closure): the
+    // two happy-path tests above cover the SUCCESS side of `signInvoice`'s
+    // own `db.transaction` (MED-1, round 2) — this and the next test cover
+    // the two FAILURE windows that transaction and the repoint after it
+    // exist to close: a concurrent void→reissue landing (a) between the
+    // initial fetch and the lock, or (b) between the COUNTERPARTY insert
+    // and the FK-repoint. Both are named, not silenced, in the file's own
+    // comments at those call sites — this closes the same gap MED-H found
+    // for the two PAYOUT-only refusals, one layer up: the file's OWN
+    // security-critical race guards had never been exercised by any test.
+    it('mutation-gate closure (round 6, MED-H): a concurrent void that moved the document AFTER the initial fetch but BEFORE the FOR-UPDATE lock is caught, not silently overwritten', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-senior-income-void-race',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '500',
+            currency: 'USDT',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-senior-income-void-race',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: REAL_PDF_HASH,
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-senior-income-void-race'
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      h.ctrl.userFindFirstQueue = [ADMIN.id, SENIOR.id]
+      // The initial fetch (and the COMPANY hash check) already resolved
+      // `doc.id = 'doc-1'` — the FOR-UPDATE lock read now reports a
+      // DIFFERENT document, as if a void→reissue committed in between.
+      h.ctrl.lockedDocIdOverride = 'doc-reissued-elsewhere'
+
+      const err: unknown = await h.svc
+        .signInvoice(SENIOR, 'tx-senior-income-void-race', mkReq())
+        .catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(ConflictException)
+      expect((err as Error).message).toContain('Инвойс был аннулирован — обновите страницу')
+      // Nothing inserted — the guard fires INSIDE the transaction, before
+      // the COUNTERPARTY row.
+      expect(
+        h.state.sigs.some(
+          (s) =>
+            s.transactionId === 'tx-senior-income-void-race' && s.signerRole === 'COUNTERPARTY',
+        ),
+      ).toBe(false)
+    })
+
+    it('mutation-gate closure (round 6, MED-H): a concurrent void that moved the document AFTER the COUNTERPARTY insert but BEFORE the FK-repoint is caught, not silently overwritten', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-senior-income-repoint-race',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '500',
+            currency: 'USDT',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-senior-income-repoint-race',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: REAL_PDF_HASH,
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-senior-income-repoint-race'
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      h.ctrl.userFindFirstQueue = [ADMIN.id, SENIOR.id]
+      // The lock+insert inside `db.transaction` succeed normally (no
+      // override here) — the race lands AFTER that, at the repoint UPDATE.
+      h.ctrl.simulateStaleRepoint = true
+
+      const err: unknown = await h.svc
+        .signInvoice(SENIOR, 'tx-senior-income-repoint-race', mkReq())
+        .catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(ConflictException)
+      expect((err as Error).message).toContain('Инвойс был аннулирован — обновите страницу')
+      // Unlike the lock-race test above: the COUNTERPARTY row DOES land —
+      // the file's own comment on this call site documents this as
+      // intentional ("the void simply retires this fresh signature like
+      // any other post-sign edit").
+      expect(
+        h.state.sigs.some(
+          (s) =>
+            s.transactionId === 'tx-senior-income-repoint-race' && s.signerRole === 'COUNTERPARTY',
+        ),
+      ).toBe(true)
+    })
   })
 
   describe('listInvoices', () => {
@@ -805,6 +1358,466 @@ describe('InvoicesService', () => {
         expect(s).not.toHaveProperty('userAgent')
         expect(s).not.toHaveProperty('pdfHash')
       }
+    })
+
+    // security-review round 2 (PR #600, HIGH-1/MED-3 mutation-gate closure).
+    // Every OTHER verifyInvoice fixture in this file omits amountSnapshot/
+    // currencySnapshot entirely (→ `undefined`, not `null`), so the
+    // `=== null` branch is technically reached (the harness always returns
+    // SOME value for the field) but never in a way any assertion
+    // distinguishes — these two tests set the field explicitly on both
+    // sides of the check.
+    it('HIGH-1/MED-3: NULL amount_snapshot (legacy/bypassed row) falls back to live tx.amount AND logs a warning', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-null-snap',
+            type: 'SALARY',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '777',
+            currency: 'USD',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-null-snap',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-null-snap',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-null-snap'
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+      const result = await h.svc.verifyInvoice('tx-null-snap')
+
+      expect(result.amount).toBe('777')
+      expect(result.currency).toBe('USD')
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('tx=tx-null-snap'))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('NULL amount_snapshot'))
+    })
+
+    it('AC3: a POPULATED amount_snapshot is used verbatim (never the live tx.amount) AND does NOT log the NULL-snapshot warning', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-real-snap',
+            type: 'SALARY',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '999', // LIVE amount — must NOT be what verify returns
+            currency: 'USD',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-real-snap',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-real-snap',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: '500.000000',
+            currencySnapshot: 'USD',
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-real-snap'
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+      const result = await h.svc.verifyInvoice('tx-real-snap')
+
+      expect(result.amount).toBe('500.000000')
+      expect(result.amount).not.toBe('999')
+      expect(warnSpy).not.toHaveBeenCalled()
+      // security-review round 6 (PR #600, MED-G): the snapshot-present
+      // branch never recomputes through `resolvePayoutAggregateAmount`, so
+      // `mixedCurrency` stays at its declared default — pins that default
+      // down to `null` ("not determined on this path"), NOT `false`
+      // ("confirmed not mixed") — a mutant flipping the initializer to
+      // `false` or `true` would otherwise survive, since no OTHER test on
+      // this branch reads the field at all.
+      expect(result.mixedCurrency).toBe(null)
+    })
+
+    it('AC2-bis (round 4, HIGH-3): a NULL-snapshot PAYOUT row with payoutRequestId IS NULL refuses to confirm an amount, instead of falling back to the unrelated live tx.amount', async () => {
+      // Defensive-only case per `resolvePayoutAggregateAmount`'s own doc
+      // comment — structurally shouldn't happen for a PAYOUT row that
+      // reached signInvoice/verifyInvoice, but the helper still has to
+      // answer something for it rather than crash. `!payoutRequestId`
+      // short-circuits BEFORE any query, so this is exercisable through the
+      // mocked harness (unlike the "no linked incomes" / "mixed currency"
+      // branches, which run a real `.orderBy()` query and are covered
+      // against real Postgres instead — see
+      // invoice-signature-integrity.integration.spec.ts's AC2-bis tests).
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-no-req',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740', // the USDT payable — must NEVER be what verify returns
+            currency: 'USDT',
+            payoutRequestId: null,
+          }),
+          // mutation-gate closure (round 4): a DECOY linked-income row,
+          // deliberately wired to a `ctrl.linkedPayoutRequestId` set below
+          // that does NOT match this tx's own (null) payoutRequestId. If
+          // the `if (!payoutRequestId) return null` early-return were ever
+          // deleted (mutation-gate's own BlockStatement/ConditionalExpression
+          // mutants at this line), the helper would fall through to the
+          // query — which this harness resolves purely from the CONTROL
+          // HINT below, not from the actual (null) argument passed in — and
+          // wrongly "resolve" using this decoy row instead of refusing.
+          // Asserting refusal STILL happens with a decoy present proves the
+          // early-return fires before the query is ever reached.
+          tx({
+            id: 'tx-decoy-income',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            amount: '999',
+            currency: 'EUR',
+            payoutRequestId: 'decoy-req',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-no-req',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-payout-no-req',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-no-req'
+      // The decoy hint: if `!payoutRequestId` were ever bypassed, the query
+      // would resolve via THIS control hint (matching the decoy row above)
+      // instead of the real (null) argument — see the decoy tx's comment.
+      h.ctrl.linkedPayoutRequestId = 'decoy-req'
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+      await expect(h.svc.verifyInvoice('tx-payout-no-req')).rejects.toThrow(ConflictException)
+      await expect(h.svc.verifyInvoice('tx-payout-no-req')).rejects.toThrow(
+        'Не удалось подтвердить сумму этого инвойса',
+      )
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('the linked-income aggregate could not be resolved'),
+      )
+    })
+
+    it('mutation-gate closure (round 4, HIGH-3): a NULL-snapshot PAYOUT row with a TRUTHY payoutRequestId but ZERO matching linked incomes refuses to confirm an amount', async () => {
+      // Distinguishes `if (linkedIncomes.length === 0) return null` from a
+      // deleted/always-false mutant — needs `payoutRequestId` truthy (past
+      // the earlier `!payoutRequestId` guard) with the query still
+      // resolving to an empty array. `ctrl.linkedPayoutRequestId` left
+      // unset (defaults to null) makes `resolveSelectArray` return `[]`
+      // unconditionally, regardless of what state.txs contains — exactly
+      // "the linked income was soft-deleted after signing" from the
+      // integration spec's AC2-bis test, reproduced at the unit level.
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-empty',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740',
+            currency: 'USDT',
+            payoutRequestId: 'req-empty',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-empty',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-payout-empty',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-empty'
+      // Deliberately NOT set — `resolveSelectArray` returns `[]` when
+      // `ctrl.linkedPayoutRequestId` is unset, modelling zero linked
+      // incomes for a payoutRequestId that IS truthy.
+
+      await expect(h.svc.verifyInvoice('tx-payout-empty')).rejects.toThrow(ConflictException)
+      await expect(h.svc.verifyInvoice('tx-payout-empty')).rejects.toThrow(
+        'Не удалось подтвердить сумму этого инвойса',
+      )
+    })
+
+    it('mutation-gate closure (round 5, HIGH-4): a NULL-snapshot PAYOUT row whose linked incomes span more than one currency confirms the blind sum and flags mixedCurrency, instead of refusing (unit-level twin of the integration AC2-bis test)', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-mixed',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740',
+            currency: 'USDT',
+            payoutRequestId: 'req-mixed',
+          }),
+          tx({
+            id: 'tx-income-mixed-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            amount: '1000',
+            currency: 'USD',
+            payoutRequestId: 'req-mixed',
+          }),
+          tx({
+            id: 'tx-income-mixed-2',
+            type: 'DROP_INCOME',
+            receiverId: SENIOR.id,
+            amount: '500',
+            currency: 'EUR',
+            payoutRequestId: 'req-mixed',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-mixed',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-payout-mixed',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-mixed'
+      h.ctrl.linkedPayoutRequestId = 'req-mixed'
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+      // security-review round 5 (PR #600, HIGH-4): no longer throws — the
+      // helper counts the blind sum (1000 USD + 500 EUR = 1500) and settles
+      // on the FIRST row's currency (harness declaration order = USD),
+      // flagging `mixedCurrency: true` instead of refusing.
+      const result = await h.svc.verifyInvoice('tx-payout-mixed')
+      expect(result.amount).toBe('1500.000000')
+      expect(result.currency).toBe('USD')
+      expect(result.mixedCurrency).toBe(true)
+      expect(errorSpy).not.toHaveBeenCalled()
+      // mutation-gate closure (round 4/5): exact text, not a substring
+      // match — pins down the `.sort()` + `.join(', ')` formatting the
+      // round-4 fix deliberately added ("an unordered SELECT backing a
+      // legal-document amount is worth pinning down explicitly rather than
+      // leaving to chance" — this log line is the one place that
+      // non-determinism was previously observable). EUR before USD proves
+      // the sort, the comma space proves the separator wasn't silently
+      // dropped.
+      expect(warnSpy).toHaveBeenCalledWith(
+        'resolvePayoutAggregateAmount: payoutRequestId=req-mixed has linked incomes in more than one currency (EUR, USD) — printing the blind sum across currencies (mixed-currency batches are a supported configuration, see transactions.service.ts); mixedCurrency=true',
+      )
+    })
+
+    it('mutation-gate closure (round 4, HIGH-3): a NULL-snapshot PAYOUT row WITH a resolvable single-currency linked-income aggregate recomputes through resolvePayoutAggregateAmount, never falling back to (and never refusing in favour of) the unrelated live tx.amount', async () => {
+      // The one branch the two tests above cannot reach: `resolved` truthy.
+      // Without this, `resolvePayoutAggregateAmount`'s entire body (and the
+      // `!resolved`/`!payoutRequestId` checks that guard it) can be deleted
+      // by a mutant and every existing unit test still passes — both
+      // surrounding tests only ever observe the "cannot resolve, refuse"
+      // outcome, which a no-op function also produces.
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-happy',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '740', // the USDT payable — must NEVER be what verify returns
+            currency: 'USDT',
+            payoutRequestId: 'req-happy',
+          }),
+          // The linked income `signInvoice` actually signed — a SEPARATE
+          // tx row sharing `payoutRequestId`, routed to
+          // `resolvePayoutAggregateAmount`'s query via
+          // `ctrl.linkedPayoutRequestId` below (same harness mechanism
+          // `autoCreateForPayout`'s own tests already use).
+          tx({
+            id: 'tx-income-happy',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            amount: '1000',
+            currency: 'USD',
+            payoutRequestId: 'req-happy',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-payout-happy',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-payout-happy',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: null,
+            currencySnapshot: null,
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-happy'
+      h.ctrl.linkedPayoutRequestId = 'req-happy'
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+      const result = await h.svc.verifyInvoice('tx-payout-happy')
+
+      // `.toFixed(6)` (round 4 fix) — never the whole-number `.toString()`
+      // the pre-fix helper produced, and never the PAYOUT row's own
+      // 740/USDT.
+      expect(result.amount).toBe('1000.000000')
+      expect(result.currency).toBe('USD')
+      expect(result.amount).not.toBe('740.000000')
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('recomputed from linked incomes'),
+      )
+      expect(errorSpy).not.toHaveBeenCalled()
+      // security-review round 5 (PR #600, mutation-gate closure): a SINGLE
+      // linked income is one distinct currency (`currencies.size === 1`) —
+      // pins `mixedCurrency` down to `false` here (a mutant forcing it
+      // `true`, or widening `> 1` to `>= 1`, would otherwise survive: the
+      // ONLY other test reading this field uses a genuinely mixed batch)
+      // and confirms the mixed-currency-specific warning line never fires
+      // for a single-currency aggregate (a mutant forcing that `if` to
+      // `true` would otherwise survive too).
+      expect(result.mixedCurrency).toBe(false)
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('has linked incomes in more than one currency'),
+      )
     })
 
     it('returns 404 for transactions without an invoice', async () => {
@@ -1122,7 +2135,12 @@ describe('InvoicesService', () => {
           projectNames?: string[]
         }
       }
-      expect(pdfArgs.transaction.amount).toBe('1500')
+      // security-review round 5 (PR #600, HIGH-4): `.toFixed(6)`, not the
+      // whole-number `.toString()` this test asserted before — amount now
+      // comes from the shared `resolvePayoutAggregateAmount` helper (single
+      // source of truth for autoCreateForPayout/signInvoice/verifyInvoice),
+      // which formats to numeric(18,6) parity with every other amount.
+      expect(pdfArgs.transaction.amount).toBe('1500.000000')
       // Contract number now comes from the real signed_contracts DB lookup.
       expect(pdfArgs.transaction.contractNumber).toBe(SIGNED_CONTRACT_NUMBER)
       expect(pdfArgs.transaction.projectNames).toEqual(['Acme Corp'])
@@ -1184,8 +2202,9 @@ describe('InvoicesService', () => {
           projectNames?: string[]
         }
       }
-      // Sum amount: 1000 + 500 + 200 + 700 + 300 + 800 = 3500
-      expect(pdfArgs.transaction.amount).toBe('3500')
+      // Sum amount: 1000 + 500 + 200 + 700 + 300 + 800 = 3500. `.toFixed(6)`
+      // (round 5, HIGH-4) — see the 1-project test's comment above.
+      expect(pdfArgs.transaction.amount).toBe('3500.000000')
       // All 6 project names are passed through — the PDF service decides
       // how to render (truncation happens there).
       expect(pdfArgs.transaction.projectNames).toEqual([
@@ -1228,6 +2247,111 @@ describe('InvoicesService', () => {
       h.ctrl.findTxId = 'tx-missing'
       await h.svc.autoCreateForPayout('tx-missing')
       expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+    })
+
+    it('defensive-only (round 5, HIGH-4 mutation-gate closure): resolvePayoutAggregateAmount unexpectedly returning null despite non-empty linked incomes is a no-op, not a crash', async () => {
+      // "Should never happen in production": the SEPARATE linked-incomes
+      // fetch above (project names / receiver resolution) already confirmed
+      // length > 0, but the shared helper is forced to return null anyway —
+      // the only way to reach this defensive branch, since both queries are
+      // structurally identical in the mocked harness and cannot diverge on
+      // their own (they read the same `ctrl.linkedPayoutRequestId` state).
+      const { h, projectRows } = makePayoutHarness({
+        incomeRows: [{ id: 'inc-1', amount: '1500', projectId: 'p-1' }],
+      })
+      h.ctrl.findTxId = PAYOUT_TX_ID
+      h.ctrl.linkedPayoutRequestId = REQ_ID
+      // Same lookup queues the happy-path tests seed — the counterparty/
+      // admin/project resolution above the mutated branch must still
+      // succeed so execution actually reaches it.
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.projectFindQueue = projectRows.map((p) => p.id)
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      vi.spyOn(
+        h.svc as unknown as {
+          resolvePayoutAggregateAmount: (id: string | null) => Promise<unknown>
+        },
+        'resolvePayoutAggregateAmount',
+      ).mockResolvedValue(null)
+
+      await h.svc.autoCreateForPayout(PAYOUT_TX_ID)
+
+      expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+      expect(h.uploadInternal).not.toHaveBeenCalled()
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('aggregate amount could not be resolved'),
+      )
+    })
+
+    it('security-review round 6 (LOW): salaryMonth reads the SAME deterministic order (createdAt ASC) as the aggregated amount/currency, not raw array position', async () => {
+      // Array position 0 is the CHRONOLOGICALLY LATER row (April) —
+      // deliberately reversed relative to createdAt, so a pre-fix
+      // `linkedIncomes[0]?.salaryMonth` would read April while the
+      // amount/currency (already sourced from `resolvePayoutAggregateAmount`'s
+      // `ORDER BY createdAt ASC`) are keyed off the March row. Only a fix
+      // that sorts by the same rule reports March here.
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: PAYOUT_TX_ID,
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            amount: '1500',
+            currency: 'USDT',
+            payoutRequestId: REQ_ID,
+          }),
+          tx({
+            id: 'inc-later',
+            type: 'SENIOR_INCOME',
+            status: 'PAID',
+            amount: '1000',
+            currency: 'USDT',
+            receiverId: SENIOR.id,
+            projectId: 'p-1',
+            payoutRequestId: REQ_ID,
+            salaryMonth: '2026-04',
+            createdAt: new Date('2026-04-15T00:00:00Z'),
+          }),
+          tx({
+            id: 'inc-earlier',
+            type: 'SENIOR_INCOME',
+            status: 'PAID',
+            amount: '500',
+            currency: 'USDT',
+            receiverId: SENIOR.id,
+            projectId: 'p-1',
+            payoutRequestId: REQ_ID,
+            salaryMonth: '2026-03',
+            createdAt: new Date('2026-03-10T00:00:00Z'),
+          }),
+        ],
+        sigs: [],
+        users: [
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+        ],
+        projects: [{ id: 'p-1', name: 'Acme Corp' }],
+        signedContracts: [],
+      })
+      h.ctrl.findTxId = PAYOUT_TX_ID
+      h.ctrl.linkedPayoutRequestId = REQ_ID
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.projectFindQueue = ['p-1']
+      h.ctrl.updateTargetTxId = PAYOUT_TX_ID
+
+      await h.svc.autoCreateForPayout(PAYOUT_TX_ID)
+
+      expect(h.pdfService.generateSignableInvoicePdf).toHaveBeenCalledTimes(1)
+      const pdfArgs = (
+        h.pdfService.generateSignableInvoicePdf as unknown as {
+          mock: { calls: unknown[][] }
+        }
+      ).mock.calls[0]?.[0] as {
+        transaction: { amount: string; salaryMonth: string | null }
+      }
+      expect(pdfArgs.transaction.amount).toBe('1500.000000')
+      expect(pdfArgs.transaction.salaryMonth).toBe('2026-03')
+      expect(pdfArgs.transaction.salaryMonth).not.toBe('2026-04')
     })
   })
 
@@ -1302,6 +2426,125 @@ describe('InvoicesService', () => {
 
       const result = await h.svc.getInvoice(SENIOR, 'tx-invoice-1')
       expect(result.transactionId).toBe('tx-invoice-1')
+    })
+  })
+
+  // security-review round 2 (PR #600, MED-7) on task-invoice-signature-integrity.
+  describe('reissueInvoiceIfStillPaid — AC2-bis / MED-7', () => {
+    it('MED-7: a PAYOUT-linked row (payoutRequestId set) never triggers a second, per-row invoice on top of the aggregated PAYOUT invoice', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-linked-income',
+            type: 'SENIOR_INCOME',
+            status: 'PAID',
+            payoutRequestId: 'payout-1',
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-linked-income'
+      const spy = vi.spyOn(h.svc, 'autoCreateForSeniorPayout')
+
+      await h.svc.reissueInvoiceIfStillPaid('tx-linked-income')
+
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    it('MED-7: swallows an autoCreateFor* failure instead of throwing — mirrors safeAutoCreateInvoice, so the amount-edit endpoint never 500s after the new amount was already committed', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-salary', type: 'SALARY', status: 'PAID', payoutRequestId: null })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-salary'
+      vi.spyOn(h.svc, 'autoCreateForSalary').mockRejectedValueOnce(new Error('S3 outage'))
+      // mutation-gate closure: assert the warn log itself, not just the
+      // resolved value — an empty catch block also "swallows" the
+      // rejection, so the resolved-value assertion alone cannot tell the
+      // two apart.
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+      await expect(h.svc.reissueInvoiceIfStillPaid('tx-salary')).resolves.toBeUndefined()
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'reissueInvoiceIfStillPaid: auto-create failed for tx=tx-salary: S3 outage',
+        ),
+      )
+    })
+
+    it('happy path unaffected: a still-PAID SALARY row with no payoutRequestId still triggers autoCreateForSalary', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-salary-2', type: 'SALARY', status: 'PAID', payoutRequestId: null })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-salary-2'
+      const spy = vi.spyOn(h.svc, 'autoCreateForSalary').mockResolvedValueOnce(undefined)
+
+      await h.svc.reissueInvoiceIfStillPaid('tx-salary-2')
+
+      expect(spy).toHaveBeenCalledWith('tx-salary-2')
+    })
+
+    it('mutation-gate closure: a still-PAID SENIOR_INCOME row (no payoutRequestId) triggers autoCreateForSeniorPayout, NOT autoCreateForSalary — the type branch actually discriminates', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({ id: 'tx-senior', type: 'SENIOR_INCOME', status: 'PAID', payoutRequestId: null }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-senior'
+      const seniorSpy = vi
+        .spyOn(h.svc, 'autoCreateForSeniorPayout')
+        .mockResolvedValueOnce(undefined)
+      const salarySpy = vi.spyOn(h.svc, 'autoCreateForSalary')
+
+      await h.svc.reissueInvoiceIfStillPaid('tx-senior')
+
+      expect(seniorSpy).toHaveBeenCalledWith('tx-senior')
+      expect(salarySpy).not.toHaveBeenCalled()
+    })
+
+    it('mutation-gate closure: a NOT-PAID row (status reverted by a cascade) is a pure no-op — no autoCreateFor* call at all', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-pending', type: 'SALARY', status: 'PENDING', payoutRequestId: null })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-pending'
+      const salarySpy = vi.spyOn(h.svc, 'autoCreateForSalary')
+      const seniorSpy = vi.spyOn(h.svc, 'autoCreateForSeniorPayout')
+
+      await expect(h.svc.reissueInvoiceIfStillPaid('tx-pending')).resolves.toBeUndefined()
+
+      expect(salarySpy).not.toHaveBeenCalled()
+      expect(seniorSpy).not.toHaveBeenCalled()
+    })
+
+    it('mutation-gate closure: a still-PAID row of neither SALARY nor SENIOR_INCOME (structurally unreachable in practice, e.g. PAYOUT) is a no-op — the else-if genuinely discriminates on type, not just falls through', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-other', type: 'PAYOUT', status: 'PAID', payoutRequestId: null })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-other'
+      const salarySpy = vi.spyOn(h.svc, 'autoCreateForSalary')
+      const seniorSpy = vi.spyOn(h.svc, 'autoCreateForSeniorPayout')
+
+      await expect(h.svc.reissueInvoiceIfStillPaid('tx-other')).resolves.toBeUndefined()
+
+      expect(salarySpy).not.toHaveBeenCalled()
+      expect(seniorSpy).not.toHaveBeenCalled()
     })
   })
 })

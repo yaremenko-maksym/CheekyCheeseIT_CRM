@@ -54,7 +54,7 @@ import {
   Inject,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
 import {
   type ContractTargetRole,
@@ -180,8 +180,14 @@ export class InvoicesService {
    *     PAYOUT row's own amount for the senior-keeps share, but we use the
    *     income sum so the invoice text aligns with what the SENIOR billed
    *     the company for).
-   *   - Currency = first linked income's currency (mixed-currency is an
-   *     unsupported edge case; PHASE 8 will rework when smart-contracts ship).
+   *   - Currency = resolved via `resolvePayoutAggregateAmount` (the earliest
+   *     linked income by `createdAt`, deterministic `ORDER BY`). Mixed
+   *     currency is a SUPPORTED configuration (the helper counts the blind
+   *     sum and flags `mixedCurrency` rather than refusing) — corrected
+   *     security-review round 6, MED-I: this used to say "unsupported edge
+   *     case" and pointed at PHASE 8 smart-contracts, which were cancelled
+   *     2026-06-17 (see `resolvePayoutAggregateAmount`'s own doc comment
+   *     below for the current, load-bearing rule).
    *   - Description = «Услуги исполнителя согласно контракту № <N>» where
    *     `<N>` is the placeholder formula `CHK-<userId-prefix>-<year>` per
    *     spec AC3 Variant B (no migration).
@@ -267,16 +273,42 @@ export class InvoicesService {
       return
     }
 
-    // Aggregate amount + collect project names. Per-project lookup is
-    // tolerated as the linked income count is bounded by the number of
-    // active projects per senior (typically ≤ 6). The N+1 query is
-    // acceptable here — caching would over-engineer for the expected fanout.
-    // parseFloat aggregation is display-only (PDF label) — not used for money
-    // movement. Floating-point drift is bounded to sub-cent amounts and has no
-    // financial side-effect. signInvoice PAYOUT branch mirrors this exactly.
-    const aggregatedAmount = linkedIncomes
-      .reduce((sum, row) => sum + parseFloat(row.amount), 0)
-      .toString()
+    // security-review round 5 (PR #600, HIGH-4): amount/currency now come
+    // from `resolvePayoutAggregateAmount` — the SAME helper `signInvoice`
+    // and `verifyInvoice` use. This used to be a THIRD, independently
+    // maintained copy of the same arithmetic, with a comment asking future
+    // edits to keep it "in sync" with signInvoice's copy by hand — exactly
+    // the drift class round 5's finding is about. `linkedIncomes` (fetched
+    // above) stays in scope below for project-name resolution, which this
+    // helper does not need — a tolerated N+1, same trade-off already
+    // documented on that fetch.
+    const resolvedAmount = await this.resolvePayoutAggregateAmount(payoutTx.payoutRequestId)
+    if (!resolvedAmount) {
+      // Defensive-only: `payoutRequestId` was already confirmed truthy and
+      // `linkedIncomes.length > 0` was already confirmed above — this call
+      // re-queries the same rows and should always resolve. "Should never
+      // happen in production" per the same trade-off as the
+      // `linkedIncomes.length === 0` check above.
+      this.logger.error(
+        `autoCreateForPayout: PAYOUT ${payoutTxId} — aggregate amount could not be resolved despite ${linkedIncomes.length} linked income(s) present — skip`,
+      )
+      return
+    }
+    const aggregatedAmount = resolvedAmount.amount
+    const aggregatedCurrency = resolvedAmount.currency
+    // security-review round 6 (PR #600, LOW): `salaryMonth` below reads the
+    // "first" linked income by the SAME deterministic order the amount/
+    // currency above were just resolved with (`resolvePayoutAggregateAmount`'s
+    // `ORDER BY createdAt ASC`) — `linkedIncomes` itself (fetched above, no
+    // `ORDER BY`) is NOT that order, so indexing `[0]` on it directly would
+    // silently mean two different things by "first linked income" in the
+    // same function: an unordered Postgres row for the date, an ordered one
+    // for the money. Sorting a copy here (not `linkedIncomes` itself — the
+    // project-name loop below iterates it order-independently, so mutating
+    // in place would be a needless side effect) restores single meaning.
+    const earliestLinkedIncome = [...linkedIncomes].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    )[0]
     const projectNames: string[] = []
     const seenProjectIds = new Set<string>()
     for (const incomeRow of linkedIncomes) {
@@ -288,14 +320,9 @@ export class InvoicesService {
       if (project) projectNames.push(project.name)
     }
 
-    // Resolve txDate/period/currency for the invoice payload. The PAYOUT row
-    // itself is what the SENIOR signed on-chain — its txDate (= request paid
-    // moment) is the most precise stamp.
-    const aggregatedCurrency = (linkedIncomes[0]?.currency ?? payoutTx.currency) as
-      | 'USDT'
-      | 'USD'
-      | 'EUR'
-      | 'UAH'
+    // Resolve txDate for the invoice payload. The PAYOUT row itself is what
+    // the SENIOR signed on-chain — its txDate (= request paid moment) is
+    // the most precise stamp.
     const txDate = payoutTx.txDate ?? payoutTx.createdAt
     // ADMIN doesn't sign contracts (see signed_contracts CHECK constraint).
     // Counterparty is JUNIOR/HR/ACCOUNTANT/SENIOR/DROP in practice; defensive null for ADMIN.
@@ -315,10 +342,17 @@ export class InvoicesService {
       projectName: null,
       projectNames,
       contractNumber,
-      // Use the salary month of the first linked income — they all belong to
-      // the same payout cycle so the month is consistent. NULL falls through
-      // to "no period line".
-      salaryMonth: linkedIncomes[0]?.salaryMonth ?? null,
+      // Use the salary month of the earliest linked income (by createdAt —
+      // same order as `aggregatedAmount`/`aggregatedCurrency` above) — they
+      // all belong to the same payout cycle so the month is consistent.
+      // NULL falls through to "no period line". `!` (not `?.`), matching
+      // `resolvePayoutAggregateAmount`'s own `linkedIncomes[0]!.currency` a
+      // few hundred lines down: `linkedIncomes.length === 0` already
+      // returned above, so `[...linkedIncomes].sort(...)[0]` cannot be
+      // undefined — `?.` here would silently accept a `never`-in-practice
+      // path that mutation testing cannot tell apart from the real one
+      // (security-review round 6, mutation-gate closure).
+      salaryMonth: earliestLinkedIncome!.salaryMonth ?? null,
       txDate,
     }
     const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
@@ -538,6 +572,190 @@ export class InvoicesService {
   }
 
   // ===========================================================================
+  // Void on amount edit (task-invoice-signature-integrity, AC2)
+  // ===========================================================================
+
+  /**
+   * AC2 (owner decision 2026-08-22). Called by the amount-edit path
+   * (task-3, apps/api paid-transaction-edit-cascade) for ANY transaction
+   * whose `amount` is about to change (or has just changed) and that
+   * currently carries an invoice. The invoice PDF is a legal artifact bound
+   * to specific bytes and cannot be "corrected" — this VOIDS it wholesale
+   * instead of silently re-rendering:
+   *   - soft-deletes the current document (`documentsService.softDeleteInternal`
+   *     — same call `signInvoice` already uses for its superseded doc; the
+   *     file stays in S3/audit trail, just no longer "the" active document);
+   *   - stamps `voidedAt` on every currently-active `invoice_signatures` row
+   *     for this transaction — rows are NEVER deleted. "Person X clicked
+   *     sign on file with hash H at time T" is a historical fact that stays
+   *     true forever and may be needed to investigate a dispute; only the
+   *     row's *authority* over "is this transaction currently signed" is
+   *     retired (see the schema doc comment on `voidedAt` for the full
+   *     reasoning, and the partial unique index that makes this safe to do
+   *     repeatedly without colliding with a future re-sign);
+   *   - nulls `transactions.invoiceDocumentId`, which is what makes
+   *     `autoCreate` / `autoCreateForPayout`'s existing idempotency guard
+   *     (`if (tx.invoiceDocumentId) return`) allow a FRESH invoice the next
+   *     time this transaction (re-)reaches PAID.
+   *
+   * Returns `{ hadInvoice, wasSigned }` — `reissueInvoiceIfStillPaid`
+   * (AC2-bis, below) uses `hadInvoice` to decide whether an immediate
+   * reissue is needed; a caller surfacing this to an admin can use
+   * `wasSigned` to warn "this voided a COUNTERPARTY-signed invoice, not
+   * just a pending one".
+   *
+   * security-review round 2 (PR #600, MED-1 + MED-2): the three writes
+   * below (document soft-delete, signature void-stamp, FK null-out) now run
+   * inside ONE `db.transaction`, opened with a `SELECT … FOR UPDATE` on the
+   * transaction row —
+   *   - MED-2: a mid-sequence failure used to leave "SIGNED" pointing at a
+   *     document that had already been soft-deleted (three unguarded
+   *     writes); now it is all-or-nothing;
+   *   - MED-1: `signInvoice` takes no lock of its own (the S3 render/upload
+   *     it does in between would hold one far too long) — instead it ends
+   *     with a repoint conditioned on `invoiceDocumentId` still equalling
+   *     the document IT started from. Locking the row HERE for the
+   *     duration of the void makes that condition race-free: a concurrent
+   *     `signInvoice` either fully commits before this void starts (this
+   *     void then immediately re-voids the fresh signature — the same
+   *     outcome as any post-sign amount edit, not a new hazard) or blocks
+   *     on the lock until this void commits, then finds
+   *     `invoiceDocumentId` already nulled and its own conditional repoint
+   *     no longer matches — 409 instead of silently repointing onto a
+   *     voided document.
+   */
+  async voidInvoiceForAmountEdit(
+    transactionId: string,
+    actorId: string,
+  ): Promise<{ hadInvoice: boolean; wasSigned: boolean }> {
+    return this.db.db.transaction(async (dbtx) => {
+      // Must use the select-builder against the raw table (not
+      // query.findMany / the nonDeletedTransactions VIEW) — Drizzle's
+      // relational API does not expose `.for('update')`, and locking
+      // through a view is unnecessary indirection for a single-row lock.
+      // Same pattern as transactions.service.ts's payout-batch lock.
+      const [tx] = await dbtx
+        .select()
+        .from(transactions)
+        .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)))
+        .for('update')
+        .limit(1)
+      if (!tx || !tx.invoiceDocumentId) return { hadInvoice: false, wasSigned: false }
+
+      const activeSigs = await dbtx
+        .select({ signerRole: invoiceSignatures.signerRole })
+        .from(invoiceSignatures)
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, transactionId),
+            isNull(invoiceSignatures.voidedAt),
+          ),
+        )
+      const wasSigned = activeSigs.some((s) => s.signerRole === 'COUNTERPARTY')
+
+      await this.documentsService.softDeleteInternal(tx.invoiceDocumentId, actorId, dbtx)
+      await dbtx
+        .update(invoiceSignatures)
+        .set({ voidedAt: new Date() })
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, transactionId),
+            isNull(invoiceSignatures.voidedAt),
+          ),
+        )
+      await dbtx
+        .update(transactions)
+        .set({ invoiceDocumentId: null, updatedAt: new Date() })
+        .where(eq(transactions.id, transactionId))
+
+      this.logger.log(
+        `voidInvoiceForAmountEdit: tx=${transactionId} wasSigned=${wasSigned} doc=${tx.invoiceDocumentId}`,
+      )
+      return { hadInvoice: true, wasSigned }
+    })
+  }
+
+  /**
+   * AC2-bis. Closes the gap `voidInvoiceForAmountEdit` opens on its own:
+   * `autoCreate*`'s idempotency guard only fires on the NEXT transition to
+   * PAID, but not every invoice-bearing type re-transitions after an
+   * amount edit —
+   *   - SALARY never does: it is not a cascade derivative of anything
+   *     (docs/architecture/2026-08-22-paid-transaction-edit-cascade.md
+   *     AC3, "Глубже одного уровня" — the only cascade source is
+   *     ADMIN_INCOME). `paySalary` is the sole PAID-transition trigger and
+   *     nothing re-runs it just because the amount changed;
+   *   - a directly-edited SENIOR_INCOME row that is NOT itself the
+   *     cascade-reverted derivative of an ADMIN_INCOME edit behaves the
+   *     same way — a leaf edit with no upstream to bounce it through
+   *     PENDING again;
+   *   - PAYOUT rows are structurally unreachable here: edits are blocked by
+   *     both the PAYOUT-family block and the payoutRequestId guard ("гвард
+   *     2") in `TransactionsService.adminUpdateTransaction` — nothing to
+   *     do, ever.
+   *
+   * Reading `tx.status` AFTER the caller applies the amount change (and
+   * after any cascade-driven status flip has already happened) is what
+   * makes this correct for BOTH cases without needing to know which one
+   * applies: if the row is STILL PAID, nothing else will ever re-trigger
+   * `autoCreate*` for it, so this does so immediately, with the NEW amount.
+   * If the row was instead reverted to PENDING/PENDING_PAYMENT as part of
+   * a cascade, this is a no-op — the natural re-confirmation flow
+   * (`settleByCompany` et al.) reaches PAID again on its own, and the
+   * now-null `invoiceDocumentId` lets its EXISTING trigger regenerate.
+   *
+   * security-review round 2 (PR #600, MED-7): this method is `public` and,
+   * unlike every OTHER `autoCreate*` trigger site (all funnelled through
+   * `TransactionsService.safeAutoCreateInvoice`'s `try/catch`), called
+   * `autoCreateFor*` directly — an S3/PDF failure here would surface as a
+   * bare 500 on the amount-edit endpoint, AFTER the new amount was already
+   * committed. Swallow-and-log, same as every sibling trigger site. Also
+   * guards `payoutRequestId` explicitly: a SENIOR_INCOME/DROP_INCOME row
+   * LINKED to a payout must never get a second, per-row invoice stacked on
+   * top of the aggregated PAYOUT invoice that already anchors on the
+   * PAYOUT row itself (see MED-6's note on why that invariant today rests
+   * on `TransactionsService.adminUpdateTransaction`'s guards, not on this
+   * method's own structure) — today's only caller never reaches this case
+   * per the doc comment above (PAYOUT-family rows are structurally
+   * unreachable), but a future direct call on a linked income must not
+   * silently create a duplicate.
+   */
+  async reissueInvoiceIfStillPaid(transactionId: string): Promise<void> {
+    const [tx] = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(eq(nonDeletedTransactions.id, transactionId))
+      .limit(1)
+    if (!tx || tx.status !== 'PAID') return
+    if (tx.payoutRequestId) return
+    try {
+      if (tx.type === 'SALARY') {
+        await this.autoCreateForSalary(tx.id)
+      } else if (tx.type === 'SENIOR_INCOME') {
+        await this.autoCreateForSeniorPayout(tx.id)
+      }
+      // PAYOUT: unreachable — amount edits on PAYOUT-family rows are
+      // blocked structurally (see doc comment above). No branch needed;
+      // falling through is a defensive no-op, not a silent gap.
+    } catch (err) {
+      this.logger.warn(
+        `reissueInvoiceIfStillPaid: auto-create failed for tx=${tx.id}: ${(err as Error).message}`,
+      )
+    }
+  }
+
+  /**
+   * Convenience wrapper — the single call task-3's amount-edit path is
+   * expected to make. Kept separate from the two methods above (rather
+   * than inlined) so AC4's test can exercise "void only" and "void +
+   * reissue" independently.
+   */
+  async voidAndReissueInvoiceForAmountEdit(transactionId: string, actorId: string): Promise<void> {
+    const { hadInvoice } = await this.voidInvoiceForAmountEdit(transactionId, actorId)
+    if (hadInvoice) await this.reissueInvoiceIfStillPaid(transactionId)
+  }
+
+  // ===========================================================================
   // List
   // ===========================================================================
 
@@ -586,13 +804,29 @@ export class InvoicesService {
     }
 
     // ---- Status filter (computed via EXISTS on invoice_signatures) ----
+    // task-invoice-signature-integrity: scoped to voided_at IS NULL — a
+    // voided COUNTERPARTY row belongs to a PRIOR, superseded invoice (AC2)
+    // and must not make a freshly-reissued (still-PENDING) invoice show up
+    // as SIGNED.
+    //
+    // security-review round 2 (PR #600, MED-4): both branches below, and
+    // the `signedFlag` subquery a few lines down, are exercised DIRECTLY by
+    // invoice-signature-integrity.integration.spec.ts's void→reissue test —
+    // it calls `listInvoices({status:'PENDING'})` / `{status:'SIGNED'}`
+    // against the real database right after a reissue (asserting the fresh,
+    // unsigned invoice shows up as PENDING and NOT as SIGNED) and again
+    // after the counterparty re-signs (asserting the flip to SIGNED). This
+    // replaces the ROUND-1 claim of this comment, which pointed at SIBLING
+    // queries (`getSignaturesWithSignerNames`/`getInvoice`) that never
+    // actually called `listInvoices` itself — accurate about the SQL
+    // pattern, not about THIS call site.
     if (filters.status === 'PENDING') {
       baseConditions.push(
-        sql`NOT EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
+        sql`NOT EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY' AND voided_at IS NULL)`,
       )
     } else if (filters.status === 'SIGNED') {
       baseConditions.push(
-        sql`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
+        sql`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY' AND voided_at IS NULL)`,
       )
     }
 
@@ -608,8 +842,18 @@ export class InvoicesService {
         // counterparty's displayName regardless of row type.
         counterpartyName: sql<string | null>`COALESCE(${users.displayName}, '—')`,
         createdAt: nonDeletedTransactions.createdAt,
-        // Subquery flag — true when a COUNTERPARTY signature exists.
-        signedFlag: sql<boolean>`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
+        // Subquery flag — true when an ACTIVE COUNTERPARTY signature exists
+        // (voided_at IS NULL — see the status-filter comment above).
+        // Stryker disable next-line StringLiteral: a raw SQL fragment run by
+        // Postgres — the unit-test harness for this service is a mocked
+        // Drizzle layer (invoices.service.spec.ts) that never executes SQL
+        // text, so no unit test can distinguish this from an empty string.
+        // security-review round 2 (PR #600, MED-4): DIRECTLY exercised by
+        // invoice-signature-integrity.integration.spec.ts's `listInvoices`
+        // calls (see the status-filter comment above for the exact
+        // scenario) — the real database is what can see this line, and it
+        // now actually runs this exact query, not just a sibling one.
+        signedFlag: sql<boolean>`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY' AND voided_at IS NULL)`,
       })
       .from(nonDeletedTransactions)
       .leftJoin(
@@ -741,6 +985,10 @@ export class InvoicesService {
     }
 
     // ---- Conflict: already signed ----
+    // task-invoice-signature-integrity: scoped to ACTIVE (voidedAt IS NULL)
+    // rows only. A transaction that went through void → reissue (AC2) can
+    // carry a HISTORICAL COUNTERPARTY row from a prior, now-voided invoice
+    // — that must not block signing the current, freshly-issued one.
     const existing = await this.db.db
       .select()
       .from(invoiceSignatures)
@@ -748,6 +996,7 @@ export class InvoicesService {
         and(
           eq(invoiceSignatures.transactionId, tx.id),
           eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          isNull(invoiceSignatures.voidedAt),
         ),
       )
       .limit(1)
@@ -756,6 +1005,8 @@ export class InvoicesService {
     }
 
     // ---- Re-fetch the COMPANY signature to verify hash equality ----
+    // Same ACTIVE-only scoping as above — the COMPANY row this compares
+    // against must be the one attesting to the CURRENT document.
     const companySig = await this.db.db
       .select()
       .from(invoiceSignatures)
@@ -763,6 +1014,7 @@ export class InvoicesService {
         and(
           eq(invoiceSignatures.transactionId, tx.id),
           eq(invoiceSignatures.signerRole, 'COMPANY'),
+          isNull(invoiceSignatures.voidedAt),
         ),
       )
       .limit(1)
@@ -782,22 +1034,18 @@ export class InvoicesService {
       )
     }
 
-    // ---- Insert COUNTERPARTY signature ----
-    const signedAt = new Date()
-    const ip = this.extractIp(req)
-    const userAgent = this.extractUserAgent(req)
-    await this.db.db.insert(invoiceSignatures).values({
-      transactionId: tx.id,
-      signerRole: 'COUNTERPARTY',
-      signerId: viewer.id,
-      pdfHash: currentHash,
-      method: 'MANUAL_CLICK',
-      ipAddress: ip,
-      userAgent,
-      signedAt,
-    })
-
-    // ---- Re-render PDF with both signatures ----
+    // ---- Fetch admin + counterparty rows ----
+    // security-review round 2 (PR #600, MED-3): this fetch, the PAYOUT/
+    // SENIOR_INCOME aggregation block below, and the txInfo construction all
+    // used to run AFTER the COUNTERPARTY row was inserted — they now run
+    // BEFORE it, so the resolved amount/currency can be written in the SAME
+    // insert as amountSnapshot/currencySnapshot instead of a follow-up
+    // UPDATE several queries later. That follow-up UPDATE was the exact gap
+    // HIGH-1 found: any failure between the two round-trips left an ACTIVE
+    // signature with a NULL snapshot, falling into the same live-amount
+    // leak the migration's backfill exists to close for legacy rows — now
+    // structurally impossible for newly-signed rows, not just backfilled
+    // once.
     const adminId = await this.getAdminId()
     const adminRow = await this.db.db.query.users.findFirst({
       where: eq(users.id, adminId),
@@ -808,18 +1056,7 @@ export class InvoicesService {
     if (!adminRow || !counterpartyRow) {
       throw new ConflictException('Не удалось получить данные пользователей')
     }
-
-    const allSigs = await this.getSignaturesWithSignerNames(tx.id)
     const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
-
-    const sigBlocks: InvoiceSignatureInfo[] = allSigs.map((s) => ({
-      role: s.signerRole,
-      signerName: s.signerName,
-      signedAt: s.signedAt,
-      method: s.method,
-      pdfHashFull: s.signerRole === 'COMPANY' ? companySig[0]!.pdfHash : currentHash,
-      ipLastOctet: s.signerRole === 'COUNTERPARTY' && ip ? this.lastOctet(ip) : null,
-    }))
 
     // task-aggregate-invoice-per-payout. For PAYOUT rows we re-resolve the
     // aggregated description (contract number + project list) on every sign
@@ -830,14 +1067,26 @@ export class InvoicesService {
     let projectName: string | null = null
     let projectNames: string[] | null = null
     let contractNumber: string | null = null
-    // BIZ-05 (MED): For PAYOUT rows, amount/currency must come from the
-    // aggregated linked income rows (exactly as autoCreateForPayout does),
-    // NOT from tx.amount/tx.currency (which is the payableAmount in USDT).
-    // Using tx.amount would produce a different amount in the re-rendered PDF
-    // than what the COMPANY signed, making the counterparty-signed copy inconsistent.
-    let payoutAggregatedAmount: string | null = null
-    let payoutAggregatedCurrency: string | null = null
-    if (tx.type === 'PAYOUT' && tx.payoutRequestId) {
+    // security-review round 5 (PR #600, HIGH-4): NEVER `?? tx.amount`. That
+    // fallback used to be exactly what silently substituted a different
+    // number into `amountSnapshot` than the one the PDF actually prints for
+    // PAYOUT rows (the USDT payable vs. the aggregated linked-income sum,
+    // BIZ-05) — the write-time twin of HIGH-3's read-time bug. For
+    // `tx.type === 'PAYOUT'` the branch below either populates this or the
+    // function has already thrown; there is no path that reaches `txInfo`
+    // construction with it still null for a PAYOUT row.
+    let payoutAmount: { amount: string; currency: Transaction['currency'] } | null = null
+    if (tx.type === 'PAYOUT') {
+      // A PAYOUT row without a payoutRequestId cannot be resolved at all —
+      // refuse rather than let a bad/undefined amount reach the snapshot.
+      if (!tx.payoutRequestId) {
+        this.logger.error(
+          `signInvoice: tx=${tx.id} type=PAYOUT has no payoutRequestId — cannot resolve a signable amount, refusing to sign`,
+        )
+        throw new ConflictException(
+          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
+        )
+      }
       // security-review PR #456 round 2: sourced from `nonDeletedTransactions`
       // (VIEW) — defensive-only (see autoCreateForPayout's identical filter),
       // but now structural rather than a condition to remember.
@@ -865,19 +1114,29 @@ export class InvoicesService {
         counterpartyRow.role === 'ADMIN'
           ? null
           : await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
-      // Aggregate amount + currency from linked incomes — mirrors autoCreateForPayout
-      // so the re-rendered PDF uses the same values as the COMPANY-signed original.
-      if (linkedIncomes.length > 0) {
-        // parseFloat aggregation is display-only (PDF label) — not used for
-        // money movement. Mirrors autoCreateForPayout's approach exactly so
-        // the re-rendered invoice shows the same figure as the signed original.
-        // Floating-point drift is bounded to sub-cent amounts on the amounts
-        // we deal with (≤ 6 decimal places) and has no financial side-effect.
-        payoutAggregatedAmount = linkedIncomes
-          .reduce((sum, row) => sum + parseFloat(row.amount), 0)
-          .toString()
-        payoutAggregatedCurrency = linkedIncomes[0]!.currency ?? tx.currency
+      // security-review round 4 (PR #600, HIGH-3) / round 5 (PR #600,
+      // HIGH-4): amount/currency resolution goes through
+      // `resolvePayoutAggregateAmount` — the SAME helper `verifyInvoice`
+      // calls to recompute this when a legacy row has no snapshot, and
+      // `autoCreateForPayout` calls to print the initial COMPANY-only PDF.
+      // Re-queries the linked incomes a second time (the `linkedIncomes`
+      // fetched above stays — it also drives the project-name/
+      // contract-number resolution this helper doesn't need) — a tolerated
+      // N+1 in this file already (see `autoCreateForPayout`'s own comment
+      // on the same trade-off). The helper now COUNTS mixed currencies
+      // instead of refusing (see its doc comment) — `null` here means
+      // genuinely nothing to sign (no linked incomes), and this branch
+      // refuses rather than fall back to a number nobody signed.
+      const resolved = await this.resolvePayoutAggregateAmount(tx.payoutRequestId)
+      if (!resolved) {
+        this.logger.error(
+          `signInvoice: tx=${tx.id} type=PAYOUT req=${tx.payoutRequestId} — aggregate amount could not be resolved (no linked incomes) — refusing to sign`,
+        )
+        throw new ConflictException(
+          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
+        )
       }
+      payoutAmount = resolved
     } else if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
       const project = await this.db.db.query.projects.findFirst({
         where: eq(projects.id, tx.projectId),
@@ -890,20 +1149,101 @@ export class InvoicesService {
       // PAYOUT rows render with the SENIOR_INCOME template (АКТ ВЫПОЛНЕННЫХ
       // РАБОТ) — same legal document, just aggregated content.
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
-      // BIZ-05: Use aggregated linked income amount/currency for PAYOUT rows,
-      // falling back to tx.amount/tx.currency only when no linked incomes found
-      // (defensive — should never happen in production).
-      amount: tx.type === 'PAYOUT' ? (payoutAggregatedAmount ?? tx.amount) : tx.amount,
-      currency:
-        tx.type === 'PAYOUT'
-          ? ((payoutAggregatedCurrency ?? tx.currency) as typeof tx.currency)
-          : tx.currency,
+      // security-review round 5 (PR #600, HIGH-4): `payoutAmount!` — see
+      // the field's own comment above for why this is safe: for a PAYOUT
+      // row, the branch above either populated it or already threw.
+      amount: tx.type === 'PAYOUT' ? payoutAmount!.amount : tx.amount,
+      currency: tx.type === 'PAYOUT' ? payoutAmount!.currency : tx.currency,
       projectName,
       projectNames,
       contractNumber,
       salaryMonth: tx.salaryMonth ?? null,
       txDate: tx.txDate ?? tx.createdAt,
     }
+
+    // ---- Insert COUNTERPARTY signature ----
+    // AC3 + security-review round 2 (PR #600, MED-3): amountSnapshot /
+    // currencySnapshot are frozen HERE, in the same INSERT, from `txInfo` —
+    // what the FINAL re-rendered PDF actually contains — never recomputed
+    // on read. This is what the public /verify endpoint reads instead of
+    // the live tx.amount, so a LATER amount edit (or any write that
+    // bypasses the AC2 void path) can never surface as "confirmed" by a
+    // signature that never attested to it. Previously this was a separate
+    // UPDATE issued several queries after the insert — see the comment
+    // above the admin/counterparty fetch for why that window was closed.
+    //
+    // security-review round 2 (PR #600, MED-1): the insert now runs inside
+    // its OWN `db.transaction`, opened with a `SELECT … FOR UPDATE` on the
+    // transaction row — the SAME row `voidInvoiceForAmountEdit` locks for
+    // the duration of ITS writes. This serialises the two calls: if a
+    // void→reissue is concurrently in flight, this either waits for it to
+    // commit and then observes `invoiceDocumentId` has already moved off
+    // the document this call started from (→ 409, nothing inserted), or it
+    // runs first and the void simply retires this fresh signature like any
+    // other post-sign edit. Without this lock, a void→reissue landing here
+    // used to let an ACTIVE COUNTERPARTY row survive for a document that
+    // had already been superseded — `getSignaturesWithSignerNames` /
+    // `getInvoice` would then report the FRESH reissue as "SIGNED" even
+    // though nobody signed it, attesting to bytes nobody downloaded.
+    const signedAt = new Date()
+    const ip = this.extractIp(req)
+    const userAgent = this.extractUserAgent(req)
+    await this.db.db.transaction(async (dbtx) => {
+      // The row-lock mode for the SELECT below — extracted to a named,
+      // `as const`-asserted constant rather than inlined into the
+      // `.for(...)` chain call. Empirically (not just stylistically)
+      // deliberate: a bare string literal inlined into a `.method()` chain
+      // continuation on its own line generates a StringLiteral mutant this
+      // repo's Stryker version does not reliably attach a `next-line`
+      // suppression comment to (unlike a comma-separated argument position,
+      // e.g. the `inArray(...)` suppression a few hundred lines up, which
+      // DOES attach correctly) — no unit mock models row locking, so no
+      // assertion could kill that mutant either; only the integration spec
+      // (real Postgres) can observe a wrong lock-mode string. `as const`
+      // sidesteps the whole problem: Stryker does not mutate a literal in a
+      // const-asserted position at all, so there is no unkillable mutant
+      // left needing a suppression comment in the first place.
+      const LOCK_MODE_UPDATE = 'update' as const
+      const [locked] = await dbtx
+        .select({ invoiceDocumentId: transactions.invoiceDocumentId })
+        .from(transactions)
+        .where(eq(transactions.id, tx.id))
+        .for(LOCK_MODE_UPDATE)
+        .limit(1)
+      if (!locked || locked.invoiceDocumentId !== doc.id) {
+        throw new ConflictException('Инвойс был аннулирован — обновите страницу')
+      }
+      await dbtx.insert(invoiceSignatures).values({
+        transactionId: tx.id,
+        signerRole: 'COUNTERPARTY',
+        signerId: viewer.id,
+        pdfHash: currentHash,
+        method: 'MANUAL_CLICK',
+        ipAddress: ip,
+        userAgent,
+        signedAt,
+        amountSnapshot: txInfo.amount,
+        currencySnapshot: txInfo.currency,
+      })
+    })
+
+    // ---- Re-render PDF with both signatures ----
+    const allSigs = await this.getSignaturesWithSignerNames(tx.id)
+
+    const sigBlocks: InvoiceSignatureInfo[] = allSigs.map((s) => ({
+      role: s.signerRole,
+      signerName: s.signerName,
+      signedAt: s.signedAt,
+      method: s.method,
+      // The tamper-detection throw above (`companySig[0].pdfHash !==
+      // currentHash`) already made these equal by the time this line can
+      // run — both ternary branches are FORCED to the identical value in
+      // every reachable state, so no test can distinguish either branch of
+      // this ternary from the other, or from a forced-true/false condition.
+      // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral: both ternary branches are provably equal here — the tamper-detection throw above already enforces companySig[0].pdfHash === currentHash before this line runs.
+      pdfHashFull: s.signerRole === 'COMPANY' ? companySig[0]!.pdfHash : currentHash,
+      ipLastOctet: s.signerRole === 'COUNTERPARTY' && ip ? this.lastOctet(ip) : null,
+    }))
 
     const { pdfBuffer: newPdf } = await this.pdfService.generateSignableInvoicePdf({
       transaction: txInfo,
@@ -923,10 +1263,34 @@ export class InvoicesService {
       uploadedById: adminId,
     })
     await this.documentsService.softDeleteInternal(doc.id, adminId)
-    await this.db.db
+    // security-review round 2 (PR #600, MED-1): the repoint is CONDITIONAL
+    // on invoiceDocumentId still being the document this call started from.
+    // `signInvoice` and `voidInvoiceForAmountEdit` take no shared lock (the
+    // S3 render/upload above would hold one far too long), so a concurrent
+    // void→reissue landing in this window used to let this UPDATE silently
+    // repoint onto a stale document — clobbering a fresh reissue, or (if
+    // void landed between the insert above and here) leaving the
+    // transaction permanently invoice-less, since autoCreate*'s idempotency
+    // guard blocks on ANY non-null invoiceDocumentId, signed or not. Failing
+    // loud instead: the caller is told to reload rather than silently
+    // trusting a write that raced a void.
+    // Only `repointed.length` is read below — which column(s)
+    // `.returning(...)` projects does not change how many rows a matching
+    // UPDATE returns, in Postgres or in this mock, so `{id:
+    // transactions.id}` vs `{}` cannot be told apart by anything this file
+    // could assert. Extracted to a named constant (not inlined into the
+    // `.returning(...)` chain call) for the same reason as
+    // `LOCK_MODE_UPDATE` above — a bare `.method()` chain continuation.
+    // Stryker disable next-line ObjectLiteral: only repointed.length is read below; which columns are projected cannot change how many rows a matching UPDATE returns.
+    const REPOINT_RETURNING = { id: transactions.id }
+    const repointed = await this.db.db
       .update(transactions)
       .set({ invoiceDocumentId: newDoc.id, updatedAt: new Date() })
-      .where(eq(transactions.id, tx.id))
+      .where(and(eq(transactions.id, tx.id), eq(transactions.invoiceDocumentId, doc.id)))
+      .returning(REPOINT_RETURNING)
+    if (repointed.length === 0) {
+      throw new ConflictException('Инвойс был аннулирован — обновите страницу')
+    }
 
     // ---- Notify ADMIN ----
     await this.notificationsService.create({
@@ -974,16 +1338,127 @@ export class InvoicesService {
     // once the counterparty has signed. Returning data for PENDING invoices
     // would expose amount and counterparty name via transactionId enumeration
     // before the employee has consented to the payment record.
-    const isSigned = sigs.some((s) => s.signerRole === 'COUNTERPARTY')
-    if (!isSigned) {
+    const counterpartySig = sigs.find((s) => s.signerRole === 'COUNTERPARTY')
+    if (!counterpartySig) {
       throw new NotFoundException('Инвойс не найден')
+    }
+
+    // AC3: source amount/currency from what the counterparty ACTUALLY
+    // signed (frozen at sign time in `signInvoice`), never the live
+    // `transactions` row — a later amount edit (or any write that bypasses
+    // the AC2 void path) must not surface as "confirmed" here.
+    //
+    // When there IS a snapshot (the overwhelming common case post-MED-3),
+    // it is authoritative, full stop. When there is NOT, the two remaining
+    // row types get DIFFERENT honest treatment — security-review round 4
+    // (PR #600, HIGH-3) is exactly the finding that treating them the same
+    // was wrong:
+    //   - non-PAYOUT (SALARY/SENIOR_INCOME): the migration's backfill
+    //     covers every row that existed when it shipped, and MED-3 makes a
+    //     NULL snapshot structurally impossible for anything signed after
+    //     — reaching here means either the backfill has not run yet on
+    //     this DB or a write bypassed `signInvoice` entirely. Live
+    //     `tx.amount` IS the historically-safe fallback for this case: for
+    //     SALARY/SENIOR_INCOME, BIZ-18 blocked ALL PAID-amount edits
+    //     unconditionally while these rows were signed, so no divergence
+    //     was ever possible in the first place.
+    //   - PAYOUT: the migration's backfill deliberately EXCLUDES these
+    //     rows (round 3, HIGH-2) because `tx.amount` there is the USDT
+    //     payable, structurally a DIFFERENT number/currency from what was
+    //     actually signed (the aggregated linked-income sum, BIZ-05). Round
+    //     3 argued the live-`tx.amount` fallback was still SAFE for them —
+    //     that argument was FALSE (round 4, HIGH-3): proven by this file's
+    //     own integration spec, where a PAYOUT invoice signed
+    //     `1000.000000 USD` had this fallback answer `740.000000 USDT`.
+    //     Instead of the live column, recompute through
+    //     `resolvePayoutAggregateAmount` — the SAME helper `signInvoice`
+    //     uses to WRITE the snapshot, so read and write never describe the
+    //     rule differently again.
+    //
+    // security-review round 5 (PR #600, HIGH-4): round 4 additionally
+    // refused to answer whenever the linked incomes spanned more than one
+    // currency — that refusal landed on a COUNTERPARTY holding a validly
+    // signed act, who is entitled to see the confirmed amount, not a 409.
+    // Mixed currency is a supported configuration (see
+    // `resolvePayoutAggregateAmount`'s doc comment), so the helper no
+    // longer refuses for that reason — it counts the blind sum and flags
+    // `mixedCurrency` instead. The refusal below now fires ONLY when there
+    // is genuinely no aggregate to compute at all (no linked incomes / no
+    // payoutRequestId) — a DIFFERENT, still-legitimate case: there is no
+    // number of any kind to show, not merely a currency-quality concern.
+    let verifiedAmount: string
+    let verifiedCurrency: Transaction['currency']
+    // `mixedCurrency` is raised to the caller ONLY on the legacy-recompute
+    // branch below — the common snapshot branch does not persist this flag
+    // per-signature (no schema change this round). security-review round 6
+    // (MED-G): the default used to be `false`, which asserted "confirmed
+    // not mixed" for the COMMON snapshot-present branch even though that
+    // branch never inspects the linked incomes at all — an affirmative lie
+    // about exactly the case the flag exists to report (proven by this
+    // file's own HIGH-4 test, a signed 1000 USD + 500 EUR batch reading
+    // back `false`). `null` is the honest default: "not determined on this
+    // response's path" — only the legacy-recompute branch below, which
+    // actually calls `resolvePayoutAggregateAmount`, may overwrite it with
+    // a real `true`/`false`.
+    let mixedCurrency: boolean | null = null
+    // `!= null` (loose) — deliberately catches BOTH `null` (the real,
+    // nullable-column value from Postgres) and `undefined` (what a mocked
+    // unit-test fixture yields when it omits the field entirely), matching
+    // the `??` fallback semantics the pre-round-4 single-expression version
+    // of this branch relied on. A strict `!== null` here would silently
+    // treat "field omitted" as "has a snapshot" in the mocked unit spec.
+    if (counterpartySig.amountSnapshot != null) {
+      verifiedAmount = counterpartySig.amountSnapshot
+      verifiedCurrency = (counterpartySig.currencySnapshot ??
+        tx.currency) as Transaction['currency']
+    } else if (tx.type === 'PAYOUT') {
+      const resolved = await this.resolvePayoutAggregateAmount(tx.payoutRequestId)
+      if (!resolved) {
+        // Genuinely nothing to confirm — no linked incomes / no
+        // payoutRequestId (see resolvePayoutAggregateAmount's own doc
+        // comment). Mixed currency no longer reaches this branch (round 5
+        // — it now always resolves, counted and flagged); reaching HERE
+        // means there is no aggregate AT ALL, not a currency-quality
+        // concern, so an honest refusal is still the only truthful answer.
+        this.logger.error(
+          `verifyInvoice: tx=${tx.id} type=PAYOUT COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot and the linked-income aggregate could not be resolved — refusing to confirm an amount`,
+        )
+        throw new ConflictException(
+          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
+        )
+      }
+      // MED-D (round 4): this branch is now the ONLY standing source of
+      // this warning — a legacy PAYOUT row signed before this migration
+      // shipped. Every other case either has a snapshot or, post-backfill,
+      // should not exist — logged at `warn`, not `error`, because this is
+      // the EXPECTED path for those rows, not an anomaly. `mixedCurrency`
+      // appended (round 5) so the residual currency-drift risk documented
+      // on `resolvePayoutAggregateAmount` stays visible in the record for
+      // this specific legacy row, not just the helper's own log line.
+      this.logger.warn(
+        `verifyInvoice: tx=${tx.id} type=PAYOUT COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — recomputed from linked incomes (legacy row signed before this migration), mixedCurrency=${resolved.mixedCurrency}`,
+      )
+      verifiedAmount = resolved.amount
+      verifiedCurrency = resolved.currency
+      mixedCurrency = resolved.mixedCurrency
+    } else {
+      // MED-D (round 4): non-PAYOUT branch, logged separately from PAYOUT
+      // above (previously one shared message covered both, discussed in
+      // the MED-D finding as noise once the PAYOUT case became the only
+      // standing source of it).
+      this.logger.warn(
+        `verifyInvoice: tx=${tx.id} type=${tx.type} COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot — falling back to live tx.amount`,
+      )
+      verifiedAmount = tx.amount
+      verifiedCurrency = tx.currency
     }
 
     return {
       transactionId: tx.id,
       status: 'SIGNED' as InvoiceStatus,
-      amount: tx.amount,
-      currency: tx.currency,
+      amount: verifiedAmount,
+      currency: verifiedCurrency,
+      mixedCurrency,
       // Public InvoiceType enum is SENIOR_INCOME | SALARY — PAYOUT maps to
       // SENIOR_INCOME for the verify response.
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
@@ -1004,6 +1479,137 @@ export class InvoicesService {
   // ===========================================================================
   // Helpers
   // ===========================================================================
+
+  /**
+   * Resolve the amount/currency a PAYOUT-anchored invoice was (or would be)
+   * signed with — the aggregate over the linked SENIOR_INCOME/DROP_INCOME
+   * rows sharing `payoutRequestId`, assembled the exact same way as the PDF
+   * this service actually prints. Single source of truth for ALL THREE
+   * places that need this number — `autoCreateForPayout` (initial
+   * COMPANY-only PDF), `signInvoice` (writes `amountSnapshot`/
+   * `currencySnapshot` from this), and `verifyInvoice` (recomputes from
+   * this when a legacy row has no snapshot) — same "all stay pinned to
+   * identical numbers" discipline as `roundShareAmount`
+   * (`transactions.service.ts`, `bookCompanyObligations`).
+   *
+   * security-review round 4 (PR #600, HIGH-3): before this helper existed,
+   * `signInvoice` and `verifyInvoice`'s fallback each re-derived this
+   * number independently — the fallback used `tx.amount` (the USDT
+   * payable, BIZ-05), a structurally different number/currency from the
+   * aggregate `signInvoice` actually signs. Two descriptions of one rule
+   * had drifted apart; this made it one — but round 4 ALSO made this
+   * helper refuse (return `null`) whenever the linked incomes spanned more
+   * than one currency.
+   *
+   * security-review round 5 (PR #600, HIGH-4): that refusal never actually
+   * reached the caller. `signInvoice`'s `?? tx.amount` fallback (removed
+   * this round — see its own call site) silently swallowed the `null` and
+   * wrote a DIFFERENT number into `amountSnapshot` than the one the PDF
+   * actually printed — the exact defect this file exists to prevent, moved
+   * from a read-time bug (HIGH-3) to a write-time one. Mixed-currency
+   * batches are also an intentionally SUPPORTED configuration
+   * (`transactions.service.ts` — the mixed-currency PAYOUT guard was
+   * deliberately removed as a bug fix, not tightened), not an edge case —
+   * so refusing was the wrong lever twice over. This helper now COUNTS
+   * (the blind sum of `parseFloat` amounts across every linked row
+   * regardless of currency — exactly what was printed before round 4,
+   * now with a deterministic `ORDER BY` instead of an unspecified one) and
+   * flags the result via `mixedCurrency` instead of refusing. The
+   * invariant this file protects is "paper == snapshot == QR", not "the
+   * printed sum is currency-correct" — the latter is a real defect in the
+   * printed DOCUMENT (summing currencies without conversion), but what
+   * gets printed is a product/legal decision, not this helper's call (see
+   * the task doc's "чего НЕ делать" section, backlog item 83).
+   *
+   * Returns `null` ONLY when there is genuinely no number to compute — the
+   * caller MUST treat that as "amount cannot be confirmed", never silently
+   * substitute a different source (that substitution is exactly what
+   * caused HIGH-3/HIGH-4):
+   *   - `payoutRequestId` is NULL — structurally shouldn't happen for a
+   *     PAYOUT row that reached `signInvoice`/`verifyInvoice`, defensive
+   *     only;
+   *   - zero linked incomes — "should never happen in production" per the
+   *     BIZ-05 comment this mirrors (`autoCreateForPayout` already refuses
+   *     to auto-create in this case, so a signed PAYOUT row reaching this
+   *     state at all would mean the linked incomes were removed AFTER
+   *     signing).
+   *
+   * Residual risk (round 5, named rather than silenced): a LEGACY PAYOUT
+   * row signed before the amountSnapshot mechanism shipped has no snapshot
+   * at all — `verifyInvoice`'s legacy branch recomputes through this
+   * helper live, using TODAY'S deterministic `ORDER BY createdAt ASC`. The
+   * ORIGINAL (pre-round-4) inline computation did NOT order its rows, so
+   * for a legacy mixed-currency batch the currency label returned here
+   * (first row by `createdAt`) may not be the one actually printed on the
+   * document the counterparty is holding. There is no snapshot to recover
+   * the true original from — this cannot be fixed without data that no
+   * longer exists, only disclosed.
+   */
+  private async resolvePayoutAggregateAmount(payoutRequestId: string | null): Promise<{
+    amount: string
+    currency: Transaction['currency']
+    mixedCurrency: boolean
+  } | null> {
+    if (!payoutRequestId) return null
+    // Deterministic ordering (round 4, HIGH-3 remediation): the previous
+    // inline version of this query had no ORDER BY, so "the first row's
+    // currency" was whichever order Postgres happened to return — an
+    // unordered SELECT backing a legal-document amount is worth pinning
+    // down explicitly rather than leaving to chance (see the residual-risk
+    // note in the doc comment above for the one case this cannot retroactively fix).
+    const linkedIncomes = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(
+        and(
+          eq(nonDeletedTransactions.payoutRequestId, payoutRequestId),
+          // A raw Drizzle predicate object handed to `.where(...)` — this
+          // file's own mocked harness (invoices.service.spec.ts) is a
+          // "semantic-only stub" per its top-of-file rationale comment:
+          // `.where(_p) => chain` discards its argument entirely and
+          // resolves rows purely from a control hint
+          // (`ctrl.linkedPayoutRequestId`), never from the actual predicate
+          // value, so no unit test built on that harness can distinguish
+          // this array changing — the SAME class of gap the `signedFlag`
+          // raw-SQL suppression a few hundred lines up already documents.
+          // Covered for real by invoice-signature-integrity.integration
+          // .spec.ts's HIGH-2/AC2-bis tests, which construct actual
+          // SENIOR_INCOME/DROP_INCOME rows against real Postgres and would
+          // fail to find them (wrongly refusing, or wrongly aggregating) if
+          // this array were narrowed.
+          // Stryker disable next-line StringLiteral,ArrayDeclaration: see comment above — a raw Drizzle predicate this mocked-harness stub structurally cannot see; covered against real Postgres by invoice-signature-integrity.integration.spec.ts's HIGH-2/AC2-bis tests instead.
+          inArray(nonDeletedTransactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
+        ),
+      )
+      .orderBy(asc(nonDeletedTransactions.createdAt))
+    if (linkedIncomes.length === 0) return null
+    const currencies = new Set(linkedIncomes.map((row) => row.currency))
+    const mixedCurrency = currencies.size > 1
+    if (mixedCurrency) {
+      // security-review round 5 (PR #600, HIGH-4): no longer refuses — see
+      // the doc comment above. Logged explicitly and separately from every
+      // other warning this helper/its callers emit, so the drift stays
+      // visible in the record instead of vanishing into a generic message.
+      this.logger.warn(
+        `resolvePayoutAggregateAmount: payoutRequestId=${payoutRequestId} has linked incomes in more than one currency (${[...currencies].sort().join(', ')}) — printing the blind sum across currencies (mixed-currency batches are a supported configuration, see transactions.service.ts); mixedCurrency=true`,
+      )
+    }
+    // parseFloat aggregation is display-only (PDF label / verify response)
+    // — not used for money movement. Mirrors autoCreateForPayout's approach
+    // exactly. Floating-point drift is bounded to sub-cent amounts (≤ 6
+    // decimal places) and has no financial side-effect.
+    //
+    // `.toFixed(6)`, not `.toString()` (round 4 fix): every OTHER amount
+    // this service deals with is a `numeric(18,6)` column value round-
+    // tripped through Postgres, which always formats to exactly 6 decimal
+    // places on read (e.g. `tx.amount`, a written `amountSnapshot`). This
+    // helper's result reaches `verifyInvoice`'s response directly, with NO
+    // such round-trip to normalize it — a bare `.toString()` on a whole
+    // number would return `'1000'`, not `'1000.000000'`, silently breaking
+    // format parity with every other amount this same endpoint can return.
+    const amount = linkedIncomes.reduce((sum, row) => sum + parseFloat(row.amount), 0).toFixed(6)
+    return { amount, currency: linkedIncomes[0]!.currency, mixedCurrency }
+  }
 
   /**
    * Counterparty id derivation:
@@ -1168,8 +1774,16 @@ export class InvoicesService {
       pdfHash: string
       pdfHashShort: string
       method: 'AUTO_COMPANY' | 'MANUAL_CLICK'
+      /** AC3 — populated only on COUNTERPARTY rows signed after this migration. */
+      amountSnapshot: string | null
+      currencySnapshot: string | null
     }>
   > {
+    // task-invoice-signature-integrity: every caller (getInvoice, signInvoice,
+    // verifyInvoice) wants signatures for the transaction's CURRENT invoice
+    // only — a voided row belongs to a PRIOR, superseded invoice generation
+    // (AC2) and must never be reported as "this is signed" for the current
+    // one. Scoping here, once, means no caller can forget it.
     const rows = await this.db.db
       .select({
         id: invoiceSignatures.id,
@@ -1180,10 +1794,14 @@ export class InvoicesService {
         signedAt: invoiceSignatures.signedAt,
         pdfHash: invoiceSignatures.pdfHash,
         method: invoiceSignatures.method,
+        amountSnapshot: invoiceSignatures.amountSnapshot,
+        currencySnapshot: invoiceSignatures.currencySnapshot,
       })
       .from(invoiceSignatures)
       .leftJoin(users, eq(users.id, invoiceSignatures.signerId))
-      .where(eq(invoiceSignatures.transactionId, transactionId))
+      .where(
+        and(eq(invoiceSignatures.transactionId, transactionId), isNull(invoiceSignatures.voidedAt)),
+      )
 
     // Sort: COMPANY first (so the PDF always renders the same order) then
     // COUNTERPARTY. Within the same role we sort by signedAt for stability.
@@ -1204,6 +1822,8 @@ export class InvoicesService {
       pdfHash: r.pdfHash,
       pdfHashShort: shortHash(r.pdfHash),
       method: r.method as 'AUTO_COMPANY' | 'MANUAL_CLICK',
+      amountSnapshot: r.amountSnapshot,
+      currencySnapshot: r.currencySnapshot,
     }))
   }
 }

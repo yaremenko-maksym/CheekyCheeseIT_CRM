@@ -1518,10 +1518,60 @@ export const invoiceSignatures = pgTable(
     ipAddress: inet('ip_address'),
     userAgent: text('user_agent'),
     method: invoiceSignatureMethodEnum('method').notNull(),
+    // task-invoice-signature-integrity (AC2, owner decision 2026-08-22):
+    // stamped once, when the amount-edit path (task-3,
+    // paid-transaction-edit-cascade) VOIDS the invoice this row attests to.
+    // NULL = still the active attestation for the transaction's CURRENT
+    // invoice. Non-null rows are kept forever, never deleted — "person X
+    // clicked sign on file with hash H at time T" stays true even after the
+    // underlying transaction amount changes and a fresh invoice is issued;
+    // only the row's *authority* over "is this tx currently signed" is
+    // retired. This is the audit trail an investigation would need.
+    // Stryker disable next-line StringLiteral,BooleanLiteral,ObjectLiteral: column name + type (timestamptz vs timestamp) — DB-only, no unit test can observe either.
+    // The prod DDL declares the same identifier/type in
+    // 2026-08-22_invoice_signature_void_and_snapshot.sql, and
+    // invoice-signature-integrity.integration.spec.ts exercises the column
+    // through every void/reissue/re-sign step in the spec.
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    // task-invoice-signature-integrity (AC3): what the FINAL rendered PDF
+    // actually contains at signing time, frozen verbatim — never recomputed
+    // on read (same discipline as `originalAmount`/`exchangeRate`, see C2 in
+    // docs/architecture/2026-08-22-paid-transaction-edit-cascade.md). Only
+    // populated on the COUNTERPARTY row — the one the public /verify
+    // endpoint reads — so a later `transactions.amount` edit (or any write
+    // that bypasses the void path in AC2) can never surface as "confirmed".
+    // Stryker disable next-line StringLiteral,ObjectLiteral: column name + numeric(18,6) precision/scale — DB-only, enforced by Postgres, not by any mocked Drizzle layer.
+    // Exercised against a real database by
+    // invoice-signature-integrity.integration.spec.ts, which asserts the
+    // stored/returned value is exactly '1500.000000' (6dp) after a re-sign.
+    amountSnapshot: numeric('amount_snapshot', { precision: 18, scale: 6 }),
+    // Stryker disable next-line StringLiteral: a COLUMN NAME — it exists in
+    // the database, so no unit test can observe it; the prod DDL declares
+    // the same identifier in
+    // 2026-08-22_invoice_signature_void_and_snapshot.sql and
+    // invoice-signature-integrity.integration.spec.ts reads through it.
+    currencySnapshot: currencyEnum('currency_snapshot'),
   },
   (t) => [
-    // One signature per (transaction, role) — guards against double-sign races.
-    unique('uniq_sig').on(t.transactionId, t.signerRole),
+    // One ACTIVE signature per (transaction, role) — guards against
+    // double-sign races. Partial (WHERE voided_at IS NULL), not blanket:
+    // task-invoice-signature-integrity needs a transaction to carry more
+    // than one HISTORICAL signature per role across successive
+    // void → reissue → re-sign cycles. Same "one active, unlimited history"
+    // shape as `uq_pending_obligations_source_pending` elsewhere in this file.
+    // Stryker disable next-line StringLiteral: an INDEX NAME — it exists in
+    // the database, so no unit test can observe it; the prod DDL declares
+    // the same identifier and invoice-signature-integrity.integration.spec.ts
+    // proves the constraint it enforces (re-sign after void does not 23505).
+    uniqueIndex('uq_invoice_signatures_active')
+      .on(t.transactionId, t.signerRole)
+      .where(
+        // Stryker disable next-line StringLiteral: the partial-index WHERE clause is Postgres DDL, observable only against a real database.
+        // invoice-signature-integrity.integration.spec.ts's re-sign-after-void
+        // step would hit a 23505 unique violation if this clause were dropped
+        // (the OLD voided COUNTERPARTY row would collide with the new one).
+        sql`${t.voidedAt} IS NULL`,
+      ),
     index('idx_invoice_signatures_transaction').on(t.transactionId),
     index('idx_invoice_signatures_signer').on(t.signerId),
   ],

@@ -70,6 +70,7 @@ import {
 import { HrAccessService } from '../common/hr-access.service'
 import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.service'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
+import type { DrizzleTx } from '../database/types'
 
 /** What the controller hands us after parsing the multipart request. */
 export interface UploadFileInput {
@@ -316,14 +317,25 @@ export class DocumentsService {
    *
    * Idempotent: skips if already deleted. Throws NotFoundException if the
    * document does not exist at all (defensive — callers should know the id).
+   *
+   * security-review round 2 (PR #600, MED-2 on task-invoice-signature-
+   * integrity): optional `tx` lets a caller run this write inside its OWN
+   * `db.transaction`, alongside other writes that must commit or roll back
+   * together (e.g. `InvoicesService.voidInvoiceForAmountEdit` — the
+   * document soft-delete, the signature void-stamp, and the FK null-out are
+   * three separate statements that used to have no atomicity: a failure
+   * between them left "SIGNED" pointing at a document that no longer
+   * existed). Defaults to the plain (non-transactional) db handle for every
+   * other caller — behaviour unchanged for them.
    */
-  async softDeleteInternal(docId: string, deletedById: string): Promise<void> {
-    const doc = await this.db.db.query.documents.findFirst({
+  async softDeleteInternal(docId: string, deletedById: string, tx?: DrizzleTx): Promise<void> {
+    const db = tx ?? this.db.db
+    const doc = await db.query.documents.findFirst({
       where: eq(documents.id, docId),
     })
     if (!doc) throw new NotFoundException('Документ не найден')
     if (doc.deletedAt) return
-    await this.db.db
+    await db
       .update(documents)
       .set({ deletedAt: new Date(), deletedBy: deletedById })
       .where(eq(documents.id, docId))
@@ -384,6 +396,10 @@ export class DocumentsService {
     // match a non-deleted row (there is no `deleted_at` condition to forget —
     // this replaces the round-1 `AND TRANSACTION_NOT_DELETED` join condition,
     // which relied on remembering to write it every time).
+    // task-invoice-signature-integrity: every EXISTS below is scoped to
+    // voided_at IS NULL — a voided signature row belongs to a PRIOR,
+    // superseded invoice generation (AC2) and must not drive either badge
+    // for the transaction's CURRENT (possibly freshly-reissued) invoice.
     const pendingSig = sql<boolean>`(
       CASE
         WHEN ${documents.category} = 'INVOICE'
@@ -392,6 +408,7 @@ export class DocumentsService {
             SELECT 1 FROM ${invoiceSignatures}
             WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
+              AND ${invoiceSignatures.voidedAt} IS NULL
           )
           AND (
             (${nonDeletedTransactions.type} = 'SENIOR_INCOME' AND ${nonDeletedTransactions.senderId} = ${viewerId})
@@ -412,11 +429,13 @@ export class DocumentsService {
             SELECT 1 FROM ${invoiceSignatures}
             WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COMPANY'
+              AND ${invoiceSignatures.voidedAt} IS NULL
           )
           AND EXISTS (
             SELECT 1 FROM ${invoiceSignatures}
             WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
+              AND ${invoiceSignatures.voidedAt} IS NULL
           )
         THEN TRUE
         ELSE FALSE
