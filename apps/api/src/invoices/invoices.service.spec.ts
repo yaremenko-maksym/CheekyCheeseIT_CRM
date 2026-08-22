@@ -1109,7 +1109,7 @@ describe('InvoicesService', () => {
       )
     })
 
-    it('mutation-gate closure (round 4, HIGH-3): a NULL-snapshot PAYOUT row whose linked incomes span more than one currency refuses to confirm an amount (unit-level twin of the integration AC2-bis test)', async () => {
+    it('mutation-gate closure (round 5, HIGH-4): a NULL-snapshot PAYOUT row whose linked incomes span more than one currency confirms the blind sum and flags mixedCurrency, instead of refusing (unit-level twin of the integration AC2-bis test)', async () => {
       const h = buildHarness({
         txs: [
           tx({
@@ -1172,21 +1172,28 @@ describe('InvoicesService', () => {
       })
       h.ctrl.findTxId = 'tx-payout-mixed'
       h.ctrl.linkedPayoutRequestId = 'req-mixed'
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
       const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 
-      await expect(h.svc.verifyInvoice('tx-payout-mixed')).rejects.toThrow(ConflictException)
-      await expect(h.svc.verifyInvoice('tx-payout-mixed')).rejects.toThrow(
-        'Не удалось подтвердить сумму этого инвойса',
-      )
-      // mutation-gate closure (round 4): exact text, not a substring match —
-      // pins down the `.sort()` + `.join(', ')` formatting the round-4 fix
-      // deliberately added ("an unordered SELECT backing a legal-document
-      // amount is worth pinning down explicitly rather than leaving to
-      // chance" — this log line is the one place that non-determinism was
-      // previously observable). EUR before USD proves the sort, the comma
-      // space proves the separator wasn't silently dropped.
-      expect(errorSpy).toHaveBeenCalledWith(
-        'resolvePayoutAggregateAmount: payoutRequestId=req-mixed has linked incomes in more than one currency (EUR, USD) — refusing to aggregate rather than silently summing across currencies',
+      // security-review round 5 (PR #600, HIGH-4): no longer throws — the
+      // helper counts the blind sum (1000 USD + 500 EUR = 1500) and settles
+      // on the FIRST row's currency (harness declaration order = USD),
+      // flagging `mixedCurrency: true` instead of refusing.
+      const result = await h.svc.verifyInvoice('tx-payout-mixed')
+      expect(result.amount).toBe('1500.000000')
+      expect(result.currency).toBe('USD')
+      expect(result.mixedCurrency).toBe(true)
+      expect(errorSpy).not.toHaveBeenCalled()
+      // mutation-gate closure (round 4/5): exact text, not a substring
+      // match — pins down the `.sort()` + `.join(', ')` formatting the
+      // round-4 fix deliberately added ("an unordered SELECT backing a
+      // legal-document amount is worth pinning down explicitly rather than
+      // leaving to chance" — this log line is the one place that
+      // non-determinism was previously observable). EUR before USD proves
+      // the sort, the comma space proves the separator wasn't silently
+      // dropped.
+      expect(warnSpy).toHaveBeenCalledWith(
+        'resolvePayoutAggregateAmount: payoutRequestId=req-mixed has linked incomes in more than one currency (EUR, USD) — printing the blind sum across currencies (mixed-currency batches are a supported configuration, see transactions.service.ts); mixedCurrency=true',
       )
     })
 
@@ -1588,7 +1595,12 @@ describe('InvoicesService', () => {
           projectNames?: string[]
         }
       }
-      expect(pdfArgs.transaction.amount).toBe('1500')
+      // security-review round 5 (PR #600, HIGH-4): `.toFixed(6)`, not the
+      // whole-number `.toString()` this test asserted before — amount now
+      // comes from the shared `resolvePayoutAggregateAmount` helper (single
+      // source of truth for autoCreateForPayout/signInvoice/verifyInvoice),
+      // which formats to numeric(18,6) parity with every other amount.
+      expect(pdfArgs.transaction.amount).toBe('1500.000000')
       // Contract number now comes from the real signed_contracts DB lookup.
       expect(pdfArgs.transaction.contractNumber).toBe(SIGNED_CONTRACT_NUMBER)
       expect(pdfArgs.transaction.projectNames).toEqual(['Acme Corp'])
@@ -1650,8 +1662,9 @@ describe('InvoicesService', () => {
           projectNames?: string[]
         }
       }
-      // Sum amount: 1000 + 500 + 200 + 700 + 300 + 800 = 3500
-      expect(pdfArgs.transaction.amount).toBe('3500')
+      // Sum amount: 1000 + 500 + 200 + 700 + 300 + 800 = 3500. `.toFixed(6)`
+      // (round 5, HIGH-4) — see the 1-project test's comment above.
+      expect(pdfArgs.transaction.amount).toBe('3500.000000')
       // All 6 project names are passed through — the PDF service decides
       // how to render (truncation happens there).
       expect(pdfArgs.transaction.projectNames).toEqual([

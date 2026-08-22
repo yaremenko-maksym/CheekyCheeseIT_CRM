@@ -43,6 +43,36 @@
  *     Postgres row-lock contention, which MED-1's already-committed-by-the-
  *     time-signInvoice-starts race never did.
  *
+ * Round 4 (PR #600 security review) added the AC2-bis tests: HIGH-3 proved
+ * a NULL-snapshot PAYOUT row must recompute through
+ * `resolvePayoutAggregateAmount` (the aggregated linked-income sum), never
+ * fall back to `tx.amount` (the unrelated USDT payable) — with two edge
+ * cases the helper refused to resolve: zero linked incomes, and linked
+ * incomes spanning more than one currency.
+ *
+ * Round 5 (PR #600 security review) added HIGH-4 and revised the
+ * mixed-currency AC2-bis test:
+ *   - HIGH-4: round 4's mixed-currency refusal never reached `verifyInvoice`
+ *     at all when the drift was present AT SIGN TIME — `signInvoice`'s `??
+ *     tx.amount` fallback swallowed it and silently wrote the unrelated
+ *     USDT payable into `amountSnapshot`, the exact defect this file exists
+ *     to catch, moved from a read-time bug to a write-time one. The new
+ *     HIGH-4 test below proves the fix: mixed currency is counted (the same
+ *     blind sum the printed PDF always showed), never refused and never
+ *     substituted.
+ *   - The mixed-currency AC2-bis test (drift AFTER signing, not at sign
+ *     time) is revised in place: it used to assert the round-4 refusal;
+ *     round 5 replaced that refusal with a counted-and-flagged result, so
+ *     the test now asserts `mixedCurrency: true` instead of a thrown
+ *     `ConflictException`. The zero-linked-incomes AC2-bis test is
+ *     unchanged — that case is still genuinely unresolvable (no aggregate
+ *     to compute at all), not a currency-quality concern, so it still
+ *     refuses.
+ *   - MED-F: the new HIGH-4 test's second linked-income row is DROP_INCOME
+ *     (this file had none before) — closes a compensating-control gap on
+ *     `resolvePayoutAggregateAmount`'s `inArray([...])` mutation
+ *     suppression (see that test's own comment).
+ *
  * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) — reports SKIPPED (not
  * silently-passed with zero assertions) when DATABASE_URL is unset. A
  * DATABASE_URL that is set but unreachable throws in beforeAll (FAILED).
@@ -646,21 +676,145 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 30_000)
 
     /**
-     * HIGH-3 edge case, AC2-bis (round 4, security-review, PR #600):
-     * `resolvePayoutAggregateAmount`'s own doc comment names three cases it
-     * refuses to resolve rather than guess at — this is the "linked incomes
-     * span more than one currency" one. The PRE-round-4 inline version of
-     * this logic summed `parseFloat` amounts across whatever currency the
-     * FIRST row happened to carry (no `ORDER BY`, i.e. non-deterministically)
-     * and never validated the rows agreed on a currency at all — silently
-     * adding USD to EUR and calling the result a number. This proves the
-     * refusal is real: `verifyInvoice` throws instead of returning a
-     * fabricated sum, for a NULL-snapshot PAYOUT row whose linked incomes
-     * have drifted into more than one currency SINCE it was signed (the
-     * exact "reconstruction from possibly-since-edited live rows" risk the
-     * HIGH-3 fix comment gives as the reason a backfill was rejected).
+     * HIGH-4 (security-review round 5, PR #600): the core scenario the
+     * finding is about — mixed currency present AT SIGN TIME (not drifted
+     * in afterward, see the AC2-bis test below for that separate case).
+     * Round 4 made `resolvePayoutAggregateAmount` REFUSE (return `null`)
+     * for this exact input; round 3's `signInvoice` swallowed that refusal
+     * via `payoutAggregatedAmount ?? tx.amount` and silently wrote the
+     * UNRELATED USDT payable into `amountSnapshot` instead — a COMPANY
+     * signs a blind-sum PDF, the counterparty signs THAT SAME PDF, and the
+     * snapshot records a different number nobody actually signed. This
+     * proves the fix: mixed currency is COUNTED (the same blind sum
+     * `autoCreateForPayout` prints), never refused and never substituted —
+     * `amountSnapshot` matches the printed aggregate, not `tx.amount`.
      */
-    it('AC2-bis: verifyInvoice refuses to confirm an amount for a NULL-snapshot PAYOUT row whose linked incomes now span more than one currency, instead of silently summing across currencies', async () => {
+    it('HIGH-4: signInvoice never substitutes tx.amount for a mixed-currency PAYOUT batch — the snapshot equals the printed blind sum, not the unrelated USDT payable', async () => {
+      const payoutRequestId = randomUUID()
+      await db.insert(payoutRequests).values({
+        id: payoutRequestId,
+        seniorId: SENIOR_ID,
+        incomeAmount: '1500',
+        payableAmount: '740',
+        contractAddress: `0x${'4'.repeat(40)}`,
+        status: 'PAID',
+      })
+
+      // Two linked incomes in DIFFERENT currencies, present from the
+      // START — mixed currency is an intentionally SUPPORTED
+      // configuration (transactions.service.ts's mixed-currency PAYOUT
+      // guard was removed as a bug fix, not tightened), not an edge case.
+      // Explicit `createdAt` a day apart pins the deterministic `ORDER BY`
+      // this round's fix depends on: USD is the earliest row, so it is the
+      // currency the aggregate settles on.
+      //
+      // security-review round 5 (PR #600, MED-F): the second row is
+      // DROP_INCOME, not another SENIOR_INCOME — this file had ZERO
+      // DROP_INCOME fixtures before this test, so a mutant narrowing
+      // `resolvePayoutAggregateAmount`'s `inArray(...,
+      // ['SENIOR_INCOME', 'DROP_INCOME'])` down to `['SENIOR_INCOME']`
+      // alone was invisible to both the mocked unit harness AND this
+      // integration spec at once (DROP payouts issue PAYOUT invoices the
+      // same way SENIOR payouts do — `transactions.service.ts:759`). With
+      // the mutant, this row would be silently excluded and the aggregate
+      // would settle on `1000.000000`/`USD` instead of the asserted
+      // `1500.000000` — the suppression below finally has a real
+      // compensating control.
+      const incomeUsdTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: incomeUsdTxId,
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: '1000',
+        currency: 'USD',
+        receiverId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+        createdAt: new Date('2026-08-01T00:00:00Z'),
+      })
+      const incomeDropTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: incomeDropTxId,
+        type: 'DROP_INCOME',
+        status: 'PAID',
+        amount: '500',
+        currency: 'EUR',
+        receiverId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+        createdAt: new Date('2026-08-02T00:00:00Z'),
+      })
+
+      const payoutTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: payoutTxId,
+        type: 'PAYOUT',
+        status: 'PAID',
+        // The USDT payable — deliberately UNRELATED to the aggregate
+        // below. Pre-round-5, this is exactly the number the `??
+        // tx.amount` fallback smuggled into the snapshot for this input.
+        amount: '740',
+        currency: 'USDT',
+        senderId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+      })
+
+      await invoices.autoCreateForPayout(payoutTxId)
+      await invoices.signInvoice(
+        sessionOf({ id: SENIOR_ID, role: 'SENIOR', displayName: 'Senior' }),
+        payoutTxId,
+        fakeReq('203.0.113.70'),
+      )
+
+      const [signedRow] = await db
+        .select()
+        .from(invoiceSignatures)
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, payoutTxId),
+            eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          ),
+        )
+      // Core HIGH-4 assertion: the snapshot is the blind sum ACTUALLY
+      // printed (1000 + 500 = 1500, numeric(18,6) formatted), currency
+      // from the earliest-created linked income (USD) — never the
+      // unrelated USDT payable the pre-round-5 fallback used to smuggle
+      // in.
+      expect(signedRow!.amountSnapshot).toBe('1500.000000')
+      expect(signedRow!.currencySnapshot).toBe('USD')
+      expect(signedRow!.amountSnapshot).not.toBe('740.000000')
+      expect(signedRow!.currencySnapshot).not.toBe('USDT')
+
+      // verifyInvoice (the public QR target) must confirm exactly that
+      // same number — "paper == snapshot == QR", the invariant this whole
+      // file protects. round 5 also removed the 409 that a mixed-currency
+      // NULL-snapshot PAYOUT row used to hit here — irrelevant to THIS
+      // scenario (the snapshot is populated at sign time either way), but
+      // asserted anyway as the end-to-end proof of the fix.
+      const verify = await invoices.verifyInvoice(payoutTxId)
+      expect(verify.amount).toBe('1500.000000')
+      expect(verify.currency).toBe('USD')
+      expect(verify.mixedCurrency).toBe(false) // snapshot present — not the recompute branch
+    }, 30_000)
+
+    /**
+     * HIGH-3 edge case, AC2-bis (round 4, security-review, PR #600) —
+     * REVISED round 5 (HIGH-4). `resolvePayoutAggregateAmount`'s round-4
+     * version refused (returned `null`) whenever the linked incomes spanned
+     * more than one currency; this test originally proved that refusal by
+     * drifting a NULL-snapshot legacy PAYOUT row into mixed currency AFTER
+     * it was signed. Round 5 found that refusal was the wrong lever (see
+     * the HIGH-4 test above, and `resolvePayoutAggregateAmount`'s doc
+     * comment): mixed currency is a supported configuration, and a
+     * counterparty holding a validly signed act is entitled to see the
+     * confirmed amount, not a 409. The helper now COUNTS the blind sum
+     * (same arithmetic this test always exercised — the PRE-round-4 inline
+     * version had no `ORDER BY`, i.e. was non-deterministic; round 4 pinned
+     * that down, round 5 kept the ordering fix and dropped only the
+     * refusal) and raises `mixedCurrency: true` instead of throwing.
+     */
+    it('AC2-bis / HIGH-4: verifyInvoice recomputes and confirms the blind sum for a NULL-snapshot legacy PAYOUT row whose linked incomes have since drifted into more than one currency, flagging mixedCurrency instead of refusing', async () => {
       const payoutRequestId = randomUUID()
       await db.insert(payoutRequests).values({
         id: payoutRequestId,
@@ -696,11 +850,8 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       // Sign honestly FIRST, while there is exactly one linked-income
-      // currency — this is the only way to reach a real COUNTERPARTY row at
-      // all (signInvoice's own fallback for an UNRESOLVABLE aggregate is
-      // tx.amount, not a thrown error — see the comment on
-      // `payoutAggregatedAmount` in signInvoice). The currency drift below
-      // happens AFTER signing, mirroring how a real legacy row would age.
+      // currency. The currency drift below happens AFTER signing,
+      // mirroring how a real legacy row would age.
       await invoices.autoCreateForPayout(payoutTxId)
       await invoices.signInvoice(
         sessionOf({ id: SENIOR_ID, role: 'SENIOR', displayName: 'Senior' }),
@@ -720,10 +871,10 @@ describe.skipIf(!hasDatabaseUrl())(
         )
 
       // Currency drift: a SECOND linked income for the SAME payoutRequestId
-      // shows up in a DIFFERENT currency. `resolvePayoutAggregateAmount`'s
-      // query has no currency filter (by design — a payout can legitimately
-      // aggregate several income rows), so this is exactly what the
-      // mixed-currency guard exists to catch.
+      // shows up in a DIFFERENT currency, inserted strictly AFTER the first
+      // (defaultNow() ordering) — `resolvePayoutAggregateAmount`'s
+      // deterministic `ORDER BY createdAt ASC` settles on USD (the first
+      // row) as the aggregate's currency.
       const secondIncomeTxId = randomUUID()
       await db.insert(transactions).values({
         id: secondIncomeTxId,
@@ -736,10 +887,13 @@ describe.skipIf(!hasDatabaseUrl())(
         createdBy: ADMIN_ID,
       })
 
-      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toThrow(ConflictException)
-      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toThrow(
-        'Не удалось подтвердить сумму этого инвойса',
-      )
+      // security-review round 5 (PR #600, HIGH-4): no longer refuses — the
+      // counterparty sees the blind sum (1000 + 500 = 1500), flagged as
+      // mixed currency, never a 409 for a validly signed act.
+      const verify = await invoices.verifyInvoice(payoutTxId)
+      expect(verify.amount).toBe('1500.000000')
+      expect(verify.currency).toBe('USD')
+      expect(verify.mixedCurrency).toBe(true)
 
       // Cleanup — this row is NOT covered by afterAll's createdBy filter for
       // `payoutTxId`/`incomeTxId` (both created here), but IS its own row
