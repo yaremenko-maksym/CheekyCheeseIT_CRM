@@ -114,6 +114,12 @@ function makeSourceTx(overrides: Record<string, unknown> = {}) {
     seniorSharePercentSource: 'PROJECT',
     dropSharePercent: null,
     dropSharePercentSource: null,
+    // task-settled-amount-snapshot: NULL by default — a row that has never
+    // been settled carries no snapshot yet. Fixtures for the accumulator
+    // chain override this to simulate a row already settled once.
+    settledAmount: null as string | null,
+    settledCurrency: null as string | null,
+    settledSharePercent: null as number | null,
     fundingSource: null,
     txHash: null,
     validatedBy: null,
@@ -842,6 +848,78 @@ describe('PendingSettlementService.settleByCompany', () => {
     await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
       NotFoundException,
     )
+  })
+
+  // ── task-settled-amount-snapshot (AC2/AC4/AC5/AC7) ──────────────────────
+  // Infrastructure-only: settleByCompany writes settled_amount (monotonic
+  // accumulator) / settled_currency / settled_share_percent at the SAME flip
+  // that already nulls seniorSharePercent/dropSharePercent. No reader exists
+  // yet — these tests pin the WRITE contract directly against the flipped row.
+  describe('settled-amount snapshot (task-settled-amount-snapshot)', () => {
+    it('AC4/AC5: first-time settle stamps settled_amount = obligation amount, settled_currency = the settle currency, settled_share_percent = the snapshot that was just nulled', async () => {
+      const { svc, getFlips } = makeService()
+      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      const flip = getFlips()[0]!
+      // Obligation amount is '560', settled from a NULL prior (first-ever
+      // settle of this row) — the accumulator starts at 0 + 560.
+      expect(flip['settledAmount']).toBe('560.000000')
+      expect(flip['settledCurrency']).toBe('USDT')
+      // seniorSharePercent on the source row was 26 (see makeSourceTx) — the
+      // value about to be nulled is copied into its own column, not lost.
+      expect(flip['settledSharePercent']).toBe(26)
+      // AC5's other half: the ORIGINAL columns stay null (already asserted
+      // elsewhere), never re-populated from the new snapshot.
+      expect(flip['seniorSharePercent']).toBeNull()
+    })
+
+    it('AC7: monotonic chain — settle → доплата (simulated cascade reopen) → settle: the accumulator grows by BOTH settles, never resets', async () => {
+      const { svc, state } = makeService()
+
+      // Step 1: settle the full 560 obligation.
+      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      const afterFirst = state.sourceTxs.get(SOURCE_TX_ID)!
+      expect(afterFirst['settledAmount']).toBe('560.000000')
+
+      // Step 2 ("доплата" / simulated cascade reopen — task 3, not built by
+      // THIS task, reproduced here directly since there is no app code yet
+      // that performs it): the source IOU returns to PENDING_PAYMENT (as the
+      // future cascade will do after an amount edit) and a NEW obligation
+      // for the delta (120) opens against the SAME source transaction. The
+      // cascade also restores seniorSharePercent from THIS task's own
+      // settled_share_percent snapshot (architecture doc AC3 — "без него
+      // следующий предпросмотр не сможет посчитать долю") — reproduced here
+      // too, so this settle has a real percent to re-snapshot.
+      expect(afterFirst['settledSharePercent']).toBe(26)
+      state.sourceTxs.set(SOURCE_TX_ID, {
+        ...afterFirst,
+        status: 'PENDING_PAYMENT',
+        type: 'SENIOR_PENDING_PAYOUT',
+        seniorSharePercent: afterFirst['settledSharePercent'],
+      } as ReturnType<typeof makeSourceTx>)
+      const DELTA_OBLIGATION_ID = 'dddddddd-1111-4111-8111-111111111111'
+      state.obligations.set(
+        DELTA_OBLIGATION_ID,
+        makeObligation({ id: DELTA_OBLIGATION_ID, amount: '120', status: 'PENDING' }),
+      )
+      // The mock's company-balance ledger stub attributes the WHOLE balance
+      // to only the FIRST select() call and advances a counter thereafter
+      // (see mkDbtx's `ledgerSelectCount` above) — it must be reset between
+      // two REAL settles of the same service instance, same as any fresh
+      // company-account balance re-read would naturally see the full
+      // balance again on a second, independent settle.
+      state.ledgerSelectCount = 0
+
+      // Step 3: settle the delta.
+      await svc.settleByCompany(DELTA_OBLIGATION_ID, accountantUser)
+      const afterSecond = state.sourceTxs.get(SOURCE_TX_ID)!
+
+      // The accumulator must be the SUM of both settles (560 + 120 = 680),
+      // never just the second settle's own amount (120) — that would be the
+      // exact bug this test exists to catch (accumulator OVERWRITTEN instead
+      // of incremented).
+      expect(afterSecond['settledAmount']).toBe('680.000000')
+      expect(afterSecond['settledCurrency']).toBe('USDT')
+    })
   })
 })
 
