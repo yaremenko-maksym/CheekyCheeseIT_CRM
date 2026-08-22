@@ -1,6 +1,6 @@
 /**
- * task-invoice-signature-integrity — integration spec (AC4, + round-2
- * security-review closures: HIGH-1, MED-1, MED-4).
+ * task-invoice-signature-integrity — integration spec (AC4, + round-2/3
+ * security-review closures: HIGH-1, HIGH-2, MED-1, MED-4, MED-B).
  *
  * Deliberately a REAL-Postgres test, not a mock-heavy unit test: AC4 is
  * about an EXTERNAL divergence — does the public /verify endpoint ever show
@@ -18,12 +18,30 @@
  *     to prove its backfill closes the legacy NULL-snapshot fallback gap —
  *     a mocked harness cannot run a .sql file at all.
  *   - MED-1: reproduces the void<->sign race via single-threaded async
- *     interleaving (a one-shot S3-download hook), proving the insert-side
- *     `FOR UPDATE` lock + conditional repoint hold under real Postgres row
- *     locking — a mock has no locks to race.
+ *     interleaving (a one-shot S3-download hook) and proves the OUTCOME
+ *     (409, no corruption). CORRECTION (round 3, MED-B): this alone does
+ *     NOT prove the `FOR UPDATE` lock itself is contested — see the MED-B
+ *     test below, added specifically because this one does not (a prior
+ *     round's commit message claimed mutation-tally's 61 `NoCoverage`
+ *     entries were "covered by the integration spec" without that
+ *     qualification; `.claude/rules/common/mutation-gate-integration-specs.md`
+ *     is explicit that `NoCoverage` says nothing about whether a covering
+ *     test actually EXERCISES the mutated branch under contention).
  *   - MED-4: calls `listInvoices` directly against the real DB, the one
  *     thing the mocked unit spec structurally cannot check (it synthesises
  *     `signedFlag` itself instead of executing the SQL text).
+ *
+ * Round 3 (PR #600 security review) added two more:
+ *   - HIGH-2: executes the shipped migration file again, this time on a
+ *     PAYOUT row — the one case where the backfill's source (`tx.amount`)
+ *     and the signed source (the aggregated linked-income sum) structurally
+ *     differ; the HIGH-1 test above only exercises SALARY, where they are
+ *     the same column by construction and could never have caught this.
+ *   - MED-B: races `signInvoice`'s own `FOR UPDATE` select against a void
+ *     transaction that is deliberately held open (paused mid-transaction
+ *     via a spied `documentsService.softDeleteInternal`) — proves real
+ *     Postgres row-lock contention, which MED-1's already-committed-by-the-
+ *     time-signInvoice-starts race never did.
  *
  * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) — reports SKIPPED (not
  * silently-passed with zero assertions) when DATABASE_URL is unset. A
@@ -44,14 +62,20 @@ import { ConflictException, NotFoundException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ConfigService } from '@nestjs/config'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
 import type { Env } from '../config/env'
 import type { DatabaseService } from '../database/database.service'
 import * as schema from '../database/schema'
-import { documents, invoiceSignatures, transactions, users } from '../database/schema'
+import {
+  documents,
+  invoiceSignatures,
+  payoutRequests,
+  transactions,
+  users,
+} from '../database/schema'
 import { InvoicesService } from './invoices.service'
 import { InvoicePdfService } from './invoice-pdf.service'
 import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
@@ -123,9 +147,11 @@ describe.skipIf(!hasDatabaseUrl())(
     let db: ReturnType<typeof drizzle<typeof schema>>
     let invoices: InvoicesService
     let fakeS3: FakeS3Service
+    let documentsService: DocumentsService
 
     const ADMIN_ID = randomUUID()
     const JUNIOR_ID = randomUUID() // SALARY counterparty — the AC2-bis leaf case
+    const SENIOR_ID = randomUUID() // PAYOUT counterparty — HIGH-2 regression (aggregated income snapshot, structurally != tx.amount)
 
     beforeAll(async () => {
       pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -154,6 +180,12 @@ describe.skipIf(!hasDatabaseUrl())(
             displayName: 'Junior',
             role: 'JUNIOR',
           },
+          {
+            id: SENIOR_ID,
+            email: `${TAG}-senior@x.test`,
+            displayName: 'Senior',
+            role: 'SENIOR',
+          },
         ])
         .onConflictDoNothing()
 
@@ -162,7 +194,7 @@ describe.skipIf(!hasDatabaseUrl())(
       const invoicePdf = new InvoicePdfService(pdfGen)
       const fakeS3Impl = new FakeS3Service()
       fakeS3 = fakeS3Impl
-      const documentsService = new DocumentsService(
+      documentsService = new DocumentsService(
         dbService,
         fakeS3Impl as unknown as S3Service,
         {} as unknown as CompressionService,
@@ -191,10 +223,12 @@ describe.skipIf(!hasDatabaseUrl())(
       const ids = txIds.map((r) => r.id)
       if (ids.length > 0) {
         await db.delete(invoiceSignatures).where(inArray(invoiceSignatures.transactionId, ids))
-        await db.delete(documents).where(inArray(documents.ownerId, [JUNIOR_ID]))
+        await db.delete(documents).where(inArray(documents.ownerId, [JUNIOR_ID, SENIOR_ID]))
         await db.delete(transactions).where(inArray(transactions.id, ids))
       }
-      await db.delete(users).where(inArray(users.id, [ADMIN_ID, JUNIOR_ID]))
+      // payoutRequests rows cascade-delete via seniorId's `onDelete: 'cascade'`
+      // FK when SENIOR_ID is removed below — no separate delete needed.
+      await db.delete(users).where(inArray(users.id, [ADMIN_ID, JUNIOR_ID, SENIOR_ID]))
       await pool.end()
     }, 30_000)
 
@@ -467,6 +501,135 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 30_000)
 
     /**
+     * HIGH-2 (security-review round 3, PR #600). The HIGH-1 test above only
+     * exercises SALARY, where the backfill source (`tx.amount`) and the
+     * signed source (also `tx.amount`, via `InvoicesService.signInvoice`'s
+     * non-PAYOUT branch) are the SAME column by construction — that test
+     * could not have caught a backfill that reads the wrong source, because
+     * for SALARY there IS no wrong source to pick. PAYOUT is the one type
+     * where they diverge: `signInvoice`'s BIZ-05 branch snapshots the
+     * AGGREGATED linked-income sum, never the live `tx.amount` (the USDT
+     * payable — a different number, in a different currency, by
+     * construction). This proves, against the ACTUAL shipped migration
+     * file: (a) a PAYOUT COUNTERPARTY row is left NULL rather than
+     * backfilled with the wrong number, and (b) the migration's own
+     * fail-loud verify block does not RAISE EXCEPTION on that intentional
+     * gap (it would abort Step 2af of `.github/workflows/deploy.yml` on
+     * prod if it did).
+     */
+    it('HIGH-2: the migration file does NOT backfill a legacy PAYOUT COUNTERPARTY row from tx.amount (structurally the wrong number/currency) — and its verify block does not RAISE EXCEPTION on that gap', async () => {
+      const payoutRequestId = randomUUID()
+      // incomeAmount (1000 USD, what was actually signed via the aggregated
+      // linked-income sum) deliberately differs from payableAmount (740
+      // USDT, what `transactions.amount` holds on the PAYOUT row) — mirrors
+      // the real BIZ-05 divergence: payable = income * (1 - share%), plus a
+      // currency change (USD -> USDT).
+      await db.insert(payoutRequests).values({
+        id: payoutRequestId,
+        seniorId: SENIOR_ID,
+        incomeAmount: '1000',
+        payableAmount: '740',
+        contractAddress: `0x${'1'.repeat(40)}`,
+        status: 'PAID',
+      })
+
+      const incomeTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: incomeTxId,
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: '1000',
+        currency: 'USD',
+        receiverId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+      })
+
+      const payoutTxId = randomUUID()
+      await db.insert(transactions).values({
+        id: payoutTxId,
+        type: 'PAYOUT',
+        status: 'PAID',
+        // BIZ-05: the USDT payable — intentionally NOT the 1000 signed above.
+        amount: '740',
+        currency: 'USDT',
+        senderId: SENIOR_ID,
+        payoutRequestId,
+        createdBy: ADMIN_ID,
+      })
+
+      await invoices.autoCreateForPayout(payoutTxId)
+      await invoices.signInvoice(
+        sessionOf({ id: SENIOR_ID, role: 'SENIOR', displayName: 'Senior' }),
+        payoutTxId,
+        fakeReq('203.0.113.60'),
+      )
+
+      // Confirm signInvoice actually wrote the AGGREGATED income amount
+      // (1000), never the live tx.amount (740) — the BIZ-05 invariant HIGH-2
+      // depends on. If this ever fails, the rest of this test is moot.
+      const [signedRow] = await db
+        .select()
+        .from(invoiceSignatures)
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, payoutTxId),
+            eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          ),
+        )
+      expect(signedRow!.amountSnapshot).toBe('1000.000000')
+      expect(signedRow!.currencySnapshot).toBe('USD')
+
+      // Simulate a LEGACY PAYOUT row — signed before this migration (or
+      // MED-3's same-INSERT write) existed — same technique as the HIGH-1
+      // test above.
+      await db
+        .update(invoiceSignatures)
+        .set({ amountSnapshot: null, currencySnapshot: null })
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, payoutTxId),
+            eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          ),
+        )
+
+      // Execute the REAL migration file end-to-end. Must NOT throw — a
+      // verify block that still counted PAYOUT rows would RAISE EXCEPTION
+      // here, exactly as it would on prod (Step 2af).
+      const migrationSql = readFileSync(
+        join(
+          import.meta.dirname,
+          '../../drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql',
+        ),
+        'utf-8',
+      )
+      await expect(pool.query(migrationSql)).resolves.not.toThrow()
+
+      // Core HIGH-2 assertion: the backfill must NOT have touched this row.
+      // Backfilling it would have written '740.000000'/'USDT' (the wrong,
+      // never-signed number) and made that indistinguishable from a real
+      // signature forever.
+      const [afterMigration] = await db
+        .select()
+        .from(invoiceSignatures)
+        .where(
+          and(
+            eq(invoiceSignatures.transactionId, payoutTxId),
+            eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+          ),
+        )
+      expect(afterMigration!.amountSnapshot).toBeNull()
+      expect(afterMigration!.currencySnapshot).toBeNull()
+
+      // verifyInvoice must still return exactly what it always returned for
+      // this row (no user-visible regression) — the live tx.amount fallback
+      // — and must NOT throw.
+      const verify = await invoices.verifyInvoice(payoutTxId)
+      expect(verify.amount).toBe('740.000000')
+      expect(verify.currency).toBe('USDT')
+    }, 30_000)
+
+    /**
      * MED-1 (security-review round 2, PR #600). `signInvoice` and
      * `voidInvoiceForAmountEdit` take no shared lock across the S3
      * render/upload `signInvoice` does — a concurrent void→reissue landing
@@ -537,6 +700,146 @@ describe.skipIf(!hasDatabaseUrl())(
         txId,
       )
       expect(freshInvoice.status).toBe('PENDING')
+    }, 30_000)
+
+    /**
+     * MED-B (security-review round 3, PR #600). The MED-1 test above proves
+     * the OUTCOME (409, no corruption) but does NOT contest the
+     * `SELECT ... FOR UPDATE` lock itself: `fakeS3.onGetObject` `await`s
+     * `voidAndReissueInvoiceForAmountEdit` to FULL COMPLETION (including its
+     * commit) before `signInvoice`'s own transaction ever opens — the void
+     * has already released any lock by the time signInvoice's `FOR UPDATE`
+     * select runs, so that select never actually waits on anything. The 409
+     * there comes entirely from the plain `invoiceDocumentId !== doc.id`
+     * comparison; a mutant that deleted `.for('update')` from signInvoice's
+     * select would still pass that test unchanged (mutation-tally's
+     * `NoCoverage` count says nothing about it either — see
+     * `.claude/rules/common/mutation-gate-integration-specs.md`: `NoCoverage`
+     * is silent on mutants that are never contested, only on mutants the
+     * gate cannot SEE at all).
+     *
+     * This test genuinely contests the lock: `documentsService
+     * .softDeleteInternal` — the first call INSIDE `voidInvoiceForAmountEdit`'s
+     * transaction after it acquires `FOR UPDATE`, still on the same open
+     * `dbtx` — is intercepted to pause on a promise this test controls. While
+     * paused, void's transaction is genuinely open with the row lock held.
+     * `signInvoice` is started concurrently, racing to acquire its OWN
+     * `FOR UPDATE` on the same row.
+     *
+     * PROOF MECHANISM (deterministic, not a timing heuristic): a first
+     * version of this test asserted "signInvoice has not settled after a
+     * fixed 200ms delay" — that turned out to be a FALSE POSITIVE. Verified
+     * by hand: with `.for('update')` removed from signInvoice's select, the
+     * test still passed, because signInvoice's own PDF-generation +
+     * multiple preceding DB round-trips happened to still be in flight past
+     * the 200ms mark for reasons that have nothing to do with locking, and
+     * by the time its (now-unguarded) SELECT actually ran, this test had
+     * already released the void anyway — so it read the post-void state by
+     * SCHEDULING LUCK, not by waiting on Postgres. A fixed delay cannot
+     * distinguish "blocked by the lock" from "just slow for unrelated
+     * reasons". Instead, this test polls `pg_stat_activity` for a backend
+     * that is ACTUALLY `wait_event_type = 'Lock'` on a query touching
+     * `transactions ... for update` — the ONLY way that state can exist is
+     * a second session's `FOR UPDATE` genuinely contending for a row
+     * another open transaction already holds. If `.for('update')` is ever
+     * removed from signInvoice's select, no such row can ever appear (a
+     * plain `SELECT` never blocks on another transaction's row lock under
+     * READ COMMITTED) and the wait below times out — a hard, unambiguous
+     * failure, not a flaky race. (Confirmed both ways by hand: with the
+     * lock removed, this polling wait times out as expected; restored, it
+     * detects the blocked backend well within the timeout.)
+     */
+    it('MED-B: signInvoice truly BLOCKS on Postgres row-level locking while a void is still in flight (not just after it has already committed)', async () => {
+      const txId = randomUUID()
+      await db.insert(transactions).values({
+        id: txId,
+        type: 'SALARY',
+        status: 'PAID',
+        amount: '600',
+        currency: 'USD',
+        receiverId: JUNIOR_ID,
+        createdBy: ADMIN_ID,
+      })
+      await invoices.autoCreateForSalary(txId)
+
+      let releaseVoid: () => void = () => {}
+      const voidPaused = new Promise<void>((resolve) => {
+        releaseVoid = resolve
+      })
+      const originalSoftDelete = documentsService.softDeleteInternal.bind(documentsService)
+      const softDeleteSpy = vi
+        .spyOn(documentsService, 'softDeleteInternal')
+        .mockImplementation(async (docId, deletedById, tx) => {
+          await voidPaused
+          return originalSoftDelete(docId, deletedById, tx)
+        })
+
+      // Fire the void — its transaction acquires FOR UPDATE, runs the
+      // activeSigs select (same dbtx, lock still held), then blocks on the
+      // patched softDeleteInternal above. No `await` here on purpose: the
+      // whole point is to race it against signInvoice below.
+      const voidPromise = invoices.voidInvoiceForAmountEdit(txId, ADMIN_ID)
+
+      const signPromise = invoices.signInvoice(
+        sessionOf({ id: JUNIOR_ID, role: 'JUNIOR', displayName: 'Junior' }),
+        txId,
+        fakeReq('203.0.113.70'),
+      )
+      // Swallow a rejection observed before the `expect().rejects` below
+      // attaches its own handler — otherwise Node logs an
+      // unhandledRejection warning for the (expected, awaited-later) 409.
+      signPromise.catch(() => {})
+
+      // try/finally: if the assertion below ever fails (this test itself
+      // regresses, or is run against a build where the lock genuinely is
+      // gone), `releaseVoid()` MUST still run — otherwise void's
+      // transaction stays open forever holding the row lock, and every
+      // later `DELETE FROM transactions ...` in `afterAll` hangs on it
+      // (observed by hand: a first version of this test without the
+      // finally left `afterAll` timing out at 30s after an assertion
+      // failure here, for exactly this reason).
+      try {
+        // Deterministic proof: poll until a SECOND backend (not this
+        // test's own connection, not void's) is genuinely parked waiting
+        // on a lock for a query that touches `transactions ... for
+        // update`. Fails the assertion below if that state is never
+        // observed within the budget — see the doc comment above for why
+        // this replaces a fixed delay.
+        const deadline = Date.now() + 10_000
+        let observedBlockedWaiter = false
+        while (Date.now() < deadline) {
+          const { rows } = await pool.query<{ pid: number }>(
+            `SELECT pid FROM pg_stat_activity
+               WHERE datname = current_database()
+                 AND wait_event_type = 'Lock'
+                 AND query ILIKE '%transactions%'
+                 AND query ILIKE '%for update%'`,
+          )
+          if (rows.length > 0) {
+            observedBlockedWaiter = true
+            break
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        expect(observedBlockedWaiter).toBe(true)
+
+        // Release the void — its transaction commits (invoiceDocumentId
+        // nulled), freeing the row lock that signInvoice was just proven
+        // to be genuinely waiting on.
+        releaseVoid()
+        await voidPromise
+
+        // NOW signInvoice's own FOR UPDATE select proceeds, observes the
+        // post-void state, and correctly refuses — the SAME assertion
+        // MED-1 makes, but this time reached through PROVEN genuine lock
+        // contention rather than a pre-committed void or scheduling luck.
+        await expect(signPromise).rejects.toThrow(ConflictException)
+      } finally {
+        releaseVoid()
+        await voidPromise.catch(() => {})
+        await signPromise.catch(() => {})
+        softDeleteSpy.mockRestore()
+      }
     }, 30_000)
   },
 )
