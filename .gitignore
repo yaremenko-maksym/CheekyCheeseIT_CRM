@@ -102,6 +102,10 @@ apps/e2e/scratch-*
 # repo-relative one.
 .claude/suggest-compact.counter
 .claude/tasks/*.md
+# ...кроме двух накопительных артефактов: они переживают отдельные задачи и
+# нужны следующей сессии. Остальное в этом каталоге — рабочие черновики.
+!.claude/tasks/BACKLOG-followups.md
+!.claude/tasks/HANDOFF-*.md
 
 # QA / manual-qa screenshots and local test configs (agent artifacts)
 qa-screenshots/
