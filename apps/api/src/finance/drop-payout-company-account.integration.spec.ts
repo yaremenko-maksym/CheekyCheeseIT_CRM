@@ -729,6 +729,82 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(asAccountant.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
     })
 
+    // ── backlog 168 (security-review on #590, found as pre-existing — #590
+    // did NOT introduce or widen this, it made the RESTORED path stricter).
+    // MED-1 above proves the narrowing for the RECOVERED (post-settle) path.
+    // This is the earlier, un-narrowed half: BEFORE settle,
+    // `payPayoutRequest` books the SENIOR_PENDING_PAYOUT cascade row with
+    // `transactions.payoutRequestId` already set (bookCompanyObligations) —
+    // it sits in `req.transactions`, the LIVE Drizzle relation, from the very
+    // first read, and findPayoutRequest mapped that relation straight through
+    // with NO ownership filter at all (only the merged, RECOVERED obligation
+    // rows were narrowed by MED-1). `payPayoutRequest` itself returns
+    // `findPayoutRequest(requestId, currentUser)` right after the cascade —
+    // so the leak reaches the DROP caller in the very same response that
+    // confirms their payment, not on some later re-fetch.
+    //
+    // Deliberately read through DROP_A's eyes, not ACCOUNTANT's — on #590 the
+    // original test for this exact function read as ACCOUNTANT, the one
+    // viewer who never had a question to ask, and the defect survived review.
+    it('backlog 168 findPayoutRequest does NOT leak the live SENIOR_PENDING_PAYOUT row to the DROP payout owner before settle, but DOES show the DROP their own live rows', async () => {
+      const I = 1000
+      const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))
+      const pr = await svc.createPayoutRequest([incomeId], DROP_A)
+      const payable = parseFloat(pr.payableAmount)
+      const HASH = '0x' + '7'.repeat(64)
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        confirmed: true,
+        confirmations: THRESHOLD,
+        amountUsdt: payable,
+      })
+
+      // The cascade itself returns findPayoutRequest(requestId, DROP_A) — the
+      // exact call site the defect fires through (payPayoutRequest's `return
+      // this.applyPayoutPaidCascade(...)`, which ends in `return
+      // this.findPayoutRequest(requestId, currentUser)`).
+      const asDropOwnerRightAfterPay = await svc.payPayoutRequest(pr.id, HASH, DROP_A)
+
+      // Sanity: the SENIOR_PENDING_PAYOUT row exists and is still PENDING —
+      // settle has NOT run, so it is live-relation-visible, not recovered.
+      const seniorPendingRows = await rowsByType(pr.id, 'SENIOR_PENDING_PAYOUT')
+      expect(seniorPendingRows).toHaveLength(1)
+      const seniorPendingRow = await dbSvc.db.query.transactions.findFirst({
+        where: and(
+          eq(transactions.payoutRequestId, pr.id),
+          eq(transactions.type, 'SENIOR_PENDING_PAYOUT'),
+        ),
+      })
+      expect(seniorPendingRow).toBeTruthy()
+      expect(seniorPendingRow!.status).toBe('PENDING_PAYMENT')
+      expect(seniorPendingRow!.receiverId).toBe(SENIOR.id)
+
+      // THE DEFECT: DROP_A owns this payout, but is NOT the senior's row —
+      // must not see it, in the very response their own payment returns.
+      expect(
+        asDropOwnerRightAfterPay.transactions.find((t) => t.id === seniorPendingRow!.id),
+      ).toBeUndefined()
+      expect(
+        asDropOwnerRightAfterPay.transactions.some((t) => t.type === 'SENIOR_PENDING_PAYOUT'),
+      ).toBe(false)
+
+      // Re-fetch as DROP_A explicitly too (not just the cascade's own return
+      // value) — same assertion via the plain GET :id path.
+      const asDropOwner = await svc.findPayoutRequest(pr.id, DROP_A)
+      expect(asDropOwner.transactions.find((t) => t.id === seniorPendingRow!.id)).toBeUndefined()
+
+      // AC3 — not a blanket hide: DROP_A still sees their OWN live rows from
+      // the very same cascade (DROP_PENDING_PAYOUT + the PAYOUT row itself).
+      expect(asDropOwner.transactions.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
+      expect(asDropOwner.transactions.some((t) => t.type === 'PAYOUT')).toBe(true)
+
+      // AC3 — privileged (ACCOUNTANT) sees the SAME set they always did,
+      // including the senior row — the narrowing must not touch this side.
+      const asAccountant = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
+      expect(asAccountant.transactions.find((t) => t.id === seniorPendingRow!.id)).toBeTruthy()
+    })
+
     // ── INV2b (task-drop-share-pending-parity, AC1-3): drop settle → PAYOUT_DROP,
     // drop's OWN balance moves only after settle; company balance untouched by
     // an ADMIN_PERSONAL-funded drop settle (the money never sat in the pool).
