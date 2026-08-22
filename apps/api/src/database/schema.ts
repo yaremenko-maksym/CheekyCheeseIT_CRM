@@ -1527,6 +1527,11 @@ export const invoiceSignatures = pgTable(
     // underlying transaction amount changes and a fresh invoice is issued;
     // only the row's *authority* over "is this tx currently signed" is
     // retired. This is the audit trail an investigation would need.
+    // Stryker disable next-line StringLiteral,BooleanLiteral,ObjectLiteral: column name + type (timestamptz vs timestamp) — DB-only, no unit test can observe either.
+    // The prod DDL declares the same identifier/type in
+    // 2026-08-22_invoice_signature_void_and_snapshot.sql, and
+    // invoice-signature-integrity.integration.spec.ts exercises the column
+    // through every void/reissue/re-sign step in the spec.
     voidedAt: timestamp('voided_at', { withTimezone: true }),
     // task-invoice-signature-integrity (AC3): what the FINAL rendered PDF
     // actually contains at signing time, frozen verbatim — never recomputed
@@ -1535,9 +1540,8 @@ export const invoiceSignatures = pgTable(
     // populated on the COUNTERPARTY row — the one the public /verify
     // endpoint reads — so a later `transactions.amount` edit (or any write
     // that bypasses the void path in AC2) can never surface as "confirmed".
-    // Stryker disable next-line ObjectLiteral: numeric(18,6) is a COLUMN TYPE
-    // in Postgres — precision/scale is enforced by the database, not by any
-    // unit test's mocked Drizzle layer. Exercised against a real database by
+    // Stryker disable next-line StringLiteral,ObjectLiteral: column name + numeric(18,6) precision/scale — DB-only, enforced by Postgres, not by any mocked Drizzle layer.
+    // Exercised against a real database by
     // invoice-signature-integrity.integration.spec.ts, which asserts the
     // stored/returned value is exactly '1500.000000' (6dp) after a re-sign.
     amountSnapshot: numeric('amount_snapshot', { precision: 18, scale: 6 }),
@@ -1561,13 +1565,13 @@ export const invoiceSignatures = pgTable(
     // proves the constraint it enforces (re-sign after void does not 23505).
     uniqueIndex('uq_invoice_signatures_active')
       .on(t.transactionId, t.signerRole)
-      // Stryker disable next-line StringLiteral: the partial-index WHERE
-      // clause is Postgres DDL — emptying it changes which rows the unique
-      // constraint covers, observable ONLY against a real database.
-      // invoice-signature-integrity.integration.spec.ts's re-sign-after-void
-      // step would hit a 23505 unique violation if this clause were dropped
-      // (the OLD voided COUNTERPARTY row would collide with the new one).
-      .where(sql`${t.voidedAt} IS NULL`),
+      .where(
+        // Stryker disable next-line StringLiteral: the partial-index WHERE clause is Postgres DDL, observable only against a real database.
+        // invoice-signature-integrity.integration.spec.ts's re-sign-after-void
+        // step would hit a 23505 unique violation if this clause were dropped
+        // (the OLD voided COUNTERPARTY row would collide with the new one).
+        sql`${t.voidedAt} IS NULL`,
+      ),
     index('idx_invoice_signatures_transaction').on(t.transactionId),
     index('idx_invoice_signatures_signer').on(t.signerId),
   ],
