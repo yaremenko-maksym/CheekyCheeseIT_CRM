@@ -44,7 +44,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { MAX_TRANSACTION_AMOUNT, receiptMandatoryError, selfPayError } from '@crm/shared'
 import type {
   PendingSettlementItemDto,
@@ -285,13 +285,37 @@ export class PendingSettlementService {
       throw new BadRequestException('Долг уже закрыт или отменён')
     }
 
-    // We only need the source IOU's TYPE (the drop-vs-senior discriminator)
-    // and, since PR #443 (HIGH-1 / MED-B), its `dropCascadeOrigin` marker
-    // (cascade-vs-declaration discriminator — see the guard below). The
-    // flipped row keeps its own projectId booked on the IOU — no re-stamp.
-    const { sourceType, sourceDropCascadeOrigin } = await this.resolveSource(
-      obligation.sourceTransactionId,
-    )
+    // We only need the source IOU's TYPE (the drop-vs-senior discriminator),
+    // its `dropCascadeOrigin` marker (cascade-vs-declaration discriminator —
+    // see the guard below, since PR #443 HIGH-1/MED-B), and — task-settled-
+    // amount-snapshot — its CURRENT share-percent snapshot and settled-
+    // currency label. All five are read HERE, before the transaction.
+    //
+    // security-review round 1 (MED-3, PR #599): a PRIOR version of this
+    // comment claimed the conditional claim on `pending_obligations` (below)
+    // protects THIS pre-transaction read. That is imprecise — the claim is a
+    // conditional UPDATE on the `pending_obligations` row, it never locks
+    // `transactions`. The ACTUAL invariant that makes a pre-transaction read
+    // of `sourceType`/`sourceDropCascadeOrigin`/the share-percent columns
+    // safe is: the partial unique index
+    // `uq_pending_obligations_source_pending` (schema.ts) permits AT MOST
+    // ONE `PENDING` `pending_obligations` row per `sourceTransactionId` at a
+    // time, and the flip below is itself gated on
+    // `transactions.status = 'PENDING_PAYMENT'`. Together they mean at most
+    // one settle of a given source row can be in flight at any moment — a
+    // second concurrent settle of the SAME row is rejected at the DB before
+    // it could ever race this read. (`settled_amount` itself no longer
+    // depends on this invariant at all — see the DB-native `coalesce(...)
+    // + delta` increment below, which is correct even if this invariant is
+    // ever weakened.) The flipped row keeps its own projectId booked on the
+    // IOU — no re-stamp.
+    const {
+      sourceType,
+      sourceDropCascadeOrigin,
+      sourceSeniorSharePercent,
+      sourceDropSharePercent,
+      sourceSettledCurrency,
+    } = await this.resolveSource(obligation.sourceTransactionId)
 
     // task-drop-share-override-and-receiver (D5). Branch by the source IOU type:
     //   - DROP_PENDING_PAYOUT → settle by flipping the SOURCE row in place to
@@ -737,6 +761,54 @@ export class PendingSettlementService {
       }
     }
 
+    // task-settled-amount-snapshot (AC4, MONOTONIC accumulator). The FACT
+    // amount THIS settle records — for a DROP settle that IS `paidAmount`
+    // (currency-converted above, guaranteed assigned inside the
+    // `isDropObligation` block reached above without throwing); a SENIOR
+    // settle never touches `amount` at all (see the `.set()` comment below),
+    // so its contribution is the pre-existing obligation amount — the same
+    // value `amount` already holds and will keep holding after this flip.
+    const settledAmountThisSettle = isDropObligation ? paidAmount! : parseFloat(obligation.amount)
+
+    // MED-2 (security-review round 1, PR #599): `pending_obligations.amount`
+    // carries ZERO CHECK constraints (verified against a scratch DB by the
+    // reviewer), and Postgres' own `'NaN'::numeric >= 0` evaluates `true` —
+    // a corrupted/legacy row's amount could otherwise reach the money-gate
+    // above (`parseFloat(obligation.amount)`, the `debitsCompanyAccount`
+    // balance check) AND this accumulator write completely unchecked on the
+    // SENIOR path. Same class of defect as MED-A in PR #521 (settle a DROP
+    // obligation's server-computed figure without re-validating it) — reuse
+    // the SAME validator, not a second one.
+    //
+    // Runs UNCONDITIONALLY, not gated on `!isDropObligation` (mutation-gate:
+    // provably equivalent to removing that gate — for a DROP settle,
+    // `settledAmountThisSettle` IS `paidAmount`, which ALREADY passed this
+    // EXACT SAME validator a few lines up via `paidAmountError`; re-running
+    // it here on an already-valid value is a no-op that can never throw
+    // differently. A conditional no test can ever observe firing vs not is
+    // not real defense-in-depth — removing it is simpler and behaviourally
+    // identical, same reasoning as the `funding.currency !== undefined`
+    // Stryker note above.)
+    const settledAmountErr = settledAmountError(settledAmountThisSettle, MAX_TRANSACTION_AMOUNT)
+    if (settledAmountErr) throw new BadRequestException(settledAmountErr)
+
+    // MED-1 (security-review round 1, PR #599): the accumulator sums FACT
+    // amounts across every settle of THIS row — summing amounts recorded in
+    // DIFFERENT currencies (e.g. 500 USDT + 300 EUR) under one column would
+    // silently misrepresent the total as if both were the same unit, with
+    // `settled_currency` left holding only the LAST currency's label.
+    // Unreachable today (a row settles at most once — the return-to-PENDING
+    // cascade that lets the SAME row settle a second time, in a possibly
+    // different currency, is a later task in this decomposition), but the
+    // WRITE contract must refuse the mismatch outright the moment that
+    // cascade exists, rather than silently mislabel it. `sourceSettledCurrency`
+    // is NULL on a first-ever settle (nothing to conflict with yet).
+    if (sourceSettledCurrency && sourceSettledCurrency !== currency) {
+      throw new BadRequestException(
+        `Накопленная сумма выплат по этой строке уже записана в ${sourceSettledCurrency} — повторная выплата в ${currency} невозможна без сверки валют`,
+      )
+    }
+
     const created: Transaction[] = []
     await this.db.db.transaction(async (dbtx) => {
       // SECURITY (TOCTOU, MED — PR #262): the PENDING→PAID transition is the
@@ -910,6 +982,29 @@ export class PendingSettlementService {
           seniorSharePercentSource: null,
           dropSharePercent: null,
           dropSharePercentSource: null,
+          // task-settled-amount-snapshot (AC5 + AC4, architecture doc §AC3
+          // "Где хранится «сколько уже выплачено»"). Snapshot what was JUST
+          // nulled two lines up into its OWN column instead of losing it — a
+          // later cascade needs the percent that was in effect at THIS
+          // settle to recompute a share once the row returns to PENDING.
+          // Written fresh on EVERY settle (not accumulated — only the latest
+          // percent is meaningful, unlike settledAmount right below it).
+          settledSharePercent: isDropObligation ? sourceDropSharePercent : sourceSeniorSharePercent,
+          // MONOTONIC accumulator — MED-3 (security-review round 1, PR #599):
+          // DB-NATIVE increment (`coalesce(current, 0) + delta`), not a
+          // JS-computed `prior + delta` written as a literal. A JS-computed
+          // value is only as safe as "no other write can land on this row
+          // between the pre-transaction read and this UPDATE" — an invariant
+          // that happens to hold today (see the comment on the
+          // `resolveSource` call above) but is one future refactor away from
+          // silently losing an addend. Computing the sum IN the UPDATE
+          // statement itself, against whatever `settled_amount` the row
+          // ACTUALLY holds at write time, makes that invariant unnecessary —
+          // correct even if it is ever weakened. `coalesce(..., 0)` makes a
+          // first-ever settle (NULL prior) read as 0, matching the documented
+          // "NULL = never settled" contract on this column.
+          settledAmount: sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`,
+          settledCurrency: currency,
           notes: isDropObligation
             ? `Выплата drop IOU (obligation ${obligation.id})`
             : `Выплата senior IOU (obligation ${obligation.id})`,
@@ -1085,11 +1180,48 @@ export class PendingSettlementService {
     // treats that as unknown-origin (BLOCK), same as `true`. Only an
     // explicit `false` means "verified non-cascade, safe".
     sourceDropCascadeOrigin: boolean | null
+    // task-settled-amount-snapshot: the row's CURRENT share-percent snapshot,
+    // read BEFORE settleByCompany nulls it on the flip (see the
+    // `settledSharePercent` write below and the column comment on
+    // `transactions.settledSharePercent` in schema.ts). A row is either a
+    // senior or a drop IOU, never both — exactly one of the two is non-null.
+    sourceSeniorSharePercent: number | null
+    sourceDropSharePercent: number | null
+    // task-settled-amount-snapshot (MED-1, security-review round 1, PR #599):
+    // the row's CURRENT settled_currency, read so the flip below can refuse
+    // a settle whose currency does not match what is ALREADY accumulated —
+    // summing FACT amounts recorded in different currencies under one column
+    // would silently misrepresent the total. `settled_amount` itself is no
+    // longer read here — the increment is DB-native (`coalesce(...) + delta`
+    // in the `.set()` below), which needs no pre-transaction value at all.
+    sourceSettledCurrency: string | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
     })
-    if (!source) return { project: null, sourceType: null, sourceDropCascadeOrigin: null }
+    if (!source)
+      // Stryker disable next-line ObjectLiteral: `sourceTransactionId` is a
+      // NOT NULL FK with ON DELETE RESTRICT (schema.ts, pendingObligations
+      // .sourceTransactionId) — this branch is unreachable through any real
+      // write path; kept purely as defense-in-depth. Every field this object
+      // returns is immediately destructured and treated identically whether
+      // it is explicit `null` or JS's own `undefined` (the mutant's `{}`):
+      // `sourceType === 'DROP_PENDING_PAYOUT'`, `!== false` checks, `? :`
+      // ternaries and the `sourceSettledCurrency && sourceSettledCurrency !==
+      // currency` guard above all give the SAME result for `undefined` as
+      // for `null`. No assertion on the shape of THIS unreachable branch's
+      // return value can be anything but tautological — the settle-aborts-
+      // safely behaviour it feeds into is already pinned by 'defense-in-
+      // depth: source transaction row missing entirely aborts the settle
+      // safely' in pending-settlement.spec.ts.
+      return {
+        project: null,
+        sourceType: null,
+        sourceDropCascadeOrigin: null,
+        sourceSeniorSharePercent: null,
+        sourceDropSharePercent: null,
+        sourceSettledCurrency: null,
+      }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
       : null
@@ -1097,6 +1229,9 @@ export class PendingSettlementService {
       project: project ? { id: project.id, name: project.name } : null,
       sourceType: source.type,
       sourceDropCascadeOrigin: source.dropCascadeOrigin,
+      sourceSeniorSharePercent: source.seniorSharePercent,
+      sourceDropSharePercent: source.dropSharePercent,
+      sourceSettledCurrency: source.settledCurrency,
     }
   }
 

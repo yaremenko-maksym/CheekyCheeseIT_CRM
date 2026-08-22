@@ -1298,6 +1298,32 @@ jobs:
           # apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql
 
+      # task-settled-amount-snapshot (Task 1 of the paid-transaction-edit-cascade
+      # decomposition — docs/architecture/2026-08-22-paid-transaction-edit-cascade.md,
+      # AC3): adds `transactions.settled_amount` / `settled_currency` /
+      # `settled_share_percent` — a monotonic snapshot of "how much of this
+      # derivative row has actually been paid", written by `settleByCompany` at
+      # the same flip that already nulls `senior_share_percent`/
+      # `drop_share_percent`. Fully additive (three new nullable columns, no
+      # existing column touched), same shape as every module-DDL block above.
+      # UNCONDITIONAL (like Step 2ab/2ac above): this migration file lands in
+      # THE SAME PR/branch as this wiring, so it is unconditionally present in
+      # the checkout by construction — no cross-PR merge-order race to guard
+      # against. `.github/workflows/**` is normally DevOps's zone-of-write, not
+      # Coder's — this is the same deliberate, task-file-sanctioned exception
+      # PR #590/#598 already established for the step directly above.
+      - name: Copy settled-amount snapshot DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -2655,6 +2681,86 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$PENDING_OBLIGATIONS_PAYOUT_LINK_FILE"
             echo "==> pending_obligations payout-link DDL applied successfully"
+
+            # ── Step 2ad: settled-amount snapshot columns on transactions (idempotent) ──
+            # task-settled-amount-snapshot (Task 1 of the paid-transaction-edit-cascade
+            # decomposition — docs/architecture/2026-08-22-paid-transaction-edit-cascade.md,
+            # AC3): adds `transactions.settled_amount` (numeric 18,6, MONOTONIC
+            # accumulator of every actual payout this row has settled) /
+            # `settled_currency` (the currency of that accumulator — a DROP
+            # obligation can settle in a currency other than its own USDT) /
+            # `settled_share_percent` (a snapshot of whichever share-percent
+            # column was nulled at THIS flip). Written by `settleByCompany`
+            # (pending-settlement.service.ts) at the SAME flip that already
+            # nulls senior_share_percent/drop_share_percent. Fully additive —
+            # three new nullable columns, no existing column touched, no
+            # backfill — same shape as every module-DDL block above (Step
+            # 2s-2ac). No reader of these columns exists yet (the cascade that
+            # needs them is a LATER task in the same decomposition) — this
+            # step alone is safe to ship ahead of that code.
+            #
+            # UNCONDITIONAL (like Step 2ab/2ac above): the migration file lands
+            # in the SAME PR as this wiring, so it is unconditionally present
+            # in the checkout by construction — no cross-PR merge-order race to
+            # guard against. Idempotent: ADD COLUMN IF NOT EXISTS × 3, safe to
+            # re-run on every deploy, forever. `-v ON_ERROR_STOP=1` passed
+            # explicitly, same as every apply step in this job.
+            # Source: apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql
+            SETTLED_AMOUNT_SNAPSHOT_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql"
+
+            if [ ! -f "$SETTLED_AMOUNT_SNAPSHOT_FILE" ]; then
+              echo "ERROR: DDL file not found at $SETTLED_AMOUNT_SNAPSHOT_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying settled-amount snapshot DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$SETTLED_AMOUNT_SNAPSHOT_FILE"
+            echo "==> settled-amount snapshot DDL applied successfully"
+
+            # ── Step 2ae: non_deleted_transactions VIEW re-apply #3 (idempotent, order-dependent on Step 2ad) ──
+            # Companion step required by Step 2ad's own DDL file header (see
+            # apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql) —
+            # same gotcha, same fix, as Step 2z's re-apply after Step 2y
+            # (2026-08-12_drop_obligation_company_name_snapshot.sql): this is
+            # the SAME view file Step 2p already applies earlier in this
+            # script, but that first application ran BEFORE Step 2ad's three
+            # new columns existed on `transactions`, so `CREATE OR REPLACE
+            # VIEW ... SELECT *` picked up the OLD column list. Re-applying the
+            # identical file here, immediately after Step 2ad adds the
+            # columns, is what closes that gap on THIS deploy rather than the
+            # next one.
+            #
+            # UNCONDITIONAL — Step 2ad above is itself unconditional (this
+            # migration lands in the same PR), so there is no "skip if the
+            # column file is absent" branch needed here, unlike Step 2z's
+            # cross-PR guard.
+            #
+            # ORDER-DEPENDENT on Step 2ad immediately above — never reorder
+            # this step ahead of it. Idempotent otherwise: `CREATE OR REPLACE
+            # VIEW`, same as Step 2p/2z.
+            # Source: apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql
+            NON_DELETED_TX_VIEW_REAPPLY_3_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql"
+
+            if [ ! -f "$NON_DELETED_TX_VIEW_REAPPLY_3_FILE" ]; then
+              echo "::notice::non_deleted_transactions view DDL file not found at $NON_DELETED_TX_VIEW_REAPPLY_3_FILE — unexpected, since Step 2p above already found it. Skipping this step."
+            else
+              echo "==> Re-applying non_deleted_transactions view DDL to pick up settled_amount/settled_currency/settled_share_percent (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$NON_DELETED_TX_VIEW_REAPPLY_3_FILE"
+              echo "==> non_deleted_transactions view DDL re-applied successfully"
+            fi
 
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
             # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS

@@ -90,6 +90,11 @@ function makeSourceTx(overrides: Record<string, unknown> = {}) {
     seniorSharePercentSource: null,
     dropSharePercent: 26,
     dropSharePercentSource: 'PROJECT',
+    // task-settled-amount-snapshot: NULL by default — a row that has never
+    // been settled carries no snapshot yet.
+    settledAmount: null as string | null,
+    settledCurrency: null as string | null,
+    settledSharePercent: null as number | null,
     fundingSource: null,
     txHash: null,
     validatedBy: null,
@@ -171,6 +176,25 @@ function makeService(initial: Partial<MockState> = {}) {
   let obligationStatus: 'PENDING' | 'PAID' | 'CANCELLED' = state.obligation.status
   let ledgerSelectCount = 0
 
+  // task-settled-amount-snapshot (MED-3, security-review PR #599 round 1):
+  // settleByCompany writes `settledAmount` as a DB-native SQL fragment —
+  // `coalesce(transactions.settledAmount, 0) + delta` — via drizzle's `sql`
+  // tagged template, not a JS-computed literal. Mirrors the identical helper
+  // in pending-settlement.spec.ts — see its comment for the runtime shape.
+  const resolveSettledAmountPatch = (value: unknown, priorValue: unknown): unknown => {
+    if (
+      value &&
+      typeof value === 'object' &&
+      Array.isArray((value as { queryChunks?: unknown }).queryChunks)
+    ) {
+      const chunks = (value as { queryChunks: unknown[] }).queryChunks
+      const delta = chunks.find((c) => typeof c === 'number') as number | undefined
+      const prior = typeof priorValue === 'string' ? parseFloat(priorValue) : 0
+      return (prior + (delta ?? 0)).toFixed(6)
+    }
+    return value
+  }
+
   const mkDbtx = () => ({
     execute: vi.fn(async () => undefined),
     // computeCompanyAccountBalanceFromLedger sums N ledger terms (one select
@@ -196,9 +220,19 @@ function makeService(initial: Partial<MockState> = {}) {
               isStatusGuarded && !stillPendingPayment
                 ? []
                 : (() => {
-                    const flipped = { ...state.sourceTx, ...patch }
+                    const resolvedPatch =
+                      'settledAmount' in patch
+                        ? {
+                            ...patch,
+                            settledAmount: resolveSettledAmountPatch(
+                              patch['settledAmount'],
+                              (state.sourceTx as Record<string, unknown>)['settledAmount'],
+                            ),
+                          }
+                        : patch
+                    const flipped = { ...state.sourceTx, ...resolvedPatch }
                     state.sourceTx = flipped as ReturnType<typeof makeSourceTx>
-                    state.flips.push({ txId: SOURCE_TX_ID, set: patch })
+                    state.flips.push({ txId: SOURCE_TX_ID, set: resolvedPatch })
                     return [flipped]
                   })()
             const result = Promise.resolve(rows) as Promise<Array<Record<string, unknown>>> & {
@@ -1056,5 +1090,68 @@ describe('settleByCompany — DROP obligation: MED-1 TOCTOU race (obligation.amo
     ).resolves.toBeDefined()
     expect(settledTx()['status']).toBe('PAID')
     expect(settledTx()['amount']).toBe('1000')
+  })
+})
+
+// ── task-settled-amount-snapshot (AC3, AC5) ─────────────────────────────────
+// DROP-specific: a drop obligation can settle in a currency OTHER than its
+// own USDT — proves settled_amount/settled_currency stamp the CONVERTED FACT
+// (what actually got paid), never the obligation's own USDT figure, and that
+// settled_share_percent snapshots the DROP side (dropSharePercent), never the
+// SENIOR side (seniorSharePercent, always null on a drop row).
+describe('settleByCompany — settled-amount snapshot, DROP currency conversion (task-settled-amount-snapshot)', () => {
+  it('AC3/AC4: a DROP settle converted to EUR stamps settled_amount = the CONVERTED fact (not the 1000 USDT obligation amount) and settled_currency = EUR (not USDT)', async () => {
+    const { svc, settledTx, state } = makeService()
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      currency: 'EUR',
+      ...RECEIPT_FILE,
+    })
+    const predicted = convertToBase(1000, 'USDT' as BalanceCurrency, 'EUR' as BalanceCurrency, {
+      ...state.rates,
+    })
+    const roundedPredicted = Math.round(predicted * 100) / 100
+    const row = settledTx()
+    // Independently-derived prediction — same source `convertToBase` the
+    // service itself calls — matches the WRITTEN settled_amount, not the
+    // obligation's own USDT amount (1000).
+    expect(parseFloat(row['settledAmount'] as string)).toBeCloseTo(roundedPredicted, 6)
+    expect(parseFloat(row['settledAmount'] as string)).not.toBeCloseTo(1000, 6)
+    // settled_amount must equal the row's own written `amount` (the FACT) —
+    // both come from the same `paidAmount`, so they can never disagree.
+    expect(parseFloat(row['settledAmount'] as string)).toBeCloseTo(
+      parseFloat(row['amount'] as string),
+      6,
+    )
+    expect(row['settledCurrency']).toBe('EUR')
+  })
+
+  it('AC4: the same-currency (USDT) default settle stamps settled_amount = the full 1000, settled_currency = USDT', async () => {
+    const { svc, settledTx } = makeService()
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      ...RECEIPT_EXPLORER,
+    })
+    const row = settledTx()
+    expect(row['settledAmount']).toBe('1000.000000')
+    expect(row['settledCurrency']).toBe('USDT')
+  })
+
+  it('AC5: settled_share_percent snapshots the DROP side (dropSharePercent=26), never the SENIOR side (seniorSharePercent, null on a drop row)', async () => {
+    const { svc, settledTx } = makeService()
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      ...RECEIPT_EXPLORER,
+    })
+    const row = settledTx()
+    expect(row['settledSharePercent']).toBe(26)
+    // The original columns are nulled by this same flip (pre-existing
+    // behaviour, unaffected by this task) — the snapshot is a COPY, not a
+    // second reference to the same live column.
+    expect(row['dropSharePercent']).toBeNull()
+    expect(row['seniorSharePercent']).toBeNull()
   })
 })

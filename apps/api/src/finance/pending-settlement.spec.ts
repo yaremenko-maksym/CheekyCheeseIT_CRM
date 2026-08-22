@@ -114,6 +114,12 @@ function makeSourceTx(overrides: Record<string, unknown> = {}) {
     seniorSharePercentSource: 'PROJECT',
     dropSharePercent: null,
     dropSharePercentSource: null,
+    // task-settled-amount-snapshot: NULL by default — a row that has never
+    // been settled carries no snapshot yet. Fixtures for the accumulator
+    // chain override this to simulate a row already settled once.
+    settledAmount: null as string | null,
+    settledCurrency: null as string | null,
+    settledSharePercent: null as number | null,
     fundingSource: null,
     txHash: null,
     validatedBy: null,
@@ -240,6 +246,32 @@ function makeService(initial: Partial<MockState> = {}) {
 
   let lastUpdateObligationId = ''
 
+  // task-settled-amount-snapshot (MED-3, security-review PR #599 round 1):
+  // settleByCompany writes `settledAmount` as a DB-native SQL fragment —
+  // `coalesce(transactions.settledAmount, 0) + delta` — via drizzle's `sql`
+  // tagged template, NOT a JS-computed literal. That template's runtime
+  // shape is `{ queryChunks: [...] }`, where raw SQL text appears as
+  // `{ value: [...] }` chunks and each interpolated JS value appears
+  // in-place — the interpolated `delta` number sits directly in the array.
+  // The mock must evaluate this the same way a real `UPDATE` would: against
+  // the row's CURRENT (pre-this-flip) settled_amount, not a value read
+  // before the transaction started — that is the whole point of the
+  // DB-native increment (see the comment on the `.set()` call in
+  // pending-settlement.service.ts).
+  const resolveSettledAmountPatch = (value: unknown, priorValue: unknown): unknown => {
+    if (
+      value &&
+      typeof value === 'object' &&
+      Array.isArray((value as { queryChunks?: unknown }).queryChunks)
+    ) {
+      const chunks = (value as { queryChunks: unknown[] }).queryChunks
+      const delta = chunks.find((c) => typeof c === 'number') as number | undefined
+      const prior = typeof priorValue === 'string' ? parseFloat(priorValue) : 0
+      return (prior + (delta ?? 0)).toFixed(6)
+    }
+    return value
+  }
+
   const mkDbtx = () => ({
     // task-drop-payout-company-account: settleByCompany on a COMPANY debt now
     // (1) acquires the company-account advisory lock (pg_advisory_xact_lock via
@@ -277,9 +309,19 @@ function makeService(initial: Partial<MockState> = {}) {
           const isStatusGuarded = values.includes('PENDING_PAYMENT')
           if (!existing) return []
           if (isStatusGuarded && existing.status !== 'PENDING_PAYMENT') return []
-          const flipped = { ...existing, ...patch } as ReturnType<typeof makeSourceTx>
+          const resolvedPatch =
+            'settledAmount' in patch
+              ? {
+                  ...patch,
+                  settledAmount: resolveSettledAmountPatch(
+                    patch['settledAmount'],
+                    (existing as Record<string, unknown>)['settledAmount'],
+                  ),
+                }
+              : patch
+          const flipped = { ...existing, ...resolvedPatch } as ReturnType<typeof makeSourceTx>
           state.sourceTxs.set(txId!, flipped)
-          state.flips.push({ txId: txId!, set: patch })
+          state.flips.push({ txId: txId!, set: resolvedPatch })
           return [flipped]
         }
 
@@ -697,6 +739,28 @@ describe('PendingSettlementService.settleByCompany', () => {
     expect(paidClaims).toHaveLength(1)
   })
 
+  // task-settled-amount-snapshot (mutation-gate): `resolveSource`'s early
+  // `if (!source) return {...}` branch — untouched behaviourally by this
+  // task, but its return object was widened (three new snapshot fields) so
+  // the whole statement counts as "changed" for the gate. The source
+  // transaction is FK-NOT-NULL with ON DELETE RESTRICT, so this branch
+  // should be unreachable in practice — but the code still defends against
+  // a corrupted/missing row, and that defence must actually abort the settle
+  // rather than silently proceeding with all-null resolveSource fields.
+  it('defense-in-depth: source transaction row missing entirely aborts the settle safely (resolveSource "not found" branch)', async () => {
+    const { svc, getFlips, getInsertsFor } = makeService({
+      // The obligation references a source transaction id that simply is not
+      // in the transactions table — resolveSource's `if (!source)` branch.
+      sourceTxs: new Map(),
+    })
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      BadRequestException,
+    )
+    // The flip can never find a row to match — no flip, no insert.
+    expect(getFlips()).toHaveLength(0)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
   it('rejects when company balance is insufficient for the obligation', async () => {
     // task-drop-payout-company-account: the company-account debit gate refuses to
     // drive the balance negative. Obligation is 560; balance only 100.
@@ -842,6 +906,155 @@ describe('PendingSettlementService.settleByCompany', () => {
     await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
       NotFoundException,
     )
+  })
+
+  // ── task-settled-amount-snapshot (AC2/AC4/AC5/AC7) ──────────────────────
+  // Infrastructure-only: settleByCompany writes settled_amount (monotonic
+  // accumulator) / settled_currency / settled_share_percent at the SAME flip
+  // that already nulls seniorSharePercent/dropSharePercent. No reader exists
+  // yet — these tests pin the WRITE contract directly against the flipped row.
+  describe('settled-amount snapshot (task-settled-amount-snapshot)', () => {
+    it('AC4/AC5: first-time settle stamps settled_amount = obligation amount, settled_currency = the settle currency, settled_share_percent = the snapshot that was just nulled', async () => {
+      const { svc, getFlips } = makeService()
+      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      const flip = getFlips()[0]!
+      // Obligation amount is '560', settled from a NULL prior (first-ever
+      // settle of this row) — the accumulator starts at 0 + 560.
+      expect(flip['settledAmount']).toBe('560.000000')
+      expect(flip['settledCurrency']).toBe('USDT')
+      // seniorSharePercent on the source row was 26 (see makeSourceTx) — the
+      // value about to be nulled is copied into its own column, not lost.
+      expect(flip['settledSharePercent']).toBe(26)
+      // AC5's other half: the ORIGINAL columns stay null (already asserted
+      // elsewhere), never re-populated from the new snapshot.
+      expect(flip['seniorSharePercent']).toBeNull()
+    })
+
+    it('AC7: monotonic chain — settle → доплата (simulated cascade reopen) → settle: the accumulator grows by BOTH settles, never resets', async () => {
+      const { svc, state } = makeService()
+
+      // Step 1: settle the full 560 obligation.
+      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      const afterFirst = state.sourceTxs.get(SOURCE_TX_ID)!
+      expect(afterFirst['settledAmount']).toBe('560.000000')
+
+      // Step 2 ("доплата" / simulated cascade reopen — task 3, not built by
+      // THIS task, reproduced here directly since there is no app code yet
+      // that performs it): the source IOU returns to PENDING_PAYMENT (as the
+      // future cascade will do after an amount edit) and a NEW obligation
+      // for the delta (120) opens against the SAME source transaction. The
+      // cascade also restores seniorSharePercent from THIS task's own
+      // settled_share_percent snapshot (architecture doc AC3 — "без него
+      // следующий предпросмотр не сможет посчитать долю") — reproduced here
+      // too, so this settle has a real percent to re-snapshot.
+      expect(afterFirst['settledSharePercent']).toBe(26)
+      state.sourceTxs.set(SOURCE_TX_ID, {
+        ...afterFirst,
+        status: 'PENDING_PAYMENT',
+        type: 'SENIOR_PENDING_PAYOUT',
+        seniorSharePercent: afterFirst['settledSharePercent'],
+      } as ReturnType<typeof makeSourceTx>)
+      const DELTA_OBLIGATION_ID = 'dddddddd-1111-4111-8111-111111111111'
+      state.obligations.set(
+        DELTA_OBLIGATION_ID,
+        makeObligation({ id: DELTA_OBLIGATION_ID, amount: '120', status: 'PENDING' }),
+      )
+      // The mock's company-balance ledger stub attributes the WHOLE balance
+      // to only the FIRST select() call and advances a counter thereafter
+      // (see mkDbtx's `ledgerSelectCount` above) — it must be reset between
+      // two REAL settles of the same service instance, same as any fresh
+      // company-account balance re-read would naturally see the full
+      // balance again on a second, independent settle.
+      state.ledgerSelectCount = 0
+
+      // Step 3: settle the delta.
+      await svc.settleByCompany(DELTA_OBLIGATION_ID, accountantUser)
+      const afterSecond = state.sourceTxs.get(SOURCE_TX_ID)!
+
+      // The accumulator must be the SUM of both settles (560 + 120 = 680),
+      // never just the second settle's own amount (120) — that would be the
+      // exact bug this test exists to catch (accumulator OVERWRITTEN instead
+      // of incremented).
+      expect(afterSecond['settledAmount']).toBe('680.000000')
+      expect(afterSecond['settledCurrency']).toBe('USDT')
+    })
+
+    // security-review round 1 (MED-1, PR #599): a second settle of the SAME
+    // row in a DIFFERENT currency than what is already accumulated must be
+    // refused — summing FACT amounts across currencies under one column
+    // would silently misrepresent the total.
+    it('MED-1: a second settle in a currency that does not match the already-accumulated settled_currency is refused', async () => {
+      const { svc, state } = makeService()
+
+      // Step 1: settle in USDT (COMPANY_ACCOUNT default).
+      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      const afterFirst = state.sourceTxs.get(SOURCE_TX_ID)!
+      expect(afterFirst['settledCurrency']).toBe('USDT')
+
+      // Step 2: simulated cascade reopen (task 3, not built here — see the
+      // AC7 test above for the same technique).
+      state.sourceTxs.set(SOURCE_TX_ID, {
+        ...afterFirst,
+        status: 'PENDING_PAYMENT',
+        type: 'SENIOR_PENDING_PAYOUT',
+        seniorSharePercent: afterFirst['settledSharePercent'],
+      } as ReturnType<typeof makeSourceTx>)
+      const DELTA_OBLIGATION_ID = 'eeeeeeee-2222-4222-8222-222222222222'
+      state.obligations.set(
+        DELTA_OBLIGATION_ID,
+        makeObligation({ id: DELTA_OBLIGATION_ID, amount: '120', status: 'PENDING' }),
+      )
+      state.ledgerSelectCount = 0
+
+      // Step 3: settle the delta in USD — allowed by BIZ-03
+      // (SETTLE_ALLOWED_CURRENCIES has both USDT and USD), but the row
+      // already accumulated USDT — the MED-1 guard must refuse it. Pin the
+      // actual message content (not just the exception class) — kills the
+      // StringLiteral→'' mutant on the thrown message.
+      await expect(
+        svc.settleByCompany(DELTA_OBLIGATION_ID, accountantUser, {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: ADMIN_PAYER_ID,
+          currency: 'USD',
+          receiptExternalUrl: 'https://drive.google.com/file/receipt',
+        }),
+      ).rejects.toThrow(/уже записана в USDT/)
+
+      // Nothing was written by the refused second settle — the accumulator
+      // stays exactly where the first settle left it.
+      expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledAmount']).toBe('560.000000')
+      expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledCurrency']).toBe('USDT')
+      // The obligation-level claim never fired either — a fully-refused
+      // settle, not a partial one.
+      expect(state.obligations.get(DELTA_OBLIGATION_ID)?.status).toBe('PENDING')
+    })
+
+    // security-review round 1 (MED-2, PR #599): `pending_obligations` carries
+    // ZERO CHECK constraints (verified against a scratch DB by the
+    // reviewer) — `'NaN'::numeric >= 0` is `true` in Postgres, so a
+    // corrupted/legacy row's amount could otherwise reach this accumulator
+    // completely unchecked on the SENIOR path (the DROP path already runs
+    // `paidAmount` through the same validator a few lines up).
+    it('MED-2: a corrupted (NaN) SENIOR obligation amount is refused via settledAmountError, never written to the accumulator', async () => {
+      const { svc, getFlips } = makeService({
+        obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ amount: 'not-a-number' })]]),
+      })
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+        BadRequestException,
+      )
+      // Refused before the transaction — no flip, no partial write.
+      expect(getFlips()).toHaveLength(0)
+    })
+
+    it('MED-2: a negative SENIOR obligation amount is refused via settledAmountError', async () => {
+      const { svc, getFlips } = makeService({
+        obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ amount: '-10' })]]),
+      })
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+        BadRequestException,
+      )
+      expect(getFlips()).toHaveLength(0)
+    })
   })
 })
 
