@@ -721,38 +721,45 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
 // here we verify the integrated outcome — mixed income/payout rows render
 // in the right order in the UI.
 //
-// History (comparator has changed three times, this fixture twice):
+// History (comparator has changed four times, this fixture three):
 // - bf5dc2e (original bug): primary key was `txDate ?? createdAt` — a
 //   midnight-txDate income sorted ABOVE a later-createdAt payout.
 // - task-fix-transactions-sort-by-createdat (interim fix): dropped `txDate`
 //   entirely, sorting by `createdAt` only — correct here, but silently wrong
 //   whenever `txDate` and `createdAt` actually disagreed (see sort.test.ts).
-// - task-finance-sort-date-and-jump (current): `txDate` is primary again
-//   (the «Дата» column renders it, so the sort button must honour it),
-//   `createdAt` is now only a tie-breaker, and `txDate = null` rows (always
-//   payouts) sort FIRST in BOTH directions — not last. "First" was chosen
-//   over "last" after a live check against crm_qa: with rows undated-last, a
-//   freshly-created payout (txDate always null, createdAt = now) fell behind
-//   every dated row and, once the list passed 50 rows, onto page 2 —
-//   invisible right after creation, which is exactly what several real-API
-//   specs in this repo (e.g. phase8-payout-company.spec.ts) immediately
-//   click. "Undated first" restores the old comparator's "new row is always
-//   on top" guarantee for the rows that actually need it. So in THIS
-//   fixture the payout (undated) now sorts ABOVE the income (dated) — the
-//   opposite of the old assertion, and for a different reason: not because
-//   its createdAt happens to be later (it's earlier), but because an
-//   undated row always sorts before a dated one.
+// - task-finance-sort-date-and-jump round 1: `txDate` primary again (the
+//   «Дата» column renders it), `createdAt` a tie-breaker, and `txDate = null`
+//   rows (always payouts) pinned to sort FIRST in BOTH directions — not last.
+//   "First" was chosen after a live check against crm_qa: with undated-last,
+//   a freshly-created payout fell behind every dated row and, once the list
+//   passed 50 rows, onto page 2 — invisible right after creation.
+// - task-finance-sort-date-and-jump round 2 (H-1, current): "undated always
+//   first" turned out to be the SAME bug moved to the other edge — once
+//   payouts themselves exceed 50 (exactly what CI's `drop-finance` shard,
+//   16 real-API specs sharing one DB, produces), that fixed block occupies
+//   page 1 and pushes every dated row off it instead. Fixed by making
+//   `createdAt` a FALLBACK for a missing `txDate` (`txDate ?? createdAt`)
+//   rather than a fixed edge — a payout sorts by ITS OWN createdAt, on equal
+//   footing with dated rows, not automatically above or below them. See
+//   sort.ts's `compareTxByDate` docblock for the full rationale.
+//
+// This fixture's own numbers happen to produce the SAME visual order under
+// both round 1 and round 2 (see the in-test comment below for why), so the
+// assertion is unchanged — only the reasoning behind it is.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-test.describe('SENIOR INCOME — D: transactions sorted by txDate DESC, undated payouts first', () => {
-  test('mixed income (midnight txDate) + payout (no txDate) — undated payout sorts above dated income', async ({
+test.describe('SENIOR INCOME — D: transactions sorted by txDate DESC (payout without txDate uses createdAt)', () => {
+  test('mixed income (midnight txDate) + payout (no txDate) — payout sorts above income by its own createdAt', async ({
     asAdmin,
   }) => {
     // Income created LATER but txDate=midnight (a backend default for
-    // legacy rows without an explicit pick-date). The payout carries no
-    // txDate at all (see makeTx() below — no txDate key is set). Under the
-    // current comparator, an undated row always sorts before a dated one,
-    // regardless of direction — so the payout sorts first here.
+    // legacy rows without an explicit pick-date) — its effective date is
+    // that midnight, 2026-05-28T00:00. The payout carries no txDate at all
+    // (see makeTx() below — no txDate key is set), so ITS effective date is
+    // its own createdAt, 2026-05-28T07:37 — same calendar day, but later in
+    // it than the income's midnight txDate. 07:37 > 00:00, so the payout
+    // sorts first in DESC — not because it lacks a txDate, but because its
+    // createdAt genuinely IS the more recent of the two effective dates.
     const incomeLater = {
       ...makeTx({
         id: 'sort-income-1',
@@ -799,9 +806,9 @@ test.describe('SENIOR INCOME — D: transactions sorted by txDate DESC, undated 
       .boundingBox()
     expect(incomeBox, 'income row box').not.toBeNull()
     expect(payoutBox, 'payout row box').not.toBeNull()
-    // The payout has no txDate, the income does → undated always beats
-    // dated, in both sort directions, so the payout must appear ABOVE
-    // income here.
+    // The payout's effective date (its own createdAt, 07:37) is later than
+    // the income's (its midnight txDate, 00:00) — see the setup comment
+    // above — so the payout sorts ABOVE the income here.
     expect(payoutBox!.y, 'payout above income').toBeLessThan(incomeBox!.y)
   })
 })
