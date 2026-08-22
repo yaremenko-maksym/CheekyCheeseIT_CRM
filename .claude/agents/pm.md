@@ -246,6 +246,13 @@ ls .claude/tasks/*.blocked.md 2>/dev/null
 
 **Правило агрегации:** BLOCK от **любого** reviewer достаточно для aggregate BLOCK; PM не ждёт второй verdict перед классификацией как BLOCK (early-exit). Это совместимо с label `do-not-merge` который ставится сразу при первом BLOCK.
 
+**Spec-ось входит в КАЖДЫЙ aggregate, где у PR есть исходное задание** (см. `contracts.md` §5.4).
+`Spec Review: BLOCK` или `ISSUES` → aggregate BLOCK по тому же early-exit правилу. Ось отдельная
+намеренно: дифф, соблюдающий каждый стандарт, но реализующий не то, что просили, даёт
+`Verdict: APPROVE` при `Spec Review: BLOCK`, и слияние осей в один список позволило бы одной
+замаскировать другую. PM агрегирует **вердикты**, но в fix-задачу находки едут своими группами с
+сохранёнными префиксами (`CR-`, `SR-`, `SPEC-`, `UX-`, `QA-`, `COPY-`).
+
 **UI-PR full aggregate:** для PR с UI-surface aggregate включает ЧЕТЫРЕ verdict-а: `code_review_done` + (`security_review_done` если critical-path) + `manualqa_done` + `designer_review_done` (Mode B). ANY BLOCK любого из них → `do-not-merge` (см. `contracts.md` §5.2). Отчёт Manual QA без Design/UX-вердиктов per page — **неполный**: вернуть manual-qa на дорасследование, в aggregate не засчитывать.
 
 **Label race avoidance:** label `awaiting-pm-review` ставит **только** code-reviewer (per `code-reviewer.md` workflow Шаг 4) и **только** когда его собственный verdict = APPROVE. Security-reviewer ставит `security-noted`. Если только security-reviewer был dispatched (редкий ad-hoc случай) — он ставит `awaiting-pm-review` вместо code-reviewer.

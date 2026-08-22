@@ -25,6 +25,7 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | **PM**                | [`pm.md`](pm.md)                               | Project Manager: 4 режима, dispatch decision, User Testing, merge gate                  |
 | **Coder**             | [`coder.md`](coder.md)                         | Fullstack developer: workflow, wip-push, watchdog, vision check                         |
 | **code-reviewer**     | [`code-reviewer.md`](code-reviewer.md)         | Narrow code review: TypeScript strict, ESLint, zone-of-write, write-then-post (default) |
+| **spec-reviewer**     | [`spec-reviewer.md`](spec-reviewer.md)         | Вторая ось ревью: дифф ↔ задание (непокрытые AC / scope creep / ложный `ac_verified`)   |
 | **security-reviewer** | [`security-reviewer.md`](security-reviewer.md) | Security review: OWASP, npm audit, secrets, USDT/ETH (для auth/finance/wallets PR)      |
 | **Architect**         | [`architect.md`](architect.md)                 | Migration architect: ECC migration phases, ADRs, rollback granularity                   |
 | **Legal**             | [`legal.md`](legal.md)                         | UA jurisdictional legal advisor: 4 modes (consult / pr-review / brief-check / strategic) |

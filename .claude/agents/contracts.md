@@ -277,6 +277,33 @@ Trigger: code-reviewer / Manual QA / Designer Mode B пометили LOW-severi
 
 ---
 
+## 5.4. spec-reviewer dispatch decision (PM Mode 2)
+
+Вторая ось ревью: соответствие диффа **заданию**. Дополняет `code-reviewer` (тот про корректность
+кода) и `security-reviewer` (тот про безопасность). Ни один из них не отвечает на вопрос «сделали
+ли то, что просили, и только ли это» — до появления оси единственным носителем этого факта был
+трейлер `ac_verified:`, который пишет о себе сам кодер.
+
+| Состояние                                                                            | Действие                                | Event в pm-state.json                                 |
+| ------------------------------------------------------------------------------------ | --------------------------------------- | ----------------------------------------------------- |
+| У PR есть исходное задание (`task-<slug>.md`, issue через `Closes #N`, или pm-brief) | **MUST dispatch spec-reviewer**         | `agent_started` (spec-reviewer)                       |
+| Fix-PR по находкам ревью (`task-fix-pr-<N>.md`)                                      | **MUST dispatch** — заданием служит fix-task с идентификаторами находок | `agent_started` (spec-reviewer, mode=fix-task) |
+| Задания нет ни в одном виде (ad-hoc правка, hotfix по устному)                       | **Skip**                                | `spec_review_skipped` с `reason: "no-source-spec"`    |
+| Docs-only diff без AC                                                                | **Skip**                                | `spec_review_skipped` с `reason: "docs-only"`         |
+
+**Параллельность:** диспатчится в том же сообщении, что `code-reviewer` (+ `security-reviewer` на
+critical-path, + `manual-qa` / `ui-ux-designer` на UI), все с `run_in_background=True`. Оси не
+дублируются: одна смотрит код, вторая — безопасность, третья — соответствие заданию.
+
+**Skip без записи запрещён** — как для AutoTest и Manual QA.
+
+**Вердикт:** `Spec Review: PASS | ISSUES | BLOCK`, находки с префиксом `SPEC-`, контрольная строка
+`Findings: … (N)`. `ISSUES` по строгости приравнивается к BLOCK перед merge (как `Fidelity: ISSUES`).
+
+См. `spec-reviewer.md` для полного workflow.
+
+---
+
 ## 6. Reviewer verdict semantics
 
 | Event API         | Body first line  | Семантика                       | PM action                                            |
@@ -285,6 +312,8 @@ Trigger: code-reviewer / Manual QA / Designer Mode B пометили LOW-severi
 | `COMMENT`         | `Verdict: BLOCK` | Critical issues, merge запрещён | label `-awaiting-pm-review, +do-not-merge`, fix-task |
 | `COMMENT`         | (другое)         | Информационный комментарий      | Optional read, no state change                       |
 | `REQUEST_CHANGES` | (любой)          | От внешнего reviewer (не AI)    | `review_rounds++`, fix-task                          |
+| `COMMENT`         | `Spec Review: BLOCK` / `ISSUES` | Дифф разошёлся с заданием | label `-awaiting-pm-review, +do-not-merge`, fix-task с находками `SPEC-` |
+| `COMMENT`         | `Spec Review: N/A` | Задания не нашлось — вопрос к постановке, не к диффу | PM решает: завести задание или зафиксировать `spec_review_skipped` |
 
 **Почему AI-агенты не используют `REQUEST_CHANGES`:** GitHub API запрещает `REQUEST_CHANGES` когда author == reviewer (один owner-аккаунт `yaremenko-maksym`). Используется `COMMENT` + `Verdict: BLOCK` в первой строке тела.
 
