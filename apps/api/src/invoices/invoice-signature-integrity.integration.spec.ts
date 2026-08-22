@@ -1,5 +1,6 @@
 /**
- * task-invoice-signature-integrity — integration spec (AC4).
+ * task-invoice-signature-integrity — integration spec (AC4, + round-2
+ * security-review closures: HIGH-1, MED-1, MED-4).
  *
  * Deliberately a REAL-Postgres test, not a mock-heavy unit test: AC4 is
  * about an EXTERNAL divergence — does the public /verify endpoint ever show
@@ -9,6 +10,20 @@
  * that. Real PDF generation + a real (in-memory) S3 fake + a real Postgres
  * connection exercise the ACTUAL SQL (partial unique index, voided-row
  * filtering) this fix depends on.
+ *
+ * Round 2 (PR #600 security review) added three more real-DB-only proofs
+ * to this same file, for the same reason each is here and not in the
+ * mocked unit spec:
+ *   - HIGH-1: executes the shipped migration FILE (not a re-typed snippet)
+ *     to prove its backfill closes the legacy NULL-snapshot fallback gap —
+ *     a mocked harness cannot run a .sql file at all.
+ *   - MED-1: reproduces the void<->sign race via single-threaded async
+ *     interleaving (a one-shot S3-download hook), proving the insert-side
+ *     `FOR UPDATE` lock + conditional repoint hold under real Postgres row
+ *     locking — a mock has no locks to race.
+ *   - MED-4: calls `listInvoices` directly against the real DB, the one
+ *     thing the mocked unit spec structurally cannot check (it synthesises
+ *     `signedFlag` itself instead of executing the SQL text).
  *
  * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) — reports SKIPPED (not
  * silently-passed with zero assertions) when DATABASE_URL is unset. A
