@@ -356,15 +356,25 @@ describe('buildSitemapXml', () => {
   )
 
   it(
-    'task-sitemap-missing-vacancy-locales.md AC5 — a fallback locale\'s OWN <url> block carries ' +
+    "task-sitemap-missing-vacancy-locales.md AC5 — a fallback locale's OWN <url> block carries " +
       'a SELF-ONLY hreflang cluster (no false claim to be a translation of en/uk)',
     () => {
       const xml = buildSitemapXml(
-        [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
+        [
+          {
+            slug: 'senior-ml-engineer',
+            publishedAt: '2026-07-01T00:00:00.000Z',
+            isFallback: false,
+          },
+        ],
         '2026-07-23T00:00:00.000Z',
         {
           ru: [
-            { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true },
+            {
+              slug: 'senior-ml-engineer',
+              publishedAt: '2026-07-01T00:00:00.000Z',
+              isFallback: true,
+            },
           ],
         },
       )
