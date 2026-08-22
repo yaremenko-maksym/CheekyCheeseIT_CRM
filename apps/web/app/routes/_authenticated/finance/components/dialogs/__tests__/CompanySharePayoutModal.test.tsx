@@ -244,20 +244,26 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
     // (Set({A,A,B,B}).size === 2 either way) and would NOT have caught this.
 
     it('SENIOR payout, 2 projects / 4 incomes + the PAYOUT ledger row itself — counts stay 2/4, not 3/4', async () => {
+      const payoutId = 'a1b2c3-full-uuid'
       const payoutLedgerRow = makeTx({
         id: 'payout-ledger-row',
         type: 'PAYOUT',
         projectId: null,
         projectName: null,
         seniorSharePercent: null,
+        // Mirrors createPayoutRequest: the PAYOUT ledger row + every bundled
+        // income row carry THIS payout's id (task-split-payouts-and-
+        // obligations, backlog 174 — isBundledIncomeTransaction now checks
+        // it, not just the type).
+        payoutRequestId: payoutId,
       })
       const payout = makePayout({
-        id: 'a1b2c3-full-uuid',
+        id: payoutId,
         transactions: [
-          { ...TX_A1, id: 't1' },
-          { ...TX_A1, id: 't2' },
-          { ...TX_B1, id: 't3' },
-          { ...TX_B1, id: 't4' },
+          { ...TX_A1, id: 't1', payoutRequestId: payoutId },
+          { ...TX_A1, id: 't2', payoutRequestId: payoutId },
+          { ...TX_B1, id: 't3', payoutRequestId: payoutId },
+          { ...TX_B1, id: 't4', payoutRequestId: payoutId },
           payoutLedgerRow,
         ],
       })
@@ -273,6 +279,7 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
     })
 
     it('DROP payout, 1 project / 2 DROP_INCOME rows + the PAYOUT ledger row — counts are 1/2, not 0 incomes or an inflated project count', async () => {
+      const payoutId = 'd4e5f6-full-uuid'
       const dropIncome1 = makeTx({
         id: 'drop-1',
         type: 'DROP_INCOME',
@@ -281,6 +288,7 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
         seniorSharePercent: null,
         dropSharePercent: 5,
         receiverId: 'drop-1-id',
+        payoutRequestId: payoutId,
       })
       const dropIncome2 = makeTx({
         id: 'drop-2',
@@ -290,6 +298,7 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
         seniorSharePercent: null,
         dropSharePercent: 5,
         receiverId: 'drop-1-id',
+        payoutRequestId: payoutId,
       })
       const payoutLedgerRow = makeTx({
         id: 'payout-ledger-row-drop',
@@ -297,9 +306,10 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
         projectId: null,
         projectName: null,
         seniorSharePercent: null,
+        payoutRequestId: payoutId,
       })
       const payout = makePayout({
-        id: 'd4e5f6-full-uuid',
+        id: payoutId,
         seniorId: 'drop-1-id',
         transactions: [dropIncome1, dropIncome2, payoutLedgerRow],
       })
@@ -314,6 +324,48 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
 
       const summary = await screen.findByTestId('company-share-payout-summary')
       expect(summary).toHaveTextContent('№d4e5f6 · 1 проект, 2 прихода')
+    })
+
+    it('a recovered company obligation (payoutRequestId reset to null by settleByCompany) does not inflate the summary counts (task-split-payouts-and-obligations, backlog 174)', async () => {
+      const payoutId = 'ffeeaa-full-uuid'
+      const bundledIncome = { ...TX_A1, id: 'bundled-1', payoutRequestId: payoutId }
+      const payoutLedgerRow = makeTx({
+        id: 'payout-ledger-row-2',
+        type: 'PAYOUT',
+        projectId: null,
+        projectName: null,
+        seniorSharePercent: null,
+        payoutRequestId: payoutId,
+      })
+      // Recovered obligation: settleByCompany flipped it to SENIOR_INCOME
+      // (matches the OLD isIncomeTransaction-only filter) but reset its OWN
+      // payoutRequestId to null (task-settle-in-place ADR) — findPayoutRequest
+      // still returns it here via pending_obligations.payoutRequestId. Money
+      // flows COMPANY → this OTHER senior, not this payout's own recipient
+      // → this payout — it must never count as one of this payout's incomes.
+      const recoveredObligation = makeTx({
+        id: 'recovered-obligation-1',
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        payoutRequestId: null,
+        receiverId: 'other-senior',
+        projectId: PROJECT_B,
+        projectName: 'Project Beta',
+      })
+      const payout = makePayout({
+        id: payoutId,
+        transactions: [bundledIncome, payoutLedgerRow, recoveredObligation],
+      })
+      createPayoutRequestMock.mockResolvedValue(payout)
+      getPayoutRequestMock.mockResolvedValue(payout)
+
+      renderModal({ preselectedTxIds: [TX_A1.id] })
+      fireEvent.click(screen.getByTestId('company-share-create-payout'))
+
+      const summary = await screen.findByTestId('company-share-payout-summary')
+      // Without the fix this would read "2 проекта, 2 прихода" (Project Beta
+      // + the recovered obligation counted alongside the genuine income).
+      expect(summary).toHaveTextContent('№ffeeaa · 1 проект, 1 приход')
     })
   })
 

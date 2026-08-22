@@ -202,3 +202,86 @@ describe('PayoutDetailDialog — «Транзакции в выплате» list
     expect(screen.queryByTestId('payout-detail-tx-payout-ledger-row')).not.toBeInTheDocument()
   })
 })
+
+// task-split-payouts-and-obligations (backlog 174). `settleByCompany` flips a
+// cascade-booked SENIOR_PENDING_PAYOUT IN PLACE to SENIOR_INCOME (status=PAID)
+// and RESETS its own `payoutRequestId` to null (task-settle-in-place ADR) —
+// `findPayoutRequest` re-attaches it to this payout's `transactions` array via
+// the SEPARATE `pending_obligations.payoutRequestId` column instead. The row
+// therefore now matches `isIncomeTransaction` (SENIOR_INCOME) but carries the
+// OPPOSITE money direction (COMPANY → recipient, not recipient → COMPANY) of
+// a genuinely bundled income. `payoutRequestId !== payout.id` is what tells
+// the two apart.
+function makeObligationTx(overrides: Partial<TransactionDto> = {}): TransactionDto {
+  return {
+    ...makeDropIncomeTx(),
+    id: 'obligation-1',
+    type: 'SENIOR_INCOME',
+    status: 'PAID',
+    // The defining trait: settleByCompany reset this to null — it is NOT
+    // this payout's own bundled income, however it got attached here.
+    payoutRequestId: null,
+    receiverId: 'senior-owed-1',
+    receiverName: 'Иван Синьоров',
+    senderLabel: 'COMPANY',
+    projectName: 'Drop Project',
+    seniorSharePercent: null,
+    dropSharePercent: null,
+    ...overrides,
+  }
+}
+
+describe('PayoutDetailDialog — obligations split (task-split-payouts-and-obligations, backlog 174)', () => {
+  const originalTransactions = PAYOUT.transactions
+
+  afterEach(() => {
+    PAYOUT.transactions = originalTransactions
+  })
+
+  it('a recovered company obligation is excluded from the income counter and rendered in its own section, with the correct direction', () => {
+    currentRole = 'ADMIN'
+    PAYOUT.transactions = [
+      makeDropIncomeTx({ id: 'drop-income-1' }), // genuinely bundled — payoutRequestId === PAYOUT.id
+      makeObligationTx({ id: 'obligation-1', receiverName: 'Иван Синьоров', amount: '130' }),
+    ]
+    renderDialog()
+
+    // "Транзакции в выплате" counts ONLY the genuinely bundled row.
+    expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
+      'Транзакции в выплате (1)',
+    )
+    expect(screen.getByTestId('payout-detail-tx-drop-income-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('payout-detail-tx-obligation-1')).not.toBeInTheDocument()
+
+    // The obligation renders separately, with an explicit direction label.
+    expect(screen.getByTestId('payout-detail-obligations-count')).toHaveTextContent(
+      'Обязательства компании (1)',
+    )
+    const row = screen.getByTestId('payout-detail-obligation-obligation-1')
+    expect(row).toHaveTextContent('Компания должна Иван Синьоров')
+    expect(row).toHaveTextContent('130')
+  })
+
+  it('with only a recovered obligation (no genuine income) the income counter does not render at all', () => {
+    currentRole = 'ADMIN'
+    PAYOUT.transactions = [makeObligationTx({ id: 'obligation-only' })]
+    renderDialog()
+
+    expect(screen.queryByTestId('payout-detail-transactions-count')).not.toBeInTheDocument()
+    expect(screen.getByTestId('payout-detail-obligations-count')).toHaveTextContent(
+      'Обязательства компании (1)',
+    )
+    expect(screen.getByTestId('payout-detail-obligation-obligation-only')).toBeInTheDocument()
+  })
+
+  it('with only genuine incomes (no obligation) the obligations section does not render at all', () => {
+    currentRole = 'ADMIN'
+    PAYOUT.transactions = [makeDropIncomeTx({ id: 'drop-income-only' })]
+    renderDialog()
+
+    expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
+      'Транзакции в выплате (1)',
+    )
+    expect(screen.queryByTestId('payout-detail-obligations-count')).not.toBeInTheDocument()
+  })
+})
