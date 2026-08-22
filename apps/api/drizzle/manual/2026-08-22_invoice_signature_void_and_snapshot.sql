@@ -52,7 +52,24 @@
 --    fix) still cannot surface a live, un-attested amount as "confirmed".
 --
 -- Idempotent: `ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS`,
--- `CREATE UNIQUE INDEX IF NOT EXISTS` — safe to re-run on every deploy.
+-- `CREATE UNIQUE INDEX IF NOT EXISTS`, the backfill (scoped to
+-- `amount_snapshot IS NULL`) — safe to re-run on every deploy.
+--
+-- ROUND 2 (security-review, PR #600) — three fixes added to THIS SAME file
+-- rather than a follow-up migration, since the backfill in particular can
+-- only ever be correct in the SAME deploy this file first ships in (see its
+-- own comment below for why):
+--   1. The backfill at the bottom — the original version of this file added
+--      `amount_snapshot` with no backfill, so `verifyInvoice` kept falling
+--      back to the live `transactions.amount` for every row that was
+--      already SIGNED when this shipped (HIGH-1).
+--   2. The constraint-swap section reordered — CREATE the new partial index
+--      BEFORE DROPping the old blanket constraint, plus a fail-loud check
+--      that the drop actually removed a blanket unique constraint on these
+--      two columns (MED-5).
+-- (The third fix, MED-3 — write the snapshot in the same INSERT that
+-- creates the COUNTERPARTY row instead of a follow-up UPDATE — lives in
+-- `InvoicesService.signInvoice`, not here; noted for cross-reference only.)
 --
 -- How to apply
 -- ------------
@@ -75,9 +92,111 @@ ALTER TABLE invoice_signatures
   ADD COLUMN IF NOT EXISTS currency_snapshot currency;
 
 -- ── Constraint swap: blanket UNIQUE → partial UNIQUE (active rows only) ─────
-ALTER TABLE invoice_signatures
-  DROP CONSTRAINT IF EXISTS uniq_sig;
-
+-- MED-5 (security-review round 2, PR #600): CREATE INDEX now runs BEFORE
+-- DROP CONSTRAINT (reverse of this file's original order) so the table is
+-- NEVER without some uniqueness enforcement on (transaction_id,
+-- signer_role): the old blanket constraint keeps guarding until the new
+-- partial index exists, and if CREATE fails for any reason,
+-- `-v ON_ERROR_STOP=1` aborts the whole script with the old constraint
+-- still in place — never a "fail open" window.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_signatures_active
   ON invoice_signatures (transaction_id, signer_role)
   WHERE voided_at IS NULL;
+
+ALTER TABLE invoice_signatures
+  DROP CONSTRAINT IF EXISTS uniq_sig;
+
+-- MED-5: fail loudly — not silently — if a blanket (non-partial) UNIQUE
+-- constraint on exactly (transaction_id, signer_role) is STILL present
+-- after the DROP above. This can only mean the live constraint's name has
+-- drifted from `uniq_sig` (verified by hand at review time to match
+-- exactly, but names drift over time) — checked by COLUMN SET, not by the
+-- fixed name, so a healthy re-run of this same file (nothing blanket left
+-- to find, by design, once the swap has genuinely succeeded once) never
+-- re-raises. Left undetected, the very first re-sign after a void — a
+-- legitimate SECOND row for the same (transaction_id, signer_role) — would
+-- 23505 against the surviving blanket constraint, and ONLY on prod: CI
+-- builds its schema fresh from schema.ts and never has the legacy
+-- constraint to begin with.
+DO $$
+DECLARE
+  leftover_name text;
+BEGIN
+  SELECT c.conname INTO leftover_name
+  FROM pg_constraint c
+  JOIN pg_class t ON t.oid = c.conrelid
+  JOIN pg_index i ON i.indexrelid = c.conindid
+  WHERE t.relname = 'invoice_signatures'
+    AND c.contype = 'u'
+    AND i.indpred IS NULL
+    AND array_length(c.conkey, 1) = 2
+    AND c.conkey::int[] <@ (
+      SELECT array_agg(a.attnum)::int[]
+      FROM pg_attribute a
+      WHERE a.attrelid = t.oid AND a.attname IN ('transaction_id', 'signer_role')
+    )
+  LIMIT 1;
+
+  IF leftover_name IS NOT NULL THEN
+    RAISE EXCEPTION 'invoice_signatures still has a blanket UNIQUE constraint "%" on (transaction_id, signer_role) after DROP CONSTRAINT IF EXISTS uniq_sig — the real constraint name has drifted from what this migration expects; update it before the partial-unique swap can be trusted', leftover_name;
+  END IF;
+END $$;
+
+-- ── Backfill: existing SIGNED rows get a snapshot too (HIGH-1) ──────────────
+-- security-review round 2 (PR #600): this file originally shipped WITHOUT
+-- this backfill — `amount_snapshot` is populated only at sign time
+-- (`InvoicesService.signInvoice`), so every row that was ALREADY an active
+-- COUNTERPARTY signature when this migration first ran got
+-- `amount_snapshot IS NULL` forever, and `verifyInvoice` keeps falling back
+-- to the LIVE `transactions.amount` for exactly those rows — the one thing
+-- AC3 requires it never do "independent of the AC2 choice".
+--
+-- Why this is safe and correct, not just convenient: the very reasoning the
+-- live-fallback comment in `verifyInvoice` uses to justify itself — "no
+-- divergence was possible before this migration shipped, because BIZ-18
+-- blocked ALL PAID-amount edits unconditionally while these rows were
+-- signed" — is EXACTLY what makes `tx.amount` today equal to what was
+-- actually signed, for every existing active COUNTERPARTY row. Backfilling
+-- with the live amount is not a guess here; it is recovering a fact that
+-- was never allowed to diverge.
+--
+-- Why this CANNOT be a follow-up migration: the safety argument above holds
+-- only up to the moment amount edits on PAID rows become possible (task 3,
+-- shipping alongside this one). The FIRST live divergence closes the window
+-- forever — a backfill run after that point would freeze the WRONG amount
+-- as "confirmed" for whichever row raced ahead of it. This must apply in
+-- the SAME deploy as the rest of this file.
+--
+-- Idempotent: scoped to `amount_snapshot IS NULL` — a second run (or a run
+-- against a DB where every row was already signed after this shipped)
+-- finds zero targets. Wrapped in its own transaction with a fail-loud
+-- verify (STEP pattern matches the other backfills in this directory,
+-- e.g. `2026-08-12_admin_income_drop_backfill_apply.sql`) so a partial
+-- backfill can never silently reach a "success" exit code.
+BEGIN;
+
+UPDATE invoice_signatures s
+   SET amount_snapshot   = t.amount,
+       currency_snapshot = t.currency
+  FROM transactions t
+ WHERE t.id = s.transaction_id
+   AND s.signer_role = 'COUNTERPARTY'
+   AND s.voided_at IS NULL
+   AND s.amount_snapshot IS NULL;
+
+DO $$
+DECLARE
+  v_remaining integer;
+BEGIN
+  SELECT count(*) INTO v_remaining
+  FROM invoice_signatures
+  WHERE signer_role = 'COUNTERPARTY' AND voided_at IS NULL AND amount_snapshot IS NULL;
+
+  IF v_remaining <> 0 THEN
+    RAISE EXCEPTION 'invoice-signature-void-and-snapshot backfill FAILED verify: % active COUNTERPARTY row(s) still have NULL amount_snapshot — verifyInvoice would still fall back to the live amount for them', v_remaining;
+  END IF;
+
+  RAISE NOTICE 'invoice-signature-void-and-snapshot backfill: verify passed — 0 active COUNTERPARTY signature(s) with NULL amount_snapshot remain';
+END $$;
+
+COMMIT;

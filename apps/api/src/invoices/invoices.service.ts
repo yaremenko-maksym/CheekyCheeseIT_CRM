@@ -1106,20 +1106,45 @@ export class InvoicesService {
     // signature that never attested to it. Previously this was a separate
     // UPDATE issued several queries after the insert — see the comment
     // above the admin/counterparty fetch for why that window was closed.
+    //
+    // security-review round 2 (PR #600, MED-1): the insert now runs inside
+    // its OWN `db.transaction`, opened with a `SELECT … FOR UPDATE` on the
+    // transaction row — the SAME row `voidInvoiceForAmountEdit` locks for
+    // the duration of ITS writes. This serialises the two calls: if a
+    // void→reissue is concurrently in flight, this either waits for it to
+    // commit and then observes `invoiceDocumentId` has already moved off
+    // the document this call started from (→ 409, nothing inserted), or it
+    // runs first and the void simply retires this fresh signature like any
+    // other post-sign edit. Without this lock, a void→reissue landing here
+    // used to let an ACTIVE COUNTERPARTY row survive for a document that
+    // had already been superseded — `getSignaturesWithSignerNames` /
+    // `getInvoice` would then report the FRESH reissue as "SIGNED" even
+    // though nobody signed it, attesting to bytes nobody downloaded.
     const signedAt = new Date()
     const ip = this.extractIp(req)
     const userAgent = this.extractUserAgent(req)
-    await this.db.db.insert(invoiceSignatures).values({
-      transactionId: tx.id,
-      signerRole: 'COUNTERPARTY',
-      signerId: viewer.id,
-      pdfHash: currentHash,
-      method: 'MANUAL_CLICK',
-      ipAddress: ip,
-      userAgent,
-      signedAt,
-      amountSnapshot: txInfo.amount,
-      currencySnapshot: txInfo.currency,
+    await this.db.db.transaction(async (dbtx) => {
+      const [locked] = await dbtx
+        .select({ invoiceDocumentId: transactions.invoiceDocumentId })
+        .from(transactions)
+        .where(eq(transactions.id, tx.id))
+        .for('update')
+        .limit(1)
+      if (!locked || locked.invoiceDocumentId !== doc.id) {
+        throw new ConflictException('Инвойс был аннулирован — обновите страницу')
+      }
+      await dbtx.insert(invoiceSignatures).values({
+        transactionId: tx.id,
+        signerRole: 'COUNTERPARTY',
+        signerId: viewer.id,
+        pdfHash: currentHash,
+        method: 'MANUAL_CLICK',
+        ipAddress: ip,
+        userAgent,
+        signedAt,
+        amountSnapshot: txInfo.amount,
+        currencySnapshot: txInfo.currency,
+      })
     })
 
     // ---- Re-render PDF with both signatures ----

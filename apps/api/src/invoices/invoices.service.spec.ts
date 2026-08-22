@@ -1304,4 +1304,57 @@ describe('InvoicesService', () => {
       expect(result.transactionId).toBe('tx-invoice-1')
     })
   })
+
+  // security-review round 2 (PR #600, MED-7) on task-invoice-signature-integrity.
+  describe('reissueInvoiceIfStillPaid — AC2-bis / MED-7', () => {
+    it('MED-7: a PAYOUT-linked row (payoutRequestId set) never triggers a second, per-row invoice on top of the aggregated PAYOUT invoice', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-linked-income',
+            type: 'SENIOR_INCOME',
+            status: 'PAID',
+            payoutRequestId: 'payout-1',
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-linked-income'
+      const spy = vi.spyOn(h.svc, 'autoCreateForSeniorPayout')
+
+      await h.svc.reissueInvoiceIfStillPaid('tx-linked-income')
+
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    it('MED-7: swallows an autoCreateFor* failure instead of throwing — mirrors safeAutoCreateInvoice, so the amount-edit endpoint never 500s after the new amount was already committed', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-salary', type: 'SALARY', status: 'PAID', payoutRequestId: null })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-salary'
+      vi.spyOn(h.svc, 'autoCreateForSalary').mockRejectedValueOnce(new Error('S3 outage'))
+
+      await expect(h.svc.reissueInvoiceIfStillPaid('tx-salary')).resolves.toBeUndefined()
+    })
+
+    it('happy path unaffected: a still-PAID SALARY row with no payoutRequestId still triggers autoCreateForSalary', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-salary-2', type: 'SALARY', status: 'PAID', payoutRequestId: null })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-salary-2'
+      const spy = vi.spyOn(h.svc, 'autoCreateForSalary').mockResolvedValueOnce(undefined)
+
+      await h.svc.reissueInvoiceIfStillPaid('tx-salary-2')
+
+      expect(spy).toHaveBeenCalledWith('tx-salary-2')
+    })
+  })
 })
