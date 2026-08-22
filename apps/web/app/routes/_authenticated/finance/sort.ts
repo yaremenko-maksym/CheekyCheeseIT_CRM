@@ -43,23 +43,44 @@ const toTime = (iso: string | null | undefined): number => (iso ? new Date(iso).
  * - Same `txDate` (e.g. two legacy income rows both parsed to the same
  *   midnight-UTC value) → `createdAt` decides, since it is unique and
  *   monotonic and reflects insertion order.
- * - `txDate = null` (always a payout — see `TxSortable`) → placed AFTER
- *   every dated row, in BOTH directions (not flipped by `dir`). A payout has
- *   no known "when it happened", so it cannot honestly be called newest or
- *   oldest; parking it at a fixed end keeps the dated rows browsable in the
- *   requested order without an undated row misleadingly surfacing at the
- *   top of "newest first". Rows that are BOTH null still order among
- *   themselves by `createdAt` (with `dir` applied), so that group isn't left
- *   in arbitrary order either.
+ * - `txDate = null` (always a payout — see `TxSortable`) → placed BEFORE
+ *   every dated row, in BOTH directions (not flipped by `dir`). Two reasons,
+ *   not one:
+ *   1. A payout has no known "when it happened", so it cannot honestly be
+ *      called newest or oldest among dated rows — it needs a fixed edge,
+ *      not an arbitrary slot.
+ *   2. Which edge matters in practice, and was checked live, not assumed:
+ *      putting undated rows LAST regressed real usage — a freshly-created
+ *      payout (txDate always null, createdAt = now) would sort behind every
+ *      dated row, and once the list passes one page (50 rows — see
+ *      `usePaginatedFilter`), a brand-new payout falls onto page 2 and
+ *      becomes invisible right after creation. Verified against `crm_qa`
+ *      (52 live rows already past that boundary) — `phase8-payout-company.spec.ts`
+ *      and siblings that create a payout via the real API and immediately
+ *      click its row on `/finance` timed out with "undated last" and pass
+ *      with "undated first". The OLD `createdAt`-only comparator never had
+ *      this failure mode (a new row is always the newest `createdAt`, so
+ *      always first) — "undated first" restores that guarantee for the rows
+ *      that actually need it, while still fixing the original bug for every
+ *      dated row.
+ *   Rows that are BOTH null still order among themselves by `createdAt`
+ *   (with `dir` applied), so that group isn't left in arbitrary order.
  */
 export function compareTxByDate(a: TxSortable, b: TxSortable, dir: SortDir): number {
   const mul = dir === 'asc' ? 1 : -1
-  const aHasDate = a.txDate !== null
-  const bHasDate = b.txDate !== null
+  // `!= null` (loose) is deliberate, not a lint slip: `financeApi.getTransactions`
+  // types its response `TransactionDto[]` but does not `.parse()` it (no schema
+  // round-trip on this endpoint), so a hand-built/mocked payload that omits the
+  // key entirely reaches here as `undefined`, not `null`. Treat both as "no
+  // date" — a strict `!== null` would misfile an `undefined` row as dated with
+  // `toTime()`'s epoch-0 fallback, which would sort it as the OLDEST dated row
+  // instead of into the undated-first bucket, contradicting the contract below.
+  const aHasDate = a.txDate != null
+  const bHasDate = b.txDate != null
   if (aHasDate !== bHasDate) {
-    // Exactly one side is undated — undated always sorts last, regardless
-    // of direction.
-    return aHasDate ? -1 : 1
+    // Exactly one side is undated — undated always sorts first, regardless
+    // of direction (see docblock above for why "first" and not "last").
+    return aHasDate ? 1 : -1
   }
   // aHasDate === bHasDate is guaranteed past this point (either both dated
   // or both null). No extra guard is needed: `toTime(null)` is 0 on both

@@ -58,24 +58,28 @@ describe('compareTxByDate', () => {
     expect(list[1]).toBe(createdLater)
   })
 
-  it('places a null-txDate row (payout) after a dated row, descending', () => {
-    const dated = tx({ txDate: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z' })
-    // Undated row has a much LATER createdAt — if createdAt still drove
-    // placement it would sort first in DESC. It must not.
-    const undated = tx({ txDate: null, createdAt: '2026-06-01T00:00:00.000Z' })
-    const list = [undated, dated].sort((a, b) => compareTxByDate(a, b, 'desc'))
-    expect(list[0]).toBe(dated)
-    expect(list[1]).toBe(undated)
+  it('places a null-txDate row (payout) before a dated row, descending', () => {
+    // "Before", not "after": a freshly-created payout (txDate always null,
+    // createdAt = now) must stay visible on page 1 without pagination — see
+    // the compareTxByDate docblock for the live-verified regression this
+    // avoids.
+    const dated = tx({ txDate: '2026-06-01T00:00:00.000Z', createdAt: '2026-06-01T00:00:00.000Z' })
+    // Undated row has a much EARLIER createdAt — if createdAt still drove
+    // placement it would sort AFTER dated in DESC. It must not.
+    const undated = tx({ txDate: null, createdAt: '2025-01-01T00:00:00.000Z' })
+    const list = [dated, undated].sort((a, b) => compareTxByDate(a, b, 'desc'))
+    expect(list[0]).toBe(undated)
+    expect(list[1]).toBe(dated)
   })
 
-  it('places a null-txDate row (payout) after a dated row, ascending', () => {
+  it('places a null-txDate row (payout) before a dated row, ascending', () => {
     const dated = tx({ txDate: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z' })
-    // Undated row has a much EARLIER createdAt — if createdAt still drove
-    // placement it would sort first in ASC. It must not.
-    const undated = tx({ txDate: null, createdAt: '2025-01-01T00:00:00.000Z' })
-    const list = [undated, dated].sort((a, b) => compareTxByDate(a, b, 'asc'))
-    expect(list[0]).toBe(dated)
-    expect(list[1]).toBe(undated)
+    // Undated row has a much LATER createdAt — if createdAt still drove
+    // placement it would sort AFTER dated in ASC. It must not.
+    const undated = tx({ txDate: null, createdAt: '2026-06-01T00:00:00.000Z' })
+    const list = [dated, undated].sort((a, b) => compareTxByDate(a, b, 'asc'))
+    expect(list[0]).toBe(undated)
+    expect(list[1]).toBe(dated)
   })
 
   it('breaks a tie between two null-txDate rows (payouts) with createdAt, descending', () => {
@@ -100,6 +104,27 @@ describe('compareTxByDate', () => {
     const b = tx({ txDate: null, createdAt: '2026-05-28T05:00:00.000Z' })
     expect(compareTxByDate(a, b, 'desc') + 0).toBe(0)
     expect(compareTxByDate(a, b, 'asc') + 0).toBe(0)
+  })
+
+  it('treats an undefined txDate the same as null (no date), both directions', () => {
+    // `financeApi.getTransactions` types its response `TransactionDto[]` but
+    // does not `.parse()` it — a payload that omits `txDate` reaches the
+    // comparator as `undefined`, not `null`. It must still land in the
+    // "undated" bucket (sorts first, both directions), not get timestamped
+    // as epoch-0 and land at the wrong end of a DESC sort.
+    const dated = tx({ txDate: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z' })
+    // Cast: TxSortable's type says `string | null`, but this pins the actual
+    // untyped-at-runtime shape described above.
+    const undatedViaMissingKey = tx({
+      txDate: undefined as unknown as null,
+      createdAt: '2025-01-01T00:00:00.000Z', // earlier createdAt — would sort AFTER dated in DESC if mistaken for epoch-0
+    })
+    const desc = [dated, undatedViaMissingKey].sort((a, b) => compareTxByDate(a, b, 'desc'))
+    expect(desc[0]).toBe(undatedViaMissingKey)
+    expect(desc[1]).toBe(dated)
+    const asc = [dated, undatedViaMissingKey].sort((a, b) => compareTxByDate(a, b, 'asc'))
+    expect(asc[0]).toBe(undatedViaMissingKey)
+    expect(asc[1]).toBe(dated)
   })
 })
 

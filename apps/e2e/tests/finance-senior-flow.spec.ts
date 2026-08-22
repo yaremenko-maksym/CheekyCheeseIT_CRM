@@ -719,20 +719,40 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
 // E2E counterpart to the existing unit tests in apps/web/app/routes/finance/
 // __tests__/sort.test.ts. The unit test pins the compareTxByDate behaviour;
 // here we verify the integrated outcome — mixed income/payout rows render
-// in the right order in the UI. Regression target: bug bf5dc2e where the
-// midnight-txDate income sorted ABOVE a later-createdAt payout because the
-// comparator used txDate ?? createdAt as the primary key.
+// in the right order in the UI.
+//
+// History (comparator has changed three times, this fixture twice):
+// - bf5dc2e (original bug): primary key was `txDate ?? createdAt` — a
+//   midnight-txDate income sorted ABOVE a later-createdAt payout.
+// - task-fix-transactions-sort-by-createdat (interim fix): dropped `txDate`
+//   entirely, sorting by `createdAt` only — correct here, but silently wrong
+//   whenever `txDate` and `createdAt` actually disagreed (see sort.test.ts).
+// - task-finance-sort-date-and-jump (current): `txDate` is primary again
+//   (the «Дата» column renders it, so the sort button must honour it),
+//   `createdAt` is now only a tie-breaker, and `txDate = null` rows (always
+//   payouts) sort FIRST in BOTH directions — not last. "First" was chosen
+//   over "last" after a live check against crm_qa: with rows undated-last, a
+//   freshly-created payout (txDate always null, createdAt = now) fell behind
+//   every dated row and, once the list passed 50 rows, onto page 2 —
+//   invisible right after creation, which is exactly what several real-API
+//   specs in this repo (e.g. phase8-payout-company.spec.ts) immediately
+//   click. "Undated first" restores the old comparator's "new row is always
+//   on top" guarantee for the rows that actually need it. So in THIS
+//   fixture the payout (undated) now sorts ABOVE the income (dated) — the
+//   opposite of the old assertion, and for a different reason: not because
+//   its createdAt happens to be later (it's earlier), but because an
+//   undated row always sorts before a dated one.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-test.describe('SENIOR INCOME — D: transactions sorted by createdAt DESC (regression bf5dc2e)', () => {
-  test('mixed income (midnight txDate) + payout (null txDate) sorted by createdAt only', async ({
+test.describe('SENIOR INCOME — D: transactions sorted by txDate DESC, undated payouts first', () => {
+  test('mixed income (midnight txDate) + payout (no txDate) — undated payout sorts above dated income', async ({
     asAdmin,
   }) => {
     // Income created LATER but txDate=midnight (a backend default for
-    // legacy rows without an explicit pick-date). Old comparator put the
-    // payout first because txDate=null fell back to createdAt=07:37 while
-    // income.txDate=00:00 lost. New comparator ignores txDate entirely:
-    // income.createdAt=08:17 > payout.createdAt=07:37 → income first.
+    // legacy rows without an explicit pick-date). The payout carries no
+    // txDate at all (see makeTx() below — no txDate key is set). Under the
+    // current comparator, an undated row always sorts before a dated one,
+    // regardless of direction — so the payout sorts first here.
     const incomeLater = {
       ...makeTx({
         id: 'sort-income-1',
@@ -779,8 +799,10 @@ test.describe('SENIOR INCOME — D: transactions sorted by createdAt DESC (regre
       .boundingBox()
     expect(incomeBox, 'income row box').not.toBeNull()
     expect(payoutBox, 'payout row box').not.toBeNull()
-    // Income has later createdAt → must appear ABOVE payout in DESC order.
-    expect(incomeBox!.y, 'income above payout').toBeLessThan(payoutBox!.y)
+    // The payout has no txDate, the income does → undated always beats
+    // dated, in both sort directions, so the payout must appear ABOVE
+    // income here.
+    expect(payoutBox!.y, 'payout above income').toBeLessThan(incomeBox!.y)
   })
 })
 
