@@ -400,6 +400,38 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
+    // task-cascade-resolver-preview (task 2 of the paid-transaction-edit-cascade
+    // decomposition, AC8) — the guard fires BEFORE the handler even parses the
+    // id/query, so a nonexistent id + arbitrary amount is fine here: this proves
+    // ONLY that `@Roles('ADMIN')` + the class-level `RolesGuard` are actually
+    // wired on the ROUTE, not the service-side role check
+    // (feedback_mocked_e2e_guards — a service-only test cannot catch a missing
+    // `@UseGuards`/`@Roles` on the controller).
+    describe('GET /transactions/:id/edit-preview @Roles guard', () => {
+      const url = '/api/transactions/00000000-0000-4000-8000-000000000000/edit-preview?amount=100'
+
+      for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+        it(`${persona.role} → 403 (ADMIN only)`, async () => {
+          expect(await get(persona, url)).toBe(403)
+        })
+      }
+
+      it('ADMIN passes the guard (not 403) — a nonexistent id 404s past it instead', async () => {
+        // LOW (security-review round 1): a bare status-code assert here is
+        // indistinguishable from "the route does not exist at all" — the
+        // real proof that the guard let ADMIN through carries in the sibling
+        // 403 assertions above. Reading the body message pins THIS 404 to
+        // `fetchWritableTransactionOrThrow` → `assertFoundAndVisible`
+        // (`transaction-visibility.util.ts`, the FIRST read
+        // `getEditCascadePreview` makes) rather than Fastify's generic
+        // unmatched-route 404, which never reaches the controller/service at
+        // all and would carry a different message shape.
+        const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(ADMIN) } })
+        expect(res.statusCode).toBe(404)
+        expect(JSON.parse(res.payload).message).toBe('Транзакция не найдена')
+      })
+    })
+
     // BACKLOG-followups.md item 12 — the duplicated-`txHash` query-param guard
     // (`inspectOnChainHash`, MED-S round 7) previously had ZERO controller-level
     // HTTP coverage: every existing test called `svc.inspectOnChainHash(...)`

@@ -32,11 +32,22 @@ import type {
   SalaryMonthGapReportDto,
   SalaryMonthGapReceiverDto,
   MySalaryStatusDto,
+  CascadeSnapshot,
+  CascadeDerivativeSnapshot,
+  CascadeEditPreviewResponse,
 } from '@crm/shared'
-import { SALARY_ELIGIBLE_ROLES, COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
+import {
+  SALARY_ELIGIBLE_ROLES,
+  COMPANY_ACCOUNT_RECEIVER,
+  resolveEditCascade,
+  computeCascadeVersion,
+  cascadeEditPreviewResponseSchema,
+  amountsDiffer,
+} from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
+  invoiceSignatures,
   pendingObligations,
   projectFinanceSettings,
   projectMembers,
@@ -90,7 +101,11 @@ import { MONEY_SCALE, roundShareAmount } from '@crm/shared'
 // file's old local-export surface — same binding as the @crm/shared import
 // above, not a second implementation.
 export { roundShareAmount }
-import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
+import {
+  assertTransactionVisible,
+  assertTransactionWritable,
+  fetchWritableTransactionOrThrow,
+} from './transaction-visibility.util'
 // task-drop-payout-currency: extracted to a shared util (was a private
 // function here) so pending-settlement.service.ts can apply the SAME
 // exchange-rate storability rule when settling a DROP obligation in a
@@ -2964,11 +2979,21 @@ export class TransactionsService {
     // and only block when a money-defining field actually differs.
     //
     // Float-safe comparison: DB stores numeric(15,6) as a string e.g. '233304.560000';
-    // incoming data.amount is a JS number (e.g. 233304.56). We normalise both to
-    // Number(…).toFixed(6) before comparing — identical values round to the same
-    // string, genuine changes produce a different string.
-    const amountChanged =
-      data.amount !== undefined && Number(data.amount).toFixed(6) !== Number(tx.amount).toFixed(6)
+    // incoming data.amount is a JS number (e.g. 233304.56). `amountsDiffer`
+    // (`@crm/shared`) normalises both to Number(…).toFixed(6) before
+    // comparing — identical values round to the same string, genuine changes
+    // produce a different string.
+    //
+    // HIGH (code-review, task-cascade-resolver-preview round 1): this used to
+    // re-describe the SAME rule inline (`Number(data.amount).toFixed(6) !==
+    // Number(tx.amount).toFixed(6)`) instead of calling the shared helper
+    // that was extracted for exactly this reason (AC4 of the ADR —
+    // `roundShareAmount`'s precedent one layer up: "both stay pinned to
+    // identical numbers"). A pure substitution of an identical expression —
+    // the task's "do not touch adminUpdateTransaction" scope is about not
+    // changing its BEHAVIOUR, not about leaving a duplicate description of a
+    // money rule in place once the single source of truth exists.
+    const amountChanged = data.amount !== undefined && amountsDiffer(data.amount, Number(tx.amount))
     const currencyChanged = data.currency !== undefined && data.currency !== tx.currency
     const salaryMonthChanged = data.salaryMonth !== undefined && data.salaryMonth !== tx.salaryMonth
     // task-soft-delete-and-money-audit (AC5): "receiver" on this endpoint is
@@ -3164,6 +3189,230 @@ export class TransactionsService {
     }
 
     return this.findOne(id, currentUser)
+  }
+
+  // ── Edit cascade preview (read-only) ────────────────────────────────────
+  //
+  // task-cascade-resolver-preview (task 2 of the paid-transaction-edit-cascade
+  // decomposition — docs/architecture/2026-08-22-paid-transaction-edit-cascade.md,
+  // AC4 "один резолвер, две обёртки"). `loadCascadeSnapshot` is the ONE query
+  // shape both `getEditCascadePreview` below (this task) and the future
+  // `PATCH` (task 3, re-reading the SAME rows under `SELECT … FOR UPDATE`)
+  // are required to call — the arithmetic itself lives in `@crm/shared`
+  // (`resolveEditCascade`) and is NEVER re-implemented here, the same
+  // precedent `roundShareAmount` already set one layer down (see that
+  // function's own comment, `:5127` region above).
+  //
+  // Accepts either the pool handle or an open `dbtx` so task 3 can reuse it
+  // unchanged inside a `db.transaction(...)` callback.
+
+  private async loadCascadeSnapshot(
+    db: DatabaseService['db'] | DrizzleTx,
+    sourceId: string,
+  ): Promise<CascadeSnapshot | null> {
+    const source = await db.query.transactions.findFirst({ where: eq(transactions.id, sourceId) })
+    if (!source) return null
+
+    // L18/C8 (ADR): `sourceIncomeTransactionId` is stamped ONCE at booking
+    // time and, unlike `transactions.payoutRequestId`, survives
+    // `settleByCompany`'s flip — it is what makes a derivative findable by
+    // its source whether the derivative is still PENDING_PAYMENT or has
+    // already flipped to PAID.
+    const derivativeRows = await db.query.transactions.findMany({
+      where: and(
+        eq(transactions.sourceIncomeTransactionId, sourceId),
+        isNull(transactions.deletedAt),
+      ),
+    })
+
+    // Stryker disable next-line ArrowFunction: the VALUES this feeds into the
+    // two `inArray(...)` filters below are a Postgres query shape — a unit
+    // double (this file's own `cascade-edit-preview.unit.spec.ts`) proves the
+    // `where` clause is PRESENT (not gutted) on every call, but a mock that
+    // ignores its argument content cannot distinguish real ids from
+    // `undefined`s without reaching into drizzle-orm's SQL builder internals.
+    // The real-Postgres round-trip in `cascade-edit-preview.integration.spec.ts`
+    // is what actually proves the correct rows come back (mutation-gate-integration-specs.md).
+    const derivativeIds = derivativeRows.map((d) => d.id)
+    const obligationRows = derivativeIds.length
+      ? await db.query.pendingObligations.findMany({
+          where: inArray(pendingObligations.sourceTransactionId, derivativeIds),
+        })
+      : // Stryker disable next-line ArrayDeclaration: provably equivalent —
+        // this branch is reachable ONLY when `derivativeRows` (and therefore
+        // the FINAL `derivatives` output below, built by mapping over the
+        // very same `derivativeRows`) is empty, so `obligationRows`'
+        // CONTENT is built but never read by anything: `obligationByDerivative`
+        // is consulted per-derivative on the next line via `derivativeRows.map`,
+        // which has zero iterations here. Changing the sentinel value cannot
+        // change any observable output.
+        []
+    const obligationByDerivative = new Map(obligationRows.map((o) => [o.sourceTransactionId, o]))
+
+    // L13/C3 (ADR): a COUNTERPARTY-signed invoice on a derivative is exactly
+    // the case AC5 §6 forbids the cascade from silently disagreeing with.
+    //
+    // MED-1 (security-review round 1): the SOURCE row itself needs the SAME
+    // check — after guard 3 is lifted (task 3), a `SALARY` row can BE the
+    // source, and it can carry its own signed invoice. `sourceId` is folded
+    // into the SAME `inArray` filter as the derivatives (one query, not two)
+    // — this is why the zero-length skip below can no longer bypass the
+    // query entirely the way the obligations one still does.
+    //
+    // Stryker disable next-line ArrayDeclaration: same class as the
+    // `derivativeIds` ArrowFunction suppression a few lines up — the VALUES
+    // fed into `inArray(...)` are a Postgres query shape, and a unit double
+    // whose `findManySignatures` stub ignores its call arguments (it returns
+    // a canned row list regardless of which ids were actually queried)
+    // cannot tell `[...derivativeIds, sourceId]` apart from `[]` without
+    // reaching into drizzle-orm's SQL builder internals. Proven for real by
+    // `cascade-edit-preview.integration.spec.ts`'s "a real COUNTERPARTY
+    // invoice_signatures row on the SOURCE id surfaces SOURCE_SIGNED_INVOICE"
+    // against actual Postgres: an empty/wrong id list there would return zero
+    // rows and that test would fail (mutation-gate-integration-specs.md).
+    const signatureQueryIds = [...derivativeIds, sourceId]
+    const signatureRows = await db.query.invoiceSignatures.findMany({
+      where: and(
+        inArray(invoiceSignatures.transactionId, signatureQueryIds),
+        // Stryker disable next-line StringLiteral: a Postgres query VALUE
+        // (which signer_role to filter by), not a shape — see the
+        // ArrowFunction suppression above `derivativeIds` for the same
+        // reasoning; provable only against the real DB, which
+        // `cascade-edit-preview.integration.spec.ts` exercises directly
+        // (a signature row with signerRole !== 'COUNTERPARTY' asserted
+        // absent from `hasSignedInvoice` there is not reachable here).
+        eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
+      ),
+    })
+    const signedIds = new Set(signatureRows.map((s) => s.transactionId))
+
+    const derivatives: CascadeDerivativeSnapshot[] = derivativeRows.map((d) => {
+      const obligation = obligationByDerivative.get(d.id)
+      return {
+        id: d.id,
+        type: d.type,
+        status: d.status,
+        amount: Number(d.amount),
+        currency: d.currency,
+        updatedAt: d.updatedAt.toISOString(),
+        // Non-null only while the row is still PENDING_PAYMENT — settle nulls
+        // both and snapshots the ONE that mattered into settledSharePercent
+        // below (schema.ts comment on settledSharePercent).
+        sharePercent: d.seniorSharePercent ?? d.dropSharePercent ?? null,
+        settledAmount: d.settledAmount !== null ? Number(d.settledAmount) : null,
+        settledCurrency: d.settledCurrency,
+        settledSharePercent: d.settledSharePercent,
+        hasSignedInvoice: signedIds.has(d.id),
+        obligation: obligation
+          ? {
+              id: obligation.id,
+              status: obligation.status,
+              amount: Number(obligation.amount),
+              updatedAt: obligation.updatedAt.toISOString(),
+            }
+          : null,
+      }
+    })
+
+    return {
+      source: {
+        id: source.id,
+        type: source.type,
+        status: source.status,
+        amount: Number(source.amount),
+        currency: source.currency,
+        payoutRequestId: source.payoutRequestId,
+        updatedAt: source.updatedAt.toISOString(),
+        // MED-1 (security-review round 1) — see the comment on
+        // `signatureQueryIds` above for why the source id shares the SAME
+        // query as the derivatives instead of a second round-trip.
+        hasSignedInvoice: signedIds.has(source.id),
+        originalAmount: source.originalAmount !== null ? Number(source.originalAmount) : null,
+      },
+      derivatives,
+    }
+  }
+
+  /**
+   * `GET /transactions/:id/edit-preview`. Read-only — loads a snapshot,
+   * calls the shared resolver, returns the plan plus an optimistic-locking
+   * version. Writes NOTHING: no row, no journal entry (AC9 of the task
+   * file). Same RBAC as `adminUpdateTransaction` — ADMIN only, checked here
+   * AND at the controller (`@Roles('ADMIN')`), the same defense-in-depth
+   * pattern every other money endpoint in this file uses.
+   *
+   * Guards 1 and 2 of `adminUpdateTransaction` (`:2944-2949` above) are
+   * mirrored here rather than imported from there — this task's scope
+   * deliberately excludes touching `adminUpdateTransaction` at all (see the
+   * task file), and both guards are a small, security-reviewed, "never
+   * lifted" invariant (AC5 §1/§2 of the ADR). Guard 3 (BIZ-18, the PAID
+   * `amount` lock) is intentionally ABSENT here: this endpoint exists to
+   * preview what removing it would do (task 3), so it must never itself
+   * refuse on it.
+   */
+  async getEditCascadePreview(
+    id: string,
+    amount: number,
+    currentUser: SessionUser,
+  ): Promise<CascadeEditPreviewResponse> {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    // Fetch+guard fusion (transaction-visibility.util.ts) — 404 for missing
+    // or invisible, 400 for a soft-deleted row even though ADMIN can see it.
+    const tx = await fetchWritableTransactionOrThrow(this.db.db, id, currentUser)
+
+    if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN' || tx.type === 'PAYOUT_CONFIRMED') {
+      return cascadeEditPreviewResponseSchema.parse({
+        editable: false,
+        blockedReason: 'PAYOUT_FAMILY',
+        plan: null,
+        version: null,
+      })
+    }
+    if (tx.payoutRequestId) {
+      return cascadeEditPreviewResponseSchema.parse({
+        editable: false,
+        blockedReason: 'LINKED_TO_PAYOUT_REQUEST',
+        plan: null,
+        version: null,
+      })
+    }
+
+    // LOW (security-review round 1): `fetchWritableTransactionOrThrow` above
+    // already read this exact row, and `loadCascadeSnapshot` immediately
+    // re-reads it as its OWN `source` query — a deliberate extra round-trip,
+    // not an oversight. `fetchWritableTransactionOrThrow` carries visibility
+    // RBAC + soft-delete semantics this endpoint needs for the 404/400 split
+    // (`transaction-visibility.util.ts`); `loadCascadeSnapshot` is required
+    // to stay a SINGLE, self-contained query shape re-usable VERBATIM by
+    // task 3 under `SELECT … FOR UPDATE` (AC4 "один резолвер, две обёртки")
+    // — threading a pre-fetched row into it would fork that shape into a
+    // preview-only variant and reintroduce the exact "two descriptions of
+    // one read" problem AC4 exists to prevent. One extra indexed
+    // primary-key read is the accepted cost of keeping that guarantee.
+    const snapshot = await this.loadCascadeSnapshot(this.db.db, id)
+    if (!snapshot) {
+      // `tx` above already proved the row exists and is visible — only a
+      // genuine race (a concurrent hard-delete-equivalent between the two
+      // reads) could land here. Real defense-in-depth, not a decorative
+      // check: the two reads are NOT inside one transaction.
+      throw new NotFoundException('Transaction not found')
+    }
+
+    const plan = resolveEditCascade(snapshot, { amount })
+    const version = computeCascadeVersion(snapshot)
+    // AC5 of the task file / project convention (all API responses cross the
+    // wire through a Zod `.parse()`) — the SAME schema `GET /edit-preview`'s
+    // consumer (task 5's UI, and task 3's own optimistic-lock check) will
+    // parse on the way IN, parsed here on the way OUT so a shape drift in
+    // `resolveEditCascade`/`computeCascadeVersion` fails loudly in THIS spec
+    // rather than surfacing as a silent contract mismatch three tasks later.
+    return cascadeEditPreviewResponseSchema.parse({
+      editable: true,
+      blockedReason: null,
+      plan,
+      version,
+    })
   }
 
   // ── Admin Delete (soft) ───────────────────────────────────────────────────
