@@ -435,3 +435,81 @@ describe('F2c — findPayoutRequest narrows recovered obligations to their own c
     expect(result.transactions.map((t) => t.id)).toEqual(['tx-senior-obligation-2'])
   })
 })
+
+// ── backlog 168 (security-review on #590, found pre-existing). F2c above
+// narrows only the RECOVERED (post-settle, pending_obligations-derived) half
+// of this function's output — the LIVE Drizzle relation (`req.transactions`,
+// returned straight off `payoutRequests.findFirst`) went through completely
+// UNFILTERED. A cascade-booked SENIOR_PENDING_PAYOUT row sits in that live
+// relation from the moment `payPayoutRequest` returns (settle has not run
+// yet), so an unprivileged DROP payout owner received a row belonging to a
+// DIFFERENT person in the very response confirming their own payment. The
+// real end-to-end DB proof (RED-then-GREEN, read through DROP's eyes) lives
+// in drop-payout-company-account.integration.spec.ts's "backlog 168" test —
+// this unit spec exists so the mutation gate, which cannot see integration
+// specs, has something to kill on the changed line.
+describe('F2d — findPayoutRequest narrows the LIVE relation to sender/receiver (backlog 168)', () => {
+  it('a non-privileged payout owner does NOT see a live-relation row belonging to someone else', async () => {
+    const seniorsLiveTx = makeTx({
+      id: 'tx-senior-live',
+      type: 'SENIOR_PENDING_PAYOUT',
+      senderId: null,
+      receiverId: SENIOR_ID,
+    })
+    const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
+    const svc = makeServiceWithPayoutRequest(dropOwnerReq, [seniorsLiveTx])
+    const ownerDrop = user('DROP', 'drop-owner-id')
+
+    const result = await svc.findPayoutRequest('req-1', ownerDrop)
+
+    expect(result.transactions).toEqual([])
+  })
+
+  it('the payout owner DOES see their own live-relation row where they are the RECEIVER', async () => {
+    const ownDropTx = makeTx({
+      id: 'tx-drop-pending',
+      type: 'DROP_PENDING_PAYOUT',
+      senderId: null,
+      receiverId: 'drop-owner-id',
+    })
+    const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
+    const svc = makeServiceWithPayoutRequest(dropOwnerReq, [ownDropTx])
+    const ownerDrop = user('DROP', 'drop-owner-id')
+
+    const result = await svc.findPayoutRequest('req-1', ownerDrop)
+
+    expect(result.transactions.map((t) => t.id)).toEqual(['tx-drop-pending'])
+  })
+
+  it('the payout owner DOES see their own live-relation row where they are the SENDER (the PAYOUT row itself)', async () => {
+    const payoutRow = makeTx({
+      id: 'tx-payout-itself',
+      type: 'PAYOUT',
+      senderId: 'drop-owner-id',
+      receiverId: null,
+    })
+    const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
+    const svc = makeServiceWithPayoutRequest(dropOwnerReq, [payoutRow])
+    const ownerDrop = user('DROP', 'drop-owner-id')
+
+    const result = await svc.findPayoutRequest('req-1', ownerDrop)
+
+    expect(result.transactions.map((t) => t.id)).toEqual(['tx-payout-itself'])
+  })
+
+  it('ADMIN/ACCOUNTANT (privileged) see a live-relation row regardless of who it belongs to', async () => {
+    const seniorsLiveTx = makeTx({
+      id: 'tx-senior-live-2',
+      type: 'SENIOR_PENDING_PAYOUT',
+      senderId: null,
+      receiverId: SENIOR_ID,
+    })
+    const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
+    const svc = makeServiceWithPayoutRequest(dropOwnerReq, [seniorsLiveTx])
+    const accountant = user('ACCOUNTANT')
+
+    const result = await svc.findPayoutRequest('req-1', accountant)
+
+    expect(result.transactions.map((t) => t.id)).toEqual(['tx-senior-live-2'])
+  })
+})
