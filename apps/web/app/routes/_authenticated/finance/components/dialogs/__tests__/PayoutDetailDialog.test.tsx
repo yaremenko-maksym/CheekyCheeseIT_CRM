@@ -284,4 +284,72 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     )
     expect(screen.queryByTestId('payout-detail-obligations-count')).not.toBeInTheDocument()
   })
+
+  it('renders the recipient dash-fallback on its own — a null receiverName does not silently render empty', () => {
+    // Deliberately NOT combined with a null projectName in the same fixture:
+    // both fields fall back to the SAME '—' glyph, and `row.textContent`
+    // concatenates sibling <p> elements with no separator — a null
+    // projectName's correct dash would sit immediately after an EMPTY
+    // (bugged) receiverName slot and accidentally satisfy a substring check
+    // meant for the receiver. Keeping them in separate tests, each with the
+    // OTHER field non-null, makes each assertion unambiguous.
+    currentRole = 'ADMIN'
+    const obligationTx = makeObligationTx({
+      id: 'obligation-recv-null',
+      receiverName: null,
+      projectName: 'Unambiguous Project',
+    })
+    PAYOUT.transactions = [obligationTx]
+    renderDialog()
+
+    const row = screen.getByTestId('payout-detail-obligation-obligation-recv-null')
+    expect(row).toHaveTextContent('Компания должна —')
+    expect(row).toHaveTextContent('Unambiguous Project')
+  })
+
+  it('renders the obligation row fields precisely — project dash-fallback, sliced id, createdAt date-fallback, status badge', () => {
+    currentRole = 'ADMIN'
+    const obligationTx = makeObligationTx({
+      id: 'obligation-long-id-1',
+      receiverName: 'Иван Синьоров',
+      // null exercises the '—' fallback — distinguishes `?? '—'` from a
+      // `&&` mutant, which would render nothing (falsy) instead.
+      projectName: null,
+      // null exercises the createdAt fallback — distinguishes `?? createdAt`
+      // from a `&&` mutant, which would resolve to `null` (epoch date).
+      txDate: null,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      status: 'PAID',
+    })
+    PAYOUT.transactions = [obligationTx]
+    renderDialog()
+
+    const row = screen.getByTestId('payout-detail-obligation-obligation-long-id-1')
+    const expectedDate = new Date(obligationTx.createdAt).toLocaleDateString('ru-RU')
+    // Dash fallback + a REAL space between "от" and the date + the date
+    // itself computed from createdAt (txDate is null). receiverName is a
+    // real (non-dash) name here, so this substring is unambiguous — see the
+    // note on the previous test for why the two dash-fallbacks are split.
+    expect(row).toHaveTextContent(`— · #obliga от ${expectedDate}`)
+    // Sliced id: exactly the first 6 chars — the full id must NOT appear
+    // verbatim (kills the `.id` (unsliced) mutant).
+    expect(row.textContent).not.toContain('obligation-long-id-1')
+
+    const badge = screen.getByTestId('payout-detail-obligation-status-obligation-long-id-1')
+    expect(badge).toHaveTextContent('Оплачено')
+  })
+
+  it('gracefully handles a payout with no transactions field (optional in the DTO) — no crash, neither section renders', () => {
+    currentRole = 'ADMIN'
+    // `transactions` is optional on PayoutRequestDto — this exercises that
+    // branch directly (kills the `payout.transactions?.filter` OptionalChaining
+    // mutants: without `?.` this would throw instead of rendering nothing).
+    ;(PAYOUT as { transactions?: TransactionDto[] | undefined }).transactions = undefined
+    renderDialog()
+
+    expect(screen.queryByTestId('payout-detail-transactions-count')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('payout-detail-obligations-count')).not.toBeInTheDocument()
+    // Sanity: the rest of the dialog still renders — no crash.
+    expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
+  })
 })

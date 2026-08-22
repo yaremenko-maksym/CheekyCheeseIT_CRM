@@ -246,6 +246,11 @@ export function PayoutPaymentForm({
                         </span>
                         <span
                           className={cn(
+                            // Stryker disable next-line StringLiteral: cosmetic Tailwind
+                            // badge styling — testing-library discourages asserting
+                            // implementation-detail CSS classes; the badge's TEXT
+                            // (STATUS_LABELS[tx.status]) and its data-testid are both
+                            // asserted directly (see the obligations-split tests).
                             'rounded-full border px-1.5 py-0 text-[9px] font-medium leading-4',
                             STATUS_COLORS[tx.status],
                           )}

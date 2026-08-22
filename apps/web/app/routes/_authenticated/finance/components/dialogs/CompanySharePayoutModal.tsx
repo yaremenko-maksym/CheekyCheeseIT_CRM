@@ -316,6 +316,13 @@ export function CompanySharePayoutModal({
   // NOT named `payoutId` — that identifier is already the step-1→2 id state
   // above (line ~180); shadowing it here would be a duplicate `const` in the
   // same scope (a build error), not merely confusing.
+  //
+  // Stryker disable next-line StringLiteral: the '' fallback is an
+  // EQUIVALENT mutant — it is only ever consulted when `paymentState.payout`
+  // itself is nullish, and in that exact case `payoutTxs` below is ALSO `[]`
+  // regardless of `currentPayoutId`'s value (filtering an empty array is a
+  // no-op for any id argument). No observable output can ever depend on
+  // which fallback string is used here.
   const currentPayoutId = paymentState.payout?.id ?? ''
   const payoutTxs = paymentState.payout?.transactions ?? []
   const payoutIncomeTxs = payoutTxs.filter((tx) => isBundledIncomeTransaction(tx, currentPayoutId))
