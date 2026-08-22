@@ -221,8 +221,19 @@ export function PayoutPaymentForm({
                 <Label className="text-xs" data-testid="payout-detail-obligations-count">
                   Обязательства компании ({obligationTxs.length})
                 </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Компания должна — не входит в сумму выплаты выше
+                {/* design-audit PR #592 (LOW): "Компания должна" already lives
+                    in the section title above AND used to open every row
+                    below (see the HIGH note on the name line) — the OLD copy
+                    here duplicated it AND broke mid-sentence before the em
+                    dash ("должна —" with no direct object). This phrasing
+                    gives "должна" an object ("эти суммы") so the first clause
+                    is complete, and an explicit subject ("они") for the
+                    second — no implicit-subject fragment. */}
+                <p
+                  className="text-[11px] text-muted-foreground"
+                  data-testid="payout-detail-obligations-caption"
+                >
+                  Компания должна эти суммы — они не входят в выплату выше
                 </p>
                 <div className="rounded-md border border-amber-500/30 divide-y divide-amber-500/20 max-h-40 overflow-y-auto">
                   {obligationTxs.map((tx) => (
@@ -232,8 +243,25 @@ export function PayoutPaymentForm({
                       data-testid={`payout-detail-obligation-${tx.id}`}
                     >
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">
-                          Компания должна {tx.receiverName ?? '—'}
+                        {/* design-audit PR #592 (HIGH): the row used to read
+                            "Компания должна {Имя}" — measured on a real 320px
+                            DOM (getBoundingClientRect): the "Компания должна "
+                            prefix alone ate ~118px of the ~118-203px this
+                            column has, so the name — the one thing this row
+                            exists to show — was cut before printing a single
+                            letter. The direction is already said once, in the
+                            section title AND the caption above; repeating it
+                            per row was also pure duplication. Name-only here,
+                            AND `line-clamp-2` (not `truncate`) so a long name
+                            wraps instead of losing the surname to an
+                            ellipsis — the list already scrolls
+                            (`max-h-40 overflow-y-auto`), vertical space is
+                            cheaper than a silently-hidden name. */}
+                        <p
+                          className="font-medium line-clamp-2 break-words"
+                          data-testid={`payout-detail-obligation-name-${tx.id}`}
+                        >
+                          {tx.receiverName ?? '—'}
                         </p>
                         <p className="text-muted-foreground">
                           {tx.projectName ?? '—'} · #{tx.id.slice(0, 6)} от{' '}

@@ -253,12 +253,22 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     expect(screen.getByTestId('payout-detail-tx-drop-income-1')).toBeInTheDocument()
     expect(screen.queryByTestId('payout-detail-tx-obligation-1')).not.toBeInTheDocument()
 
-    // The obligation renders separately, with an explicit direction label.
+    // The obligation renders separately, with an explicit direction label —
+    // said ONCE, in the section title + caption (design-audit PR #592 HIGH:
+    // repeating "Компания должна" per row ate the mobile-width budget the
+    // recipient's actual NAME needed — see the row assertion below).
     expect(screen.getByTestId('payout-detail-obligations-count')).toHaveTextContent(
       'Обязательства компании (1)',
     )
+    expect(screen.getByTestId('payout-detail-obligations-caption')).toHaveTextContent(
+      'Компания должна эти суммы — они не входят в выплату выше',
+    )
     const row = screen.getByTestId('payout-detail-obligation-obligation-1')
-    expect(row).toHaveTextContent('Компания должна Иван Синьоров')
+    expect(row).toHaveTextContent('Иван Синьоров')
+    // Regression guard for the design-audit HIGH: the per-row prefix must
+    // NOT come back — it is what caused the name to truncate to nothing on
+    // 320px (measured: prefix alone consumed the column's ~118px budget).
+    expect(row).not.toHaveTextContent('Компания должна')
     expect(row).toHaveTextContent('130')
   })
 
@@ -303,8 +313,11 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     renderDialog()
 
     const row = screen.getByTestId('payout-detail-obligation-obligation-recv-null')
-    expect(row).toHaveTextContent('Компания должна —')
+    expect(row).toHaveTextContent('—')
     expect(row).toHaveTextContent('Unambiguous Project')
+    // Regression guard (design-audit PR #592 HIGH) — see the note on the
+    // previous test for why this string must never reappear per row.
+    expect(row).not.toHaveTextContent('Компания должна')
   })
 
   it('renders the obligation row fields precisely — project dash-fallback, sliced id, createdAt date-fallback, status badge', () => {
@@ -351,5 +364,36 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     expect(screen.queryByTestId('payout-detail-obligations-count')).not.toBeInTheDocument()
     // Sanity: the rest of the dialog still renders — no crash.
     expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
+  })
+
+  it('a long recipient name is preserved in full and wraps rather than being cut off (design-audit PR #592 HIGH)', () => {
+    // Real pixel-level proof (getBoundingClientRect on a live 320px DOM) is
+    // what the design audit used — jsdom/happy-dom (this test's environment)
+    // does not run a real layout engine, so it cannot reproduce that
+    // measurement. What CAN be pinned deterministically here, and is exactly
+    // the regression this finding warned about ("следующая правка вёрстки
+    // сломает молча"), is the CODE-LEVEL contract the fix relies on:
+    //   1. the full name is in the DOM verbatim — nothing truncates it at
+    //      the string/JS level (a future `.slice()`/prefix reintroduction
+    //      would fail this);
+    //   2. the name element wraps (`line-clamp-2`) rather than clipping with
+    //      an ellipsis (`truncate`) — swapping back to `truncate` is the
+    //      exact regression the HIGH finding was about, and this assertion
+    //      fails loudly if that happens.
+    // A live 320/375px screenshot was additionally taken by hand against a
+    // temporary dev harness (not committed, mirroring the auditor's own
+    // methodology) to confirm the rendered result — see the PR thread.
+    currentRole = 'ADMIN'
+    const longName = 'Олександр-Максиміліан Найдовшепрізвищенко-Компанійський'
+    const obligationTx = makeObligationTx({ id: 'obligation-long-name', receiverName: longName })
+    PAYOUT.transactions = [obligationTx]
+    renderDialog()
+
+    const row = screen.getByTestId('payout-detail-obligation-obligation-long-name')
+    expect(row).toHaveTextContent(longName)
+    const nameEl = screen.getByTestId('payout-detail-obligation-name-obligation-long-name')
+    expect(nameEl).toHaveTextContent(longName)
+    expect(nameEl).toHaveClass('line-clamp-2')
+    expect(nameEl).not.toHaveClass('truncate')
   })
 })
