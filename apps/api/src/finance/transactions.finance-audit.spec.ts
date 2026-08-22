@@ -24,6 +24,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
+import { pendingObligations } from '../database/schema'
 
 function admin(id = 'admin-1'): SessionUser {
   return {
@@ -483,5 +484,133 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     )
     expect(updateSpy).not.toHaveBeenCalled()
     expect(invoiceSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ── task-fix-obligation-amount-divergence (backlog 181, L3 + L11) ─────────────
+//
+// Unit-level, mocked-DB coverage of the money-gate mutation-gate (AC6): the
+// real-DB integration spec (obligation-amount-divergence.integration.spec.ts)
+// proves end-to-end behaviour, but a mutation gate scoped to CHANGED lines
+// only counts a mutant killed if a test observes it WITHOUT a live DB — the
+// existing mocked describe blocks above call adminUpdateTransaction with a
+// permissive `update: () => ({ set: () => ({ where: updateSpy }) })` stub that
+// accepts ANY table/set/where unconditionally, so it cannot tell "the
+// pending_obligations UPDATE ran with the right WHERE" from "it never ran at
+// all" or "salaryMonth silently dropped out of the journal metadata". These
+// tests capture the table object + compiled SQL/params/values Drizzle
+// actually built, the same technique `compileWhere` already uses above for
+// createMonthlySalaries's `where`.
+describe('adminUpdateTransaction — L3/L11: pending_obligations sync + salaryMonth journal (unit, mocked DB)', () => {
+  const OPEN_IOU = {
+    id: 'tx-oblig-1',
+    type: 'SENIOR_PENDING_PAYOUT',
+    status: 'PENDING_PAYMENT',
+    fundingSource: null,
+    amount: '260.000000',
+    currency: 'USDT',
+    payoutRequestId: null,
+    receiverId: 'senior-1',
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    salaryMonth: '2026-01',
+    notes: null,
+  }
+
+  function makeSvc(row: Record<string, unknown>) {
+    const findOne = vi.fn().mockResolvedValue({ id: row['id'] })
+    const txUpdateReturning = vi.fn().mockReturnValue({
+      returning: () => Promise.resolve([{ id: row['id'] }]),
+    })
+    const obligationCalls: Array<{ setArg: Record<string, unknown>; whereArg: unknown }> = []
+    const auditInserts: Array<{ table: unknown; values: Record<string, unknown> }> = []
+    const dbStub = {
+      db: {
+        query: {
+          transactions: { findFirst: () => Promise.resolve(row) },
+        },
+        transaction: (cb: (dbtx: unknown) => Promise<unknown>) =>
+          cb({
+            // Distinguishes the `transactions` UPDATE from the
+            // `pending_obligations` one by the actual table object Drizzle
+            // was called with — a permissive stub that ignores its argument
+            // (the pattern the OTHER describe blocks in this file use) would
+            // make every mutant that touches WHICH table gets updated, or
+            // whether it gets updated at all, invisible to this test.
+            update: (table: unknown) => {
+              if (table === pendingObligations) {
+                return {
+                  set: (setArg: Record<string, unknown>) => ({
+                    where: (whereArg: unknown) => {
+                      obligationCalls.push({ setArg, whereArg })
+                      return Promise.resolve(undefined)
+                    },
+                  }),
+                }
+              }
+              return { set: () => ({ where: txUpdateReturning }) }
+            },
+            insert: (table: unknown) => ({
+              values: (v: Record<string, unknown>) => {
+                auditInserts.push({ table, values: v })
+                return Promise.resolve()
+              },
+            }),
+          }),
+      },
+    }
+    const svc = makeTransactionsService({ db: dbStub as never })
+    ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
+    return { svc, obligationCalls, auditInserts }
+  }
+
+  // ── AC2: the sync itself ───────────────────────────────────────────────────
+  it('amountChanged=true issues ONE pending_obligations UPDATE scoped to sourceTransactionId=id AND status=PENDING, set to the NEW amount', async () => {
+    const { svc, obligationCalls } = makeSvc(OPEN_IOU)
+    await svc.adminUpdateTransaction('tx-oblig-1', { amount: 777 }, admin())
+
+    expect(obligationCalls).toHaveLength(1)
+    expect(obligationCalls[0]!.setArg['amount']).toBe('777')
+    const { sql, params } = compileWhere(obligationCalls[0]!.whereArg)
+    expect(sql).toContain('"source_transaction_id" = $1')
+    expect(sql).toContain('"status" = $2')
+    expect(params).toEqual(['tx-oblig-1', 'PENDING'])
+  })
+
+  it('amountChanged=false (metadata-only edit) issues NO pending_obligations UPDATE', async () => {
+    const { svc, obligationCalls } = makeSvc(OPEN_IOU)
+    await svc.adminUpdateTransaction('tx-oblig-1', { notes: 'just a note' }, admin())
+    expect(obligationCalls).toHaveLength(0)
+  })
+
+  // ── AC4: salaryMonth journalling ────────────────────────────────────────────
+  it('salaryMonthChanged ALONE (no amount/currency/receiverLabel change) still writes a journal row, with ONLY salaryMonth in metadata', async () => {
+    const { svc, auditInserts } = makeSvc(OPEN_IOU)
+    await svc.adminUpdateTransaction('tx-oblig-1', { salaryMonth: '2026-02' }, admin())
+
+    expect(auditInserts).toHaveLength(1)
+    expect(auditInserts[0]!.values['action']).toBe('AMOUNT_OR_RECEIVER_CHANGE')
+    // Exact shape (not just "truthy") — kills the spread-of-boolean mutants
+    // (`...(true)` / `...(false)` / `...(x || {...})` all collapse a boolean
+    // spread to a no-op, so only a full-shape assertion tells them apart from
+    // the real `...(salaryMonthChanged && {...})`).
+    expect(auditInserts[0]!.values['metadata']).toEqual({
+      salaryMonth: { before: '2026-01', after: '2026-02' },
+    })
+  })
+
+  it('a pure metadata-only edit (no money-defining field changed) writes NO journal row', async () => {
+    const { svc, auditInserts } = makeSvc(OPEN_IOU)
+    await svc.adminUpdateTransaction('tx-oblig-1', { notes: 'just a note' }, admin())
+    expect(auditInserts).toHaveLength(0)
+  })
+
+  it('amountChanged ALONE still journals — and its metadata carries no salaryMonth key', async () => {
+    const { svc, auditInserts } = makeSvc(OPEN_IOU)
+    await svc.adminUpdateTransaction('tx-oblig-1', { amount: 777 }, admin())
+    expect(auditInserts).toHaveLength(1)
+    expect(auditInserts[0]!.values['metadata']).toEqual({
+      amount: { before: '260.000000', after: '777' },
+    })
   })
 })

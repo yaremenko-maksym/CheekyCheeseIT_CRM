@@ -3024,6 +3024,52 @@ export class TransactionsService {
 
     try {
       await this.db.db.transaction(async (dbtx) => {
+        // task-fix-obligation-amount-divergence (backlog 181, L3 in
+        // docs/architecture/2026-08-22-paid-transaction-edit-cascade.md).
+        // `pending_obligations.amount` is a SEPARATE stored copy of the exact
+        // same number `transactions.amount` gets below — bookCompanyObligations
+        // inserts both rows with the identical share at booking time
+        // (transactions.service.ts, senior/drop IOU branches). Nothing kept
+        // them in sync afterwards: the settle-time money gate reads FROM
+        // `obligation.amount` (pending-settlement.service.ts, `computeCompanyAccountBalanceFromLedger`
+        // sufficiency check) while the company-account ledger debits BY
+        // `transactions.amount` once the row flips to PAID
+        // (company-account-balance.ts `sumLedgerTerms`). Editing only the
+        // transactions row here would let a future settle check solvency
+        // against a stale sum while the ledger debits a different one — the
+        // exact defect this diff closes. Scoped to `status = 'PENDING'`
+        // (AC3): a CLOSED obligation's amount is a historical record of a
+        // settlement that already happened (L4 in the same doc) and is
+        // deliberately out of reach here — the WHERE clause makes that a
+        // structural guarantee, not just an intent, even if amountChanged
+        // somehow fires for an already-settled source row.
+        //
+        // security-review round on PR #598 (MED-2, lock-order inversion):
+        // this UPDATE runs BEFORE the `transactions` one below — deliberately
+        // matching the lock order `settleByCompany` already takes (its own
+        // conditional claim UPDATEs `pending_obligations` first, THEN flips
+        // `transactions`, pending-settlement.service.ts). Doing it the other
+        // way round here (transactions → pending_obligations) would be an
+        // ABBA lock order against that method's (pending_obligations →
+        // transactions) on the SAME row pair — a Postgres deadlock (40P01)
+        // reachable the moment an admin edit and a settle race on the same
+        // obligation, surfacing as a genuine 500 on the money path even
+        // though neither transaction corrupts anything (Postgres's own
+        // deadlock detector aborts one side, full rollback). Ordering both
+        // call sites the same way removes the inversion structurally, not by
+        // hoping the two never overlap.
+        if (amountChanged) {
+          await dbtx
+            .update(pendingObligations)
+            .set({ amount: String(data.amount), updatedAt: new Date() })
+            .where(
+              and(
+                eq(pendingObligations.sourceTransactionId, id),
+                eq(pendingObligations.status, 'PENDING'),
+              ),
+            )
+        }
+
         // security-review PR #456 (MED-1, delete↔write TOCTOU): `tx` was read
         // before this transaction opened; re-assert `deleted_at IS NULL`
         // inside the write itself so a concurrent delete cannot land between
@@ -3053,7 +3099,12 @@ export class TransactionsService {
         // when one of them actually changed (mirrors TeamAuditLogService's
         // skip-on-empty-diff convention) — a metadata-only edit (notes/receipt)
         // does not spam the journal.
-        if (amountChanged || currencyChanged || receiverLabelChanged) {
+        // task-fix-obligation-amount-divergence (L11 in the same doc, AC4):
+        // `salaryMonthChanged` used to be computed and enforced by BIZ-18
+        // above but never reached this condition — a salary moved between
+        // months left no journal trail at all. Added to both the condition
+        // and the metadata below.
+        if (amountChanged || currencyChanged || receiverLabelChanged || salaryMonthChanged) {
           await dbtx.insert(transactionAuditLog).values({
             actorId: currentUser.impersonatorId ?? currentUser.id,
             targetId: id,
@@ -3067,6 +3118,9 @@ export class TransactionsService {
               }),
               ...(receiverLabelChanged && {
                 receiverLabel: { before: tx.receiverLabel, after: data.category },
+              }),
+              ...(salaryMonthChanged && {
+                salaryMonth: { before: tx.salaryMonth, after: data.salaryMonth },
               }),
             },
           })

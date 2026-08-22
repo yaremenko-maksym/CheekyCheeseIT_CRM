@@ -762,10 +762,43 @@ export class PendingSettlementService {
         .where(
           and(eq(pendingObligations.id, obligation.id), eq(pendingObligations.status, 'PENDING')),
         )
-        .returning({ id: pendingObligations.id })
+        .returning({ id: pendingObligations.id, amount: pendingObligations.amount })
       if (claimed.length === 0) {
         // Idempotent: a concurrent / repeated call already closed this obligation.
         throw new BadRequestException('Долг уже закрыт или отменён')
+      }
+
+      // SECURITY (TOCTOU, task-fix-obligation-amount-divergence follow-up,
+      // MED-1). `obligation` above was read BEFORE this transaction opened.
+      // Every value derived from `obligation.amount` since then — the DROP
+      // currency-conversion block above (paidAmount / originalAmount /
+      // exchangeRate, all computed from `parseFloat(obligation.amount)`) and
+      // the balance-sufficiency check right below — was, until
+      // task-fix-obligation-amount-divergence, provably safe to read stale:
+      // `pending_obligations.amount` had NO write path at all once booked.
+      // `adminUpdateTransaction` gave it one (keeping it in sync with the
+      // source IOU's `transactions.amount`, scoped to `status='PENDING'`).
+      // The conditional claim above re-evaluates only `status`, not
+      // `amount` — so an edit that commits in the window between the read
+      // above and this claim now sails through undetected: the gate would
+      // check the OLD sum while the flip below books the NEW one (SENIOR —
+      // its `amount` is left untouched by the flip, i.e. whatever is
+      // currently committed) or, for DROP, the OPPOSITE: `paidAmount` was
+      // already computed from the STALE amount above and gets written
+      // verbatim, discarding the edit on a row that is about to become
+      // CLOSED — an L4-shaped, unrecoverable divergence (the flip has no
+      // percent snapshot to recompute from afterwards).
+      //
+      // The claim's own `.returning()` is the ONE read in this whole method
+      // that observes the row AS COMMITTED at claim time — comparing it
+      // against the pre-transaction snapshot turns an otherwise-silent race
+      // into an explicit refusal (nothing money-mutating below this point
+      // has run yet) rather than a wrong debit either direction.
+      const claimedAmount = claimed[0]!.amount
+      if (Number(claimedAmount).toFixed(6) !== Number(obligation.amount).toFixed(6)) {
+        throw new BadRequestException(
+          'Сумма обязательства изменилась после загрузки — обновите страницу и повторите закрытие',
+        )
       }
 
       // SECURITY (TOCTOU): a company-account DEBIT must serialize against every
@@ -777,7 +810,14 @@ export class PendingSettlementService {
       if (debitsCompanyAccount) {
         await lockCompanyAccount(dbtx)
         const balance = await computeCompanyAccountBalanceFromLedger(dbtx)
-        const amount = parseFloat(obligation.amount)
+        // Gate by the CLAIMED amount (read inside the transaction, above),
+        // not the pre-transaction `obligation` snapshot — see the TOCTOU
+        // note above. The two are asserted equal just above (a race throws
+        // before reaching here), so this is a no-op today; keeping the gate
+        // keyed on `claimedAmount` rather than `obligation.amount` is what
+        // makes that assertion load-bearing rather than decorative — a
+        // later change that loosens it still gates correctly on its own.
+        const amount = parseFloat(claimedAmount)
         if (amount > balance) {
           throw new BadRequestException(
             'Недостаточно средств на счёте компании для закрытия долга перед синьором',
