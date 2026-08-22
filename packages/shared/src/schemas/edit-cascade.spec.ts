@@ -1,11 +1,21 @@
 import { describe, it, expect } from 'vitest'
 import { roundShareAmount } from '../utils/money'
+import { MAX_TRANSACTION_AMOUNT } from './finance'
 import {
   amountsDiffer,
   computeCascadeVersion,
   resolveEditCascade,
+  cascadeWarningCodeSchema,
+  cascadePlanSchema,
+  cascadeEditPreviewQuerySchema,
+  cascadeEditPreviewBlockedReasonSchema,
+  cascadeEditPreviewResponseSchema,
   type CascadeDerivativeSnapshot,
   type CascadeSnapshot,
+  type CascadeWarning,
+  type CascadeDerivativePlan,
+  type CascadePlan,
+  type CascadeEditPreviewResponse,
 } from './edit-cascade'
 
 // ---------------------------------------------------------------------------
@@ -201,7 +211,15 @@ describe('resolveEditCascade — AC6 case 4: no share snapshot ⇒ refuse, not g
     expect(d.sharePercent).toBeNull()
     expect(d.remainingToPay).toBeNull()
     expect(d.needsReconfirm).toBe(false)
-    expect(d.warnings).toEqual([{ code: 'NO_SHARE_SNAPSHOT', message: expect.any(String) }])
+    // Exact message content pinned (not `expect.any(String)`) — a mutant that
+    // blanks the literal string in the source is otherwise invisible here.
+    expect(d.warnings).toEqual([
+      {
+        code: 'NO_SHARE_SNAPSHOT',
+        message:
+          'Нет снимка процента доли на этой строке — пересчитать невозможно, требуется ручное решение',
+      },
+    ])
   })
 
   it('PAID derivative with settledSharePercent=null (legacy flip, pre-task-1 row)', () => {
@@ -227,6 +245,41 @@ describe('resolveEditCascade — AC6 case 5: derivative already PENDING (обя�
   })
 })
 
+describe('resolveEditCascade — defensive `obligation: null` (schema comment: "nullable defensively")', () => {
+  it('treats a missing obligation as NOT settled — reads sharePercent/amount off the derivative row itself', () => {
+    const s = snapshot({ amount: 1000 }, [
+      makePendingDerivative({ sharePercent: 26, amount: 999, obligation: null }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    const d = plan.derivatives[0]!
+    // oldAmount falls back to the derivative's OWN amount, not obligation.amount
+    // (there is no obligation to read it from) — pins the `?? derivative.amount`
+    // fallback, not just "does not throw".
+    expect(d.oldAmount).toBe(999)
+    expect(d.newAmount).toBe(roundShareAmount(2000, 26))
+    expect(d.needsReconfirm).toBe(false)
+    expect(d.settledAmount).toBe(0)
+  })
+
+  it('an obligation.amount of exactly 0 is NOT treated as "no obligation" (?? not ||)', () => {
+    const s = snapshot({ amount: 1000 }, [
+      makePaidDerivative({
+        amount: 500,
+        obligation: {
+          id: 'obl-1',
+          status: 'PAID',
+          amount: 0,
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    // A `||` fallback would read the truthy `derivative.amount` (500) instead —
+    // `??` must keep the real, falsy 0 from the obligation row.
+    expect(plan.derivatives[0]!.oldAmount).toBe(0)
+  })
+})
+
 describe('resolveEditCascade — AC6 case 7: валюта расчёта не USDT', () => {
   it('warns when the settled currency is not USDT — sums are not directly comparable', () => {
     const s = snapshot({ amount: 1000 }, [
@@ -234,11 +287,30 @@ describe('resolveEditCascade — AC6 case 7: валюта расчёта не US
     ])
     const plan = resolveEditCascade(s, { amount: 2000 })
     const d = plan.derivatives[0]!
-    expect(d.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(true)
+    expect(d.warnings).toContainEqual({
+      code: 'NON_USDT_CURRENCY',
+      message:
+        'Выплата по этой строке учтена в UAH, а не в USDT — «уже выплачено» и «новая доля» не в одной валюте',
+    })
   })
 
   it('does not warn for the default USDT settlement', () => {
     const s = snapshot({ amount: 1000 }, [makePaidDerivative({ settledCurrency: 'USDT' })])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
+  })
+
+  it('does not warn when settled but settledCurrency is null (pins the `&&` chain, not just `isSettled`)', () => {
+    const s = snapshot({ amount: 1000 }, [makePaidDerivative({ settledCurrency: null })])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
+  })
+
+  it('does not warn on a still-PENDING derivative even if settledCurrency were somehow set', () => {
+    // Not a shape that ever occurs for real (settle is what sets settledCurrency),
+    // but resolveDerivative's own `isSettled &&` guard must still hold as a pure
+    // function of its input — pins the leading `isSettled &&` operand.
+    const s = snapshot({ amount: 1000 }, [makePendingDerivative({ settledCurrency: 'UAH' })])
     const plan = resolveEditCascade(s, { amount: 2000 })
     expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(false)
   })
@@ -248,7 +320,11 @@ describe('resolveEditCascade — signed-invoice warning (AC4 warning list)', () 
   it('warns when the derivative already carries a counterparty signature', () => {
     const s = snapshot({ amount: 1000 }, [makePaidDerivative({ hasSignedInvoice: true })])
     const plan = resolveEditCascade(s, { amount: 2000 })
-    expect(plan.derivatives[0]!.warnings.some((w) => w.code === 'SIGNED_INVOICE')).toBe(true)
+    expect(plan.derivatives[0]!.warnings).toContainEqual({
+      code: 'SIGNED_INVOICE',
+      message:
+        'По этой строке инвойс уже подписан контрагентом — правка не отразится в подписанном документе',
+    })
   })
 })
 
@@ -298,6 +374,28 @@ describe('computeCascadeVersion', () => {
     const base = snapshot({ amount: 1000, updatedAt: '2026-08-01T00:00:00.000Z' }, [])
     const touched = snapshot({ amount: 1000, updatedAt: '2026-08-02T00:00:00.000Z' }, [])
     expect(computeCascadeVersion(base)).not.toBe(computeCascadeVersion(touched))
+  })
+
+  // Pins the EXACT `src:<id>:<ts>|<derivId>:<derivTs>:<oblId>:<oblTs>` format —
+  // an inequality-only assertion (above) cannot tell a blanked `:`/`|`
+  // separator apart from a real one, since the joined string still differs
+  // by SOME character whenever content changes.
+  it('produces the exact "src:id:ts|derivId:derivTs:oblId:oblTs" format', () => {
+    const s = snapshot({ id: 'src-9', amount: 1000, updatedAt: 'T1' }, [
+      makePendingDerivative({
+        id: 'd9',
+        updatedAt: 'T2',
+        obligation: { id: 'o9', status: 'PENDING', amount: 1, updatedAt: 'T3' },
+      }),
+    ])
+    expect(computeCascadeVersion(s)).toBe('src:src-9:T1|d9:T2:o9:T3')
+  })
+
+  it('uses a literal "-" placeholder when a derivative has no obligation', () => {
+    const s = snapshot({ id: 'src-9', amount: 1000, updatedAt: 'T1' }, [
+      makePendingDerivative({ id: 'd9', updatedAt: 'T2', obligation: null }),
+    ])
+    expect(computeCascadeVersion(s)).toBe('src:src-9:T1|d9:T2:-')
   })
 })
 
@@ -366,5 +464,142 @@ describe('resolveEditCascade — AC7 property test', () => {
       expect(d.needsReconfirm).toBe(expectedNeedsReconfirm)
       expect(d.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(expectedOverpaymentWarning)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Zod wire-contract schemas — everything below `resolveEditCascade` in
+// edit-cascade.ts crosses the wire (`GET /edit-preview`'s query + response),
+// so it is worth pinning through `.parse()` directly, not just via TypeScript
+// inference. `z.object({...})` gutted to `z.object({})` still "typechecks"
+// against these tests' plain object literals AND `.parse()` does not throw on
+// unrecognised extra keys by default — it silently STRIPS them. Every
+// assertion below therefore checks the PARSED RESULT's fields, not merely
+// that parsing succeeded, so a gutted schema is caught by a missing field,
+// not by a thrown error.
+// ---------------------------------------------------------------------------
+
+describe('cascadeWarningCodeSchema — wire contract', () => {
+  it('accepts exactly the four defined codes, unchanged', () => {
+    const codes = [
+      'NO_SHARE_SNAPSHOT',
+      'SIGNED_INVOICE',
+      'OVERPAYMENT',
+      'NON_USDT_CURRENCY',
+    ] as const
+    for (const code of codes) {
+      expect(cascadeWarningCodeSchema.parse(code)).toBe(code)
+    }
+  })
+
+  it('rejects a code outside the defined set', () => {
+    expect(() => cascadeWarningCodeSchema.parse('BOGUS')).toThrow()
+  })
+})
+
+describe('cascadePlanSchema — full round-trip (also covers nested cascadeDerivativePlanSchema/cascadeWarningSchema)', () => {
+  it('parses a full plan and retains every field at every nesting level', () => {
+    const warning: CascadeWarning = { code: 'OVERPAYMENT', message: 'уже выплачено 260' }
+    const derivativePlan: CascadeDerivativePlan = {
+      id: '11111111-1111-4111-8111-111111111111',
+      type: 'SENIOR_PENDING_PAYOUT',
+      oldAmount: 260,
+      newAmount: 520,
+      sharePercent: 26,
+      settledAmount: 260,
+      remainingToPay: 260,
+      needsReconfirm: false,
+      warnings: [warning],
+    }
+    const plan: CascadePlan = {
+      sourceId: '22222222-2222-4222-8222-222222222222',
+      sourceAmountChanged: true,
+      oldSourceAmount: 1000,
+      newSourceAmount: 2000,
+      derivatives: [derivativePlan],
+    }
+    // A gutted schema anywhere in the chain (plan / derivative / warning)
+    // strips the fields it owns — `toEqual` catches ANY of the three.
+    expect(cascadePlanSchema.parse(plan)).toEqual(plan)
+  })
+})
+
+describe('cascadeEditPreviewQuerySchema — wire contract', () => {
+  it('coerces a string query param and retains it as a number', () => {
+    expect(cascadeEditPreviewQuerySchema.parse({ amount: '100' })).toEqual({ amount: 100 })
+  })
+
+  it('rejects an amount above MAX_TRANSACTION_AMOUNT', () => {
+    expect(() =>
+      cascadeEditPreviewQuerySchema.parse({ amount: MAX_TRANSACTION_AMOUNT + 1 }),
+    ).toThrow()
+  })
+
+  it('accepts an amount exactly AT MAX_TRANSACTION_AMOUNT', () => {
+    expect(cascadeEditPreviewQuerySchema.parse({ amount: MAX_TRANSACTION_AMOUNT })).toEqual({
+      amount: MAX_TRANSACTION_AMOUNT,
+    })
+  })
+
+  it('rejects a value below the money floor (moneyFloorAndPrecisionError, superRefine branch)', () => {
+    expect(() => cascadeEditPreviewQuerySchema.parse({ amount: 1e-7 })).toThrowError(/минимум/)
+  })
+
+  it('rejects more than 6 decimal places (moneyFloorAndPrecisionError, superRefine branch)', () => {
+    expect(() => cascadeEditPreviewQuerySchema.parse({ amount: 100.1234567 })).toThrowError(
+      /знаков после запятой/,
+    )
+  })
+
+  it('the superRefine issue is raised with code "custom" (Zod does not itself enforce this — worth pinning)', () => {
+    // Zod v4 accepts ANY string in `ctx.addIssue({ code })` at runtime (no
+    // runtime validation of the discriminant, only a TS-level one) — a
+    // mutant blanking the literal `'custom'` to `''` still throws with the
+    // SAME message text, so a message-only assertion cannot see it. Reading
+    // the raw issue back is the only way to pin this specific field.
+    const result = cascadeEditPreviewQuerySchema.safeParse({ amount: 1e-7 })
+    expect(result.success).toBe(false)
+    expect(result.error!.issues[0]!.code).toBe('custom')
+  })
+})
+
+describe('cascadeEditPreviewBlockedReasonSchema — wire contract', () => {
+  it('accepts exactly the two defined reasons, unchanged', () => {
+    const reasons = ['PAYOUT_FAMILY', 'LINKED_TO_PAYOUT_REQUEST'] as const
+    for (const reason of reasons) {
+      expect(cascadeEditPreviewBlockedReasonSchema.parse(reason)).toBe(reason)
+    }
+  })
+
+  it('rejects a reason outside the defined set', () => {
+    expect(() => cascadeEditPreviewBlockedReasonSchema.parse('BOGUS')).toThrow()
+  })
+})
+
+describe('cascadeEditPreviewResponseSchema — wire contract', () => {
+  it('parses a "blocked" response and retains every field', () => {
+    const response: CascadeEditPreviewResponse = {
+      editable: false,
+      blockedReason: 'PAYOUT_FAMILY',
+      plan: null,
+      version: null,
+    }
+    expect(cascadeEditPreviewResponseSchema.parse(response)).toEqual(response)
+  })
+
+  it('parses an "editable" response with a nested plan and retains every field', () => {
+    const response: CascadeEditPreviewResponse = {
+      editable: true,
+      blockedReason: null,
+      plan: {
+        sourceId: '22222222-2222-4222-8222-222222222222',
+        sourceAmountChanged: false,
+        oldSourceAmount: 1000,
+        newSourceAmount: 1000,
+        derivatives: [],
+      },
+      version: 'src:22222222-2222-4222-8222-222222222222:2026-08-01T00:00:00.000Z',
+    }
+    expect(cascadeEditPreviewResponseSchema.parse(response)).toEqual(response)
   })
 })

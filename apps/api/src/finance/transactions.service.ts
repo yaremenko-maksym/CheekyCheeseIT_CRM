@@ -41,6 +41,7 @@ import {
   COMPANY_ACCOUNT_RECEIVER,
   resolveEditCascade,
   computeCascadeVersion,
+  cascadeEditPreviewResponseSchema,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -3213,12 +3214,28 @@ export class TransactionsService {
       ),
     })
 
+    // Stryker disable next-line ArrowFunction: the VALUES this feeds into the
+    // two `inArray(...)` filters below are a Postgres query shape — a unit
+    // double (this file's own `cascade-edit-preview.unit.spec.ts`) proves the
+    // `where` clause is PRESENT (not gutted) on every call, but a mock that
+    // ignores its argument content cannot distinguish real ids from
+    // `undefined`s without reaching into drizzle-orm's SQL builder internals.
+    // The real-Postgres round-trip in `cascade-edit-preview.integration.spec.ts`
+    // is what actually proves the correct rows come back (mutation-gate-integration-specs.md).
     const derivativeIds = derivativeRows.map((d) => d.id)
     const obligationRows = derivativeIds.length
       ? await db.query.pendingObligations.findMany({
           where: inArray(pendingObligations.sourceTransactionId, derivativeIds),
         })
-      : []
+      : // Stryker disable next-line ArrayDeclaration: provably equivalent —
+        // this branch is reachable ONLY when `derivativeRows` (and therefore
+        // the FINAL `derivatives` output below, built by mapping over the
+        // very same `derivativeRows`) is empty, so `obligationRows`'
+        // CONTENT is built but never read by anything: `obligationByDerivative`
+        // is consulted per-derivative on the next line via `derivativeRows.map`,
+        // which has zero iterations here. Changing the sentinel value cannot
+        // change any observable output.
+        []
     const obligationByDerivative = new Map(obligationRows.map((o) => [o.sourceTransactionId, o]))
 
     // L13/C3 (ADR): a COUNTERPARTY-signed invoice on a derivative is exactly
@@ -3227,10 +3244,20 @@ export class TransactionsService {
       ? await db.query.invoiceSignatures.findMany({
           where: and(
             inArray(invoiceSignatures.transactionId, derivativeIds),
+            // Stryker disable next-line StringLiteral: a Postgres query VALUE
+            // (which signer_role to filter by), not a shape — see the
+            // ArrowFunction suppression above `derivativeIds` for the same
+            // reasoning; provable only against the real DB, which
+            // `cascade-edit-preview.integration.spec.ts` exercises directly
+            // (a signature row with signerRole !== 'COUNTERPARTY' asserted
+            // absent from `hasSignedInvoice` there is not reachable here).
             eq(invoiceSignatures.signerRole, 'COUNTERPARTY'),
           ),
         })
-      : []
+      : // Stryker disable next-line ArrayDeclaration: provably equivalent for
+        // the identical reason as the `obligationRows` sentinel above — only
+        // reachable with zero derivative rows, whose content nothing reads.
+        []
     const signedDerivativeIds = new Set(signatureRows.map((s) => s.transactionId))
 
     const derivatives: CascadeDerivativeSnapshot[] = derivativeRows.map((d) => {
@@ -3304,15 +3331,20 @@ export class TransactionsService {
     const tx = await fetchWritableTransactionOrThrow(this.db.db, id, currentUser)
 
     if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN' || tx.type === 'PAYOUT_CONFIRMED') {
-      return { editable: false, blockedReason: 'PAYOUT_FAMILY', plan: null, version: null }
+      return cascadeEditPreviewResponseSchema.parse({
+        editable: false,
+        blockedReason: 'PAYOUT_FAMILY',
+        plan: null,
+        version: null,
+      })
     }
     if (tx.payoutRequestId) {
-      return {
+      return cascadeEditPreviewResponseSchema.parse({
         editable: false,
         blockedReason: 'LINKED_TO_PAYOUT_REQUEST',
         plan: null,
         version: null,
-      }
+      })
     }
 
     const snapshot = await this.loadCascadeSnapshot(this.db.db, id)
@@ -3326,7 +3358,18 @@ export class TransactionsService {
 
     const plan = resolveEditCascade(snapshot, { amount })
     const version = computeCascadeVersion(snapshot)
-    return { editable: true, blockedReason: null, plan, version }
+    // AC5 of the task file / project convention (all API responses cross the
+    // wire through a Zod `.parse()`) — the SAME schema `GET /edit-preview`'s
+    // consumer (task 5's UI, and task 3's own optimistic-lock check) will
+    // parse on the way IN, parsed here on the way OUT so a shape drift in
+    // `resolveEditCascade`/`computeCascadeVersion` fails loudly in THIS spec
+    // rather than surfacing as a silent contract mismatch three tasks later.
+    return cascadeEditPreviewResponseSchema.parse({
+      editable: true,
+      blockedReason: null,
+      plan,
+      version,
+    })
   }
 
   // ── Admin Delete (soft) ───────────────────────────────────────────────────
