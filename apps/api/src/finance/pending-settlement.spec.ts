@@ -703,6 +703,28 @@ describe('PendingSettlementService.settleByCompany', () => {
     expect(paidClaims).toHaveLength(1)
   })
 
+  // task-settled-amount-snapshot (mutation-gate): `resolveSource`'s early
+  // `if (!source) return {...}` branch — untouched behaviourally by this
+  // task, but its return object was widened (three new snapshot fields) so
+  // the whole statement counts as "changed" for the gate. The source
+  // transaction is FK-NOT-NULL with ON DELETE RESTRICT, so this branch
+  // should be unreachable in practice — but the code still defends against
+  // a corrupted/missing row, and that defence must actually abort the settle
+  // rather than silently proceeding with all-null resolveSource fields.
+  it('defense-in-depth: source transaction row missing entirely aborts the settle safely (resolveSource "not found" branch)', async () => {
+    const { svc, getFlips, getInsertsFor } = makeService({
+      // The obligation references a source transaction id that simply is not
+      // in the transactions table — resolveSource's `if (!source)` branch.
+      sourceTxs: new Map(),
+    })
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      BadRequestException,
+    )
+    // The flip can never find a row to match — no flip, no insert.
+    expect(getFlips()).toHaveLength(0)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
   it('rejects when company balance is insufficient for the obligation', async () => {
     // task-drop-payout-company-account: the company-account debit gate refuses to
     // drive the balance negative. Obligation is 560; balance only 100.

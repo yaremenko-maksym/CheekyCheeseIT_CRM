@@ -1142,6 +1142,19 @@ export class PendingSettlementService {
       where: eq(transactions.id, sourceTransactionId),
     })
     if (!source)
+      // Stryker disable next-line ObjectLiteral: `sourceTransactionId` is a
+      // NOT NULL FK with ON DELETE RESTRICT (schema.ts, pendingObligations
+      // .sourceTransactionId) — this branch is unreachable through any real
+      // write path; kept purely as defense-in-depth. Every field this object
+      // returns is immediately destructured and treated identically whether
+      // it is explicit `null` or JS's own `undefined` (the mutant's `{}`):
+      // `sourceType === 'DROP_PENDING_PAYOUT'`, `!== false` checks, `? :`
+      // ternaries and the `x ? parseFloat(x) : 0` guard below all give the
+      // SAME result for `undefined` as for `null`. No assertion on the
+      // shape of THIS unreachable branch's return value can be anything but
+      // tautological — the settle-aborts-safely behaviour it feeds into is
+      // already pinned by 'defense-in-depth: source transaction row missing
+      // entirely aborts the settle safely' in pending-settlement.spec.ts.
       return {
         project: null,
         sourceType: null,
