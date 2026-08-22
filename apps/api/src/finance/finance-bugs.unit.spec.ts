@@ -92,7 +92,12 @@ function makeSettlementService(
   const claimedUpdate = vi.fn().mockReturnValue({
     set: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([{ id: OBLIGATION_ID }]),
+        // task-fix-obligation-amount-divergence follow-up (MED-1): the
+        // pending_obligations conditional claim now also selects `amount`
+        // in its `.returning()` and compares it against the pre-transaction
+        // snapshot (`obligationRow.amount` here) — same value, so this is a
+        // no-op for every test in this file (none of them exercise the race).
+        returning: vi.fn().mockResolvedValue([{ id: OBLIGATION_ID, amount: obligationRow.amount }]),
       }),
     }),
   })

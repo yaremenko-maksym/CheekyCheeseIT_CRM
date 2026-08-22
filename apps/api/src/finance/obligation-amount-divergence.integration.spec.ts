@@ -74,6 +74,17 @@ const SENIOR: SessionUser = {
   seniorSharePercent: 26,
   legalFullName: null,
 }
+// MED-4 (security-review round on PR #598): the original spec only exercised
+// the SENIOR branch. The DROP branch is strictly more dangerous (MED-1's
+// consequence lands on a CLOSED obligation there — L4, unrecoverable) and
+// was not covered by any test at all.
+const DROP: SessionUser = {
+  ...SENIOR,
+  id: 'ce460000-0000-4000-bb00-000000000002',
+  email: 'obligation-divergence-drop@test.spec',
+  displayName: 'Divergence Drop',
+  role: 'DROP',
+}
 const ADMIN_MAKSYM: SessionUser = {
   ...SENIOR,
   id: MAKSYM_ID,
@@ -83,12 +94,18 @@ const ADMIN_MAKSYM: SessionUser = {
   seniorSharePercent: 0,
 }
 
-const TEST_OWN_USER_IDS = [SENIOR.id]
+const TEST_OWN_USER_IDS = [SENIOR.id, DROP.id]
 
 const ACCOUNT_ID = 'ce460000-0000-4000-cc00-000000000001'
+// `projects.senior_id` is NOT NULL (schema) — every project needs a senior.
+// PROJECT_ID carries BOTH senior and drop bound (mirrors USDT_DROP_PROJECT in
+// usdt-income-obligations.integration.spec.ts) so a SINGLE declare() books
+// both a senior IOU and a drop IOU in one call — MED-4's drop-branch tests
+// use the drop half of that same declaration, the senior tests the other.
 const PROJECT_ID = 'ce460000-0000-4000-dd00-000000000001'
 const DEPOSIT_LABEL = 'obligation-divergence-spec-deposit'
 const SENIOR_SHARE = 26
+const DROP_SHARE = 5
 const WALLET = '0xC0FFEE0000000000000000000000000000000def'
 
 const fakeNbu: Pick<NbuCurrencyService, 'getRates'> = {
@@ -214,6 +231,19 @@ describe.skipIf(!hasDatabaseUrl())(
       return { obligation, source }
     }
 
+    // MED-4: same shape as seniorObligationAndSource, for the drop creditor.
+    async function dropObligationAndSource() {
+      const obligation = await dbSvc.db.query.pendingObligations.findFirst({
+        where: eq(pendingObligations.creditorUserId, DROP.id),
+      })
+      if (!obligation) throw new Error('no drop obligation booked')
+      const source = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, obligation.sourceTransactionId),
+      })
+      if (!source) throw new Error('no source IOU row for the obligation')
+      return { obligation, source }
+    }
+
     async function clearLedger() {
       await dbSvc.db
         .delete(pendingObligations)
@@ -267,6 +297,14 @@ describe.skipIf(!hasDatabaseUrl())(
             googleId: `test-google-${SENIOR.id}`,
           },
           {
+            id: DROP.id,
+            email: DROP.email,
+            displayName: DROP.displayName,
+            role: DROP.role,
+            dropSharePercent: DROP_SHARE,
+            googleId: `test-google-${DROP.id}`,
+          },
+          {
             id: ADMIN_MAKSYM.id,
             email: ADMIN_MAKSYM.email,
             displayName: ADMIN_MAKSYM.displayName,
@@ -285,7 +323,11 @@ describe.skipIf(!hasDatabaseUrl())(
           domain: 'fintech',
           startDate: new Date('2025-01-01'),
           seniorId: SENIOR.id,
-          dropId: null,
+          // MED-4: bound alongside the senior (schema requires seniorId
+          // NOT NULL — there is no "drop-only" project shape) so a single
+          // declare() books BOTH a senior IOU and a drop IOU, letting the
+          // drop-branch tests below exercise the drop half in isolation.
+          dropId: DROP.id,
           currency: 'USDT',
           rate: 1000,
           paymentType: 'USDT',
@@ -448,6 +490,115 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect(stillClosed!.amount).toBe(closedAmountBefore)
       expect(stillClosed!.status).toBe('PAID')
+    })
+
+    // ── MED-4 (security-review round on PR #598): the DROP branch, real DB ────
+    // Everything above exercised only the SENIOR path. The DROP branch is
+    // strictly more dangerous (see MED-1 below): `settleByCompany` OVERWRITES
+    // the flipped row's `amount` with a value derived from the pre-transaction
+    // snapshot, instead of leaving it untouched the way the senior flip does.
+    it('MED-4: edit-then-settle on a DROP obligation — both copies sync, ledger debits the EDITED amount (same currency, no conversion)', async () => {
+      const base = await gateBalance()
+      await declare(1000) // drop IOU/obligation booked at 5% = 50.
+      const { source: before } = await dropObligationAndSource()
+      expect(before.type).toBe('DROP_PENDING_PAYOUT')
+      expect(parseFloat(before.amount)).toBeCloseTo(50, 6)
+
+      await svc.adminUpdateTransaction(before.id, { amount: 321 }, ADMIN_MAKSYM)
+      const { obligation, source: afterEdit } = await dropObligationAndSource()
+      // Direction 1 (AC5): both copies agree after the edit, on the drop side too.
+      expect(obligation.amount).toBe('321.000000')
+      expect(afterEdit.amount).toBe('321.000000')
+
+      const beforeSettle = await gateBalance()
+      const res = await settleSvc.settleByCompany(obligation.id, ADMIN_MAKSYM, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xobligationdivergencedropspec',
+      })
+      expect(res.created[0]!.type).toBe('PAYOUT_DROP')
+      // Direction 2 (AC5): the ledger's PAYOUT_DROP(COMPANY_ACCOUNT) term debits
+      // EXACTLY the edited amount — not the original 50.
+      const afterSettle = await gateBalance()
+      expect(afterSettle).toBeCloseTo(beforeSettle - 321, 6)
+      expect(afterSettle).toBeCloseTo(base + 1000 - 321, 6)
+
+      const flipped = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, obligation.sourceTransactionId),
+      })
+      expect(flipped!.type).toBe('PAYOUT_DROP')
+      expect(flipped!.amount).toBe('321.000000')
+    })
+
+    // ── MED-1 (security-review round on PR #598, TOCTOU race — real DB) ───────
+    //
+    // `settleByCompany` reads the obligation via `loadObligation` OUTSIDE its
+    // own DB transaction, then re-checks only `status` (not `amount`) in the
+    // conditional claim inside it. Before this task, `pending_obligations
+    // .amount` had no write path once booked, so that snapshot could never go
+    // stale — this task's own fix (adminUpdateTransaction syncing it) opened
+    // exactly that window. The DROP branch is the worse half: the currency-
+    // conversion block computes `paidAmount` from the STALE snapshot and
+    // writes it verbatim onto the row as it flips PAID — a CLOSED obligation
+    // (L4), unrecoverable after the fact.
+    //
+    // Reproducing genuine cross-connection interleaving in a deterministic
+    // test is not practical (Node's event loop offers no real concurrency
+    // primitive to pin the exact window) — so, mirroring the EXISTING pattern
+    // in this codebase for the sibling TOCTOU race (pending-settlement.spec.ts
+    // `'conditional UPDATE matching zero rows aborts the settle with no money
+    // write'`, which overrides `query.pendingObligations.findFirst` for one
+    // call), this override targets `loadObligation` itself for one call — the
+    // single call site the race lives at. Everything downstream (the
+    // transaction, the conditional claim, the flip, the ledger, the ROLLBACK
+    // semantics) is genuine Postgres, not mocked.
+    it('MED-1 (real DB, DROP branch): amount changed between the read and the claim → refused, real ROLLBACK, no stale write survives', async () => {
+      await declare(1000)
+      const { obligation, source } = await dropObligationAndSource()
+      expect(parseFloat(obligation.amount)).toBeCloseTo(50, 6)
+
+      // The edit ACTUALLY commits — this is what the in-transaction claim
+      // will see (and what the ledger would debit, absent the fix).
+      await svc.adminUpdateTransaction(source.id, { amount: 999 }, ADMIN_MAKSYM)
+
+      const svcAsPrivate = settleSvc as unknown as {
+        loadObligation: (id: string) => Promise<typeof obligation>
+      }
+      const originalLoadObligation = svcAsPrivate.loadObligation
+      // settleByCompany's OWN pre-transaction read returns a STALE snapshot —
+      // as if it had run BEFORE the edit above, even though (for the test's
+      // determinism) it is invoked after. This isolates exactly the one read
+      // the fix guards, without needing real concurrency.
+      svcAsPrivate.loadObligation = async () => ({ ...obligation, amount: '1' })
+
+      const baseBalance = await gateBalance()
+      try {
+        await expect(
+          settleSvc.settleByCompany(obligation.id, ADMIN_MAKSYM, {
+            fundingSource: 'COMPANY_ACCOUNT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xobligationdivergencedropspec',
+          }),
+        ).rejects.toThrow(/изменилась после загрузки/)
+      } finally {
+        svcAsPrivate.loadObligation = originalLoadObligation
+      }
+
+      // Real Postgres ROLLBACK: the conditional claim that ran INSIDE the
+      // transaction before the throw is undone together with it — the
+      // obligation is STILL PENDING (not left half-closed), the source IOU is
+      // STILL PENDING_PAYMENT (never flipped, never overwritten with the
+      // stale-derived paidAmount), and the ledger balance is unchanged.
+      const stillOpen = await dbSvc.db.query.pendingObligations.findFirst({
+        where: eq(pendingObligations.id, obligation.id),
+      })
+      expect(stillOpen!.status).toBe('PENDING')
+      expect(stillOpen!.amount).toBe('999.000000') // the REAL edit, untouched.
+      const untouchedSource = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, source.id),
+      })
+      expect(untouchedSource!.status).toBe('PENDING_PAYMENT')
+      expect(untouchedSource!.type).toBe('DROP_PENDING_PAYOUT')
+      expect(untouchedSource!.amount).toBe('999.000000')
+      expect(await gateBalance()).toBeCloseTo(baseBalance, 6)
     })
   },
 )

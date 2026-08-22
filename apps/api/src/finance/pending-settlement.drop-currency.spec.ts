@@ -127,6 +127,16 @@ interface MockState {
   // getting the SAME rate regardless of which date is requested, exactly
   // the pre-existing mock behaviour.
   ratesByDate?: Record<string, typeof DEFAULT_RATES & { stale?: boolean; rateDate?: string }>
+  /**
+   * task-fix-obligation-amount-divergence follow-up (MED-1, TOCTOU race).
+   * When set, `query.pendingObligations.findFirst` (the OUTSIDE-of-transaction
+   * `loadObligation` read `settleByCompany` uses for the drop currency-
+   * conversion block) returns THIS amount instead of `state.obligation.amount`
+   * — simulating an edit that committed after that read but before the
+   * conditional claim inside the transaction, which stays keyed on the REAL
+   * `state.obligation.amount`.
+   */
+  staleLoadAmount?: string
 }
 
 function makeService(initial: Partial<MockState> = {}) {
@@ -205,10 +215,15 @@ function makeService(initial: Partial<MockState> = {}) {
               : (() => {
                   if ('status' in patch)
                     obligationStatus = patch['status'] as typeof obligationStatus
-                  return [{ id: OBLIGATION_ID }]
+                  // MED-1 (TOCTOU): `amount` is the REAL, committed value —
+                  // `state.obligation.amount` — never `staleLoadAmount` (that
+                  // override only affects the OUTSIDE-of-transaction
+                  // `findFirst` read below, simulating a race where the two
+                  // now genuinely disagree).
+                  return [{ id: OBLIGATION_ID, amount: state.obligation.amount }]
                 })()
-          const result = Promise.resolve(rows) as Promise<Array<{ id: string }>> & {
-            returning: (..._args: unknown[]) => Promise<Array<{ id: string }>>
+          const result = Promise.resolve(rows) as Promise<Array<{ id: string; amount: string }>> & {
+            returning: (..._args: unknown[]) => Promise<Array<{ id: string; amount: string }>>
           }
           result.returning = async () => rows
           return result
@@ -232,7 +247,17 @@ function makeService(initial: Partial<MockState> = {}) {
     }),
     query: {
       pendingObligations: {
-        findFirst: vi.fn(async () => ({ ...state.obligation, status: obligationStatus })),
+        // MED-1 (TOCTOU): this IS `loadObligation` — the OUTSIDE-of-
+        // transaction read whose `.amount` feeds the DROP currency-
+        // conversion block above. `staleLoadAmount` overrides just that
+        // field so a race test can make it disagree with the REAL,
+        // in-transaction-committed `state.obligation.amount` the claim
+        // above returns.
+        findFirst: vi.fn(async () => ({
+          ...state.obligation,
+          status: obligationStatus,
+          ...(state.staleLoadAmount !== undefined ? { amount: state.staleLoadAmount } : {}),
+        })),
       },
       transactions: {
         findFirst: vi.fn(async () => state.sourceTx),
@@ -969,5 +994,67 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
         ...RECEIPT_FILE,
       }),
     ).rejects.toThrow(/курс/i)
+  })
+})
+
+// ── task-fix-obligation-amount-divergence follow-up (MED-1, TOCTOU race —
+// DROP branch). The SENIOR-side race is covered in pending-settlement.spec.ts;
+// this is the SAME defect on the branch the reviewer flagged as strictly
+// worse (MED-4): the DROP currency-conversion block above computes
+// `paidAmount`/`originalAmount`/`exchangeRate` from `parseFloat(obligation.amount)`
+// — the OUTSIDE-of-transaction snapshot — and writes `paidAmount` VERBATIM
+// onto the flipped, about-to-be-CLOSED row. If that snapshot is stale, the
+// written amount silently reverts to whatever the edit OVERWROTE, on a row
+// that (post-settle) is a historical record — L4, unrecoverable after the
+// fact. The guard added to settleByCompany runs BEFORE this whole
+// currency-conversion block is even reached in real Postgres (loadObligation
+// → the DB transaction → the claim+equality-check → THEN the flip that uses
+// paidAmount) — but the derived values are actually computed OUTSIDE the
+// transaction, earlier in the method, from the same stale `obligation`. This
+// suite proves the claim-time equality check still catches it: no flip, no
+// stale amount ever reaches a written row.
+describe('settleByCompany — DROP obligation: MED-1 TOCTOU race (obligation.amount edited between the read and the claim)', () => {
+  it('refuses when the amount changed since loadObligation — no flip, the stale-derived paidAmount is never written', async () => {
+    const { svc, getRates } = makeService({ staleLoadAmount: '1' })
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        ...RECEIPT_EXPLORER,
+      }),
+    ).rejects.toThrow(/изменилась после загрузки/)
+    // Same-currency (default) path never needed a rate either way — the
+    // refusal happens on the claim, well before any conversion could run.
+    expect(getRates).not.toHaveBeenCalled()
+  })
+
+  it('refuses even through an actual currency conversion (UAH) — the stale amount is never converted or written', async () => {
+    const { svc, settledTx } = makeService({ staleLoadAmount: '1' })
+    const before = settledTx()
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'UAH',
+        ...RECEIPT_FILE,
+      }),
+    ).rejects.toThrow(/изменилась после загрузки/)
+    // The source IOU row is byte-identical to before the call — still
+    // PENDING_PAYMENT, `amount` untouched (not overwritten with a paidAmount
+    // derived from the stale snapshot).
+    expect(settledTx()).toEqual(before)
+  })
+
+  it('an UNCHANGED amount settles normally — no false positive on the DROP branch either', async () => {
+    const { svc, settledTx } = makeService({ staleLoadAmount: '1000' })
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        ...RECEIPT_EXPLORER,
+      }),
+    ).resolves.toBeDefined()
+    expect(settledTx()['status']).toBe('PAID')
+    expect(settledTx()['amount']).toBe('1000')
   })
 })

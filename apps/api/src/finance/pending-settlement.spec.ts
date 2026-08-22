@@ -178,6 +178,24 @@ interface MockState {
   companyBalance?: number
   /** Counts ledger select() calls so the mock attributes balance to term 1. */
   ledgerSelectCount?: number
+  /**
+   * task-fix-obligation-amount-divergence follow-up (MED-1, TOCTOU race).
+   * When set, the OUTSIDE-of-transaction `loadObligation` read (the first
+   * `pendingObligations.findFirst` call `settleByCompany` makes) returns
+   * THIS amount instead of the real one in `state.obligations` — simulating
+   * an `adminUpdateTransaction` edit that committed AFTER settleByCompany's
+   * initial read but BEFORE its conditional claim (which reads
+   * `state.obligations` directly — i.e. the value actually committed at
+   * claim time). Every other read/write in this mock stays on the REAL
+   * value, so this isolates exactly the one stale snapshot the fix guards.
+   */
+  staleLoadAmount?: string
+  /**
+   * MED-1 (mutation-gate): the column-selection object last passed to the
+   * pending_obligations conditional claim's `.returning(...)`. See the
+   * comment at the write site (mkDbtx → applyObligationUpdate's caller).
+   */
+  lastObligationReturningArg?: unknown
 }
 
 function makeService(initial: Partial<MockState> = {}) {
@@ -272,7 +290,9 @@ function makeService(initial: Partial<MockState> = {}) {
         //   1) Status-guarded flip — predicate contains the literal 'PENDING'.
         //      Apply + return [{id}] ONLY when the row is still PENDING; else [].
         //   2) Plain backfill (closingTransactionId) — predicate has only the id.
-        const applyObligationUpdate = (predicate: unknown): Array<{ id: string }> => {
+        const applyObligationUpdate = (
+          predicate: unknown,
+        ): Array<{ id: string; amount: string }> => {
           const values = collectStringValues(predicate)
           const oblId = values.find((v) => state.obligations.has(v)) ?? lastUpdateObligationId
           lastUpdateObligationId = oblId
@@ -284,11 +304,20 @@ function makeService(initial: Partial<MockState> = {}) {
           }
           state.updates.push({ table, set: patch, obligationId: oblId })
           if (existing) {
+            // MED-1 (TOCTOU): `amount` is the value AS COMMITTED at claim
+            // time — `existing.amount`, read from `state.obligations`
+            // BEFORE this patch is applied (the conditional claim's own
+            // `.set()` never touches `amount`, only `status`/`updatedAt`).
+            // This is what settleByCompany's `.returning({..., amount})`
+            // observes in real Drizzle — the authoritative value, which may
+            // differ from `obligation.amount` (the pre-transaction snapshot)
+            // when `staleLoadAmount` simulates a race.
+            const committedAmount = existing.amount
             state.obligations.set(oblId, {
               ...existing,
               ...patch,
             } as ReturnType<typeof makeObligation>)
-            return [{ id: oblId }]
+            return [{ id: oblId, amount: committedAmount }]
           }
           return []
         }
@@ -309,7 +338,17 @@ function makeService(initial: Partial<MockState> = {}) {
           const result = Promise.resolve(rows) as Promise<Array<{ id: string }>> & {
             returning: (..._args: unknown[]) => Promise<Array<{ id: string }>>
           }
-          result.returning = async () => rows
+          // MED-1 (mutation-gate): capture the COLUMN-SELECTION argument the
+          // real code passes to `.returning({ id, amount })` — a mock that
+          // only returns a canned row regardless of what `.returning(...)`
+          // was actually CALLED WITH cannot distinguish that from
+          // `.returning({})` (Stryker's ObjectLiteral mutant), because
+          // nothing ever reads the argument. `getLastObligationReturningArg`
+          // below lets a test assert on it directly.
+          result.returning = async (arg: unknown) => {
+            state.lastObligationReturningArg = arg
+            return rows
+          }
           return result
         }
         return { where }
@@ -356,10 +395,22 @@ function makeService(initial: Partial<MockState> = {}) {
               ) ?? undefined
             )
           }
-          // 1) Direct obligation-id lookup (loadObligation + the refreshed read
-          //    inside settleByCompany).
+          // 1) Direct obligation-id lookup — this IS `loadObligation`, the
+          //    OUTSIDE-of-transaction read `settleByCompany` uses to compute
+          //    the derived DROP amounts and (pre-fix) the balance gate.
+          //    `staleLoadAmount` (MED-1 TOCTOU test) overrides ONLY the
+          //    `amount` this specific read returns — `state.obligations`
+          //    itself (and therefore the in-transaction conditional claim,
+          //    a few lines up in mkDbtx) keeps the REAL committed value, so
+          //    the two now genuinely disagree the way a race would produce.
           const obl = values.find((v) => state.obligations.has(v)) ?? lastUpdateObligationId
-          if (obl && state.obligations.has(obl)) return state.obligations.get(obl)
+          if (obl && state.obligations.has(obl)) {
+            const row = state.obligations.get(obl)!
+            if (state.staleLoadAmount !== undefined) {
+              return { ...row, amount: state.staleLoadAmount }
+            }
+            return row
+          }
           return undefined
         }),
         findMany: vi.fn(async (args: unknown) => {
@@ -437,6 +488,7 @@ function makeService(initial: Partial<MockState> = {}) {
     // fields carried over from booking (receiverId/amount) are visible too.
     settledTx: (txId: string = SOURCE_TX_ID) => state.sourceTxs.get(txId),
     getFlips: () => state.flips.map((f) => f.set),
+    getObligationReturningArg: () => state.lastObligationReturningArg,
   }
 }
 
@@ -654,6 +706,81 @@ describe('PendingSettlementService.settleByCompany', () => {
     )
     // Nothing flipped when the gate fails.
     expect(getFlips()).toHaveLength(0)
+  })
+
+  // ── task-fix-obligation-amount-divergence follow-up (MED-1, TOCTOU race) ──
+  //
+  // `obligation` is read OUTSIDE the transaction (`loadObligation`); the
+  // conditional claim inside it re-evaluates only `status`, not `amount`.
+  // Before task-fix-obligation-amount-divergence, `pending_obligations.amount`
+  // had no write path at all once booked, so that snapshot could never go
+  // stale. `adminUpdateTransaction` gave it one — an edit committing in the
+  // window between the read and the claim now needs its own guard: the claim
+  // itself observes the CURRENT committed row, and `settleByCompany` refuses
+  // outright if it disagrees with the pre-transaction snapshot (rather than
+  // gate/write against the stale one).
+  describe('MED-1: TOCTOU — obligation.amount edited between the read and the claim', () => {
+    it('refuses BEFORE the balance gate runs — race wins even when the STALE amount would have passed it', async () => {
+      // Obligation is REALLY 560 (state.obligations, what the claim commits
+      // to); `loadObligation` is made to see a stale 100 instead — as if an
+      // edit raised it from 100 → 560 in the race window. Balance is 200:
+      // insufficient for the REAL 560, but would have wrongly PASSED against
+      // the stale 100 had the old code (gate-by-snapshot) still been in
+      // place — proving this is a genuinely different code path from the
+      // plain "insufficient funds" test above, not the same assertion twice.
+      const { svc, getFlips, state } = makeService({
+        companyBalance: 200,
+        staleLoadAmount: '100',
+      })
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+        /изменилась после загрузки/,
+      )
+      // Nothing money-mutating ran: no flip, and the ledger gate's own
+      // select() was never even reached (it sits AFTER this check).
+      expect(getFlips()).toHaveLength(0)
+      expect(state.ledgerSelectCount ?? 0).toBe(0)
+    })
+
+    it('refuses even when the balance would have been sufficient for BOTH amounts (not a balance-gate side effect)', async () => {
+      const { svc, getFlips } = makeService({
+        companyBalance: 1_000_000,
+        staleLoadAmount: '999',
+      })
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+        /изменилась после загрузки/,
+      )
+      expect(getFlips()).toHaveLength(0)
+    })
+
+    it('an UNCHANGED amount (staleLoadAmount identical to the real one) settles normally — no false positive', async () => {
+      const { svc, getFlips } = makeService({ staleLoadAmount: '560' })
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+      expect(getFlips()).toHaveLength(1)
+    })
+
+    // mutation-gate: kills the ObjectLiteral mutant on the claim's OWN
+    // `.returning({ id, amount })` (`.returning({})` — every OTHER test in
+    // this file resolves `.returning(...)` from a canned row regardless of
+    // what column-selection object it was called WITH, so that mutant is
+    // invisible to them by construction; this asserts the ARGUMENT itself).
+    it('the conditional claim selects BOTH id and amount in its own .returning(...) — not just id', async () => {
+      const { svc, getObligationReturningArg } = makeService()
+      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      const arg = getObligationReturningArg() as Record<string, unknown>
+      expect(Object.keys(arg).sort()).toEqual(['amount', 'id'])
+    })
+
+    it('ADMIN_PERSONAL funding (no balance gate at all) still catches the SAME race — the check runs unconditionally, not only inside the gate branch', async () => {
+      const { svc, getFlips } = makeService({ staleLoadAmount: '1' })
+      await expect(
+        svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: ADMIN_PAYER_ID,
+          receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+        }),
+      ).rejects.toThrow(/изменилась после загрузки/)
+      expect(getFlips()).toHaveLength(0)
+    })
   })
 
   it('DROP forbidden → 403', async () => {
