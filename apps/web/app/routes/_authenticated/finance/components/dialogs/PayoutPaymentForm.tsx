@@ -16,8 +16,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { fmtAmount } from '../../constants'
-import { isIncomeTransaction } from '../../utils/company-share'
+import { fmtAmount, STATUS_COLORS, STATUS_LABELS } from '../../constants'
+import {
+  isBundledIncomeTransaction,
+  isPayoutObligationTransaction,
+} from '../../utils/company-share'
 import { SHOW_DEV_SIMULATE, type PayoutPaymentFormState } from '../../hooks/usePayoutPaymentForm'
 
 const MANUAL_METHODS: { value: ManualPayoutMethod; label: string; icon: React.ReactNode }[] = [
@@ -158,9 +161,16 @@ export function PayoutPaymentForm({
               DROP payment entry point (InProgressPanel's «Оплатить» pill,
               design spec §9): the SENIOR_INCOME-only filter silently showed
               an empty list for a DROP's own payout, same root cause as the
-              step-2 summary line's project-count bug. */}
+              step-2 summary line's project-count bug.
+              task-split-payouts-and-obligations (backlog 174): further
+              narrowed to isBundledIncomeTransaction — isIncomeTransaction
+              alone also matched a settled COMPANY→recipient obligation
+              recovered onto this payout (see the obligations block below),
+              which flows the OPPOSITE direction and must not join this
+              count. */}
           {(() => {
-            const incomeTxs = payout.transactions?.filter(isIncomeTransaction) ?? []
+            const incomeTxs =
+              payout.transactions?.filter((tx) => isBundledIncomeTransaction(tx, payout.id)) ?? []
             if (incomeTxs.length === 0) return null
             return (
               <div className="space-y-1.5">
@@ -184,6 +194,99 @@ export function PayoutPaymentForm({
                       <span className="tabular-nums font-medium shrink-0">
                         {fmtAmount(tx.amount, tx.currency)}
                       </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* task-split-payouts-and-obligations (backlog 174) — obligations
+              the COMPANY owes this payout's recipient, the OPPOSITE money
+              direction from the incomes above. `findPayoutRequest` recovers
+              these via `pending_obligations.payoutRequestId` (settleByCompany
+              resets the transaction's OWN payoutRequestId to null on settle
+              — task-settle-in-place ADR), so `isPayoutObligationTransaction`
+              (payoutRequestId !== payout.id) is what marks a row as
+              "recovered", regardless of its type or settle status. Kept in
+              its own section — never folded into "Транзакции в выплате" —
+              so that counter stays strictly about incoming money. */}
+          {(() => {
+            const obligationTxs =
+              payout.transactions?.filter((tx) => isPayoutObligationTransaction(tx, payout.id)) ??
+              []
+            if (obligationTxs.length === 0) return null
+            return (
+              <div className="space-y-1.5">
+                <Label className="text-xs" data-testid="payout-detail-obligations-count">
+                  Обязательства компании ({obligationTxs.length})
+                </Label>
+                {/* design-audit PR #592 (LOW): "Компания должна" already lives
+                    in the section title above AND used to open every row
+                    below (see the HIGH note on the name line) — the OLD copy
+                    here duplicated it AND broke mid-sentence before the em
+                    dash ("должна —" with no direct object). This phrasing
+                    gives "должна" an object ("эти суммы") so the first clause
+                    is complete, and an explicit subject ("они") for the
+                    second — no implicit-subject fragment. */}
+                <p
+                  className="text-[11px] text-muted-foreground"
+                  data-testid="payout-detail-obligations-caption"
+                >
+                  Компания должна эти суммы — они не входят в выплату выше
+                </p>
+                <div className="rounded-md border border-amber-500/30 divide-y divide-amber-500/20 max-h-40 overflow-y-auto">
+                  {obligationTxs.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="flex items-center justify-between px-3 py-2 text-xs"
+                      data-testid={`payout-detail-obligation-${tx.id}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        {/* design-audit PR #592 (HIGH): the row used to read
+                            "Компания должна {Имя}" — measured on a real 320px
+                            DOM (getBoundingClientRect): the "Компания должна "
+                            prefix alone ate ~118px of the ~118-203px this
+                            column has, so the name — the one thing this row
+                            exists to show — was cut before printing a single
+                            letter. The direction is already said once, in the
+                            section title AND the caption above; repeating it
+                            per row was also pure duplication. Name-only here,
+                            AND `line-clamp-2` (not `truncate`) so a long name
+                            wraps instead of losing the surname to an
+                            ellipsis — the list already scrolls
+                            (`max-h-40 overflow-y-auto`), vertical space is
+                            cheaper than a silently-hidden name. */}
+                        <p
+                          className="font-medium line-clamp-2 break-words"
+                          data-testid={`payout-detail-obligation-name-${tx.id}`}
+                        >
+                          {tx.receiverName ?? '—'}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {tx.projectName ?? '—'} · #{tx.id.slice(0, 6)} от{' '}
+                          {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-0.5">
+                        <span className="tabular-nums font-medium">
+                          {fmtAmount(tx.amount, tx.currency)}
+                        </span>
+                        <span
+                          className={cn(
+                            // Stryker disable next-line StringLiteral: cosmetic Tailwind
+                            // badge styling — testing-library discourages asserting
+                            // implementation-detail CSS classes; the badge's TEXT
+                            // (STATUS_LABELS[tx.status]) and its data-testid are both
+                            // asserted directly (see the obligations-split tests).
+                            'rounded-full border px-1.5 py-0 text-[9px] font-medium leading-4',
+                            STATUS_COLORS[tx.status],
+                          )}
+                          data-testid={`payout-detail-obligation-status-${tx.id}`}
+                        >
+                          {STATUS_LABELS[tx.status]}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
