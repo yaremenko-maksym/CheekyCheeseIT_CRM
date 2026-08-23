@@ -4130,9 +4130,26 @@ export class TransactionsService {
             // text: the original note carries a caller-supplied prefix
             // (`bookCompanyObligations`'s `notePrefix` — «USDT income» /
             // «Company owes») that the row does not record, so reconstructing
-            // it would mean inventing one. Display-only column — nothing
-            // branches on it (verified, not assumed), and the obligation id
-            // stays nameable from the row.
+            // it would mean inventing one. The obligation id stays nameable
+            // from the row either way.
+            //
+            // `notes` IS read by a WHERE predicate, in exactly one place, and
+            // this is why that does not matter here (SR-M-1, review round 2 —
+            // an earlier version of this comment claimed "nothing branches on
+            // it", which is false): `confirmPayout` finds the row it just
+            // inserted by `eq(transactions.notes, confirmationNote)`, in both
+            // arms of its conditional predicate. BOTH arms also carry
+            // `eq(transactions.type, 'PAYOUT_CONFIRMED')`, and a reverted
+            // derivative is `SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT` —
+            // it can never enter that lookup's population. Grep to re-check
+            // when touching this: `grep -n 'transactions.notes' ` over
+            // apps/api/src returns those two lines and nothing else.
+            //
+            // Stated this way on purpose. "Verified, not assumed" about a
+            // claim that is merely broad is worse than no comment at all: the
+            // next reader trusts it INSTEAD of looking, and the thing they
+            // skip is the thing that changed. The narrow claim above is the
+            // one that is actually true, and it names where to go and see.
             notes: `Возврат в ожидание выплаты после правки суммы дохода (обязательство ${obligation.id})`,
             updatedAt: new Date(),
           })

@@ -1258,6 +1258,25 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // `toBe` still can fail, on exactly the regression worth catching: someone
     // re-inlining a fresh `sql\`…\`` into one of the two keys. Identical text,
     // different object, red here.
+    //
+    // WHAT THIS TEST DOES NOT COVER, and who covers it instead (SR-L-1).
+    //
+    // The arithmetic INSIDE the template literal is invisible to the mutation
+    // gate. Stryker sees the tagged template's static text as a STRING, so the
+    // only mutant it emits on that line is `StringLiteral` (emptying the
+    // chunk — killed); the `+` between the two interpolations is part of that
+    // string, and no ArithmeticOperator mutant is generated for it. Checked in
+    // the report rather than assumed: one mutant on that line, mutator
+    // `StringLiteral`.
+    //
+    // So a `+` → `-` flip is a change no mutant expresses — and this test does
+    // not notice it either (verified by making the flip: this spec stays
+    // green, because both columns are still the same object, still say
+    // `coalesce`, still bind the same delta). What catches it is
+    // `drop-topup.integration.spec.ts`, which reads the RESULT back out of
+    // Postgres — under that flip it fails 11 tests, starting with
+    // `settled_amount` going to `-100.000000`. Identity here, evaluation
+    // there: deliberately two tests, because neither one can see both.
     const { svc, state } = toppedUpService()
     await svc.settleByCompany(OBLIGATION_ID, accountantUser)
     const raw = state.flips[0]!.rawSet
