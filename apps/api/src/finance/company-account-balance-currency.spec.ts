@@ -318,14 +318,23 @@ describe('C-3: assertNoOffCurrencyCompanyRows (last query, mocked db)', () => {
    * PR body's three greps) — which is exactly the "trap for a FUTURE write
    * path" basis the guard already gives for itself.
    *
-   * WHY SHAPE ASSERTIONS AND NOT ROW MATCHING HERE: whether a given row
-   * matches is a question only Postgres can answer, so the row-level half
-   * (two shapes the current code really produces must NOT trip it; a
-   * hand-built `PENDING_PAYMENT` + `COMPANY_ACCOUNT` + `settled_currency='UAH'`
-   * row MUST) lives in `company-account-balance-off-currency.integration.spec.ts`.
-   * The mutation gate cannot execute that file at all
+   * WHY SHAPE ASSERTIONS AND NOT ROW MATCHING HERE: whether a given ROW
+   * matches is a question only Postgres can answer — these tests compile the
+   * predicate and read the SQL, which is a string, not a behaviour. The
+   * row-level half lives in
+   * `company-account-balance-off-currency.integration.spec.ts` ("AC9: …" —
+   * four cases: a reverted IOU labelled UAH is caught, an unlabelled
+   * accumulator is caught, the two shapes today's code really produces are
+   * NOT caught, and a zero accumulator is NOT caught). The mutation gate
+   * cannot execute that file at all
    * (`mutation-gate-integration-specs.md`), so the predicate's shape is
-   * pinned here where the gate can see it.
+   * pinned here, where the gate can see it, and its behaviour is pinned
+   * there, where Postgres can answer for it.
+   *
+   * (spec-review SPEC-M-2: this note previously described that integration
+   * coverage as already existing when it did not — a comment asserting a test
+   * that is not there is worse than the missing test, because the next reader
+   * believes it and stops looking. The tests it named have now been written.)
    */
   it('the guard ALSO looks for reverted-IOU rows whose settled_currency is not USDT (AC9)', async () => {
     const { db, getNinthWhere } = makeDb([{ total: '0' }])

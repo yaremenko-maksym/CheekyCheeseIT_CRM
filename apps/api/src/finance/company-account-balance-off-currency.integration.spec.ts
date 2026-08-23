@@ -40,7 +40,20 @@ let db: ReturnType<typeof drizzle<typeof schema>>
 // another spec's rows sharing the same crm_qa database.
 const TX_OFF_CURRENCY_EXPENSE = 'cb110000-0000-4000-cc00-000000000001'
 const TX_OK_DEPOSIT = 'cb110000-0000-4000-cc00-000000000002'
-const TEST_TX_IDS = [TX_OFF_CURRENCY_EXPENSE, TX_OK_DEPOSIT]
+// task-cascade-apply (AC9): rows for the SECOND branch of the guard — the
+// reverted-IOU class ledger term 9 introduces.
+const TX_REVERTED_OFF_CURRENCY = 'cb110000-0000-4000-cc00-000000000003'
+const TX_FRESH_IOU = 'cb110000-0000-4000-cc00-000000000004'
+const TX_SETTLED_OK = 'cb110000-0000-4000-cc00-000000000005'
+const TX_REVERTED_UNLABELLED = 'cb110000-0000-4000-cc00-000000000006'
+const TEST_TX_IDS = [
+  TX_OFF_CURRENCY_EXPENSE,
+  TX_OK_DEPOSIT,
+  TX_REVERTED_OFF_CURRENCY,
+  TX_FRESH_IOU,
+  TX_SETTLED_OK,
+  TX_REVERTED_UNLABELLED,
+]
 
 async function clearFixtures() {
   await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
@@ -134,6 +147,140 @@ describe.skipIf(!hasDatabaseUrl())(
           )
         },
       )
+    })
+
+    /**
+     * task-cascade-apply, AC9 / addendum §1.8 (spec-review SPEC-M-2).
+     *
+     * Ledger term 9 introduces a NEW class of company-shaped row —
+     * `*_PENDING_PAYOUT` + `funding_source='COMPANY_ACCOUNT'` — and the term
+     * filters it on `settled_currency='USDT'`. A row of that class carrying a
+     * foreign label would drop out of the balance exactly as silently as the
+     * rows the original branch exists to catch, so the guard grew a second
+     * branch to cover it.
+     *
+     * WHY THESE TESTS EXIST AT ALL: the unit spec
+     * (`company-account-balance-currency.spec.ts`) can only inspect the
+     * COMPILED SQL of that branch — a string, not a behaviour. Whether a given
+     * ROW matches is a question only Postgres can answer, and a mocked db does
+     * not answer it. The unit comment used to CLAIM this row-matching half
+     * lived here while it did not; the claim was worse than the gap, because
+     * the next reader would have believed it. These are the tests it promised.
+     *
+     * The general lesson, worth keeping: a test over an aggregate checks the
+     * aggregate's ARITHMETIC, not its SELECTION. Positional sums catch a wrong
+     * sign or a missing term; which rows land in the SUM is between the query
+     * and the database.
+     */
+    it('AC9: a reverted company IOU whose settled_currency is NOT USDT is caught (real row)', async () => {
+      await withIsolatedOffCurrencyRow(
+        _pool!,
+        db,
+        {
+          id: TX_REVERTED_OFF_CURRENCY,
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '260',
+          // `currency` is deliberately USDT — the ONLY thing wrong with this
+          // row is the label on the column term 9 actually sums. The original
+          // branch of the guard cannot see it (it wants status = PAID).
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          settledAmount: '260',
+          settledCurrency: 'UAH',
+          receiverId: ADMIN_ID,
+          createdBy: ADMIN_ID,
+        },
+        async () => {
+          await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow(
+            /currency label is not USDT/i,
+          )
+        },
+      )
+    })
+
+    it('AC9: "no label at all" counts as suspect too — an unlabelled accumulator is caught', async () => {
+      // `settled_currency IS NULL` is inside the condition on purpose: "there
+      // is no label" is not "the label matches".
+      await withIsolatedOffCurrencyRow(
+        _pool!,
+        db,
+        {
+          id: TX_REVERTED_UNLABELLED,
+          type: 'DROP_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '100',
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          settledAmount: '100',
+          settledCurrency: null,
+          receiverId: ADMIN_ID,
+          createdBy: ADMIN_ID,
+        },
+        async () => {
+          await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow(
+            /currency label is not USDT/i,
+          )
+        },
+      )
+    })
+
+    it('AC9: the two shapes the CURRENT code really produces do NOT trip the guard', async () => {
+      // This is the half that matters for not breaking production: the new
+      // branch must be inert against every row today's write paths can create.
+      //
+      //  1. A freshly booked IOU: PENDING_PAYMENT, funding_source NULL (the
+      //     column is absent from `bookCompanyObligations`' insert), no
+      //     accumulator. Not company money yet.
+      //  2. A row after the settle flip: PAID, COMPANY_ACCOUNT, USDT on both
+      //     the currency and the accumulator label.
+      await db.insert(transactions).values([
+        {
+          id: TX_FRESH_IOU,
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '260',
+          currency: 'USDT',
+          fundingSource: null,
+          settledAmount: null,
+          settledCurrency: null,
+          receiverId: ADMIN_ID,
+          createdBy: ADMIN_ID,
+        },
+        {
+          id: TX_SETTLED_OK,
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '260',
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          settledAmount: '260',
+          settledCurrency: 'USDT',
+          receiverId: ADMIN_ID,
+          createdBy: ADMIN_ID,
+        },
+      ])
+
+      await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.toEqual(expect.any(Number))
+    })
+
+    it('AC9: a reverted IOU with a ZERO accumulator is not company money and does not trip the guard', async () => {
+      // The `settled_amount IS NOT NULL AND <> 0` narrowing: a row that never
+      // actually took money out of the account has nothing to misreport.
+      await db.insert(transactions).values({
+        id: TX_REVERTED_UNLABELLED,
+        type: 'SENIOR_PENDING_PAYOUT',
+        status: 'PENDING_PAYMENT',
+        amount: '0',
+        currency: 'USDT',
+        fundingSource: 'COMPANY_ACCOUNT',
+        settledAmount: '0',
+        settledCurrency: null,
+        receiverId: ADMIN_ID,
+        createdBy: ADMIN_ID,
+      })
+
+      await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.toEqual(expect.any(Number))
     })
 
     it('a legitimate all-USDT ledger does NOT throw (no false positive)', async () => {

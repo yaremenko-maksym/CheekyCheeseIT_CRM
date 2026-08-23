@@ -201,6 +201,13 @@ interface DbleConfig {
   /** Rows returned by the main transactions UPDATE (empty ⇒ "row was deleted"). */
   mainUpdateRows?: Array<{ id: string }>
   /**
+   * Rows returned by the AC5 branch's `transactions` UPDATE — the one scoped to
+   * `status = 'PENDING_PAYMENT'` (SR-M-1). Empty ⇒ the row left that status
+   * under us, which must abort the whole edit rather than leave the obligation
+   * updated and the transaction not.
+   */
+  derivativeUpdateRows?: Array<{ id: string }>
+  /**
    * Per-call answers for `transactions.findFirst`. Call 1 is the
    * pre-transaction read in `adminUpdateTransaction`; call 2 is
    * `loadCascadeSnapshot`'s own read INSIDE the transaction. Lets a test make
@@ -222,7 +229,7 @@ function makeDouble(cfg: DbleConfig = {}) {
       findFirst: vi.fn(async () => (cfg.sourceReads ? cfg.sourceReads[sourceReadCall++] : source)),
       findMany: vi.fn(async () => derivatives),
     },
-    pendingObligations: { findMany: vi.fn(async () => obligations) },
+    pendingObligations: { findMany: vi.fn(async (_args?: unknown) => obligations) },
     invoiceSignatures: { findMany: vi.fn(async () => signatures) },
   }
 
@@ -263,11 +270,17 @@ function makeDouble(cfg: DbleConfig = {}) {
           ops.push({ kind: 'update', table: tableName(t), set: patch, where: whereParams(clause) })
           // Routed by CONTENT, never by call position: the revert claim is the
           // one pending_obligations UPDATE that flips status back to PENDING.
+          const whereBinds = whereParams(clause)
           const rows =
             tableName(t) === 'pending_obligations' && patch.status === 'PENDING'
               ? (cfg.revertClaimRows ?? [{ id: SENIOR_OBL_ID }])
               : tableName(t) === 'transactions' && patch.type === undefined
-                ? (cfg.mainUpdateRows ?? [{ id: SOURCE_ID }])
+                ? // The AC5 derivative write and the SOURCE row's own edit are
+                  // both "no type change"; they are told apart by WHICH row the
+                  // WHERE binds.
+                  whereBinds.includes(SOURCE_ID)
+                  ? (cfg.mainUpdateRows ?? [{ id: SOURCE_ID }])
+                  : (cfg.derivativeUpdateRows ?? [{ id: 'affected' }])
                 : [{ id: 'affected' }]
           return thenable(rows, {
             returning: (proj: unknown) => {
@@ -295,7 +308,7 @@ function makeDouble(cfg: DbleConfig = {}) {
     },
   }
 
-  return { db: db as never, ops, dbtx }
+  return { db: db as never, ops, dbtx, relationalQueries }
 }
 
 /**
@@ -698,6 +711,114 @@ describe('AC4: blocking conditions', () => {
     expect(message).not.toMatch(/поврежд/i)
   })
 
+  it('AC15: the currency refusal spells out both units and what it means', async () => {
+    const derivatives = [settledDerivativeRow({ settledCurrency: 'USD', fundingSource: null })]
+    const obligations = [obligationRow({ status: 'PAID' })]
+    const { db } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    let caught: unknown
+    try {
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    } catch (e) {
+      caught = e
+    }
+    const message = (caught as Error).message
+    expect(message).toContain('уже выплаченное учтено в USD')
+    expect(message).toContain('а пересчитанная доля — в USDT')
+    expect(message).toContain('вернуть строку в ожидание выплаты нельзя: её нечем будет закрыть')
+  })
+
+  it('AC15: an accumulator with NO currency label at all is described as unknown, not as null', async () => {
+    // "There is no label" is not "the label matches" — the resolver already
+    // treats it as a mismatch, and the refusal has to read like a sentence.
+    const derivatives = [settledDerivativeRow({ settledCurrency: null, fundingSource: null })]
+    const obligations = [obligationRow({ status: 'PAID' })]
+    const { db } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+    ).rejects.toThrow(/учтено в неизвестной валюте/)
+  })
+
+  it('AC15: the drop refusal names the consequence, not just the prohibition', async () => {
+    const derivatives = [
+      settledDerivativeRow({
+        id: DROP_DERIV_ID,
+        type: 'PAYOUT_DROP',
+        settledAmount: '100.000000',
+        settledSharePercent: 10,
+        amount: '100.000000',
+        fundingSource: null,
+      }),
+    ]
+    const obligations = [
+      obligationRow({
+        id: DROP_OBL_ID,
+        sourceTransactionId: DROP_DERIV_ID,
+        status: 'PAID',
+        amount: '100.000000',
+      }),
+    ]
+    const { db } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    let caught: unknown
+    try {
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    } catch (e) {
+      caught = e
+    }
+    const message = (caught as Error).message
+    expect(message).toContain('по обязательству дропа уже есть выплата')
+    expect(message).toContain(
+      'Правка дохода вернула бы обязательство в ожидание выплаты, закрыть которое сейчас',
+    )
+    expect(message).toContain('нечем')
+  })
+
+  it('AC15: the dead-end checks apply ONLY to a revert — an OPEN obligation with a foreign accumulator still updates', async () => {
+    // A row settled in USD and reverted earlier: its obligation is open again,
+    // so nothing is being reverted now and there is no dead end to walk into.
+    // Gating the checks on `needsReconfirm` is what keeps this case working.
+    const derivatives = [
+      pendingDerivativeRow({
+        settledAmount: '260.000000',
+        settledCurrency: 'USD',
+        settledSharePercent: 26,
+      }),
+    ]
+    const obligations = [obligationRow()]
+    const { db, ops } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    expect(updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)).toHaveLength(1)
+  })
+
+  it('AC15: the currency check looks at THAT warning, not at "any warning at all"', async () => {
+    // A reverting derivative carrying a DIFFERENT warning (a counterparty-
+    // signed invoice) must still go through: the cascade voids and re-issues
+    // the invoice, it does not refuse over it.
+    const derivatives = [settledDerivativeRow()]
+    const obligations = [obligationRow({ status: 'PAID' })]
+    const { db, ops } = makeDouble({
+      derivatives,
+      obligations,
+      signatures: [{ transactionId: SENIOR_DERIV_ID }],
+    })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    expect(derivativeWrites(ops)).toHaveLength(1)
+  })
+
   it('AC15: a SENIOR revert in matching currency is unaffected by either dead-end check', async () => {
     const derivatives = [settledDerivativeRow()]
     const obligations = [obligationRow({ status: 'PAID' })]
@@ -849,6 +970,48 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
     })
     await expect(result).rejects.toThrow(/подтверждена фактическими выплатами/)
   })
+
+  it('only a CLOSED obligation on the edited row counts — an open one is the ordinary IOU case', async () => {
+    // The predicate is `status === 'PAID'`, not "an obligation exists". An OPEN
+    // obligation on the edited row is exactly what #598 keeps in step with it,
+    // so treating mere existence as disqualifying would undo L3's fix.
+    const source = sourceRow({ type: 'ADMIN_INCOME', status: 'PAID' })
+    const { db } = makeDouble({
+      source,
+      obligations: [obligationRow({ sourceTransactionId: SOURCE_ID, status: 'PENDING' })],
+    })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({
+        source,
+        obligations: [obligationRow({ sourceTransactionId: SOURCE_ID, status: 'PENDING' })],
+      }),
+    )
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 26, cascadeVersion: version }, ADMIN),
+    ).resolves.toBeDefined()
+  })
+
+  it('the obligations read covers the SOURCE id as well as every derivative id', async () => {
+    // AC13's data comes from the query that already runs — no second
+    // round-trip. If the id list were emptied, the source could never be found
+    // to be a closed obligation and the guard would be blind.
+    const derivatives = [pendingDerivativeRow()]
+    const obligations = [obligationRow()]
+    const { db, relationalQueries } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+    const call = relationalQueries.pendingObligations.findMany.mock.calls[0]![0] as {
+      where: unknown
+    }
+    const bound = whereParams(call.where)
+    expect(bound).toContain(SOURCE_ID)
+    expect(bound).toContain(SENIOR_DERIV_ID)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -922,6 +1085,136 @@ describe('AC5: still-open obligation — both copies of the amount move together
     expect(meta.settledAmount).toBe(0)
     expect(meta.sharePercent).toBe(26)
     expect(meta.amount).toEqual({ before: 260, after: plan.derivatives[0]!.newAmount })
+  })
+
+  /**
+   * AC5 / addendum §1.7 (SR-M-4) — the accumulator floor.
+   *
+   * AC5 and AC7 are one law in two states: a derivative's `amount` is never
+   * written below its `settled_amount`. On a closed obligation that reads "do
+   * not write at all"; on an open one — a row reverted earlier that still
+   * carries an accumulator — it reads `max`. Writing less makes the remainder
+   * negative and leaves an obligation nobody can close.
+   */
+  describe('AC5: the amount is floored at the accumulator', () => {
+    /** A previously-reverted row: obligation open again, 260 already paid. */
+    const revertedRows = () => [
+      pendingDerivativeRow({
+        settledAmount: '260.000000',
+        settledCurrency: 'USDT',
+        amount: '520.000000',
+      }),
+    ]
+
+    async function editTo(amount: number, cfg: DbleConfig = {}) {
+      const derivatives = cfg.derivatives ?? revertedRows()
+      const obligations = cfg.obligations ?? [obligationRow({ amount: '520.000000' })]
+      const { db, ops } = makeDouble({ ...cfg, derivatives, obligations })
+      const svc = makeTransactionsService({ db })
+      stubFindOne(svc)
+      const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount, cascadeVersion: version }, ADMIN)
+      return ops
+    }
+
+    it('writes the accumulator, not the smaller new share, into BOTH copies', async () => {
+      // 26% of 100 is 26 — below the 260 already paid.
+      const ops = await editTo(100)
+      expect(updatesTargeting(ops, 'pending_obligations', SENIOR_DERIV_ID)[0]!.set.amount).toBe(
+        '260',
+      )
+      expect(updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)[0]!.set.amount).toBe('260')
+    })
+
+    it('journals the overpayment as well — the floor keeps the row closable, it does not hide the fact', async () => {
+      const ops = await editTo(100)
+      const entries = journalEntries(ops, 'CASCADE_OVERPAYMENT')
+      expect(entries).toHaveLength(1)
+      const meta = entries[0]!.values.metadata as Record<string, unknown>
+      expect(entries[0]!.values.targetId).toBe(SENIOR_DERIV_ID)
+      expect(meta.obligationId).toBe(SENIOR_OBL_ID)
+      expect(meta.causedBy).toBe(SOURCE_ID)
+      expect(meta.settledAmount).toBe(260)
+      expect(meta.newShare).toBe(26)
+      expect(meta.overpaidBy).toBe(234)
+    })
+
+    it('does NOT journal an overpayment when the new share is above the accumulator', async () => {
+      // 26% of 4000 = 1040 — the floor is inert and this is an ordinary update.
+      const ops = await editTo(4000)
+      expect(journalEntries(ops, 'CASCADE_OVERPAYMENT')).toEqual([])
+      expect(updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)[0]!.set.amount).toBe('1040')
+    })
+
+    it('journals a null obligationId for a derivative with no obligation row, rather than blowing up', async () => {
+      // Same defensive shape the ordinary AC5 journal already has: a
+      // derivative can legitimately carry no paired obligation, and the floor's
+      // own journal entry must survive that just as well.
+      const ops = await editTo(100, {
+        derivatives: [
+          pendingDerivativeRow({
+            settledAmount: '260.000000',
+            settledCurrency: 'USDT',
+            amount: '520.000000',
+          }),
+        ],
+        obligations: [],
+      })
+      const entries = journalEntries(ops, 'CASCADE_OVERPAYMENT')
+      expect(entries).toHaveLength(1)
+      expect((entries[0]!.values.metadata as Record<string, unknown>).obligationId).toBeNull()
+    })
+
+    it('is the identity for a row that never settled — first-round behaviour, byte for byte', async () => {
+      const ops = await editTo(2000, {
+        derivatives: [pendingDerivativeRow()],
+        obligations: [obligationRow()],
+      })
+      expect(updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)[0]!.set.amount).toBe('520')
+      expect(journalEntries(ops, 'CASCADE_OVERPAYMENT')).toEqual([])
+    })
+  })
+
+  /**
+   * SR-M-1 (security-review) — the derivative write carries the same structural
+   * scoping its sibling obligation UPDATE has always had.
+   */
+  describe('AC5: the derivative write is scoped by status, like its sibling', () => {
+    it('binds PENDING_PAYMENT in the WHERE and asks for the affected rows back', async () => {
+      const derivatives = [pendingDerivativeRow()]
+      const obligations = [obligationRow()]
+      const { db, ops } = makeDouble({ derivatives, obligations })
+      const svc = makeTransactionsService({ db })
+      stubFindOne(svc)
+      const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+      const write = updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)[0]!
+      expect(write.where).toContain('PENDING_PAYMENT')
+      const returned = ops.filter(
+        (o): o is Extract<Op, { kind: 'returning' }> =>
+          o.kind === 'returning' && o.table === 'transactions',
+      )
+      expect(returned.length).toBeGreaterThan(0)
+      for (const r of returned) {
+        expect(Object.keys(r.projection as object)).toContain('id')
+      }
+    })
+
+    it('aborts loudly when that scoped write matches nothing', async () => {
+      // Leaving the obligation updated and the transaction not is precisely the
+      // L3 divergence this decomposition exists to close — so zero rows must
+      // roll the whole edit back, not pass silently.
+      const derivatives = [pendingDerivativeRow()]
+      const obligations = [obligationRow()]
+      const { db } = makeDouble({ derivatives, obligations, derivativeUpdateRows: [] })
+      const svc = makeTransactionsService({ db })
+      stubFindOne(svc)
+      const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+      await expect(
+        svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+      ).rejects.toThrow(/больше не в статусе ожидания выплаты/)
+    })
   })
 
   it('the source row keeps its OWN journal entry as well (AMOUNT_OR_RECEIVER_CHANGE)', async () => {

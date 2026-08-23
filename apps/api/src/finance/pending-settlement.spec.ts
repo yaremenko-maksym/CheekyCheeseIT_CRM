@@ -1343,8 +1343,16 @@ describe('PendingSettlementService.settleByCompany', () => {
           caught = e
         }
         const message = (caught as Error).message
-        expect(message).toContain('COMPANY_ACCOUNT')
-        expect(message).toContain('личный счёт администратора')
+        // Each concatenated fragment pinned separately, so blanking any one of
+        // them is caught rather than being covered by its neighbour.
+        expect(message).toContain(
+          'Предыдущая выплата по этой строке прошла из источника «COMPANY_ACCOUNT»',
+        )
+        expect(message).toContain('а эта — из «личный счёт администратора»')
+        expect(message).toContain('Доплата обязана идти из того же источника:')
+        expect(message).toContain(
+          'на нём держится учёт в счёте компании, и смена источника стёрла бы уже учтённую выплату.',
+        )
       })
 
       it('ALLOWS a top-up from the same source — the guard is about change, not about topping up', async () => {

@@ -783,6 +783,274 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     expect(await journalFor(afterDerivative.id, 'CASCADE_AMOUNT_UPDATE')).toHaveLength(0)
   })
 
+  // ── risk 18 — the edited row is itself a ledger fact (SR-H-1) ───────────
+
+  it('risk 18: editing the settled derivative ITSELF is refused, and the balance does not move', async () => {
+    await declare(PROJECT_SENIOR, 1000)
+    const { obligation } = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(obligation.id, ADMIN)
+
+    const settled = (await derivativeFor(SENIOR.id)).row
+    // The shape that made this reachable, asserted rather than assumed — if
+    // the flip ever starts stamping either field, this test would silently
+    // stop covering the hole it was written for.
+    expect(settled.type).toBe('SENIOR_INCOME')
+    expect(settled.status).toBe('PAID')
+    expect(settled.originalAmount).toBeNull() // the C2 guard cannot see it
+    expect(settled.payoutRequestId).toBeNull() // guard 2 cannot see it
+    expect(settled.fundingSource).toBe('COMPANY_ACCOUNT') // …and term 7 debits it
+
+    const before = await balance()
+    const preview = await svc.getEditCascadePreview(settled.id, 26, ADMIN)
+    await expect(
+      svc.adminUpdateTransaction(
+        settled.id,
+        { amount: 26, cascadeVersion: preview.version! },
+        ADMIN,
+      ),
+    ).rejects.toThrow(/подтверждена фактическими выплатами/)
+
+    // Without AC13 the edit lands, term 7's debit drops 260 → 26, and the
+    // balance rises by 234 — money the company has already paid out.
+    expect((await derivativeFor(SENIOR.id)).row.amount).toBe(settled.amount)
+    expect(await balance()).toBeCloseTo(before, 6)
+  })
+
+  it('risk 18: a company deposit cannot have its amount edited either', async () => {
+    const deposit = await dbSvc.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.senderLabel, DEPOSIT_LABEL),
+        eq(transactions.type, 'COMPANY_DEPOSIT'),
+      ),
+    })
+    const preview = await svc.getEditCascadePreview(deposit!.id, 42, ADMIN)
+    await expect(
+      svc.adminUpdateTransaction(
+        deposit!.id,
+        { amount: 42, cascadeVersion: preview.version! },
+        ADMIN,
+      ),
+    ).rejects.toThrow(/сверена с блокчейном/)
+  })
+
+  it('risk 18 (the negative): the ordinary income edit this whole task exists for still works', async () => {
+    // AC13 must not "finish the job" on ADMIN_INCOME — it has no second
+    // carrier of the amount, so an edit there means "we wrote the wrong
+    // number" and the ledger is obliged to follow.
+    await declare(PROJECT_SENIOR, 1000)
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await expect(editWithPreview(source.id, 2500)).resolves.toBeDefined()
+    expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe('2500.000000')
+  })
+
+  // ── risk 19 / 19b — the top-up must come from the same pot (SR-H-2) ─────
+
+  it('risk 19: a personal-account top-up on a company-paid row is refused, all in USDT', async () => {
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN)
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000) // revert; term 9 now holds the 260
+
+    const reopened = await derivativeFor(SENIOR.id)
+    const before = await balance()
+    await expect(
+      settleSvc.settleByCompany(reopened.obligation.id, ADMIN, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN.id,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xcascadetopup',
+      }),
+    ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+
+    // Nothing moved. Without the guard the row would have dropped out of term
+    // 7 (funding_source no longer COMPANY_ACCOUNT) AND out of term 9 (status
+    // no longer PENDING_PAYMENT) — 260 USDT gone from the ledger.
+    expect(await balance()).toBeCloseTo(before, 6)
+    expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PENDING')
+  })
+
+  it('risk 19 (control): the same top-up FROM the company account is allowed and debits exactly the remainder', async () => {
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN)
+    const source = await sourceIncome(PROJECT_SENIOR)
+    const preview = await editWithPreview(source.id, 2000)
+    const owed = preview.plan!.derivatives[0]!.remainingToPay!
+
+    const before = await balance()
+    const reopened = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(reopened.obligation.id, ADMIN)
+
+    expect(before - (await balance())).toBeCloseTo(owed, 6)
+    expect((await derivativeFor(SENIOR.id)).row.fundingSource).toBe('COMPANY_ACCOUNT')
+  })
+
+  it('risk 19b: the mirror order is refused too — a company top-up on an admin-paid row', async () => {
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      currency: 'USDT',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xadminfirst',
+    })
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000)
+
+    const reopened = await derivativeFor(SENIOR.id)
+    await expect(settleSvc.settleByCompany(reopened.obligation.id, ADMIN)).rejects.toThrow(
+      /Доплата обязана идти из того же источника/,
+    )
+  })
+
+  // ── risk 20 — never revert into a dead end (SR-M-3) ─────────────────────
+
+  it('risk 20: a drop obligation closed in UAH blocks the edit — its remainder is not computable', async () => {
+    await declare(PROJECT_BOTH, 1000)
+    const { obligation } = await derivativeFor(DROP.id)
+    await settleSvc.settleByCompany(obligation.id, ADMIN, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      currency: 'UAH',
+      receiptDocumentId: null,
+      receiptExternalUrl: 'https://drive.google.com/file/uah-receipt',
+    })
+    const closed = await derivativeFor(DROP.id)
+    expect(closed.obligation.status).toBe('PAID')
+
+    const source = await sourceIncome(PROJECT_BOTH)
+    const preview = await svc.getEditCascadePreview(source.id, 2000, ADMIN)
+    // The drop guard is the one that fires here — a UAH-closed drop trips both
+    // dead-end conditions at once (foreign accumulator AND drop-with-payments),
+    // and the drop check runs first. Either refusal is correct; what risk 20 is
+    // about is that the row is NOT reverted into a state nobody can close.
+    await expect(
+      svc.adminUpdateTransaction(
+        source.id,
+        { amount: 2000, cascadeVersion: preview.version! },
+        ADMIN,
+      ),
+    ).rejects.toThrow(/доплата по нему пока не поддерживается/)
+
+    // Zero writes — including on the SENIOR derivative, which was perfectly
+    // fine. The cascade is all-or-nothing.
+    expect((await derivativeFor(DROP.id)).obligation.status).toBe('PAID')
+    expect((await derivativeFor(SENIOR.id)).obligation.amount).toBe(
+      String(roundShareAmount(1000, SENIOR_SHARE).toFixed(6)),
+    )
+    expect((await sourceIncome(PROJECT_BOTH)).amount).toBe(source.amount)
+  })
+
+  it('risk 20: a SENIOR obligation closed in USD blocks — the cross-currency remainder case on its own', async () => {
+    // BIZ-03 allows a senior settle in USD as well as USDT, so this reaches
+    // the currency dead-end WITHOUT also tripping the drop rule — the two
+    // conditions of AC15, told apart.
+    await declare(PROJECT_SENIOR, 1000)
+    const { obligation } = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(obligation.id, ADMIN, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      currency: 'USD',
+      receiptExternalUrl: 'https://drive.google.com/file/usd-receipt',
+    })
+    const closed = await derivativeFor(SENIOR.id)
+    expect(closed.row.settledCurrency).toBe('USD')
+
+    const source = await sourceIncome(PROJECT_SENIOR)
+    const preview = await svc.getEditCascadePreview(source.id, 2000, ADMIN)
+    expect(preview.plan!.derivatives[0]!.remainingToPay).toBeNull() // not computable
+    await expect(
+      svc.adminUpdateTransaction(
+        source.id,
+        { amount: 2000, cascadeVersion: preview.version! },
+        ADMIN,
+      ),
+    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+
+    expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PAID')
+    expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)
+  })
+
+  it('risk 20: a drop obligation closed in USDT from the company account blocks too', async () => {
+    await declare(PROJECT_BOTH, 1000)
+    const { obligation } = await derivativeFor(DROP.id)
+    await settleSvc.settleByCompany(obligation.id, ADMIN)
+    expect((await derivativeFor(DROP.id)).obligation.status).toBe('PAID')
+
+    const source = await sourceIncome(PROJECT_BOTH)
+    const preview = await svc.getEditCascadePreview(source.id, 2000, ADMIN)
+    await expect(
+      svc.adminUpdateTransaction(
+        source.id,
+        { amount: 2000, cascadeVersion: preview.version! },
+        ADMIN,
+      ),
+    ).rejects.toThrow(/доплата по нему пока не поддерживается/)
+    expect((await derivativeFor(DROP.id)).obligation.status).toBe('PAID')
+    expect((await sourceIncome(PROJECT_BOTH)).amount).toBe(source.amount)
+  })
+
+  // ── risk 21 — the round trip has to come back (SR-M-4) ──────────────────
+
+  it('risk 21: edit up, then back down — the obligation closes normally instead of getting stuck', async () => {
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN)
+    const settledFigure = roundShareAmount(1000, SENIOR_SHARE) // 260
+
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000) // share 520 — revert
+    expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PENDING')
+
+    // …and straight back down. The recomputed share (260) equals what was
+    // already paid, so the accumulator floor writes 260 rather than anything
+    // smaller, and the remainder comes out at exactly zero.
+    await editWithPreview(source.id, 1000)
+    const back = await derivativeFor(SENIOR.id)
+    expect(parseFloat(back.row.amount)).toBeCloseTo(settledFigure, 6)
+    expect(parseFloat(back.obligation.amount)).toBeCloseTo(settledFigure, 6)
+    expect(parseFloat(back.row.settledAmount!)).toBeCloseTo(settledFigure, 6)
+
+    const preview = await svc.getEditCascadePreview(source.id, 1000, ADMIN)
+    expect(preview.plan!.sourceAmountChanged).toBe(false)
+
+    // The row must be closable again. Without `max` the remainder would be
+    // negative; with the old "zero is an error" rule it would be refused —
+    // either way the obligation would stay open forever, claiming a debt.
+    const before = await balance()
+    await expect(settleSvc.settleByCompany(back.obligation.id, ADMIN)).resolves.toBeDefined()
+
+    const closed = await derivativeFor(SENIOR.id)
+    expect(closed.obligation.status).toBe('PAID')
+    expect(closed.row.status).toBe('PAID')
+    expect(parseFloat(closed.row.settledAmount!)).toBeCloseTo(settledFigure, 6)
+    // Closing on a zero remainder is ledger-neutral: the row leaves term 9
+    // carrying `settled_amount` and enters term 7 carrying `amount`, and those
+    // two are equal.
+    expect(await balance()).toBeCloseTo(before, 6)
+  })
+
+  it('risk 21: editing BELOW what was paid on a reverted row floors the amount at the accumulator', async () => {
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN)
+    const settledFigure = roundShareAmount(1000, SENIOR_SHARE) // 260
+
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000) // revert
+    await editWithPreview(source.id, 100) // share would be 26 — below the 260 paid
+
+    const after = await derivativeFor(SENIOR.id)
+    expect(parseFloat(after.row.amount)).toBeCloseTo(settledFigure, 6)
+    expect(parseFloat(after.obligation.amount)).toBeCloseTo(settledFigure, 6)
+    // The overpayment is still a fact a human has to see.
+    const entries = await journalFor(after.row.id, 'CASCADE_OVERPAYMENT')
+    expect(entries.length).toBeGreaterThan(0)
+    const meta = entries.at(-1)!.metadata as Record<string, unknown>
+    expect(meta['overpaidBy']).toBeCloseTo(settledFigure - 26, 6)
+  })
+
   it('AC2: saving a PAID amount edit without a preview token is refused outright', async () => {
     await declare(PROJECT_SENIOR, 1000)
     const source = await sourceIncome(PROJECT_SENIOR)

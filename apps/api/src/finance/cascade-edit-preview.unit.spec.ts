@@ -176,11 +176,16 @@ describe('getEditCascadePreview — guards 1 and 2 (blocked in the PLAN, loadCas
   })
 })
 
-describe('getEditCascadePreview — no derivatives (zero-length skip, AC9-adjacent read minimisation)', () => {
-  it('does not query obligations when there are no derivative rows, but STILL checks the source id for a signed invoice (MED-1)', async () => {
+describe('getEditCascadePreview — no derivatives', () => {
+  it('still queries obligations (AC13 needs the SOURCE row own closure) and the source signature (MED-1)', async () => {
     const findFirstImpl = vi.fn().mockResolvedValue(sourceRow())
     const findManyDerivatives = vi.fn().mockResolvedValue([])
-    const findManyObligations = unreachable('pendingObligations.findMany (0 derivatives)')
+    // task-cascade-apply (AC13): the obligations query is NO LONGER skippable
+    // at zero derivatives. The edited row can ITSELF be a closed obligation
+    // (a flipped SENIOR_INCOME), and refusing to edit such a row needs that
+    // fact — so `sourceId` joined the same `inArray` filter rather than
+    // earning a second round-trip.
+    const findManyObligations = vi.fn().mockResolvedValue([])
     // MED-1 (security-review round 1): unlike `obligationRows`, the
     // signatures query is NO LONGER skippable at zero derivatives — it is
     // also how the SOURCE row's own `hasSignedInvoice` gets read (folded
@@ -205,7 +210,7 @@ describe('getEditCascadePreview — no derivatives (zero-length skip, AC9-adjace
   it('flags the source as signed when the (only) row in the signatures query result IS the source id', async () => {
     const findFirstImpl = vi.fn().mockResolvedValue(sourceRow())
     const findManyDerivatives = vi.fn().mockResolvedValue([])
-    const findManyObligations = unreachable('pendingObligations.findMany (0 derivatives)')
+    const findManyObligations = vi.fn().mockResolvedValue([])
     const findManySignatures = vi
       .fn()
       .mockResolvedValue([{ transactionId: SOURCE_ID, signerRole: 'COUNTERPARTY' }])
@@ -221,7 +226,7 @@ describe('getEditCascadePreview — no derivatives (zero-length skip, AC9-adjace
   it('flags SOURCE_ORIGINAL_AMOUNT_SET when the source row itself carries originalAmount', async () => {
     const findFirstImpl = vi.fn().mockResolvedValue(sourceRow({ originalAmount: '800.000000' }))
     const findManyDerivatives = vi.fn().mockResolvedValue([])
-    const findManyObligations = unreachable('pendingObligations.findMany (0 derivatives)')
+    const findManyObligations = vi.fn().mockResolvedValue([])
     const findManySignatures = vi.fn().mockResolvedValue([])
     const svc = makeTransactionsService({
       db: makeDb({ findFirstImpl, findManyDerivatives, findManyObligations, findManySignatures }),
