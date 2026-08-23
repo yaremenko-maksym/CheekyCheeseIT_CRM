@@ -79,7 +79,21 @@ const ADMIN: SessionUser = {
   seniorSharePercent: 0,
 }
 
-const TEST_OWN_USER_IDS = [SENIOR.id, DROP.id]
+/**
+ * A SECOND admin partner (SR-M-5). Inside `ADMIN_PERSONAL` the funding source
+ * is the same NULL for every admin, so telling two partners apart needs a
+ * second real user row, not another funding option.
+ */
+const ADMIN_TWO: SessionUser = {
+  ...SENIOR,
+  id: 'ca5cade0-0000-4000-bb00-000000000003',
+  email: 'cascade-apply-admin-two@test.spec',
+  displayName: 'Cascade Admin Two',
+  role: 'ADMIN',
+  seniorSharePercent: 0,
+}
+
+const TEST_OWN_USER_IDS = [SENIOR.id, DROP.id, ADMIN_TWO.id]
 const ACCOUNT_ID = 'ca5cade0-0000-4000-cc00-000000000001'
 /** Senior only — one derivative per declare, so every assertion names one row. */
 const PROJECT_SENIOR = 'ca5cade0-0000-4000-dd00-000000000001'
@@ -308,6 +322,14 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
           role: ADMIN.role,
           seniorSharePercent: 0,
           googleId: `test-google-${ADMIN.id}`,
+        },
+        {
+          id: ADMIN_TWO.id,
+          email: ADMIN_TWO.email,
+          displayName: ADMIN_TWO.displayName,
+          role: ADMIN_TWO.role,
+          seniorSharePercent: 0,
+          googleId: `test-google-${ADMIN_TWO.id}`,
         },
       ])
       .onConflictDoNothing()
@@ -966,6 +988,72 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     await expect(settleSvc.settleByCompany(reopened.obligation.id, ADMIN)).rejects.toThrow(
       /Доплата обязана идти из того же источника/,
     )
+  })
+
+  it('risk 23 (SR-M-5): a top-up by a DIFFERENT admin partner is refused, same pot or not', async () => {
+    // Both settles are `ADMIN_PERSONAL`, so `funding_source` is NULL on both
+    // sides and the pot comparison sees nothing wrong. What differs is the
+    // PERSON: the flip overwrites `sender_id`, and `adminBalances.sent` sums
+    // the row's whole `amount` under whoever holds it — so admin one's 260
+    // would silently become admin two's.
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      currency: 'USDT',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xadminone',
+    })
+    const paid = (await derivativeFor(SENIOR.id)).row
+    expect(paid.senderId).toBe(ADMIN.id)
+    expect(paid.fundingSource).toBeNull() // the pot check is blind here
+
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000)
+
+    // The revert must have PRESERVED the payer — that is what makes the
+    // comparison possible at all (AC6).
+    const reopened = await derivativeFor(SENIOR.id)
+    expect(reopened.row.senderId).toBe(ADMIN.id)
+
+    await expect(
+      settleSvc.settleByCompany(reopened.obligation.id, ADMIN_TWO, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_TWO.id,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xadmintwo',
+      }),
+    ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+
+    expect((await derivativeFor(SENIOR.id)).row.senderId).toBe(ADMIN.id)
+    expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PENDING')
+  })
+
+  it('risk 23 (control): the SAME admin partner may finish what they started', async () => {
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      currency: 'USDT',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xadminone-b',
+    })
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000)
+
+    const reopened = await derivativeFor(SENIOR.id)
+    await expect(
+      settleSvc.settleByCompany(reopened.obligation.id, ADMIN, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN.id,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xadminone-c',
+      }),
+    ).resolves.toBeDefined()
+    const closed = await derivativeFor(SENIOR.id)
+    expect(closed.obligation.status).toBe('PAID')
+    expect(closed.row.senderId).toBe(ADMIN.id)
+    expect(closed.row.settledAmount).toBe(closed.row.amount)
   })
 
   // ── risk 20 — never revert into a dead end (SR-M-3) ─────────────────────

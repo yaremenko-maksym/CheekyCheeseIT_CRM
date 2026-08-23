@@ -317,6 +317,8 @@ export class PendingSettlementService {
       sourceSettledCurrency,
       sourceSettledAmount,
       sourceFundingSource,
+      sourceSenderId,
+      sourceSenderLabel,
     } = await this.resolveSource(obligation.sourceTransactionId)
 
     // task-cascade-apply (task 3, AC10 / addendum §1.11) — how much of this
@@ -884,9 +886,11 @@ export class PendingSettlementService {
     // SR-H-2). Same shape as the currency guard directly above, same argument,
     // for the other column the accumulator has no snapshot of.
     //
-    // INVARIANT: every settle of one row comes from the SAME funding source,
-    // and `funding_source` is the record of it. Ledger terms 7, 8 and 9 all key
-    // on that LIVE column, so a second settle from a different pot does not
+    // INVARIANT: every settle of one row comes from the SAME PAYER, and the
+    // pair `(funding_source, sender_id)` is the record of who that was.
+    //
+    // `funding_source` answers "which pot". Ledger terms 7, 8 and 9 all key on
+    // that LIVE column, so a second settle from a different pot does not
     // "split" the row between two terms — it drops it out of BOTH. Concretely:
     // a company-funded settle of 260, a cascade revert (term 9 holds the 260),
     // then a top-up from an admin's personal account ⇒ `funding_source` becomes
@@ -894,25 +898,49 @@ export class PendingSettlementService {
     // left the company account vanish from the ledger. The whole scenario is in
     // USDT, so the currency guard above stays silent.
     //
-    // Holders of the invariant: the flip writes the column, the cascade revert
-    // preserves it (AC6), and this refusal stops it becoming multi-valued.
+    // `sender_id` answers "which PERSON", and it is not a refinement of the
+    // first question but a second one the first cannot reach (SR-M-5, owner's
+    // decision, security-review round 3). Inside `ADMIN_PERSONAL` every admin
+    // shares one pot value (NULL), so the pot comparison waves a different
+    // partner straight through — and the flip then OVERWRITES `sender_id`
+    // while `adminBalances.sent` sums the row's whole `amount` under whoever
+    // holds it. Admin A pays 260, the cascade reopens the row, admin B tops it
+    // up, and the entire figure lands on B: A looks like they never paid. Two
+    // partners on 50/50 shares, and nothing anywhere says so out loud.
+    //
+    // For a company-funded settle both sides are `(COMPANY_ACCOUNT, null)`, so
+    // widening the comparison changes nothing there — it only starts
+    // distinguishing `(null, A)` from `(null, B)`.
+    //
+    // Holders of the invariant: the flip writes both columns, the cascade
+    // revert preserves both (AC6), and this refusal stops the pair becoming
+    // multi-valued.
     //
     // Unconditional — NOT restricted to the senior branch. A drop top-up is
     // refused elsewhere today (AC10), but this guard must not depend on that
     // staying true when task 3b lands.
     //
-    // The escape hatch, if mixing pots is ever actually wanted, is the same one
-    // the currency has: a `settled_funding_source` snapshot column. It is
+    // The escape hatch, if mixing payers is ever actually wanted, is the same
+    // one the currency has: a snapshot column (`settled_funding_source`). It is
     // deliberately NOT introduced here because terms 7 and 8 would have to be
     // rewritten to read it, and this task commits to leaving them untouched
     // (addendum §1.10).
     const settleFundingSource = debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null
-    if (priorSettledAmount > 0 && settleFundingSource !== sourceFundingSource) {
+    if (
+      priorSettledAmount > 0 &&
+      (settleFundingSource !== sourceFundingSource || senderId !== sourceSenderId)
+    ) {
       const describe = (value: string | null) => value ?? 'личный счёт администратора'
+      // The person, when there was one. `senderLabel` is written by the same
+      // flip that writes `senderId` (the payer's display name for an
+      // `ADMIN_PERSONAL` settle, 'COMPANY' otherwise), so no extra read is
+      // needed to name them.
+      const priorPayer = sourceSenderId ? ` (плательщик — ${sourceSenderLabel ?? 'админ'})` : ''
       throw new BadRequestException(
-        `Предыдущая выплата по этой строке прошла из источника «${describe(sourceFundingSource)}», ` +
-          `а эта — из «${describe(settleFundingSource)}». Доплата обязана идти из того же источника: ` +
-          `на нём держится учёт в счёте компании, и смена источника стёрла бы уже учтённую выплату.`,
+        `Предыдущая выплата по этой строке прошла из источника «${describe(sourceFundingSource)}»${priorPayer}, ` +
+          `а эта — из «${describe(settleFundingSource)}». Доплата обязана идти из того же источника, ` +
+          `и закрыть остаток должен он же: на этой паре держится учёт в счёте компании и в балансах ` +
+          `админов, и смена плательщика стёрла бы уже учтённую выплату.`,
       )
     }
 
@@ -1340,6 +1368,19 @@ export class PendingSettlementService {
      * already recorded on this row.
      */
     sourceFundingSource: string | null
+    /**
+     * task-cascade-apply (task 3, AC14 / security-review SR-M-5): WHO paid.
+     *
+     * `funding_source` alone answers "which pot", and inside `ADMIN_PERSONAL`
+     * that is the same NULL for every partner — so the pot comparison cannot
+     * tell two admins apart. The flip overwrites `sender_id`, and
+     * `adminBalances.sent` sums the row's whole `amount` under whoever holds
+     * it, so a top-up by a different partner silently moves the first
+     * partner's payment onto the second. The label rides along so the refusal
+     * can NAME them rather than say "someone else".
+     */
+    sourceSenderId: string | null
+    sourceSenderLabel: string | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
@@ -1368,6 +1409,8 @@ export class PendingSettlementService {
         sourceSettledCurrency: null,
         sourceSettledAmount: null,
         sourceFundingSource: null,
+        sourceSenderId: null,
+        sourceSenderLabel: null,
       }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
@@ -1381,6 +1424,8 @@ export class PendingSettlementService {
       sourceSettledCurrency: source.settledCurrency,
       sourceSettledAmount: source.settledAmount,
       sourceFundingSource: source.fundingSource,
+      sourceSenderId: source.senderId,
+      sourceSenderLabel: source.senderLabel,
     }
   }
 

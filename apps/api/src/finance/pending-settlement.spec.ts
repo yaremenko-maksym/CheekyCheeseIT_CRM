@@ -1280,6 +1280,10 @@ describe('PendingSettlementService.settleByCompany', () => {
           ledgerSelectCount?: number
         },
         fundingSource: string | null,
+        paidBy: { senderId: string | null; senderLabel: string } = {
+          senderId: null,
+          senderLabel: 'COMPANY',
+        },
       ) {
         const current = state.sourceTxs.get(SOURCE_TX_ID)!
         state.sourceTxs.set(SOURCE_TX_ID, {
@@ -1292,6 +1296,8 @@ describe('PendingSettlementService.settleByCompany', () => {
           settledCurrency: 'USDT',
           settledSharePercent: 26,
           fundingSource,
+          senderId: paidBy.senderId,
+          senderLabel: paidBy.senderLabel,
         } as ReturnType<typeof makeSourceTx>)
         state.obligations.set(
           OBLIGATION_COMPANY,
@@ -1349,9 +1355,10 @@ describe('PendingSettlementService.settleByCompany', () => {
           'Предыдущая выплата по этой строке прошла из источника «COMPANY_ACCOUNT»',
         )
         expect(message).toContain('а эта — из «личный счёт администратора»')
-        expect(message).toContain('Доплата обязана идти из того же источника:')
+        expect(message).toContain('Доплата обязана идти из того же источника,')
+        expect(message).toContain('и закрыть остаток должен он же')
         expect(message).toContain(
-          'на нём держится учёт в счёте компании, и смена источника стёрла бы уже учтённую выплату.',
+          'на этой паре держится учёт в счёте компании и в балансах админов, и смена плательщика стёрла бы уже учтённую выплату.',
         )
       })
 
@@ -1360,6 +1367,129 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, 'COMPANY_ACCOUNT')
         await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
         expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledAmount']).toBe('680.000000')
+      })
+
+      /**
+       * SR-M-5 (security-review round 3, owner's decision) — the pair is
+       * `(funding_source, sender_id)`, not the pot alone.
+       *
+       * Inside `ADMIN_PERSONAL` the pot is the SAME value for every admin
+       * (`funding_source` stays NULL), so the pot check waves through a
+       * top-up by a different partner. The flip then OVERWRITES `sender_id`,
+       * and `adminBalances.sent` sums the row's whole `amount` under the new
+       * sender: admin A pays 260, the cascade reopens the row, admin B tops
+       * it up, and the full figure ends up credited to B while A looks like
+       * they never paid. Two partners on 50/50 shares, and the discrepancy is
+       * silent.
+       */
+      it('refuses a top-up from a DIFFERENT admin than the one who paid before', async () => {
+        const { svc, state, getFlips } = makeService()
+        reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: 'Admin' })
+
+        await expect(
+          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_2_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xotheradmin',
+          }),
+        ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+        expect(getFlips()).toHaveLength(0)
+        expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PENDING')
+      })
+
+      it('ALLOWS the SAME admin to top up their own earlier personal payment', async () => {
+        // The guard is about the payer CHANGING, not about topping up. Same
+        // pot, same person ⇒ nothing in the ledger or in `adminBalances` moves
+        // to anyone else.
+        const { svc, state } = makeService()
+        reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: 'Admin' })
+
+        await expect(
+          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xsameadmin',
+          }),
+        ).resolves.toBeDefined()
+        expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledAmount']).toBe('680.000000')
+      })
+
+      it('names the admin who paid last time, so the operator knows who must finish it', async () => {
+        // "Из другого источника" is useless when both sides read
+        // «личный счёт администратора». The refusal has to say WHOSE.
+        const { svc, state } = makeService()
+        reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: 'Admin' })
+        let caught: unknown
+        try {
+          await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_2_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xotheradmin',
+          })
+        } catch (e) {
+          caught = e
+        }
+        const message = (caught as Error).message
+        expect(message).toContain('Admin')
+        expect(message).toContain('закрыть остаток должен он же')
+      })
+
+      it('falls back to a generic word when the payer id has no label beside it', async () => {
+        // `sender_label` is nullable, and a row can carry an id without one
+        // (any write path that stamped the id and not the label). The refusal
+        // still has to read as a sentence — «плательщик — null» would send the
+        // operator looking for a user called null.
+        const { svc, state } = makeService()
+        reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: null as never })
+        let caught: unknown
+        try {
+          await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_2_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xnolabel',
+          })
+        } catch (e) {
+          caught = e
+        }
+        expect((caught as Error).message).toContain('плательщик — админ')
+      })
+
+      it('says nothing about a payer when there was none — a company settle has no person', async () => {
+        // The mirror of the branch above: `sender_id` NULL means the pot paid,
+        // not a person, so the parenthetical must be absent rather than empty.
+        const { svc, state } = makeService()
+        reopenFundedBy(state, 'COMPANY_ACCOUNT')
+        let caught: unknown
+        try {
+          await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xnoperson',
+          })
+        } catch (e) {
+          caught = e
+        }
+        // Asserted POSITIVELY, on the seam itself: the source name runs
+        // straight into the comma with nothing between. A bare
+        // `not.toContain('(плательщик —')` would also accept any other stray
+        // text landing there, which is exactly the mutation the gate injects.
+        expect((caught as Error).message).toContain(
+          'прошла из источника «COMPANY_ACCOUNT», а эта — из',
+        )
+      })
+
+      it('a COMPANY top-up carries no personal payer, so the pair still matches itself', async () => {
+        // Regression guard for the obvious over-fix: both sides of a
+        // company-funded settle have `sender_id = null`, so widening the
+        // comparison to the pair must not start refusing the ordinary case.
+        const { svc, state } = makeService()
+        reopenFundedBy(state, 'COMPANY_ACCOUNT')
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
       })
 
       it('does NOT constrain a FIRST settle — there is no earlier source to match', async () => {
