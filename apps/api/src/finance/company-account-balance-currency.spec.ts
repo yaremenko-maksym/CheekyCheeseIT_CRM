@@ -298,7 +298,12 @@ describe('C-3: assertNoOffCurrencyCompanyRows (last query, mocked db)', () => {
     // sidestepping both traps entirely.
     const compiled = new PgDialect().sqlToQuery(getNinthWhere() as SQL)
     expect(compiled.params).toContain('PAID')
-    expect(compiled.params).toContain('USDT')
+    // COUNT, not `toContain`: since AC9 the guard binds 'USDT' TWICE — once
+    // against `currency` (settled rows) and once against `settled_currency`
+    // (reverted rows). A `toContain` check is satisfied by either one, so
+    // blanking the OTHER literal would go unnoticed — which is precisely what
+    // the mutation gate caught when this branch was added.
+    expect(compiled.params.filter((p) => p === 'USDT')).toHaveLength(2)
   })
 
   /**
@@ -348,6 +353,11 @@ describe('C-3: assertNoOffCurrencyCompanyRows (last query, mocked db)', () => {
 
     const compiled = new PgDialect().sqlToQuery(getNinthWhere() as SQL)
     expect(compiled.sql).toContain('settled_amount')
+    expect(compiled.sql).toMatch(/settled_amount"?\s+is\s+not\s+null/i)
+    // The exact literal the `<>` comparison binds — a blanked '' would make
+    // the predicate reject rows whose accumulator is a legitimate zero AND
+    // accept ones that are, i.e. quietly invert the narrowing.
+    expect(compiled.params).toContain('0')
   })
 
   it('the error message no longer claims every offending row is PAID (AC9)', () => {

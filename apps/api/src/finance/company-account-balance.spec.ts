@@ -128,4 +128,20 @@ describe('computeCompanyAccountBalanceFromLedger — 9th term (reverted-to-PENDI
     const db = makeDb(['500', '0', '0', '0', '0', '0', '0', '0', 'not-a-number'])
     expect(await computeCompanyAccountBalanceFromLedger(db)).toBe(500)
   })
+
+  it('an EMPTY result set on the 9th term reads as 0 rather than blowing up', async () => {
+    // `sumSettledAmount` reads `rows[0]?.total ?? '0'`. Postgres always returns
+    // one row for a bare aggregate, so this is defence-in-depth — but without
+    // the optional chain the whole balance read would throw a TypeError, i.e.
+    // a 500 on four money gates, instead of a zero contribution.
+    let call = 0
+    const select = vi.fn(() => ({
+      from: () => ({
+        // index 8 = the 9th SUM term; index 9 = the off-currency guard COUNT.
+        where: () => Promise.resolve(call++ === 8 ? [] : [{ total: '0' }]),
+      }),
+    }))
+    const db = { select } as unknown as DatabaseService['db']
+    await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.toBe(0)
+  })
 })

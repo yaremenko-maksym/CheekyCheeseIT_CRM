@@ -131,9 +131,9 @@ function selectReturning(totals: string[]) {
  * C-3 off-currency guard's COUNT(*) query, routed by CONTENT (inspecting the
  * projection object for 'COUNT(*)'), not call position. Position-based
  * routing breaks the moment `computeCompanyAccountBalanceForDisplay`
- * recomputes the 8-term sum a second time on the degraded path (once inside
+ * recomputes the term sum a second time on the degraded path (once inside
  * the failed guarded attempt, once for the best-effort fallback) — this one
- * does not care how many times the 8-term sum runs. `% sumTotals.length`
+ * does not care how many times the term sum runs. `% sumTotals.length`
  * makes the term sequence CYCLE across repeated invocations (a plain
  * incrementing index would run off the end of `sumTotals` on the second
  * invocation and silently fall back to '0' for every remaining term).
@@ -224,7 +224,7 @@ describe('CompanyAccountService.getAccount — SEC-1 degrades instead of 500ing 
     // guardTotal='2' → the off-currency guard would trip (2 bad rows), proving
     // this is a REAL degrade, not a scenario where the guard never fires.
     const db = makeDb({
-      select: selectWithOffCurrencyGuard(['1000', '0', '0', '200', '300', '0', '0', '0'], '2'),
+      select: selectWithOffCurrencyGuard(['1000', '0', '0', '200', '300', '0', '0', '0', '0'], '2'),
     })
     const svc = makeService(db)
     const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
@@ -249,7 +249,7 @@ describe('CompanyAccountService.getAccount — SEC-1 degrades instead of 500ing 
 
   it('a clean ledger (no off-currency rows) is unaffected by the new wiring, and does NOT log a warning', async () => {
     const db = makeDb({
-      select: selectWithOffCurrencyGuard(['1000', '0', '0', '200', '300', '0', '0', '0'], '0'),
+      select: selectWithOffCurrencyGuard(['1000', '0', '0', '200', '300', '0', '0', '0', '0'], '0'),
     })
     const svc = makeService(db)
     const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
@@ -739,7 +739,7 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     const inserted = { id: 'div-blocked' }
     const dbtx = {
       execute: vi.fn().mockResolvedValue(undefined),
-      select: selectWithOffCurrencyGuard(['5000', '0', '0', '0', '0', '0', '0', '0'], '3'),
+      select: selectWithOffCurrencyGuard(['5000', '0', '0', '0', '0', '0', '0', '0', '0'], '3'),
       insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
     }
     const db = makeDb({

@@ -169,6 +169,13 @@ async function sumSettledAmount(db: Db, where: ReturnType<typeof and>): Promise<
     .select({ total: sql<string>`COALESCE(SUM(${nonDeletedTransactions.settledAmount}), 0)` })
     .from(nonDeletedTransactions)
     .where(where)
+  // Stryker disable next-line StringLiteral: equivalent mutant — this fallback
+  // ('0' vs '') is consumed ONLY by `parseFloat` on this line and the
+  // `Number.isFinite` guard on the next. parseFloat('0') === 0 is finite and
+  // returns 0; parseFloat('') === NaN is not finite and ALSO returns 0. No
+  // assertion on this literal's exact value can distinguish the two — the
+  // observable behaviour ("an empty result set contributes zero") is pinned
+  // instead, in company-account-balance.spec.ts.
   const total = parseFloat(rows[0]?.total ?? '0')
   return Number.isFinite(total) ? total : 0
 }
