@@ -125,8 +125,12 @@ describe.skipIf(!hasDatabaseUrl())(
           createdBy: ADMIN_ID,
         },
         async () => {
+          // task-cascade-apply (AC9) reworded this message: since the guard
+          // also matches rows in PENDING_PAYMENT (whose off-currency label
+          // lives in `settled_currency`), it may no longer claim every hit is
+          // PAID or that the offending column is always `currency`.
           await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow(
-            /non-USDT|off-currency|currency other than USDT/i,
+            /currency label is not USDT/i,
           )
         },
       )

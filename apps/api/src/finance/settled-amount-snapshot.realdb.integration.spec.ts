@@ -21,12 +21,14 @@
  * reads `settled_amount` back with a FRESH `SELECT` afterwards. The database
  * itself is the assertion, not our interpretation of a fragment's shape.
  *
- * Scenario mirrors the unit-test's AC7 chain exactly: settle(560) → simulate
- * a cascade reopen (task 3, not built yet — same direct-DB-write technique
- * the unit test uses, since there is no app code to perform it) → settle a
- * delta(120) on the SAME source row → assert the row's `settled_amount` is
- * `680.000000` (560+120), never `120.000000` (an overwrite) and never NULL
- * (a `coalesce`-less increment on the first settle would have produced that).
+ * Scenario mirrors the unit-test's AC7 chain exactly: settle(560) → reproduce
+ * a cascade revert by direct DB writes (task-cascade-apply AC6 does this in
+ * the app; reproduced here so the spec depends on the DB, not on the cascade)
+ * → top up the SAME obligation, now carrying the new full share of 680 → assert
+ * the row's `settled_amount` is `680.000000` (560 + the 120 remainder), never
+ * `120.000000` (an overwrite), never `1240.000000` (paying the whole obligation
+ * twice) and never NULL (a `coalesce`-less increment on the first settle would
+ * have produced that).
  *
  * MANUALLY VERIFIED (not asserted in-repo — the whole point is that a REAL
  * Postgres run, not another mock, is what proves this): temporarily swapping
@@ -69,7 +71,6 @@ const ALL_USER_IDS = [ADMIN_ID, SENIOR_ID] as const
 
 const SOURCE_TX_ID = 'a5990000-0000-4000-cc00-000000000001'
 const OBLIGATION_ID = 'a5990000-0000-4000-dd00-000000000001'
-const DELTA_OBLIGATION_ID = 'a5990000-0000-4000-dd00-000000000002'
 const DEPOSIT_LABEL = 'sas599-spec-deposit'
 const WALLET = '0xC0FFEE0000000000000000000000000000000f99'
 
@@ -151,6 +152,7 @@ describe.skipIf(!hasDatabaseUrl())(
     async function readSourceTx() {
       const [row] = await dbSvc.db
         .select({
+          amount: transactions.amount,
           settledAmount: transactions.settledAmount,
           settledCurrency: transactions.settledCurrency,
           settledSharePercent: transactions.settledSharePercent,
@@ -260,38 +262,45 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(afterFirst.status).toBe('PAID')
       expect(afterFirst.settledSharePercent).toBe(26)
 
-      // ── Simulated cascade reopen (task 3, not built yet) — same
-      // direct-DB-write technique the unit test uses: return the source
-      // row to PENDING_PAYMENT, restore the share-percent snapshot (what
-      // the future cascade will do per the architecture doc's AC3), and
-      // open a NEW obligation for the delta against the SAME source row.
+      // ── The cascade revert, AS TASK 3 ACTUALLY PERFORMS IT.
+      //
+      // When this spec was written (PR #599) task 3 did not exist and the
+      // revert was guessed at as "a NEW obligation for the delta". The real
+      // mechanic (task-cascade-apply, AC6) reopens the SAME obligation
+      // carrying the NEW FULL share, rewrites both copies of the amount, and
+      // restores the percent from `settled_share_percent`. Reproduced here by
+      // direct DB writes, exactly as the old shape was — the CLAIM this test
+      // makes (the accumulator ends at 680, never overwritten) is unchanged;
+      // only the fixture catches up with what the app now really does.
       await dbSvc.db
         .update(transactions)
         .set({
           status: 'PENDING_PAYMENT',
           type: 'SENIOR_PENDING_PAYOUT',
+          amount: '680',
           seniorSharePercent: afterFirst.settledSharePercent,
         })
         .where(eq(transactions.id, SOURCE_TX_ID))
-      await dbSvc.db.insert(pendingObligations).values({
-        id: DELTA_OBLIGATION_ID,
-        creditorUserId: SENIOR_ID,
-        debtorType: 'COMPANY',
-        sourceTransactionId: SOURCE_TX_ID,
-        amount: '120',
-        currency: 'USDT',
-        status: 'PENDING',
-      })
+      await dbSvc.db
+        .update(pendingObligations)
+        .set({ status: 'PENDING', closingTransactionId: null, amount: '680' })
+        .where(eq(pendingObligations.id, OBLIGATION_ID))
 
-      // ── Settle 2: a SECOND real settle of the SAME row. This is the
-      // assertion that actually separates the real fragment from an
-      // overwrite (`${d}`) — an overwrite would leave this at
-      // '120.000000', not '680.000000'.
-      await settleSvc.settleByCompany(DELTA_OBLIGATION_ID, ADMIN_ACTOR)
+      // ── Settle 2: a SECOND real settle of the SAME row — the top-up. Only
+      // the remainder (680 − 560 = 120) is owed and paid. This is the
+      // assertion that separates the real DB-native fragment from an
+      // overwrite (`${d}`), which would leave this at '120.000000'; and from
+      // paying the full obligation twice, which would leave it at
+      // '1240.000000'.
+      await settleSvc.settleByCompany(OBLIGATION_ID, ADMIN_ACTOR)
       const afterSecond = await readSourceTx()
       expect(afterSecond.settledAmount).toBe('680.000000')
       expect(afterSecond.settledCurrency).toBe('USDT')
       expect(afterSecond.status).toBe('PAID')
+      // task-cascade-apply, addendum §1.2 — the invariant ledger term 9 rests
+      // on: after a top-up the row's amount and everything ever paid for it
+      // are the same number.
+      expect(afterSecond.settledAmount).toBe(Number(afterSecond.amount).toFixed(6))
     }, 30_000)
   },
 )
