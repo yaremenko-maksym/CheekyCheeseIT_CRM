@@ -44,6 +44,8 @@ import {
   COMPANY_ACCOUNT_RECEIVER,
   resolveEditCascade,
   computeCascadeVersion,
+  classifyEditedRowLedgerFact,
+  CASCADE_LEDGER_FACT_MESSAGES,
   cascadeEditPreviewResponseSchema,
   amountsDiffer,
 } from '@crm/shared'
@@ -3648,9 +3650,18 @@ export class TransactionsService {
         // `signatureQueryIds` above for why the source id shares the SAME
         // query as the derivatives instead of a second round-trip.
         hasSignedInvoice: signedIds.has(source.id),
-        originalAmount: source.originalAmount !== null ? Number(source.originalAmount) : null,
+        originalAmount:
+          (source.originalAmount ?? null) === null ? null : Number(source.originalAmount),
         // AC13 — the two "second carrier" facts about the edited row itself.
-        settledAmount: source.settledAmount !== null ? Number(source.settledAmount) : null,
+        //
+        // `?? null` rather than a bare `!== null`: these two feed a REFUSAL,
+        // and `Number(undefined)` is NaN, which is `!== null` and would read as
+        // "this row carries an accumulator" — turning a money guard ON for a
+        // row that has none. A partial projection (`columns: {...}` added to
+        // the read for speed) is all it would take, and nothing about the
+        // failure would point here.
+        settledAmount:
+          (source.settledAmount ?? null) === null ? null : Number(source.settledAmount),
         hasClosedObligation: sourceHasClosedObligation,
       },
       derivatives,
@@ -3684,37 +3695,13 @@ export class TransactionsService {
    * refuse itself. Both directions are pinned by tests.
    */
   private assertEditedRowAmountIsOwnRecord(source: CascadeSourceSnapshot): void {
-    // ADR AC5 §5 / C2 — a fact-of-payment record: `exchange_rate =
-    // amount / original_amount` sits beside it and the edit would quietly
-    // falsify it. Covers SALARY and a currency-converted PAYOUT_DROP.
-    if (source.originalAmount !== null) {
-      throw new BadRequestException(
-        'На этой строке зафиксирован факт платежа (сумма и курс) — сумма не редактируется, исправьте документ об оплате',
-      )
-    }
-    // The accumulator of what was actually paid out. Ledger term 7/8 debits
-    // this row by `amount`; the money physically gone is `settled_amount`.
-    // Lowering `amount` raises the company balance by the difference, and no
-    // gate catches an error in that direction.
-    if (source.settledAmount !== null) {
-      throw new BadRequestException(
-        'Эта строка закрывает обязательство, её сумма подтверждена фактическими выплатами — правьте сторнирующей транзакцией, а не суммой',
-      )
-    }
-    // The same thing for rows closed BEFORE the accumulator column existed
-    // (#599): no `settled_amount`, but a closed obligation all the same.
-    if (source.hasClosedObligation) {
-      throw new BadRequestException(
-        'Эта строка закрывает обязательство — сумма подтверждена закрытым обязательством, правьте сторнирующей транзакцией',
-      )
-    }
-    // C4 of the main ADR — the figure was observed on-chain. Editing it makes
-    // the ledger disagree with the blockchain, and the blockchain wins.
-    if (source.type === 'COMPANY_DEPOSIT') {
-      throw new BadRequestException(
-        'Сумма депозита сверена с блокчейном — она не редактируется, оформляйте расхождение отдельной транзакцией',
-      )
-    }
+    // CR-M-1 (code-review round 3) — the predicates and their texts moved to
+    // `@crm/shared` so `GET :id/edit-preview` answers from the SAME
+    // description this refusal is built on. Two copies of "what is editable"
+    // is precisely how a preview starts promising a save that cannot happen
+    // (risk 1 of the main ADR's AC6).
+    const reason = classifyEditedRowLedgerFact(source)
+    if (reason) throw new BadRequestException(CASCADE_LEDGER_FACT_MESSAGES[reason])
   }
 
   /**
@@ -4110,6 +4097,27 @@ export class TransactionsService {
       // reads) could land here. Real defense-in-depth, not a decorative
       // check: the two reads are NOT inside one transaction.
       throw new NotFoundException('Transaction not found')
+    }
+
+    // CR-M-1 — AC13's refusals, reported BEFORE a plan is built, because a
+    // plan for a row that cannot be saved is worse than no plan: task 5 would
+    // render an edit form on it.
+    //
+    // The condition mirrors `isCascadeEdit` in `adminUpdateTransaction`
+    // exactly (`PAID` + the amount actually moves), because parity is the
+    // whole point: reporting "blocked" where the write would NOT refuse is the
+    // same divergence pointing the other way. Asking about the figure the row
+    // already holds is not an edit.
+    if (snapshot.source.status === 'PAID' && amountsDiffer(amount, snapshot.source.amount)) {
+      const ledgerFact = classifyEditedRowLedgerFact(snapshot.source)
+      if (ledgerFact) {
+        return cascadeEditPreviewResponseSchema.parse({
+          editable: false,
+          blockedReason: ledgerFact,
+          plan: null,
+          version: null,
+        })
+      }
     }
 
     const plan = resolveEditCascade(snapshot, { amount })

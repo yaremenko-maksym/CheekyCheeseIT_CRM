@@ -223,7 +223,12 @@ describe('getEditCascadePreview — no derivatives', () => {
     ])
   })
 
-  it('flags SOURCE_ORIGINAL_AMOUNT_SET when the source row itself carries originalAmount', async () => {
+  it('BLOCKS a PAID row carrying originalAmount rather than warning about it (CR-M-1)', async () => {
+    // Round 2 answered `editable: true` here with a `SOURCE_ORIGINAL_AMOUNT_SET`
+    // warning, while `PATCH` refused the same row outright under AC13. A
+    // warning that says "heads up" where the save cannot succeed is the
+    // preview-vs-fact divergence the whole "one resolver, two wrappers" shape
+    // exists to prevent — and task 5 would have rendered an edit form on it.
     const findFirstImpl = vi.fn().mockResolvedValue(sourceRow({ originalAmount: '800.000000' }))
     const findManyDerivatives = vi.fn().mockResolvedValue([])
     const findManyObligations = vi.fn().mockResolvedValue([])
@@ -232,6 +237,33 @@ describe('getEditCascadePreview — no derivatives', () => {
       db: makeDb({ findFirstImpl, findManyDerivatives, findManyObligations, findManySignatures }),
     })
     const result = await svc.getEditCascadePreview(SOURCE_ID, 2000, ADMIN)
+    expect(result).toEqual({
+      editable: false,
+      blockedReason: 'PAYMENT_FACT_RECORDED',
+      plan: null,
+      version: null,
+    })
+  })
+
+  it('still flags SOURCE_ORIGINAL_AMOUNT_SET where the write would NOT refuse', async () => {
+    // AC13 only fires on a PAID row. On one that has not settled the warning
+    // is still the right answer — the resolver keeps producing it, and the
+    // preview keeps passing it through.
+    const findFirstImpl = vi.fn().mockResolvedValue(
+      sourceRow({
+        type: 'SENIOR_PENDING_PAYOUT',
+        status: 'PENDING_PAYMENT',
+        originalAmount: '800.000000',
+      }),
+    )
+    const findManyDerivatives = vi.fn().mockResolvedValue([])
+    const findManyObligations = vi.fn().mockResolvedValue([])
+    const findManySignatures = vi.fn().mockResolvedValue([])
+    const svc = makeTransactionsService({
+      db: makeDb({ findFirstImpl, findManyDerivatives, findManyObligations, findManySignatures }),
+    })
+    const result = await svc.getEditCascadePreview(SOURCE_ID, 2000, ADMIN)
+    expect(result.editable).toBe(true)
     expect(result.plan!.sourceWarnings).toEqual([
       { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('800') },
     ])

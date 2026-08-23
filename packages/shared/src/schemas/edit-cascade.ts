@@ -624,10 +624,96 @@ export const cascadeEditPreviewQuerySchema = z.object({
 })
 export type CascadeEditPreviewQuery = z.infer<typeof cascadeEditPreviewQuerySchema>
 
-/** Why editing is blocked outright — mirrors guards 1 and 2 of `adminUpdateTransaction` (`transactions.service.ts:2944-2949`). Guard 3 (BIZ-18, the PAID amount lock) is deliberately NOT one of these: this endpoint exists to preview what removing it would do (task 3), so it never blocks on it. */
+/**
+ * task-cascade-apply (task 3, AC13 / addendum §1.12) — the four reasons a
+ * PAID row's `amount` is NOT our own record to correct.
+ *
+ * The rule, stated once: editing `amount` is allowed when `amount` is OUR OWN
+ * record of a value that could have been entered wrongly, and forbidden when
+ * the number has a SECOND CARRIER that the edit does not move — because then
+ * the edit does not correct a record, it sets two of the system's records
+ * against each other.
+ */
+export const cascadeLedgerFactReasonSchema = z.enum([
+  /** `original_amount` — `exchange_rate = amount / original_amount` sits beside it. */
+  'PAYMENT_FACT_RECORDED',
+  /** `settled_amount` — the accumulator of what has actually been paid out. */
+  'SETTLED_AMOUNT_RECORDED',
+  /** A `pending_obligations` row this transaction closed (either epoch's key). */
+  'CLOSES_OBLIGATION',
+  /** `COMPANY_DEPOSIT` — the figure was observed on-chain (C4 of the ADR). */
+  'ONCHAIN_DEPOSIT',
+])
+export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSchema>
+
+/**
+ * The operator-facing refusal for each reason. Each one names the CARRIER, not
+ * merely "нельзя" — the operator has to know what the amount is pinned to
+ * before they can decide what to do instead.
+ *
+ * Lives beside the classifier rather than inside the API service so the write
+ * path's 400 body and the preview's blocked reason are two renderings of ONE
+ * text, and so task 5's UI can show the same sentence without restating it.
+ */
+export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, string> = {
+  PAYMENT_FACT_RECORDED:
+    'На этой строке зафиксирован факт платежа (сумма и курс) — сумма не редактируется, исправьте документ об оплате',
+  SETTLED_AMOUNT_RECORDED:
+    'Эта строка закрывает обязательство, её сумма подтверждена фактическими выплатами — правьте сторнирующей транзакцией, а не суммой',
+  CLOSES_OBLIGATION:
+    'Эта строка закрывает обязательство — сумма подтверждена закрытым обязательством, правьте сторнирующей транзакцией',
+  ONCHAIN_DEPOSIT:
+    'Сумма депозита сверена с блокчейном — она не редактируется, оформляйте расхождение отдельной транзакцией',
+}
+
+/**
+ * ONE description of AC13's four predicates, so `GET :id/edit-preview` and
+ * `PATCH :id/admin-edit` cannot disagree about what is editable (CR-M-1,
+ * code-review round 3; risk 1 of the main ADR's AC6).
+ *
+ * Returns the FIRST reason that applies, most specific first — a row can carry
+ * several carriers at once and the operator should hear about the one that is
+ * hardest to argue with.
+ *
+ * `ADMIN_INCOME`, `EXPENSE` and `DIVIDEND_TO_ADMIN` return `null` ON PURPOSE:
+ * they have no second carrier (checked column by column across all eight
+ * ledger terms — the table in addendum §1.12), so an edit there means "we wrote
+ * down the wrong number" and the ledger is obliged to follow it. That is the
+ * work the whole cascade exists to do; do not "finish the job" by adding them.
+ *
+ * ONLY EVER ASKED ABOUT THE ROW BEING EDITED. The cascade writes `amount` on
+ * derivatives whose `settledAmount` is non-null all the time — that is AC5/AC6,
+ * its ordinary work. Calling this from `applyEditCascade` would make the
+ * cascade refuse itself.
+ */
+export function classifyEditedRowLedgerFact(
+  source: CascadeSourceSnapshot,
+): CascadeLedgerFactReason | null {
+  if (source.originalAmount !== null) return 'PAYMENT_FACT_RECORDED'
+  if (source.settledAmount !== null) return 'SETTLED_AMOUNT_RECORDED'
+  if (source.hasClosedObligation) return 'CLOSES_OBLIGATION'
+  if (source.type === 'COMPANY_DEPOSIT') return 'ONCHAIN_DEPOSIT'
+  return null
+}
+
+/**
+ * Why editing is blocked outright.
+ *
+ * The first two mirror guards 1 and 2 of `adminUpdateTransaction`. The four
+ * after them are AC13's ledger-fact refusals (CR-M-1): before they were listed
+ * here the preview answered `editable: true` for rows the write refuses, which
+ * is exactly the preview-vs-fact divergence the "one resolver, two wrappers"
+ * shape exists to prevent — and which would have surfaced as an edit form whose
+ * save cannot succeed the moment task 5 renders one.
+ *
+ * Guard 3 (BIZ-18, the PAID amount lock) is deliberately NOT one of these: this
+ * endpoint exists to preview what removing it would do (task 3), so it never
+ * blocks on it.
+ */
 export const cascadeEditPreviewBlockedReasonSchema = z.enum([
   'PAYOUT_FAMILY',
   'LINKED_TO_PAYOUT_REQUEST',
+  ...cascadeLedgerFactReasonSchema.options,
 ])
 export type CascadeEditPreviewBlockedReason = z.infer<typeof cascadeEditPreviewBlockedReasonSchema>
 

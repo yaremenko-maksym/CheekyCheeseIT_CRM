@@ -823,11 +823,17 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     expect(settled.fundingSource).toBe('COMPANY_ACCOUNT') // …and term 7 debits it
 
     const before = await balance()
+    // CR-M-1: the preview now refuses it too, and hands out no token for a row
+    // it will not let be saved. The write is asked with a placeholder anyway —
+    // AC13 is checked BEFORE the version comparison precisely so the operator
+    // hears "this row is not editable" rather than "your preview is stale".
     const preview = await svc.getEditCascadePreview(settled.id, 26, ADMIN)
+    expect(preview.blockedReason).toBe('SETTLED_AMOUNT_RECORDED')
+    expect(preview.version).toBeNull()
     await expect(
       svc.adminUpdateTransaction(
         settled.id,
-        { amount: 26, cascadeVersion: preview.version! },
+        { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
     ).rejects.toThrow(/подтверждена фактическими выплатами/)
@@ -846,10 +852,11 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
       ),
     })
     const preview = await svc.getEditCascadePreview(deposit!.id, 42, ADMIN)
+    expect(preview.blockedReason).toBe('ONCHAIN_DEPOSIT')
     await expect(
       svc.adminUpdateTransaction(
         deposit!.id,
-        { amount: 42, cascadeVersion: preview.version! },
+        { amount: 42, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
     ).rejects.toThrow(/сверена с блокчейном/)
@@ -902,10 +909,11 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
 
     const before = await balance()
     const preview = await svc.getEditCascadePreview(closingRow!.id, 26, ADMIN)
+    expect(preview.blockedReason).toBe('CLOSES_OBLIGATION')
     await expect(
       svc.adminUpdateTransaction(
         closingRow!.id,
-        { amount: 26, cascadeVersion: preview.version! },
+        { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
     ).rejects.toThrow(/закрытым обязательством/)
@@ -1096,6 +1104,52 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     const edited = await derivativeFor(SENIOR.id)
     expect(edited.row.amount).toBe('900.000000')
     expect(edited.obligation.amount).toBe('900.000000')
+  })
+
+  it('risk 25 (CR-M-1): the preview refuses the same real rows the write refuses', async () => {
+    // The unit parity table proves the two call the ONE classifier; this
+    // proves the rows reaching it come back from real Postgres. The
+    // `CLOSES_OBLIGATION` case in particular exists only if the obligations
+    // query actually finds the row (risk 22).
+    await declare(PROJECT_SENIOR, 1000)
+    const { obligation } = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(obligation.id, ADMIN)
+    const settled = (await derivativeFor(SENIOR.id)).row
+    const deposit = await dbSvc.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.senderLabel, DEPOSIT_LABEL),
+        eq(transactions.type, 'COMPANY_DEPOSIT'),
+      ),
+    })
+    const income = await sourceIncome(PROJECT_SENIOR)
+
+    const rows: Array<{ label: string; id: string; expected: string | null }> = [
+      { label: 'settled senior row', id: settled.id, expected: 'SETTLED_AMOUNT_RECORDED' },
+      { label: 'company deposit', id: deposit!.id, expected: 'ONCHAIN_DEPOSIT' },
+      { label: 'ordinary income', id: income.id, expected: null },
+    ]
+
+    const previewSays: Record<string, string | null> = {}
+    const writeRefuses: Record<string, boolean> = {}
+    for (const r of rows) {
+      const preview = await svc.getEditCascadePreview(r.id, 42, ADMIN)
+      previewSays[r.label] = preview.blockedReason
+      try {
+        await svc.adminUpdateTransaction(
+          r.id,
+          { amount: 42, cascadeVersion: preview.version ?? 'stale' },
+          ADMIN,
+        )
+        writeRefuses[r.label] = false
+      } catch {
+        writeRefuses[r.label] = true
+      }
+    }
+
+    expect(previewSays).toEqual(Object.fromEntries(rows.map((r) => [r.label, r.expected])))
+    expect(writeRefuses).toEqual(
+      Object.fromEntries(rows.map((r) => [r.label, r.expected !== null])),
+    )
   })
 
   // ── risk 20 — never revert into a dead end (SR-M-3) ─────────────────────

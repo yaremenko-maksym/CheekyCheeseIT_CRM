@@ -10,6 +10,9 @@ import {
   cascadeEditPreviewQuerySchema,
   cascadeEditPreviewBlockedReasonSchema,
   cascadeEditPreviewResponseSchema,
+  cascadeLedgerFactReasonSchema,
+  classifyEditedRowLedgerFact,
+  CASCADE_LEDGER_FACT_MESSAGES,
   type CascadeDerivativeSnapshot,
   type CascadeSnapshot,
   type CascadeWarning,
@@ -102,6 +105,102 @@ function snapshot(
 ): CascadeSnapshot {
   return { source: makeSource(sourceOverrides), derivatives }
 }
+
+describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
+  it('names the fact-of-payment triplet', () => {
+    expect(classifyEditedRowLedgerFact(makeSource({ originalAmount: 41500 }))).toBe(
+      'PAYMENT_FACT_RECORDED',
+    )
+  })
+
+  it('names the accumulator of actual payouts', () => {
+    expect(classifyEditedRowLedgerFact(makeSource({ settledAmount: 260 }))).toBe(
+      'SETTLED_AMOUNT_RECORDED',
+    )
+  })
+
+  it('counts a zero accumulator as recorded — it is a settle that happened, not an absent one', () => {
+    // `0` is a figure someone wrote down; `null` is "never settled". Reading
+    // the first as the second is how a truthiness check would get this wrong.
+    expect(classifyEditedRowLedgerFact(makeSource({ settledAmount: 0 }))).toBe(
+      'SETTLED_AMOUNT_RECORDED',
+    )
+  })
+
+  it('names a closed obligation the row stands behind', () => {
+    expect(classifyEditedRowLedgerFact(makeSource({ hasClosedObligation: true }))).toBe(
+      'CLOSES_OBLIGATION',
+    )
+  })
+
+  it('names an on-chain deposit', () => {
+    expect(classifyEditedRowLedgerFact(makeSource({ type: 'COMPANY_DEPOSIT' }))).toBe(
+      'ONCHAIN_DEPOSIT',
+    )
+  })
+
+  it.each(['ADMIN_INCOME', 'EXPENSE', 'DIVIDEND_TO_ADMIN'])(
+    'leaves %s editable — it has no second carrier of the amount',
+    (type) => {
+      expect(classifyEditedRowLedgerFact(makeSource({ type }))).toBeNull()
+    },
+  )
+
+  it('reports the most fundamental carrier first when a row has several', () => {
+    // Order is not cosmetic: the operator should hear the reason that is
+    // hardest to argue with, and every reason names a DIFFERENT remedy.
+    expect(
+      classifyEditedRowLedgerFact(
+        makeSource({ originalAmount: 800, settledAmount: 260, hasClosedObligation: true }),
+      ),
+    ).toBe('PAYMENT_FACT_RECORDED')
+    expect(
+      classifyEditedRowLedgerFact(makeSource({ settledAmount: 260, hasClosedObligation: true })),
+    ).toBe('SETTLED_AMOUNT_RECORDED')
+  })
+
+  it('has a distinct operator-facing message for every reason, each naming a carrier', () => {
+    const messages = Object.values(CASCADE_LEDGER_FACT_MESSAGES)
+    expect(messages).toHaveLength(cascadeLedgerFactReasonSchema.options.length)
+    expect(new Set(messages).size).toBe(messages.length)
+    for (const m of messages) expect(m.length).toBeGreaterThan(20)
+  })
+
+  it('carries exactly these four codes, spelled out', () => {
+    // Written as literals ON PURPOSE. Reading the expected values back out of
+    // `cascadeLedgerFactReasonSchema.options` would make this pass by
+    // construction — the tautology the mutation gate catches by blanking an
+    // option and watching nothing complain. These strings cross the wire to
+    // task 5's UI; they are a contract, not an implementation detail.
+    expect(cascadeLedgerFactReasonSchema.options).toEqual([
+      'PAYMENT_FACT_RECORDED',
+      'SETTLED_AMOUNT_RECORDED',
+      'CLOSES_OBLIGATION',
+      'ONCHAIN_DEPOSIT',
+    ])
+  })
+
+  it('is a subset of what the preview can report — otherwise the write could refuse unnameably', () => {
+    // Same reason as above: the four codes are named here independently of the
+    // enum being checked, so an option that loses its value fails to parse.
+    for (const reason of [
+      'PAYMENT_FACT_RECORDED',
+      'SETTLED_AMOUNT_RECORDED',
+      'CLOSES_OBLIGATION',
+      'ONCHAIN_DEPOSIT',
+    ] as const) {
+      expect(cascadeLedgerFactReasonSchema.safeParse(reason).success).toBe(true)
+      expect(cascadeEditPreviewBlockedReasonSchema.safeParse(reason).success).toBe(true)
+    }
+  })
+
+  it('leaves guards 1 and 2 in the preview enum — the ledger facts are additions, not a replacement', () => {
+    for (const reason of ['PAYOUT_FAMILY', 'LINKED_TO_PAYOUT_REQUEST'] as const) {
+      expect(cascadeEditPreviewBlockedReasonSchema.safeParse(reason).success).toBe(true)
+      expect(cascadeLedgerFactReasonSchema.safeParse(reason).success).toBe(false)
+    }
+  })
+})
 
 describe('resolveEditCascade — AC1 purity', () => {
   it('is deterministic: identical input yields byte-for-byte identical output', () => {

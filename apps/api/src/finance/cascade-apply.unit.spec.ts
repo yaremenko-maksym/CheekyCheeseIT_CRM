@@ -1109,6 +1109,150 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
 })
 
 // ---------------------------------------------------------------------------
+// CR-M-1 — the preview and the write must agree about WHAT IS EDITABLE.
+// ---------------------------------------------------------------------------
+
+/**
+ * CR-M-1 (code-review round 3). `GET :id/edit-preview` kept answering
+ * `editable: true` for rows the `PATCH` now refuses under AC13, because the
+ * blocked-reason enum only knew about guards 1 and 2.
+ *
+ * This is risk 1 of the main ADR's AC6 — "предпросмотр и факт разъезжаются" —
+ * which is the reason the whole thing was built as ONE resolver behind TWO
+ * wrappers. The write path is protected, so it is not a money defect; it is a
+ * defect in the promise the design makes, and it surfaces the moment task 5
+ * renders an edit form on a row whose save cannot succeed.
+ *
+ * The table below is compared AS A WHOLE, both directions. "Both said no N
+ * times" is precisely the assertion that would have let this through.
+ */
+describe('CR-M-1: edit-preview refuses exactly where the write refuses', () => {
+  /** One fixture per AC13 predicate, plus the three types that must stay editable. */
+  const CASES: Array<{
+    label: string
+    source: Record<string, unknown>
+    obligations?: Array<Record<string, unknown>>
+    expected: string | null
+  }> = [
+    {
+      label: 'fact-of-payment triplet',
+      source: { originalAmount: '41500.000000' },
+      expected: 'PAYMENT_FACT_RECORDED',
+    },
+    {
+      label: 'accumulator of actual payouts',
+      source: { type: 'SENIOR_INCOME', settledAmount: '260.000000' },
+      expected: 'SETTLED_AMOUNT_RECORDED',
+    },
+    {
+      label: 'closed obligation (pre-accumulator epoch)',
+      source: { type: 'SENIOR_INCOME' },
+      obligations: [obligationRow({ sourceTransactionId: SOURCE_ID, status: 'PAID' })],
+      expected: 'CLOSES_OBLIGATION',
+    },
+    {
+      label: 'on-chain deposit',
+      source: { type: 'COMPANY_DEPOSIT' },
+      expected: 'ONCHAIN_DEPOSIT',
+    },
+    { label: 'ordinary admin income', source: { type: 'ADMIN_INCOME' }, expected: null },
+    { label: 'expense', source: { type: 'EXPENSE' }, expected: null },
+    { label: 'dividend', source: { type: 'DIVIDEND_TO_ADMIN' }, expected: null },
+  ]
+
+  const NEW_AMOUNT = 26
+
+  async function previewVerdict(c: (typeof CASES)[number]) {
+    const source = sourceRow(c.source)
+    const { db } = makeDouble({ source, obligations: c.obligations })
+    const svc = makeTransactionsService({ db })
+    const preview = await svc.getEditCascadePreview(SOURCE_ID, NEW_AMOUNT, ADMIN)
+    return preview
+  }
+
+  async function writeVerdict(c: (typeof CASES)[number]) {
+    const source = sourceRow(c.source)
+    const { db } = makeDouble({ source, obligations: c.obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ source, obligations: c.obligations }))
+    try {
+      await svc.adminUpdateTransaction(
+        SOURCE_ID,
+        { amount: NEW_AMOUNT, cascadeVersion: version },
+        ADMIN,
+      )
+      return null
+    } catch (e) {
+      return (e as Error).message
+    }
+  }
+
+  it('reports the SAME set of blocked rows the write refuses — compared whole, both ways', async () => {
+    const previewSaysNo: Record<string, string | null> = {}
+    const writeSaysNo: Record<string, boolean> = {}
+    const expectedWriteSaysNo: Record<string, boolean> = {}
+
+    for (const c of CASES) {
+      const preview = await previewVerdict(c)
+      previewSaysNo[c.label] = preview.blockedReason
+      writeSaysNo[c.label] = (await writeVerdict(c)) !== null
+      expectedWriteSaysNo[c.label] = c.expected !== null
+    }
+
+    // Direction 1: the preview names the right reason for every row.
+    expect(previewSaysNo).toEqual(
+      Object.fromEntries(CASES.map((c) => [c.label, c.expected] as const)),
+    )
+    // Direction 2: the write agrees, row for row. Not "N and N".
+    expect(writeSaysNo).toEqual(expectedWriteSaysNo)
+  })
+
+  it('carries no plan and no version on a blocked row — there is nothing to confirm', async () => {
+    const preview = await previewVerdict(CASES[1]!)
+    expect(preview.editable).toBe(false)
+    expect(preview.plan).toBeNull()
+    expect(preview.version).toBeNull()
+  })
+
+  it('still previews an UNCHANGED amount on a pinned row — the write would not refuse either', async () => {
+    // AC13 only fires on `PAID && amountChanged`. Asking the preview about the
+    // figure the row already holds is not an edit, and answering "blocked"
+    // there would be the same divergence in the other direction.
+    const source = sourceRow({ type: 'SENIOR_INCOME', settledAmount: '260.000000' })
+    const { db } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    const preview = await svc.getEditCascadePreview(SOURCE_ID, Number(source.amount), ADMIN)
+    expect(preview.blockedReason).toBeNull()
+    expect(preview.editable).toBe(true)
+  })
+
+  it('still previews a NON-PAID row carrying an accumulator — that one is floored, not refused', async () => {
+    // The reverted-derivative shape (SR-M-6). The write stores it with the
+    // floor applied rather than refusing, so the preview must not refuse.
+    const source = sourceRow({
+      type: 'SENIOR_PENDING_PAYOUT',
+      status: 'PENDING_PAYMENT',
+      settledAmount: '260.000000',
+    })
+    const { db } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    const preview = await svc.getEditCascadePreview(SOURCE_ID, 100, ADMIN)
+    expect(preview.blockedReason).toBeNull()
+  })
+
+  it('keeps guards 1 and 2 ahead of the ledger-fact reasons — the outer refusal wins', async () => {
+    // A PAYOUT-family row also carries an accumulator sometimes; the operator
+    // should hear the more fundamental "this family is never editable".
+    const source = sourceRow({ type: 'PAYOUT', settledAmount: '260.000000' })
+    const { db } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    const preview = await svc.getEditCascadePreview(SOURCE_ID, 26, ADMIN)
+    expect(preview.blockedReason).toBe('PAYOUT_FAMILY')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // SR-M-6 — the accumulator floor is a LAW, so it holds on BOTH write paths.
 // ---------------------------------------------------------------------------
 
