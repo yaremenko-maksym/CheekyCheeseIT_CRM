@@ -1155,7 +1155,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
   it('risk 26 (SR-H-1): a settle landing between the read and the write is refused, not overwritten', async () => {
     // THE RACE, placed deterministically rather than hoped for. Everything
     // `adminUpdateTransaction` decides — `isCascadeEdit`, `amountChanged`,
-    // `priorSettled` — comes from a read taken BEFORE it opens its DB
+    // `requestedFloored` — comes from a read taken BEFORE it opens its DB
     // transaction, and on this (non-cascade) path it takes no lock at all. So
     // the window is real; the only hard part in a test is hitting it on
     // purpose. Spying on `db.transaction` puts the settle exactly there: it
@@ -1217,6 +1217,51 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     expect(after.row.amount).toBe('260.000000')
     expect(after.obligation.amount).toBe('260.000000')
     expect(after.obligation.status).toBe('PAID')
+  })
+
+  it('risk 27 (SR-L-1): a PENDING → PAID → PENDING round trip in the window is refused too', async () => {
+    // The ABA remainder of the status predicate. Binding the status catches
+    // "someone settled it", but not "someone settled it and something put the
+    // status back" — the row reads `PENDING_PAYMENT` again at write time while
+    // its accumulator now says 260 was paid.
+    //
+    // No "+"-direction money error follows (term 9 sums the accumulator, and
+    // the next cascade floors by AC5), which is why this is LOW. But the
+    // strengthening is one line and has a precedent on the same column in
+    // `settleByCompany`'s flip, so there is no reason to leave the hole.
+    await declare(PROJECT_SENIOR, 1000)
+    const { obligation, row: iou } = await derivativeFor(SENIOR.id)
+    expect(iou.settledAmount).toBeNull()
+
+    const realTransaction = dbSvc.db.transaction.bind(dbSvc.db)
+    const spy = vi
+      .spyOn(dbSvc.db, 'transaction')
+      .mockImplementationOnce(async (cb: Parameters<typeof realTransaction>[0]) => {
+        // A → B: a real settle. The row becomes PAID and picks up an
+        // accumulator.
+        await settleSvc.settleByCompany(obligation.id, ADMIN)
+        // B → A: the status goes back, the accumulator does NOT. This is the
+        // shape a cascade revert leaves behind, reproduced directly so the
+        // test states one thing.
+        await dbSvc.db
+          .update(transactions)
+          .set({ status: 'PENDING_PAYMENT', type: 'SENIOR_PENDING_PAYOUT' })
+          .where(eq(transactions.id, iou.id))
+        return realTransaction(cb)
+      })
+
+    await expect(svc.adminUpdateTransaction(iou.id, { amount: 900 }, ADMIN)).rejects.toThrow(
+      /Состояние строки изменилось/,
+    )
+    spy.mockRestore()
+
+    // The stale read said "no accumulator"; the row says otherwise, and
+    // nothing was written on that belief.
+    const after = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, iou.id),
+    })
+    expect(after!.settledAmount).toBe('260.000000')
+    expect(after!.amount).toBe('260.000000')
   })
 
   // ── risk 20 — never revert into a dead end (SR-M-3) ─────────────────────

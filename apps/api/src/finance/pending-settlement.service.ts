@@ -932,10 +932,17 @@ export class PendingSettlementService {
     //   - `sender_id`: NO ledger term reads it. Verified, not assumed —
     //     `grep -n 'senderId\|sender_id' company-account-balance.ts` returns a
     //     single hit, and it is a comment. The cost sits somewhere else
-    //     entirely: `adminBalances` in `balance.service.ts` attributes a row's
-    //     whole `amount` to whoever holds `sender_id`, so splitting one row
-    //     between two payers needs a per-settle record there, not a column
-    //     here.
+    //     entirely: the `adminBalances` array built in
+    //     `TransactionsService.getSummary()` (transactions.service.ts)
+    //     attributes a row's whole `amount` to whoever holds `sender_id`, so
+    //     splitting one row between two payers needs a per-settle record
+    //     there, not a column here.
+    //
+    //     NOT `balance.service.ts` — round 4's version of this comment said
+    //     so and was wrong twice over. That file holds `getAdminBalance`, a
+    //     different and narrower metric whose own docstring states it "does
+    //     NOT replicate `getSummary`'s full HOLDING model". Sending the next
+    //     reader there sends them to code that does not do this.
     //
     // Saying "terms 7 and 8" for the second axis pointed the next reader at
     // code that has nothing to do with it.

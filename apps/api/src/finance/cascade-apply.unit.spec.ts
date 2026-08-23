@@ -1312,7 +1312,7 @@ describe('CR-M-2: "is this a cascade amount edit" is asked in one place', () => 
 
 /**
  * SR-H-1 (security-review round 4, HIGH). `isCascadeEdit`, `amountChanged` and
- * `priorSettled` are all derived from the row read OUTSIDE the DB transaction,
+ * `requestedFloored` are all derived from the row read OUTSIDE the DB transaction,
  * and on the NON-cascade path no lock is taken at all (unlike
  * `settleByCompany`, which takes every one). The final write only asserted
  * `deleted_at IS NULL`, so a settle landing in that window was overwritten
@@ -1325,8 +1325,8 @@ describe('CR-M-2: "is this a cascade amount edit" is asked in one place', () => 
  *     the edit went through with NO `cascadeVersion`, NO AC13 and NO cascade —
  *     the very "edit the row that closed the obligation" AC13 exists to stop.
  *
- * The SR-M-6 floor does not help: `priorSettled` comes from the same stale
- * read.
+ * The SR-M-6 floor does not help: `requestedFloored` is computed from
+ * `tx.settledAmount` off that same stale read.
  *
  * The `.where` predicate is unchanged from `origin/main`, so the race predates
  * this branch — but on `main` BIZ-18 forbade editing a PAID row's amount
@@ -1367,6 +1367,42 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
     await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
 
     expect(mainWrite(ops)[0]!.where).toContain('PAID')
+  })
+
+  it('binds the ACCUMULATOR it read as well — the A→B→A case (SR-L-1)', async () => {
+    // The status predicate covers "someone settled it". It does NOT cover
+    // "someone settled it and put the status back", which reads identical at
+    // write time while the accumulator says money went out. Binding the
+    // accumulator is what covers that one.
+    const source = sourceRow({
+      type: 'SENIOR_PENDING_PAYOUT',
+      status: 'PENDING_PAYMENT',
+      settledAmount: '260.000000',
+    })
+    const { db, ops } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 900 }, ADMIN)
+
+    expect(mainWrite(ops)[0]!.where).toContain('260.000000')
+  })
+
+  it('binds a NULL accumulator too — the ordinary row must not be excluded', async () => {
+    // `IS NOT DISTINCT FROM` rather than `=`: with `=` a never-settled row
+    // (NULL) would match nothing and every ordinary edit in the system would
+    // start failing. The binding has to happen for NULL as well, which is what
+    // this pins.
+    const source = sourceRow({
+      type: 'SENIOR_PENDING_PAYOUT',
+      status: 'PENDING_PAYMENT',
+      settledAmount: null,
+    })
+    const { db, ops } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 900 }, ADMIN)
+
+    expect(mainWrite(ops)[0]!.where).toContain(null)
   })
 
   it('refuses loudly when the row moved under it — zero rows affected', async () => {

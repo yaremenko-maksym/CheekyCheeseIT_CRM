@@ -171,6 +171,39 @@ describe('isCascadeAmountEdit — asked by both entrances (CR-M-2)', () => {
   it('stays TRUE for a downward edit of a settled row — the floor must not hide AC13', () => {
     expect(isCascadeAmountEdit({ ...settledRow, requestedAmount: 26 })).toBe(true)
   })
+
+  /**
+   * SR-M-1 (review round 5) — the divergence itself, measured.
+   *
+   * The two questions this codebase asks about an amount edit are NOT the same
+   * question, and the input where they part company is reachable rather than
+   * theoretical. Round 4 shipped a comment claiming both compared "the same
+   * floored figure"; they do not, and the reason they must not is right here.
+   * Without this test the claim and the code could only be compared by reading
+   * them.
+   */
+  it('the two questions genuinely diverge on a settled row — and the predicate follows the RAW one', () => {
+    const storedAmount = 260
+    const settledAmount = 260
+    const requestedAmount = 26
+
+    const floored = floorAmountAtAccumulator(settledAmount, requestedAmount)
+
+    // "Did the operator ask for a change?" — yes.
+    expect(amountsDiffer(requestedAmount, storedAmount)).toBe(true)
+    // "Would the stored figure move?" — no: the floor puts it straight back.
+    expect(amountsDiffer(floored, storedAmount)).toBe(false)
+
+    // So the two disagree here, which is the whole point:
+    expect(amountsDiffer(requestedAmount, storedAmount)).not.toBe(
+      amountsDiffer(floored, storedAmount),
+    )
+
+    // AC13 has to fire on this row, so the predicate follows the RAW question.
+    // Following the floored one answers the operator with a silent success on
+    // exactly the population AC13 exists to refuse.
+    expect(isCascadeAmountEdit({ status: 'PAID', storedAmount, requestedAmount })).toBe(true)
+  })
 })
 
 describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {

@@ -1493,7 +1493,9 @@ describe('PendingSettlementService.settleByCompany', () => {
       })
 
       it('does NOT constrain a FIRST settle — there is no earlier source to match', async () => {
-        // `priorSettled === 0`: the row has never been paid, so any pot is fine.
+        // The service's `priorSettledAmount` is 0 here — the row has never been
+        // paid, so any pot is fine. (Not the `priorSettled` parameter of the
+        // reopen helper above: this test does not call it.)
         const { svc, getFlips } = makeService()
         await expect(
           svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {

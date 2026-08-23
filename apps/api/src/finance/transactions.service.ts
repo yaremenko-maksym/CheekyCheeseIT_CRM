@@ -3063,9 +3063,26 @@ export class TransactionsService {
     // Required even when the row has no derivatives at all: the rule is
     // simpler that way, and the token doubles as an optimistic lock on the
     // edited row itself.
-    // CR-M-2 — one symbol, asked here and in `getEditCascadePreview`. It is
-    // consistent with `amountChanged` by construction (both compare the same
-    // floored figure to the same stored one); an explicit test pins that.
+    // CR-M-2 — one symbol, asked here and in `getEditCascadePreview`.
+    //
+    // It compares the RAW request, while `amountChanged` below compares the
+    // FLOORED figure, and that difference is deliberate (SR-M-1, review round
+    // 5 — the previous version of this comment claimed they were the same, and
+    // pointed at a test that did not exist):
+    //
+    //   - "did the operator ASK for a change?" (raw, here) decides whether
+    //     AC13 and the preview token apply;
+    //   - "does the STORED figure move?" (floored, `amountChanged`) decides
+    //     what actually gets written.
+    //
+    // They part company on a settled row, where `amount === settled_amount` so
+    // every downward request floors straight back: the floored question calls
+    // that "no change", skips AC13 and answers with a silent success — on
+    // exactly the population AC13 exists to refuse. Measured, not argued:
+    // `isCascadeAmountEdit — the two questions genuinely diverge…` in
+    // `packages/shared/src/schemas/edit-cascade.spec.ts`.
+    //
+    // Do NOT "restore consistency" between the two without reading that test.
     const isCascadeEdit =
       data.amount !== undefined &&
       isCascadeAmountEdit({
@@ -3094,8 +3111,9 @@ export class TransactionsService {
     //
     // On the CASCADE path this is the identity by construction: AC13 refuses
     // the edit outright when the edited row carries an accumulator, so
-    // `priorSettled` is 0 there and `Math.max` returns the input untouched.
-    // Same for the overwhelmingly common never-settled row.
+    // `tx.settledAmount` is NULL there and `floorAmountAtAccumulator` returns
+    // the request untouched. Same for the overwhelmingly common never-settled
+    // row.
     // ONE value with ONE meaning: the figure to store, or nothing to store.
     // `amountToWrite !== undefined` IS `amountChanged` by construction, so the
     // three write sites below cannot disagree about whether this edit touches
@@ -3268,8 +3286,8 @@ export class TransactionsService {
           // SR-H-1 (security-review round 4) — re-assert the state every
           // decision above was made on.
           //
-          // `isCascadeEdit`, `amountChanged` and `priorSettled` all come from
-          // `tx`, read BEFORE this transaction opened, and on the non-cascade
+          // `isCascadeEdit`, `amountChanged` and `requestedFloored` all come
+          // from `tx`, read BEFORE this transaction opened, and on the non-cascade
           // path nothing here takes a lock (`settleByCompany` takes all of
           // them). A settle landing in that window used to be overwritten
           // blind, and it cost twice: term 7 would debit the figure just
@@ -3279,7 +3297,8 @@ export class TransactionsService {
           // now-`PAID` row carrying an accumulator with NO `cascadeVersion`,
           // NO AC13 and NO cascade, which is precisely the "edit the row that
           // closed the obligation" AC13 exists to forbid. The SR-M-6 floor
-          // cannot help: `priorSettled` is read from the same stale row.
+          // cannot help: `requestedFloored` is computed from `tx.settledAmount`
+          // off that same stale row.
           //
           // Binding the status is enough for BOTH, and not by luck:
           // `settled_amount` is only ever written by the flip, and the flip
@@ -3300,6 +3319,19 @@ export class TransactionsService {
               eq(transactions.id, id),
               isNull(transactions.deletedAt),
               eq(transactions.status, tx.status),
+              // SR-L-1 (review round 5) — the ABA remainder of the predicate
+              // above. `PENDING → PAID → PENDING` inside the window leaves the
+              // status reading exactly what was read, while the accumulator
+              // now says money went out. Binding the accumulator itself closes
+              // it; the two predicates are not redundant, they cover A→B and
+              // A→B→A.
+              //
+              // `IS NOT DISTINCT FROM` rather than `=` because the value is
+              // NULL on a row that has never settled, and `NULL = NULL` is
+              // NULL — which would match nothing and break every ordinary
+              // edit. Same statement, same column, same reason as
+              // `settleByCompany`'s flip (pending-settlement.service.ts).
+              sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${tx.settledAmount}::numeric`,
             ),
           )
           .returning({ id: transactions.id })
@@ -4063,7 +4095,10 @@ export class TransactionsService {
       //
       // (Today it is doubly unreachable: `assertNoOffCurrencyCompanyRows`
       // (AC9) refuses to produce a balance at all while such a row exists.)
-      const flooredAmount = Math.max(newAmount, derivativePlan.settledAmount)
+      // SR-L-3 (review round 5) — the shared law, not a fourth hand-written
+      // copy of it. `derivativePlan.settledAmount` is `z.number()` (0 when the
+      // row never settled), so this is the identity swap it looks like.
+      const flooredAmount = floorAmountAtAccumulator(derivativePlan.settledAmount, newAmount)
       const flooredByAccumulator = amountsDiffer(flooredAmount, newAmount)
 
       await dbtx
