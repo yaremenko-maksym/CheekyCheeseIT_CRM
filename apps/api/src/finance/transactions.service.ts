@@ -3532,11 +3532,25 @@ export class TransactionsService {
         // passed all four and stayed editable, with the vanishing debit AC13
         // exists to prevent.
         //
-        // `apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup.sql`
-        // would re-point these rows, but it is NOT wired into `deploy.yml`
-        // and whether it ever ran on production is recorded nowhere. This
-        // disjunct is correct in BOTH epochs and under either answer, which
-        // is why it is preferred over going to look for one.
+        // A one-time data-fix DID re-point some of these rows on production —
+        // `2026-07-15_settle_phantom_cleanup_auto.sql`, auto-wired and applied
+        // in PR #382, then de-wired (the reasoning is recorded in
+        // `scripts/devops/check-prod-ddl-wiring.py`'s `KNOWN_NOT_WIRED`). It
+        // does NOT make this disjunct redundant, because its repoint is scoped:
+        //
+        //   AND src.type IN ('SENIOR_PENDING_PAYOUT', 'DROP_PENDING_PAYOUT')
+        //   AND src.status = 'PENDING_PAYMENT'
+        //
+        // It only re-pointed obligations whose OLD source row was still a
+        // phantom IOU awaiting payment — that was its purpose (release the FK
+        // so the phantom could be deleted). An obligation with
+        // `closing <> source` whose old source row is anything else was left
+        // exactly as it was, and is still out there in that shape.
+        //
+        // Which is the general point: a guard whose correctness depends on a
+        // one-shot script having covered every row is a guard whose
+        // correctness lives outside the code. This disjunct is correct in both
+        // epochs and under either answer about the script.
         and(
           eq(pendingObligations.closingTransactionId, sourceId),
           eq(pendingObligations.status, 'PAID'),

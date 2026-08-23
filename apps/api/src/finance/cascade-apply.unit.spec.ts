@@ -1011,11 +1011,13 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
    * A legacy row would pass all four and stay editable, with exactly the
    * vanishing debit AC13 exists to prevent.
    *
-   * The manual cleanup script that would have re-pointed these rows
-   * (`apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup.sql`) is not
-   * wired into `deploy.yml`, and whether it ever ran on production is written
-   * down nowhere. The predicate is therefore made independent of the answer
-   * rather than the answer being hunted down.
+   * A one-time data-fix DID re-point some of these rows on production
+   * (`2026-07-15_settle_phantom_cleanup_auto.sql`, applied in PR #382 and then
+   * de-wired). It does not cover this case: its repoint is scoped to
+   * obligations whose OLD source row is still a `*_PENDING_PAYOUT` in
+   * `PENDING_PAYMENT` — a phantom IOU it was about to delete. Anything else
+   * keeps `closing <> source` to this day. The predicate is made independent
+   * of what that script reached, rather than depending on it.
    */
   it('refuses a row that closed an obligation in the PRE-flip epoch (source ≠ closing id)', async () => {
     const legacyIou = '55555555-0000-4000-8e00-000000000001'
