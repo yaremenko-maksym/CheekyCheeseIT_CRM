@@ -229,12 +229,27 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
     return preview
   }
 
-  /** The company-funded drop settle this task is about, receipt and all. */
-  function settleDropFromCompany(obligationId: string, receiptExternalUrl: string) {
+  /**
+   * Dates of record for the two payments. Computed rather than hard-coded: the
+   * settle refuses a `txDate` earlier than the obligation's creation day, and
+   * the obligation is created by the fixture at run time.
+   */
+  const dayOf = (offsetDays: number) =>
+    new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
+  const FIRST_TX_DATE = dayOf(0)
+  const SECOND_TX_DATE = dayOf(1)
+
+  /** The company-funded drop settle this task is about, receipt and date and all. */
+  function settleDropFromCompany(
+    obligationId: string,
+    receiptExternalUrl: string,
+    txDate: string = FIRST_TX_DATE,
+  ) {
     return settleSvc.settleByCompany(obligationId, ADMIN, {
       fundingSource: 'COMPANY_ACCOUNT',
       currency: 'USDT',
       receiptExternalUrl,
+      txDate,
     })
   }
 
@@ -445,9 +460,16 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
     expect(row.settledSharePercent).toBe(DROP_SHARE)
     expect(row.fundingSource).toBe('COMPANY_ACCOUNT')
     expect(row.receiptExternalUrl).toBe(FIRST_RECEIPT)
+    expect(row.txDate?.toISOString()).toBe(`${FIRST_TX_DATE}T00:00:00.000Z`)
     expect(row.currency).toBe('USDT')
     expect(obligation.status).toBe('PENDING')
     expect(obligation.amount).toBe('130.000000')
+    // SR-L-2: and it stops calling itself a payment. `notes` is what an
+    // operator reads in the list, and «Выплата drop IOU» on a row awaiting
+    // payment is simply untrue.
+    expect(row.notes).not.toMatch(/^Выплата/)
+    expect(row.notes).toContain('Возврат в ожидание выплаты')
+    expect(row.notes).toContain(obligation.id)
   })
 
   // ── risk 5 — the round trip has to come back on the drop side too ────────
@@ -637,12 +659,19 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
     expect(before['exchangeRate']).toBe('1.00000000')
     expect(before['receiptDocumentId']).toBeNull()
     expect(before['receiptExternalUrl']).toBe(FIRST_RECEIPT)
+    // SR-M-1: the DAY of the retracted payment, same family and same fate as
+    // the receipt — the row keeps one date column for a closure that now has
+    // two payments.
+    expect(before['txDate']).toBe(`${FIRST_TX_DATE}T00:00:00.000Z`)
 
-    // And after the top-up the row itself carries the SECOND payment's proof —
-    // which is why the journal entry above is the only copy of the first.
+    // And after the top-up the row itself carries the SECOND payment's proof
+    // and the SECOND payment's date — which is precisely why the journal entry
+    // above is the only surviving copy of the first payment's.
     const reopened = await derivativeFor(DROP.id)
-    await settleDropFromCompany(reopened.obligation.id, SECOND_RECEIPT)
-    expect((await derivativeFor(DROP.id)).row.receiptExternalUrl).toBe(SECOND_RECEIPT)
+    await settleDropFromCompany(reopened.obligation.id, SECOND_RECEIPT, SECOND_TX_DATE)
+    const closed = await derivativeFor(DROP.id)
+    expect(closed.row.receiptExternalUrl).toBe(SECOND_RECEIPT)
+    expect(closed.row.txDate?.toISOString()).toBe(`${SECOND_TX_DATE}T00:00:00.000Z`)
   })
 
   // ── risk 12 — the closed row stays closed to a direct edit ───────────────

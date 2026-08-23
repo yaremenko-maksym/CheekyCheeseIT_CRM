@@ -3745,6 +3745,10 @@ export class TransactionsService {
         exchangeRate: d.exchangeRate,
         receiptDocumentId: d.receiptDocumentId,
         receiptExternalUrl: d.receiptExternalUrl,
+        // SR-M-1: ISO, like every other timestamp on this snapshot — the
+        // journal is JSONB and a `Date` would serialise by accident rather
+        // than by decision.
+        txDate: d.txDate ? d.txDate.toISOString() : null,
         hasSignedInvoice: signedIds.has(d.id),
         obligation: obligation
           ? {
@@ -4093,6 +4097,19 @@ export class TransactionsService {
             // T2 (addendum 1.4): after this, `original_amount IS NOT NULL` reads
             // as "the row stands in its CLOSED form" and nothing else.
             //
+            // SR-L-2 — the dependency this line rests on, named at the line
+            // rather than three screens away. `amount` is rewritten here to a
+            // share of the SOURCE, denominated in the SOURCE's currency, while
+            // `currency` is deliberately NOT rewritten. Those two agree only
+            // because AC15(b) (a few screens up, the `NON_USDT_CURRENCY`
+            // refusal) has already refused every derivative whose accumulator
+            // is in a different unit than the share being written — which, via
+            // the settle-side accumulator-currency guard, is the same unit the
+            // row itself carries. Weaken or delete AC15(b) and this line starts
+            // writing a figure in one currency under the label of another,
+            // silently: nothing here compares them. Same shape of dependency,
+            // and the same remedy, as the `Math.max` note in the AC5 branch.
+            //
             // UNCONDITIONAL, not branched on `revertedType`: on a senior row all
             // three are already NULL by construction — `bookCompanyObligations`
             // never writes them and `settleByCompany` builds that object only
@@ -4104,6 +4121,19 @@ export class TransactionsService {
             originalAmount: null,
             originalCurrency: null,
             exchangeRate: null,
+            // SR-L-2 (security-review, task 3b): `settleByCompany` stamped this
+            // «Выплата … IOU (obligation …)», and after a revert that sentence
+            // is false — the row is an IOU awaiting the remainder again, and
+            // `notes` is what an operator reads in the transaction list.
+            //
+            // Written as the CURRENT state rather than restored to the booking
+            // text: the original note carries a caller-supplied prefix
+            // (`bookCompanyObligations`'s `notePrefix` — «USDT income» /
+            // «Company owes») that the row does not record, so reconstructing
+            // it would mean inventing one. Display-only column — nothing
+            // branches on it (verified, not assumed), and the obligation id
+            // stays nameable from the row.
+            notes: `Возврат в ожидание выплаты после правки суммы дохода (обязательство ${obligation.id})`,
             updatedAt: new Date(),
           })
           .where(eq(transactions.id, derivativePlan.id))
@@ -4123,7 +4153,13 @@ export class TransactionsService {
             // this UPDATE leaves them alone, will be OVERWRITTEN by the next
             // settle — the row has one pair of receipt columns and the closure
             // now has two payments (addendum 3b, "Семья однозначных колонок").
-            // Without this line the first payment's proof would disappear the
+            // `tx_date` is here for exactly the same reason (SR-M-1): the
+            // revert leaves it alone because a date is a self-standing record,
+            // but the row has ONE date column and the closure now has two
+            // payments, so the next settle overwrites the day the first one
+            // happened.
+            //
+            // Without these lines the first payment's proof would disappear the
             // moment the remainder is topped up, which is the "not on the
             // screen ≠ not handed over" defect class.
             //
@@ -4140,6 +4176,7 @@ export class TransactionsService {
               exchangeRate: snap.exchangeRate,
               receiptDocumentId: snap.receiptDocumentId,
               receiptExternalUrl: snap.receiptExternalUrl,
+              txDate: snap.txDate,
             },
             after: { amount: newAmount, type: revertedType, status: 'PENDING_PAYMENT' },
           },

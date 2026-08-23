@@ -112,6 +112,7 @@ function pendingDerivativeRow(overrides: Record<string, unknown> = {}) {
     exchangeRate: null,
     receiptDocumentId: null,
     receiptExternalUrl: null,
+    txDate: null,
     deletedAt: null,
     sourceIncomeTransactionId: SOURCE_ID,
     ...overrides,
@@ -141,6 +142,7 @@ function settledDerivativeRow(overrides: Record<string, unknown> = {}) {
     exchangeRate: null,
     receiptDocumentId: null,
     receiptExternalUrl: 'https://drive.google.com/file/senior-settle-receipt',
+    txDate: T_DERIV,
     deletedAt: null,
     sourceIncomeTransactionId: SOURCE_ID,
     ...overrides,
@@ -408,6 +410,7 @@ function snapshotFrom(cfg: {
         exchangeRate: d.exchangeRate as string | null,
         receiptDocumentId: d.receiptDocumentId as string | null,
         receiptExternalUrl: d.receiptExternalUrl as string | null,
+        txDate: d.txDate === null ? null : (d.txDate as Date).toISOString(),
         hasSignedInvoice: false,
         obligation: o
           ? {
@@ -2047,6 +2050,7 @@ describe('AC6: revert of a settled derivative', () => {
       exchangeRate: null,
       receiptDocumentId: null,
       receiptExternalUrl: 'https://drive.google.com/file/senior-settle-receipt',
+      txDate: '2026-08-02T00:00:00.000Z',
     })
     expect(meta.after).toEqual({
       amount: plan.derivatives[0]!.newAmount,
@@ -2795,6 +2799,20 @@ describe('task 3b: a paid DROP derivative is revertible', () => {
     }
   })
 
+  it('SR-L-2: the reverted row stops describing itself as a payment', async () => {
+    // `settleByCompany` stamps `notes` with «Выплата drop IOU …». After a
+    // revert the row is an IOU awaiting the remainder again, so that sentence
+    // is simply false — and `notes` is what an operator reads in the list.
+    // Display-only (nothing branches on it — checked), so the fix is the text.
+    const { ops } = await runDropRevert()
+    const write = derivativeWrites(ops)[0]!
+    const notes = write.set.notes as string
+    expect(notes).not.toMatch(/^Выплата/)
+    expect(notes).toMatch(/ожидание выплаты/)
+    // The obligation stays nameable from the row itself, as it was before.
+    expect(notes).toContain(DROP_OBL_ID)
+  })
+
   it('AC11: CASCADE_REOPEN carries the retracted payment fact, receipt links included', async () => {
     // The journal is the only place the FIRST payment's receipt survives: the
     // next settle overwrites `receipt_*` on the row with its own proof. This
@@ -2815,6 +2833,11 @@ describe('task 3b: a paid DROP derivative is revertible', () => {
       exchangeRate: '1.00000000',
       receiptDocumentId: null,
       receiptExternalUrl: 'https://etherscan.io/tx/0xfirstdroppayment',
+      // SR-M-1: the day the retracted payment was recorded as of. Same family
+      // as `receipt_*` — the revert leaves the column alone, but the NEXT
+      // settle overwrites it, so the journal is the only surviving record of
+      // WHEN the first payment happened.
+      txDate: '2026-08-02T00:00:00.000Z',
     })
   })
 

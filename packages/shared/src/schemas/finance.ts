@@ -147,15 +147,34 @@ export const transactionSchema = z.object({
    *   originalAmount   — `amount` as it stood immediately BEFORE the payment.
    *   originalCurrency — `currency` as it stood immediately BEFORE the payment.
    *   exchangeRate     — the EFFECTIVE applied rate, computed server-side as
-   *                      `paidAmount / originalAmount` (units of the paid
-   *                      currency per 1 unit of the original one). Never
-   *                      client-supplied: the payer's own bank rate is whatever
-   *                      the two amounts imply, so accepting a rate from the
-   *                      client would only add a spoofable field.
+   *                      `amount / originalAmount` (units of the paid currency
+   *                      per 1 unit of the original one). Never client-supplied:
+   *                      the payer's own bank rate is whatever the two amounts
+   *                      imply, so accepting a rate from the client would only
+   *                      add a spoofable field.
    *
-   * `null` on every row that was never paid through this flow (all non-SALARY
-   * types, PENDING salaries, and every salary paid before this task shipped) —
-   * legacy rows keep `amount` meaning exactly what it always meant.
+   * ON A ROW CLOSED BY MORE THAN ONE PAYMENT (task-drop-topup, task 3b —
+   * SR-L-1). Since the drop top-up shipped, a drop row can be closed, reopened
+   * by an income edit, and closed again. The three definitions above are
+   * unchanged, but note WHICH payment they describe: the triplet is re-stamped
+   * at EVERY closure and cleared by the revert in between, so it always
+   * describes the CLOSURE the row currently stands in — never one of the
+   * payments that made it up. `amount` there is the SUM of every payment, and
+   * `exchangeRate` is that sum over the obligation, which is why the numerator
+   * is `amount` and not "this payment". The identity
+   * `amount = originalAmount × exchangeRate` therefore still holds, and holds
+   * only because a top-up is refused in any currency but the obligation's
+   * (`settleByCompany`, AC8) — otherwise the rate would be an average no single
+   * transfer was ever made at. The authoritative copy of all this lives on
+   * `transactions.originalAmount` in `apps/api/src/database/schema.ts`; this is
+   * the wire-contract restatement of it, and the two are meant to agree.
+   *
+   * `null` reads as "this row does not stand in a closed, amount-aware form".
+   * That covers every row never paid through this flow (all non-SALARY types,
+   * PENDING salaries, every salary paid before that task shipped) AND, since
+   * task 3b, a drop row whose closure was retracted by a cascade revert — the
+   * revert clears the triplet precisely so the row stops claiming it was paid.
+   * Legacy rows keep `amount` meaning exactly what it always meant.
    * `.optional()` (alongside `.nullable()`) keeps every pre-existing fixture /
    * mock DTO across the codebase valid without a rewrite — same pattern as
    * `dropCascadeOrigin` / `deletedAt`.

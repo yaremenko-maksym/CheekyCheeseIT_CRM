@@ -1161,6 +1161,25 @@ export class PendingSettlementService {
       // The flip runs AFTER the winning conditional claim above, so it executes
       // exactly once. Defense-in-depth: scope the UPDATE to the still-PENDING_PAYMENT
       // source row so a corrupted / already-flipped state can never be re-settled.
+      // CR-M-1 (code-review, task 3b) — ONE symbol, two columns.
+      //
+      // `amount` and `settled_amount` on a drop settle must be the same figure
+      // (addendum §1.2 — the invariant ledger term 9 rests on). Writing the
+      // expression out twice made that a property of two identical STRINGS,
+      // and a rule written down twice is a rule that can be half-edited: the
+      // only thing standing between them was a test comparing their compiled
+      // form. Referencing one `SQL` object from both keys makes divergence
+      // impossible to express rather than merely wrong (backlog 85).
+      //
+      // Still DB-native, and for the original reason (MED-3, #599): the sum is
+      // computed against whatever `settled_amount` the row ACTUALLY holds at
+      // write time, so correctness does not depend on "nothing else wrote this
+      // row between the read and the UPDATE". `coalesce(..., 0)` makes a
+      // first-ever settle read as `0 + delta` — the pre-existing value, byte
+      // for byte. Both columns are `numeric(18, 6)`, so one expression cannot
+      // round differently into the two of them.
+      const accumulatedAmount = sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`
+
       const [paidRow] = await dbtx
         .update(transactions)
         .set({
@@ -1178,25 +1197,11 @@ export class PendingSettlementService {
           // pre-existing behaviour.
           ...(isDropObligation
             ? {
-                // task-drop-topup (task 3b, AC4): the SAME DB-native expression
-                // as `settledAmount` below, character for character.
-                //
-                // That identity is the point. §1.2 of the task-3 addendum
-                // (`amount == settled_amount` on a company-funded settle) is
-                // what lets ledger terms 7/8/9 hand the right debit back and
-                // forth, and writing both columns from ONE expression makes it
-                // structural: they cannot disagree, because there is nothing
-                // for them to disagree about. Previously it held because both
-                // came from the single local `paidAmount`; now it holds because
-                // both come from a single expression evaluated by Postgres —
-                // the same strengthening MED-3 (#599) demanded for the
-                // accumulator, for the same reason (correct even if the
-                // "nothing else writes this row in between" invariant is ever
-                // weakened).
-                //
-                // `coalesce(..., 0)` makes a first-ever settle read as
-                // `0 + paidAmount` — the pre-existing value, byte for byte.
-                amount: sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`,
+                // task-drop-topup (task 3b, AC4): literally the same object as
+                // `settledAmount` below — see `accumulatedAmount` above for why
+                // `amount` accumulates at all and why it must not be a second
+                // copy of the expression.
+                amount: accumulatedAmount,
                 originalAmount,
                 originalCurrency,
                 exchangeRate,
@@ -1255,20 +1260,10 @@ export class PendingSettlementService {
           // Written fresh on EVERY settle (not accumulated — only the latest
           // percent is meaningful, unlike settledAmount right below it).
           settledSharePercent: isDropObligation ? sourceDropSharePercent : sourceSeniorSharePercent,
-          // MONOTONIC accumulator — MED-3 (security-review round 1, PR #599):
-          // DB-NATIVE increment (`coalesce(current, 0) + delta`), not a
-          // JS-computed `prior + delta` written as a literal. A JS-computed
-          // value is only as safe as "no other write can land on this row
-          // between the pre-transaction read and this UPDATE" — an invariant
-          // that happens to hold today (see the comment on the
-          // `resolveSource` call above) but is one future refactor away from
-          // silently losing an addend. Computing the sum IN the UPDATE
-          // statement itself, against whatever `settled_amount` the row
-          // ACTUALLY holds at write time, makes that invariant unnecessary —
-          // correct even if it is ever weakened. `coalesce(..., 0)` makes a
-          // first-ever settle (NULL prior) read as 0, matching the documented
-          // "NULL = never settled" contract on this column.
-          settledAmount: sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`,
+          // MONOTONIC accumulator — MED-3 (security-review round 1, PR #599),
+          // DB-native increment. The expression itself, and why it is shared
+          // with `amount` on the drop branch, is at `accumulatedAmount` above.
+          settledAmount: accumulatedAmount,
           settledCurrency: currency,
           notes: isDropObligation
             ? `Выплата drop IOU (obligation ${obligation.id})`

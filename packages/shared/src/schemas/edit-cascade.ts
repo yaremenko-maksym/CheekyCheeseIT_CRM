@@ -197,6 +197,19 @@ export interface CascadeDerivativeSnapshot {
    */
   receiptDocumentId: string | null
   receiptExternalUrl: string | null
+  /**
+   * `transactions.tx_date` as an ISO string — the day the payment being
+   * retracted was recorded as of (`SettleFunding.txDate`), or `null` when the
+   * settle never supplied one.
+   *
+   * SR-M-1 (security-review, task 3b): same family as the receipt links above,
+   * and journalled for the same reason. The revert does NOT clear it — a date
+   * is a self-standing record of when money moved — but the NEXT settle
+   * OVERWRITES it, because the row has one date column and the closure now has
+   * two payments. Without this on the snapshot, the day of the first payment
+   * would be gone the moment the remainder is topped up.
+   */
+  txDate: string | null
   /** Does this row's invoice already carry a `COUNTERPARTY` signature? (`invoice_signatures`, `signer_role='COUNTERPARTY'`.) */
   hasSignedInvoice: boolean
   /** The `pending_obligations` row this derivative booked, if any (always present for a real L1/L2 derivative — nullable defensively). */

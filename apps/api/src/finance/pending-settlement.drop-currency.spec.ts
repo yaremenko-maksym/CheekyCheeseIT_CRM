@@ -1247,19 +1247,24 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     expect(fragmentDelta(state.flips[0]!.rawSet['settledAmount'])).toBe(30)
   })
 
-  it('AC4: `amount` is written by the SAME expression as the accumulator', async () => {
-    // Not "both end up equal" — literally one expression, so §1.2
-    // (`amount == settled_amount`) cannot drift apart no matter what lands
-    // between the pre-transaction read and this UPDATE. The mutation gate has
-    // no mutator for arithmetic inside a template literal, so this comparison
-    // (and the real-DB read in drop-topup.integration.spec.ts) is what stands
-    // in for one.
+  it('AC4: `amount` and the accumulator are written from ONE expression object', async () => {
+    // Asserted as REFERENCE identity, not as equal compiled text — deliberately,
+    // and the difference is the whole finding CR-M-1 raised.
+    //
+    // While the expression was written out twice, comparing the compiled forms
+    // was the only thing standing between the two columns; now they come from
+    // one `const`, so comparing compiled text would pass by construction — a
+    // tautology, the kind of test that cannot fail and therefore says nothing.
+    // `toBe` still can fail, on exactly the regression worth catching: someone
+    // re-inlining a fresh `sql\`…\`` into one of the two keys. Identical text,
+    // different object, red here.
     const { svc, state } = toppedUpService()
     await svc.settleByCompany(OBLIGATION_ID, accountantUser)
     const raw = state.flips[0]!.rawSet
-    expect(compiled(raw['amount'])).toEqual(compiled(raw['settledAmount']))
-    // …and it IS an expression, not a literal that happens to match.
+    expect(raw['amount']).toBe(raw['settledAmount'])
+    // …and it IS a DB-side expression, not a JS literal that happens to match.
     expect(compiled(raw['amount']).text).toContain('coalesce')
+    expect(compiled(raw['amount']).params).toContain(30)
   })
 
   it('AC4: both columns therefore land on the accumulated figure, not on this payment', async () => {

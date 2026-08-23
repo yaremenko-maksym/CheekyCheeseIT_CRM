@@ -67,6 +67,7 @@ function makePendingDerivative(
     exchangeRate: null,
     receiptDocumentId: null,
     receiptExternalUrl: null,
+    txDate: null,
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
@@ -101,6 +102,7 @@ function makePaidDerivative(
     exchangeRate: null,
     receiptDocumentId: null,
     receiptExternalUrl: null,
+    txDate: null,
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
@@ -955,6 +957,7 @@ describe('resolveEditCascade — AC7 property test', () => {
         exchangeRate: rand() < 0.5 ? null : (rand() * 50).toFixed(8),
         receiptDocumentId: null,
         receiptExternalUrl: rand() < 0.5 ? null : 'https://etherscan.io/tx/0xproperty',
+        txDate: rand() < 0.5 ? null : '2026-08-02T00:00:00.000Z',
         hasSignedInvoice: false,
         obligation: {
           id: 'obl-1',
