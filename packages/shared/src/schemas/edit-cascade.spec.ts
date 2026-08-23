@@ -13,6 +13,8 @@ import {
   cascadeLedgerFactReasonSchema,
   classifyEditedRowLedgerFact,
   CASCADE_LEDGER_FACT_MESSAGES,
+  floorAmountAtAccumulator,
+  isCascadeAmountEdit,
   type CascadeDerivativeSnapshot,
   type CascadeSnapshot,
   type CascadeWarning,
@@ -105,6 +107,71 @@ function snapshot(
 ): CascadeSnapshot {
   return { source: makeSource(sourceOverrides), derivatives }
 }
+
+describe('floorAmountAtAccumulator — the floor, stated once (SR-M-6 / SR-M-2)', () => {
+  it('raises a request that sits below what was already paid', () => {
+    expect(floorAmountAtAccumulator(260, 100)).toBe(260)
+  })
+
+  it('leaves a request above the accumulator exactly as asked', () => {
+    expect(floorAmountAtAccumulator(260, 900)).toBe(900)
+  })
+
+  it('is the identity when there is NO accumulator — including for negatives', () => {
+    // The law is about the accumulator. `Math.max(requested, settledAmount ?? 0)`
+    // reads identically for every figure the API can receive (both entrances
+    // validate `.positive()`), but it quietly states a second rule — "never
+    // below zero" — and clamps the resolver's negative probe to 0.
+    expect(floorAmountAtAccumulator(null, 100)).toBe(100)
+    expect(floorAmountAtAccumulator(undefined, 100)).toBe(100)
+    expect(floorAmountAtAccumulator(null, -100)).toBe(-100)
+  })
+
+  it('accepts the raw numeric column as the string drizzle returns', () => {
+    // The conversion lives here so no caller writes its own null-preserving
+    // ternary — one did, and it was an unkillable mutant.
+    expect(floorAmountAtAccumulator('260.000000', 100)).toBe(260)
+  })
+
+  it('treats a ZERO accumulator as a real floor, not as an absent one', () => {
+    // `0` is a settle that happened and paid nothing; `null` is "never
+    // settled". A truthiness check would collapse the two.
+    expect(floorAmountAtAccumulator(0, -100)).toBe(0)
+  })
+})
+
+describe('isCascadeAmountEdit — asked by both entrances (CR-M-2)', () => {
+  const settledRow = { status: 'PAID', storedAmount: 260 }
+
+  it('is true when a PAID row is asked to change', () => {
+    expect(isCascadeAmountEdit({ ...settledRow, requestedAmount: 500 })).toBe(true)
+  })
+
+  it('is false when the figure asked for is the one already stored', () => {
+    expect(isCascadeAmountEdit({ ...settledRow, requestedAmount: 260 })).toBe(false)
+  })
+
+  it('is false for a row that is not PAID, however much the figure moves', () => {
+    expect(
+      isCascadeAmountEdit({ status: 'PENDING_PAYMENT', storedAmount: 260, requestedAmount: 900 }),
+    ).toBe(false)
+  })
+
+  /**
+   * The regression this function was briefly written the wrong way round for.
+   *
+   * Round 4's first attempt compared the FLOORED figure here, reasoning that
+   * the stored value is what matters. On a settled row `amount ===
+   * settled_amount`, so every DOWNWARD request floors straight back to the
+   * current value — "no change" — which skipped AC13 entirely and answered the
+   * operator with a silent success, for exactly the population AC13 exists to
+   * refuse. Two integration specs caught it; this pins it at the unit level
+   * where the mutation gate can see it too.
+   */
+  it('stays TRUE for a downward edit of a settled row — the floor must not hide AC13', () => {
+    expect(isCascadeAmountEdit({ ...settledRow, requestedAmount: 26 })).toBe(true)
+  })
+})
 
 describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
   it('names the fact-of-payment triplet', () => {

@@ -1111,6 +1111,201 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
 })
 
 // ---------------------------------------------------------------------------
+// SR-M-1 / SR-M-2 — one rule, one condition, one number.
+// ---------------------------------------------------------------------------
+
+/**
+ * SR-M-1 and SR-M-2 (review round 4) are the same defect seen from two sides:
+ * the accumulator floor was applied on "an amount was SENT", while the second
+ * stored copy and the journal keyed on "the amount CHANGED".
+ *
+ * The reachable shape is a row whose stored `amount` is BELOW its accumulator
+ * — legacy, and exactly what the AC6 invariant check exists to notice. The
+ * edit form always sends full state (see the BIZ-18 comment), so editing a
+ * NOTE re-sends the unchanged amount. The floor then rewrote
+ * `transactions.amount` from 100 to 260 while `pending_obligations.amount`
+ * stayed at 100 and the journal recorded nothing: the L3 divergence that task
+ * 0 exists to close, re-opened by the fix for a different finding, silently.
+ *
+ * SR-M-2 is the same number seen through the preview: it showed 100 while the
+ * write stored 260. CR-M-1 unified the REFUSALS across the two entrances but
+ * not the FIGURE, so risk 1 of the ADR's AC6 came back on the source amount.
+ *
+ * The resolution is one description: the floor lives in `@crm/shared`, the
+ * resolver reports the floored figure as `newSourceAmount`, and the service
+ * decides "did it change" against that same floored figure — so the second
+ * copy and the journal move with it, and the preview shows the number that
+ * will actually be stored.
+ */
+describe('SR-M-1: the floor, the second copy and the journal share one condition', () => {
+  /** Legacy shape: stored amount BELOW the accumulator. */
+  function belowAccumulatorRow(overrides: Record<string, unknown> = {}) {
+    return sourceRow({
+      type: 'SENIOR_PENDING_PAYOUT',
+      status: 'PENDING_PAYMENT',
+      amount: '100.000000',
+      settledAmount: '260.000000',
+      ...overrides,
+    })
+  }
+
+  function writes(ops: Op[], table: string) {
+    return ops.filter(
+      (o): o is Extract<Op, { kind: 'update' }> => o.kind === 'update' && o.table === table,
+    )
+  }
+
+  it('a note-only edit that re-sends the unchanged amount moves BOTH copies, or neither', async () => {
+    const { db, ops } = makeDouble({ source: belowAccumulatorRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'just a note', amount: 100 }, ADMIN)
+
+    const txWrote = writes(ops, 'transactions')[0]!.set['amount']
+    const oblWrote = writes(ops, 'pending_obligations')[0]?.set['amount']
+    // The point is not WHICH branch is taken — it is that one figure cannot
+    // land on one copy alone.
+    expect(oblWrote).toBe(txWrote)
+  })
+
+  it('journals the write it performs — a silent money write is the thing being fixed', async () => {
+    const { db, ops } = makeDouble({ source: belowAccumulatorRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'just a note', amount: 100 }, ADMIN)
+
+    const wroteAmount = writes(ops, 'transactions')[0]!.set['amount'] !== undefined
+    const journalled = journalEntries(ops, 'AMOUNT_OR_RECEIVER_CHANGE').length > 0
+    expect(journalled).toBe(wroteAmount)
+  })
+
+  it('records what the operator actually typed when the floor moved it', async () => {
+    const { db, ops } = makeDouble({ source: belowAccumulatorRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'n', amount: 100 }, ADMIN)
+
+    const meta = journalEntries(ops, 'AMOUNT_OR_RECEIVER_CHANGE')[0]!.values['metadata'] as {
+      amount: Record<string, unknown>
+    }
+    expect(meta.amount['after']).toBe('260')
+    expect(meta.amount['flooredFrom']).toBe(100)
+  })
+
+  it('a genuine metadata-only edit with NO amount still writes no money and no journal', async () => {
+    // The regression guard for the obvious over-correction.
+    const { db, ops } = makeDouble({ source: belowAccumulatorRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'only a note' }, ADMIN)
+
+    expect(writes(ops, 'transactions')[0]!.set['amount']).toBeUndefined()
+    expect(writes(ops, 'pending_obligations')).toHaveLength(0)
+    expect(journalEntries(ops, 'AMOUNT_OR_RECEIVER_CHANGE')).toHaveLength(0)
+  })
+})
+
+describe('SR-M-2: the preview shows the number the write will store', () => {
+  function belowAccumulatorRow() {
+    return sourceRow({
+      type: 'SENIOR_PENDING_PAYOUT',
+      status: 'PENDING_PAYMENT',
+      amount: '100.000000',
+      settledAmount: '260.000000',
+    })
+  }
+
+  it('reports the FLOORED source amount, not the raw request', async () => {
+    const source = belowAccumulatorRow()
+    const { db } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    const preview = await svc.getEditCascadePreview(SOURCE_ID, 50, ADMIN)
+    expect(preview.plan!.newSourceAmount).toBe(260)
+  })
+
+  it('the shown figure equals the stored figure — compared as numbers, not as flags', async () => {
+    const source = belowAccumulatorRow()
+    const previewDouble = makeDouble({ source })
+    const previewSvc = makeTransactionsService({ db: previewDouble.db })
+    const preview = await previewSvc.getEditCascadePreview(SOURCE_ID, 50, ADMIN)
+
+    const writeDouble = makeDouble({ source })
+    const writeSvc = makeTransactionsService({ db: writeDouble.db })
+    stubFindOne(writeSvc)
+    await writeSvc.adminUpdateTransaction(SOURCE_ID, { amount: 50 }, ADMIN)
+    const stored = writeDouble.ops.find(
+      (o): o is Extract<Op, { kind: 'update' }> =>
+        o.kind === 'update' && o.table === 'transactions',
+    )!.set['amount']
+
+    expect(String(preview.plan!.newSourceAmount)).toBe(stored)
+  })
+
+  it('is the identity when nothing is floored — the ordinary case is untouched', async () => {
+    const source = sourceRow({ type: 'ADMIN_INCOME', status: 'PAID' })
+    const { db } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    const preview = await svc.getEditCascadePreview(SOURCE_ID, 2500, ADMIN)
+    expect(preview.plan!.newSourceAmount).toBe(2500)
+  })
+})
+
+describe('CR-M-2: "is this a cascade amount edit" is asked in one place', () => {
+  it('the preview and the write agree on the boundary, case by case', async () => {
+    // The predicate was written out twice — once as `isCascadeEdit`, once
+    // inline in the preview with a comment saying it "mirrors" the first.
+    // Copies that agree today are still two descriptions; this table is what
+    // the shared predicate has to keep true.
+    const cases: Array<{ label: string; source: Record<string, unknown>; amount: number }> = [
+      {
+        label: 'PAID, amount moves',
+        source: { type: 'ADMIN_INCOME', status: 'PAID', amount: '1000.000000' },
+        amount: 2000,
+      },
+      {
+        label: 'PAID, amount identical',
+        source: { type: 'ADMIN_INCOME', status: 'PAID', amount: '1000.000000' },
+        amount: 1000,
+      },
+      {
+        label: 'not PAID, amount moves',
+        source: {
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '1000.000000',
+        },
+        amount: 2000,
+      },
+    ]
+
+    for (const c of cases) {
+      const source = sourceRow(c.source)
+      const previewSvc = makeTransactionsService({ db: makeDouble({ source }).db })
+      const preview = await previewSvc.getEditCascadePreview(SOURCE_ID, c.amount, ADMIN)
+
+      const writeDouble = makeDouble({ source })
+      const writeSvc = makeTransactionsService({ db: writeDouble.db })
+      stubFindOne(writeSvc)
+      // No token supplied: the write refuses IFF it considers this a cascade
+      // edit, which is the boundary being compared.
+      let needsToken = false
+      try {
+        await writeSvc.adminUpdateTransaction(SOURCE_ID, { amount: c.amount }, ADMIN)
+      } catch (e) {
+        needsToken = /предпросмотр/.test((e as Error).message)
+      }
+      // The preview offers a version token for exactly the edits that need one.
+      // Oracle computed from the FIXTURE, not read back out of the plan —
+      // otherwise the two sides would come from the same code and agree by
+      // construction.
+      const expected = c.source['status'] === 'PAID' && Number(c.source['amount']) !== c.amount
+      expect({ label: c.label, needsToken }).toEqual({ label: c.label, needsToken: expected })
+      expect(preview.version === null).toBe(false)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // SR-H-1 — every decision comes from a read taken BEFORE the transaction, so
 // the write has to re-assert what it decided on.
 // ---------------------------------------------------------------------------

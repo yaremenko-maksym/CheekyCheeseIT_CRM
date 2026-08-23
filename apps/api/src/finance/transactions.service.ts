@@ -46,6 +46,8 @@ import {
   computeCascadeVersion,
   classifyEditedRowLedgerFact,
   CASCADE_LEDGER_FACT_MESSAGES,
+  floorAmountAtAccumulator,
+  isCascadeAmountEdit,
   cascadeEditPreviewResponseSchema,
   amountsDiffer,
 } from '@crm/shared'
@@ -3000,7 +3002,27 @@ export class TransactionsService {
     // the task's "do not touch adminUpdateTransaction" scope is about not
     // changing its BEHAVIOUR, not about leaving a duplicate description of a
     // money rule in place once the single source of truth exists.
-    const amountChanged = data.amount !== undefined && amountsDiffer(data.amount, Number(tx.amount))
+    // SR-M-1 / SR-M-2 (review round 4) — ONE condition for all three writers.
+    //
+    // The floor used to be applied on "an amount was SENT" while the second
+    // stored copy and the journal keyed on "the amount CHANGED". On a legacy
+    // row whose stored `amount` sits BELOW its accumulator that split was
+    // reachable: the edit form always sends full state, so editing a NOTE
+    // re-sent the unchanged amount, the floor rewrote `transactions.amount`
+    // 100 → 260, and `pending_obligations.amount` stayed at 100 with nothing
+    // in the journal — the L3 divergence task 0 exists to close, re-opened
+    // silently by the fix for a different finding.
+    //
+    // Now: floor first, then ask whether the STORED figure moves. Everything
+    // downstream keys on `amountToWrite !== undefined`, which is that one
+    // answer. The repair direction is the safe one — raising `amount` to what
+    // was actually paid makes term 7 debit MORE, never less.
+    const requestedFloored =
+      data.amount === undefined
+        ? undefined
+        : floorAmountAtAccumulator(tx.settledAmount, data.amount)
+    const amountChanged =
+      requestedFloored !== undefined && amountsDiffer(requestedFloored, Number(tx.amount))
     const currencyChanged = data.currency !== undefined && data.currency !== tx.currency
     const salaryMonthChanged = data.salaryMonth !== undefined && data.salaryMonth !== tx.salaryMonth
     // task-soft-delete-and-money-audit (AC5): "receiver" on this endpoint is
@@ -3041,7 +3063,16 @@ export class TransactionsService {
     // Required even when the row has no derivatives at all: the rule is
     // simpler that way, and the token doubles as an optimistic lock on the
     // edited row itself.
-    const isCascadeEdit = tx.status === 'PAID' && amountChanged
+    // CR-M-2 — one symbol, asked here and in `getEditCascadePreview`. It is
+    // consistent with `amountChanged` by construction (both compare the same
+    // floored figure to the same stored one); an explicit test pins that.
+    const isCascadeEdit =
+      data.amount !== undefined &&
+      isCascadeAmountEdit({
+        status: tx.status,
+        storedAmount: Number(tx.amount),
+        requestedAmount: data.amount,
+      })
     if (isCascadeEdit && !data.cascadeVersion) {
       throw new BadRequestException(
         'Правка суммы оплаченной транзакции выполняется только после предпросмотра последствий — откройте предпросмотр правки и повторите сохранение',
@@ -3065,18 +3096,14 @@ export class TransactionsService {
     // the edit outright when the edited row carries an accumulator, so
     // `priorSettled` is 0 there and `Math.max` returns the input untouched.
     // Same for the overwhelmingly common never-settled row.
-    // `?? 0` rather than a `!== null` ternary: the fallback has to cover
-    // `undefined` as well. A row object that simply does not carry the column
-    // turns `Number(undefined)` into NaN, `Math.max` propagates it, and the
-    // money write becomes the string 'NaN' — caught here by an unrelated
-    // spec's fixture, which is a fair warning about how quietly it travels.
-    const priorSettled = Number(tx.settledAmount ?? 0)
     // ONE value with ONE meaning: the figure to store, or nothing to store.
-    // The write sites below key off THIS rather than re-asking whether an
-    // amount was sent — two descriptions of the same condition are two things
-    // that can drift.
-    const amountToWrite =
-      data.amount !== undefined ? Math.max(data.amount, priorSettled) : undefined
+    // `amountToWrite !== undefined` IS `amountChanged` by construction, so the
+    // three write sites below cannot disagree about whether this edit touches
+    // money (SR-M-1).
+    const amountToWrite = amountChanged ? requestedFloored : undefined
+    // No `!== undefined` guard: it is only ever READ under `amountChanged`,
+    // which already implies it, and the redundant operand was a mutant no test
+    // could kill.
     const flooredByAccumulator = amountToWrite !== data.amount
 
     // The "is this row's amount our own record?" refusals (AC13) live in
@@ -4019,6 +4046,23 @@ export class TransactionsService {
       // obligation nobody can close. For a row that never settled,
       // `settledAmount` is 0 and `max` is the identity, so the first-round
       // behaviour is preserved byte for byte.
+      // SR-L-1 (review round 4) — the comparison that holds this line up.
+      //
+      // `newAmount` is a share of the SOURCE amount, denominated in
+      // `source.currency`. `settledAmount` is what actually left, denominated
+      // in `settled_currency`. `Math.max` over two figures in different units
+      // would be nonsense, and nothing in THIS expression says they match.
+      //
+      // What says it is AC15(b), a few screens up: under `needsReconfirm` a
+      // derivative whose `settled_currency` differs from its obligation's
+      // currency is REFUSED before any write, precisely because its remainder
+      // is not computable. So by the time control reaches here the two are in
+      // the same unit — and if that guard is ever relaxed, this `max` becomes
+      // wrong silently, which is why the dependency is named at the load-
+      // bearing line rather than only where the guard is written.
+      //
+      // (Today it is doubly unreachable: `assertNoOffCurrencyCompanyRows`
+      // (AC9) refuses to produce a balance at all while such a row exists.)
       const flooredAmount = Math.max(newAmount, derivativePlan.settledAmount)
       const flooredByAccumulator = amountsDiffer(flooredAmount, newAmount)
 
@@ -4158,12 +4202,21 @@ export class TransactionsService {
     // plan for a row that cannot be saved is worse than no plan: task 5 would
     // render an edit form on it.
     //
-    // The condition mirrors `isCascadeEdit` in `adminUpdateTransaction`
-    // exactly (`PAID` + the amount actually moves), because parity is the
-    // whole point: reporting "blocked" where the write would NOT refuse is the
-    // same divergence pointing the other way. Asking about the figure the row
-    // already holds is not an edit.
-    if (snapshot.source.status === 'PAID' && amountsDiffer(amount, snapshot.source.amount)) {
+    // CR-M-2 — the SAME symbol `adminUpdateTransaction` asks, not a second
+    // spelling of it. The previous version of this comment said the condition
+    // "mirrors `isCascadeEdit` exactly", which is the give-away phrasing for a
+    // third copy of a rule (backlog 85): the copies agreed, but the rule was
+    // written down twice, and on #600 that is precisely how two copies drifted.
+    //
+    // Parity is the whole point of asking at all: reporting "blocked" where
+    // the write would NOT refuse is the same divergence pointing the other way.
+    if (
+      isCascadeAmountEdit({
+        status: snapshot.source.status,
+        storedAmount: snapshot.source.amount,
+        requestedAmount: amount,
+      })
+    ) {
       const ledgerFact = classifyEditedRowLedgerFact(snapshot.source)
       if (ledgerFact) {
         return cascadeEditPreviewResponseSchema.parse({

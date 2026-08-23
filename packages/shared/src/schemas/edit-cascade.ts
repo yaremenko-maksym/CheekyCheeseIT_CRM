@@ -553,7 +553,17 @@ export function resolveEditCascade(
   patch: CascadeEditPatch,
 ): CascadePlan {
   const { source, derivatives } = snapshot
-  const sourceAmountChanged = amountsDiffer(patch.amount, source.amount)
+  // SR-M-2 (review round 4) — the figure the WRITE will store, not the raw
+  // request. Before this, the preview answered `newSourceAmount: 100` for an
+  // edit the service then stored as 260, which is risk 1 of the ADR's AC6
+  // ("предпросмотр и факт разъезжаются") arriving on the source amount after
+  // CR-M-1 had closed it on the refusals.
+  //
+  // It also has to be the basis for the SHARES: a derivative is a share of the
+  // source amount, and taking shares of a number that will not be stored would
+  // be a worse defect than showing the wrong total.
+  const effectiveAmount = floorAmountAtAccumulator(source.settledAmount, patch.amount)
+  const sourceAmountChanged = amountsDiffer(effectiveAmount, source.amount)
   const sourceWarnings = resolveSourceWarnings(source)
 
   if (!sourceAmountChanged) {
@@ -572,9 +582,9 @@ export function resolveEditCascade(
     sourceId: source.id,
     sourceAmountChanged: true,
     oldSourceAmount: source.amount,
-    newSourceAmount: patch.amount,
+    newSourceAmount: effectiveAmount,
     sourceCurrency: source.currency,
-    derivatives: derivatives.map((d) => resolveDerivative(d, patch.amount, source.currency)),
+    derivatives: derivatives.map((d) => resolveDerivative(d, effectiveAmount, source.currency)),
     sourceWarnings,
   }
 }
@@ -694,6 +704,81 @@ export function classifyEditedRowLedgerFact(
   if (source.hasClosedObligation) return 'CLOSES_OBLIGATION'
   if (source.type === 'COMPANY_DEPOSIT') return 'ONCHAIN_DEPOSIT'
   return null
+}
+
+/**
+ * THE FLOOR, stated once (SR-M-6 / SR-M-2, review rounds 3-4):
+ *
+ * > a row's `amount` is never written, or shown, below its `settled_amount`.
+ *
+ * `settled_amount` is what actually left the account. Writing `amount` below
+ * it makes ledger terms 7/8 under-debit by the difference — an error in the
+ * "+" direction, the one no gate catches — and leaves an obligation asserting
+ * a smaller debt than has already been paid, which nothing but a data repair
+ * can undo.
+ *
+ * It lives HERE, in the pure module, because three places need the same
+ * number: the resolver (so the preview shows what will be stored, and so the
+ * shares are shares of that figure), and `adminUpdateTransaction`'s two
+ * writers. A law with three implementations is three laws.
+ *
+ * `?? 0` covers `undefined` as well as `null`: `Number(undefined)` is `NaN`,
+ * `Math.max` propagates it, and the money write becomes the string 'NaN'.
+ */
+export function floorAmountAtAccumulator(
+  // Accepts the RAW column value (`numeric` arrives from drizzle as a string)
+  // as well as a parsed number, so callers never have to write their own
+  // null-preserving conversion. They did, briefly, and it was a redundant
+  // branch no test could reach: the only caller that could tell `null` from
+  // `0` apart needs a non-positive request, and both entrances validate
+  // `.positive()`. One conversion, in the place whose own spec exercises both
+  // branches directly.
+  settledAmount: number | string | null | undefined,
+  requested: number,
+): number {
+  // No accumulator ⇒ NO floor. `Math.max(requested, settledAmount ?? 0)` reads
+  // the same for every figure the API can actually receive (amounts are
+  // `.positive()` on both entrances), but it quietly states a SECOND rule —
+  // "never below zero" — that nobody asked for, and it clamps a negative
+  // probe to 0. The law is about the accumulator; where there is none, there
+  // is nothing to say.
+  if (settledAmount === null || settledAmount === undefined) return requested
+  return Math.max(requested, Number(settledAmount))
+}
+
+/**
+ * Is this edit the one that runs the cascade? (CR-M-2, review round 4.)
+ *
+ * Asked by BOTH entrances — `GET :id/edit-preview` and
+ * `PATCH :id/admin-edit` — and previously written out in both, the second time
+ * under a comment saying it "mirrors" the first. That phrasing is the marker
+ * for a third copy of a rule (backlog 85); copies that agree today are still
+ * two descriptions, and on #600 two of them had already drifted.
+ *
+ * Compared against the RAW request, NOT the floored figure — the two are
+ * different questions and conflating them silently removes AC13:
+ *
+ *   - "does the STORED figure move?" (floored) decides what gets WRITTEN;
+ *   - "did the operator ASK for a change?" (raw) decides whether this is a
+ *     cascade edit, and therefore whether AC13 and the preview token apply.
+ *
+ * On a settled row `amount === settled_amount`, so EVERY downward request
+ * floors back to the current value. Asking the floored question there would
+ * make it "no change", skip AC13 and answer the operator with a silent
+ * success — for exactly the population AC13 exists to refuse. Measured: the
+ * `risk 18` and `risk 25` specs both went red on that, which is what the
+ * accumulator fixture in them is for.
+ *
+ * The two questions only diverge when an accumulator exists, and on a `PAID`
+ * row that is precisely where AC13 refuses anyway — so the raw comparison
+ * costs nothing and keeps the refusal reachable.
+ */
+export function isCascadeAmountEdit(args: {
+  status: string
+  storedAmount: number
+  requestedAmount: number
+}): boolean {
+  return args.status === 'PAID' && amountsDiffer(args.requestedAmount, args.storedAmount)
 }
 
 /**

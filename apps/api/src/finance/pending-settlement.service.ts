@@ -920,11 +920,25 @@ export class PendingSettlementService {
     // refused elsewhere today (AC10), but this guard must not depend on that
     // staying true when task 3b lands.
     //
-    // The escape hatch, if mixing payers is ever actually wanted, is the same
-    // one the currency has: a snapshot column (`settled_funding_source`). It is
-    // deliberately NOT introduced here because terms 7 and 8 would have to be
-    // rewritten to read it, and this task commits to leaving them untouched
-    // (addendum §1.10).
+    // The escape hatch, if mixing is ever actually wanted, is a snapshot
+    // column per axis — and the two axes cost DIFFERENT things, which the
+    // previous version of this comment got wrong by re-using round 2's
+    // wording for both (SPEC-M-1, review round 4):
+    //
+    //   - `funding_source`: a `settled_funding_source` snapshot would force
+    //     terms 7 and 8 to read it instead of the live column, and this task
+    //     commits to leaving them untouched (addendum §1.10). That is the
+    //     expensive one.
+    //   - `sender_id`: NO ledger term reads it. Verified, not assumed —
+    //     `grep -n 'senderId\|sender_id' company-account-balance.ts` returns a
+    //     single hit, and it is a comment. The cost sits somewhere else
+    //     entirely: `adminBalances` in `balance.service.ts` attributes a row's
+    //     whole `amount` to whoever holds `sender_id`, so splitting one row
+    //     between two payers needs a per-settle record there, not a column
+    //     here.
+    //
+    // Saying "terms 7 and 8" for the second axis pointed the next reader at
+    // code that has nothing to do with it.
     const settleFundingSource = debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null
     if (
       priorSettledAmount > 0 &&
