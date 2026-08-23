@@ -3045,6 +3045,38 @@ export class TransactionsService {
         'Правка суммы оплаченной транзакции выполняется только после предпросмотра последствий — откройте предпросмотр правки и повторите сохранение',
       )
     }
+    // SR-M-6 (security-review round 3) — the SAME law AC5/AC7 state for the
+    // cascade, stated once and applied on BOTH write paths:
+    //
+    // > a row's `amount` is never written below its `settled_amount`.
+    //
+    // The cascade enforced it; this path did not. A row a cascade has reverted
+    // sits at `PENDING_PAYMENT`, so `isCascadeEdit` is false, AC13 is never
+    // consulted, and both writes below stored whatever figure was typed — an
+    // obligation asserting a debt of 100 with 260 already paid, out of which
+    // only a repair of the data leads. Not a dead end (the settle refuses a
+    // negative remainder rather than paying it), which is why this is MED and
+    // not HIGH; but a law that holds on one of two write paths is a
+    // coincidence, not a law.
+    //
+    // On the CASCADE path this is the identity by construction: AC13 refuses
+    // the edit outright when the edited row carries an accumulator, so
+    // `priorSettled` is 0 there and `Math.max` returns the input untouched.
+    // Same for the overwhelmingly common never-settled row.
+    // `?? 0` rather than a `!== null` ternary: the fallback has to cover
+    // `undefined` as well. A row object that simply does not carry the column
+    // turns `Number(undefined)` into NaN, `Math.max` propagates it, and the
+    // money write becomes the string 'NaN' — caught here by an unrelated
+    // spec's fixture, which is a fair warning about how quietly it travels.
+    const priorSettled = Number(tx.settledAmount ?? 0)
+    // ONE value with ONE meaning: the figure to store, or nothing to store.
+    // The write sites below key off THIS rather than re-asking whether an
+    // amount was sent — two descriptions of the same condition are two things
+    // that can drift.
+    const amountToWrite =
+      data.amount !== undefined ? Math.max(data.amount, priorSettled) : undefined
+    const flooredByAccumulator = amountToWrite !== data.amount
+
     // The "is this row's amount our own record?" refusals (AC13) live in
     // `assertEditedRowAmountIsOwnRecord`, called below on the LOCKED snapshot —
     // one of the four predicates (a closed obligation on the row itself) needs
@@ -3177,7 +3209,7 @@ export class TransactionsService {
         if (amountChanged) {
           await dbtx
             .update(pendingObligations)
-            .set({ amount: String(data.amount), updatedAt: new Date() })
+            .set({ amount: String(amountToWrite), updatedAt: new Date() })
             .where(
               and(
                 eq(pendingObligations.sourceTransactionId, id),
@@ -3193,7 +3225,7 @@ export class TransactionsService {
         const updated = await dbtx
           .update(transactions)
           .set({
-            ...(data.amount !== undefined && { amount: String(data.amount) }),
+            ...(amountToWrite !== undefined && { amount: String(amountToWrite) }),
             ...(data.currency !== undefined && {
               currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
             }),
@@ -3227,7 +3259,17 @@ export class TransactionsService {
             action: 'AMOUNT_OR_RECEIVER_CHANGE',
             metadata: {
               ...(amountChanged && {
-                amount: { before: tx.amount, after: String(data.amount) },
+                amount: {
+                  before: tx.amount,
+                  // What was actually STORED — recording the typed figure here
+                  // when the floor moved it would make the journal describe a
+                  // write that never happened.
+                  after: String(amountToWrite),
+                  // …and what the operator typed, when the two differ. The
+                  // floor is silent in the response but must not be silent in
+                  // the record (SR-M-6).
+                  ...(flooredByAccumulator && { flooredFrom: data.amount }),
+                },
               }),
               ...(currencyChanged && {
                 currency: { before: tx.currency, after: data.currency },

@@ -1056,6 +1056,48 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     expect(closed.row.settledAmount).toBe(closed.row.amount)
   })
 
+  it('risk 24 (SR-M-6): editing a REVERTED row directly is floored by its accumulator too', async () => {
+    // The second write path. A reverted row is `PENDING_PAYMENT`, so
+    // `isCascadeEdit` is false and neither AC13 nor the cascade's floor is
+    // consulted — the #598 sync and the main UPDATE would happily store a
+    // figure smaller than what has already been paid, leaving an obligation
+    // that asserts a debt of 100 against 260 actually paid.
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN)
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000) // revert: amount 520, accumulator 260
+
+    const reopened = await derivativeFor(SENIOR.id)
+    expect(reopened.row.status).toBe('PENDING_PAYMENT')
+    expect(reopened.row.settledAmount).toBe('260.000000')
+
+    await svc.adminUpdateTransaction(reopened.row.id, { amount: 100 }, ADMIN)
+
+    const floored = await derivativeFor(SENIOR.id)
+    expect(floored.row.amount).toBe('260.000000')
+    expect(floored.obligation.amount).toBe('260.000000')
+
+    // And the consequence that makes it worth enforcing: the row still closes.
+    await expect(settleSvc.settleByCompany(floored.obligation.id, ADMIN)).resolves.toBeDefined()
+    expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PAID')
+  })
+
+  it('risk 24 (control): a direct edit ABOVE the accumulator is stored exactly as typed', async () => {
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN)
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000)
+
+    const reopened = await derivativeFor(SENIOR.id)
+    await svc.adminUpdateTransaction(reopened.row.id, { amount: 900 }, ADMIN)
+
+    const edited = await derivativeFor(SENIOR.id)
+    expect(edited.row.amount).toBe('900.000000')
+    expect(edited.obligation.amount).toBe('900.000000')
+  })
+
   // ── risk 20 — never revert into a dead end (SR-M-3) ─────────────────────
 
   it('risk 20: a drop obligation closed in UAH blocks the edit — its remainder is not computable', async () => {

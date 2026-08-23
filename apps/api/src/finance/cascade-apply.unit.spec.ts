@@ -1109,6 +1109,126 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
 })
 
 // ---------------------------------------------------------------------------
+// SR-M-6 — the accumulator floor is a LAW, so it holds on BOTH write paths.
+// ---------------------------------------------------------------------------
+
+/**
+ * SR-M-6 (security-review round 3). AC5 states the rule as a law:
+ *
+ * > a derivative's `amount` is never written below its `settled_amount`.
+ *
+ * Until now only the CASCADE enforced it. A reverted row sits at
+ * `PENDING_PAYMENT`, so `isCascadeEdit` is false, AC13 is never consulted, and
+ * the #598 obligation sync plus the main `transactions` UPDATE write whatever
+ * figure was typed. A rule that holds on one of two write paths is not a law,
+ * it is a coincidence — so the floor is applied in both places, from ONE
+ * description.
+ *
+ * Not a dead end (hence MED, not HIGH): the settle refuses a negative
+ * remainder rather than paying it. But the refusal leaves an obligation
+ * asserting a debt smaller than what was already paid, and only a data fix
+ * gets out of that.
+ */
+describe('SR-M-6: the accumulator floor holds on the direct edit path too', () => {
+  /** The shape a cascade revert leaves behind: open again, accumulator intact. */
+  function revertedRow(overrides: Record<string, unknown> = {}) {
+    return sourceRow({
+      type: 'SENIOR_PENDING_PAYOUT',
+      status: 'PENDING_PAYMENT',
+      amount: '520.000000',
+      settledAmount: '260.000000',
+      ...overrides,
+    })
+  }
+
+  function writes(ops: Op[], table: string) {
+    return ops.filter(
+      (o): o is Extract<Op, { kind: 'update' }> => o.kind === 'update' && o.table === table,
+    )
+  }
+
+  it('writes the accumulator, not the smaller typed figure, into the transactions row', async () => {
+    const { db, ops } = makeDouble({ source: revertedRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 100 }, ADMIN)
+
+    expect(writes(ops, 'transactions')[0]!.set['amount']).toBe('260')
+  })
+
+  it('floors the obligation copy by the SAME figure — the two must not drift apart', async () => {
+    const { db, ops } = makeDouble({ source: revertedRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 100 }, ADMIN)
+
+    expect(writes(ops, 'pending_obligations')[0]!.set['amount']).toBe('260')
+  })
+
+  it('journals what was actually stored AND what was typed — neither is allowed to vanish', async () => {
+    const { db, ops } = makeDouble({ source: revertedRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 100 }, ADMIN)
+
+    const entry = journalEntries(ops, 'AMOUNT_OR_RECEIVER_CHANGE')[0]!
+    const meta = entry.values['metadata'] as { amount: Record<string, unknown> }
+    expect(meta.amount['before']).toBe('520.000000')
+    expect(meta.amount['after']).toBe('260')
+    expect(meta.amount['flooredFrom']).toBe(100)
+  })
+
+  it('is the identity above the accumulator — an ordinary edit is untouched', async () => {
+    const { db, ops } = makeDouble({ source: revertedRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 900 }, ADMIN)
+
+    expect(writes(ops, 'transactions')[0]!.set['amount']).toBe('900')
+    const meta = journalEntries(ops, 'AMOUNT_OR_RECEIVER_CHANGE')[0]!.values['metadata'] as {
+      amount: Record<string, unknown>
+    }
+    expect(meta.amount['flooredFrom']).toBeUndefined()
+  })
+
+  it('is the identity for a row that never settled — first-round behaviour, byte for byte', async () => {
+    // `settled_amount` NULL is the overwhelmingly common case, and it must not
+    // acquire a floor of its own.
+    const { db, ops } = makeDouble({ source: revertedRow({ settledAmount: null }) })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 1 }, ADMIN)
+
+    expect(writes(ops, 'transactions')[0]!.set['amount']).toBe('1')
+  })
+
+  it('treats a MISSING accumulator column as zero, never as NaN', async () => {
+    // `Number(undefined)` is NaN and `Math.max` propagates it, so a row object
+    // that simply does not carry the column would store the string 'NaN' as a
+    // money figure. Pinned deliberately rather than left to an unrelated
+    // spec's fixture to notice.
+    const { db, ops } = makeDouble({
+      source: revertedRow({ settledAmount: undefined as unknown as null }),
+    })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 100 }, ADMIN)
+
+    expect(writes(ops, 'transactions')[0]!.set['amount']).toBe('100')
+  })
+
+  it('leaves a metadata-only edit alone — no amount was sent, so none is written', async () => {
+    const { db, ops } = makeDouble({ source: revertedRow() })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'just a note' }, ADMIN)
+
+    expect(writes(ops, 'transactions')[0]!.set['amount']).toBeUndefined()
+    expect(writes(ops, 'pending_obligations')).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // AC5 — derivative whose obligation is still open.
 // ---------------------------------------------------------------------------
 
