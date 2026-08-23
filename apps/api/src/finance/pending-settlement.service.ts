@@ -315,7 +315,25 @@ export class PendingSettlementService {
       sourceSeniorSharePercent,
       sourceDropSharePercent,
       sourceSettledCurrency,
+      sourceSettledAmount,
     } = await this.resolveSource(obligation.sourceTransactionId)
+
+    // task-cascade-apply (task 3, AC10 / addendum §1.11) — how much of this
+    // obligation is STILL owed.
+    //
+    // Before task 3 a row could settle at most once, so "owed" and "the
+    // obligation's amount" were the same number. A cascade revert reopens the
+    // obligation carrying the NEW FULL share while part of it has already been
+    // paid, and paying the full figure again would drive the accumulator to
+    // roughly twice the row's `amount` — breaking the invariant ledger term 9
+    // rests on (addendum §1.2) and paying the senior twice.
+    //
+    // ONE description, two call sites (the pre-transaction computation just
+    // below and the money gate inside the transaction, which keys off the
+    // CLAIMED amount for its own TOCTOU reasons).
+    const priorSettledAmount = Number(sourceSettledAmount ?? 0)
+    const remainingOwed = (obligationAmount: string): number =>
+      Number((parseFloat(obligationAmount) - priorSettledAmount).toFixed(6))
 
     // task-drop-share-override-and-receiver (D5). Branch by the source IOU type:
     //   - DROP_PENDING_PAYOUT → settle by flipping the SOURCE row in place to
@@ -331,6 +349,30 @@ export class PendingSettlementService {
     // pending_obligations does not store the creditor role, so the source
     // transaction type is the discriminator (mirrors the docstring contract).
     const isDropObligation = sourceType === 'DROP_PENDING_PAYOUT'
+
+    // task-cascade-apply (task 3, AC10 / addendum §1.11) — a drop obligation
+    // that has already been paid something cannot be topped up YET.
+    //
+    // Not laziness: on a drop row `amount` is the FACT of a payment IN THE
+    // PAYMENT'S OWN CURRENCY, and next to it sit
+    // `originalAmount`/`originalCurrency`/`exchangeRate` describing exactly ONE
+    // conversion, with `amount = originalAmount × exchangeRate`. A partial
+    // top-up makes `amount` cumulative and that identity stops holding — what
+    // the triplet should mean for a row closed by two payments at two different
+    // rates is a real decision (store per-payment? describe the last one? move
+    // terms 7/8 onto `settled_amount`?), and making it here would mean
+    // rewriting a block that has been through three security reviews.
+    //
+    // The FIRST settle of a drop obligation is completely unaffected
+    // (`priorSettledAmount` is 0), and a reverted drop row still shows what has
+    // been paid — only closing the remainder through the system waits.
+    if (isDropObligation && priorSettledAmount > 0) {
+      throw new BadRequestException(
+        'Доплата по частично выплаченному обязательству дропа пока не поддерживается — курс и сумма ' +
+          'фактического платежа на такой строке считаются по одной выплате. Обязательство остаётся ' +
+          'открытым, «уже выплачено» видно; закрытие остатка — отдельная задача.',
+      )
+    }
 
     // task-senior-settle-owner: the senior IOU is now paid via the SAME funding
     // selection as a SALARY — the ADMIN/ACCOUNTANT picks AT PAY TIME whether the
@@ -768,7 +810,25 @@ export class PendingSettlementService {
     // settle never touches `amount` at all (see the `.set()` comment below),
     // so its contribution is the pre-existing obligation amount — the same
     // value `amount` already holds and will keep holding after this flip.
-    const settledAmountThisSettle = isDropObligation ? paidAmount! : parseFloat(obligation.amount)
+    //
+    // task-cascade-apply (task 3, AC10): on the SENIOR branch that contribution
+    // is now the REMAINDER (`obligation.amount − already accumulated`), not the
+    // obligation's full figure. On a first settle the accumulator is NULL, so
+    // `remainingOwed` returns exactly `obligation.amount` and the behaviour is
+    // byte-for-byte what it was.
+    const settledAmountThisSettle = isDropObligation
+      ? paidAmount!
+      : remainingOwed(obligation.amount)
+
+    // task-cascade-apply (task 3, AC10) — nothing left owing. Only reachable
+    // once something HAS been paid (`priorSettledAmount > 0`), which is exactly
+    // when the message below is true; a first settle of a legitimately
+    // zero-amount obligation (a 0% share) stays allowed, as it was before.
+    if (priorSettledAmount > 0 && settledAmountThisSettle <= 0) {
+      throw new BadRequestException(
+        'По этому обязательству уже выплачено не меньше требуемого — доплачивать нечего',
+      )
+    }
 
     // MED-2 (security-review round 1, PR #599): `pending_obligations.amount`
     // carries ZERO CHECK constraints (verified against a scratch DB by the
@@ -889,7 +949,13 @@ export class PendingSettlementService {
         // keyed on `claimedAmount` rather than `obligation.amount` is what
         // makes that assertion load-bearing rather than decorative — a
         // later change that loosens it still gates correctly on its own.
-        const amount = parseFloat(claimedAmount)
+        //
+        // task-cascade-apply (task 3, AC10): on the SENIOR branch what leaves
+        // the account is the REMAINDER, so that is what the balance must cover.
+        // Gating on the obligation's full figure after a partial payment would
+        // refuse a top-up the company can actually afford. Same single
+        // description of "still owed" as the pre-transaction computation above.
+        const amount = isDropObligation ? parseFloat(claimedAmount) : remainingOwed(claimedAmount)
         if (amount > balance) {
           throw new BadRequestException(
             'Недостаточно средств на счёте компании для закрытия долга перед синьором',
@@ -1030,6 +1096,20 @@ export class PendingSettlementService {
           and(
             eq(transactions.id, obligation.sourceTransactionId),
             eq(transactions.status, 'PENDING_PAYMENT'),
+            // task-cascade-apply (task 3, AC10) — TOCTOU on the ACCUMULATOR.
+            //
+            // `settledAmountThisSettle` was computed from `settled_amount` as
+            // read BEFORE this transaction opened. If another settle of the
+            // same row committed in between, that delta is computed against a
+            // figure that is no longer true and would over-pay. Re-asserting
+            // the value here costs no extra lock: a mismatch simply matches
+            // zero rows, and the existing `if (!paidRow) throw` below already
+            // turns that into a clean abort of the whole transaction.
+            //
+            // `IS NOT DISTINCT FROM` rather than `=` because the value is NULL
+            // on a first-ever settle, and `NULL = NULL` is NULL, which would
+            // match nothing and break every first settle in the system.
+            sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${sourceSettledAmount}::numeric`,
           ),
         )
         .returning()
@@ -1191,10 +1271,21 @@ export class PendingSettlementService {
     // the row's CURRENT settled_currency, read so the flip below can refuse
     // a settle whose currency does not match what is ALREADY accumulated —
     // summing FACT amounts recorded in different currencies under one column
-    // would silently misrepresent the total. `settled_amount` itself is no
-    // longer read here — the increment is DB-native (`coalesce(...) + delta`
-    // in the `.set()` below), which needs no pre-transaction value at all.
+    // would silently misrepresent the total.
     sourceSettledCurrency: string | null
+    /**
+     * task-cascade-apply (task 3, AC10): the row's CURRENT accumulator.
+     *
+     * PR #599 deliberately stopped reading it, because the increment is
+     * DB-native (`coalesce(current, 0) + delta`) and needed no pre-transaction
+     * value. Task 3 needs it again for a different question — not "what to add"
+     * but "how much is STILL owed" (`obligation.amount − already paid`), which
+     * only a cascade revert can make non-trivial. The DB-native increment is
+     * UNCHANGED; the value read here is used for the remainder arithmetic and
+     * re-asserted in the flip's WHERE, so a concurrent settle in between
+     * matches zero rows instead of over-paying.
+     */
+    sourceSettledAmount: string | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
@@ -1221,6 +1312,7 @@ export class PendingSettlementService {
         sourceSeniorSharePercent: null,
         sourceDropSharePercent: null,
         sourceSettledCurrency: null,
+        sourceSettledAmount: null,
       }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
@@ -1232,6 +1324,7 @@ export class PendingSettlementService {
       sourceSeniorSharePercent: source.seniorSharePercent,
       sourceDropSharePercent: source.dropSharePercent,
       sourceSettledCurrency: source.settledCurrency,
+      sourceSettledAmount: source.settledAmount,
     }
   }
 
