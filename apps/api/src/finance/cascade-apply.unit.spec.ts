@@ -30,7 +30,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { resolveEditCascade, computeCascadeVersion, type CascadeSnapshot } from '@crm/shared'
 
@@ -147,7 +147,9 @@ function obligationRow(overrides: Record<string, unknown> = {}) {
 // ---------------------------------------------------------------------------
 
 type Op =
-  | { kind: 'lock'; table: string }
+  | { kind: 'select'; table: string; projection: unknown }
+  | { kind: 'returning'; table: string; projection: unknown }
+  | { kind: 'lock'; table: string; projection: unknown; where: unknown[] }
   | { kind: 'advisory' }
   | { kind: 'update'; table: string; set: Record<string, unknown>; where: unknown[] }
   | { kind: 'insert'; table: string; values: Record<string, unknown> }
@@ -197,6 +199,13 @@ interface DbleConfig {
   revertClaimRows?: Array<{ id: string }>
   /** Rows returned by the main transactions UPDATE (empty ⇒ "row was deleted"). */
   mainUpdateRows?: Array<{ id: string }>
+  /**
+   * Per-call answers for `transactions.findFirst`. Call 1 is the
+   * pre-transaction read in `adminUpdateTransaction`; call 2 is
+   * `loadCascadeSnapshot`'s own read INSIDE the transaction. Lets a test make
+   * the row vanish between the two.
+   */
+  sourceReads?: Array<Record<string, unknown> | undefined>
 }
 
 function makeDouble(cfg: DbleConfig = {}) {
@@ -205,10 +214,11 @@ function makeDouble(cfg: DbleConfig = {}) {
   const derivatives = cfg.derivatives ?? []
   const obligations = cfg.obligations ?? []
   const signatures = cfg.signatures ?? []
+  let sourceReadCall = 0
 
   const relationalQueries = {
     transactions: {
-      findFirst: vi.fn(async () => source),
+      findFirst: vi.fn(async () => (cfg.sourceReads ? cfg.sourceReads[sourceReadCall++] : source)),
       findMany: vi.fn(async () => derivatives),
     },
     pendingObligations: { findMany: vi.fn(async () => obligations) },
@@ -221,19 +231,29 @@ function makeDouble(cfg: DbleConfig = {}) {
       ops.push({ kind: 'advisory' })
       return undefined
     }),
-    select: vi.fn(() => ({
+    select: vi.fn((projection: unknown) => ({
       from: (t: unknown) => ({
-        where: () =>
+        where: (clause: unknown) => {
+          ops.push({ kind: 'select', table: tableName(t), projection })
           // Awaited directly ⇒ the id-discovery read. Chained through
           // `.orderBy().for()` ⇒ a lock acquisition.
-          thenable(t === transactions ? derivatives.map((d) => ({ id: d.id as string })) : [], {
-            orderBy: () => ({
-              for: (strength: string) => {
-                ops.push({ kind: 'lock', table: `${tableName(t)}:${strength}` })
-                return Promise.resolve([])
-              },
-            }),
-          }),
+          return thenable(
+            t === transactions ? derivatives.map((d) => ({ id: d.id as string })) : [],
+            {
+              orderBy: () => ({
+                for: (strength: string) => {
+                  ops.push({
+                    kind: 'lock',
+                    table: `${tableName(t)}:${strength}`,
+                    projection,
+                    where: whereParams(clause),
+                  })
+                  return Promise.resolve([])
+                },
+              }),
+            },
+          )
+        },
       }),
     })),
     update: vi.fn((t: unknown) => ({
@@ -248,7 +268,12 @@ function makeDouble(cfg: DbleConfig = {}) {
               : tableName(t) === 'transactions' && patch.type === undefined
                 ? (cfg.mainUpdateRows ?? [{ id: SOURCE_ID }])
                 : [{ id: 'affected' }]
-          return thenable(rows, { returning: () => Promise.resolve(rows) })
+          return thenable(rows, {
+            returning: (proj: unknown) => {
+              ops.push({ kind: 'returning', table: tableName(t), projection: proj })
+              return Promise.resolve(rows)
+            },
+          })
         },
       }),
     })),
@@ -746,6 +771,15 @@ describe('AC6: revert of a settled derivative', () => {
     // Conditional on the row still being closed — a double revert must affect
     // zero rows rather than create a second open obligation (23505 territory).
     expect(claim.where).toContain('PAID')
+    // …and it must ASK for the affected rows back: the whole idempotency
+    // decision below is "how many rows did that conditional UPDATE touch",
+    // which an UPDATE with no RETURNING clause cannot answer.
+    const returned = ops.filter(
+      (o): o is Extract<Op, { kind: 'returning' }> =>
+        o.kind === 'returning' && o.table === 'pending_obligations',
+    )
+    expect(returned).toHaveLength(1)
+    expect(Object.keys(returned[0]!.projection as object)).toContain('id')
   })
 
   it('flips the transaction back to SENIOR_PENDING_PAYOUT / PENDING_PAYMENT with the new share', async () => {
@@ -1126,5 +1160,366 @@ describe('AC12: idempotency', () => {
     await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
 
     expect(ops.filter((o) => o.kind === 'insert' && o.table === 'transactions')).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Refusal wording. A money refusal an operator cannot act on is only half a
+// refusal — these pin the sentences that say WHAT is wrong and WHAT to do.
+// ---------------------------------------------------------------------------
+
+describe('refusal messages', () => {
+  it('the PAID guard names the two fields that are still frozen, and no longer names amount', async () => {
+    const { db } = makeDouble()
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await expect(svc.adminUpdateTransaction(SOURCE_ID, { currency: 'EUR' }, ADMIN)).rejects.toThrow(
+      'Cannot change currency or salary month of a settled (PAID) transaction',
+    )
+  })
+
+  it('the stale-version refusal tells the operator to refresh the preview', async () => {
+    const { db } = makeDouble({
+      derivatives: [pendingDerivativeRow()],
+      obligations: [obligationRow()],
+    })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await expect(
+      svc.adminUpdateTransaction(
+        SOURCE_ID,
+        { amount: 2000, cascadeVersion: 'src:stale:2020-01-01T00:00:00.000Z' },
+        ADMIN,
+      ),
+    ).rejects.toThrow(
+      'Данные изменились с момента предпросмотра — обновите предпросмотр правки и повторите сохранение',
+    )
+  })
+
+  it('the invariant refusal spells out both figures and who holds the equality', async () => {
+    const derivativeRows = [settledDerivativeRow({ amount: '2000.000000' })]
+    const obligationRows = [obligationRow({ status: 'PAID', amount: '2000.000000' })]
+    const { db } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    let caught: unknown
+    try {
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 5000, cascadeVersion: version }, ADMIN)
+    } catch (e) {
+      caught = e
+    }
+    const message = (caught as Error).message
+    // Each assertion pins one concatenated fragment, killing each separately.
+    expect(message).toContain(`Строка ${SENIOR_DERIV_ID}: расходятся сумма строки и сумма`)
+    expect(message).toContain('фактических выплат (amount = 2000, settled_amount = 260).')
+    expect(message).toContain(
+      'Равенство этих двух держат книжка обязательств и правка суммы (#598), а закрытие долга',
+    )
+    expect(message).toContain(
+      'его не проверяет — поэтому при возврате в ожидание выплаты леджер вернул бы не тот дебет.',
+    )
+    expect(message).toContain('Строка требует ручной сверки перед правкой дохода.')
+  })
+
+  it('reports a MISSING accumulator as 0 rather than "null" in the same refusal', async () => {
+    // A company-funded row whose accumulator was never written is the same
+    // class of disagreement (row says 260, payments say nothing) and must be
+    // refused with a figure a human can read.
+    const derivativeRows = [settledDerivativeRow({ settledAmount: null, settledCurrency: null })]
+    const obligationRows = [obligationRow({ status: 'PAID' })]
+    const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+    ).rejects.toThrow('settled_amount = 0')
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  it('refuses a settled derivative whose type matches no closure form, instead of guessing one', async () => {
+    // Only `SENIOR_INCOME` and `PAYOUT_DROP` are shapes a settle produces.
+    // Anything else closing an obligation is corrupt state: pick a type for it
+    // and the row silently re-enters the ledger under the wrong term.
+    const derivativeRows = [settledDerivativeRow({ type: 'SALARY' })]
+    const obligationRows = [obligationRow({ status: 'PAID' })]
+    const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+    ).rejects.toThrow(/не соответствует ни одной форме закрытия/)
+    expect(derivativeWrites(ops)).toHaveLength(0)
+  })
+
+  it('refuses when the row disappears between the pre-read and the locked re-read', async () => {
+    // The two reads are NOT in one transaction, so a concurrent hard delete
+    // can land between them. Defence-in-depth, but a real race.
+    const { db, ops } = makeDouble({ sourceReads: [sourceRow(), undefined] })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: 'anything' }, ADMIN),
+    ).rejects.toThrow(/удалена/)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The lock statements themselves — WHICH rows they cover.
+// ---------------------------------------------------------------------------
+
+describe('AC3: the lock statements cover the source AND every derivative', () => {
+  async function runAndCollectLocks() {
+    const derivativeRows = [
+      pendingDerivativeRow(),
+      pendingDerivativeRow({
+        id: DROP_DERIV_ID,
+        type: 'DROP_PENDING_PAYOUT',
+        seniorSharePercent: null,
+        dropSharePercent: 10,
+        amount: '100.000000',
+      }),
+    ]
+    const obligationRows = [
+      obligationRow(),
+      obligationRow({ id: DROP_OBL_ID, sourceTransactionId: DROP_DERIV_ID, amount: '100.000000' }),
+    ]
+    const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    return ops.filter((o): o is Extract<Op, { kind: 'lock' }> => o.kind === 'lock')
+  }
+
+  it('locks the obligations of the SOURCE and of every derivative', async () => {
+    const locks = await runAndCollectLocks()
+    const obligationLock = locks.find((l) => l.table.startsWith('pending_obligations'))!
+    // The source id belongs in the set because the #598 sync writes ITS
+    // obligation later in the same transaction — taking that row lock after
+    // the advisory lock would be the inversion this order removes.
+    expect(obligationLock.where).toContain(SOURCE_ID)
+    expect(obligationLock.where).toContain(SENIOR_DERIV_ID)
+    expect(obligationLock.where).toContain(DROP_DERIV_ID)
+  })
+
+  it('locks the SOURCE transaction row and every derivative transaction row', async () => {
+    const locks = await runAndCollectLocks()
+    const txLock = locks.find((l) => l.table.startsWith('transactions'))!
+    expect(txLock.where).toContain(SOURCE_ID)
+    expect(txLock.where).toContain(SENIOR_DERIV_ID)
+    expect(txLock.where).toContain(DROP_DERIV_ID)
+  })
+
+  it('each lock statement selects a real column — an empty projection is not a query', async () => {
+    const locks = await runAndCollectLocks()
+    expect(locks).toHaveLength(2)
+    for (const lock of locks) {
+      expect(Object.keys(lock.projection as object), `${lock.table} projection`).toContain('id')
+    }
+  })
+
+  it('the id-discovery read selects a real column too', async () => {
+    // It is the read the whole lock set is derived FROM: an empty projection
+    // there means the lock statements below cover nothing.
+    const derivativeRows = [pendingDerivativeRow()]
+    const obligationRows = [obligationRow()]
+    const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+    const selects = ops.filter((o): o is Extract<Op, { kind: 'select' }> => o.kind === 'select')
+    expect(selects.length).toBeGreaterThan(0)
+    for (const select of selects) {
+      expect(Object.keys(select.projection as object), `${select.table} projection`).toContain('id')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A derivative with NO paired obligation row.
+// ---------------------------------------------------------------------------
+
+describe('a derivative carrying no obligation row', () => {
+  async function runOrphan() {
+    const derivativeRows = [pendingDerivativeRow()]
+    const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: [] })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives: derivativeRows }))
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    return ops
+  }
+
+  it('is treated as still-open (never reverted) — there is no closure to undo', async () => {
+    const ops = await runOrphan()
+    expect(derivativeWrites(ops)).toHaveLength(0)
+    expect(journalEntries(ops, 'CASCADE_AMOUNT_UPDATE')).toHaveLength(1)
+  })
+
+  it('journals a null obligationId rather than inventing one', async () => {
+    const ops = await runOrphan()
+    const meta = journalEntries(ops, 'CASCADE_AMOUNT_UPDATE')[0]!.values.metadata as Record<
+      string,
+      unknown
+    >
+    expect(meta.obligationId).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A derivative whose recomputed share happens to equal what is already stored.
+// ---------------------------------------------------------------------------
+
+describe('a derivative whose amount does not actually move', () => {
+  it('skips the invoice re-issue on the still-open branch — nothing changed to re-issue', async () => {
+    // A 0% share: the new share is 0 and the stored amount is already 0.
+    const derivativeRows = [pendingDerivativeRow({ seniorSharePercent: 0, amount: '0.000000' })]
+    const obligationRows = [obligationRow({ amount: '0.000000' })]
+    const invoicesService = makeInvoicesSpy()
+    const { db } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+    const spy = invoicesService.voidAndReissueInvoiceForAmountEdit as unknown as ReturnType<
+      typeof vi.fn
+    >
+    expect(spy.mock.calls.map((c) => c[0])).toEqual([SOURCE_ID])
+  })
+
+  it('DOES re-issue on the revert branch when the amount really moves (the mirror case)', async () => {
+    // Stored 260, already paid 260, new share 520 — a genuine revert with a
+    // genuinely new figure, so the derivative's invoice is stale and must be
+    // voided and re-issued alongside the source's.
+    const derivativeRows = [settledDerivativeRow({ fundingSource: null })]
+    const obligationRows = [obligationRow({ status: 'PAID' })]
+    const invoicesService = makeInvoicesSpy()
+    const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+    expect(derivativeWrites(ops)).toHaveLength(1)
+    const spy = invoicesService.voidAndReissueInvoiceForAmountEdit as unknown as ReturnType<
+      typeof vi.fn
+    >
+    expect(spy.mock.calls.map((c) => c[0])).toEqual([SOURCE_ID, SENIOR_DERIV_ID])
+  })
+
+  it('skips the invoice re-issue on the revert branch too', async () => {
+    // Stored amount 520 already equals 26% of the new income 2000, while only
+    // 260 was actually paid — so the row IS reverted, but its figure is
+    // unchanged. `fundingSource` null keeps the AC6 invariant check out of it
+    // (an ADMIN_PERSONAL settle is in no ledger term).
+    const derivativeRows = [
+      settledDerivativeRow({
+        amount: '520.000000',
+        settledAmount: '260.000000',
+        fundingSource: null,
+      }),
+    ]
+    const obligationRows = [obligationRow({ status: 'PAID', amount: '520.000000' })]
+    const invoicesService = makeInvoicesSpy()
+    const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+    expect(derivativeWrites(ops)).toHaveLength(1) // the revert DID happen
+    const spy = invoicesService.voidAndReissueInvoiceForAmountEdit as unknown as ReturnType<
+      typeof vi.fn
+    >
+    expect(spy.mock.calls.map((c) => c[0])).toEqual([SOURCE_ID])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Invoice wiring: when it must NOT fire, and who it attributes the void to.
+// ---------------------------------------------------------------------------
+
+describe('AC11: invoice wiring boundaries', () => {
+  it('does NOT fire at all on a metadata-only edit — no amount moved, no document is stale', async () => {
+    const invoicesService = makeInvoicesSpy()
+    const { db } = makeDouble()
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'typo fixed' }, ADMIN)
+    expect(invoicesService.voidAndReissueInvoiceForAmountEdit).not.toHaveBeenCalled()
+  })
+
+  it('attributes the void to the REAL operator under impersonation, not to the impersonated user', async () => {
+    const derivativeRows = [pendingDerivativeRow()]
+    const obligationRows = [obligationRow()]
+    const invoicesService = makeInvoicesSpy()
+    const { db } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    const impersonator = '99999999-0000-4000-9e00-000000000009'
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+    )
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, {
+      ...ADMIN,
+      impersonatorId: impersonator,
+    } as SessionUser)
+
+    const spy = invoicesService.voidAndReissueInvoiceForAmountEdit as unknown as ReturnType<
+      typeof vi.fn
+    >
+    expect(spy.mock.calls.map((c) => c[1])).toEqual([impersonator, impersonator])
+  })
+
+  it('logs the failure it swallows — silence here would hide a stale signed document', async () => {
+    const derivativeRows = [pendingDerivativeRow()]
+    const obligationRows = [obligationRow()]
+    const invoicesService = makeInvoicesSpy()
+    ;(
+      invoicesService.voidAndReissueInvoiceForAmountEdit as unknown as ReturnType<typeof vi.fn>
+    ).mockRejectedValue(new Error('S3 is having a day'))
+    const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    try {
+      const { db } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
+      const svc = makeTransactionsService({ db, invoicesService })
+      stubFindOne(svc)
+      const version = computeCascadeVersion(
+        snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
+      )
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+      expect(errorSpy).toHaveBeenCalledTimes(2) // source + derivative
+      const [message] = errorSpy.mock.calls[0]!
+      expect(message).toContain(
+        'adminUpdateTransaction: invoice void+reissue failed for transaction=',
+      )
+      expect(message).toContain(SOURCE_ID)
+      expect(message).toContain('S3 is having a day')
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })

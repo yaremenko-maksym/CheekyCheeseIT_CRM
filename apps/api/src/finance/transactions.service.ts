@@ -3687,12 +3687,6 @@ export class TransactionsService {
           .where(
             and(eq(pendingObligations.id, obligation.id), eq(pendingObligations.status, 'PAID')),
           )
-          // Stryker disable next-line ObjectLiteral: only `.length` of the
-          // result is read (was the row still closed?), never a field of it,
-          // so an emptied projection produces the SAME observable outcome
-          // against any mocked db — no unit assertion can distinguish it. The
-          // real-Postgres shape is exercised by cascade-apply.integration.spec.ts,
-          // which the mutation gate cannot run (mutation-gate-integration-specs.md).
           .returning({ id: pendingObligations.id })
         if (reverted.length === 0) continue
 
