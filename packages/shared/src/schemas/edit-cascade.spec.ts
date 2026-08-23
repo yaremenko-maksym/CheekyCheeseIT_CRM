@@ -1325,3 +1325,64 @@ describe('adminUpdateTransactionSchema.cascadeVersion — the preview token on t
     )
   })
 })
+
+/**
+ * task-drop-topup (task 3b) — AC13 in both directions, once the cascade started
+ * clearing the payment-fact triplet on a revert.
+ *
+ * The worry worth writing down: `classifyEditedRowLedgerFact` refuses an edit
+ * when `originalAmount !== null` is its FIRST predicate, and 3b makes that
+ * column go null on rows it never went null on before. Does clearing it open a
+ * door?
+ *
+ * No — and the reason is structural, not a coincidence, which is why it is
+ * pinned here: the refusal is a DISJUNCTION, and on any drop row that ever had
+ * a triplet the other two disjuncts are independently true.
+ */
+describe('AC13 after task 3b: clearing the triplet opens nothing', () => {
+  it('a closed drop row with NO triplet is still refused — by its accumulator', () => {
+    // The shape a future revert leaves behind, asked of the classifier
+    // directly: the row has been paid, so its `amount` is pinned to what left
+    // the account whether or not the triplet says so.
+    expect(
+      classifyEditedRowLedgerFact(
+        makeSource({ type: 'PAYOUT_DROP', originalAmount: null, settledAmount: 130 }),
+      ),
+    ).toBe('SETTLED_AMOUNT_RECORDED')
+  })
+
+  it('…and, with no accumulator either, by the obligation it closed', () => {
+    // The pre-#599 shape: three layers, and the triplet is only the first.
+    expect(
+      classifyEditedRowLedgerFact(
+        makeSource({
+          type: 'PAYOUT_DROP',
+          originalAmount: null,
+          settledAmount: null,
+          hasClosedObligation: true,
+        }),
+      ),
+    ).toBe('CLOSES_OBLIGATION')
+  })
+
+  it.each(['ADMIN_INCOME', 'EXPENSE', 'DIVIDEND_TO_ADMIN'])(
+    'and nothing new is refused: %s with no carrier at all stays editable',
+    (type) => {
+      // The other direction. 3b adds no predicate here, and an income row is
+      // exactly what this whole decomposition exists to let people fix.
+      expect(classifyEditedRowLedgerFact(makeSource({ type, originalAmount: null }))).toBeNull()
+    },
+  )
+
+  it('a REVERTED drop row never reaches AC13 at all — a different rule holds it', () => {
+    // Worth pinning so the next reader does not "close" a hole that is not
+    // there. `isCascadeAmountEdit` requires `status === 'PAID'`, and a reverted
+    // row is `PENDING_PAYMENT`, so the whole AC13 block (and the mandatory
+    // preview with it) is skipped for it. What keeps its `amount` honest is
+    // `floorAmountAtAccumulator`: no writer may put it below what was paid.
+    expect(
+      isCascadeAmountEdit({ status: 'PENDING_PAYMENT', storedAmount: 130, requestedAmount: 5 }),
+    ).toBe(false)
+    expect(floorAmountAtAccumulator(5, 130)).toBe(130)
+  })
+})
