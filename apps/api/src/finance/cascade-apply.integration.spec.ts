@@ -833,6 +833,70 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     ).rejects.toThrow(/сверена с блокчейном/)
   })
 
+  it('risk 22 (SR-H-3): a row that closed an obligation in the PRE-flip epoch is refused too', async () => {
+    // The legacy shape, built by hand because no code path produces it any
+    // more. Before the settle-in-place ADR (2026-07-14) closing an obligation
+    // INSERTED a second transaction: the obligation kept
+    // `source_transaction_id` on the still-hanging IOU and got
+    // `closing_transaction_id` pointing at the new row. That new row is the
+    // one standing in ledger term 7 — and the one an admin would edit.
+    //
+    // All three sibling predicates are structurally empty for this population:
+    // `original_amount` (2026-08-05) and `settled_amount` (2026-08-22) were
+    // both added "no backfill by design", and the row carries no payout
+    // request. So before the `closing_transaction_id` disjunct it passed every
+    // check and the 260 USDT debit could be edited down to nothing.
+    await declare(PROJECT_SENIOR, 1000)
+    const { obligation, row: iou } = await derivativeFor(SENIOR.id)
+
+    const [closingRow] = await dbSvc.db
+      .insert(transactions)
+      .values({
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: '260.000000',
+        currency: 'USDT',
+        receiverId: SENIOR.id,
+        fundingSource: 'COMPANY_ACCOUNT',
+        sourceIncomeTransactionId: iou.sourceIncomeTransactionId,
+        projectId: PROJECT_SENIOR,
+        createdBy: MAKSYM_ID,
+        // Deliberately NOT set: this is the pre-#599 epoch.
+        settledAmount: null,
+        originalAmount: null,
+      })
+      .returning()
+    await dbSvc.db
+      .update(pendingObligations)
+      .set({ status: 'PAID', closingTransactionId: closingRow!.id })
+      .where(eq(pendingObligations.id, obligation.id))
+
+    // The obligation is closed, but NOT by the row it points at as source.
+    const legacy = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, obligation.id),
+    })
+    expect(legacy!.sourceTransactionId).not.toBe(closingRow!.id)
+    expect(legacy!.closingTransactionId).toBe(closingRow!.id)
+
+    const before = await balance()
+    const preview = await svc.getEditCascadePreview(closingRow!.id, 26, ADMIN)
+    await expect(
+      svc.adminUpdateTransaction(
+        closingRow!.id,
+        { amount: 26, cascadeVersion: preview.version! },
+        ADMIN,
+      ),
+    ).rejects.toThrow(/закрытым обязательством/)
+
+    // Without the disjunct the edit lands, term 7's debit falls 260 → 26 and
+    // the balance rises by 234 that has already left the account.
+    const after = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, closingRow!.id),
+    })
+    expect(after!.amount).toBe('260.000000')
+    expect(await balance()).toBeCloseTo(before, 6)
+  })
+
   it('risk 18 (the negative): the ordinary income edit this whole task exists for still works', async () => {
     // AC13 must not "finish the job" on ADMIN_INCOME — it has no second
     // carrier of the amount, so an edit there means "we wrote the wrong

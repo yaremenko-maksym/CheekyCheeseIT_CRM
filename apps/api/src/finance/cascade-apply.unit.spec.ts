@@ -135,6 +135,7 @@ function obligationRow(overrides: Record<string, unknown> = {}) {
   return {
     id: SENIOR_OBL_ID,
     sourceTransactionId: SENIOR_DERIV_ID,
+    closingTransactionId: null,
     status: 'PENDING',
     amount: '260.000000',
     currency: 'USDT',
@@ -341,7 +342,9 @@ function snapshotFrom(cfg: {
           ? null
           : Number(source.settledAmount),
       hasClosedObligation: (cfg.obligations ?? []).some(
-        (o) => o.sourceTransactionId === source.id && o.status === 'PAID',
+        (o) =>
+          o.status === 'PAID' &&
+          (o.sourceTransactionId === source.id || o.closingTransactionId === source.id),
       ),
     },
     derivatives: derivatives.map((d) => {
@@ -991,6 +994,97 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 26, cascadeVersion: version }, ADMIN),
     ).resolves.toBeDefined()
+  })
+
+  /**
+   * SR-H-3 (security-review round 3) — the SAME predicate, for the epoch
+   * BEFORE the settle-in-place ADR of 2026-07-14.
+   *
+   * Back then closing an obligation INSERTED a second transaction instead of
+   * flipping the IOU on the spot, so on such a row
+   * `source_transaction_id !== closing_transaction_id`: the former points at
+   * the still-hanging IOU, the latter at the row that paid it. Keying only on
+   * `source_transaction_id` therefore never finds the obligation the EDITED
+   * row closed — and the other three predicates are empty for that same
+   * population by construction (`original_amount` landed 2026-08-05 and
+   * `settled_amount` 2026-08-22, both explicitly "no backfill by design").
+   * A legacy row would pass all four and stay editable, with exactly the
+   * vanishing debit AC13 exists to prevent.
+   *
+   * The manual cleanup script that would have re-pointed these rows
+   * (`apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup.sql`) is not
+   * wired into `deploy.yml`, and whether it ever ran on production is written
+   * down nowhere. The predicate is therefore made independent of the answer
+   * rather than the answer being hunted down.
+   */
+  it('refuses a row that closed an obligation in the PRE-flip epoch (source ≠ closing id)', async () => {
+    const legacyIou = '55555555-0000-4000-8e00-000000000001'
+    const { result, ops } = await attemptEdit(
+      // Every pre-existing guard is blind to this row on purpose: no
+      // fact-of-payment triplet, no accumulator, no payout request.
+      { type: 'SENIOR_INCOME', settledAmount: null, originalAmount: null, payoutRequestId: null },
+      {
+        obligations: [
+          obligationRow({
+            id: '44444444-0000-4000-8d00-000000000009',
+            sourceTransactionId: legacyIou,
+            closingTransactionId: SOURCE_ID,
+            status: 'PAID',
+          }),
+        ],
+      },
+    )
+    await expect(result).rejects.toThrow(/закрытым обязательством/)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  it('a legacy obligation the row closed but did NOT settle (CANCELLED) does not block it', async () => {
+    // `status === 'PAID'` is the whole predicate on both keys. A cancelled
+    // obligation was written off, not paid — no money stands behind it, so
+    // nothing pins the row's amount.
+    const legacyIou = '55555555-0000-4000-8e00-000000000002'
+    const { result } = await attemptEdit(
+      { type: 'ADMIN_INCOME' },
+      {
+        obligations: [
+          obligationRow({
+            id: '44444444-0000-4000-8d00-00000000000a',
+            sourceTransactionId: legacyIou,
+            closingTransactionId: SOURCE_ID,
+            status: 'CANCELLED',
+          }),
+        ],
+      },
+    )
+    await expect(result).resolves.toBeDefined()
+  })
+
+  it('the obligations read reaches rows keyed by closing_transaction_id, not only by source', async () => {
+    // The JS predicate above can only refuse a row the QUERY brought back.
+    // Without the `closing_transaction_id` disjunct in the WHERE, real
+    // Postgres returns nothing for a legacy obligation and the guard is blind
+    // no matter how the predicate is written. The unit double answers every
+    // `findMany` with the same canned list, so what is asserted here is that
+    // the clause BINDS the source id on that second key; the round-trip that
+    // proves the rows actually come back is the integration spec's
+    // (`mutation-gate-integration-specs.md`).
+    const derivatives = [pendingDerivativeRow()]
+    const obligations = [obligationRow()]
+    const { db, relationalQueries } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+    const call = relationalQueries.pendingObligations.findMany.mock.calls[0]![0] as {
+      where: unknown
+    }
+    const bound = whereParams(call.where)
+    // Twice: once in the `source_transaction_id` list, once as the
+    // `closing_transaction_id` equality. Plus the 'PAID' literal that scopes
+    // the second key.
+    expect(bound.filter((v) => v === SOURCE_ID)).toHaveLength(2)
+    expect(bound).toContain('PAID')
   })
 
   it('the obligations read covers the SOURCE id as well as every derivative id', async () => {

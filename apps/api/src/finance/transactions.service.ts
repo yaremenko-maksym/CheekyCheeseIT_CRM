@@ -3468,16 +3468,52 @@ export class TransactionsService {
     // `loadCascadeSnapshot` a single read shape — the zero-length skip is gone
     // because this list now always holds at least `sourceId`.
     const obligationRows = await db.query.pendingObligations.findMany({
-      where: inArray(pendingObligations.sourceTransactionId, [sourceId, ...derivativeIds]),
+      where: or(
+        inArray(pendingObligations.sourceTransactionId, [sourceId, ...derivativeIds]),
+        // SR-H-3 (security-review round 3) — the SECOND key, for obligations
+        // closed BEFORE the settle-in-place ADR of 2026-07-14.
+        //
+        // `source_transaction_id` alone is enough only in the epoch where a
+        // settle flips the IOU on the spot (then source == closing == the row
+        // itself). Before that, closing an obligation INSERTED a second
+        // transaction: `closing_transaction_id` points at the row that paid,
+        // `source_transaction_id` at the IOU still hanging behind it. Such an
+        // obligation is invisible to the `inArray` above when the row being
+        // edited is the CLOSING one — and that is exactly the row standing in
+        // ledger term 7.
+        //
+        // The other three AC13 predicates are empty for that same population
+        // by construction: `original_amount` (2026-08-05) and `settled_amount`
+        // (2026-08-22) both landed "no backfill by design". So a legacy row
+        // passed all four and stayed editable, with the vanishing debit AC13
+        // exists to prevent.
+        //
+        // `apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup.sql`
+        // would re-point these rows, but it is NOT wired into `deploy.yml`
+        // and whether it ever ran on production is recorded nowhere. This
+        // disjunct is correct in BOTH epochs and under either answer, which
+        // is why it is preferred over going to look for one.
+        and(
+          eq(pendingObligations.closingTransactionId, sourceId),
+          eq(pendingObligations.status, 'PAID'),
+        ),
+      ),
     })
+    // Keyed by `sourceTransactionId`, and the disjunct above cannot pollute
+    // it: a row it adds is keyed by the hanging IOU's id, and this map is only
+    // ever read at a DERIVATIVE's id. Where the two coincide the row was
+    // already in the `inArray` result, so it is the same row either way.
     const obligationByDerivative = new Map(obligationRows.map((o) => [o.sourceTransactionId, o]))
     // AC13, the pre-#599 form: a row closed before `settled_amount` existed
     // carries no accumulator but still closes an obligation. `status === 'PAID'`
     // and not merely "an obligation exists": an OPEN obligation on the edited
     // row is the ordinary IOU case, which stays editable (that is L3's whole
-    // point — #598 keeps the two copies in step).
+    // point — #598 keeps the two copies in step). CANCELLED is not a closure
+    // either — a written-off obligation has no money standing behind it.
     const sourceHasClosedObligation = obligationRows.some(
-      (o) => o.sourceTransactionId === sourceId && o.status === 'PAID',
+      (o) =>
+        o.status === 'PAID' &&
+        (o.sourceTransactionId === sourceId || o.closingTransactionId === sourceId),
     )
 
     // L13/C3 (ADR): a COUNTERPARTY-signed invoice on a derivative is exactly
