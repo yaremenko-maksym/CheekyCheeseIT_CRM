@@ -62,6 +62,11 @@ function makePendingDerivative(
     settledCurrency: null,
     settledSharePercent: null,
     fundingSource: null,
+    originalAmount: null,
+    originalCurrency: null,
+    exchangeRate: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
@@ -89,6 +94,13 @@ function makePaidDerivative(
     settledCurrency: 'USDT',
     settledSharePercent: 26,
     fundingSource: 'COMPANY_ACCOUNT',
+    // task-drop-topup (task 3b): the payment-fact triplet is stamped by a DROP
+    // settle only — a senior one leaves all three NULL (addendum 3b, 1.5).
+    originalAmount: null,
+    originalCurrency: null,
+    exchangeRate: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
@@ -858,6 +870,8 @@ describe('resolveEditCascade — AC7 property test', () => {
   const rand = mulberry32(SEED)
   const ITERATIONS = 500
   const SETTLED_CURRENCIES = ['USDT', 'UAH', 'EUR', 'USD'] as const
+  /** Same set, named separately so the triplet's variation reads as its own axis. */
+  const TRIPLET_CURRENCIES = SETTLED_CURRENCIES
 
   it(`holds invariants across ${ITERATIONS} random (income, percent, obligation status, settled_amount, settled_currency) combinations (seed ${SEED})`, () => {
     // Coverage counters — HIGH-1 (security-review round 1): the ORIGINAL
@@ -927,6 +941,20 @@ describe('resolveEditCascade — AC7 property test', () => {
         // an untouched IOU does not. Independent of the accumulator's size,
         // matching what `settleByCompany` actually writes.
         fundingSource: hasSettledHistory ? 'COMPANY_ACCOUNT' : null,
+        // task-drop-topup (task 3b, backlog 87): the payment-fact triplet is
+        // VARIED here on purpose, including shapes no writer produces (a rate
+        // with no amount, a currency unlike the source's). Nothing below
+        // asserts anything ABOUT it — that is the point: every assertion in
+        // this loop has to keep holding while these three columns move
+        // arbitrarily, which is what "the resolver does not read the triplet"
+        // means operationally. A generator that derived them from the settled
+        // figures would prove only that the resolver agrees with itself.
+        originalAmount: rand() < 0.5 ? null : rand() * 5_000,
+        originalCurrency:
+          rand() < 0.5 ? null : TRIPLET_CURRENCIES[Math.floor(rand() * TRIPLET_CURRENCIES.length)]!,
+        exchangeRate: rand() < 0.5 ? null : (rand() * 50).toFixed(8),
+        receiptDocumentId: null,
+        receiptExternalUrl: rand() < 0.5 ? null : 'https://etherscan.io/tx/0xproperty',
         hasSignedInvoice: false,
         obligation: {
           id: 'obl-1',
