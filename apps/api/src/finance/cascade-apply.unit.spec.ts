@@ -1111,6 +1111,102 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
 })
 
 // ---------------------------------------------------------------------------
+// SR-H-1 — every decision comes from a read taken BEFORE the transaction, so
+// the write has to re-assert what it decided on.
+// ---------------------------------------------------------------------------
+
+/**
+ * SR-H-1 (security-review round 4, HIGH). `isCascadeEdit`, `amountChanged` and
+ * `priorSettled` are all derived from the row read OUTSIDE the DB transaction,
+ * and on the NON-cascade path no lock is taken at all (unlike
+ * `settleByCompany`, which takes every one). The final write only asserted
+ * `deleted_at IS NULL`, so a settle landing in that window was overwritten
+ * blind:
+ *
+ *   - term 7 debits the freshly-written `amount` while a DIFFERENT figure
+ *     actually left the account — and when the edit lowers it, that is an
+ *     error in the "+" direction, straight into `if (amount > balance) throw`;
+ *   - the row is `PAID` with an accumulator by the time the write lands, so
+ *     the edit went through with NO `cascadeVersion`, NO AC13 and NO cascade —
+ *     the very "edit the row that closed the obligation" AC13 exists to stop.
+ *
+ * The SR-M-6 floor does not help: `priorSettled` comes from the same stale
+ * read.
+ *
+ * The `.where` predicate is unchanged from `origin/main`, so the race predates
+ * this branch — but on `main` BIZ-18 forbade editing a PAID row's amount
+ * outright, so it had no money consequence. This PR is what wakes it.
+ *
+ * Fix shape is the one already accepted in this file for SR-M-1 of round 2:
+ * bind the status the decision was made on, ask for the affected rows back,
+ * refuse loudly at zero. It closes the stale accumulator structurally too —
+ * `settled_amount` only moves in the flip, and the flip moves the status.
+ */
+describe('SR-H-1: the write re-asserts the state its decisions were made on', () => {
+  function mainWrite(ops: Op[]) {
+    return ops.filter(
+      (o): o is Extract<Op, { kind: 'update' }> =>
+        o.kind === 'update' && o.table === 'transactions' && o.where.includes(SOURCE_ID),
+    )
+  }
+
+  it('binds the status read before the transaction into the WHERE', async () => {
+    const source = sourceRow({ type: 'SENIOR_PENDING_PAYOUT', status: 'PENDING_PAYMENT' })
+    const { db, ops } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 300 }, ADMIN)
+
+    // Without the predicate the WHERE binds only the id — a settle that
+    // flipped the row to PAID in the meantime would still be overwritten.
+    expect(mainWrite(ops)[0]!.where).toContain('PENDING_PAYMENT')
+  })
+
+  it('binds PAID when that is the status the decisions were made on', async () => {
+    // Not a hard-coded literal: whatever was read is what gets re-asserted.
+    const source = sourceRow({ type: 'ADMIN_INCOME', status: 'PAID' })
+    const { db, ops } = makeDouble({ source })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ source }))
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+
+    expect(mainWrite(ops)[0]!.where).toContain('PAID')
+  })
+
+  it('refuses loudly when the row moved under it — zero rows affected', async () => {
+    const source = sourceRow({ type: 'SENIOR_PENDING_PAYOUT', status: 'PENDING_PAYMENT' })
+    const { db } = makeDouble({ source, mainUpdateRows: [] })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+
+    await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 300 }, ADMIN)).rejects.toThrow(
+      /состояние строки изменилось|удалена/,
+    )
+  })
+
+  it('the refusal names BOTH ways zero rows can happen, so the operator is not misled', async () => {
+    // Before the status predicate, zero rows could only mean "deleted", and
+    // the message said exactly that. Now it can also mean "someone settled it
+    // while you were typing" — a message that names only the first sends the
+    // operator to look for a deletion that never happened.
+    const source = sourceRow({ type: 'SENIOR_PENDING_PAYOUT', status: 'PENDING_PAYMENT' })
+    const { db } = makeDouble({ source, mainUpdateRows: [] })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    let caught: unknown
+    try {
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 300 }, ADMIN)
+    } catch (e) {
+      caught = e
+    }
+    const message = (caught as Error).message
+    expect(message).toMatch(/изменилось|изменена/)
+    expect(message).toMatch(/удален/)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // CR-M-1 — the preview and the write must agree about WHAT IS EDITABLE.
 // ---------------------------------------------------------------------------
 

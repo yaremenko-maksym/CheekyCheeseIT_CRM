@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { MAKSYM_ID, roundShareAmount } from '@crm/shared'
 
@@ -1150,6 +1150,73 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     expect(writeRefuses).toEqual(
       Object.fromEntries(rows.map((r) => [r.label, r.expected !== null])),
     )
+  })
+
+  it('risk 26 (SR-H-1): a settle landing between the read and the write is refused, not overwritten', async () => {
+    // THE RACE, placed deterministically rather than hoped for. Everything
+    // `adminUpdateTransaction` decides — `isCascadeEdit`, `amountChanged`,
+    // `priorSettled` — comes from a read taken BEFORE it opens its DB
+    // transaction, and on this (non-cascade) path it takes no lock at all. So
+    // the window is real; the only hard part in a test is hitting it on
+    // purpose. Spying on `db.transaction` puts the settle exactly there: it
+    // commits, and THEN the edit's callback runs against the moved row.
+    await declare(PROJECT_SENIOR, 1000)
+    const { obligation, row: iou } = await derivativeFor(SENIOR.id)
+    expect(iou.status).toBe('PENDING_PAYMENT')
+    expect(iou.amount).toBe('260.000000')
+
+    const beforeBalance = await balance()
+    const realTransaction = dbSvc.db.transaction.bind(dbSvc.db)
+    const spy = vi
+      .spyOn(dbSvc.db, 'transaction')
+      .mockImplementationOnce(async (cb: Parameters<typeof realTransaction>[0]) => {
+        // The concurrent settle. Real service, real Postgres, committed.
+        await settleSvc.settleByCompany(obligation.id, ADMIN)
+        return realTransaction(cb)
+      })
+
+    // Edit DOWNWARD — the dangerous direction. Term 7 debits `amount`; 260
+    // really left the company account. Storing 100 would understate the debit
+    // by 160, i.e. inflate the balance by money already gone.
+    await expect(svc.adminUpdateTransaction(iou.id, { amount: 100 }, ADMIN)).rejects.toThrow(
+      /Состояние строки изменилось/,
+    )
+    spy.mockRestore()
+
+    const after = await derivativeFor(SENIOR.id)
+    expect(after.row.status).toBe('PAID')
+    expect(after.row.amount).toBe('260.000000')
+    expect(after.row.settledAmount).toBe('260.000000')
+    // The settle's debit stands, whole and un-edited.
+    expect(beforeBalance - (await balance())).toBeCloseTo(260, 6)
+  })
+
+  it('risk 26 (SR-H-1, the second loss): the stale read cannot smuggle an edit past AC13', async () => {
+    // The other half of the same window. By the time the write lands the row
+    // is PAID and carries an accumulator — exactly the shape AC13 refuses. But
+    // AC13 was never consulted, because at READ time the row was
+    // PENDING_PAYMENT and so `isCascadeEdit` was false: no preview token, no
+    // ledger-fact check, no cascade. The status predicate is what makes the
+    // write notice.
+    await declare(PROJECT_SENIOR, 1000)
+    const { obligation, row: iou } = await derivativeFor(SENIOR.id)
+
+    const realTransaction = dbSvc.db.transaction.bind(dbSvc.db)
+    const spy = vi
+      .spyOn(dbSvc.db, 'transaction')
+      .mockImplementationOnce(async (cb: Parameters<typeof realTransaction>[0]) => {
+        await settleSvc.settleByCompany(obligation.id, ADMIN)
+        return realTransaction(cb)
+      })
+
+    await expect(svc.adminUpdateTransaction(iou.id, { amount: 100 }, ADMIN)).rejects.toThrow()
+    spy.mockRestore()
+
+    // Nothing was written on either copy of the figure.
+    const after = await derivativeFor(SENIOR.id)
+    expect(after.row.amount).toBe('260.000000')
+    expect(after.obligation.amount).toBe('260.000000')
+    expect(after.obligation.status).toBe('PAID')
   })
 
   // ── risk 20 — never revert into a dead end (SR-M-3) ─────────────────────

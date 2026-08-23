@@ -3238,10 +3238,51 @@ export class TransactionsService {
             ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
             updatedAt: new Date(),
           })
-          .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+          // SR-H-1 (security-review round 4) — re-assert the state every
+          // decision above was made on.
+          //
+          // `isCascadeEdit`, `amountChanged` and `priorSettled` all come from
+          // `tx`, read BEFORE this transaction opened, and on the non-cascade
+          // path nothing here takes a lock (`settleByCompany` takes all of
+          // them). A settle landing in that window used to be overwritten
+          // blind, and it cost twice: term 7 would debit the figure just
+          // written while a different one actually left the account — an error
+          // in the "+" direction when the edit lowers it, feeding straight
+          // into `if (amount > balance) throw` — and the edit would land on a
+          // now-`PAID` row carrying an accumulator with NO `cascadeVersion`,
+          // NO AC13 and NO cascade, which is precisely the "edit the row that
+          // closed the obligation" AC13 exists to forbid. The SR-M-6 floor
+          // cannot help: `priorSettled` is read from the same stale row.
+          //
+          // Binding the status is enough for BOTH, and not by luck:
+          // `settled_amount` is only ever written by the flip, and the flip
+          // writes the status in the same `.set()`. So "the accumulator moved"
+          // cannot happen without "the status moved", and one predicate covers
+          // the pair.
+          //
+          // Same shape as SR-M-1 of round 2 two screens down (scoped WHERE +
+          // affected-row count) — the third statement in this file to use it.
+          //
+          // NOTE: this `.where` was identical on `origin/main`, so the race is
+          // older than this branch. It had no money consequence there only
+          // because BIZ-18 forbade editing a PAID row's amount at all. This
+          // task lifts BIZ-18, so this task is what wakes it — "no worse than
+          // before" is not a defence when the change is the activator.
+          .where(
+            and(
+              eq(transactions.id, id),
+              isNull(transactions.deletedAt),
+              eq(transactions.status, tx.status),
+            ),
+          )
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+          // Two ways to get here now, and the message names both: a message
+          // that says only "удалена" sends the operator looking for a deletion
+          // that never happened.
+          throw new BadRequestException(
+            'Состояние строки изменилось, пока вы её редактировали (её оплатили, или она была удалена) — обновите страницу и повторите',
+          )
         }
 
         // task-soft-delete-and-money-audit (AC5): "изменение суммы/получателя"
