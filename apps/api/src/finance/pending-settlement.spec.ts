@@ -352,16 +352,15 @@ function makeService(initial: Partial<MockState> = {}) {
                 : Number(expected) === Number(actual)
             if (!same) return []
           }
-          const resolvedPatch =
-            'settledAmount' in patch
-              ? {
-                  ...patch,
-                  settledAmount: resolveSettledAmountPatch(
-                    patch['settledAmount'],
-                    (existing as Record<string, unknown>)['settledAmount'],
-                  ),
-                }
-              : patch
+          // task-drop-topup (task 3b): on the DROP branch `amount` is now written
+          // by the SAME DB-native expression as the accumulator, so both columns
+          // go through the same resolution here.
+          const priorSettled = (existing as Record<string, unknown>)['settledAmount']
+          const resolvedPatch: Record<string, unknown> = { ...patch }
+          for (const column of ['settledAmount', 'amount'] as const) {
+            if (column in patch)
+              resolvedPatch[column] = resolveSettledAmountPatch(patch[column], priorSettled)
+          }
           const flipped = { ...existing, ...resolvedPatch } as ReturnType<typeof makeSourceTx>
           state.sourceTxs.set(txId!, flipped)
           state.flips.push({ txId: txId!, set: resolvedPatch, where: predicate })
@@ -1520,11 +1519,22 @@ describe('PendingSettlementService.settleByCompany', () => {
      * triplet should mean across two payments at two rates is a separate
      * task — refusing is the honest interim answer.
      */
-    describe('AC10: DROP top-up is refused, in words the owner can act on', () => {
+    /**
+     * task-drop-topup (task 3b). This describe used to pin the OPPOSITE
+     * behaviour — "a DROP top-up is refused, in words the owner can act on" —
+     * which was the honest thing to say while the branch did not exist. It
+     * exists now, so the tests say what happens instead of what does not.
+     *
+     * The law those refusals served ("never reopen what cannot be closed") did
+     * not go anywhere; it is carried by narrower checks, and the two that live
+     * on THIS call path are exercised below: the same-pot/same-payer guard
+     * (AC14, #607) and the obligation-currency guard (AC8).
+     */
+    describe('AC10 → task 3b: a DROP obligation can be topped up to close the remainder', () => {
       const DROP_OBLIGATION_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
       const DROP_SOURCE_TX_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
-      function makeDropFixture(settledAmount: string | null) {
+      function makeDropFixture(settledAmount: string | null, sourceOverrides = {}) {
         const obligations = new Map([
           [
             DROP_OBLIGATION_ID,
@@ -1544,7 +1554,7 @@ describe('PendingSettlementService.settleByCompany', () => {
               type: 'DROP_PENDING_PAYOUT',
               receiverId: DROP_ID,
               recipientId: DROP_ID,
-              amount: '100',
+              amount: settledAmount ?? '100',
               seniorSharePercent: null,
               seniorSharePercentSource: null,
               dropSharePercent: 10,
@@ -1553,50 +1563,67 @@ describe('PendingSettlementService.settleByCompany', () => {
               settledAmount,
               settledCurrency: settledAmount === null ? null : 'USDT',
               settledSharePercent: settledAmount === null ? null : 10,
+              ...sourceOverrides,
             }),
           ],
         ])
         return { obligations, sourceTxs }
       }
 
-      it('refuses a top-up on a drop obligation that has already been paid something', async () => {
-        const { svc } = makeService(makeDropFixture('40.000000'))
+      /** Paid 40 of 100 from the company account — the shape a cascade revert leaves. */
+      const partlyPaidFromCompany = () =>
+        makeDropFixture('40.000000', {
+          fundingSource: 'COMPANY_ACCOUNT',
+          senderId: null,
+          senderLabel: 'COMPANY',
+        })
+
+      it('closes the remainder: the accumulator reaches the obligation, not twice it', async () => {
+        const { svc, state } = makeService(partlyPaidFromCompany())
+        await expect(svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)).resolves.toBeDefined()
+        const row = state.sourceTxs.get(DROP_SOURCE_TX_ID)! as unknown as Record<string, unknown>
+        // 40 already paid + 60 owed = 100. Paying the obligation's full figure
+        // a second time would leave 140 here, and the drop 40 richer than the
+        // debt (Л1 of addendum 3b).
+        expect(row['settledAmount']).toBe('100.000000')
+        expect(row['amount']).toBe('100.000000')
+        expect(row['settledCurrency']).toBe('USDT')
+        expect(row['currency']).toBe('USDT')
+      })
+
+      it('and re-stamps the payment fact onto the closure as a whole', async () => {
+        const { svc, state } = makeService(partlyPaidFromCompany())
+        await svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)
+        const row = state.sourceTxs.get(DROP_SOURCE_TX_ID)! as unknown as Record<string, unknown>
+        expect(row['originalAmount']).toBe('100')
+        expect(row['originalCurrency']).toBe('USDT')
+        expect(row['exchangeRate']).toBe('1.00000000')
+        expect(Number(row['amount'])).toBeCloseTo(
+          Number(row['originalAmount']) * Number(row['exchangeRate']),
+          6,
+        )
+      })
+
+      it('a top-up from a DIFFERENT pot is still refused — that guard did not move', async () => {
+        // The first payment came from an admin's personal account
+        // (`funding_source` NULL); this settle would come from the company one.
+        // Letting it through drops the row out of the ledger terms that
+        // recorded the first payment.
+        const { svc, state, getFlips } = makeService(makeDropFixture('40.000000'))
         await expect(
           svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser),
         ).rejects.toBeInstanceOf(BadRequestException)
-      })
-
-      it('says the branch is not built yet, and never that something is broken', async () => {
-        const { svc } = makeService(makeDropFixture('40.000000'))
-        let caught: unknown
-        try {
-          await svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)
-        } catch (e) {
-          caught = e
-        }
-        const message = (caught as Error).message
-        expect(message).toContain('пока не поддерживается')
-        expect(message).toContain('Обязательство остаётся открытым')
-        expect(message).toContain('закрытие остатка — отдельная задача')
-        // Words that would send the owner looking for a fault that is not there.
-        expect(message).not.toMatch(/ошибк/i)
-        expect(message).not.toMatch(/невозможн/i)
-        expect(message).not.toMatch(/поврежд/i)
-      })
-
-      it('writes nothing at all when it refuses', async () => {
-        const { svc, state, getFlips } = makeService(makeDropFixture('40.000000'))
-        await expect(svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)).rejects.toThrow()
         expect(getFlips()).toHaveLength(0)
         expect(state.obligations.get(DROP_OBLIGATION_ID)?.status).toBe('PENDING')
         expect(state.sourceTxs.get(DROP_SOURCE_TX_ID)!['settledAmount']).toBe('40.000000')
       })
 
-      it('the FIRST settle of a drop obligation is untouched by this refusal', async () => {
+      it('the FIRST settle of a drop obligation is unchanged by any of this', async () => {
         const { svc, getFlips } = makeService(makeDropFixture(null))
         await expect(svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)).resolves.toBeDefined()
         expect(getFlips()).toHaveLength(1)
         expect(getFlips()[0]!['type']).toBe('PAYOUT_DROP')
+        expect(getFlips()[0]!['originalAmount']).toBe('100')
       })
     })
 
