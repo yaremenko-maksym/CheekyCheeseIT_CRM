@@ -316,6 +316,7 @@ export class PendingSettlementService {
       sourceDropSharePercent,
       sourceSettledCurrency,
       sourceSettledAmount,
+      sourceFundingSource,
     } = await this.resolveSource(obligation.sourceTransactionId)
 
     // task-cascade-apply (task 3, AC10 / addendum §1.11) — how much of this
@@ -820,13 +821,23 @@ export class PendingSettlementService {
       ? paidAmount!
       : remainingOwed(obligation.amount)
 
-    // task-cascade-apply (task 3, AC10) — nothing left owing. Only reachable
-    // once something HAS been paid (`priorSettledAmount > 0`), which is exactly
-    // when the message below is true; a first settle of a legitimately
-    // zero-amount obligation (a 0% share) stays allowed, as it was before.
-    if (priorSettledAmount > 0 && settledAmountThisSettle <= 0) {
+    // task-cascade-apply (task 3, AC10 as revised by AC15 / addendum §1.14).
+    //
+    // `owedNow === 0` is NOT an error — it is an idempotent close. Zero means
+    // "exactly as much has been paid as the obligation is worth", and closing
+    // on zero is ledger-neutral: the row leaves term 9 carrying
+    // `settled_amount` and enters term 7 carrying `amount`, and those two are
+    // equal. Refusing here (as the first round did) created the dead end
+    // SR-M-4 describes: an "edit up, then edit back down" round trip left a
+    // reopened obligation that could never be closed again.
+    //
+    // A NEGATIVE remainder is still refused. The `max(newAmount,
+    // settledAmount)` floor in the cascade (AC5) makes that state unreachable;
+    // this stays as a fail-loud tripwire in case it is ever reached another
+    // way, because paying a negative amount is not a thing.
+    if (settledAmountThisSettle < 0) {
       throw new BadRequestException(
-        'По этому обязательству уже выплачено не меньше требуемого — доплачивать нечего',
+        'По этому обязательству уже выплачено больше, чем оно стоит — требуется ручное решение по переплате',
       )
     }
 
@@ -866,6 +877,42 @@ export class PendingSettlementService {
     if (sourceSettledCurrency && sourceSettledCurrency !== currency) {
       throw new BadRequestException(
         `Накопленная сумма выплат по этой строке уже записана в ${sourceSettledCurrency} — повторная выплата в ${currency} невозможна без сверки валют`,
+      )
+    }
+
+    // task-cascade-apply (task 3, AC14 / addendum §1.13, security-review
+    // SR-H-2). Same shape as the currency guard directly above, same argument,
+    // for the other column the accumulator has no snapshot of.
+    //
+    // INVARIANT: every settle of one row comes from the SAME funding source,
+    // and `funding_source` is the record of it. Ledger terms 7, 8 and 9 all key
+    // on that LIVE column, so a second settle from a different pot does not
+    // "split" the row between two terms — it drops it out of BOTH. Concretely:
+    // a company-funded settle of 260, a cascade revert (term 9 holds the 260),
+    // then a top-up from an admin's personal account ⇒ `funding_source` becomes
+    // null and the status is no longer PENDING_PAYMENT, so 260 USDT that really
+    // left the company account vanish from the ledger. The whole scenario is in
+    // USDT, so the currency guard above stays silent.
+    //
+    // Holders of the invariant: the flip writes the column, the cascade revert
+    // preserves it (AC6), and this refusal stops it becoming multi-valued.
+    //
+    // Unconditional — NOT restricted to the senior branch. A drop top-up is
+    // refused elsewhere today (AC10), but this guard must not depend on that
+    // staying true when task 3b lands.
+    //
+    // The escape hatch, if mixing pots is ever actually wanted, is the same one
+    // the currency has: a `settled_funding_source` snapshot column. It is
+    // deliberately NOT introduced here because terms 7 and 8 would have to be
+    // rewritten to read it, and this task commits to leaving them untouched
+    // (addendum §1.10).
+    const settleFundingSource = debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null
+    if (priorSettledAmount > 0 && settleFundingSource !== sourceFundingSource) {
+      const describe = (value: string | null) => value ?? 'личный счёт администратора'
+      throw new BadRequestException(
+        `Предыдущая выплата по этой строке прошла из источника «${describe(sourceFundingSource)}», ` +
+          `а эта — из «${describe(settleFundingSource)}». Доплата обязана идти из того же источника: ` +
+          `на нём держится учёт в счёте компании, и смена источника стёрла бы уже учтённую выплату.`,
       )
     }
 
@@ -1286,6 +1333,13 @@ export class PendingSettlementService {
      * matches zero rows instead of over-paying.
      */
     sourceSettledAmount: string | null
+    /**
+     * task-cascade-apply (task 3, AC14 / addendum §1.13, security-review
+     * SR-H-2): the row's CURRENT `funding_source`, read so a top-up can be
+     * refused when it would come out of a different pot than the payment
+     * already recorded on this row.
+     */
+    sourceFundingSource: string | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
@@ -1313,6 +1367,7 @@ export class PendingSettlementService {
         sourceDropSharePercent: null,
         sourceSettledCurrency: null,
         sourceSettledAmount: null,
+        sourceFundingSource: null,
       }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
@@ -1325,6 +1380,7 @@ export class PendingSettlementService {
       sourceDropSharePercent: source.dropSharePercent,
       sourceSettledCurrency: source.settledCurrency,
       sourceSettledAmount: source.settledAmount,
+      sourceFundingSource: source.fundingSource,
     }
   }
 

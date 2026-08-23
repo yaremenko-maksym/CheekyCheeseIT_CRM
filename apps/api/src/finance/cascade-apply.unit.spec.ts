@@ -84,6 +84,7 @@ function sourceRow(overrides: Record<string, unknown> = {}) {
     receiverId: null,
     salaryMonth: null,
     notes: null,
+    settledAmount: null,
     ...overrides,
   }
 }
@@ -322,6 +323,13 @@ function snapshotFrom(cfg: {
       updatedAt: (source.updatedAt as Date).toISOString(),
       hasSignedInvoice: false,
       originalAmount: source.originalAmount === null ? null : Number(source.originalAmount),
+      settledAmount:
+        source.settledAmount === null || source.settledAmount === undefined
+          ? null
+          : Number(source.settledAmount),
+      hasClosedObligation: (cfg.obligations ?? []).some(
+        (o) => o.sourceTransactionId === source.id && o.status === 'PAID',
+      ),
     },
     derivatives: derivatives.map((d) => {
       const o = oblByDeriv.get(d.id as string)
@@ -599,29 +607,106 @@ describe('AC4: blocking conditions', () => {
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
-  it('NON_USDT_CURRENCY does NOT block — such rows are outside the ledger terms entirely', async () => {
-    // A drop obligation settled in UAH: fundingSource stays null (addendum
-    // §1.5), so it is in no ledger term; the revert is ordinary.
+  /**
+   * AC15 / addendum §1.14 (SR-M-3). REVERSES a first-round assumption of this
+   * task, which called `NON_USDT_CURRENCY` non-blocking. That reasoning rested
+   * on "the top-up works"; for drop it does not, so the premise went and the
+   * conclusion with it. Reverting a row whose remainder is not computable
+   * leaves an obligation nobody can close — and a reopened obligation is a
+   * claim of a debt to a person, not a bookkeeping detail.
+   */
+  it('AC15: a settled obligation whose accumulator is in another currency BLOCKS — its remainder is not computable', async () => {
+    // A SENIOR obligation closed in USD against a USDT income — BIZ-03 allows
+    // both currencies for a senior settle, so this is an ordinary reachable
+    // state, and it isolates the currency case from the drop case below.
+    // `fundingSource: null` because a non-USDT settle is by construction
+    // ADMIN_PERSONAL (addendum §1.5).
+    const derivatives = [settledDerivativeRow({ settledCurrency: 'USD', fundingSource: null })]
+    const obligations = [obligationRow({ status: 'PAID' })]
+    const { db, ops } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  it('AC15: a settled DROP obligation blocks even in matching currency — the top-up branch does not exist yet', async () => {
     const derivatives = [
       settledDerivativeRow({
         id: DROP_DERIV_ID,
         type: 'PAYOUT_DROP',
-        settledAmount: '20000.000000',
-        settledCurrency: 'UAH',
+        settledAmount: '100.000000',
         settledSharePercent: 10,
+        amount: '100.000000',
         fundingSource: null,
       }),
     ]
     const obligations = [
-      obligationRow({ id: DROP_OBL_ID, sourceTransactionId: DROP_DERIV_ID, status: 'PAID' }),
+      obligationRow({
+        id: DROP_OBL_ID,
+        sourceTransactionId: DROP_DERIV_ID,
+        status: 'PAID',
+        amount: '100.000000',
+      }),
     ]
+    const { db, ops } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+    ).rejects.toThrow(/доплата по нему пока не поддерживается/)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  it('AC15: the drop refusal reads as "not built yet", never as "something is broken"', async () => {
+    const derivatives = [
+      settledDerivativeRow({
+        id: DROP_DERIV_ID,
+        type: 'PAYOUT_DROP',
+        settledAmount: '100.000000',
+        settledSharePercent: 10,
+        amount: '100.000000',
+        fundingSource: null,
+      }),
+    ]
+    const obligations = [
+      obligationRow({
+        id: DROP_OBL_ID,
+        sourceTransactionId: DROP_DERIV_ID,
+        status: 'PAID',
+        amount: '100.000000',
+      }),
+    ]
+    const { db } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    let caught: unknown
+    try {
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    } catch (e) {
+      caught = e
+    }
+    const message = (caught as Error).message
+    expect(message).toContain('закрытие остатка — отдельная задача')
+    expect(message).not.toMatch(/ошибк/i)
+    expect(message).not.toMatch(/невозможн/i)
+    expect(message).not.toMatch(/поврежд/i)
+  })
+
+  it('AC15: a SENIOR revert in matching currency is unaffected by either dead-end check', async () => {
+    const derivatives = [settledDerivativeRow()]
+    const obligations = [obligationRow({ status: 'PAID' })]
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
     expect(derivativeWrites(ops)).toHaveLength(1)
-    expect(derivativeWrites(ops)[0]!.set.type).toBe('DROP_PENDING_PAYOUT')
   })
 
   it('refuses an amount edit on a row that already records a FACT of payment (ADR AC5 §5)', async () => {
@@ -638,6 +723,131 @@ describe('AC4: blocking conditions', () => {
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
     ).rejects.toThrow(/факт платежа/i)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC13 / test-AC 18b — the edited row may itself stand in a ledger term.
+//
+// SR-H-1: a settled senior row is editable through every existing guard — the
+// flip clears `payoutRequestId` (guard 2 lets it through) and leaves
+// `originalAmount` NULL on the senior branch (the C2 guard lets it through) —
+// while term 7 debits the company account by that row's `amount`. Editing it
+// down raises the balance by the difference. AC6's reconciliation cannot see
+// it: that walks `plan.derivatives`, and here the edited row IS the source.
+//
+// The rule: an amount edit is allowed when `amount` is OUR OWN record of a
+// figure, and refused when the number has a SECOND CARRIER the edit does not
+// move.
+// ---------------------------------------------------------------------------
+
+describe('AC13: the edited row must not itself be a ledger fact', () => {
+  async function attemptEdit(sourceOverrides: Record<string, unknown>, cfg: DbleConfig = {}) {
+    const source = sourceRow(sourceOverrides)
+    const { db, ops } = makeDouble({ ...cfg, source })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ source, derivatives: cfg.derivatives, obligations: cfg.obligations }),
+    )
+    const result = svc.adminUpdateTransaction(
+      SOURCE_ID,
+      { amount: 26, cascadeVersion: version },
+      ADMIN,
+    )
+    return { result, ops }
+  }
+
+  // ── the four predicates, one test each ────────────────────────────────────
+
+  it('refuses a row carrying a fact-of-payment triplet (original_amount)', async () => {
+    const { result, ops } = await attemptEdit({ originalAmount: '41500.000000' })
+    await expect(result).rejects.toThrow(/факт платежа/i)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  it('refuses a row carrying an accumulator of actual payouts (settled_amount)', async () => {
+    // The SR-H-1 shape exactly: a flipped SENIOR_INCOME. No originalAmount, no
+    // payoutRequestId — every pre-existing guard waves it through.
+    const { result, ops } = await attemptEdit({
+      type: 'SENIOR_INCOME',
+      settledAmount: '260.000000',
+      originalAmount: null,
+      payoutRequestId: null,
+    })
+    await expect(result).rejects.toThrow(/подтверждена фактическими выплатами/)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  it('refuses a legacy row closed BEFORE the accumulator column existed', async () => {
+    // `settled_amount` is null (pre-#599) but the row still closes an
+    // obligation. The obligation is keyed on `source_transaction_id = the row
+    // itself`, which is correct because a settle flips the row in place.
+    const { result, ops } = await attemptEdit(
+      { type: 'SENIOR_INCOME', settledAmount: null },
+      {
+        obligations: [obligationRow({ sourceTransactionId: SOURCE_ID, status: 'PAID' })],
+      },
+    )
+    await expect(result).rejects.toThrow(/закрытым обязательством/)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  it('refuses a company deposit — its figure was observed on-chain', async () => {
+    const { result, ops } = await attemptEdit({ type: 'COMPANY_DEPOSIT' })
+    await expect(result).rejects.toThrow(/сверена с блокчейном/)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  // ── the negatives, which matter just as much ──────────────────────────────
+  //
+  // Without these AC13 could quietly kill the whole feature and no test would
+  // notice: these three types have NO second carrier, so an edit there means
+  // "we wrote down the wrong number" and the ledger is obliged to follow.
+
+  for (const editableType of ['ADMIN_INCOME', 'EXPENSE', 'DIVIDEND_TO_ADMIN'] as const) {
+    it(`still allows editing a PAID ${editableType} — it has no second carrier of the amount`, async () => {
+      const { result, ops } = await attemptEdit({ type: editableType })
+      await expect(result).resolves.toBeDefined()
+      expect(ops.some((o) => o.kind === 'update' && o.table === 'transactions')).toBe(true)
+    })
+  }
+
+  it('an OPEN obligation on the edited row does not block it — that is the ordinary IOU case', async () => {
+    // Only `status = 'PAID'` counts. An open obligation on the row is exactly
+    // what #598 keeps in step with it, and blocking here would break L3's fix.
+    const { result } = await attemptEdit(
+      { type: 'SENIOR_PENDING_PAYOUT', status: 'PENDING_PAYMENT' },
+      { obligations: [obligationRow({ sourceTransactionId: SOURCE_ID, status: 'PENDING' })] },
+    )
+    await expect(result).resolves.toBeDefined()
+  })
+
+  /**
+   * The trap AC13 names explicitly. The cascade writes `amount` on derivatives
+   * whose `settledAmount` is non-null constantly — that is AC5/AC6, its
+   * ordinary work. If this predicate were hoisted into a shared helper and
+   * called from `applyEditCascade`, the cascade would start refusing itself.
+   * Both directions, one test each.
+   */
+  it('the predicate applies ONLY to the edited row: a derivative with an accumulator is still reverted', async () => {
+    const derivatives = [settledDerivativeRow()] // settledAmount = 260
+    const obligations = [obligationRow({ status: 'PAID' })]
+    const { db, ops } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    expect(derivativeWrites(ops)).toHaveLength(1)
+  })
+
+  it('…while editing that SAME derivative row directly is refused', async () => {
+    const { result } = await attemptEdit({
+      id: SOURCE_ID,
+      type: 'SENIOR_INCOME',
+      settledAmount: '260.000000',
+    })
+    await expect(result).rejects.toThrow(/подтверждена фактическими выплатами/)
   })
 })
 
@@ -802,15 +1012,33 @@ describe('AC6: revert of a settled derivative', () => {
     expect(write.set.seniorSharePercentSource).toBeUndefined()
   })
 
-  it('a DROP derivative restores into dropSharePercent instead', async () => {
+  /**
+   * The drop half of the type mapping AC6 requires.
+   *
+   * REACHABILITY, stated plainly rather than implied: with AC15 in force this
+   * branch is NOT reachable in production. AC15(a) refuses every drop revert
+   * whose accumulator is non-zero, and a drop revert whose accumulator IS zero
+   * cannot exist — a zero accumulator means the settle closed a zero
+   * obligation, which means a 0% share, which makes the recomputed share zero
+   * too, which makes `needsReconfirm` false. The branch is retained because
+   * AC6 requires it and because task 3b (drop top-up) lifts AC15(a) and lights
+   * it up again; the snapshot below is therefore deliberately synthetic, and
+   * says so, so that nobody later reads it as a live scenario.
+   */
+  it('a DROP derivative restores into dropSharePercent instead (branch kept for task 3b)', async () => {
     const { ops } = await runRevert({
       derivatives: [
         settledDerivativeRow({
           id: DROP_DERIV_ID,
           type: 'PAYOUT_DROP',
           settledSharePercent: 10,
-          settledAmount: '100.000000',
-          amount: '100.000000',
+          // Zero accumulator: the only shape AC15(a) lets through, and the
+          // reason this test can exercise the branch at all.
+          settledAmount: '0.000000',
+          amount: '0.000000',
+          // ADMIN_PERSONAL settle — keeps the AC6 company-account invariant
+          // check (amount vs accumulator) out of the way.
+          fundingSource: null,
         }),
       ],
       obligations: [
@@ -818,7 +1046,7 @@ describe('AC6: revert of a settled derivative', () => {
           id: DROP_OBL_ID,
           sourceTransactionId: DROP_DERIV_ID,
           status: 'PAID',
-          amount: '100.000000',
+          amount: '0.000000',
         }),
       ],
     })

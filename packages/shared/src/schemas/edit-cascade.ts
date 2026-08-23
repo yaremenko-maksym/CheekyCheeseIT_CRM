@@ -64,6 +64,32 @@ export interface CascadeSourceSnapshot {
    * anyone noticing.
    */
   originalAmount: number | null
+  /**
+   * `transactions.settled_amount` on the SOURCE row ITSELF (task 3, AC13 /
+   * addendum §1.12, security-review SR-H-1).
+   *
+   * A settled derivative is editable too — `settleByCompany`'s flip clears
+   * `payoutRequestId` (so guard 2 lets it through) and leaves `originalAmount`
+   * NULL on the senior branch (so the C2 guard lets it through), while ledger
+   * term 7 debits the company account BY that row's `amount`. Editing it down
+   * raises the balance by the difference, and the AC6 reconciliation cannot
+   * see it: that walks `plan.derivatives`, and here the edited row IS the
+   * source. Non-null means "this row's amount is pinned to what was actually
+   * paid" — a second carrier the edit does not move.
+   */
+  settledAmount: number | null
+  /**
+   * Does a `pending_obligations` row exist with
+   * `source_transaction_id = <this row> AND status = 'PAID'`? (task 3, AC13.)
+   *
+   * The pre-#599 form of `settledAmount` above: rows closed before the
+   * accumulator column existed carry no `settled_amount`, but they still close
+   * an obligation and still stand in a ledger term. Keying on
+   * `source_transaction_id` is correct precisely because a settle flips the
+   * row IN PLACE — after the flip `source_transaction_id`,
+   * `closing_transaction_id` and the row's own id are the same value.
+   */
+  hasClosedObligation: boolean
 }
 
 export interface CascadeObligationSnapshot {

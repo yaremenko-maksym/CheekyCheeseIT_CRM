@@ -1125,6 +1125,11 @@ describe('PendingSettlementService.settleByCompany', () => {
           settledAmount: priorSettled,
           settledCurrency: 'USDT',
           settledSharePercent: 26,
+          // AC6 requires the revert to PRESERVE the funding marker, and AC14
+          // requires the top-up to come from the same source — so a fixture
+          // that dropped it would be modelling a state the cascade never
+          // produces, and would fail for the wrong reason.
+          fundingSource: 'COMPANY_ACCOUNT',
         } as ReturnType<typeof makeSourceTx>)
         state.obligations.set(
           OBLIGATION_COMPANY,
@@ -1172,23 +1177,40 @@ describe('PendingSettlementService.settleByCompany', () => {
         )
       })
 
-      it('refuses when nothing is left owing — already paid at least the amount claimed', async () => {
-        const { svc, state } = makeService()
-        // The income was edited DOWN: the new share (400) is below the 560
-        // already paid. There is nothing to top up; the overpayment is a
-        // human matter, not a second payment.
-        reopen(state, '400', '560.000000')
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
-          /уже выплачено не меньше требуемого/,
-        )
+      /**
+       * AC15 / addendum §1.14 (SR-M-4) — REVERSES the first-round rule, which
+       * refused a zero remainder. Zero means "exactly as much has been paid as
+       * this obligation is worth", and closing on it is ledger-neutral: the row
+       * leaves term 9 carrying `settled_amount` and enters term 7 carrying
+       * `amount`, and those two are equal. Refusing built the dead end SR-M-4
+       * describes — "edit the income up, then edit it back down" left an
+       * obligation reopened forever, claiming a debt nobody could discharge.
+       */
+      it('CLOSES an obligation whose remainder is exactly zero — idempotent, not an error', async () => {
+        const { svc, state, getFlips } = makeService()
+        reopen(state, '560', '560.000000')
+
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+
+        expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PAID')
+        expect(state.sourceTxs.get(SOURCE_TX_ID)!['status']).toBe('PAID')
+        // Nothing added to the accumulator, and it still equals the amount —
+        // the invariant term 9 stands on survives an idempotent close.
+        expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledAmount']).toBe('560.000000')
+        // The flip really ran (this is a close, not a silent no-op) and it
+        // added nothing to the accumulator.
+        expect(getFlips()).toHaveLength(1)
+        expect(getFlips()[0]!['type']).toBe('SENIOR_INCOME')
       })
 
-      it('refuses an exactly-zero difference too — a settle that moves no money is not a settle', async () => {
+      it('still refuses a NEGATIVE remainder — paying a negative amount is not a thing', async () => {
         const { svc, state } = makeService()
-        reopen(state, '560', '560.000000')
-        await expect(
-          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser),
-        ).rejects.toBeInstanceOf(BadRequestException)
+        // Only reachable if the cascade's `max(newAmount, settledAmount)` floor
+        // (AC5) were bypassed; kept as a fail-loud tripwire, not as a path.
+        reopen(state, '400', '560.000000')
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+          /уже выплачено больше, чем оно стоит/,
+        )
       })
 
       it('a FIRST settle of a zero-amount obligation still works — the refusal is about topping up', async () => {
@@ -1234,6 +1256,116 @@ describe('PendingSettlementService.settleByCompany', () => {
         await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
         const compiled = new PgDialect().sqlToQuery(getFlipRecords().at(-1)!.where as SQL)
         expect(compiled.params).toContain(null)
+      })
+    })
+
+    /**
+     * task-cascade-apply (task 3), AC14 / addendum §1.13 (security-review
+     * SR-H-2) — a top-up must come from the SAME pot as the payment already
+     * recorded on the row.
+     *
+     * Ledger terms 7, 8 and 9 all key on the LIVE `funding_source` column. The
+     * revert preserves it, but the next settle OVERWRITES it — so a second
+     * settle from a different pot does not split the row across two terms, it
+     * drops it out of both. Company-settle 260 → revert (term 9 holds the 260)
+     * → top-up from an admin's personal account ⇒ 260 USDT that really left the
+     * company account simply vanish from the ledger. The whole scenario is in
+     * USDT, so the accumulator-currency guard next door stays silent.
+     */
+    describe('AC14: a top-up must come from the same funding source', () => {
+      function reopenFundedBy(
+        state: {
+          sourceTxs: Map<string, ReturnType<typeof makeSourceTx>>
+          obligations: Map<string, ReturnType<typeof makeObligation>>
+          ledgerSelectCount?: number
+        },
+        fundingSource: string | null,
+      ) {
+        const current = state.sourceTxs.get(SOURCE_TX_ID)!
+        state.sourceTxs.set(SOURCE_TX_ID, {
+          ...current,
+          status: 'PENDING_PAYMENT',
+          type: 'SENIOR_PENDING_PAYOUT',
+          amount: '680',
+          seniorSharePercent: 26,
+          settledAmount: '560.000000',
+          settledCurrency: 'USDT',
+          settledSharePercent: 26,
+          fundingSource,
+        } as ReturnType<typeof makeSourceTx>)
+        state.obligations.set(
+          OBLIGATION_COMPANY,
+          makeObligation({ amount: '680', status: 'PENDING', closingTransactionId: null }),
+        )
+        state.ledgerSelectCount = 0
+      }
+
+      it('refuses a personal-account top-up on a row the company already paid', async () => {
+        const { svc, state, getFlips } = makeService()
+        reopenFundedBy(state, 'COMPANY_ACCOUNT')
+
+        await expect(
+          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xtopup',
+          }),
+        ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+        expect(getFlips()).toHaveLength(0)
+        expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PENDING')
+      })
+
+      it('refuses the mirror order too — a company top-up on a row an admin already paid', async () => {
+        // Otherwise term 7 would debit the company for the FULL obligation
+        // while the company only paid part of it.
+        const { svc, state, getFlips } = makeService()
+        reopenFundedBy(state, null)
+
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+          /Доплата обязана идти из того же источника/,
+        )
+        expect(getFlips()).toHaveLength(0)
+      })
+
+      it('names BOTH sources so the operator knows which way to go', async () => {
+        const { svc, state } = makeService()
+        reopenFundedBy(state, 'COMPANY_ACCOUNT')
+        let caught: unknown
+        try {
+          await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xtopup',
+          })
+        } catch (e) {
+          caught = e
+        }
+        const message = (caught as Error).message
+        expect(message).toContain('COMPANY_ACCOUNT')
+        expect(message).toContain('личный счёт администратора')
+      })
+
+      it('ALLOWS a top-up from the same source — the guard is about change, not about topping up', async () => {
+        const { svc, state } = makeService()
+        reopenFundedBy(state, 'COMPANY_ACCOUNT')
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+        expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledAmount']).toBe('680.000000')
+      })
+
+      it('does NOT constrain a FIRST settle — there is no earlier source to match', async () => {
+        // `priorSettled === 0`: the row has never been paid, so any pot is fine.
+        const { svc, getFlips } = makeService()
+        await expect(
+          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xfirst',
+          }),
+        ).resolves.toBeDefined()
+        expect(getFlips()).toHaveLength(1)
       })
     })
 

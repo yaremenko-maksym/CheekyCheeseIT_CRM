@@ -36,6 +36,8 @@ function makeSource(overrides: Partial<CascadeSnapshot['source']> = {}): Cascade
     updatedAt: '2026-08-01T00:00:00.000Z',
     hasSignedInvoice: false,
     originalAmount: null,
+    settledAmount: null,
+    hasClosedObligation: false,
     ...overrides,
   }
 }
