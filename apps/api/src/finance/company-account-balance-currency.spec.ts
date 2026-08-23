@@ -18,25 +18,26 @@ import {
  * USDT balance. This is defence-in-depth.
  *
  * We verify:
- *   1. The function executes 9 queries: 8 SUM terms (7th SENIOR_INCOME + 8th
- *      PAYOUT_DROP term — task-drop-share-override-and-receiver C7) PLUS a 9th
- *      — the C-3 (mega-audit wave 2) off-currency existence check
- *      (`assertNoOffCurrencyCompanyRows`, company-account-balance.ts) that
- *      runs AFTER the 8-term Promise.all so the original 8 calls/order are
- *      untouched (see company-account-balance.spec.ts for the arithmetic,
- *      unaffected by this addition).
- *   2. Each of the 8 SUM WHERE predicates carries an
- *      eq(transactions.currency, 'USDT') condition. We use util.inspect() to
+ *   1. The function executes 10 queries: 9 SUM terms (7th SENIOR_INCOME + 8th
+ *      PAYOUT_DROP term — task-drop-share-override-and-receiver C7; 9th
+ *      reverted-to-PENDING settled amounts — task-cascade-apply, addendum
+ *      §1.3) PLUS a 10th — the C-3 (mega-audit wave 2) off-currency existence
+ *      check (`assertNoOffCurrencyCompanyRows`, company-account-balance.ts)
+ *      that runs AFTER the SUM Promise.all so the term calls/order stay
+ *      untouched (see company-account-balance.spec.ts for the arithmetic).
+ *   2. Each of the 9 SUM WHERE predicates carries a USDT currency condition.
+ *      Terms 1-8 gate on `currency`; term 9 gates on `settled_currency` — the
+ *      label of the column IT sums (addendum §1.3). We use util.inspect() to
  *      stringify the Drizzle SQL AST (avoids JSON.stringify circular-reference
  *      error) and check that 'USDT' appears as a SQL parameter/text value.
  */
 
 describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on all sumAmount calls', () => {
-  it('queries 9 ledger terms (8 SUMs + the C-3 off-currency existence check)', async () => {
+  it('queries 10 ledger terms (9 SUMs + the C-3 off-currency existence check)', async () => {
     let callCount = 0
-    // 9th slot (index 8) feeds the C-3 assertNoOffCurrencyCompanyRows COUNT(*)
+    // 10th slot (index 9) feeds the C-3 assertNoOffCurrencyCompanyRows COUNT(*)
     // query — '0' means "no off-currency rows found", so it does not throw.
-    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60', '0']
+    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60', '25', '0']
 
     const select = vi.fn(() => ({
       from: () => ({
@@ -47,16 +48,16 @@ describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on
 
     await computeCompanyAccountBalanceFromLedger(db)
 
-    // 8 SUM terms: deposits, payouts(COMPANY), adminIncome(COMPANY), dividends,
-    // salary(COMPANY), expense(COMPANY), seniorPayout(COMPANY), dropPayout(COMPANY)
-    // + 1 C-3 off-currency existence check = 9.
-    expect(callCount).toBe(9)
+    // 9 SUM terms: deposits, payouts(COMPANY), adminIncome(COMPANY), dividends,
+    // salary(COMPANY), expense(COMPANY), seniorPayout(COMPANY), dropPayout(COMPANY),
+    // revertedSettled(*_PENDING_PAYOUT + COMPANY) + 1 C-3 off-currency check = 10.
+    expect(callCount).toBe(10)
   })
 
-  it('each of the 8 SUM WHERE clauses includes the USDT currency predicate', async () => {
+  it('each of the 9 SUM WHERE clauses includes a USDT currency predicate', async () => {
     const capturedClauses: unknown[] = []
     let callCount = 0
-    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60', '0']
+    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60', '25', '0']
 
     const select = vi.fn(() => ({
       from: () => ({
@@ -71,25 +72,23 @@ describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on
     await computeCompanyAccountBalanceFromLedger(db)
 
     // util.inspect() deep-serialises Drizzle SQL AST without hitting JSON circular refs.
-    // Each SQL eq(transactions.currency, 'USDT') call stores 'USDT' as a SQL parameter
-    // value inside the AST — inspect renders it as the string "USDT". Only the FIRST
-    // 8 clauses are the currency-guarded SUM terms; the 9th (index 8) is the C-3
-    // off-currency check, which deliberately does NOT filter on 'USDT' (it is
-    // looking FOR non-USDT rows) — excluded from this loop.
-    for (let i = 0; i < 8; i++) {
+    // Each SQL eq(..., 'USDT') call stores 'USDT' as a SQL parameter value inside the
+    // AST — inspect renders it as the string "USDT". Only the FIRST 9 clauses are the
+    // currency-guarded SUM terms; the 10th (index 9) is the C-3 off-currency check,
+    // which deliberately does NOT filter on 'USDT' (it is looking FOR non-USDT rows)
+    // — excluded from this loop.
+    for (let i = 0; i < 9; i++) {
       const clauseStr = inspect(capturedClauses[i], { depth: 20 })
-      expect(clauseStr, `WHERE clause #${i} must include currency='USDT' predicate`).toContain(
-        "'USDT'",
-      )
+      expect(clauseStr, `WHERE clause #${i} must include a 'USDT' predicate`).toContain("'USDT'")
     }
   })
 
-  it('arithmetic is correct with 8-term formula', async () => {
+  it('arithmetic is correct with the 9-term formula', async () => {
     let call = 0
     // deposits=1000, payouts=500, adminIncome=300, dividends=200, salary=400,
-    // expense=150, seniorPayout=80, dropPayout=60
-    // balance = 1000 + 500 + 300 − 200 − 400 − 150 − 80 − 60 = 910
-    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60']
+    // expense=150, seniorPayout=80, dropPayout=60, revertedSettled=25
+    // balance = 1000 + 500 + 300 − 200 − 400 − 150 − 80 − 60 − 25 = 885
+    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60', '25']
 
     const select = vi.fn(() => ({
       from: () => ({
@@ -99,7 +98,100 @@ describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on
     const db = { select } as unknown as DatabaseService['db']
 
     const balance = await computeCompanyAccountBalanceFromLedger(db)
-    expect(balance).toBeCloseTo(910, 2)
+    expect(balance).toBeCloseTo(885, 2)
+  })
+})
+
+/**
+ * task-cascade-apply (task 3), addendum §1.3 — the 9th term's QUERY SHAPE.
+ *
+ * Test-AC 4b, unit half. The arithmetic (sign, magnitude) is pinned in
+ * `company-account-balance.spec.ts`; what THIS suite pins is that the term
+ * asks Postgres the right question — which column it sums, and which four
+ * predicates narrow it. A mutant that swaps `settled_amount` for `amount`,
+ * drops the `PENDING_PAYMENT` gate, or checks `currency` instead of
+ * `settled_currency` produces an identical NUMBER against the mocked db and
+ * is invisible to the arithmetic suite; it is visible here.
+ *
+ * `PgDialect#sqlToQuery` (not an inspect() substring search) for the reason
+ * spelled out on the C-3 suite below: Drizzle pgEnum columns carry every enum
+ * value as static AST metadata, so a substring search "finds" 'PAID'/'USDT'
+ * regardless of what is actually bound.
+ */
+describe('task-cascade-apply: the 9th SUM term asks the right question', () => {
+  function captureTermQueries() {
+    const projections: unknown[] = []
+    const clauses: unknown[] = []
+    const select = vi.fn((projection: unknown) => {
+      projections.push(projection)
+      return {
+        from: () => ({
+          where: (clause: unknown) => {
+            clauses.push(clause)
+            return Promise.resolve([{ total: '0' }])
+          },
+        }),
+      }
+    })
+    return { db: { select } as unknown as DatabaseService['db'], projections, clauses }
+  }
+
+  it('sums settled_amount — NOT amount (the accumulator is what actually left the account)', async () => {
+    const { db, projections } = captureTermQueries()
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    const ninth = projections[8] as { total: SQL }
+    const compiled = new PgDialect().sqlToQuery(ninth.total)
+    expect(compiled.sql).toContain('settled_amount')
+    // The eight terms before it sum `amount`; term 9 must not.
+    expect(compiled.sql).not.toMatch(/"amount"/)
+  })
+
+  it('narrows to BOTH reverted IOU types, PENDING_PAYMENT, COMPANY_ACCOUNT and settled_currency USDT', async () => {
+    const { db, clauses } = captureTermQueries()
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    const compiled = new PgDialect().sqlToQuery(clauses[8] as SQL)
+    expect(compiled.params).toContain('SENIOR_PENDING_PAYOUT')
+    expect(compiled.params).toContain('DROP_PENDING_PAYOUT')
+    expect(compiled.params).toContain('PENDING_PAYMENT')
+    expect(compiled.params).toContain('COMPANY_ACCOUNT')
+    expect(compiled.params).toContain('USDT')
+    expect(compiled.sql).toContain('settled_currency')
+  })
+
+  it('carries NO `settled_amount > 0` predicate — it is redundant and unkillable (backlog 96)', async () => {
+    const { db, clauses } = captureTermQueries()
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    const compiled = new PgDialect().sqlToQuery(clauses[8] as SQL)
+    expect(compiled.sql).not.toContain('settled_amount" >')
+    expect(compiled.params).not.toContain(0)
+  })
+
+  it('does not gate on `currency` — that would be the label of a DIFFERENT number', async () => {
+    const { db, clauses } = captureTermQueries()
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    const compiled = new PgDialect().sqlToQuery(clauses[8] as SQL)
+    // `settled_currency` contains the substring `currency`, so match the
+    // standalone quoted column instead of a bare substring.
+    expect(compiled.sql).not.toMatch(/"currency"/)
+  })
+
+  it('terms 1-8 still gate on `currency` and still sum `amount` — untouched by this addition', async () => {
+    const { db, projections, clauses } = captureTermQueries()
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    for (let i = 0; i < 8; i++) {
+      const projection = projections[i] as { total: SQL }
+      expect(new PgDialect().sqlToQuery(projection.total).sql, `term #${i} sums amount`).toContain(
+        '"amount"',
+      )
+      const compiled = new PgDialect().sqlToQuery(clauses[i] as SQL)
+      expect(compiled.sql, `term #${i} gates on currency`).toMatch(/"currency"/)
+      expect(compiled.params, `term #${i} still gates PAID`).toContain('PAID')
+    }
   })
 })
 
@@ -113,23 +205,24 @@ describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on
  * throw path, its message, and its 9th-query shape must ALSO be pinned here
  * or every mutant inside `assertNoOffCurrencyCompanyRows` is invisible to it.
  */
-describe('C-3: assertNoOffCurrencyCompanyRows (9th query, mocked db)', () => {
-  // 8 SUM terms all zero (irrelevant to this guard) + a controllable 9th
+describe('C-3: assertNoOffCurrencyCompanyRows (last query, mocked db)', () => {
+  // 9 SUM terms all zero (irrelevant to this guard) + a controllable 10th
   // (the off-currency COUNT(*) check) whose row/total we vary per test.
-  function makeDb(ninthRows: Array<{ total: string }>) {
+  const GUARD_QUERY_INDEX = 9
+  function makeDb(guardRows: Array<{ total: string }>) {
     let callCount = 0
-    let ninthProjection: unknown
-    let ninthWhere: unknown
+    let guardProjection: unknown
+    let guardWhere: unknown
     const select = vi.fn((projection: unknown) => {
       const idx = callCount
-      if (idx === 8) ninthProjection = projection
+      if (idx === GUARD_QUERY_INDEX) guardProjection = projection
       return {
         from: () => ({
           where: (clause: unknown) => {
-            if (idx === 8) ninthWhere = clause
+            if (idx === GUARD_QUERY_INDEX) guardWhere = clause
             callCount++
-            if (idx < 8) return Promise.resolve([{ total: '0' }])
-            return Promise.resolve(ninthRows)
+            if (idx < GUARD_QUERY_INDEX) return Promise.resolve([{ total: '0' }])
+            return Promise.resolve(guardRows)
           },
         }),
       }
@@ -137,8 +230,8 @@ describe('C-3: assertNoOffCurrencyCompanyRows (9th query, mocked db)', () => {
     const db = { select } as unknown as DatabaseService['db']
     return {
       db,
-      getNinthProjection: () => ninthProjection,
-      getNinthWhere: () => ninthWhere,
+      getNinthProjection: () => guardProjection,
+      getNinthWhere: () => guardWhere,
     }
   }
 
@@ -152,17 +245,23 @@ describe('C-3: assertNoOffCurrencyCompanyRows (9th query, mocked db)', () => {
     }
     expect(caught).toBeInstanceOf(Error)
     const message = (caught as Error).message
-    // Each assertion below pins one of the five concatenated string literals
-    // that make up the thrown message — killing each independently.
-    expect(message).toContain('found 2 PAID company-account')
-    expect(message).toContain('row(s) booked in a currency other than USDT. The company account is')
+    // Each assertion below pins one of the concatenated string literals that
+    // make up the thrown message — killing each independently. AC9 of
+    // task-cascade-apply reworded the first and last: the guard now also
+    // matches rows in `PENDING_PAYMENT`, so the message may no longer claim
+    // every hit is `PAID`, and it now names WHICH label to look at.
+    expect(message).toContain('found 2 company-account')
+    expect(message).toContain('row(s) whose currency label is not USDT. The company account is')
     expect(message).toContain(
       'USDT-only — these rows would silently drop out of the balance instead of',
     )
     expect(message).toContain(
-      'being counted or rejected. Fix the offending row(s) (wrong currency label)',
+      'being counted or rejected. Fix the offending row(s) (wrong currency label',
     )
-    expect(message).toContain('before trusting this balance.')
+    expect(message).toContain(
+      "on 'currency' for a settled row, or on 'settled_currency' for one returned",
+    )
+    expect(message).toContain('to PENDING_PAYMENT) before trusting this balance.')
   })
 
   it('does NOT throw when the off-currency check finds zero rows (count=0)', async () => {
@@ -175,7 +274,7 @@ describe('C-3: assertNoOffCurrencyCompanyRows (9th query, mocked db)', () => {
     await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.not.toThrow()
   })
 
-  it('the 9th query selects COUNT(*) and filters status=PAID, currency<>USDT', async () => {
+  it('the guard query selects COUNT(*) and filters status=PAID, currency<>USDT', async () => {
     const { db, getNinthProjection, getNinthWhere } = makeDb([{ total: '0' }])
     await computeCompanyAccountBalanceFromLedger(db)
 
@@ -200,6 +299,61 @@ describe('C-3: assertNoOffCurrencyCompanyRows (9th query, mocked db)', () => {
     const compiled = new PgDialect().sqlToQuery(getNinthWhere() as SQL)
     expect(compiled.params).toContain('PAID')
     expect(compiled.params).toContain('USDT')
+  })
+
+  /**
+   * task-cascade-apply (task 3), AC9 / addendum §1.8 — the guard learns about
+   * the NEW class of company-shaped rows term 9 introduces.
+   *
+   * The guard exists because a company-shaped row in a foreign currency drops
+   * SILENTLY out of every SUM. Term 9 creates a company-shaped class the old
+   * predicate cannot see (`*_PENDING_PAYOUT` + `COMPANY_ACCOUNT`), whose
+   * `settled_currency='USDT'` filter would drop such a row just as silently.
+   * Unreachable today — proved by provenance, not by querying data (see the
+   * PR body's three greps) — which is exactly the "trap for a FUTURE write
+   * path" basis the guard already gives for itself.
+   *
+   * WHY SHAPE ASSERTIONS AND NOT ROW MATCHING HERE: whether a given row
+   * matches is a question only Postgres can answer, so the row-level half
+   * (two shapes the current code really produces must NOT trip it; a
+   * hand-built `PENDING_PAYMENT` + `COMPANY_ACCOUNT` + `settled_currency='UAH'`
+   * row MUST) lives in `company-account-balance-off-currency.integration.spec.ts`.
+   * The mutation gate cannot execute that file at all
+   * (`mutation-gate-integration-specs.md`), so the predicate's shape is
+   * pinned here where the gate can see it.
+   */
+  it('the guard ALSO looks for reverted-IOU rows whose settled_currency is not USDT (AC9)', async () => {
+    const { db, getNinthWhere } = makeDb([{ total: '0' }])
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    const compiled = new PgDialect().sqlToQuery(getNinthWhere() as SQL)
+    expect(compiled.params).toContain('PENDING_PAYMENT')
+    expect(compiled.params).toContain('COMPANY_ACCOUNT')
+    expect(compiled.params).toContain('SENIOR_PENDING_PAYOUT')
+    expect(compiled.params).toContain('DROP_PENDING_PAYOUT')
+    expect(compiled.sql).toContain('settled_currency')
+  })
+
+  it('treats a MISSING settled_currency as suspect too — "no label" is not "label matches" (AC9)', async () => {
+    const { db, getNinthWhere } = makeDb([{ total: '0' }])
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    const compiled = new PgDialect().sqlToQuery(getNinthWhere() as SQL)
+    expect(compiled.sql).toMatch(/settled_currency"?\s+is\s+null/i)
+  })
+
+  it('the new branch narrows on a NON-ZERO accumulator — a row that never settled is not company money (AC9)', async () => {
+    const { db, getNinthWhere } = makeDb([{ total: '0' }])
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    const compiled = new PgDialect().sqlToQuery(getNinthWhere() as SQL)
+    expect(compiled.sql).toContain('settled_amount')
+  })
+
+  it('the error message no longer claims every offending row is PAID (AC9)', () => {
+    const err = new CompanyAccountOffCurrencyError(3)
+    expect(err.message).not.toContain('PAID company-account')
+    expect(err.message).toContain('3')
   })
 })
 
@@ -250,14 +404,14 @@ describe('SEC-1: gate throws / display degrades — localization of the off-curr
   })
 
   it('the DISPLAY path (computeCompanyAccountBalanceForDisplay) does NOT throw on the same condition — degrades instead, with a best-effort balance', async () => {
-    // sumTotal=100 on every one of the 8 terms → 3 credit terms − 5 debit
-    // terms = 300 − 500 = −200. A non-zero, non-default figure — proves the
+    // sumTotal=100 on every one of the 9 terms → 3 credit terms − 6 debit
+    // terms = 300 − 600 = −300. A non-zero, non-default figure — proves the
     // degraded `balance` is a REAL recomputation, not a hardcoded 0/null.
     const db = makeDb('4', '100')
     const reading = await computeCompanyAccountBalanceForDisplay(db)
     expect(reading.reliable).toBe(false)
     expect(reading.offCurrencyCount).toBe(4)
-    expect(reading.balance).toBe(-200)
+    expect(reading.balance).toBe(-300)
   })
 
   it('the DISPLAY path stays reliable and returns the real balance on a clean ledger', async () => {
@@ -289,7 +443,7 @@ describe('SEC-1: gate throws / display degrades — localization of the off-curr
         where: () => {
           if (!firstCycleDone) {
             callsInFirstCycle++
-            if (callsInFirstCycle === 8) firstCycleDone = true
+            if (callsInFirstCycle === 9) firstCycleDone = true
             return Promise.reject(new Error('connection terminated unexpectedly'))
           }
           return Promise.resolve([{ total: '0' }])
@@ -300,10 +454,10 @@ describe('SEC-1: gate throws / display degrades — localization of the off-curr
     await expect(computeCompanyAccountBalanceForDisplay(db)).rejects.toThrow(
       /connection terminated unexpectedly/,
     )
-    // Exactly the 8-term sum ran once — the off-currency guard's 9th query
+    // Exactly the 9-term sum ran once — the off-currency guard's final query
     // never fires (the Promise.all already rejected) AND, crucially, the
     // best-effort recompute never fires either (that would add MORE calls).
-    expect(select).toHaveBeenCalledTimes(8)
+    expect(select).toHaveBeenCalledTimes(9)
   })
 
   it('CompanyAccountOffCurrencyError carries a named, distinguishable .name (not the default "Error")', () => {
@@ -322,7 +476,7 @@ describe('SEC-1: gate throws / display degrades — localization of the off-curr
       expect(errorSpy).toHaveBeenCalledTimes(1)
       const [message] = errorSpy.mock.calls[0]!
       expect(message).toContain('company-account balance display degraded — ')
-      expect(message).toContain('found 7 PAID company-account row(s)')
+      expect(message).toContain('found 7 company-account row(s)')
 
       // The `this` the spy was invoked on IS the module-level Logger instance
       // — its bound context is what actually prefixes the printed log line.
