@@ -315,7 +315,28 @@ export class PendingSettlementService {
       sourceSeniorSharePercent,
       sourceDropSharePercent,
       sourceSettledCurrency,
+      sourceSettledAmount,
+      sourceFundingSource,
+      sourceSenderId,
+      sourceSenderLabel,
     } = await this.resolveSource(obligation.sourceTransactionId)
+
+    // task-cascade-apply (task 3, AC10 / addendum §1.11) — how much of this
+    // obligation is STILL owed.
+    //
+    // Before task 3 a row could settle at most once, so "owed" and "the
+    // obligation's amount" were the same number. A cascade revert reopens the
+    // obligation carrying the NEW FULL share while part of it has already been
+    // paid, and paying the full figure again would drive the accumulator to
+    // roughly twice the row's `amount` — breaking the invariant ledger term 9
+    // rests on (addendum §1.2) and paying the senior twice.
+    //
+    // ONE description, two call sites (the pre-transaction computation just
+    // below and the money gate inside the transaction, which keys off the
+    // CLAIMED amount for its own TOCTOU reasons).
+    const priorSettledAmount = Number(sourceSettledAmount ?? 0)
+    const remainingOwed = (obligationAmount: string): number =>
+      Number((parseFloat(obligationAmount) - priorSettledAmount).toFixed(6))
 
     // task-drop-share-override-and-receiver (D5). Branch by the source IOU type:
     //   - DROP_PENDING_PAYOUT → settle by flipping the SOURCE row in place to
@@ -331,6 +352,30 @@ export class PendingSettlementService {
     // pending_obligations does not store the creditor role, so the source
     // transaction type is the discriminator (mirrors the docstring contract).
     const isDropObligation = sourceType === 'DROP_PENDING_PAYOUT'
+
+    // task-cascade-apply (task 3, AC10 / addendum §1.11) — a drop obligation
+    // that has already been paid something cannot be topped up YET.
+    //
+    // Not laziness: on a drop row `amount` is the FACT of a payment IN THE
+    // PAYMENT'S OWN CURRENCY, and next to it sit
+    // `originalAmount`/`originalCurrency`/`exchangeRate` describing exactly ONE
+    // conversion, with `amount = originalAmount × exchangeRate`. A partial
+    // top-up makes `amount` cumulative and that identity stops holding — what
+    // the triplet should mean for a row closed by two payments at two different
+    // rates is a real decision (store per-payment? describe the last one? move
+    // terms 7/8 onto `settled_amount`?), and making it here would mean
+    // rewriting a block that has been through three security reviews.
+    //
+    // The FIRST settle of a drop obligation is completely unaffected
+    // (`priorSettledAmount` is 0), and a reverted drop row still shows what has
+    // been paid — only closing the remainder through the system waits.
+    if (isDropObligation && priorSettledAmount > 0) {
+      throw new BadRequestException(
+        'Доплата по частично выплаченному обязательству дропа пока не поддерживается — курс и сумма ' +
+          'фактического платежа на такой строке считаются по одной выплате. Обязательство остаётся ' +
+          'открытым, «уже выплачено» видно; закрытие остатка — отдельная задача.',
+      )
+    }
 
     // task-senior-settle-owner: the senior IOU is now paid via the SAME funding
     // selection as a SALARY — the ADMIN/ACCOUNTANT picks AT PAY TIME whether the
@@ -768,7 +813,35 @@ export class PendingSettlementService {
     // settle never touches `amount` at all (see the `.set()` comment below),
     // so its contribution is the pre-existing obligation amount — the same
     // value `amount` already holds and will keep holding after this flip.
-    const settledAmountThisSettle = isDropObligation ? paidAmount! : parseFloat(obligation.amount)
+    //
+    // task-cascade-apply (task 3, AC10): on the SENIOR branch that contribution
+    // is now the REMAINDER (`obligation.amount − already accumulated`), not the
+    // obligation's full figure. On a first settle the accumulator is NULL, so
+    // `remainingOwed` returns exactly `obligation.amount` and the behaviour is
+    // byte-for-byte what it was.
+    const settledAmountThisSettle = isDropObligation
+      ? paidAmount!
+      : remainingOwed(obligation.amount)
+
+    // task-cascade-apply (task 3, AC10 as revised by AC15 / addendum §1.14).
+    //
+    // `owedNow === 0` is NOT an error — it is an idempotent close. Zero means
+    // "exactly as much has been paid as the obligation is worth", and closing
+    // on zero is ledger-neutral: the row leaves term 9 carrying
+    // `settled_amount` and enters term 7 carrying `amount`, and those two are
+    // equal. Refusing here (as the first round did) created the dead end
+    // SR-M-4 describes: an "edit up, then edit back down" round trip left a
+    // reopened obligation that could never be closed again.
+    //
+    // A NEGATIVE remainder is still refused. The `max(newAmount,
+    // settledAmount)` floor in the cascade (AC5) makes that state unreachable;
+    // this stays as a fail-loud tripwire in case it is ever reached another
+    // way, because paying a negative amount is not a thing.
+    if (settledAmountThisSettle < 0) {
+      throw new BadRequestException(
+        'По этому обязательству уже выплачено больше, чем оно стоит — требуется ручное решение по переплате',
+      )
+    }
 
     // MED-2 (security-review round 1, PR #599): `pending_obligations.amount`
     // carries ZERO CHECK constraints (verified against a scratch DB by the
@@ -806,6 +879,89 @@ export class PendingSettlementService {
     if (sourceSettledCurrency && sourceSettledCurrency !== currency) {
       throw new BadRequestException(
         `Накопленная сумма выплат по этой строке уже записана в ${sourceSettledCurrency} — повторная выплата в ${currency} невозможна без сверки валют`,
+      )
+    }
+
+    // task-cascade-apply (task 3, AC14 / addendum §1.13, security-review
+    // SR-H-2). Same shape as the currency guard directly above, same argument,
+    // for the other column the accumulator has no snapshot of.
+    //
+    // INVARIANT: every settle of one row comes from the SAME PAYER, and the
+    // pair `(funding_source, sender_id)` is the record of who that was.
+    //
+    // `funding_source` answers "which pot". Ledger terms 7, 8 and 9 all key on
+    // that LIVE column, so a second settle from a different pot does not
+    // "split" the row between two terms — it drops it out of BOTH. Concretely:
+    // a company-funded settle of 260, a cascade revert (term 9 holds the 260),
+    // then a top-up from an admin's personal account ⇒ `funding_source` becomes
+    // null and the status is no longer PENDING_PAYMENT, so 260 USDT that really
+    // left the company account vanish from the ledger. The whole scenario is in
+    // USDT, so the currency guard above stays silent.
+    //
+    // `sender_id` answers "which PERSON", and it is not a refinement of the
+    // first question but a second one the first cannot reach (SR-M-5, owner's
+    // decision, security-review round 3). Inside `ADMIN_PERSONAL` every admin
+    // shares one pot value (NULL), so the pot comparison waves a different
+    // partner straight through — and the flip then OVERWRITES `sender_id`
+    // while `adminBalances.sent` sums the row's whole `amount` under whoever
+    // holds it. Admin A pays 260, the cascade reopens the row, admin B tops it
+    // up, and the entire figure lands on B: A looks like they never paid. Two
+    // partners on 50/50 shares, and nothing anywhere says so out loud.
+    //
+    // For a company-funded settle both sides are `(COMPANY_ACCOUNT, null)`, so
+    // widening the comparison changes nothing there — it only starts
+    // distinguishing `(null, A)` from `(null, B)`.
+    //
+    // Holders of the invariant: the flip writes both columns, the cascade
+    // revert preserves both (AC6), and this refusal stops the pair becoming
+    // multi-valued.
+    //
+    // Unconditional — NOT restricted to the senior branch. A drop top-up is
+    // refused elsewhere today (AC10), but this guard must not depend on that
+    // staying true when task 3b lands.
+    //
+    // The escape hatch, if mixing is ever actually wanted, is a snapshot
+    // column per axis — and the two axes cost DIFFERENT things, which the
+    // previous version of this comment got wrong by re-using round 2's
+    // wording for both (SPEC-M-1, review round 4):
+    //
+    //   - `funding_source`: a `settled_funding_source` snapshot would force
+    //     terms 7 and 8 to read it instead of the live column, and this task
+    //     commits to leaving them untouched (addendum §1.10). That is the
+    //     expensive one.
+    //   - `sender_id`: NO ledger term reads it. Verified, not assumed —
+    //     `grep -n 'senderId\|sender_id' company-account-balance.ts` returns a
+    //     single hit, and it is a comment. The cost sits somewhere else
+    //     entirely: the `adminBalances` array built in
+    //     `TransactionsService.getSummary()` (transactions.service.ts)
+    //     attributes a row's whole `amount` to whoever holds `sender_id`, so
+    //     splitting one row between two payers needs a per-settle record
+    //     there, not a column here.
+    //
+    //     NOT `balance.service.ts` — round 4's version of this comment said
+    //     so and was wrong twice over. That file holds `getAdminBalance`, a
+    //     different and narrower metric whose own docstring states it "does
+    //     NOT replicate `getSummary`'s full HOLDING model". Sending the next
+    //     reader there sends them to code that does not do this.
+    //
+    // Saying "terms 7 and 8" for the second axis pointed the next reader at
+    // code that has nothing to do with it.
+    const settleFundingSource = debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null
+    if (
+      priorSettledAmount > 0 &&
+      (settleFundingSource !== sourceFundingSource || senderId !== sourceSenderId)
+    ) {
+      const describe = (value: string | null) => value ?? 'личный счёт администратора'
+      // The person, when there was one. `senderLabel` is written by the same
+      // flip that writes `senderId` (the payer's display name for an
+      // `ADMIN_PERSONAL` settle, 'COMPANY' otherwise), so no extra read is
+      // needed to name them.
+      const priorPayer = sourceSenderId ? ` (плательщик — ${sourceSenderLabel ?? 'админ'})` : ''
+      throw new BadRequestException(
+        `Предыдущая выплата по этой строке прошла из источника «${describe(sourceFundingSource)}»${priorPayer}, ` +
+          `а эта — из «${describe(settleFundingSource)}». Доплата обязана идти из того же источника, ` +
+          `и закрыть остаток должен он же: на этой паре держится учёт в счёте компании и в балансах ` +
+          `админов, и смена плательщика стёрла бы уже учтённую выплату.`,
       )
     }
 
@@ -889,7 +1045,13 @@ export class PendingSettlementService {
         // keyed on `claimedAmount` rather than `obligation.amount` is what
         // makes that assertion load-bearing rather than decorative — a
         // later change that loosens it still gates correctly on its own.
-        const amount = parseFloat(claimedAmount)
+        //
+        // task-cascade-apply (task 3, AC10): on the SENIOR branch what leaves
+        // the account is the REMAINDER, so that is what the balance must cover.
+        // Gating on the obligation's full figure after a partial payment would
+        // refuse a top-up the company can actually afford. Same single
+        // description of "still owed" as the pre-transaction computation above.
+        const amount = isDropObligation ? parseFloat(claimedAmount) : remainingOwed(claimedAmount)
         if (amount > balance) {
           throw new BadRequestException(
             'Недостаточно средств на счёте компании для закрытия долга перед синьором',
@@ -1030,6 +1192,20 @@ export class PendingSettlementService {
           and(
             eq(transactions.id, obligation.sourceTransactionId),
             eq(transactions.status, 'PENDING_PAYMENT'),
+            // task-cascade-apply (task 3, AC10) — TOCTOU on the ACCUMULATOR.
+            //
+            // `settledAmountThisSettle` was computed from `settled_amount` as
+            // read BEFORE this transaction opened. If another settle of the
+            // same row committed in between, that delta is computed against a
+            // figure that is no longer true and would over-pay. Re-asserting
+            // the value here costs no extra lock: a mismatch simply matches
+            // zero rows, and the existing `if (!paidRow) throw` below already
+            // turns that into a clean abort of the whole transaction.
+            //
+            // `IS NOT DISTINCT FROM` rather than `=` because the value is NULL
+            // on a first-ever settle, and `NULL = NULL` is NULL, which would
+            // match nothing and break every first settle in the system.
+            sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${sourceSettledAmount}::numeric`,
           ),
         )
         .returning()
@@ -1191,10 +1367,41 @@ export class PendingSettlementService {
     // the row's CURRENT settled_currency, read so the flip below can refuse
     // a settle whose currency does not match what is ALREADY accumulated —
     // summing FACT amounts recorded in different currencies under one column
-    // would silently misrepresent the total. `settled_amount` itself is no
-    // longer read here — the increment is DB-native (`coalesce(...) + delta`
-    // in the `.set()` below), which needs no pre-transaction value at all.
+    // would silently misrepresent the total.
     sourceSettledCurrency: string | null
+    /**
+     * task-cascade-apply (task 3, AC10): the row's CURRENT accumulator.
+     *
+     * PR #599 deliberately stopped reading it, because the increment is
+     * DB-native (`coalesce(current, 0) + delta`) and needed no pre-transaction
+     * value. Task 3 needs it again for a different question — not "what to add"
+     * but "how much is STILL owed" (`obligation.amount − already paid`), which
+     * only a cascade revert can make non-trivial. The DB-native increment is
+     * UNCHANGED; the value read here is used for the remainder arithmetic and
+     * re-asserted in the flip's WHERE, so a concurrent settle in between
+     * matches zero rows instead of over-paying.
+     */
+    sourceSettledAmount: string | null
+    /**
+     * task-cascade-apply (task 3, AC14 / addendum §1.13, security-review
+     * SR-H-2): the row's CURRENT `funding_source`, read so a top-up can be
+     * refused when it would come out of a different pot than the payment
+     * already recorded on this row.
+     */
+    sourceFundingSource: string | null
+    /**
+     * task-cascade-apply (task 3, AC14 / security-review SR-M-5): WHO paid.
+     *
+     * `funding_source` alone answers "which pot", and inside `ADMIN_PERSONAL`
+     * that is the same NULL for every partner — so the pot comparison cannot
+     * tell two admins apart. The flip overwrites `sender_id`, and
+     * `adminBalances.sent` sums the row's whole `amount` under whoever holds
+     * it, so a top-up by a different partner silently moves the first
+     * partner's payment onto the second. The label rides along so the refusal
+     * can NAME them rather than say "someone else".
+     */
+    sourceSenderId: string | null
+    sourceSenderLabel: string | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
@@ -1221,6 +1428,10 @@ export class PendingSettlementService {
         sourceSeniorSharePercent: null,
         sourceDropSharePercent: null,
         sourceSettledCurrency: null,
+        sourceSettledAmount: null,
+        sourceFundingSource: null,
+        sourceSenderId: null,
+        sourceSenderLabel: null,
       }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
@@ -1232,6 +1443,10 @@ export class PendingSettlementService {
       sourceSeniorSharePercent: source.seniorSharePercent,
       sourceDropSharePercent: source.dropSharePercent,
       sourceSettledCurrency: source.settledCurrency,
+      sourceSettledAmount: source.settledAmount,
+      sourceFundingSource: source.fundingSource,
+      sourceSenderId: source.senderId,
+      sourceSenderLabel: source.senderLabel,
     }
   }
 

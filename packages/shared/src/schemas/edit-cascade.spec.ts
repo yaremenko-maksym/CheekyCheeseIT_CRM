@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { roundShareAmount } from '../utils/money'
-import { MAX_TRANSACTION_AMOUNT } from './finance'
+import { MAX_TRANSACTION_AMOUNT, adminUpdateTransactionSchema } from './finance'
 import {
   amountsDiffer,
   computeCascadeVersion,
@@ -10,6 +10,11 @@ import {
   cascadeEditPreviewQuerySchema,
   cascadeEditPreviewBlockedReasonSchema,
   cascadeEditPreviewResponseSchema,
+  cascadeLedgerFactReasonSchema,
+  classifyEditedRowLedgerFact,
+  CASCADE_LEDGER_FACT_MESSAGES,
+  floorAmountAtAccumulator,
+  isCascadeAmountEdit,
   type CascadeDerivativeSnapshot,
   type CascadeSnapshot,
   type CascadeWarning,
@@ -36,6 +41,8 @@ function makeSource(overrides: Partial<CascadeSnapshot['source']> = {}): Cascade
     updatedAt: '2026-08-01T00:00:00.000Z',
     hasSignedInvoice: false,
     originalAmount: null,
+    settledAmount: null,
+    hasClosedObligation: false,
     ...overrides,
   }
 }
@@ -54,11 +61,13 @@ function makePendingDerivative(
     settledAmount: null,
     settledCurrency: null,
     settledSharePercent: null,
+    fundingSource: null,
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
       status: 'PENDING',
       amount: 260,
+      currency: 'USDT',
       updatedAt: '2026-08-01T00:00:00.000Z',
     },
     ...overrides,
@@ -79,11 +88,13 @@ function makePaidDerivative(
     settledAmount: 260,
     settledCurrency: 'USDT',
     settledSharePercent: 26,
+    fundingSource: 'COMPANY_ACCOUNT',
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
       status: 'PAID',
       amount: 260,
+      currency: 'USDT',
       updatedAt: '2026-08-01T00:00:00.000Z',
     },
     ...overrides,
@@ -96,6 +107,200 @@ function snapshot(
 ): CascadeSnapshot {
   return { source: makeSource(sourceOverrides), derivatives }
 }
+
+describe('floorAmountAtAccumulator — the floor, stated once (SR-M-6 / SR-M-2)', () => {
+  it('raises a request that sits below what was already paid', () => {
+    expect(floorAmountAtAccumulator(260, 100)).toBe(260)
+  })
+
+  it('leaves a request above the accumulator exactly as asked', () => {
+    expect(floorAmountAtAccumulator(260, 900)).toBe(900)
+  })
+
+  it('is the identity when there is NO accumulator — including for negatives', () => {
+    // The law is about the accumulator. `Math.max(requested, settledAmount ?? 0)`
+    // reads identically for every figure the API can receive (both entrances
+    // validate `.positive()`), but it quietly states a second rule — "never
+    // below zero" — and clamps the resolver's negative probe to 0.
+    expect(floorAmountAtAccumulator(null, 100)).toBe(100)
+    expect(floorAmountAtAccumulator(undefined, 100)).toBe(100)
+    expect(floorAmountAtAccumulator(null, -100)).toBe(-100)
+  })
+
+  it('accepts the raw numeric column as the string drizzle returns', () => {
+    // The conversion lives here so no caller writes its own null-preserving
+    // ternary — one did, and it was an unkillable mutant.
+    expect(floorAmountAtAccumulator('260.000000', 100)).toBe(260)
+  })
+
+  it('treats a ZERO accumulator as a real floor, not as an absent one', () => {
+    // `0` is a settle that happened and paid nothing; `null` is "never
+    // settled". A truthiness check would collapse the two.
+    expect(floorAmountAtAccumulator(0, -100)).toBe(0)
+  })
+})
+
+describe('isCascadeAmountEdit — asked by both entrances (CR-M-2)', () => {
+  const settledRow = { status: 'PAID', storedAmount: 260 }
+
+  it('is true when a PAID row is asked to change', () => {
+    expect(isCascadeAmountEdit({ ...settledRow, requestedAmount: 500 })).toBe(true)
+  })
+
+  it('is false when the figure asked for is the one already stored', () => {
+    expect(isCascadeAmountEdit({ ...settledRow, requestedAmount: 260 })).toBe(false)
+  })
+
+  it('is false for a row that is not PAID, however much the figure moves', () => {
+    expect(
+      isCascadeAmountEdit({ status: 'PENDING_PAYMENT', storedAmount: 260, requestedAmount: 900 }),
+    ).toBe(false)
+  })
+
+  /**
+   * The regression this function was briefly written the wrong way round for.
+   *
+   * Round 4's first attempt compared the FLOORED figure here, reasoning that
+   * the stored value is what matters. On a settled row `amount ===
+   * settled_amount`, so every DOWNWARD request floors straight back to the
+   * current value — "no change" — which skipped AC13 entirely and answered the
+   * operator with a silent success, for exactly the population AC13 exists to
+   * refuse. Two integration specs caught it; this pins it at the unit level
+   * where the mutation gate can see it too.
+   */
+  it('stays TRUE for a downward edit of a settled row — the floor must not hide AC13', () => {
+    expect(isCascadeAmountEdit({ ...settledRow, requestedAmount: 26 })).toBe(true)
+  })
+
+  /**
+   * SR-M-1 (review round 5) — the divergence itself, measured.
+   *
+   * The two questions this codebase asks about an amount edit are NOT the same
+   * question, and the input where they part company is reachable rather than
+   * theoretical. Round 4 shipped a comment claiming both compared "the same
+   * floored figure"; they do not, and the reason they must not is right here.
+   * Without this test the claim and the code could only be compared by reading
+   * them.
+   */
+  it('the two questions genuinely diverge on a settled row — and the predicate follows the RAW one', () => {
+    const storedAmount = 260
+    const settledAmount = 260
+    const requestedAmount = 26
+
+    const floored = floorAmountAtAccumulator(settledAmount, requestedAmount)
+
+    // "Did the operator ask for a change?" — yes.
+    expect(amountsDiffer(requestedAmount, storedAmount)).toBe(true)
+    // "Would the stored figure move?" — no: the floor puts it straight back.
+    expect(amountsDiffer(floored, storedAmount)).toBe(false)
+
+    // So the two disagree here, which is the whole point:
+    expect(amountsDiffer(requestedAmount, storedAmount)).not.toBe(
+      amountsDiffer(floored, storedAmount),
+    )
+
+    // AC13 has to fire on this row, so the predicate follows the RAW question.
+    // Following the floored one answers the operator with a silent success on
+    // exactly the population AC13 exists to refuse.
+    expect(isCascadeAmountEdit({ status: 'PAID', storedAmount, requestedAmount })).toBe(true)
+  })
+})
+
+describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
+  it('names the fact-of-payment triplet', () => {
+    expect(classifyEditedRowLedgerFact(makeSource({ originalAmount: 41500 }))).toBe(
+      'PAYMENT_FACT_RECORDED',
+    )
+  })
+
+  it('names the accumulator of actual payouts', () => {
+    expect(classifyEditedRowLedgerFact(makeSource({ settledAmount: 260 }))).toBe(
+      'SETTLED_AMOUNT_RECORDED',
+    )
+  })
+
+  it('counts a zero accumulator as recorded — it is a settle that happened, not an absent one', () => {
+    // `0` is a figure someone wrote down; `null` is "never settled". Reading
+    // the first as the second is how a truthiness check would get this wrong.
+    expect(classifyEditedRowLedgerFact(makeSource({ settledAmount: 0 }))).toBe(
+      'SETTLED_AMOUNT_RECORDED',
+    )
+  })
+
+  it('names a closed obligation the row stands behind', () => {
+    expect(classifyEditedRowLedgerFact(makeSource({ hasClosedObligation: true }))).toBe(
+      'CLOSES_OBLIGATION',
+    )
+  })
+
+  it('names an on-chain deposit', () => {
+    expect(classifyEditedRowLedgerFact(makeSource({ type: 'COMPANY_DEPOSIT' }))).toBe(
+      'ONCHAIN_DEPOSIT',
+    )
+  })
+
+  it.each(['ADMIN_INCOME', 'EXPENSE', 'DIVIDEND_TO_ADMIN'])(
+    'leaves %s editable — it has no second carrier of the amount',
+    (type) => {
+      expect(classifyEditedRowLedgerFact(makeSource({ type }))).toBeNull()
+    },
+  )
+
+  it('reports the most fundamental carrier first when a row has several', () => {
+    // Order is not cosmetic: the operator should hear the reason that is
+    // hardest to argue with, and every reason names a DIFFERENT remedy.
+    expect(
+      classifyEditedRowLedgerFact(
+        makeSource({ originalAmount: 800, settledAmount: 260, hasClosedObligation: true }),
+      ),
+    ).toBe('PAYMENT_FACT_RECORDED')
+    expect(
+      classifyEditedRowLedgerFact(makeSource({ settledAmount: 260, hasClosedObligation: true })),
+    ).toBe('SETTLED_AMOUNT_RECORDED')
+  })
+
+  it('has a distinct operator-facing message for every reason, each naming a carrier', () => {
+    const messages = Object.values(CASCADE_LEDGER_FACT_MESSAGES)
+    expect(messages).toHaveLength(cascadeLedgerFactReasonSchema.options.length)
+    expect(new Set(messages).size).toBe(messages.length)
+    for (const m of messages) expect(m.length).toBeGreaterThan(20)
+  })
+
+  it('carries exactly these four codes, spelled out', () => {
+    // Written as literals ON PURPOSE. Reading the expected values back out of
+    // `cascadeLedgerFactReasonSchema.options` would make this pass by
+    // construction — the tautology the mutation gate catches by blanking an
+    // option and watching nothing complain. These strings cross the wire to
+    // task 5's UI; they are a contract, not an implementation detail.
+    expect(cascadeLedgerFactReasonSchema.options).toEqual([
+      'PAYMENT_FACT_RECORDED',
+      'SETTLED_AMOUNT_RECORDED',
+      'CLOSES_OBLIGATION',
+      'ONCHAIN_DEPOSIT',
+    ])
+  })
+
+  it('is a subset of what the preview can report — otherwise the write could refuse unnameably', () => {
+    // Same reason as above: the four codes are named here independently of the
+    // enum being checked, so an option that loses its value fails to parse.
+    for (const reason of [
+      'PAYMENT_FACT_RECORDED',
+      'SETTLED_AMOUNT_RECORDED',
+      'CLOSES_OBLIGATION',
+      'ONCHAIN_DEPOSIT',
+    ] as const) {
+      expect(cascadeLedgerFactReasonSchema.safeParse(reason).success).toBe(true)
+      expect(cascadeEditPreviewBlockedReasonSchema.safeParse(reason).success).toBe(true)
+    }
+  })
+
+  it('leaves guards 1 and 2 in the preview enum — the ledger facts are additions, not a replacement', () => {
+    for (const reason of ['PAYOUT_FAMILY', 'LINKED_TO_PAYOUT_REQUEST'] as const) {
+      expect(cascadeEditPreviewBlockedReasonSchema.safeParse(reason).success).toBe(true)
+      expect(cascadeLedgerFactReasonSchema.safeParse(reason).success).toBe(false)
+    }
+  })
+})
 
 describe('resolveEditCascade — AC1 purity', () => {
   it('is deterministic: identical input yields byte-for-byte identical output', () => {
@@ -295,6 +500,7 @@ describe('resolveEditCascade — defensive `obligation: null` (schema comment: "
           id: 'obl-1',
           status: 'PAID',
           amount: 0,
+          currency: 'USDT',
           updatedAt: '2026-08-01T00:00:00.000Z',
         },
       }),
@@ -615,7 +821,7 @@ describe('computeCascadeVersion', () => {
       makePendingDerivative({
         id: 'd9',
         updatedAt: 'T2',
-        obligation: { id: 'o9', status: 'PENDING', amount: 1, updatedAt: 'T3' },
+        obligation: { id: 'o9', status: 'PENDING', amount: 1, currency: 'USDT', updatedAt: 'T3' },
       }),
     ])
     expect(computeCascadeVersion(s)).toBe('src:src-9:T1|d9:T2:o9:T3')
@@ -717,11 +923,16 @@ describe('resolveEditCascade — AC7 property test', () => {
           : hasSettledHistory
             ? Math.floor(rand() * 101)
             : null,
+        // Anything that has been through a settle carries a funding marker;
+        // an untouched IOU does not. Independent of the accumulator's size,
+        // matching what `settleByCompany` actually writes.
+        fundingSource: hasSettledHistory ? 'COMPANY_ACCOUNT' : null,
         hasSignedInvoice: false,
         obligation: {
           id: 'obl-1',
           status: obligationStatus,
           amount: 1,
+          currency: 'USDT',
           updatedAt: '2026-08-01T00:00:00.000Z',
         },
       }
@@ -941,5 +1152,148 @@ describe('cascadeEditPreviewResponseSchema — wire contract', () => {
       version: 'src:22222222-2222-4222-8222-222222222222:2026-08-01T00:00:00.000Z',
     }
     expect(cascadeEditPreviewResponseSchema.parse(response)).toEqual(response)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-cascade-apply (task 3) — обязательство не в валюте источника.
+//
+// Пункт 95 бэклога / аддендум 3.5: `oldAmount` берётся из
+// `pending_obligations.amount`, а каскад в эту же колонку ПИШЕТ долю,
+// посчитанную от суммы источника. До задачи 3 совпадение валют держал BIZ-18,
+// который задача 3 и снимает — значит валюту надо ПРОЧИТАТЬ (поле `currency`
+// на снимке обязательства) и, при расхождении, сказать вслух, а не
+// предположить совпадение.
+// ---------------------------------------------------------------------------
+
+describe('resolveEditCascade — OBLIGATION_CURRENCY_MISMATCH (пункт 95 бэклога)', () => {
+  it('warns when the obligation is booked in a currency other than the source currency', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePendingDerivative({
+        obligation: {
+          id: 'obl-1',
+          status: 'PENDING',
+          amount: 260,
+          currency: 'EUR',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    const codes = plan.derivatives[0]!.warnings.map((w) => w.code)
+    expect(codes).toContain('OBLIGATION_CURRENCY_MISMATCH')
+  })
+
+  it('names BOTH currencies in the message so a human can tell which is which', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePendingDerivative({
+        obligation: {
+          id: 'obl-1',
+          status: 'PENDING',
+          amount: 260,
+          currency: 'EUR',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const warning = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.find(
+      (w) => w.code === 'OBLIGATION_CURRENCY_MISMATCH',
+    )
+    expect(warning?.message).toContain('EUR')
+    expect(warning?.message).toContain('USDT')
+  })
+
+  it('still computes newAmount normally — the NUMBER is right, writing it into a foreign-currency column is not', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePendingDerivative({
+        obligation: {
+          id: 'obl-1',
+          status: 'PENDING',
+          amount: 260,
+          currency: 'EUR',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    // 26% of 2000 — an independently known figure, not re-derived the way the
+    // production code derives it.
+    expect(plan.derivatives[0]!.newAmount).toBe(520)
+    expect(plan.derivatives[0]!.sharePercent).toBe(26)
+  })
+
+  it('does NOT warn when the obligation currency equals the source currency', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [makePendingDerivative()])
+    const codes = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.map(
+      (w) => w.code,
+    )
+    expect(codes).not.toContain('OBLIGATION_CURRENCY_MISMATCH')
+  })
+
+  it('does NOT warn when the derivative carries no obligation at all — nothing to compare', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePendingDerivative({ obligation: null }),
+    ])
+    const codes = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.map(
+      (w) => w.code,
+    )
+    expect(codes).not.toContain('OBLIGATION_CURRENCY_MISMATCH')
+  })
+
+  it('fires on a SETTLED obligation too — the check is about the column being written, not about status', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePaidDerivative({
+        obligation: {
+          id: 'obl-1',
+          status: 'PAID',
+          amount: 260,
+          currency: 'UAH',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const codes = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.map(
+      (w) => w.code,
+    )
+    expect(codes).toContain('OBLIGATION_CURRENCY_MISMATCH')
+  })
+
+  it('cascadeWarningCodeSchema accepts the new code', () => {
+    expect(cascadeWarningCodeSchema.parse('OBLIGATION_CURRENCY_MISMATCH')).toBe(
+      'OBLIGATION_CURRENCY_MISMATCH',
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-cascade-apply (task 3) — the optimistic-locking token travels on the
+// EDIT body. `GET :id/edit-preview` hands back `version`; `PATCH
+// :id/admin-edit` sends it straight back so the server can refuse an edit
+// built on a stale preview (ADR AC4: "отказ с просьбой обновить предпросмотр,
+// а не молчаливый пересчёт").
+// ---------------------------------------------------------------------------
+
+describe('adminUpdateTransactionSchema.cascadeVersion — the preview token on the edit body', () => {
+  it('accepts a body carrying a cascadeVersion and keeps its value verbatim', () => {
+    const version = 'src:22222222-2222-4222-8222-222222222222:2026-08-01T00:00:00.000Z'
+    const parsed = adminUpdateTransactionSchema.parse({ amount: 2000, cascadeVersion: version })
+    expect(parsed.cascadeVersion).toBe(version)
+  })
+
+  it('stays optional — a metadata-only edit body without it still parses', () => {
+    const parsed = adminUpdateTransactionSchema.parse({ notes: 'just a note' })
+    expect(parsed.cascadeVersion).toBeUndefined()
+  })
+
+  it('rejects an EMPTY cascadeVersion — an empty token is not a token', () => {
+    expect(adminUpdateTransactionSchema.safeParse({ cascadeVersion: '' }).success).toBe(false)
+  })
+
+  it('round-trips a version produced by computeCascadeVersion (the two ends agree)', () => {
+    const s = snapshot({ amount: 1000 }, [makePendingDerivative()])
+    const version = computeCascadeVersion(s)
+    expect(adminUpdateTransactionSchema.parse({ cascadeVersion: version }).cascadeVersion).toBe(
+      version,
+    )
   })
 })

@@ -517,7 +517,10 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── MED-1 (security-review round 1) — real DB: warnings about the SOURCE
     // row itself, not just its derivatives ───────────────────────────────────
-    it('ADMIN: the SOURCE row carrying originalAmount surfaces SOURCE_ORIGINAL_AMOUNT_SET', async () => {
+    it('ADMIN: a PAID SOURCE row carrying originalAmount is BLOCKED, not merely warned about (CR-M-1)', async () => {
+      // Task 3 round 2 warned here while `PATCH` refused the same row under
+      // AC13 — the preview promising a save that cannot happen. Now both
+      // answer from the one classifier.
       const income = await declare(1000)
       await dbSvc.db
         .update(transactions)
@@ -525,13 +528,34 @@ describe.skipIf(!hasDatabaseUrl())(
         .where(eq(transactions.id, income.id))
 
       const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
+      expect(plan.editable).toBe(false)
+      expect(plan.blockedReason).toBe('PAYMENT_FACT_RECORDED')
+      expect(plan.plan).toBeNull()
+
+      await dbSvc.db
+        .update(transactions)
+        .set({ originalAmount: null })
+        .where(eq(transactions.id, income.id))
+    })
+
+    it('ADMIN: the same warning still surfaces where the write would NOT refuse', async () => {
+      // AC13 fires only on a PAID row. On one still awaiting payment the
+      // warning is the right answer, and the resolver keeps producing it.
+      const income = await declare(1000)
+      await dbSvc.db
+        .update(transactions)
+        .set({ originalAmount: '950.000000', status: 'PENDING_PAYMENT' })
+        .where(eq(transactions.id, income.id))
+
+      const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
+      expect(plan.editable).toBe(true)
       expect(plan.plan!.sourceWarnings).toEqual([
         { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('950') },
       ])
 
       await dbSvc.db
         .update(transactions)
-        .set({ originalAmount: null })
+        .set({ originalAmount: null, status: 'PAID' })
         .where(eq(transactions.id, income.id))
     })
 

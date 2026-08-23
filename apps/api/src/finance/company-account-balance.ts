@@ -63,7 +63,7 @@
  *     schema is out of this task's zone).
  */
 import { Logger } from '@nestjs/common'
-import { and, eq, inArray, ne, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../database/database.service'
 import type { DrizzleTx } from '../database/types'
 // security-review PR #456 round 2: reads the `nonDeletedTransactions` VIEW,
@@ -149,6 +149,38 @@ async function sumAmount(db: Db, where: ReturnType<typeof and>): Promise<number>
 }
 
 /**
+ * SUM(settled_amount) over `where`, parsed the same way `sumAmount` above
+ * parses SUM(amount).
+ *
+ * task-cascade-apply (task 3), addendum §1.3 — DELIBERATELY not a parameter
+ * on `sumAmount`: the two sum genuinely different columns for genuinely
+ * different reasons, and a `column` parameter would make every one of the
+ * eight existing call sites read as if the choice were open there too. The
+ * 9th term must sum the MONOTONIC accumulator (`settled_amount` = what
+ * physically left the account), never `amount` (which the cascade has just
+ * rewritten to the NEW share) — summing `amount` here would return a debit
+ * that never happened.
+ *
+ * Same `nonDeletedTransactions` VIEW as `sumAmount`, for the same reason (a
+ * soft-deleted row cannot appear no matter what `where` is passed).
+ */
+async function sumSettledAmount(db: Db, where: ReturnType<typeof and>): Promise<number> {
+  const rows = await db
+    .select({ total: sql<string>`COALESCE(SUM(${nonDeletedTransactions.settledAmount}), 0)` })
+    .from(nonDeletedTransactions)
+    .where(where)
+  // Stryker disable next-line StringLiteral: equivalent mutant — this fallback
+  // ('0' vs '') is consumed ONLY by `parseFloat` on this line and the
+  // `Number.isFinite` guard on the next. parseFloat('0') === 0 is finite and
+  // returns 0; parseFloat('') === NaN is not finite and ALSO returns 0. No
+  // assertion on this literal's exact value can distinguish the two — the
+  // observable behaviour ("an empty result set contributes zero") is pinned
+  // instead, in company-account-balance.spec.ts.
+  const total = parseFloat(rows[0]?.total ?? '0')
+  return Number.isFinite(total) ? total : 0
+}
+
+/**
  * C-3 (mega-audit wave 2, AC7/AC8) — the two "company-shaped" types that carry
  * no `fundingSource` gate: a row of one of these types is company money by
  * TYPE ALONE (a company deposit, a dividend paid FROM the company).
@@ -168,6 +200,18 @@ const COMPANY_TERM_TYPES_FUNDING_GATED = [
   'SENIOR_INCOME',
   'PAYOUT_DROP',
 ] as const
+
+/**
+ * task-cascade-apply (task 3), addendum §1.3 — the two IOU types a settled
+ * derivative is flipped BACK to when an admin edits the source income's
+ * amount (`SENIOR_INCOME → SENIOR_PENDING_PAYOUT`,
+ * `PAYOUT_DROP → DROP_PENDING_PAYOUT`).
+ *
+ * ONE constant, read by BOTH the 9th ledger term AND the off-currency guard
+ * below (backlog 85: a second copy of a type list is a second description of
+ * one rule, and the two drift). Do not inline either list.
+ */
+const COMPANY_TERM_TYPES_PENDING_SETTLED = ['SENIOR_PENDING_PAYOUT', 'DROP_PENDING_PAYOUT'] as const
 
 /**
  * C-3 (mega-audit wave 2): every SUM term below already carries a
@@ -215,11 +259,18 @@ const COMPANY_TERM_TYPES_FUNDING_GATED = [
 export class CompanyAccountOffCurrencyError extends Error {
   constructor(readonly count: number) {
     super(
-      `computeCompanyAccountBalanceFromLedger: found ${count} PAID company-account ` +
-        `row(s) booked in a currency other than USDT. The company account is ` +
+      // task-cascade-apply (task 3, AC9): the message used to assert every
+      // offending row was `PAID`. Since the guard also looks at reverted IOUs
+      // (`PENDING_PAYMENT`, whose off-currency label sits in
+      // `settled_currency`), that sentence would now be false for part of the
+      // count — and a diagnostic message that misdescribes what it found
+      // sends the operator looking in the wrong place.
+      `computeCompanyAccountBalanceFromLedger: found ${count} company-account ` +
+        `row(s) whose currency label is not USDT. The company account is ` +
         `USDT-only — these rows would silently drop out of the balance instead of ` +
-        `being counted or rejected. Fix the offending row(s) (wrong currency label) ` +
-        `before trusting this balance.`,
+        `being counted or rejected. Fix the offending row(s) (wrong currency label ` +
+        `on 'currency' for a settled row, or on 'settled_currency' for one returned ` +
+        `to PENDING_PAYMENT) before trusting this balance.`,
     )
     this.name = 'CompanyAccountOffCurrencyError'
   }
@@ -230,14 +281,55 @@ async function assertNoOffCurrencyCompanyRows(db: Db): Promise<void> {
     .select({ total: sql<string>`COUNT(*)` })
     .from(nonDeletedTransactions)
     .where(
-      and(
-        eq(nonDeletedTransactions.status, 'PAID'),
-        ne(nonDeletedTransactions.currency, 'USDT'),
-        or(
-          inArray(nonDeletedTransactions.type, COMPANY_TERM_TYPES_UNGATED),
-          and(
-            inArray(nonDeletedTransactions.type, COMPANY_TERM_TYPES_FUNDING_GATED),
-            eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+      or(
+        // The original guard: a SETTLED company-shaped row whose `currency`
+        // is not USDT. Unchanged.
+        and(
+          eq(nonDeletedTransactions.status, 'PAID'),
+          ne(nonDeletedTransactions.currency, 'USDT'),
+          or(
+            inArray(nonDeletedTransactions.type, COMPANY_TERM_TYPES_UNGATED),
+            and(
+              inArray(nonDeletedTransactions.type, COMPANY_TERM_TYPES_FUNDING_GATED),
+              eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+            ),
+          ),
+        ),
+        // task-cascade-apply (task 3, AC9 / addendum §1.8) — the NEW class of
+        // company-shaped rows the 9th term introduces, in the SAME query (no
+        // extra round-trip).
+        //
+        // The 9th term filters on `settled_currency='USDT'`, so a reverted
+        // IOU carrying a foreign label would drop out of the balance exactly
+        // as silently as the rows the original branch above exists to catch —
+        // the same defect, on a surface that did not exist when the guard was
+        // written.
+        //
+        // `settled_currency IS NULL` is inside the condition on purpose:
+        // "there is no label" is NOT "the label matches". Same refusal-to-
+        // assume that removed `settledCurrency !== null` from the resolver in
+        // round 2 of PR #603.
+        //
+        // `settled_amount IS NOT NULL AND <> 0` narrows to rows that actually
+        // went through a settle: a freshly booked IOU (`PENDING_PAYMENT`,
+        // `fundingSource` NULL, no accumulator) is not company money and must
+        // not trip a gate.
+        //
+        // The set is provably EMPTY under the current code — nothing anywhere
+        // writes `fundingSource='COMPANY_ACCOUNT'` onto a `*_PENDING_PAYOUT`
+        // row (the only writer is `settleByCompany`'s flip, which sets
+        // `status='PAID'` and a PAID-form `type` in the same `.set()`).
+        // Verified by provenance (which write paths exist), not by querying
+        // data — see AC9 of the task file.
+        and(
+          eq(nonDeletedTransactions.status, 'PENDING_PAYMENT'),
+          inArray(nonDeletedTransactions.type, COMPANY_TERM_TYPES_PENDING_SETTLED),
+          eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+          isNotNull(nonDeletedTransactions.settledAmount),
+          ne(nonDeletedTransactions.settledAmount, '0'),
+          or(
+            isNull(nonDeletedTransactions.settledCurrency),
+            ne(nonDeletedTransactions.settledCurrency, 'USDT'),
           ),
         ),
       ),
@@ -274,6 +366,7 @@ async function sumLedgerTerms(db: Db): Promise<number> {
     companyExpenses,
     companySeniorPayouts,
     companyDropPayouts,
+    revertedSettled,
   ] = await Promise.all([
     // AC5 (BIZ-23): currency='USDT' guard on EVERY term — defence-in-depth.
     sumAmount(
@@ -355,6 +448,51 @@ async function sumLedgerTerms(db: Db): Promise<number> {
         eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
+    // task-cascade-apply (task 3), addendum §1.3 — the NINTH term.
+    //
+    // WHAT IT COMPENSATES. Terms 7/8 debit the account for a company-funded
+    // IOU once it flips to PAID. A cascade revert (an admin correcting the
+    // source income's amount) flips that row BACK to
+    // `*_PENDING_PAYOUT` / `PENDING_PAYMENT`, so it silently leaves terms 7/8
+    // — and the balance grows by money that has already physically left the
+    // account. That is an error in the "+" direction, and the balance is the
+    // input to `if (amount > balance) throw` in four money gates: the system
+    // would allow spending what it does not have. No other check stands
+    // behind it (ADR AC6 risk 4).
+    //
+    // WHY `settled_amount` AND NOT `amount`. After the revert `amount` already
+    // holds the NEW share, while what left the account was the OLD one — and
+    // the old figure survives ONLY in the monotonic accumulator. This also
+    // makes the term stable across a series of edits: however many times the
+    // income is corrected, `settled_amount` does not move, so the returned
+    // debit stays exactly the one that was removed.
+    //
+    // WHY `settled_currency` AND NOT `currency`. `settled_currency` is the
+    // label OF THE COLUMN BEING SUMMED. Filtering on `currency` would be
+    // checking the label of a DIFFERENT number. Inside this set the two
+    // always coincide (addendum §1.5: `fundingSource='COMPANY_ACCOUNT'`
+    // implies the settle ran in USDT), but the one to check is the one that
+    // belongs to the figure.
+    //
+    // WHY THERE IS NO `settled_amount > 0`. It would be redundant:
+    // `settled_currency = 'USDT'` already excludes NULL (a SQL comparison
+    // with NULL yields NULL), and a row with an honest zero contributes zero.
+    // A redundant predicate protects nothing and leaves an unkillable mutant
+    // (backlog 96, addendum §1.3).
+    //
+    // The set equals exactly "rows that lost their debit" — proved both ways
+    // in addendum §1.4 (⊆ from what the revert changes, ⊇ from the fact that
+    // `*_PENDING_PAYOUT` + `COMPANY_ACCOUNT` is reachable only through a flip
+    // followed by a revert).
+    sumSettledAmount(
+      db,
+      and(
+        inArray(nonDeletedTransactions.type, COMPANY_TERM_TYPES_PENDING_SETTLED),
+        eq(nonDeletedTransactions.status, 'PENDING_PAYMENT'),
+        eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+        eq(nonDeletedTransactions.settledCurrency, 'USDT'),
+      ),
+    ),
   ])
 
   return (
@@ -365,7 +503,8 @@ async function sumLedgerTerms(db: Db): Promise<number> {
     companySalaries -
     companyExpenses -
     companySeniorPayouts -
-    companyDropPayouts
+    companyDropPayouts -
+    revertedSettled
   )
 }
 

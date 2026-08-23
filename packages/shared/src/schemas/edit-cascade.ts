@@ -64,13 +64,51 @@ export interface CascadeSourceSnapshot {
    * anyone noticing.
    */
   originalAmount: number | null
+  /**
+   * `transactions.settled_amount` on the SOURCE row ITSELF (task 3, AC13 /
+   * addendum §1.12, security-review SR-H-1).
+   *
+   * A settled derivative is editable too — `settleByCompany`'s flip clears
+   * `payoutRequestId` (so guard 2 lets it through) and leaves `originalAmount`
+   * NULL on the senior branch (so the C2 guard lets it through), while ledger
+   * term 7 debits the company account BY that row's `amount`. Editing it down
+   * raises the balance by the difference, and the AC6 reconciliation cannot
+   * see it: that walks `plan.derivatives`, and here the edited row IS the
+   * source. Non-null means "this row's amount is pinned to what was actually
+   * paid" — a second carrier the edit does not move.
+   */
+  settledAmount: number | null
+  /**
+   * Does a `pending_obligations` row exist with
+   * `source_transaction_id = <this row> AND status = 'PAID'`? (task 3, AC13.)
+   *
+   * The pre-#599 form of `settledAmount` above: rows closed before the
+   * accumulator column existed carry no `settled_amount`, but they still close
+   * an obligation and still stand in a ledger term. Keying on
+   * `source_transaction_id` is correct precisely because a settle flips the
+   * row IN PLACE — after the flip `source_transaction_id`,
+   * `closing_transaction_id` and the row's own id are the same value.
+   */
+  hasClosedObligation: boolean
 }
 
 export interface CascadeObligationSnapshot {
   id: string
   status: PendingObligationStatus
-  /** `pending_obligations.amount` — the obligation's own figure, always in `USDT` (booked that way — see `bookCompanyObligations`). */
+  /** `pending_obligations.amount` — the obligation's own figure. */
   amount: number
+  /**
+   * `pending_obligations.currency` — the unit `amount` above is denominated
+   * in. task-cascade-apply (backlog 95, addendum §3.5): `bookCompanyObligations`
+   * stamps `'USDT'` as a LITERAL, and the only thing that kept that literal
+   * in step with the source income's currency was BIZ-18 — the very guard
+   * task 3 lifts. So the value is now READ rather than assumed (the first of
+   * the two legal moves in addendum §3.1), and the mismatch is said out loud
+   * (`OBLIGATION_CURRENCY_MISMATCH` below) rather than silently written
+   * through — the cascade WRITES a share of the source amount into this
+   * column, so its unit has to be checked, not presumed.
+   */
+  currency: CurrencyEnum
   updatedAt: string
 }
 
@@ -102,6 +140,23 @@ export interface CascadeDerivativeSnapshot {
   settledCurrency: CurrencyEnum | null
   /** `transactions.settled_share_percent` — the percent snapshot taken the moment settle nulled `sharePercent` above. */
   settledSharePercent: number | null
+  /**
+   * `transactions.funding_source` — `'COMPANY_ACCOUNT'` once
+   * `settleByCompany` has paid this row out of the shared USDT account,
+   * `null` for an unsettled IOU or an `ADMIN_PERSONAL` settle.
+   *
+   * task-cascade-apply (task 3, AC6 / addendum §1.2): the RESOLVER does not
+   * read it — reverting a row is not a currency or share question. The APPLY
+   * step does, and it is the deciding field for the one refusal that stands
+   * between a wrong ledger and the money gates: only a COMPANY_ACCOUNT row
+   * participates in ledger terms 7/8/9, so only for such a row does the
+   * `amount == settled_amount` invariant have to hold before the revert can
+   * hand the right debit back. It lives on the SNAPSHOT rather than being
+   * re-read separately because `loadCascadeSnapshot` is deliberately the ONE
+   * read shape both entry points use (ADR AC4) — a second query for one
+   * column would fork that shape.
+   */
+  fundingSource: string | null
   /** Does this row's invoice already carry a `COUNTERPARTY` signature? (`invoice_signatures`, `signer_role='COUNTERPARTY'`.) */
   hasSignedInvoice: boolean
   /** The `pending_obligations` row this derivative booked, if any (always present for a real L1/L2 derivative — nullable defensively). */
@@ -159,6 +214,17 @@ export const cascadeWarningCodeSchema = z.enum([
   // editing `amount` would desync it from `exchangeRate` without anyone
   // noticing.
   'SOURCE_ORIGINAL_AMOUNT_SET',
+  // task-cascade-apply (backlog 95, addendum §3.5) — the paired
+  // `pending_obligations` row is denominated in a DIFFERENT currency than the
+  // source income. The cascade WRITES `newAmount` (a share of the source
+  // amount, in the SOURCE's currency) into `pending_obligations.amount`, so a
+  // mismatch means writing a figure into a column that means something else.
+  // Distinct from `NON_USDT_CURRENCY` above, which is about the `settled_amount`
+  // ACCUMULATOR being in another unit (a comparison the resolver refuses to
+  // make); this one is about the DESTINATION of a write. Unlike every other
+  // warning here it BLOCKS application outright (task 3, AC4) — see the
+  // resolver comment below for why `newAmount` is still computed anyway.
+  'OBLIGATION_CURRENCY_MISMATCH',
 ])
 export type CascadeWarningCode = z.infer<typeof cascadeWarningCodeSchema>
 
@@ -297,6 +363,27 @@ function resolveDerivative(
   const settledAmount = derivative.settledAmount ?? 0
   const settledCurrency = derivative.settledCurrency
 
+  // task-cascade-apply (backlog 95, addendum §3.5). `oldAmount` above comes
+  // from `pending_obligations.amount` when an obligation exists, and task 3
+  // WRITES `newAmount` back into that very column. `newAmount` is a share of
+  // `newSourceAmount`, i.e. denominated in `sourceCurrency`; the obligation's
+  // own column is denominated in `obligation.currency`. Until task 3 those two
+  // always coincided, held there by BIZ-18 — which is exactly the guard task 3
+  // lifts, so the coincidence stops being one. Computed BEFORE the
+  // `sharePercent === null` early return on purpose: this is a fact about the
+  // snapshot (which column is denominated in what), not about whether a share
+  // could be recomputed, and a row can legitimately carry BOTH refusals.
+  const obligationCurrencyMismatch =
+    derivative.obligation !== null && derivative.obligation.currency !== sourceCurrency
+  const obligationCurrencyWarning: CascadeWarning[] = obligationCurrencyMismatch
+    ? [
+        {
+          code: 'OBLIGATION_CURRENCY_MISMATCH',
+          message: `Обязательство учтено в ${derivative.obligation!.currency}, а сумма источника — в ${sourceCurrency}: записать пересчитанную долю в обязательство другой валюты нельзя`,
+        },
+      ]
+    : []
+
   if (sharePercent === null) {
     return {
       id: derivative.id,
@@ -315,6 +402,7 @@ function resolveDerivative(
           message:
             'Нет снимка процента доли на этой строке — пересчитать невозможно, требуется ручное решение',
         },
+        ...obligationCurrencyWarning,
       ],
     }
   }
@@ -398,6 +486,12 @@ function resolveDerivative(
           : `Выплата по этой строке учтена в ${settledCurrency}, а не в ${sourceCurrency} — «уже выплачено» и «новая доля» не в одной валюте`,
     })
   }
+  // `newAmount` above is computed as usual even on a mismatch: the NUMBER is
+  // correct (it is a share of the source amount, in the source's currency) —
+  // what is wrong is only writing it into a column that means another
+  // currency. The preview therefore still shows a truthful figure; task 3's
+  // APPLY path is what refuses (AC4).
+  warnings.push(...obligationCurrencyWarning)
 
   return {
     id: derivative.id,
@@ -459,7 +553,17 @@ export function resolveEditCascade(
   patch: CascadeEditPatch,
 ): CascadePlan {
   const { source, derivatives } = snapshot
-  const sourceAmountChanged = amountsDiffer(patch.amount, source.amount)
+  // SR-M-2 (review round 4) — the figure the WRITE will store, not the raw
+  // request. Before this, the preview answered `newSourceAmount: 100` for an
+  // edit the service then stored as 260, which is risk 1 of the ADR's AC6
+  // ("предпросмотр и факт разъезжаются") arriving on the source amount after
+  // CR-M-1 had closed it on the refusals.
+  //
+  // It also has to be the basis for the SHARES: a derivative is a share of the
+  // source amount, and taking shares of a number that will not be stored would
+  // be a worse defect than showing the wrong total.
+  const effectiveAmount = floorAmountAtAccumulator(source.settledAmount, patch.amount)
+  const sourceAmountChanged = amountsDiffer(effectiveAmount, source.amount)
   const sourceWarnings = resolveSourceWarnings(source)
 
   if (!sourceAmountChanged) {
@@ -478,9 +582,9 @@ export function resolveEditCascade(
     sourceId: source.id,
     sourceAmountChanged: true,
     oldSourceAmount: source.amount,
-    newSourceAmount: patch.amount,
+    newSourceAmount: effectiveAmount,
     sourceCurrency: source.currency,
-    derivatives: derivatives.map((d) => resolveDerivative(d, patch.amount, source.currency)),
+    derivatives: derivatives.map((d) => resolveDerivative(d, effectiveAmount, source.currency)),
     sourceWarnings,
   }
 }
@@ -530,10 +634,171 @@ export const cascadeEditPreviewQuerySchema = z.object({
 })
 export type CascadeEditPreviewQuery = z.infer<typeof cascadeEditPreviewQuerySchema>
 
-/** Why editing is blocked outright — mirrors guards 1 and 2 of `adminUpdateTransaction` (`transactions.service.ts:2944-2949`). Guard 3 (BIZ-18, the PAID amount lock) is deliberately NOT one of these: this endpoint exists to preview what removing it would do (task 3), so it never blocks on it. */
+/**
+ * task-cascade-apply (task 3, AC13 / addendum §1.12) — the four reasons a
+ * PAID row's `amount` is NOT our own record to correct.
+ *
+ * The rule, stated once: editing `amount` is allowed when `amount` is OUR OWN
+ * record of a value that could have been entered wrongly, and forbidden when
+ * the number has a SECOND CARRIER that the edit does not move — because then
+ * the edit does not correct a record, it sets two of the system's records
+ * against each other.
+ */
+export const cascadeLedgerFactReasonSchema = z.enum([
+  /** `original_amount` — `exchange_rate = amount / original_amount` sits beside it. */
+  'PAYMENT_FACT_RECORDED',
+  /** `settled_amount` — the accumulator of what has actually been paid out. */
+  'SETTLED_AMOUNT_RECORDED',
+  /** A `pending_obligations` row this transaction closed (either epoch's key). */
+  'CLOSES_OBLIGATION',
+  /** `COMPANY_DEPOSIT` — the figure was observed on-chain (C4 of the ADR). */
+  'ONCHAIN_DEPOSIT',
+])
+export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSchema>
+
+/**
+ * The operator-facing refusal for each reason. Each one names the CARRIER, not
+ * merely "нельзя" — the operator has to know what the amount is pinned to
+ * before they can decide what to do instead.
+ *
+ * Lives beside the classifier rather than inside the API service so the write
+ * path's 400 body and the preview's blocked reason are two renderings of ONE
+ * text, and so task 5's UI can show the same sentence without restating it.
+ */
+export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, string> = {
+  PAYMENT_FACT_RECORDED:
+    'На этой строке зафиксирован факт платежа (сумма и курс) — сумма не редактируется, исправьте документ об оплате',
+  SETTLED_AMOUNT_RECORDED:
+    'Эта строка закрывает обязательство, её сумма подтверждена фактическими выплатами — правьте сторнирующей транзакцией, а не суммой',
+  CLOSES_OBLIGATION:
+    'Эта строка закрывает обязательство — сумма подтверждена закрытым обязательством, правьте сторнирующей транзакцией',
+  ONCHAIN_DEPOSIT:
+    'Сумма депозита сверена с блокчейном — она не редактируется, оформляйте расхождение отдельной транзакцией',
+}
+
+/**
+ * ONE description of AC13's four predicates, so `GET :id/edit-preview` and
+ * `PATCH :id/admin-edit` cannot disagree about what is editable (CR-M-1,
+ * code-review round 3; risk 1 of the main ADR's AC6).
+ *
+ * Returns the FIRST reason that applies, most specific first — a row can carry
+ * several carriers at once and the operator should hear about the one that is
+ * hardest to argue with.
+ *
+ * `ADMIN_INCOME`, `EXPENSE` and `DIVIDEND_TO_ADMIN` return `null` ON PURPOSE:
+ * they have no second carrier (checked column by column across all eight
+ * ledger terms — the table in addendum §1.12), so an edit there means "we wrote
+ * down the wrong number" and the ledger is obliged to follow it. That is the
+ * work the whole cascade exists to do; do not "finish the job" by adding them.
+ *
+ * ONLY EVER ASKED ABOUT THE ROW BEING EDITED. The cascade writes `amount` on
+ * derivatives whose `settledAmount` is non-null all the time — that is AC5/AC6,
+ * its ordinary work. Calling this from `applyEditCascade` would make the
+ * cascade refuse itself.
+ */
+export function classifyEditedRowLedgerFact(
+  source: CascadeSourceSnapshot,
+): CascadeLedgerFactReason | null {
+  if (source.originalAmount !== null) return 'PAYMENT_FACT_RECORDED'
+  if (source.settledAmount !== null) return 'SETTLED_AMOUNT_RECORDED'
+  if (source.hasClosedObligation) return 'CLOSES_OBLIGATION'
+  if (source.type === 'COMPANY_DEPOSIT') return 'ONCHAIN_DEPOSIT'
+  return null
+}
+
+/**
+ * THE FLOOR, stated once (SR-M-6 / SR-M-2, review rounds 3-4):
+ *
+ * > a row's `amount` is never written, or shown, below its `settled_amount`.
+ *
+ * `settled_amount` is what actually left the account. Writing `amount` below
+ * it makes ledger terms 7/8 under-debit by the difference — an error in the
+ * "+" direction, the one no gate catches — and leaves an obligation asserting
+ * a smaller debt than has already been paid, which nothing but a data repair
+ * can undo.
+ *
+ * It lives HERE, in the pure module, because three places need the same
+ * number: the resolver (so the preview shows what will be stored, and so the
+ * shares are shares of that figure), and `adminUpdateTransaction`'s two
+ * writers. A law with three implementations is three laws.
+ *
+ * `?? 0` covers `undefined` as well as `null`: `Number(undefined)` is `NaN`,
+ * `Math.max` propagates it, and the money write becomes the string 'NaN'.
+ */
+export function floorAmountAtAccumulator(
+  // Accepts the RAW column value (`numeric` arrives from drizzle as a string)
+  // as well as a parsed number, so callers never have to write their own
+  // null-preserving conversion. They did, briefly, and it was a redundant
+  // branch no test could reach: the only caller that could tell `null` from
+  // `0` apart needs a non-positive request, and both entrances validate
+  // `.positive()`. One conversion, in the place whose own spec exercises both
+  // branches directly.
+  settledAmount: number | string | null | undefined,
+  requested: number,
+): number {
+  // No accumulator ⇒ NO floor. `Math.max(requested, settledAmount ?? 0)` reads
+  // the same for every figure the API can actually receive (amounts are
+  // `.positive()` on both entrances), but it quietly states a SECOND rule —
+  // "never below zero" — that nobody asked for, and it clamps a negative
+  // probe to 0. The law is about the accumulator; where there is none, there
+  // is nothing to say.
+  if (settledAmount === null || settledAmount === undefined) return requested
+  return Math.max(requested, Number(settledAmount))
+}
+
+/**
+ * Is this edit the one that runs the cascade? (CR-M-2, review round 4.)
+ *
+ * Asked by BOTH entrances — `GET :id/edit-preview` and
+ * `PATCH :id/admin-edit` — and previously written out in both, the second time
+ * under a comment saying it "mirrors" the first. That phrasing is the marker
+ * for a third copy of a rule (backlog 85); copies that agree today are still
+ * two descriptions, and on #600 two of them had already drifted.
+ *
+ * Compared against the RAW request, NOT the floored figure — the two are
+ * different questions and conflating them silently removes AC13:
+ *
+ *   - "does the STORED figure move?" (floored) decides what gets WRITTEN;
+ *   - "did the operator ASK for a change?" (raw) decides whether this is a
+ *     cascade edit, and therefore whether AC13 and the preview token apply.
+ *
+ * On a settled row `amount === settled_amount`, so EVERY downward request
+ * floors back to the current value. Asking the floored question there would
+ * make it "no change", skip AC13 and answer the operator with a silent
+ * success — for exactly the population AC13 exists to refuse. Measured: the
+ * `risk 18` and `risk 25` specs both went red on that, which is what the
+ * accumulator fixture in them is for.
+ *
+ * The two questions only diverge when an accumulator exists, and on a `PAID`
+ * row that is precisely where AC13 refuses anyway — so the raw comparison
+ * costs nothing and keeps the refusal reachable.
+ */
+export function isCascadeAmountEdit(args: {
+  status: string
+  storedAmount: number
+  requestedAmount: number
+}): boolean {
+  return args.status === 'PAID' && amountsDiffer(args.requestedAmount, args.storedAmount)
+}
+
+/**
+ * Why editing is blocked outright.
+ *
+ * The first two mirror guards 1 and 2 of `adminUpdateTransaction`. The four
+ * after them are AC13's ledger-fact refusals (CR-M-1): before they were listed
+ * here the preview answered `editable: true` for rows the write refuses, which
+ * is exactly the preview-vs-fact divergence the "one resolver, two wrappers"
+ * shape exists to prevent — and which would have surfaced as an edit form whose
+ * save cannot succeed the moment task 5 renders one.
+ *
+ * Guard 3 (BIZ-18, the PAID amount lock) is deliberately NOT one of these: this
+ * endpoint exists to preview what removing it would do (task 3), so it never
+ * blocks on it.
+ */
 export const cascadeEditPreviewBlockedReasonSchema = z.enum([
   'PAYOUT_FAMILY',
   'LINKED_TO_PAYOUT_REQUEST',
+  ...cascadeLedgerFactReasonSchema.options,
 ])
 export type CascadeEditPreviewBlockedReason = z.infer<typeof cascadeEditPreviewBlockedReasonSchema>
 

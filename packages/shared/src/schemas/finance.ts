@@ -1258,6 +1258,27 @@ export const adminUpdateTransactionSchema = z
       .string()
       .regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM')
       .optional(),
+    /**
+     * task-cascade-apply (task 3) — the optimistic-locking token
+     * `GET /transactions/:id/edit-preview` handed back
+     * (`computeCascadeVersion`, packages/shared/src/schemas/edit-cascade.ts).
+     *
+     * MANDATORY on the server whenever a PAID row's `amount` actually
+     * changes: the server re-reads the snapshot under `SELECT … FOR UPDATE`,
+     * re-derives this same string and refuses with 409 on a mismatch, so an
+     * edit confirmed against a preview that has since gone stale (an
+     * accountant settled the obligation in another tab) is rejected rather
+     * than silently recomputed — "молчаливый пересчёт — это и есть
+     * расхождение предпросмотра с фактом, только замаскированное под успех"
+     * (ADR AC4). OPTIONAL here because this same body also carries ordinary
+     * metadata-only edits (notes / receipt / category) and non-PAID amount
+     * edits, which need no token; the requirement is enforced where the
+     * condition is actually known, in `adminUpdateTransaction`.
+     *
+     * `.min(1)`: an empty string is not a version — accepting it would let a
+     * client satisfy "a token was sent" with nothing.
+     */
+    cascadeVersion: z.string().min(1).optional(),
   })
   .refine(receiptXor, receiptXorMessage)
 export type AdminUpdateTransactionDto = z.infer<typeof adminUpdateTransactionSchema>
