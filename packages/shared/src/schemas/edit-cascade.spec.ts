@@ -62,6 +62,12 @@ function makePendingDerivative(
     settledCurrency: null,
     settledSharePercent: null,
     fundingSource: null,
+    originalAmount: null,
+    originalCurrency: null,
+    exchangeRate: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    txDate: null,
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
@@ -89,6 +95,14 @@ function makePaidDerivative(
     settledCurrency: 'USDT',
     settledSharePercent: 26,
     fundingSource: 'COMPANY_ACCOUNT',
+    // task-drop-topup (task 3b): the payment-fact triplet is stamped by a DROP
+    // settle only — a senior one leaves all three NULL (addendum 3b, 1.5).
+    originalAmount: null,
+    originalCurrency: null,
+    exchangeRate: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    txDate: null,
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
@@ -858,6 +872,8 @@ describe('resolveEditCascade — AC7 property test', () => {
   const rand = mulberry32(SEED)
   const ITERATIONS = 500
   const SETTLED_CURRENCIES = ['USDT', 'UAH', 'EUR', 'USD'] as const
+  /** Same set, named separately so the triplet's variation reads as its own axis. */
+  const TRIPLET_CURRENCIES = SETTLED_CURRENCIES
 
   it(`holds invariants across ${ITERATIONS} random (income, percent, obligation status, settled_amount, settled_currency) combinations (seed ${SEED})`, () => {
     // Coverage counters — HIGH-1 (security-review round 1): the ORIGINAL
@@ -927,6 +943,21 @@ describe('resolveEditCascade — AC7 property test', () => {
         // an untouched IOU does not. Independent of the accumulator's size,
         // matching what `settleByCompany` actually writes.
         fundingSource: hasSettledHistory ? 'COMPANY_ACCOUNT' : null,
+        // task-drop-topup (task 3b, backlog 87): the payment-fact triplet is
+        // VARIED here on purpose, including shapes no writer produces (a rate
+        // with no amount, a currency unlike the source's). Nothing below
+        // asserts anything ABOUT it — that is the point: every assertion in
+        // this loop has to keep holding while these three columns move
+        // arbitrarily, which is what "the resolver does not read the triplet"
+        // means operationally. A generator that derived them from the settled
+        // figures would prove only that the resolver agrees with itself.
+        originalAmount: rand() < 0.5 ? null : rand() * 5_000,
+        originalCurrency:
+          rand() < 0.5 ? null : TRIPLET_CURRENCIES[Math.floor(rand() * TRIPLET_CURRENCIES.length)]!,
+        exchangeRate: rand() < 0.5 ? null : (rand() * 50).toFixed(8),
+        receiptDocumentId: null,
+        receiptExternalUrl: rand() < 0.5 ? null : 'https://etherscan.io/tx/0xproperty',
+        txDate: rand() < 0.5 ? null : '2026-08-02T00:00:00.000Z',
         hasSignedInvoice: false,
         obligation: {
           id: 'obl-1',
@@ -1295,5 +1326,66 @@ describe('adminUpdateTransactionSchema.cascadeVersion — the preview token on t
     expect(adminUpdateTransactionSchema.parse({ cascadeVersion: version }).cascadeVersion).toBe(
       version,
     )
+  })
+})
+
+/**
+ * task-drop-topup (task 3b) — AC13 in both directions, once the cascade started
+ * clearing the payment-fact triplet on a revert.
+ *
+ * The worry worth writing down: `classifyEditedRowLedgerFact` refuses an edit
+ * when `originalAmount !== null` is its FIRST predicate, and 3b makes that
+ * column go null on rows it never went null on before. Does clearing it open a
+ * door?
+ *
+ * No — and the reason is structural, not a coincidence, which is why it is
+ * pinned here: the refusal is a DISJUNCTION, and on any drop row that ever had
+ * a triplet the other two disjuncts are independently true.
+ */
+describe('AC13 after task 3b: clearing the triplet opens nothing', () => {
+  it('a closed drop row with NO triplet is still refused — by its accumulator', () => {
+    // The shape a future revert leaves behind, asked of the classifier
+    // directly: the row has been paid, so its `amount` is pinned to what left
+    // the account whether or not the triplet says so.
+    expect(
+      classifyEditedRowLedgerFact(
+        makeSource({ type: 'PAYOUT_DROP', originalAmount: null, settledAmount: 130 }),
+      ),
+    ).toBe('SETTLED_AMOUNT_RECORDED')
+  })
+
+  it('…and, with no accumulator either, by the obligation it closed', () => {
+    // The pre-#599 shape: three layers, and the triplet is only the first.
+    expect(
+      classifyEditedRowLedgerFact(
+        makeSource({
+          type: 'PAYOUT_DROP',
+          originalAmount: null,
+          settledAmount: null,
+          hasClosedObligation: true,
+        }),
+      ),
+    ).toBe('CLOSES_OBLIGATION')
+  })
+
+  it.each(['ADMIN_INCOME', 'EXPENSE', 'DIVIDEND_TO_ADMIN'])(
+    'and nothing new is refused: %s with no carrier at all stays editable',
+    (type) => {
+      // The other direction. 3b adds no predicate here, and an income row is
+      // exactly what this whole decomposition exists to let people fix.
+      expect(classifyEditedRowLedgerFact(makeSource({ type, originalAmount: null }))).toBeNull()
+    },
+  )
+
+  it('a REVERTED drop row never reaches AC13 at all — a different rule holds it', () => {
+    // Worth pinning so the next reader does not "close" a hole that is not
+    // there. `isCascadeAmountEdit` requires `status === 'PAID'`, and a reverted
+    // row is `PENDING_PAYMENT`, so the whole AC13 block (and the mandatory
+    // preview with it) is skipped for it. What keeps its `amount` honest is
+    // `floorAmountAtAccumulator`: no writer may put it below what was paid.
+    expect(
+      isCascadeAmountEdit({ status: 'PENDING_PAYMENT', storedAmount: 130, requestedAmount: 5 }),
+    ).toBe(false)
+    expect(floorAmountAtAccumulator(5, 130)).toBe(130)
   })
 })

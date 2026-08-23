@@ -104,6 +104,15 @@ function pendingDerivativeRow(overrides: Record<string, unknown> = {}) {
     settledCurrency: null,
     settledSharePercent: null,
     fundingSource: null,
+    // task-drop-topup (3b): the payment-fact triplet plus the receipt refs.
+    // All NULL on a row that has never been paid — `loadCascadeSnapshot` reads
+    // them off the same `d.*` row, so the double has to carry them too.
+    originalAmount: null,
+    originalCurrency: null,
+    exchangeRate: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    txDate: null,
     deletedAt: null,
     sourceIncomeTransactionId: SOURCE_ID,
     ...overrides,
@@ -125,10 +134,45 @@ function settledDerivativeRow(overrides: Record<string, unknown> = {}) {
     settledCurrency: 'USDT',
     settledSharePercent: 26,
     fundingSource: COMPANY_ACCOUNT,
+    // A SENIOR settle never stamps the triplet — `settleByCompany` builds that
+    // object only under `isDropObligation` (addendum 3b, 1.5). NULL here is the
+    // real shape, not a convenience.
+    originalAmount: null,
+    originalCurrency: null,
+    exchangeRate: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: 'https://drive.google.com/file/senior-settle-receipt',
+    txDate: T_DERIV,
     deletedAt: null,
     sourceIncomeTransactionId: SOURCE_ID,
     ...overrides,
   }
+}
+
+/**
+ * A DROP IOU closed by a real company-funded settle — the shape task 3b makes
+ * revertible for the first time.
+ *
+ * Unlike `settledDerivativeRow` this one CARRIES the payment-fact triplet:
+ * `settleByCompany` stamps it on EVERY drop settle (not only currency-changing
+ * ones), which is exactly why a revert has to decide what to do with it.
+ */
+function settledDropDerivativeRow(overrides: Record<string, unknown> = {}) {
+  return settledDerivativeRow({
+    id: DROP_DERIV_ID,
+    type: 'PAYOUT_DROP',
+    amount: '100.000000',
+    settledAmount: '100.000000',
+    settledSharePercent: 10,
+    settledCurrency: 'USDT',
+    fundingSource: COMPANY_ACCOUNT,
+    originalAmount: '100.000000',
+    originalCurrency: 'USDT',
+    exchangeRate: '1.00000000',
+    receiptDocumentId: null,
+    receiptExternalUrl: 'https://etherscan.io/tx/0xfirstdroppayment',
+    ...overrides,
+  })
 }
 
 function obligationRow(overrides: Record<string, unknown> = {}) {
@@ -361,6 +405,12 @@ function snapshotFrom(cfg: {
         settledCurrency: d.settledCurrency as 'USDT' | null,
         settledSharePercent: d.settledSharePercent as number | null,
         fundingSource: d.fundingSource as string | null,
+        originalAmount: d.originalAmount === null ? null : Number(d.originalAmount),
+        originalCurrency: d.originalCurrency as 'USDT' | null,
+        exchangeRate: d.exchangeRate as string | null,
+        receiptDocumentId: d.receiptDocumentId as string | null,
+        receiptExternalUrl: d.receiptExternalUrl as string | null,
+        txDate: d.txDate === null ? null : (d.txDate as Date).toISOString(),
         hasSignedInvoice: false,
         obligation: o
           ? {
@@ -649,70 +699,19 @@ describe('AC4: blocking conditions', () => {
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
-  it('AC15: a settled DROP obligation blocks even in matching currency — the top-up branch does not exist yet', async () => {
-    const derivatives = [
-      settledDerivativeRow({
-        id: DROP_DERIV_ID,
-        type: 'PAYOUT_DROP',
-        settledAmount: '100.000000',
-        settledSharePercent: 10,
-        amount: '100.000000',
-        fundingSource: null,
-      }),
-    ]
-    const obligations = [
-      obligationRow({
-        id: DROP_OBL_ID,
-        sourceTransactionId: DROP_DERIV_ID,
-        status: 'PAID',
-        amount: '100.000000',
-      }),
-    ]
-    const { db, ops } = makeDouble({ derivatives, obligations })
-    const svc = makeTransactionsService({ db })
-    stubFindOne(svc)
-    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
-    await expect(
-      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/доплата по нему пока не поддерживается/)
-    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
-  })
-
-  it('AC15: the drop refusal reads as "not built yet", never as "something is broken"', async () => {
-    const derivatives = [
-      settledDerivativeRow({
-        id: DROP_DERIV_ID,
-        type: 'PAYOUT_DROP',
-        settledAmount: '100.000000',
-        settledSharePercent: 10,
-        amount: '100.000000',
-        fundingSource: null,
-      }),
-    ]
-    const obligations = [
-      obligationRow({
-        id: DROP_OBL_ID,
-        sourceTransactionId: DROP_DERIV_ID,
-        status: 'PAID',
-        amount: '100.000000',
-      }),
-    ]
-    const { db } = makeDouble({ derivatives, obligations })
-    const svc = makeTransactionsService({ db })
-    stubFindOne(svc)
-    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
-    let caught: unknown
-    try {
-      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
-    } catch (e) {
-      caught = e
-    }
-    const message = (caught as Error).message
-    expect(message).toContain('закрытие остатка — отдельная задача')
-    expect(message).not.toMatch(/ошибк/i)
-    expect(message).not.toMatch(/невозможн/i)
-    expect(message).not.toMatch(/поврежд/i)
-  })
+  /**
+   * REMOVED by task-drop-topup (task 3b): three tests here used to pin AC15(a)
+   * — "a settled DROP obligation blocks even in matching currency". That
+   * refusal IS what 3b lifts, so keeping tests of it would pin the defect. Its
+   * law ("never revert what cannot be closed again") is now carried by four
+   * narrower refusals, each with its own tests:
+   *   - AC15(b) / OBLIGATION_CURRENCY_MISMATCH — the cases around this note,
+   *     plus "AC15(b) did not leave with (a)" in the task 3b block at the end
+   *     of this file;
+   *   - AC9 (unknown accumulator) — its own describe at the end of this file;
+   *   - the funding-source / payer guard — `settleByCompany`'s own specs;
+   *   - the `max(newAmount, settledAmount)` floor — the SR-M-6 describe above.
+   */
 
   it('AC15: the currency refusal spells out both units and what it means', async () => {
     const derivatives = [settledDerivativeRow({ settledCurrency: 'USD', fundingSource: null })]
@@ -745,43 +744,6 @@ describe('AC4: blocking conditions', () => {
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
     ).rejects.toThrow(/учтено в неизвестной валюте/)
-  })
-
-  it('AC15: the drop refusal names the consequence, not just the prohibition', async () => {
-    const derivatives = [
-      settledDerivativeRow({
-        id: DROP_DERIV_ID,
-        type: 'PAYOUT_DROP',
-        settledAmount: '100.000000',
-        settledSharePercent: 10,
-        amount: '100.000000',
-        fundingSource: null,
-      }),
-    ]
-    const obligations = [
-      obligationRow({
-        id: DROP_OBL_ID,
-        sourceTransactionId: DROP_DERIV_ID,
-        status: 'PAID',
-        amount: '100.000000',
-      }),
-    ]
-    const { db } = makeDouble({ derivatives, obligations })
-    const svc = makeTransactionsService({ db })
-    stubFindOne(svc)
-    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
-    let caught: unknown
-    try {
-      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
-    } catch (e) {
-      caught = e
-    }
-    const message = (caught as Error).message
-    expect(message).toContain('по обязательству дропа уже есть выплата')
-    expect(message).toContain(
-      'Правка дохода вернула бы обязательство в ожидание выплаты, закрыть которое сейчас',
-    )
-    expect(message).toContain('нечем')
   })
 
   it('AC15: the dead-end checks apply ONLY to a revert — an OPEN obligation with a foreign accumulator still updates', async () => {
@@ -2075,7 +2037,21 @@ describe('AC6: revert of a settled derivative', () => {
     expect(meta.causedBy).toBe(SOURCE_ID)
     expect(meta.settledAmount).toBe(260)
     expect(meta.sharePercent).toBe(26)
-    expect(meta.before).toEqual({ amount: 260, type: 'SENIOR_INCOME', status: 'PAID' })
+    // task-drop-topup (task 3b, AC11) widened `before` to everything the revert
+    // retracts. On a SENIOR row the triplet is NULL by construction (only a
+    // drop settle stamps it), and the receipt is whatever the settle attached —
+    // both are recorded rather than assumed.
+    expect(meta.before).toEqual({
+      amount: 260,
+      type: 'SENIOR_INCOME',
+      status: 'PAID',
+      originalAmount: null,
+      originalCurrency: null,
+      exchangeRate: null,
+      receiptDocumentId: null,
+      receiptExternalUrl: 'https://drive.google.com/file/senior-settle-receipt',
+      txDate: '2026-08-02T00:00:00.000Z',
+    })
     expect(meta.after).toEqual({
       amount: plan.derivatives[0]!.newAmount,
       type: 'SENIOR_PENDING_PAYOUT',
@@ -2729,5 +2705,251 @@ describe('AC11: invoice wiring boundaries', () => {
     } finally {
       errorSpy.mockRestore()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-drop-topup (task 3b) — the drop revert, now that AC15(a) is gone.
+//
+// Every case below was UNREACHABLE before this task: AC15(a) refused any drop
+// derivative carrying a non-zero accumulator, which is every drop derivative a
+// revert can reach (see the reachability note on the AC6 drop test above).
+// ---------------------------------------------------------------------------
+
+describe('task 3b: a paid DROP derivative is revertible', () => {
+  const dropDerivatives = () => [settledDropDerivativeRow()]
+  const dropObligations = () => [
+    obligationRow({
+      id: DROP_OBL_ID,
+      sourceTransactionId: DROP_DERIV_ID,
+      status: 'PAID',
+      amount: '100.000000',
+    }),
+  ]
+
+  async function runDropRevert(cfg: DbleConfig = {}) {
+    const derivativeRows = cfg.derivatives ?? dropDerivatives()
+    const obligationRows = cfg.obligations ?? dropObligations()
+    const { db, ops } = makeDouble({
+      ...cfg,
+      derivatives: derivativeRows,
+      obligations: obligationRows,
+      revertClaimRows: cfg.revertClaimRows ?? [{ id: DROP_OBL_ID }],
+    })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const snapshot = snapshotFrom({
+      source: cfg.source,
+      derivatives: derivativeRows,
+      obligations: obligationRows,
+    })
+    await svc.adminUpdateTransaction(
+      SOURCE_ID,
+      { amount: 2000, cascadeVersion: computeCascadeVersion(snapshot) },
+      ADMIN,
+    )
+    return { ops, snapshot }
+  }
+
+  it('AC1: a drop row that has already been paid REVERTS instead of refusing', async () => {
+    const { ops, snapshot } = await runDropRevert()
+    const plan = resolveEditCascade(snapshot, { amount: 2000 })
+    const write = derivativeWrites(ops)[0]!
+    expect(write.set.type).toBe('DROP_PENDING_PAYOUT')
+    expect(write.set.status).toBe('PENDING_PAYMENT')
+    expect(write.set.amount).toBe(String(plan.derivatives[0]!.newAmount))
+    expect(write.set.dropSharePercent).toBe(10)
+    // …and the obligation goes back to being owed, at the new figure.
+    const claim = updatesTargeting(ops, 'pending_obligations', DROP_OBL_ID)[0]!
+    expect(claim.set.status).toBe('PENDING')
+    expect(claim.set.amount).toBe(String(plan.derivatives[0]!.newAmount))
+  })
+
+  it('AC2: the revert NULLS the payment-fact triplet — the row stops claiming it was paid', async () => {
+    // `amount` is being rewritten to the DEBT, so every column whose truth is
+    // stated RELATIVE to `amount` stops being true: `amount = original_amount ×
+    // exchange_rate` (addendum 3b, 1.5). Leaving them would make a
+    // PENDING_PAYMENT row assert it was paid, for the whole window in which the
+    // owner is looking at "how much is left to top up".
+    const { ops } = await runDropRevert()
+    const write = derivativeWrites(ops)[0]!
+    expect(write.set.originalAmount).toBeNull()
+    expect(write.set.originalCurrency).toBeNull()
+    expect(write.set.exchangeRate).toBeNull()
+  })
+
+  it('AC2: and nulls NOTHING else — the accumulator, the receipt and the payer survive', async () => {
+    // The other half of the same criterion: a column that is a self-standing
+    // record of a payment that really happened is still true after the revert.
+    const { ops } = await runDropRevert()
+    const write = derivativeWrites(ops)[0]!
+    for (const preserved of [
+      'settledAmount',
+      'settledCurrency',
+      'settledSharePercent',
+      'fundingSource',
+      'senderId',
+      'senderLabel',
+      'receiptDocumentId',
+      'receiptExternalUrl',
+      'txDate',
+      'currency',
+    ]) {
+      expect(write.set[preserved], `${preserved} must survive a revert`).toBeUndefined()
+    }
+  })
+
+  it('SR-L-2: the reverted row stops describing itself as a payment', async () => {
+    // `settleByCompany` stamps `notes` with «Выплата drop IOU …». After a
+    // revert the row is an IOU awaiting the remainder again, so that sentence
+    // is simply false — and `notes` is what an operator reads in the list.
+    // Display-only (nothing branches on it — checked), so the fix is the text.
+    const { ops } = await runDropRevert()
+    const write = derivativeWrites(ops)[0]!
+    const notes = write.set.notes as string
+    expect(notes).not.toMatch(/^Выплата/)
+    expect(notes).toMatch(/ожидание выплаты/)
+    // The obligation stays nameable from the row itself, as it was before.
+    expect(notes).toContain(DROP_OBL_ID)
+  })
+
+  it('AC11: CASCADE_REOPEN carries the retracted payment fact, receipt links included', async () => {
+    // The journal is the only place the FIRST payment's receipt survives: the
+    // next settle overwrites `receipt_*` on the row with its own proof. This
+    // insert runs inside the money transaction (unlike the best-effort `PAY`),
+    // so it is a reliable carrier for provenance — money is still never
+    // computed from it.
+    const { ops } = await runDropRevert()
+    const meta = journalEntries(ops, 'CASCADE_REOPEN')[0]!.values.metadata as Record<
+      string,
+      unknown
+    >
+    expect(meta.before).toEqual({
+      amount: 100,
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      originalAmount: 100,
+      originalCurrency: 'USDT',
+      exchangeRate: '1.00000000',
+      receiptDocumentId: null,
+      receiptExternalUrl: 'https://etherscan.io/tx/0xfirstdroppayment',
+      // SR-M-1: the day the retracted payment was recorded as of. Same family
+      // as `receipt_*` — the revert leaves the column alone, but the NEXT
+      // settle overwrites it, so the journal is the only surviving record of
+      // WHEN the first payment happened.
+      txDate: '2026-08-02T00:00:00.000Z',
+    })
+  })
+
+  it('AC1: a drop row closed in ANOTHER currency is still refused — AC15(b) did not leave with (a)', async () => {
+    const derivativeRows = [
+      settledDropDerivativeRow({
+        settledCurrency: 'UAH',
+        currency: 'UAH',
+        fundingSource: null,
+        exchangeRate: '41.50000000',
+        amount: '4150.000000',
+        settledAmount: '4150.000000',
+      }),
+    ]
+    const { db, ops } = makeDouble({
+      derivatives: derivativeRows,
+      obligations: dropObligations(),
+    })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(
+      snapshotFrom({ derivatives: derivativeRows, obligations: dropObligations() }),
+    )
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+})
+
+describe('AC9: a derivative whose accumulator is unknown is never reverted', () => {
+  /**
+   * `settled_amount IS NULL` on a CLOSED obligation means the settle predates
+   * the accumulator column (#599). The resolver reads that as `?? 0` — "nothing
+   * has been paid" — and a revert on that belief would reopen the obligation at
+   * its FULL figure and pay the whole thing a second time.
+   *
+   * The population is empty today BY THEOREM (see the refusal's own comment),
+   * which is exactly why the check is worth its line: it turns a four-link proof
+   * spread over three files into something that can be falsified.
+   */
+  function unknownAccumulatorRows() {
+    return {
+      derivatives: [
+        settledDerivativeRow({
+          settledAmount: null,
+          settledCurrency: null,
+          settledSharePercent: 42,
+          // ADMIN_PERSONAL — keeps the §1.2 company-account check (which runs
+          // just before this one) out of the way, so the case that reaches the
+          // refusal is unambiguously THIS one.
+          fundingSource: null,
+        }),
+      ],
+      obligations: [obligationRow({ status: 'PAID' })],
+    }
+  }
+
+  it('refuses, and writes nothing at all', async () => {
+    const { derivatives, obligations } = unknownAccumulatorRows()
+    const { db, ops } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+  })
+
+  it('says WHY — "not recorded", and that a human has to reconcile it', async () => {
+    const { derivatives, obligations } = unknownAccumulatorRows()
+    const { db } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    let caught: unknown
+    try {
+      await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    } catch (e) {
+      caught = e
+    }
+    const message = (caught as Error).message
+    expect(message).toContain('не записано')
+    // …and WHY it is not recorded, which is what tells the reader this is a
+    // legacy row rather than corruption — plus the consequence, which is what
+    // stops it reading as a bare prohibition.
+    expect(message).toContain('до появления накопителя')
+    expect(message).toContain('вернуть её в ожидание выплаты нельзя')
+    expect(message).toContain('остаток к доплате считался бы от нуля')
+    expect(message).toContain('ручная сверка')
+    // A gap in the record, not a fault — the wording must not accuse.
+    expect(message).not.toMatch(/ошибк/i)
+    expect(message).not.toMatch(/поврежд/i)
+  })
+
+  it('the mirror case — a RECORDED accumulator of the same shape reverts normally', async () => {
+    // Same row, one field different. Without this the refusal above would be
+    // satisfied just as well by a check that refuses everything.
+    const derivatives = [
+      settledDerivativeRow({
+        settledAmount: '260.000000',
+        settledSharePercent: 42,
+        fundingSource: null,
+      }),
+    ]
+    const obligations = [obligationRow({ status: 'PAID' })]
+    const { db, ops } = makeDouble({ derivatives, obligations })
+    const svc = makeTransactionsService({ db })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    await svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN)
+    expect(derivativeWrites(ops)).toHaveLength(1)
   })
 })

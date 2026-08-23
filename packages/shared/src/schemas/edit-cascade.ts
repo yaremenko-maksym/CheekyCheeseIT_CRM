@@ -157,6 +157,59 @@ export interface CascadeDerivativeSnapshot {
    * column would fork that shape.
    */
   fundingSource: string | null
+  /**
+   * `transactions.original_amount` / `original_currency` / `exchange_rate` —
+   * the PAYMENT-FACT TRIPLET, stamped by `settleByCompany` on every DROP
+   * settle (a SENIOR settle never writes it).
+   *
+   * task-drop-topup (task 3b, addendum 1.4/1.5): the RESOLVER does not read
+   * these — reverting a row is not a currency question, and no branch of
+   * `resolveDerivative` changes because of them. The APPLY step does, for two
+   * reasons that both come down to `amount` being rewritten by a revert:
+   *
+   *  1. the triplet's truth is stated RELATIVE to `amount` (`amount =
+   *     original_amount × exchange_rate`), so a revert has to null it — the
+   *     row would otherwise sit in `PENDING_PAYMENT` still asserting it was
+   *     paid, for exactly as long as the owner is deciding how much to top up;
+   *  2. what is nulled has to be RETRACTABLE, so the values go into
+   *     `CASCADE_REOPEN.metadata.before` — which means `applyEditCascade` has
+   *     to be holding them.
+   *
+   * On the snapshot rather than re-read: `loadCascadeSnapshot` is deliberately
+   * the ONE read shape both entry points use (ADR AC4), and it already selects
+   * the whole row — a second query for these columns would fork that shape for
+   * nothing. Same argument as `fundingSource` above.
+   */
+  originalAmount: number | null
+  originalCurrency: CurrencyEnum | null
+  exchangeRate: string | null
+  /**
+   * `transactions.receipt_document_id` / `receipt_external_url` — the proof of
+   * the payment being retracted.
+   *
+   * task-drop-topup (task 3b, "Семья однозначных колонок"): a revert does NOT
+   * clear these (a receipt is a self-standing record — it was and stays true),
+   * but the NEXT settle overwrites them with its own proof, because the row
+   * has one pair of receipt columns and the closure now has two payments.
+   * Journalling them at the moment of the revert is what keeps the first
+   * payment's proof from disappearing silently. Read by the APPLY step only,
+   * never by the resolver.
+   */
+  receiptDocumentId: string | null
+  receiptExternalUrl: string | null
+  /**
+   * `transactions.tx_date` as an ISO string — the day the payment being
+   * retracted was recorded as of (`SettleFunding.txDate`), or `null` when the
+   * settle never supplied one.
+   *
+   * SR-M-1 (security-review, task 3b): same family as the receipt links above,
+   * and journalled for the same reason. The revert does NOT clear it — a date
+   * is a self-standing record of when money moved — but the NEXT settle
+   * OVERWRITES it, because the row has one date column and the closure now has
+   * two payments. Without this on the snapshot, the day of the first payment
+   * would be gone the moment the remainder is topped up.
+   */
+  txDate: string | null
   /** Does this row's invoice already carry a `COUNTERPARTY` signature? (`invoice_signatures`, `signer_role='COUNTERPARTY'`.) */
   hasSignedInvoice: boolean
   /** The `pending_obligations` row this derivative booked, if any (always present for a real L1/L2 derivative — nullable defensively). */

@@ -1281,17 +1281,20 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
 
     const source = await sourceIncome(PROJECT_BOTH)
     const preview = await svc.getEditCascadePreview(source.id, 2000, ADMIN)
-    // The drop guard is the one that fires here — a UAH-closed drop trips both
-    // dead-end conditions at once (foreign accumulator AND drop-with-payments),
-    // and the drop check runs first. Either refusal is correct; what risk 20 is
-    // about is that the row is NOT reverted into a state nobody can close.
+    // task-drop-topup (task 3b): the blanket drop refusal used to fire first
+    // here and mask this case. With it gone, the refusal that remains is the
+    // one about the ARITHMETIC: the accumulator is in UAH and the recomputed
+    // share is in USDT, so "what is left to pay" is a subtraction across two
+    // units — not an approximation, a different quantity. Reverting would
+    // leave an obligation whose remainder nobody can compute, which is exactly
+    // the dead end risk 20 is about.
     await expect(
       svc.adminUpdateTransaction(
         source.id,
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/доплата по нему пока не поддерживается/)
+    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
 
     // Zero writes — including on the SENIOR derivative, which was perfectly
     // fine. The cascade is all-or-nothing.
@@ -1332,23 +1335,29 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)
   })
 
-  it('risk 20: a drop obligation closed in USDT from the company account blocks too', async () => {
+  it('risk 20 → task 3b: a drop obligation closed in USDT is REVERTED now, not refused', async () => {
+    // This test used to assert the opposite, and that was the honest thing to
+    // say while the top-up did not exist: reverting a row nothing could close
+    // is worse than refusing the edit. `task-drop-topup` built the closing
+    // half, so the same scenario now completes.
+    //
+    // The money side of it — how much actually leaves the account, what the
+    // triplet ends up holding, what the ledger does between the two states —
+    // is in `drop-topup.integration.spec.ts`. What belongs HERE is only that
+    // the cascade no longer refuses.
     await declare(PROJECT_BOTH, 1000)
     const { obligation } = await derivativeFor(DROP.id)
     await settleSvc.settleByCompany(obligation.id, ADMIN)
     expect((await derivativeFor(DROP.id)).obligation.status).toBe('PAID')
 
     const source = await sourceIncome(PROJECT_BOTH)
-    const preview = await svc.getEditCascadePreview(source.id, 2000, ADMIN)
-    await expect(
-      svc.adminUpdateTransaction(
-        source.id,
-        { amount: 2000, cascadeVersion: preview.version! },
-        ADMIN,
-      ),
-    ).rejects.toThrow(/доплата по нему пока не поддерживается/)
-    expect((await derivativeFor(DROP.id)).obligation.status).toBe('PAID')
-    expect((await sourceIncome(PROJECT_BOTH)).amount).toBe(source.amount)
+    await expect(editWithPreview(source.id, 2000)).resolves.toBeDefined()
+
+    const reopened = await derivativeFor(DROP.id)
+    expect(reopened.obligation.status).toBe('PENDING')
+    expect(reopened.row.type).toBe('DROP_PENDING_PAYOUT')
+    expect(reopened.row.status).toBe('PENDING_PAYMENT')
+    expect((await sourceIncome(PROJECT_BOTH)).amount).toBe('2000.000000')
   })
 
   // ── risk 21 — the round trip has to come back (SR-M-4) ──────────────────

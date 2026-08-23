@@ -670,11 +670,42 @@ export const transactions = pgTable(
      *                       sub-unit rate — e.g. UAH→USD ≈ 0.02666667 — keeps
      *                       full precision; it is a ratio, not an amount.
      *
+     * A ROW CLOSED BY MORE THAN ONE PAYMENT (task-drop-topup, task 3b). Since
+     * the drop top-up exists, a drop row can be closed, reopened by an income
+     * edit, and closed again. The three definitions above do not change — but
+     * note WHEN they are evaluated: the triplet is re-stamped at EVERY closure
+     * and cleared by the revert in between, so it always describes the CLOSURE
+     * THE ROW CURRENTLY STANDS IN, never one of the payments that made it up:
+     *
+     *   original_amount   — the obligation as it FINALLY stood (the revert has
+     *                       already written that figure into `amount`, so this
+     *                       is still literally "`amount` immediately before
+     *                       payment");
+     *   amount            — the SUM of every payment on the row;
+     *   exchange_rate     — their ratio, so `amount = original_amount ×
+     *                       exchange_rate` keeps holding.
+     *
+     * That identity survives only because a top-up is allowed ONLY in the
+     * obligation's own currency — `settleByCompany` refuses anything else the
+     * moment the accumulator is non-zero (AC8), precisely so this column can
+     * never become an average of two rates that no single transfer was made
+     * at. What the row no longer tells you is that there WERE two payments;
+     * that provenance lives in `transaction_audit_log` (`CASCADE_REOPEN`,
+     * `metadata.before`), written inside the money transaction.
+     *
+     * Two invariants, both testable:
+     *   T1  amount = original_amount × exchange_rate
+     *   T2  original_amount IS NOT NULL  ⟺  the row stands in its CLOSED form
+     *
      * NULLABLE, NO DEFAULT, NO BACKFILL — deliberately. NULL reads as «this row
      * was never paid through the amount-aware flow», which is the literal truth
      * for every legacy row: their `amount` still means exactly what it always
      * meant, so there is nothing to migrate and every existing balance/metric
      * keeps returning the same number it returned before this column existed.
+     * Since task 3b, NULL has a SECOND reading on a derivative row, and T2 tells
+     * them apart by status rather than by guesswork: a cascade revert clears the
+     * triplet, so a `PENDING_PAYMENT` row with a non-null `settled_amount` is
+     * one that HAS been paid and is awaiting the remainder.
      *
      * ADD COLUMN DDL (prod is applied via deploy.yml — there is no SSH; see
      * apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql):

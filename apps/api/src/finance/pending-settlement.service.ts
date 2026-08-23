@@ -353,29 +353,23 @@ export class PendingSettlementService {
     // transaction type is the discriminator (mirrors the docstring contract).
     const isDropObligation = sourceType === 'DROP_PENDING_PAYOUT'
 
-    // task-cascade-apply (task 3, AC10 / addendum §1.11) — a drop obligation
-    // that has already been paid something cannot be topped up YET.
+    // task-drop-topup (task 3b): the blanket refusal of a drop top-up
+    // (`isDropObligation && priorSettledAmount > 0`) USED TO STAND HERE, and
+    // removing it is the content of that task.
     //
-    // Not laziness: on a drop row `amount` is the FACT of a payment IN THE
-    // PAYMENT'S OWN CURRENCY, and next to it sit
-    // `originalAmount`/`originalCurrency`/`exchangeRate` describing exactly ONE
-    // conversion, with `amount = originalAmount × exchangeRate`. A partial
-    // top-up makes `amount` cumulative and that identity stops holding — what
-    // the triplet should mean for a row closed by two payments at two different
-    // rates is a real decision (store per-payment? describe the last one? move
-    // terms 7/8 onto `settled_amount`?), and making it here would mean
-    // rewriting a block that has been through three security reviews.
+    // What it was protecting: on a drop row `amount` sits next to
+    // `originalAmount`/`originalCurrency`/`exchangeRate`, and those three
+    // described exactly ONE conversion, so a second payment broke
+    // `amount = originalAmount × exchangeRate`. The triplet now describes the
+    // CLOSURE rather than one payment (addendum 3b, 1.4), `amount` accumulates
+    // by the same expression as the accumulator (below), and the one premise
+    // the new arithmetic rests on — both payments at the same rate — is
+    // asserted explicitly where the rate is stamped, instead of being inferred
+    // from five refusals in three files.
     //
-    // The FIRST settle of a drop obligation is completely unaffected
-    // (`priorSettledAmount` is 0), and a reverted drop row still shows what has
-    // been paid — only closing the remainder through the system waits.
-    if (isDropObligation && priorSettledAmount > 0) {
-      throw new BadRequestException(
-        'Доплата по частично выплаченному обязательству дропа пока не поддерживается — курс и сумма ' +
-          'фактического платежа на такой строке считаются по одной выплате. Обязательство остаётся ' +
-          'открытым, «уже выплачено» видно; закрытие остатка — отдельная задача.',
-      )
-    }
+    // The FIRST settle is unaffected either way: with an empty accumulator
+    // `owedNow === obligation.amount` and `cumulativePaid === paidAmount`, so
+    // every formula below reduces to the one that was there before.
 
     // task-senior-settle-owner: the senior IOU is now paid via the SAME funding
     // selection as a SALARY — the ADMIN/ACCOUNTANT picks AT PAY TIME whether the
@@ -571,6 +565,19 @@ export class PendingSettlementService {
     // Stryker disable next-line ConditionalExpression: for a SENIOR settlement this block's four locals are ASSIGNED but never READ — the `.set()` patch below spreads them behind its OWN, separately-tested `isDropObligation` ternary (see the `'originalAmount' in flips[0]!` assertions in pending-settlement.spec.ts), so entering this block unnecessarily has no observable output. It is also provably side-effect-free: a SENIOR obligation is ALWAYS booked in USDT and BIZ-03 restricts a SENIOR settle's currency to USD/USDT — the only pair convertToBase short-circuits WITHOUT calling `this.nbuCurrency.getRates()` — so no stray network call either
     if (isDropObligation) {
       const obligationAmount = parseFloat(obligation.amount)
+      // task-drop-topup (task 3b, AC3): what is STILL owed — the figure this
+      // settle actually converts and pays. The SAME `remainingOwed` the senior
+      // branch uses (one description of "still owed", two call sites), so a
+      // top-up pays the remainder rather than the obligation a second time.
+      //
+      // `obligationAmount` stays a separate local BECAUSE the two are different
+      // questions: what is being paid now (`owedNow`) versus what the
+      // obligation is worth in total (`obligationAmount`) — the latter is the
+      // rate's denominator and the value of `original_amount`.
+      //
+      // On a first settle the accumulator is NULL, so `owedNow` IS
+      // `obligationAmount` and every line below behaves exactly as before.
+      const owedNow = remainingOwed(obligation.amount)
       const obligationCurrency = obligation.currency as BalanceCurrency
       const targetCurrency = currency as BalanceCurrency
 
@@ -591,6 +598,44 @@ export class PendingSettlementService {
       if (obligationCurrency !== 'USDT') {
         throw new BadRequestException(
           'Обязательство дропа испорчено: валюта обязательства не USDT — конверсия невозможна',
+        )
+      }
+
+      // task-drop-topup (task 3b, AC8 / addendum 3b, 1.3 + 2.6) — the ONE
+      // premise the triplet's arithmetic rests on, asserted where the triplet
+      // is stamped.
+      //
+      // `exchange_rate` below is written as `cumulativePaid / obligationAmount`
+      // — the ratio of EVERY payment on this row to the obligation. That is a
+      // truthful "effective applied rate" only while all those payments were
+      // made in one currency; mix two and the column records an AVERAGE that
+      // no single transfer was ever made at, and nothing downstream would ever
+      // notice (nothing computes money from the triplet — that is a decision,
+      // recorded in addendum 3b, Ответ 0, not an accident).
+      //
+      // Why this is NOT a duplicate of the five refusals that already make the
+      // mixed case unreachable — `obligationCurrency !== 'USDT'` just above,
+      // `OBLIGATION_CURRENCY_MISMATCH` and `NON_USDT_CURRENCY` in the cascade,
+      // `sourceSettledCurrency !== currency` further down, and BIZ-03's
+      // whitelist: every one of them defends a DIFFERENT statement (the
+      // obligation's own currency, the unit of the accumulator, the unit of
+      // the figure written into `pending_obligations`). Not one of them is
+      // phrased about the rate. Delete any of them and this one starts
+      // refusing loudly on live data instead of writing an average — which is
+      // the whole point of expressing a dependency as a check at the point of
+      // reliance (addendum §3.1).
+      //
+      // Scoped to `priorSettledAmount > 0` deliberately: on a FIRST settle
+      // there is no earlier rate to average with, and paying a drop obligation
+      // out in another currency is an existing, working feature
+      // (task-drop-payout-currency).
+      if (priorSettledAmount > 0 && targetCurrency !== obligationCurrency) {
+        throw new BadRequestException(
+          `По этой строке уже выплачено ${priorSettledAmount} ${obligationCurrency}, поэтому доплата ` +
+            `возможна только в ${obligationCurrency}: записанный курс — это отношение всей выплаченной ` +
+            `суммы к обязательству, и выплата в ${targetCurrency} сделала бы его средним между двумя ` +
+            `курсами, по которому не проходил ни один платёж. Закрыть остаток в ${targetCurrency} можно ` +
+            `только вручную, отдельной сверкой.`,
         )
       }
 
@@ -645,7 +690,7 @@ export class PendingSettlementService {
       // the network call (and, for the whole peg pair, the staleness gate,
       // which has nothing to guard when no rate is actually applied).
       if (isUsdPegPair(obligationCurrency, targetCurrency)) {
-        paidAmount = obligationAmount
+        paidAmount = owedNow
       } else {
         // task-drop-payout-currency (owner addendum): fetch the rate AS OF
         // the selected date (undefined ⇒ NbuCurrencyService defaults to
@@ -693,12 +738,7 @@ export class PendingSettlementService {
             'Курс НБУ недоступен — выплата в конвертированной валюте временно невозможна. Повторите позже или выплатите в валюте обязательства (USDT).',
           )
         }
-        const rawPaidAmount = convertToBase(
-          obligationAmount,
-          obligationCurrency,
-          targetCurrency,
-          rates,
-        )
+        const rawPaidAmount = convertToBase(owedNow, obligationCurrency, targetCurrency, rates)
         // LOW (security-review PR #521 round 1): round to the money
         // precision actually payable — `AmountCurrencyInput` DISPLAYS
         // `.toFixed(2)`, but the raw division can carry many more decimals
@@ -741,7 +781,14 @@ export class PendingSettlementService {
       // refused — a "0.00" record would misrepresent a debt that
       // demonstrably still exists — while a genuine zero-obligation settle
       // proceeds untouched.
-      if (paidAmount === 0 && obligationAmount > 0) {
+      // task-drop-topup (task 3b, AC6): compared against `owedNow`, not the
+      // obligation's full figure. `owedNow === 0` is a LEGAL idempotent close
+      // — "exactly as much has been paid as the obligation is worth" — and it
+      // is reachable by editing an income up and then back down (the cascade
+      // floors both copies at the accumulator, so the next settle finds nothing
+      // left to pay). Refusing it here would recreate the dead end AC15 exists
+      // to prevent: a reopened obligation with nothing that can close it.
+      if (paidAmount === 0 && owedNow > 0) {
         throw new BadRequestException(
           'После округления сумма выплаты получилась нулевой, хотя обязательство не нулевое — выберите другую валюту выплаты',
         )
@@ -749,35 +796,64 @@ export class PendingSettlementService {
 
       originalAmount = obligation.amount
       originalCurrency = obligationCurrency
-      // Effective applied rate = paid / original (units of the paid currency
-      // per 1 unit of the obligation) — same formula, same NULL-on-
+      // task-drop-topup (task 3b, AC5 / addendum 3b, 1.4 + 2.3): the numerator
+      // is EVERYTHING paid on this row, not just this payment.
+      //
+      // The triplet describes the row's CLOSED FORM, not one transfer:
+      // `original_amount` is the obligation as it finally stood, `amount` is
+      // the sum of the payments that closed it, and `exchange_rate` is their
+      // ratio — which keeps `amount = original_amount × exchange_rate` true on
+      // a row closed twice. Using this payment alone would record 30/130 for a
+      // USDT→USDT top-up that converted nothing (Л2 of the addendum).
+      //
+      // On a first settle `priorSettledAmount` is 0, so this IS `paidAmount`
+      // and the formula is the pre-existing one, unchanged.
+      //
+      // Rounded to the same 6 places as every other money figure here, for the
+      // same reason `remainingOwed` is: a raw float sum carries a tail
+      // (100.1 + 30.2 = 130.30000000000001) that would surface in the rate.
+      const cumulativePaid = Number((priorSettledAmount + paidAmount).toFixed(6))
+      // Effective applied rate = everything paid / the obligation (units of the
+      // paid currency per 1 unit of the obligation) — same NULL-on-
       // unrepresentable fallback as paySalary. Stamped on EVERY drop settle
       // (not only when the currency changed), so a reader never has to guess
       // whether a NULL original_amount means "unchanged" or "settled before
       // this flow existed" (the latter — see the schema.ts column comment).
+      //
       // `obligationAmount > 0` reads as a real branch (MED-A, round 3: a
       // 0%-share drop obligation legitimately has `obligationAmount === 0`,
-      // for which `paid / original` is 0/0 — deliberately left NULL rather
-      // than computed, same as any other unrepresentable ratio) — but is
-      // PROVABLY unobservable by any test, for a reason distinct from (and
-      // stronger than) the one that justified the old suppression here
-      // pre-MED-A: by construction at this point `obligationAmount` is
-      // either exactly 0 or a finite positive number (negative/NaN/Infinity
-      // were already rejected — `settledAmountError` above runs on
-      // `paidAmount`, which is `obligationAmount` itself on the same-
-      // currency path and `obligationAmount × <a positive finite NBU rate>`
-      // otherwise, so it inherits the SAME sign/finiteness). Force ANY of
-      // this condition's operators to always-true (`true`, `||`, `>=`) and
-      // the ONLY behaviour change is that the `obligationAmount === 0` case
-      // now computes `0 / 0 = NaN` instead of skipping straight to `null` —
-      // but `isStorableExchangeRate` immediately below rejects NaN via its
-      // own `Number.isFinite` check, producing the IDENTICAL `exchangeRate
-      // = null`. No test can observe the difference through this
-      // function's output.
+      // for which the ratio is 0/0 — deliberately left NULL rather than
+      // computed, same as any other unrepresentable ratio) — but is PROVABLY
+      // unobservable by any test.
+      //
+      // REWRITTEN by task 3b, because the previous justification stopped being
+      // true: it argued that `settledAmountError` above validates `paidAmount`,
+      // "which IS `obligationAmount` on the same-currency path", and after AC3
+      // `paidAmount` is derived from `owedNow` instead. The conclusion survives
+      // with one more link in the chain: `owedNow = obligationAmount −
+      // priorSettledAmount`, and a subtraction propagates NaN, ±Infinity and
+      // negativity rather than absorbing them (`priorSettledAmount` is itself
+      // finite and ≥ 0, or `owedNow` is NaN and refused). So a
+      // negative/NaN/Infinite `obligationAmount` still reaches
+      // `settledAmountError` through `paidAmount` — on the peg path as
+      // `owedNow` itself, on the NBU path as `owedNow × <a positive finite
+      // rate>` — and is still rejected before this line. `obligationAmount` is
+      // therefore still either exactly 0 or a finite positive number here.
+      // Note that `obligationAmount === 0` also forces `priorSettledAmount ===
+      // 0` (any positive accumulator would make `owedNow` negative and be
+      // refused above), so `cumulativePaid` is 0 there too and the ratio is
+      // still exactly 0/0.
+      //
+      // Force ANY of this condition's operators to always-true (`true`, `||`,
+      // `>=`) and the ONLY behaviour change is that the `obligationAmount ===
+      // 0` case computes `0 / 0 = NaN` instead of skipping straight to `null` —
+      // but `isStorableExchangeRate` immediately below rejects NaN via its own
+      // `Number.isFinite` check, producing the IDENTICAL `exchangeRate = null`.
+      // No test can observe the difference through this function's output.
       const rawExchangeRate =
         // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: see the comment above — every mutant here (force true/false, && → ||, > → >=) is downstream-caught by isStorableExchangeRate's own Number.isFinite(NaN)===false check, producing the identical exchangeRate=null either way
         Number.isFinite(obligationAmount) && obligationAmount > 0
-          ? paidAmount / obligationAmount
+          ? cumulativePaid / obligationAmount
           : null
       exchangeRate =
         // Stryker disable next-line ConditionalExpression: `!== null` is a TS narrowing guard for `.toFixed` below; at runtime it is ALSO behaviorally redundant — isStorableExchangeRate(null) already returns false via its own Number.isFinite(null) check, so removing this guard cannot change the outcome
@@ -1046,12 +1122,21 @@ export class PendingSettlementService {
         // makes that assertion load-bearing rather than decorative — a
         // later change that loosens it still gates correctly on its own.
         //
-        // task-cascade-apply (task 3, AC10): on the SENIOR branch what leaves
-        // the account is the REMAINDER, so that is what the balance must cover.
-        // Gating on the obligation's full figure after a partial payment would
-        // refuse a top-up the company can actually afford. Same single
-        // description of "still owed" as the pre-transaction computation above.
-        const amount = isDropObligation ? parseFloat(claimedAmount) : remainingOwed(claimedAmount)
+        // task-cascade-apply (task 3, AC10): what leaves the account is the
+        // REMAINDER, so that is what the balance must cover. Gating on the
+        // obligation's full figure after a partial payment would refuse a
+        // top-up the company can actually afford. Same single description of
+        // "still owed" as the pre-transaction computation above.
+        //
+        // task-drop-topup (task 3b, AC7): ONE description for both branches now
+        // — the `isDropObligation ? parseFloat(claimedAmount) : …` ternary is
+        // gone. A company-funded drop settle is forced to USDT
+        // (`debitsCompanyAccount ⇒ currency = 'USDT'`) and its obligation is
+        // USDT too, so no conversion happens and `paidAmount === owedNow`
+        // exactly; on a first settle both halves were already
+        // `parseFloat(claimedAmount)`. Fewer branches, fewer mutants that no
+        // test can tell apart, and "how much is still owed" said once.
+        const amount = remainingOwed(claimedAmount)
         if (amount > balance) {
           throw new BadRequestException(
             'Недостаточно средств на счёте компании для закрытия долга перед синьором',
@@ -1076,6 +1161,25 @@ export class PendingSettlementService {
       // The flip runs AFTER the winning conditional claim above, so it executes
       // exactly once. Defense-in-depth: scope the UPDATE to the still-PENDING_PAYMENT
       // source row so a corrupted / already-flipped state can never be re-settled.
+      // CR-M-1 (code-review, task 3b) — ONE symbol, two columns.
+      //
+      // `amount` and `settled_amount` on a drop settle must be the same figure
+      // (addendum §1.2 — the invariant ledger term 9 rests on). Writing the
+      // expression out twice made that a property of two identical STRINGS,
+      // and a rule written down twice is a rule that can be half-edited: the
+      // only thing standing between them was a test comparing their compiled
+      // form. Referencing one `SQL` object from both keys makes divergence
+      // impossible to express rather than merely wrong (backlog 85).
+      //
+      // Still DB-native, and for the original reason (MED-3, #599): the sum is
+      // computed against whatever `settled_amount` the row ACTUALLY holds at
+      // write time, so correctness does not depend on "nothing else wrote this
+      // row between the read and the UPDATE". `coalesce(..., 0)` makes a
+      // first-ever settle read as `0 + delta` — the pre-existing value, byte
+      // for byte. Both columns are `numeric(18, 6)`, so one expression cannot
+      // round differently into the two of them.
+      const accumulatedAmount = sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`
+
       const [paidRow] = await dbtx
         .update(transactions)
         .set({
@@ -1093,7 +1197,11 @@ export class PendingSettlementService {
           // pre-existing behaviour.
           ...(isDropObligation
             ? {
-                amount: String(paidAmount),
+                // task-drop-topup (task 3b, AC4): literally the same object as
+                // `settledAmount` below — see `accumulatedAmount` above for why
+                // `amount` accumulates at all and why it must not be a second
+                // copy of the expression.
+                amount: accumulatedAmount,
                 originalAmount,
                 originalCurrency,
                 exchangeRate,
@@ -1152,20 +1260,10 @@ export class PendingSettlementService {
           // Written fresh on EVERY settle (not accumulated — only the latest
           // percent is meaningful, unlike settledAmount right below it).
           settledSharePercent: isDropObligation ? sourceDropSharePercent : sourceSeniorSharePercent,
-          // MONOTONIC accumulator — MED-3 (security-review round 1, PR #599):
-          // DB-NATIVE increment (`coalesce(current, 0) + delta`), not a
-          // JS-computed `prior + delta` written as a literal. A JS-computed
-          // value is only as safe as "no other write can land on this row
-          // between the pre-transaction read and this UPDATE" — an invariant
-          // that happens to hold today (see the comment on the
-          // `resolveSource` call above) but is one future refactor away from
-          // silently losing an addend. Computing the sum IN the UPDATE
-          // statement itself, against whatever `settled_amount` the row
-          // ACTUALLY holds at write time, makes that invariant unnecessary —
-          // correct even if it is ever weakened. `coalesce(..., 0)` makes a
-          // first-ever settle (NULL prior) read as 0, matching the documented
-          // "NULL = never settled" contract on this column.
-          settledAmount: sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`,
+          // MONOTONIC accumulator — MED-3 (security-review round 1, PR #599),
+          // DB-native increment. The expression itself, and why it is shared
+          // with `amount` on the drop branch, is at `accumulatedAmount` above.
+          settledAmount: accumulatedAmount,
           settledCurrency: currency,
           notes: isDropObligation
             ? `Выплата drop IOU (obligation ${obligation.id})`
