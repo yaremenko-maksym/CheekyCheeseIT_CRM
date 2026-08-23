@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { roundShareAmount } from '../utils/money'
-import { MAX_TRANSACTION_AMOUNT } from './finance'
+import { MAX_TRANSACTION_AMOUNT, adminUpdateTransactionSchema } from './finance'
 import {
   amountsDiffer,
   computeCascadeVersion,
@@ -59,6 +59,7 @@ function makePendingDerivative(
       id: 'obl-1',
       status: 'PENDING',
       amount: 260,
+      currency: 'USDT',
       updatedAt: '2026-08-01T00:00:00.000Z',
     },
     ...overrides,
@@ -84,6 +85,7 @@ function makePaidDerivative(
       id: 'obl-1',
       status: 'PAID',
       amount: 260,
+      currency: 'USDT',
       updatedAt: '2026-08-01T00:00:00.000Z',
     },
     ...overrides,
@@ -295,6 +297,7 @@ describe('resolveEditCascade — defensive `obligation: null` (schema comment: "
           id: 'obl-1',
           status: 'PAID',
           amount: 0,
+          currency: 'USDT',
           updatedAt: '2026-08-01T00:00:00.000Z',
         },
       }),
@@ -615,7 +618,7 @@ describe('computeCascadeVersion', () => {
       makePendingDerivative({
         id: 'd9',
         updatedAt: 'T2',
-        obligation: { id: 'o9', status: 'PENDING', amount: 1, updatedAt: 'T3' },
+        obligation: { id: 'o9', status: 'PENDING', amount: 1, currency: 'USDT', updatedAt: 'T3' },
       }),
     ])
     expect(computeCascadeVersion(s)).toBe('src:src-9:T1|d9:T2:o9:T3')
@@ -722,6 +725,7 @@ describe('resolveEditCascade — AC7 property test', () => {
           id: 'obl-1',
           status: obligationStatus,
           amount: 1,
+          currency: 'USDT',
           updatedAt: '2026-08-01T00:00:00.000Z',
         },
       }
@@ -941,5 +945,148 @@ describe('cascadeEditPreviewResponseSchema — wire contract', () => {
       version: 'src:22222222-2222-4222-8222-222222222222:2026-08-01T00:00:00.000Z',
     }
     expect(cascadeEditPreviewResponseSchema.parse(response)).toEqual(response)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-cascade-apply (task 3) — обязательство не в валюте источника.
+//
+// Пункт 95 бэклога / аддендум 3.5: `oldAmount` берётся из
+// `pending_obligations.amount`, а каскад в эту же колонку ПИШЕТ долю,
+// посчитанную от суммы источника. До задачи 3 совпадение валют держал BIZ-18,
+// который задача 3 и снимает — значит валюту надо ПРОЧИТАТЬ (поле `currency`
+// на снимке обязательства) и, при расхождении, сказать вслух, а не
+// предположить совпадение.
+// ---------------------------------------------------------------------------
+
+describe('resolveEditCascade — OBLIGATION_CURRENCY_MISMATCH (пункт 95 бэклога)', () => {
+  it('warns when the obligation is booked in a currency other than the source currency', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePendingDerivative({
+        obligation: {
+          id: 'obl-1',
+          status: 'PENDING',
+          amount: 260,
+          currency: 'EUR',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    const codes = plan.derivatives[0]!.warnings.map((w) => w.code)
+    expect(codes).toContain('OBLIGATION_CURRENCY_MISMATCH')
+  })
+
+  it('names BOTH currencies in the message so a human can tell which is which', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePendingDerivative({
+        obligation: {
+          id: 'obl-1',
+          status: 'PENDING',
+          amount: 260,
+          currency: 'EUR',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const warning = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.find(
+      (w) => w.code === 'OBLIGATION_CURRENCY_MISMATCH',
+    )
+    expect(warning?.message).toContain('EUR')
+    expect(warning?.message).toContain('USDT')
+  })
+
+  it('still computes newAmount normally — the NUMBER is right, writing it into a foreign-currency column is not', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePendingDerivative({
+        obligation: {
+          id: 'obl-1',
+          status: 'PENDING',
+          amount: 260,
+          currency: 'EUR',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const plan = resolveEditCascade(s, { amount: 2000 })
+    // 26% of 2000 — an independently known figure, not re-derived the way the
+    // production code derives it.
+    expect(plan.derivatives[0]!.newAmount).toBe(520)
+    expect(plan.derivatives[0]!.sharePercent).toBe(26)
+  })
+
+  it('does NOT warn when the obligation currency equals the source currency', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [makePendingDerivative()])
+    const codes = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.map(
+      (w) => w.code,
+    )
+    expect(codes).not.toContain('OBLIGATION_CURRENCY_MISMATCH')
+  })
+
+  it('does NOT warn when the derivative carries no obligation at all — nothing to compare', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePendingDerivative({ obligation: null }),
+    ])
+    const codes = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.map(
+      (w) => w.code,
+    )
+    expect(codes).not.toContain('OBLIGATION_CURRENCY_MISMATCH')
+  })
+
+  it('fires on a SETTLED obligation too — the check is about the column being written, not about status', () => {
+    const s = snapshot({ amount: 1000, currency: 'USDT' }, [
+      makePaidDerivative({
+        obligation: {
+          id: 'obl-1',
+          status: 'PAID',
+          amount: 260,
+          currency: 'UAH',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    ])
+    const codes = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.map(
+      (w) => w.code,
+    )
+    expect(codes).toContain('OBLIGATION_CURRENCY_MISMATCH')
+  })
+
+  it('cascadeWarningCodeSchema accepts the new code', () => {
+    expect(cascadeWarningCodeSchema.parse('OBLIGATION_CURRENCY_MISMATCH')).toBe(
+      'OBLIGATION_CURRENCY_MISMATCH',
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-cascade-apply (task 3) — the optimistic-locking token travels on the
+// EDIT body. `GET :id/edit-preview` hands back `version`; `PATCH
+// :id/admin-edit` sends it straight back so the server can refuse an edit
+// built on a stale preview (ADR AC4: "отказ с просьбой обновить предпросмотр,
+// а не молчаливый пересчёт").
+// ---------------------------------------------------------------------------
+
+describe('adminUpdateTransactionSchema.cascadeVersion — the preview token on the edit body', () => {
+  it('accepts a body carrying a cascadeVersion and keeps its value verbatim', () => {
+    const version = 'src:22222222-2222-4222-8222-222222222222:2026-08-01T00:00:00.000Z'
+    const parsed = adminUpdateTransactionSchema.parse({ amount: 2000, cascadeVersion: version })
+    expect(parsed.cascadeVersion).toBe(version)
+  })
+
+  it('stays optional — a metadata-only edit body without it still parses', () => {
+    const parsed = adminUpdateTransactionSchema.parse({ notes: 'just a note' })
+    expect(parsed.cascadeVersion).toBeUndefined()
+  })
+
+  it('rejects an EMPTY cascadeVersion — an empty token is not a token', () => {
+    expect(adminUpdateTransactionSchema.safeParse({ cascadeVersion: '' }).success).toBe(false)
+  })
+
+  it('round-trips a version produced by computeCascadeVersion (the two ends agree)', () => {
+    const s = snapshot({ amount: 1000 }, [makePendingDerivative()])
+    const version = computeCascadeVersion(s)
+    expect(adminUpdateTransactionSchema.parse({ cascadeVersion: version }).cascadeVersion).toBe(
+      version,
+    )
   })
 })

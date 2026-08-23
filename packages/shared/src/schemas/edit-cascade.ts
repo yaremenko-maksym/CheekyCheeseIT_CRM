@@ -69,8 +69,20 @@ export interface CascadeSourceSnapshot {
 export interface CascadeObligationSnapshot {
   id: string
   status: PendingObligationStatus
-  /** `pending_obligations.amount` — the obligation's own figure, always in `USDT` (booked that way — see `bookCompanyObligations`). */
+  /** `pending_obligations.amount` — the obligation's own figure. */
   amount: number
+  /**
+   * `pending_obligations.currency` — the unit `amount` above is denominated
+   * in. task-cascade-apply (backlog 95, addendum §3.5): `bookCompanyObligations`
+   * stamps `'USDT'` as a LITERAL, and the only thing that kept that literal
+   * in step with the source income's currency was BIZ-18 — the very guard
+   * task 3 lifts. So the value is now READ rather than assumed (the first of
+   * the two legal moves in addendum §3.1), and the mismatch is said out loud
+   * (`OBLIGATION_CURRENCY_MISMATCH` below) rather than silently written
+   * through — the cascade WRITES a share of the source amount into this
+   * column, so its unit has to be checked, not presumed.
+   */
+  currency: CurrencyEnum
   updatedAt: string
 }
 
@@ -159,6 +171,17 @@ export const cascadeWarningCodeSchema = z.enum([
   // editing `amount` would desync it from `exchangeRate` without anyone
   // noticing.
   'SOURCE_ORIGINAL_AMOUNT_SET',
+  // task-cascade-apply (backlog 95, addendum §3.5) — the paired
+  // `pending_obligations` row is denominated in a DIFFERENT currency than the
+  // source income. The cascade WRITES `newAmount` (a share of the source
+  // amount, in the SOURCE's currency) into `pending_obligations.amount`, so a
+  // mismatch means writing a figure into a column that means something else.
+  // Distinct from `NON_USDT_CURRENCY` above, which is about the `settled_amount`
+  // ACCUMULATOR being in another unit (a comparison the resolver refuses to
+  // make); this one is about the DESTINATION of a write. Unlike every other
+  // warning here it BLOCKS application outright (task 3, AC4) — see the
+  // resolver comment below for why `newAmount` is still computed anyway.
+  'OBLIGATION_CURRENCY_MISMATCH',
 ])
 export type CascadeWarningCode = z.infer<typeof cascadeWarningCodeSchema>
 
@@ -297,6 +320,27 @@ function resolveDerivative(
   const settledAmount = derivative.settledAmount ?? 0
   const settledCurrency = derivative.settledCurrency
 
+  // task-cascade-apply (backlog 95, addendum §3.5). `oldAmount` above comes
+  // from `pending_obligations.amount` when an obligation exists, and task 3
+  // WRITES `newAmount` back into that very column. `newAmount` is a share of
+  // `newSourceAmount`, i.e. denominated in `sourceCurrency`; the obligation's
+  // own column is denominated in `obligation.currency`. Until task 3 those two
+  // always coincided, held there by BIZ-18 — which is exactly the guard task 3
+  // lifts, so the coincidence stops being one. Computed BEFORE the
+  // `sharePercent === null` early return on purpose: this is a fact about the
+  // snapshot (which column is denominated in what), not about whether a share
+  // could be recomputed, and a row can legitimately carry BOTH refusals.
+  const obligationCurrencyMismatch =
+    derivative.obligation !== null && derivative.obligation.currency !== sourceCurrency
+  const obligationCurrencyWarning: CascadeWarning[] = obligationCurrencyMismatch
+    ? [
+        {
+          code: 'OBLIGATION_CURRENCY_MISMATCH',
+          message: `Обязательство учтено в ${derivative.obligation!.currency}, а сумма источника — в ${sourceCurrency}: записать пересчитанную долю в обязательство другой валюты нельзя`,
+        },
+      ]
+    : []
+
   if (sharePercent === null) {
     return {
       id: derivative.id,
@@ -315,6 +359,7 @@ function resolveDerivative(
           message:
             'Нет снимка процента доли на этой строке — пересчитать невозможно, требуется ручное решение',
         },
+        ...obligationCurrencyWarning,
       ],
     }
   }
@@ -398,6 +443,12 @@ function resolveDerivative(
           : `Выплата по этой строке учтена в ${settledCurrency}, а не в ${sourceCurrency} — «уже выплачено» и «новая доля» не в одной валюте`,
     })
   }
+  // `newAmount` above is computed as usual even on a mismatch: the NUMBER is
+  // correct (it is a share of the source amount, in the source's currency) —
+  // what is wrong is only writing it into a column that means another
+  // currency. The preview therefore still shows a truthful figure; task 3's
+  // APPLY path is what refuses (AC4).
+  warnings.push(...obligationCurrencyWarning)
 
   return {
     id: derivative.id,

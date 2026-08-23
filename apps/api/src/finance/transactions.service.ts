@@ -3308,6 +3308,12 @@ export class TransactionsService {
               id: obligation.id,
               status: obligation.status,
               amount: Number(obligation.amount),
+              // task-cascade-apply (backlog 95, addendum §3.5): READ the
+              // obligation's own currency instead of assuming it matches the
+              // source's. `bookCompanyObligations` stamps 'USDT' as a
+              // literal and BIZ-18 was the only thing keeping that literal
+              // in step with the source — and BIZ-18 is what task 3 lifts.
+              currency: obligation.currency,
               updatedAt: obligation.updatedAt.toISOString(),
             }
           : null,
