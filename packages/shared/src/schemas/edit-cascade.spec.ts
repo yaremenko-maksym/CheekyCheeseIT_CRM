@@ -54,6 +54,7 @@ function makePendingDerivative(
     settledAmount: null,
     settledCurrency: null,
     settledSharePercent: null,
+    fundingSource: null,
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
@@ -80,6 +81,7 @@ function makePaidDerivative(
     settledAmount: 260,
     settledCurrency: 'USDT',
     settledSharePercent: 26,
+    fundingSource: 'COMPANY_ACCOUNT',
     hasSignedInvoice: false,
     obligation: {
       id: 'obl-1',
@@ -720,6 +722,10 @@ describe('resolveEditCascade — AC7 property test', () => {
           : hasSettledHistory
             ? Math.floor(rand() * 101)
             : null,
+        // Anything that has been through a settle carries a funding marker;
+        // an untouched IOU does not. Independent of the accumulator's size,
+        // matching what `settleByCompany` actually writes.
+        fundingSource: hasSettledHistory ? 'COMPANY_ACCOUNT' : null,
         hasSignedInvoice: false,
         obligation: {
           id: 'obl-1',

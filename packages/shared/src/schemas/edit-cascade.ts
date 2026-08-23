@@ -114,6 +114,23 @@ export interface CascadeDerivativeSnapshot {
   settledCurrency: CurrencyEnum | null
   /** `transactions.settled_share_percent` — the percent snapshot taken the moment settle nulled `sharePercent` above. */
   settledSharePercent: number | null
+  /**
+   * `transactions.funding_source` — `'COMPANY_ACCOUNT'` once
+   * `settleByCompany` has paid this row out of the shared USDT account,
+   * `null` for an unsettled IOU or an `ADMIN_PERSONAL` settle.
+   *
+   * task-cascade-apply (task 3, AC6 / addendum §1.2): the RESOLVER does not
+   * read it — reverting a row is not a currency or share question. The APPLY
+   * step does, and it is the deciding field for the one refusal that stands
+   * between a wrong ledger and the money gates: only a COMPANY_ACCOUNT row
+   * participates in ledger terms 7/8/9, so only for such a row does the
+   * `amount == settled_amount` invariant have to hold before the revert can
+   * hand the right debit back. It lives on the SNAPSHOT rather than being
+   * re-read separately because `loadCascadeSnapshot` is deliberately the ONE
+   * read shape both entry points use (ADR AC4) — a second query for one
+   * column would fork that shape.
+   */
+  fundingSource: string | null
   /** Does this row's invoice already carry a `COUNTERPARTY` signature? (`invoice_signatures`, `signer_role='COUNTERPARTY'`.) */
   hasSignedInvoice: boolean
   /** The `pending_obligations` row this derivative booked, if any (always present for a real L1/L2 derivative — nullable defensively). */

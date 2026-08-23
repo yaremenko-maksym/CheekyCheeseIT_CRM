@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto'
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -35,6 +36,7 @@ import type {
   CascadeSnapshot,
   CascadeDerivativeSnapshot,
   CascadeEditPreviewResponse,
+  CascadePlan,
 } from '@crm/shared'
 import {
   SALARY_ELIGIBLE_ROLES,
@@ -2942,6 +2944,8 @@ export class TransactionsService {
       receiptExternalUrl?: string | null | undefined
       category?: string | undefined
       salaryMonth?: string | undefined
+      /** task-cascade-apply (task 3) — the token `GET :id/edit-preview` returned. */
+      cascadeVersion?: string | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -3001,9 +3005,55 @@ export class TransactionsService {
     // below) — the counterparty-facing label an ADMIN edit can change.
     const receiverLabelChanged = data.category !== undefined && data.category !== tx.receiverLabel
 
-    if (tx.status === 'PAID' && (amountChanged || currencyChanged || salaryMonthChanged)) {
+    // task-cascade-apply (task 3, AC1) — BIZ-18 is narrowed SURGICALLY: only
+    // `amountChanged` leaves this condition. `currency` and `salaryMonth` stay
+    // blocked on a PAID row, and each for its own reason:
+    //
+    //  - CURRENCY: one PAID company-shaped row in a currency other than USDT
+    //    makes `assertNoOffCurrencyCompanyRows` throw, and FOUR money gates
+    //    hang off it (createExpense / paySalary / settleByCompany /
+    //    createDividend). Every payout in the system stops until the row is
+    //    fixed. A currency mistake is corrected by a reversing entry plus a
+    //    new row, never in place (ADR AC5 §3).
+    //  - SALARY MONTH: it keys monthly aggregates and a unique index
+    //    (`uq_transactions_salary_receiver_month`); moving a paid salary
+    //    between months is a separate, unrelated defect (L11), deliberately
+    //    not opened here.
+    //
+    // Lifting all three "заодно" is exactly the failure ADR AC5 §3 predicts:
+    // they sit in one condition, so the easy edit takes all three.
+    if (tx.status === 'PAID' && (currencyChanged || salaryMonthChanged)) {
       throw new BadRequestException(
-        'Cannot change amount, currency or salary month of a settled (PAID) transaction',
+        'Cannot change currency or salary month of a settled (PAID) transaction',
+      )
+    }
+
+    // task-cascade-apply (task 3, AC2) — editing the amount of a PAID row is
+    // never a bare UPDATE: it moves money that derivative rows were computed
+    // from. The operator must have SEEN what it does (`GET :id/edit-preview`)
+    // and must hand back the version that preview was built on, so the server
+    // can prove the world has not moved since (checked under lock inside the
+    // transaction below).
+    //
+    // Required even when the row has no derivatives at all: the rule is
+    // simpler that way, and the token doubles as an optimistic lock on the
+    // edited row itself.
+    const isCascadeEdit = tx.status === 'PAID' && amountChanged
+    if (isCascadeEdit && !data.cascadeVersion) {
+      throw new BadRequestException(
+        'Правка суммы оплаченной транзакции выполняется только после предпросмотра последствий — откройте предпросмотр правки и повторите сохранение',
+      )
+    }
+    // ADR AC5 §5 / C2 — `original_amount` non-null means this row records the
+    // FACT of a payment, with `exchange_rate = amount / original_amount`
+    // stored beside it. Editing `amount` would make that rate quietly false.
+    // BIZ-18 blocked this until a moment ago; narrowing BIZ-18 must not open
+    // it, so the refusal is restated here at the only place it is now
+    // reachable from. The fix for a wrong payment fact is the payment
+    // document, not this field.
+    if (isCascadeEdit && tx.originalAmount !== null) {
+      throw new BadRequestException(
+        'На этой строке зафиксирован факт платежа (сумма и курс) — сумма не редактируется, исправьте документ об оплате',
       )
     }
 
@@ -3047,8 +3097,49 @@ export class TransactionsService {
         ? await this.resolveReceiptHashTransition(tx, receiptPatch.receiptExternalUrl ?? null)
         : { txHashPatch: {}, claimHash: null, staleClaim: false }
 
+    // task-cascade-apply (task 3, AC11) — produced INSIDE the DB transaction,
+    // consumed AFTER it commits. `undefined` ⇔ no cascade ran, which is also
+    // what gates the invoice re-issue below: one value, one meaning, no
+    // separate flag to keep in step.
+    let cascadeApplied: { changedDerivativeIds: string[] } | undefined
+
     try {
-      await this.db.db.transaction(async (dbtx) => {
+      cascadeApplied = await this.db.db.transaction(async (dbtx) => {
+        let applied: { changedDerivativeIds: string[] } | undefined
+        // task-cascade-apply (task 3, AC2/AC3/AC4-AC7). Runs FIRST inside the
+        // transaction: it takes every lock the rest of this callback needs, in
+        // the one order that does not invert `settleByCompany`'s, and it
+        // refuses BEFORE anything is written.
+        if (isCascadeEdit) {
+          const snapshot = await this.loadCascadeSnapshot(dbtx, id, { forUpdate: true })
+          if (!snapshot) {
+            throw new BadRequestException(
+              'Транзакция удалена — восстановите её перед этим действием',
+            )
+          }
+          // AC2 — re-derive the version from the state we just locked and
+          // compare. A MISMATCH means the world moved between the preview and
+          // this save (an accountant closed the obligation in another tab), so
+          // the operator would be confirming something they were never shown.
+          // Refuse and make them look again; a silent recompute IS the
+          // preview-vs-fact divergence, just wearing a success response (ADR
+          // AC4).
+          if (computeCascadeVersion(snapshot) !== data.cascadeVersion) {
+            throw new ConflictException(
+              'Данные изменились с момента предпросмотра — обновите предпросмотр правки и повторите сохранение',
+            )
+          }
+          // The server computes the cascade itself. The client's version is an
+          // input for comparison, never a plan to execute (ADR AC5 §11).
+          const plan = resolveEditCascade(snapshot, { amount: data.amount! })
+          applied = await this.applyEditCascade(
+            dbtx,
+            snapshot,
+            plan,
+            currentUser.impersonatorId ?? currentUser.id,
+          )
+        }
+
         // task-fix-obligation-amount-divergence (backlog 181, L3 in
         // docs/architecture/2026-08-22-paid-transaction-edit-cascade.md).
         // `pending_obligations.amount` is a SEPARATE stored copy of the exact
@@ -3174,6 +3265,8 @@ export class TransactionsService {
             actorId: currentUser.impersonatorId ?? currentUser.id,
           })
         }
+
+        return applied
       })
     } catch (err) {
       // MED-L (round 5): same as the sibling receipt entrance — a racing claim
@@ -3186,6 +3279,32 @@ export class TransactionsService {
         throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
       }
       throw err
+    }
+
+    // task-cascade-apply (task 3, AC11) — an amount edit invalidates every
+    // invoice built on the old figure. `voidAndReissueInvoiceForAmountEdit`
+    // (task 4, PR #600) marks the signed document void and issues a fresh one;
+    // this is its first and only caller.
+    //
+    // OUTSIDE the DB transaction on purpose: that method opens its OWN
+    // transaction with `FOR UPDATE`, so calling it from inside this one would
+    // self-deadlock. Failures are logged and swallowed — the same
+    // fire-and-forget contract every other invoice trigger in this file
+    // already has (`autoCreateForSeniorPayout` above, `settleByCompany`'s
+    // trigger): a PDF/S3 hiccup must not undo a cascade that has already
+    // committed, and the invoice can be re-triggered.
+    if (cascadeApplied) {
+      const actorId = currentUser.impersonatorId ?? currentUser.id
+      for (const reissueId of [id, ...cascadeApplied.changedDerivativeIds]) {
+        try {
+          await this.invoicesService.voidAndReissueInvoiceForAmountEdit(reissueId, actorId)
+        } catch (invoiceErr) {
+          this.logger.error(
+            `adminUpdateTransaction: invoice void+reissue failed for transaction=${reissueId}: ${(invoiceErr as Error).message}`,
+            (invoiceErr as Error).stack,
+          )
+        }
+      }
     }
 
     return this.findOne(id, currentUser)
@@ -3206,10 +3325,95 @@ export class TransactionsService {
   // Accepts either the pool handle or an open `dbtx` so task 3 can reuse it
   // unchanged inside a `db.transaction(...)` callback.
 
+  /**
+   * task-cascade-apply (task 3, AC3 / addendum §1.9) — take every row lock the
+   * cascade will need, in the ONE order that does not invert
+   * `settleByCompany`'s:
+   *
+   *   1. `pending_obligations`  FOR UPDATE, ORDER BY id
+   *   2. `lockCompanyAccount`   (the company-account advisory lock)
+   *   3. `transactions`         FOR UPDATE, ORDER BY id
+   *
+   * `ORDER BY id` on both row-lock statements is against two CASCADES
+   * deadlocking each other on overlapping row sets — a deterministic
+   * acquisition order inside each statement makes that impossible.
+   *
+   * The advisory lock is taken UNCONDITIONALLY, not only when a derivative
+   * turns out to be company-funded (addendum §1.6): the balance is a SUM over
+   * many rows read by nine separate statements in READ COMMITTED, so a row
+   * migrating between ledger terms while a gate is mid-read can be counted
+   * twice or not at all. Not-at-all inflates the balance — the dangerous
+   * direction. Holding the same lock every gate holds means no gate can read
+   * the ledger while the cascade is moving a row between terms. It also has
+   * to be taken BEFORE deciding whether anything is company-funded, because
+   * that decision comes from the snapshot this lock is protecting.
+   *
+   * The id-discovery read below takes NO row locks (a plain `SELECT` in READ
+   * COMMITTED), so it cannot join a deadlock cycle: only the three
+   * acquisitions above order against anything. A derivative appearing between
+   * the discovery read and the lock would be caught by the version check the
+   * caller runs immediately after — the preview's version could not have
+   * contained it.
+   */
+  private async lockCascadeRows(
+    db: DatabaseService['db'] | DrizzleTx,
+    sourceId: string,
+  ): Promise<void> {
+    const derivativeIdRows = await db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(
+        and(eq(transactions.sourceIncomeTransactionId, sourceId), isNull(transactions.deletedAt)),
+      )
+    // The SOURCE's own obligation is in the set on purpose: the #598 sync
+    // UPDATE later in this same DB transaction writes it, and acquiring that
+    // row lock AFTER the advisory lock would reintroduce the very inversion
+    // this ordering exists to remove.
+    const lockIds = [sourceId, ...derivativeIdRows.map((r) => r.id)]
+
+    await db
+      .select({ id: pendingObligations.id })
+      .from(pendingObligations)
+      .where(inArray(pendingObligations.sourceTransactionId, lockIds))
+      .orderBy(pendingObligations.id)
+      .for('update')
+
+    // `lockCompanyAccount` takes a `DrizzleTx` deliberately: a
+    // transaction-scoped advisory lock acquired outside a transaction is
+    // released immediately and protects nothing, and the narrow parameter type
+    // is what prevents that. `forUpdate` is only meaningful inside an open
+    // transaction for exactly the same reason, and the sole caller passes its
+    // own `dbtx` — the cast records that precondition instead of widening the
+    // helper and losing the guarantee for everyone else.
+    await lockCompanyAccount(db as DrizzleTx)
+
+    await db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(inArray(transactions.id, lockIds))
+      .orderBy(transactions.id)
+      .for('update')
+  }
+
   private async loadCascadeSnapshot(
     db: DatabaseService['db'] | DrizzleTx,
     sourceId: string,
+    opts: { forUpdate?: boolean } = {},
   ): Promise<CascadeSnapshot | null> {
+    // task-cascade-apply (task 3, AC3 / addendum §1.9) — the WRITE entry point
+    // reads the same shape as the preview, but under locks. The read itself is
+    // byte-identical below; only this preamble differs, so "предпросмотр ==
+    // факт" cannot drift into two query shapes (ADR AC4).
+    //
+    // ORDER IS THE WHOLE POINT: `settleByCompany` takes
+    // `pending_obligations` (its conditional claim) → `lockCompanyAccount` →
+    // `transactions`. Any other order here is an ABBA inversion against it,
+    // and Postgres resolves that by killing one side with 40P01 — a genuine
+    // 500 on the money path the moment an edit and a settle race.
+    if (opts.forUpdate) {
+      await this.lockCascadeRows(db, sourceId)
+    }
+
     const source = await db.query.transactions.findFirst({ where: eq(transactions.id, sourceId) })
     if (!source) return null
 
@@ -3302,6 +3506,12 @@ export class TransactionsService {
         settledAmount: d.settledAmount !== null ? Number(d.settledAmount) : null,
         settledCurrency: d.settledCurrency,
         settledSharePercent: d.settledSharePercent,
+        // task-cascade-apply (task 3, AC6): only a COMPANY_ACCOUNT-funded row
+        // is in ledger terms 7/8/9, so only for such a row must the
+        // `amount == settled_amount` invariant hold before a revert (addendum
+        // §1.2). Unused by the pure resolver — see the field's own comment in
+        // `@crm/shared` for why it still belongs on the snapshot.
+        fundingSource: d.fundingSource,
         hasSignedInvoice: signedIds.has(d.id),
         obligation: obligation
           ? {
@@ -3337,6 +3547,241 @@ export class TransactionsService {
       },
       derivatives,
     }
+  }
+
+  /**
+   * task-cascade-apply (task 3) — apply an already-resolved cascade plan to the
+   * derivatives, inside the caller's DB transaction and under the locks
+   * `lockCascadeRows` has already taken.
+   *
+   * A separate method (rather than inline in `adminUpdateTransaction`) so a
+   * unit double can observe the ORDER and CONTENT of every write — the
+   * mutation gate cannot execute the integration spec that proves the same
+   * thing against real Postgres (`mutation-gate-integration-specs.md`).
+   *
+   * Returns the ids whose stored `amount` actually moved: exactly the rows
+   * whose invoice must be voided and re-issued (AC11).
+   *
+   * NOTHING here recomputes a share. Every figure comes from `plan`, which is
+   * `resolveEditCascade`'s output — ADR AC4 ("предпросмотр == факт" holds
+   * because the description is ONE, not because two descriptions are kept in
+   * step) and AC5 §4 (a share is never re-derived from a live resolver).
+   */
+  private async applyEditCascade(
+    dbtx: DrizzleTx,
+    snapshot: CascadeSnapshot,
+    plan: CascadePlan,
+    actorId: string,
+  ): Promise<{ changedDerivativeIds: string[] }> {
+    const snapshotById = new Map(snapshot.derivatives.map((d) => [d.id, d]))
+
+    // ── Phase 1: refuse, for the WHOLE cascade, before a single write ───────
+    // All-or-nothing is not stylistic: a half-applied cascade leaves the two
+    // stored copies of one obligation disagreeing, which is the L3 defect this
+    // whole decomposition exists to close.
+    for (const derivativePlan of plan.derivatives) {
+      // `!` rather than a defensive branch: `plan.derivatives` IS
+      // `snapshot.derivatives.map(...)` — same array, same order, same ids
+      // (`resolveEditCascade`). A "what if it is missing" branch here could
+      // never be executed by any test, and unexecutable code is worse than
+      // absent code: it still has to be read and reviewed forever.
+      const snap = snapshotById.get(derivativePlan.id)!
+
+      if (derivativePlan.newAmount === null) {
+        throw new BadRequestException(
+          `Нет снимка процента доли по производной строке ${derivativePlan.id} — пересчитать её сумму невозможно, а угадывать нельзя. Требуется ручное решение.`,
+        )
+      }
+
+      if (derivativePlan.warnings.some((w) => w.code === 'OBLIGATION_CURRENCY_MISMATCH')) {
+        throw new BadRequestException(
+          `Обязательство по производной строке ${derivativePlan.id} учтено в другой валюте, чем сумма источника — записать в него пересчитанную долю нельзя.`,
+        )
+      }
+
+      // AC6 / addendum §1.2 — the invariant ledger term 9 stands on.
+      //
+      // `settleByCompany` on the SENIOR branch takes the accumulator from
+      // `pending_obligations.amount` while term 7 debits `transactions.amount`,
+      // and NOTHING inside settle compares the two: the equality is held from
+      // outside, by `bookCompanyObligations` and by task 0 (#598). A row edited
+      // BEFORE #598 can therefore carry two different numbers — and reverting
+      // it would hand the balance back a debit that is not the one that left
+      // it. An error in the "+" direction, which no gate catches.
+      //
+      // So the dependency is expressed as an executable CHECK at the point of
+      // reliance, not as a comment near it (addendum §3.1): remove the
+      // invariant upstream and this starts refusing on real data, loudly,
+      // instead of quietly returning the wrong figure.
+      //
+      // `needsReconfirm` alone identifies "about to be reverted": the resolver
+      // sets it only for an obligation whose status IS `PAID` (both branches of
+      // its ternary are gated on that), so an additional `isSettled &&` here
+      // would be a second, unfalsifiable description of the same condition.
+      if (
+        derivativePlan.needsReconfirm &&
+        snap.fundingSource === COMPANY_ACCOUNT_FUNDING_SOURCE &&
+        amountsDiffer(snap.amount, snap.settledAmount ?? 0)
+      ) {
+        throw new BadRequestException(
+          `Строка ${derivativePlan.id}: расходятся сумма строки и сумма фактических выплат ` +
+            `(amount = ${snap.amount}, settled_amount = ${snap.settledAmount ?? 0}). ` +
+            `Равенство этих двух держат книжка обязательств и правка суммы (#598), а закрытие долга ` +
+            `его не проверяет — поэтому при возврате в ожидание выплаты леджер вернул бы не тот дебет. ` +
+            `Строка требует ручной сверки перед правкой дохода.`,
+        )
+      }
+    }
+
+    // ── Phase 2: write ─────────────────────────────────────────────────────
+    const changedDerivativeIds: string[] = []
+
+    for (const derivativePlan of plan.derivatives) {
+      const snap = snapshotById.get(derivativePlan.id)!
+      const newAmount = derivativePlan.newAmount!
+      const isSettled = snap.obligation?.status === 'PAID'
+      const amountMoved = amountsDiffer(newAmount, snap.amount)
+
+      // ---- AC7: the obligation is closed and the recomputed share is NOT
+      // above what was already paid. Write NOTHING.
+      //
+      // Terms 7/8 debit `amount`; what physically left is `settled_amount`.
+      // Lowering `amount` here would under-debit the ledger by exactly the
+      // overpaid difference — the company balance would GROW by money that has
+      // already gone (addendum §1.7). The row stays PAID and keeps counting
+      // for the figure that really left.
+      if (isSettled && !derivativePlan.needsReconfirm) {
+        await dbtx.insert(transactionAuditLog).values({
+          actorId,
+          targetId: derivativePlan.id,
+          action: 'CASCADE_OVERPAYMENT',
+          metadata: {
+            // `isSettled` is true here, which BY DEFINITION means the
+            // obligation exists (`snap.obligation?.status === 'PAID'`).
+            obligationId: snap.obligation!.id,
+            causedBy: plan.sourceId,
+            settledAmount: derivativePlan.settledAmount,
+            newShare: newAmount,
+            overpaidBy: Number((derivativePlan.settledAmount - newAmount).toFixed(6)),
+          },
+        })
+        continue
+      }
+
+      // ---- AC6: the obligation is closed and the recomputed share EXCEEDS
+      // what was paid — return the row to "awaiting payment" for the balance.
+      if (isSettled) {
+        const obligation = snap.obligation!
+        // Conditional UPDATE + affected-row count, the same shape
+        // `settleByCompany` / `adminDeleteTransaction` / `restoreTransaction`
+        // already use. Zero rows ⇒ the revert already happened ⇒ stop here
+        // rather than journal it a second time (AC12).
+        const reverted = await dbtx
+          .update(pendingObligations)
+          .set({
+            status: 'PENDING',
+            closingTransactionId: null,
+            amount: String(newAmount),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(eq(pendingObligations.id, obligation.id), eq(pendingObligations.status, 'PAID')),
+          )
+          // Stryker disable next-line ObjectLiteral: only `.length` of the
+          // result is read (was the row still closed?), never a field of it,
+          // so an emptied projection produces the SAME observable outcome
+          // against any mocked db — no unit assertion can distinguish it. The
+          // real-Postgres shape is exercised by cascade-apply.integration.spec.ts,
+          // which the mutation gate cannot run (mutation-gate-integration-specs.md).
+          .returning({ id: pendingObligations.id })
+        if (reverted.length === 0) continue
+
+        const revertedType =
+          snap.type === 'SENIOR_INCOME'
+            ? 'SENIOR_PENDING_PAYOUT'
+            : snap.type === 'PAYOUT_DROP'
+              ? 'DROP_PENDING_PAYOUT'
+              : null
+        if (revertedType === null) {
+          throw new BadRequestException(
+            `Строка ${derivativePlan.id} закрывала обязательство, но её тип (${snap.type}) не соответствует ни одной форме закрытия — вернуть её в ожидание выплаты нельзя.`,
+          )
+        }
+
+        await dbtx
+          .update(transactions)
+          .set({
+            type: revertedType,
+            status: 'PENDING_PAYMENT',
+            amount: String(newAmount),
+            // AC6 / addendum §2 — the percent goes back into the LIVE column,
+            // because the NEXT preview reads the live column for a PENDING
+            // obligation (`resolveDerivative`'s `isSettled` branch). Leaving it
+            // null would make the row we just reverted un-recomputable.
+            // `settled_share_percent` is NOT touched: it records the last
+            // CLOSURE, and a revert is not one. `*SharePercentSource` stays
+            // NULL — task 1 never snapshotted the origin, and inventing one
+            // would be worse than the visible gap (backlog 70).
+            ...(revertedType === 'SENIOR_PENDING_PAYOUT'
+              ? { seniorSharePercent: derivativePlan.sharePercent }
+              : { dropSharePercent: derivativePlan.sharePercent }),
+            updatedAt: new Date(),
+          })
+          .where(eq(transactions.id, derivativePlan.id))
+
+        await dbtx.insert(transactionAuditLog).values({
+          actorId,
+          targetId: derivativePlan.id,
+          action: 'CASCADE_REOPEN',
+          metadata: {
+            obligationId: obligation.id,
+            causedBy: plan.sourceId,
+            settledAmount: derivativePlan.settledAmount,
+            sharePercent: derivativePlan.sharePercent,
+            before: { amount: snap.amount, type: snap.type, status: snap.status },
+            after: { amount: newAmount, type: revertedType, status: 'PENDING_PAYMENT' },
+          },
+        })
+        if (amountMoved) changedDerivativeIds.push(derivativePlan.id)
+        continue
+      }
+
+      // ---- AC5: the obligation is still open — no money has moved, so both
+      // stored copies of the figure simply follow the new share. Scoped to
+      // `status = 'PENDING'` exactly like the #598 sync: a CLOSED obligation's
+      // amount is the historical record of a settlement that happened, and the
+      // WHERE makes that unreachable structurally rather than by intent.
+      await dbtx
+        .update(pendingObligations)
+        .set({ amount: String(newAmount), updatedAt: new Date() })
+        .where(
+          and(
+            eq(pendingObligations.sourceTransactionId, derivativePlan.id),
+            eq(pendingObligations.status, 'PENDING'),
+          ),
+        )
+
+      await dbtx
+        .update(transactions)
+        .set({ amount: String(newAmount), updatedAt: new Date() })
+        .where(eq(transactions.id, derivativePlan.id))
+
+      await dbtx.insert(transactionAuditLog).values({
+        actorId,
+        targetId: derivativePlan.id,
+        action: 'CASCADE_AMOUNT_UPDATE',
+        metadata: {
+          obligationId: snap.obligation?.id ?? null,
+          causedBy: plan.sourceId,
+          settledAmount: derivativePlan.settledAmount,
+          sharePercent: derivativePlan.sharePercent,
+          amount: { before: snap.amount, after: newAmount },
+        },
+      })
+      if (amountMoved) changedDerivativeIds.push(derivativePlan.id)
+    }
+
+    return { changedDerivativeIds }
   }
 
   /**
