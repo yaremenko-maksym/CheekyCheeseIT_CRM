@@ -871,6 +871,18 @@ export class TransactionsService {
       originalAmount: tx.originalAmount,
       originalCurrency: tx.originalCurrency,
       exchangeRate: tx.exchangeRate,
+      // task-cascade-preview-ui (task 5) — the settle accumulator (task 1, PR
+      // #599) reaches the operator. Same non-masking rule as the triplet above
+      // and for the same reason: it says how much of an `amount` this viewer is
+      // ALREADY shown has actually left the account, carries no counterparty
+      // identity, and a non-privileged viewer only ever receives rows they are
+      // a party to (findAll's role filters scope on senderId/receiverId).
+      // Masking it while leaving `amount` visible would make the two figures on
+      // one screen contradict each other. See the schema comment in
+      // `packages/shared/src/schemas/finance.ts` for the full rationale;
+      // `transaction-settled-exposure.unit.spec.ts` pins it.
+      settledAmount: tx.settledAmount,
+      settledCurrency: tx.settledCurrency,
       senderId: senderMasked ? null : tx.senderId,
       senderLabel: senderMasked ? 'CheekyCheeseIT' : tx.senderLabel,
       senderName: senderMasked ? null : (tx.sender?.displayName ?? null),

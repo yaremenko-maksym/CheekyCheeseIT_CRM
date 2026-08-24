@@ -182,6 +182,36 @@ export const transactionSchema = z.object({
   originalAmount: z.string().nullable().optional(),
   originalCurrency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).nullable().optional(),
   exchangeRate: z.string().nullable().optional(),
+  /**
+   * task-cascade-preview-ui (task 5) — the MONOTONIC accumulator of what has
+   * actually been paid out against this row, and the currency it accumulated
+   * in. The columns landed with task 1 (PR #599) and drive `loadCascadeSnapshot`
+   * / `applyEditCascade` server-side; this is the wire-contract restatement of
+   * them, added because three operator-facing surfaces cannot be honest without
+   * it and cannot derive it from anything already exposed:
+   *
+   *   - the list («Выплачено 5 000 · осталось 3 000» under the amount),
+   *   - the detail dialog (the same split as a `Row`),
+   *   - `SettleSeniorPayoutDialog`, which showed the FULL obligation as «Сумма»
+   *     while the server pays only the remainder — one number on screen, a
+   *     different one leaving the account, at the point of an irreversible
+   *     decision.
+   *
+   * NOT MASKED, deliberately — same rule as `originalAmount` above: this is a
+   * fact about money whose `amount` the same viewer is already shown on this
+   * very row, and a non-privileged viewer only ever receives rows they are a
+   * party to (`findAll` scopes SENIOR/JUNIOR/HR/DROP on `senderId`/`receiverId`).
+   * It carries no counterparty identity. Hiding it while leaving `amount`
+   * visible would only set the two figures on screen against each other.
+   * Pinned by `transaction-settled-exposure.unit.spec.ts` (SE-4/SE-5).
+   *
+   * `null` reads as "this row never went through a settle" — distinct from `0`,
+   * which would claim a settle that moved nothing. `.optional()` alongside
+   * `.nullable()` keeps every pre-existing fixture valid, same pattern as
+   * `originalAmount` / `dropCascadeOrigin`.
+   */
+  settledAmount: z.string().nullable().optional(),
+  settledCurrency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).nullable().optional(),
   senderId: z.string().uuid().nullable(),
   senderLabel: z.string().nullable(),
   senderName: z.string().nullable(), // resolved from user if senderId set
