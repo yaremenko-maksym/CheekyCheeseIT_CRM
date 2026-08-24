@@ -157,14 +157,26 @@ function AmountTransition({ derivative }: { derivative: CascadeDerivativePlan })
       <span className="whitespace-nowrap text-muted-foreground">
         {fmtAmount(derivative.oldAmount, derivative.currency)}
       </span>
-      <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-      {derivative.newAmount === null ? (
-        <span className="font-medium text-destructive">—</span>
-      ) : (
-        <span className="whitespace-nowrap font-medium">
-          {fmtAmount(derivative.newAmount, derivative.currency)}
-        </span>
-      )}
+      {/* UX-4 (design fidelity): the arrow travels WITH the new figure.
+          
+          Measured: inside the `max-w-3xl` dialog this column is ~161px at every
+          desktop width (768…1920 — the dialog is capped, so the viewport does
+          not widen it), while «8 000,00 USDT → 10 000,00 USDT» needs ~190px.
+          The wrap is therefore unavoidable without widening the dialog again,
+          which is the change that caused the 768px overflow in the first place.
+          What WAS fixable is where the break lands: the arrow used to trail the
+          end of line one, leaving «→» pointing at nothing. Grouped with the new
+          amount it reads as a two-line before/after stack. */}
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+        {derivative.newAmount === null ? (
+          <span className="font-medium text-destructive">—</span>
+        ) : (
+          <span className="font-medium">
+            {fmtAmount(derivative.newAmount, derivative.currency)}
+          </span>
+        )}
+      </span>
     </span>
   )
 }
@@ -180,7 +192,13 @@ function CascadeDerivativeRow({
   derivative: CascadeDerivativePlan
   sourceReceiverName: string | null
 }) {
-  const receiver = derivativeReceiverLabel(derivative, sourceReceiverName)
+  const receiverLabelText = derivativeReceiverLabel(derivative, sourceReceiverName)
+  // Found by looking at the rendered screen, not at the code: on a settled drop
+  // row `TYPE_LABELS.PAYOUT_DROP` is ITSELF «Доля дропа», so the badge and the
+  // line under it said the same three words twice. A receiver line that only
+  // repeats the badge is noise; stated as a general guard rather than a special
+  // case for this one type, so a future label collision cannot reintroduce it.
+  const receiver = receiverLabelText === TYPE_LABELS[derivative.type] ? null : receiverLabelText
   const settledLabel =
     derivative.settledAmount > 0
       ? fmtAmount(derivative.settledAmount, derivative.settledCurrency ?? derivative.currency)
