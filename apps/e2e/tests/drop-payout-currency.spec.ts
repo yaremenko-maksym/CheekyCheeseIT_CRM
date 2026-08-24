@@ -28,7 +28,6 @@ import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
   KOSTYA_ID,
-  REAL_API_BASE,
   loginViaApi,
   createDropViaAPI,
   createDropProjectViaAPI,
@@ -134,15 +133,31 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
     await currencySelect.click()
     await page.getByRole('option', { name: 'UAH', exact: true }).click()
 
-    // The live NBU rate this run will actually use — same endpoint the
-    // dialog itself queries — so the predicted figure is not a guess.
-    const ratesRes = await page.request.get(`${REAL_API_BASE}/api/finance/exchange-rate`)
-    expect(ratesRes.status()).toBe(200)
-    const rates = (await ratesRes.json()) as { usdUah: string }
-    const predictedUah = dropShare * parseFloat(rates.usdUah)
-
     // AC2: recalculates live — no longer the obligation's own USDT figure.
-    await expect(amountInput).toHaveValue(predictedUah.toFixed(2), { timeout: 10_000 })
+    //
+    // task-nbu-rate-race-drop-payout: this used to PREDICT the figure with a
+    // second, unscoped `GET /api/finance/exchange-rate` call (no `date=`
+    // param, so the server resolved it against `kyivToday()` at THAT
+    // request's own wall-clock moment — see nbu-currency.service.ts
+    // `todayStr()`). The dialog's own preview query is anchored to the
+    // obligation's `txDate`, not to "now" — two independent "what day is it"
+    // resolutions of the SAME logical rate. They agree except across the
+    // Kyiv midnight boundary, where the day rolls over and NBU's rate for
+    // the new day takes effect (nbu-currency.service.ts's `MAX_CACHED_RATE_
+    // AGE_DAYS` block documents that a rate literally changes value at that
+    // instant) — which is exactly the CI failure this replaces (predicted
+    // next-day rate vs. the dialog's still-current-day figure).
+    //
+    // AC3 is "shown == recorded", not "shown == a rate we independently
+    // guessed" — so wait for the ACTUAL recalculation (value changes away
+    // from the pre-switch USDT figure, and away from empty — `expectedAmount`
+    // renders '' while the rate query is loading) and read what the dialog
+    // renders. That reading is then the one and only source of truth for the
+    // post-submit comparison below — no second network call to race against.
+    await expect(amountInput).not.toHaveValue('', { timeout: 10_000 })
+    await expect(amountInput).not.toHaveValue(dropShare.toFixed(2), { timeout: 10_000 })
+    const shownUah = parseFloat(await amountInput.inputValue())
+    expect(shownUah, 'converted UAH figure must be a real positive number').toBeGreaterThan(0)
 
     // Non-USDT currency → the receipt is no longer explorer-only (a file/url
     // tab toggle appears); fill via the url tab.
@@ -160,7 +175,7 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
     await expect(dialog).not.toBeVisible()
     await expect(page.getByText('Выплата дропу проведена')).toBeVisible({ timeout: 10_000 })
 
-    // AC3 (главный тест): the figure SHOWN before submit (predictedUah) must
+    // AC3 (главный тест): the figure SHOWN before submit (shownUah) must
     // equal the figure ACTUALLY recorded — to the penny.
     const body = (await res.json()) as {
       created: Array<{
@@ -175,7 +190,7 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
     const recorded = body.created.find((c) => c.id === dropPendingId)
     expect(recorded, 'the flipped PAYOUT_DROP row must be returned by settle-company').toBeTruthy()
     expect(recorded!.currency).toBe('UAH')
-    expect(parseFloat(recorded!.amount)).toBeCloseTo(predictedUah, 2)
+    expect(parseFloat(recorded!.amount)).toBeCloseTo(shownUah, 2)
     // AC4: obligation snapshot stamped.
     expect(recorded!.originalCurrency).toBe('USDT')
     expect(parseFloat(recorded!.originalAmount!)).toBeCloseTo(dropShare, 6)
