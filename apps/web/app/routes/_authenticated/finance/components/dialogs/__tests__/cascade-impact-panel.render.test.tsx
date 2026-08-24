@@ -34,6 +34,7 @@ function derivative(over: Partial<CascadeDerivativePlan> = {}): CascadeDerivativ
   return {
     id: 'd1',
     type: 'SENIOR_PENDING_PAYOUT',
+    receiverName: 'Иван Петров',
     oldAmount: 8000,
     newAmount: 10000,
     sharePercent: 40,
@@ -68,16 +69,18 @@ function preview(
   }
 }
 
+/** The dialog's own wording for «no answer at all»; the panel just renders what it is handed. */
+const NETWORK_TEXT = 'Не удалось загрузить предпросмотр — проверьте соединение'
+
 function renderPanel(props: Partial<Parameters<typeof CascadeImpactPanel>[0]> = {}) {
   const onRetry = vi.fn()
   const result = render(
     <CascadeImpactPanel
       preview={preview([derivative()])}
       isLoading={false}
-      isNetworkError={false}
+      errorMessage={null}
       onRetry={onRetry}
       staleMessage={null}
-      sourceReceiverName="Иван Петров"
       {...props}
     />,
   )
@@ -132,7 +135,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
   })
 
   it('PR-5. a senior share with no receiver name shows the type alone, not «Синьору undefined»', () => {
-    renderPanel({ sourceReceiverName: null })
+    renderPanel({ preview: preview([derivative({ receiverName: null })]) })
 
     expect(desktop().textContent).not.toContain('Синьору')
     expect(desktop().textContent).not.toContain('undefined')
@@ -191,6 +194,25 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     // дропу», so the label adds information rather than repeating it.
     expect(desktop().textContent).toContain('Ожидаемая выплата дропу')
     expect(desktop().textContent).toContain('Доля дропа')
+  })
+
+  it('PR-46. UX-1 — on an ADMIN_INCOME cascade the share names ITS OWN receiver, not the source’s', () => {
+    // The finding that reopened UX-1, reproduced from the live run: the source
+    // of an ordinary project income is an `ADMIN_INCOME` whose receiver is the
+    // ADMIN, while the senior share belongs to someone else entirely. The panel
+    // used to derive the name from the source row, so it printed the admin's
+    // name against the senior's money — a WRONG identity, not a missing one, on
+    // the screen where an operator decides whose money moves.
+    //
+    // There is no longer a source-receiver prop to pass: it was deleted with the
+    // fix, so the component CANNOT reach for the wrong name. This test pins the
+    // positive half — the row prints the identity carried on the row itself.
+    renderPanel({
+      preview: preview([derivative({ type: 'SENIOR_INCOME', receiverName: 'Nazar Ponomarenko' })]),
+    })
+
+    const row = screen.getByTestId('cascade-derivative-d1')
+    expect(row.textContent).toContain('Синьору Nazar Ponomarenko')
   })
 
   it('PR-43. UX-3 — a fully closed row says nothing about a remainder', () => {
@@ -539,7 +561,7 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
   })
 
   it('PR-19. a network failure is named, and retrying calls back', () => {
-    const { onRetry } = renderPanel({ isNetworkError: true, preview: undefined })
+    const { onRetry } = renderPanel({ errorMessage: NETWORK_TEXT, preview: undefined })
 
     expect(screen.getByTestId('cascade-preview-error').textContent).toContain(
       'проверьте соединение',
@@ -601,7 +623,7 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
   })
 
   it('PR-40. COPY-M-7 — the network banner stacks on mobile, like its neighbour', () => {
-    renderPanel({ isNetworkError: true, preview: undefined })
+    renderPanel({ errorMessage: NETWORK_TEXT, preview: undefined })
 
     // Measured by the copy reviewer: inline button ⇒ 135px text column ⇒ five
     // lines. The stale banner one block over already solves this with

@@ -34,6 +34,7 @@ function derivative(over: Partial<CascadeDerivativePlan> = {}): CascadeDerivativ
   return {
     id: '11111111-1111-4111-8111-111111111111',
     type: 'SENIOR_PENDING_PAYOUT',
+    receiverName: 'Иван Петров',
     oldAmount: 8000,
     newAmount: 10000,
     sharePercent: 40,

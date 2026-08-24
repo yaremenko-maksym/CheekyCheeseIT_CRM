@@ -116,6 +116,24 @@ export interface CascadeDerivativeSnapshot {
   id: string
   /** e.g. 'SENIOR_PENDING_PAYOUT' / 'DROP_PENDING_PAYOUT' (still open) or 'SENIOR_INCOME' / 'PAYOUT_DROP' (flipped by settle). */
   type: string
+  /**
+   * UX-1 (design fidelity, HIGH, reopened) — `transactions.receiver.displayName`
+   * of THIS derivative row, read from the database like every other field here.
+   *
+   * It is carried rather than derived because it cannot be derived. The client
+   * previously inferred the receiver from the SOURCE row, on the premise
+   * "source receiver == derivative receiver". That premise holds for
+   * `SENIOR_INCOME` (a senior declaring their own income) and FAILS for
+   * `ADMIN_INCOME` — the main path of this feature, where the source receiver
+   * is always the admin. The panel then printed the ADMIN's name against the
+   * SENIOR's share: not a missing name, a WRONG one, on the screen where an
+   * operator decides whose money moves. Static review could not catch it
+   * (the type universe genuinely is closed); a live run against real rows did.
+   *
+   * `null` when the row has no receiver or the join finds no user — the panel
+   * falls back to a family label rather than inventing an identity.
+   */
+  receiverName: string | null
   status: string
   /** `transactions.amount` on the derivative row AS STORED TODAY. */
   amount: number
@@ -290,6 +308,17 @@ export type CascadeWarning = z.infer<typeof cascadeWarningSchema>
 export const cascadeDerivativePlanSchema = z.object({
   id: z.string().uuid(),
   type: transactionTypeSchema,
+  /**
+   * UX-1 — who this share is FOR, carried from the row itself (see
+   * `CascadeDerivativeSnapshot.receiverName` for why deriving it client-side
+   * was wrong). Reaches only ADMIN: the sole route onto the wire is
+   * `GET /transactions/:id/edit-preview`, which is `@Roles('ADMIN')` at the
+   * guard layer AND re-checks `currentUser.role !== 'ADMIN'` in the service —
+   * a viewer who already sees every counterparty unmasked in `mapTx`. Pinned
+   * negatively by the preview RBAC specs so widening that route goes red
+   * instead of quietly carrying an identity along.
+   */
+  receiverName: z.string().nullable(),
   /** Current stored amount — `pending_obligations.amount` when an obligation exists (always USDT), else the derivative row's own `amount`. */
   oldAmount: z.number(),
   /** `roundShareAmount(newSourceAmount, sharePercent)`, or `null` when `sharePercent` is `null` (NO_SHARE_SNAPSHOT). */
@@ -490,6 +519,7 @@ function resolveDerivative(
     return {
       id: derivative.id,
       type: derivative.type as CascadeDerivativePlan['type'],
+      receiverName: derivative.receiverName,
       oldAmount,
       newAmount: null,
       sharePercent: null,
@@ -602,6 +632,7 @@ function resolveDerivative(
   return {
     id: derivative.id,
     type: derivative.type as CascadeDerivativePlan['type'],
+    receiverName: derivative.receiverName,
     oldAmount,
     newAmount,
     sharePercent,

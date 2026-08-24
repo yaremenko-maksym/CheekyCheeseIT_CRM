@@ -53,6 +53,9 @@ function makePendingDerivative(
   return {
     id: 'deriv-1',
     type: 'SENIOR_PENDING_PAYOUT',
+    // UX-1 — the share carries its OWN receiver; it is not inherited from the
+    // edited row (on `ADMIN_INCOME`, the main path, the two are different people).
+    receiverName: 'Иван Петров',
     status: 'PENDING_PAYMENT',
     amount: 260,
     currency: 'USDT',
@@ -86,6 +89,7 @@ function makePaidDerivative(
   return {
     id: 'deriv-1',
     type: 'SENIOR_INCOME',
+    receiverName: 'Иван Петров',
     status: 'PAID',
     amount: 260,
     currency: 'USDT',
@@ -924,6 +928,7 @@ describe('resolveEditCascade — AC7 property test', () => {
       const deriv: CascadeDerivativeSnapshot = {
         id: 'deriv-1',
         type: isSettled ? 'SENIOR_INCOME' : 'SENIOR_PENDING_PAYOUT',
+        receiverName: 'Иван Петров',
         status: isSettled ? 'PAID' : 'PENDING_PAYMENT',
         amount: 1,
         currency: 'USDT',
@@ -1079,6 +1084,7 @@ describe('cascadePlanSchema — full round-trip (also covers nested cascadeDeriv
     const derivativePlan: CascadeDerivativePlan = {
       id: '11111111-1111-4111-8111-111111111111',
       type: 'SENIOR_PENDING_PAYOUT',
+      receiverName: 'Иван Петров',
       oldAmount: 260,
       newAmount: 520,
       sharePercent: 26,

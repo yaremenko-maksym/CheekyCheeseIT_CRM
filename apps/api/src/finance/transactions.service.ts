@@ -3631,6 +3631,23 @@ export class TransactionsService {
         eq(transactions.sourceIncomeTransactionId, sourceId),
         isNull(transactions.deletedAt),
       ),
+      // UX-1 (design fidelity, HIGH, reopened): the preview must be able to say
+      // WHOSE share each row is, and that identity lives on the derivative —
+      // not on the source. Inferring it from the source row printed the admin's
+      // name against a senior's share on every `ADMIN_INCOME` cascade, which is
+      // the main path of this feature.
+      //
+      // A plain relational read, no lock: `lockCascadeRows` has already taken
+      // every row lock this snapshot needs, and `users` is not among them
+      // (nothing here writes a user). So this join cannot participate in the
+      // lock ordering the comment above guards, and cannot deadlock against
+      // `settleByCompany`.
+      //
+      // `columns` is an explicit allow-list, deliberately: `with: { receiver: true }`
+      // would pull the whole user row — email, legal name, admin note — into a
+      // snapshot that gets serialised into an API response. One display name is
+      // what the screen needs and all it gets (zone: projection rule 3).
+      with: { receiver: { columns: { displayName: true } } },
     })
 
     // Stryker disable next-line ArrowFunction: the VALUES this feeds into the
@@ -3753,6 +3770,8 @@ export class TransactionsService {
       return {
         id: d.id,
         type: d.type,
+        // UX-1 — see the `with:` allow-list on the query above.
+        receiverName: d.receiver?.displayName ?? null,
         status: d.status,
         amount: Number(d.amount),
         currency: d.currency,

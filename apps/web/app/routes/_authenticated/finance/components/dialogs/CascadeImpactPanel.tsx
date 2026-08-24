@@ -47,7 +47,8 @@ export interface CascadeImpactPanelProps {
   preview: CascadeEditPreviewResponse | undefined
   isLoading: boolean
   /** A genuine network failure — an `editable: false` answer is a 200, not this. */
-  isNetworkError: boolean
+  /** UX-6: non-null iff the preview request FAILED — the text to show. `null` covers both «not asked» and «in flight». */
+  errorMessage: string | null
   onRetry: () => void
   /**
    * The server's 409 text, verbatim, when the plan on screen was overtaken by a
@@ -56,7 +57,6 @@ export interface CascadeImpactPanelProps {
    */
   staleMessage: string | null
   /** Receiver of the SOURCE row — the senior a `SENIOR_PENDING_PAYOUT` share belongs to. */
-  sourceReceiverName: string | null
 }
 
 /**
@@ -73,20 +73,33 @@ const SENIOR_DERIVATIVE_TYPES = new Set(['SENIOR_PENDING_PAYOUT', 'SENIOR_INCOME
 // Stryker disable next-line StringLiteral: `PAYOUT_DROP`'s membership is not observable and cannot be — `TYPE_LABELS.PAYOUT_DROP` is itself «Доля дропа», so the duplicate guard below suppresses the label for that type whether the set matches it or not. Kept because it states the intent (both drop spellings belong to one family) and because a future rename of that label would make it load-bearing again; PR-44/PR-45 pin the rendered outcome for both spellings
 const DROP_DERIVATIVE_TYPES = new Set(['DROP_PENDING_PAYOUT', 'PAYOUT_DROP'])
 
-function derivativeReceiverLabel(
-  derivative: CascadeDerivativePlan,
-  sourceReceiverName: string | null,
-): string | null {
-  // UX-1 (design fidelity, HIGH): match the FAMILY, not the pending type.
+function derivativeReceiverLabel(derivative: CascadeDerivativePlan): string | null {
+  // UX-1 (design fidelity, HIGH) — two defects, one line, fixed in two rounds.
   //
-  // `settleByCompany` flips an IOU in place — `SENIOR_PENDING_PAYOUT` becomes
-  // `SENIOR_INCOME`, `DROP_PENDING_PAYOUT` becomes `PAYOUT_DROP` — and
-  // `loadCascadeSnapshot` reads `type: d.type`, i.e. the CURRENT one. Matching
-  // only the pending type therefore failed on exactly the population this
-  // screen exists for: an already-paid share about to be reverted. The single
-  // most consequential row on the panel showed no receiver at all.
-  if (SENIOR_DERIVATIVE_TYPES.has(derivative.type) && sourceReceiverName) {
-    return `Синьору ${sourceReceiverName}`
+  // FIRST: match the FAMILY, not the pending type. `settleByCompany` flips an
+  // IOU in place (`SENIOR_PENDING_PAYOUT` → `SENIOR_INCOME`,
+  // `DROP_PENDING_PAYOUT` → `PAYOUT_DROP`) and the snapshot carries the CURRENT
+  // type, so matching only the pending spelling missed exactly the population
+  // this screen exists for: an already-paid share about to be reverted.
+  //
+  // SECOND, and the reason the finding reopened: WHERE the name comes from.
+  // The family fix still read it from the SOURCE row, on the premise «source
+  // receiver == derivative receiver». True for `SENIOR_INCOME` (a senior
+  // declaring their own income), FALSE for `ADMIN_INCOME` — the main path,
+  // whose receiver is always the admin. So the panel printed the admin's name
+  // against the senior's share: a WRONG identity, strictly worse than the
+  // missing one it replaced.
+  //
+  // The premise was reviewed and agreed to by both code-review and
+  // security-review — statically it is airtight, because the type universe
+  // really is closed. It broke on data, not on types, and only a live cascade
+  // showed it. Hence the cure is not a cleverer client-side rule but the row's
+  // own `receiverName`, carried from the database (`CascadeDerivativePlan`).
+  // The source-receiver prop is GONE from this component rather than left
+  // unused: a value that must never be read is a loaded gun, and deleting it
+  // makes the mistake unrepresentable instead of merely tested-against.
+  if (SENIOR_DERIVATIVE_TYPES.has(derivative.type) && derivative.receiverName) {
+    return `Синьору ${derivative.receiverName}`
   }
   if (DROP_DERIVATIVE_TYPES.has(derivative.type)) return 'Доля дропа'
   return null
@@ -186,14 +199,8 @@ function AmountTransition({ derivative }: { derivative: CascadeDerivativePlan })
  * ONE derivative, rendered twice from the same data — a table row from `sm:` up,
  * a card below. Two files would be two chances for the figures to disagree.
  */
-function CascadeDerivativeRow({
-  derivative,
-  sourceReceiverName,
-}: {
-  derivative: CascadeDerivativePlan
-  sourceReceiverName: string | null
-}) {
-  const receiverLabelText = derivativeReceiverLabel(derivative, sourceReceiverName)
+function CascadeDerivativeRow({ derivative }: { derivative: CascadeDerivativePlan }) {
+  const receiverLabelText = derivativeReceiverLabel(derivative)
   // Found by looking at the rendered screen, not at the code: on a settled drop
   // row `TYPE_LABELS.PAYOUT_DROP` is ITSELF «Доля дропа», so the badge and the
   // line under it said the same three words twice. A receiver line that only
@@ -331,10 +338,9 @@ function CascadeDerivativeRow({
 export function CascadeImpactPanel({
   preview,
   isLoading,
-  isNetworkError,
+  errorMessage,
   onRetry,
   staleMessage,
-  sourceReceiverName,
 }: CascadeImpactPanelProps) {
   // A narrow live region, not the whole panel: announcing the entire table
   // again on every keystroke is worse for a screen-reader user than announcing
@@ -377,12 +383,12 @@ export function CascadeImpactPanel({
           existing solution, not a new pattern — and the text stays as it is,
           because even trimmed to 33 characters it still wrapped to three lines
           in the narrow column. */}
-      {!isLoading && isNetworkError && (
+      {!isLoading && errorMessage && (
         <div
           className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between sm:gap-3"
           data-testid="cascade-preview-error"
         >
-          <span>Не удалось загрузить предпросмотр — проверьте соединение</span>
+          <span>{errorMessage}</span>
           {/* h-11 below `sm:` — the responsive rule's 44px touch target, not
               the 24px WCAG floor. Measured at 320/375: the default `size="sm"`
               button is 32px tall. */}
@@ -398,7 +404,7 @@ export function CascadeImpactPanel({
         </div>
       )}
 
-      {!isLoading && !isNetworkError && preview && !preview.editable && (
+      {!isLoading && !errorMessage && preview && !preview.editable && (
         <div
           className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive"
           data-testid="cascade-blocked-banner"
@@ -412,7 +418,7 @@ export function CascadeImpactPanel({
         </div>
       )}
 
-      {!isLoading && !isNetworkError && preview?.editable && preview.plan && (
+      {!isLoading && !errorMessage && preview?.editable && preview.plan && (
         <>
           {staleMessage && (
             <div
@@ -496,11 +502,7 @@ export function CascadeImpactPanel({
                   </thead>
                   <tbody>
                     {preview.plan.derivatives.map((d) => (
-                      <CascadeDerivativeRow
-                        key={d.id}
-                        derivative={d}
-                        sourceReceiverName={sourceReceiverName}
-                      />
+                      <CascadeDerivativeRow key={d.id} derivative={d} />
                     ))}
                   </tbody>
                 </table>

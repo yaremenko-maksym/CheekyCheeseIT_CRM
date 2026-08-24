@@ -98,6 +98,11 @@ function planWith(
 const SENIOR_SHARE = {
   id: 'der-1',
   type: 'SENIOR_PENDING_PAYOUT' as const,
+  // UX-1: the receiver is carried by the SHARE, not inherited from the edited
+  // row. CP-3 asserting this name is now a statement about the plan — on the
+  // real path (`ADMIN_INCOME`) the two differ, and inheriting printed the
+  // admin's name against the senior's money.
+  receiverName: 'Иван Петров',
   oldAmount: 8000,
   newAmount: 10000,
   sharePercent: 40,
@@ -123,6 +128,14 @@ function axiosError(status: number, message: string): Error {
   return Object.assign(new Error(message), {
     isAxiosError: true,
     response: { status, data: { message } },
+  })
+}
+
+/** A bare 5xx with NO body — what a dev proxy returns when the upstream is down. */
+function bodilessError(status: number): Error {
+  return Object.assign(new Error(`Request failed with status code ${status}`), {
+    isAxiosError: true,
+    response: { status },
   })
 }
 
@@ -359,15 +372,59 @@ describe('cascade preview — the client half of the loop', () => {
     expect(getEditCascadePreviewMock).toHaveBeenLastCalledWith(PAID_TX.id, 30000)
   })
 
-  it('CP-19. a 4xx is NOT «проверьте соединение» — the server answered', async () => {
+  it('CP-19. a 4xx is NOT «проверьте соединение» — the server answered, and is quoted', async () => {
     getEditCascadePreviewMock.mockRejectedValue(axiosError(400, 'Некорректная сумма'))
     renderDialog()
     typeAmount('25000')
 
+    const err = await screen.findByTestId('cascade-preview-error')
+
+    // UNCHANGED INTENT, STRENGTHENED ASSERTION. This test has always existed to
+    // stop one thing: calling a refusal a connection problem, which sends the
+    // operator to check their wifi over a message the server took the trouble
+    // to write. That is still asserted, verbatim.
+    //
+    // What changed is the other half. It used to prove the point by asserting
+    // NO banner at all — which, once UX-6 showed that a failed preview must not
+    // look like an absent one, is the wrong way to be right: it made silence
+    // the correct answer to a server that answered. So the negative assertion
+    // stays and a positive one joins it — the server's own words are shown.
+    expect(err.textContent).not.toContain('проверьте соединение')
+    expect(err.textContent).toContain('Некорректная сумма')
+  })
+
+  it('CP-31. UX-6 — a preview that FAILED is not treated as a preview never asked for', async () => {
+    // Found live, by stopping the API process: the dev proxy answers a bare 500
+    // with no body. `isNetworkError` was false (a status exists), so no banner
+    // rendered; `preview` was `undefined`, and `canSaveCascadeEdit(undefined)`
+    // is `true` BY DESIGN (an ordinary non-cascade edit must not be blocked).
+    // The two together made a FAILED preview indistinguishable from one that
+    // was never requested: an empty panel and a live Save button.
+    //
+    // The server would still refuse the write (no token → 400), so no wrong
+    // row gets stored — but the operator earns an unexplained refusal instead
+    // of being told the preview did not load.
+    getEditCascadePreviewMock.mockRejectedValue(bodilessError(500))
+    renderDialog()
+    typeAmount('25000')
+
+    const err = await screen.findByTestId('cascade-preview-error')
+    expect(err.textContent).toBeTruthy()
+    expect(screen.getByTestId('cascade-preview-retry')).toBeTruthy()
+    expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
+  })
+
+  it('CP-32. UX-6 — a failed preview blocks Save for a CASCADE edit only, never an ordinary one', async () => {
+    // The gate must key off «this edit needs a preview and the preview failed»,
+    // not «no preview». An ordinary edit (row not PAID) never asks for one, and
+    // blocking it would be a regression invented by the fix.
+    getEditCascadePreviewMock.mockRejectedValue(bodilessError(500))
+    renderDialog({ ...PAID_TX, status: 'PENDING_PAYMENT' })
+    typeAmount('25000')
+
     await new Promise((r) => setTimeout(r, 600))
-    // Calling a refusal a connection problem sends the operator to check their
-    // wifi over a message the server took the trouble to write.
-    expect(screen.queryByTestId('cascade-preview-error')).toBeNull()
+    expect(getEditCascadePreviewMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', false)
   })
 
   it('CP-20. a 400 on save is shown as itself, not as a stale preview', async () => {

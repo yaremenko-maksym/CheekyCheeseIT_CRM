@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { amountsDiffer, type TransactionDto } from '@crm/shared'
 import { cn, parseStrictAmount } from '@/lib/utils'
-import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
+import { getApiErrorMessage, getAxiosStatus, getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -106,10 +106,33 @@ export function AdminEditTransactionDialog({
   })
 
   const preview = shouldPreview ? previewQuery.data : undefined
-  // A 4xx carries a body the operator needs to read; only a request that never
-  // got an answer at all is the «проверьте соединение» case.
-  const isPreviewNetworkError =
-    shouldPreview && previewQuery.isError && getAxiosStatus(previewQuery.error) === undefined
+
+  // UX-6 (design fidelity, HIGH) — THREE states, named, because conflating two
+  // of them left a live Save button over an empty panel.
+  //
+  //   not asked   — `!shouldPreview`: an ordinary edit, no cascade, no panel
+  //   in flight   — `previewIsRecomputing` below: skeleton, Save held
+  //   FAILED      — here: banner + retry, Save held
+  //
+  // The old code only knew «network error» (`status === undefined`). A bare 500
+  // with no body — what a dev proxy returns when the API is down, found by
+  // stopping the process — has a status, so it fell through every branch: no
+  // banner, and `canSaveCascadeEdit(undefined) === true` kept Save live. A
+  // failed preview was literally indistinguishable from one never requested.
+  const previewFailed = shouldPreview && previewQuery.isError
+
+  // The TEXT still distinguishes the two kinds, which is what CP-19 protects:
+  // sending someone to check their wifi over a message the server took the
+  // trouble to write is its own defect. A request that never got an answer
+  // keeps the panel's own short line; anything the server actually answered is
+  // rendered by `getUserFacingErrorMessage` — the project's existing resolver
+  // (backend message → Russian text per status → generic), reused rather than
+  // re-invented, and it never surfaces axios's English `.message`.
+  const previewErrorMessage = !previewFailed
+    ? null
+    : getAxiosStatus(previewQuery.error) === undefined
+      ? 'Не удалось загрузить предпросмотр — проверьте соединение'
+      : getUserFacingErrorMessage(previewQuery.error)
 
   // SR-H-1 (security-review, HIGH). Is the plan on screen the plan for the
   // figure currently in the field?
@@ -238,7 +261,7 @@ export function AdminEditTransactionDialog({
   // nothing about disabled controls; no success criterion demands a visible
   // reason next to one.)
   const cascadeSaveBlockedByData = !canSaveCascadeEdit(preview)
-  const cascadeSaveBlocked = cascadeSaveBlockedByData || previewIsRecomputing
+  const cascadeSaveBlocked = cascadeSaveBlockedByData || previewIsRecomputing || previewFailed
   const isEditable = tx && EDITABLE_TYPES.includes(tx.type) && !tx.payoutRequestId
 
   return (
@@ -289,7 +312,7 @@ export function AdminEditTransactionDialog({
                 <CascadeImpactPanel
                   preview={preview}
                   isLoading={previewIsRecomputing}
-                  isNetworkError={isPreviewNetworkError}
+                  errorMessage={previewErrorMessage}
                   onRetry={() => {
                     setStaleMessage(null)
                     // UX-2 (design fidelity): the failed-save error goes with
@@ -302,7 +325,6 @@ export function AdminEditTransactionDialog({
                   }}
                   staleMessage={staleMessage}
                   // Stryker disable next-line OptionalChaining: unreachable — this JSX only renders under `shouldPreview`, which is itself `!!tx && …`, so `tx` is non-null wherever this expression is evaluated (CP-23 covers the closed dialog)
-                  sourceReceiverName={tx?.receiverName ?? null}
                 />
               )}
 
