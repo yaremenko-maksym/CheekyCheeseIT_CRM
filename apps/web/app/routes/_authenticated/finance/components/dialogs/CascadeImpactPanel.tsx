@@ -37,6 +37,9 @@ import {
   fmtAmount,
 } from '../../constants'
 
+// Stryker disable next-line StringLiteral: the two variants are decided by `=== 'mobile'`, so ANY non-'mobile' value (including '') selects the desktop rendering — the mutant is equivalent by construction. Which layout each id lands in is pinned by PR-29/PR-30
+const DESKTOP = 'desktop' as const
+
 /** A destructive warning stops the save; an amber one is for the human to weigh. */
 const BLOCKING_WARNING_CODES = new Set(['NO_SHARE_SNAPSHOT', 'OBLIGATION_CURRENCY_MISMATCH'])
 
@@ -235,7 +238,7 @@ function CascadeDerivativeRow({
             {derivative.needsReconfirm && (
               <ReconfirmBadge derivativeId={derivative.id} variant="desktop" />
             )}
-            {warningsFor('desktop')}
+            {warningsFor(DESKTOP)}
           </div>
         </td>
       </tr>

@@ -404,6 +404,16 @@ describe('CascadeImpactPanel — severity is visible, not just present', () => {
     expect(mobile().className).toContain('border-amber-500/30')
   })
 
+  it('PR-36b. an ordinary card is NEUTRAL, not borderless — the accent has to mean something', () => {
+    renderPanel()
+
+    // If every card lost its neutral surface, the amber one would still stand
+    // out and PR-36 would still pass — while the rest of the stack turned into
+    // undifferentiated text. The contrast is the signal.
+    expect(mobile().className).toContain('border-border')
+    expect(mobile().className).not.toContain('border-amber-500/30')
+  })
+
   it('PR-35. the row that will revert is the one marked — the single accent on the screen', () => {
     renderPanel({
       preview: preview([
