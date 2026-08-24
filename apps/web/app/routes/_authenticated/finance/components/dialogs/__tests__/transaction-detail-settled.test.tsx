@@ -115,6 +115,24 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
     expect(digitsOf(settled.parentElement?.textContent ?? '')).toContain('3000')
   })
 
+  it('DS-5. UX-8 — a fully closed row says what was paid and NOT «к доплате 0,00»', async () => {
+    // The third surface of UX-3. Rounds ago the same defect was fixed in
+    // `TransactionRow` and `CascadeImpactPanel`; this dialog reads the SAME
+    // `settlementSplit` and kept printing a remainder of zero next to an
+    // already-closed obligation — a figure the operator must read and then
+    // discard, on a row whose own badge already says «Оплачено».
+    renderDetail(
+      { ...TX, settledAmount: '8000.000000', settledCurrency: 'USDT' } as TransactionDto,
+      'ADMIN',
+    )
+
+    const settled = await screen.findByTestId('tx-detail-settled')
+
+    // What WAS paid still matters and stays.
+    expect(digitsOf(settled.textContent ?? '')).toContain('8000')
+    expect(settled.parentElement?.textContent ?? '').not.toContain('К доплате')
+  })
+
   it('DS-2. a row with no accumulator does not grow a row about it', async () => {
     renderDetail(TX, 'ADMIN')
 

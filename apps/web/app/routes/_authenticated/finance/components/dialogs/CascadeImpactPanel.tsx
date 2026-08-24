@@ -70,7 +70,6 @@ export interface CascadeImpactPanelProps {
  * than no name.
  */
 const SENIOR_DERIVATIVE_TYPES = new Set(['SENIOR_PENDING_PAYOUT', 'SENIOR_INCOME'])
-// Stryker disable next-line StringLiteral: `PAYOUT_DROP`'s membership is not observable and cannot be — `TYPE_LABELS.PAYOUT_DROP` is itself «Доля дропа», so the duplicate guard below suppresses the label for that type whether the set matches it or not. Kept because it states the intent (both drop spellings belong to one family) and because a future rename of that label would make it load-bearing again; PR-44/PR-45 pin the rendered outcome for both spellings
 const DROP_DERIVATIVE_TYPES = new Set(['DROP_PENDING_PAYOUT', 'PAYOUT_DROP'])
 
 function derivativeReceiverLabel(derivative: CascadeDerivativePlan): string | null {
@@ -101,7 +100,27 @@ function derivativeReceiverLabel(derivative: CascadeDerivativePlan): string | nu
   if (SENIOR_DERIVATIVE_TYPES.has(derivative.type) && derivative.receiverName) {
     return `Синьору ${derivative.receiverName}`
   }
-  if (DROP_DERIVATIVE_TYPES.has(derivative.type)) return 'Доля дропа'
+  // UX-7 (design fidelity) — THIRD round on this one line, and the same shape
+  // of mistake each time: the fix reached the contract but not every branch
+  // reading it. UX-1 made the server resolve `receiverName` for EVERY
+  // derivative (a live run returns «Viktor Drozhzhyn» for `PAYOUT_DROP`), and
+  // this branch went on throwing it away, so a project with both shares showed
+  // one named row and one anonymous one in the same table, from the same data.
+  //
+  // The spec called that asymmetry undesirable in §14.2 and proposed exactly
+  // the field we then added — so this is not a gap we discovered, it is one we
+  // described and reproduced anyway.
+  //
+  // The nameless fallback stays: a row with no receiver on record must not
+  // invent one. Note the earlier Stryker suppression on the drop set is GONE —
+  // it argued membership was unobservable because `TYPE_LABELS.PAYOUT_DROP` is
+  // itself «Доля дропа» and the duplicate guard erased the line either way.
+  // With a name that reasoning no longer holds: «Дропу X» never equals the
+  // badge, so membership now decides what the operator reads, and PR-48 kills
+  // the mutant the suppression used to hide.
+  if (DROP_DERIVATIVE_TYPES.has(derivative.type)) {
+    return derivative.receiverName ? `Дропу ${derivative.receiverName}` : 'Доля дропа'
+  }
   return null
 }
 

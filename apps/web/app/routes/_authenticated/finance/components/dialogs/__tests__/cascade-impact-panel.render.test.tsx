@@ -126,7 +126,13 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
   })
 
   it('PR-4. a drop share is labelled without a name — none is available, and a wrong one is worse', () => {
-    renderPanel({ preview: preview([derivative({ type: 'DROP_PENDING_PAYOUT' })]) })
+    // `receiverName: null` is now EXPLICIT. It always had to be for this test to
+    // mean what its title says: before UX-7 the fixture silently carried a name
+    // and the branch ignored it, so «none is available» described the component's
+    // blindness rather than the input.
+    renderPanel({
+      preview: preview([derivative({ type: 'DROP_PENDING_PAYOUT', receiverName: null })]),
+    })
 
     expect(desktop().textContent).toContain('Доля дропа')
     expect(desktop().textContent).not.toContain('Иван Петров')
@@ -163,7 +169,9 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
 
   it('PR-42. UX-1 — a SETTLED drop share is still labelled, without inventing a name', () => {
     renderPanel({
-      preview: preview([derivative({ type: 'PAYOUT_DROP', needsReconfirm: true })]),
+      preview: preview([
+        derivative({ type: 'PAYOUT_DROP', needsReconfirm: true, receiverName: null }),
+      ]),
     })
 
     // Asserted as "the senior branch did NOT leak into a drop row": checking
@@ -177,7 +185,10 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
   })
 
   it('PR-44. a settled drop row names itself once, not twice', () => {
-    renderPanel({ preview: preview([derivative({ type: 'PAYOUT_DROP' })]) })
+    // Nameless on purpose: with a receiver the label reads «Дропу X», which can
+    // never collide with the badge, so the duplicate guard this test exists for
+    // is only reachable in the nameless case.
+    renderPanel({ preview: preview([derivative({ type: 'PAYOUT_DROP', receiverName: null })]) })
 
     // `TYPE_LABELS.PAYOUT_DROP` is itself «Доля дропа», so without the
     // duplicate guard the badge and the line under it said the same three words
@@ -188,12 +199,29 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
   })
 
   it('PR-45. a PENDING drop row keeps its label — the badge says something else', () => {
-    renderPanel({ preview: preview([derivative({ type: 'DROP_PENDING_PAYOUT' })]) })
+    renderPanel({
+      preview: preview([derivative({ type: 'DROP_PENDING_PAYOUT', receiverName: null })]),
+    })
 
     // The other side of the same guard: here the badge reads «Ожидаемая выплата
     // дропу», so the label adds information rather than repeating it.
     expect(desktop().textContent).toContain('Ожидаемая выплата дропу')
     expect(desktop().textContent).toContain('Доля дропа')
+  })
+
+  it('PR-48. UX-7 — a drop share names its receiver too; the server sends it, the screen must not drop it', () => {
+    // The asymmetry the spec itself called undesirable (§14.2) and which we
+    // then reproduced: after UX-1 the server resolves `receiverName` for EVERY
+    // derivative — a live run returned «Viktor Drozhzhyn» for `PAYOUT_DROP` —
+    // but the client used it only on the senior branch and drew every drop
+    // share anonymously. On a project carrying both shares that is one row with
+    // a name and one without, in the same table, from the same data.
+    renderPanel({
+      preview: preview([derivative({ type: 'PAYOUT_DROP', receiverName: 'Viktor Drozhzhyn' })]),
+    })
+
+    expect(desktop().textContent).toContain('Дропу Viktor Drozhzhyn')
+    expect(mobile().textContent).toContain('Дропу Viktor Drozhzhyn')
   })
 
   it('PR-46. UX-1 — on an ADMIN_INCOME cascade the share names ITS OWN receiver, not the source’s', () => {

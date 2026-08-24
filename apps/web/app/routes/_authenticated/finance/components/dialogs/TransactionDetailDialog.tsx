@@ -578,6 +578,13 @@ function TransactionInfoBlock({
 }) {
   // task-cascade-preview-ui (task 5): null on every row without an accumulator.
   const settlement = settlementSplit(t)
+  // UX-8: ONE narrowed value, the same shape `TransactionRow` settled on for
+  // this exact question. A separate `remaining !== null` test would be dead at
+  // RUNTIME — `null > 0` is already false in JS, which the mutation gate proved
+  // by surviving its removal — but not dead to the type system, since dropping
+  // it alone leaves `number | null` inside the branch. Cross-currency (`null`)
+  // and fully closed (`0`) mean the same thing here: no actionable remainder.
+  const remainingToPay = settlement?.remaining ?? 0
 
   return (
     <>
@@ -618,9 +625,15 @@ function TransactionInfoBlock({
           <span className="tabular-nums" data-testid="tx-detail-settled">
             {fmtAmount(settlement.settled, settlement.settledCurrency)}
           </span>
-          {settlement.remaining !== null && (
+          {/* UX-8 (design fidelity): `> 0`, not merely «есть остаток». This is
+              the THIRD surface of UX-3 — `TransactionRow` and
+              `CascadeImpactPanel` stopped printing a remainder of zero two
+              rounds ago, and this dialog, reading the very same
+              `settlementSplit`, kept printing «К доплате: 0,00» beside an
+              obligation whose own badge already says «Оплачено». */}
+          {remainingToPay > 0 && (
             <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
-              К доплате: {fmtAmount(settlement.remaining, t.currency)}
+              К доплате: {fmtAmount(remainingToPay, t.currency)}
             </span>
           )}
         </Row>
