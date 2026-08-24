@@ -3092,7 +3092,7 @@ export class TransactionsService {
       })
     if (isCascadeEdit && !data.cascadeVersion) {
       throw new BadRequestException(
-        'Правка суммы оплаченной транзакции влияет на связанные с ней строки и обязательства — подтверждение этих последствий появится в интерфейсе позже, такая правка пока не сохраняется',
+        'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства, подтвердить пересчёт пока негде',
       )
     }
     // SR-M-6 (security-review round 3) — the SAME law AC5/AC7 state for the
@@ -3205,7 +3205,7 @@ export class TransactionsService {
           // AC4).
           if (computeCascadeVersion(snapshot) !== data.cascadeVersion) {
             throw new ConflictException(
-              'Данные изменились с момента подтверждения последствий — прежнее подтверждение больше не действует, актуальное появится в интерфейсе позже',
+              'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, запросите предпросмотр заново и повторите',
             )
           }
           // The server computes the cascade itself. The client's version is an
@@ -4267,7 +4267,7 @@ export class TransactionsService {
         .returning({ id: transactions.id })
       if (derivativeUpdated.length === 0) {
         throw new BadRequestException(
-          `Строка ${derivativePlan.id} больше не в статусе ожидания выплаты — правка по ней отменена, актуальное подтверждение появится в интерфейсе позже`,
+          'Одна из долей ушла из ожидания выплаты, пока шло сохранение — правка отменена целиком, ничего не изменилось',
         )
       }
 

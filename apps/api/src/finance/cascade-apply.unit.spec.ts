@@ -527,7 +527,7 @@ describe('AC2: mandatory preview + optimistic lock', () => {
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN)).rejects.toThrow(
-      'Правка суммы оплаченной транзакции влияет на связанные с ней строки и обязательства — подтверждение этих последствий появится в интерфейсе позже, такая правка пока не сохраняется',
+      'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства, подтвердить пересчёт пока негде',
     )
   })
 
@@ -1254,7 +1254,7 @@ describe('CR-M-2: "is this a cascade amount edit" is asked in one place', () => 
       try {
         await writeSvc.adminUpdateTransaction(SOURCE_ID, { amount: c.amount }, ADMIN)
       } catch (e) {
-        needsToken = /влияет на связанные с ней строки и обязательства/.test((e as Error).message)
+        needsToken = /не сохранена/.test((e as Error).message)
       }
       // The preview offers a version token for exactly the edits that need one.
       // Oracle computed from the FIXTURE, not read back out of the plan —
@@ -1862,7 +1862,7 @@ describe('AC5: still-open obligation — both copies of the amount move together
       const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
       await expect(
         svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-      ).rejects.toThrow(/больше не в статусе ожидания выплаты/)
+      ).rejects.toThrow(/отменена целиком/)
     })
   })
 
@@ -2362,7 +2362,7 @@ describe('refusal messages', () => {
     )
   })
 
-  it('the stale-version refusal names staleness, not an action the operator cannot take', async () => {
+  it('the stale-version refusal instructs the only reader who can act on it — request the preview again', async () => {
     const { db } = makeDouble({
       derivatives: [pendingDerivativeRow()],
       obligations: [obligationRow()],
@@ -2376,7 +2376,7 @@ describe('refusal messages', () => {
         ADMIN,
       ),
     ).rejects.toThrow(
-      'Данные изменились с момента подтверждения последствий — прежнее подтверждение больше не действует, актуальное появится в интерфейсе позже',
+      'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, запросите предпросмотр заново и повторите',
     )
   })
 
