@@ -109,6 +109,23 @@ const SENIOR_SHARE = {
   warnings: [],
 }
 
+/**
+ * A rejection shaped like a real axios failure — an `Error` SUBCLASS carrying
+ * `response`, which is what axios actually throws.
+ *
+ * Not cosmetic: rejecting with a bare object literal makes Stryker's runner
+ * crash on its own `String(err)` during the dry run («Cannot convert object to
+ * primitive value»), so the whole mutation gate reports nothing for this
+ * package. Measured — the gate went from a full report to a crash the moment
+ * these fixtures were added, and back when they became Errors.
+ */
+function axiosError(status: number, message: string): Error {
+  return Object.assign(new Error(message), {
+    isAxiosError: true,
+    response: { status, data: { message } },
+  })
+}
+
 function renderDialog(tx: TransactionDto = PAID_TX) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -208,10 +225,9 @@ describe('cascade preview — the client half of the loop', () => {
   })
 
   it('CP-7. a 409 refuses in place — nothing is re-submitted behind the operator', async () => {
-    adminUpdateTransactionMock.mockRejectedValue({
-      isAxiosError: true,
-      response: { status: 409, data: { message: 'Данные изменились с момента предпросмотра' } },
-    })
+    adminUpdateTransactionMock.mockRejectedValue(
+      axiosError(409, 'Данные изменились с момента предпросмотра'),
+    )
     renderDialog()
     typeAmount('25000')
     await screen.findByTestId('cascade-derivative-der-1')
@@ -226,10 +242,9 @@ describe('cascade preview — the client half of the loop', () => {
   })
 
   it('CP-8. a stale plan offers exactly one way forward — re-request the preview', async () => {
-    adminUpdateTransactionMock.mockRejectedValue({
-      isAxiosError: true,
-      response: { status: 409, data: { message: 'Данные изменились с момента предпросмотра' } },
-    })
+    adminUpdateTransactionMock.mockRejectedValue(
+      axiosError(409, 'Данные изменились с момента предпросмотра'),
+    )
     renderDialog()
     typeAmount('25000')
     await screen.findByTestId('cascade-derivative-der-1')
@@ -296,7 +311,9 @@ describe('cascade preview — the client half of the loop', () => {
   })
 
   it('CP-12. a connection failure is named as one, with a retry — not left as «пересчитываем…»', async () => {
-    getEditCascadePreviewMock.mockRejectedValue({ isAxiosError: true, message: 'Network Error' })
+    getEditCascadePreviewMock.mockRejectedValue(
+      Object.assign(new Error('Network Error'), { isAxiosError: true }),
+    )
     renderDialog()
     typeAmount('25000')
 
@@ -343,10 +360,7 @@ describe('cascade preview — the client half of the loop', () => {
   })
 
   it('CP-19. a 4xx is NOT «проверьте соединение» — the server answered', async () => {
-    getEditCascadePreviewMock.mockRejectedValue({
-      isAxiosError: true,
-      response: { status: 400, data: { message: 'Некорректная сумма' } },
-    })
+    getEditCascadePreviewMock.mockRejectedValue(axiosError(400, 'Некорректная сумма'))
     renderDialog()
     typeAmount('25000')
 
@@ -357,13 +371,9 @@ describe('cascade preview — the client half of the loop', () => {
   })
 
   it('CP-20. a 400 on save is shown as itself, not as a stale preview', async () => {
-    adminUpdateTransactionMock.mockRejectedValue({
-      isAxiosError: true,
-      response: {
-        status: 400,
-        data: { message: 'Нет снимка процента доли по производной строке' },
-      },
-    })
+    adminUpdateTransactionMock.mockRejectedValue(
+      axiosError(400, 'Нет снимка процента доли по производной строке'),
+    )
     renderDialog()
     typeAmount('25000')
     await screen.findByTestId('cascade-derivative-der-1')
