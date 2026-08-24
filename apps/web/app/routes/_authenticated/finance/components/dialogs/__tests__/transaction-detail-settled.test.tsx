@@ -32,8 +32,28 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
 }))
 
+// URL-AWARE, because the dialog makes TWO different `api.get` calls and they
+// are not interchangeable: `/transactions/:id` re-fetches the row, and
+// `/finance/exchange-rate` feeds the headline `fmtUsd`.
+//
+// A single blanket `mockResolvedValue({ data: {} })` answered BOTH, so the
+// dialog rendered an empty object AS the transaction: `t.amount` was undefined,
+// `toUsd` returned undefined, and `undefined.toLocaleString()` threw during
+// render. Vitest reported it as an unhandled error while every assertion still
+// passed, and Stryker could not even stringify it — the whole @crm/web mutation
+// leg crashed on the dry run before mutating a single line. A fixture that is
+// not the shape the code reads is not a smaller fixture, it is a different one.
+const RATES = { usdUah: '41', usdtUah: '41', eurUah: '45', date: '2026-08-01' }
+let currentTx: TransactionDto | null = null
+
 vi.mock('@/lib/axios', () => ({
-  api: { get: vi.fn().mockResolvedValue({ data: {} }) },
+  api: {
+    get: vi.fn((url: string) =>
+      url.includes('exchange-rate')
+        ? Promise.resolve({ data: RATES })
+        : Promise.resolve({ data: currentTx }),
+    ),
+  },
 }))
 
 const TX = {
@@ -67,6 +87,7 @@ const TX = {
 } as unknown as TransactionDto
 
 function renderDetail(tx: TransactionDto, role: string) {
+  currentTx = tx
   mockUser.mockReturnValue({ id: 'viewer-id', role })
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
