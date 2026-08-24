@@ -235,7 +235,7 @@ function CascadeDerivativeRow({
 
       {/* Mobile — card. A `<dl>` so the label→value pairing survives a screen
           reader, which a bare `flex justify-between` does not carry. */}
-      <tr className="sm:hidden">
+      <tr className="sm:hidden" data-testid={`cascade-derivative-mobile-row-${derivative.id}`}>
         <td colSpan={5} className="pb-2">
           <div
             className={cn(
@@ -302,7 +302,12 @@ export function CascadeImpactPanel({
 
   return (
     <div className="space-y-2" data-testid="cascade-impact-panel">
-      <p className="sr-only" aria-live="polite" aria-atomic="true">
+      <p
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="cascade-preview-status"
+      >
         {status}
       </p>
 
@@ -408,7 +413,7 @@ export function CascadeImpactPanel({
                 ))}
 
                 <table className="w-full text-sm">
-                  <thead className="hidden sm:table-header-group">
+                  <thead className="hidden sm:table-header-group" data-testid="cascade-table-head">
                     <tr className="border-b border-border/50 text-xs text-muted-foreground">
                       <th scope="col" className="px-2 py-2 text-left font-medium">
                         Получатель
