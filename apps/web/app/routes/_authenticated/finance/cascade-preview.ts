@@ -95,8 +95,12 @@ export function settlementSplit(tx: {
   settledAmount?: string | number | null | undefined
   settledCurrency?: CurrencyEnum | string | null | undefined
 }): SettlementSplit | null {
-  if (tx.settledAmount === null || tx.settledAmount === undefined) return null
-
+  // ONE guard, not two. An explicit `null`/`undefined` check used to stand
+  // here and the mutation gate proved it unreachable: `Number(null)` is `0`,
+  // which the `<= 0` test below already rejects, and `Number(undefined)` is
+  // `NaN`, which `Number.isFinite` already rejects. No input could tell the two
+  // spellings apart, so the first one could be deleted without any test
+  // noticing — the definition of a check that cannot go red.
   const settled = Number(tx.settledAmount)
   if (!Number.isFinite(settled) || settled <= 0) return null
 

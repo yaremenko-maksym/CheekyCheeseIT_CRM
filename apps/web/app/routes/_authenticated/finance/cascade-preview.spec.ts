@@ -156,6 +156,15 @@ describe('canSaveCascadeEdit — the Save gate', () => {
     expect(canSaveCascadeEdit(p)).toBe(false)
   })
 
+  it('G-10b. editable with NO plan at all does not block', () => {
+    // The server never sends this shape today (`editable: true` always carries
+    // a plan), which is precisely why the branch needs a test: without one the
+    // guard could be deleted and nothing would notice until a contract change
+    // made the shape real — and then it would throw on `plan.derivatives`
+    // rather than fall through to a sane default.
+    expect(canSaveCascadeEdit(preview({ plan: null }))).toBe(true)
+  })
+
   it('G-10. an empty plan (no derivatives at all) saves', () => {
     const p = preview()
     p.plan!.derivatives = []

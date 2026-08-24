@@ -149,6 +149,64 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
     expect(screen.queryByTestId('tx-detail-payment-fact')).toBeNull()
   })
 
+  it('DS-4. a cross-currency settle shows what was paid but NOT a remainder', async () => {
+    renderDetail(
+      { ...TX, settledAmount: '2000.000000', settledCurrency: 'UAH' } as TransactionDto,
+      'ADMIN',
+    )
+
+    const settled = await screen.findByTestId('tx-detail-settled')
+
+    expect(settled.textContent).toContain('UAH')
+    // 8 000 USDT − 2 000 UAH is not a smaller number, it is a wrong one, and
+    // «К доплате» is precisely the label an operator pays against.
+    expect(await screen.findByText('Дата')).toBeTruthy()
+    expect(screen.queryByText(/К доплате/)).toBeNull()
+  })
+
+  it('PF-4. the ACCOUNTANT sees the payment fact too — same audience as ADMIN', async () => {
+    renderDetail(
+      {
+        ...TX,
+        originalAmount: '800.000000',
+        originalCurrency: 'USD',
+        exchangeRate: '37.5',
+      } as TransactionDto,
+      'ACCOUNTANT',
+    )
+
+    expect(await screen.findByTestId('tx-detail-payment-fact')).toBeTruthy()
+  })
+
+  it('PF-5. a triplet with no recorded original currency falls back to the row currency', async () => {
+    renderDetail(
+      { ...TX, originalAmount: '800.000000', originalCurrency: null } as TransactionDto,
+      'ADMIN',
+    )
+
+    const fact = await screen.findByTestId('tx-detail-payment-fact')
+
+    // Not «800,00 undefined» and not a blank unit — a money figure without a
+    // currency is unreadable, and the row's own currency is the only honest
+    // fallback available.
+    expect(fact.textContent).toContain('USDT')
+  })
+
+  it('PF-6. no rate ⇒ no rate line, rather than «×NaN»', async () => {
+    renderDetail(
+      {
+        ...TX,
+        originalAmount: '800.000000',
+        originalCurrency: 'USD',
+        exchangeRate: null,
+      } as TransactionDto,
+      'ADMIN',
+    )
+
+    await screen.findByTestId('tx-detail-payment-fact')
+    expect(screen.queryByText(/Применённый курс/)).toBeNull()
+  })
+
   it('DS-3. the settle split IS shown to the senior — it is their own money', async () => {
     renderDetail(
       { ...TX, settledAmount: '5000.000000', settledCurrency: 'USDT' } as TransactionDto,

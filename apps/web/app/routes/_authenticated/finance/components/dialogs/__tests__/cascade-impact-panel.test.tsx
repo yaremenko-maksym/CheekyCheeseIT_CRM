@@ -306,6 +306,98 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.getByTestId('cascade-preview-retry')).toBeTruthy()
   })
 
+  it('CP-16. a zero amount asks nothing — there is no cascade for "nothing"', async () => {
+    renderDialog()
+    typeAmount('0')
+
+    await new Promise((r) => setTimeout(r, 500))
+    expect(getEditCascadePreviewMock).not.toHaveBeenCalled()
+  })
+
+  it('CP-17. fast typing produces ONE request, for the figure that was settled on', async () => {
+    renderDialog()
+    typeAmount('2')
+    typeAmount('25')
+    typeAmount('25000')
+
+    await waitFor(() => expect(getEditCascadePreviewMock).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 300))
+    // Without the debounce cleanup, every intermediate figure would fire its
+    // own preview — three plans computed for two numbers nobody meant.
+    expect(getEditCascadePreviewMock).toHaveBeenCalledTimes(1)
+    expect(getEditCascadePreviewMock).toHaveBeenCalledWith(PAID_TX.id, 25000)
+  })
+
+  it('CP-18. a second, different amount is a second question — not the first answer again', async () => {
+    renderDialog()
+    typeAmount('25000')
+    await waitFor(() => expect(getEditCascadePreviewMock).toHaveBeenCalledTimes(1))
+
+    typeAmount('30000')
+
+    // If the two amounts shared one cache entry, the panel would answer the
+    // second question with the first plan and the operator would save a figure
+    // computed for a different number.
+    await waitFor(() => expect(getEditCascadePreviewMock).toHaveBeenCalledTimes(2))
+    expect(getEditCascadePreviewMock).toHaveBeenLastCalledWith(PAID_TX.id, 30000)
+  })
+
+  it('CP-19. a 4xx is NOT «проверьте соединение» — the server answered', async () => {
+    getEditCascadePreviewMock.mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 400, data: { message: 'Некорректная сумма' } },
+    })
+    renderDialog()
+    typeAmount('25000')
+
+    await new Promise((r) => setTimeout(r, 600))
+    // Calling a refusal a connection problem sends the operator to check their
+    // wifi over a message the server took the trouble to write.
+    expect(screen.queryByTestId('cascade-preview-error')).toBeNull()
+  })
+
+  it('CP-20. a 400 on save is shown as itself, not as a stale preview', async () => {
+    adminUpdateTransactionMock.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 400,
+        data: { message: 'Нет снимка процента доли по производной строке' },
+      },
+    })
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-derivative-der-1')
+
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+
+    await waitFor(() =>
+      expect(screen.getByText('Нет снимка процента доли по производной строке')).toBeTruthy(),
+    )
+    // «Обновить предпросмотр» would be useless advice here: re-fetching the
+    // plan changes nothing about a refusal that is not about staleness.
+    expect(screen.queryByTestId('cascade-stale-banner')).toBeNull()
+  })
+
+  it('CP-21. an empty plan leaves the dialog its normal width — no table to fit', async () => {
+    getEditCascadePreviewMock.mockResolvedValue(planWith([]))
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-preview-empty')
+
+    expect(screen.getByRole('dialog').className).toContain('sm:max-w-md')
+  })
+
+  it('CP-22. a plan with rows widens the dialog — measured, not assumed', async () => {
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-derivative-der-1')
+
+    // The five-column table forces ~750 px of content and overflowed the
+    // default `sm:max-w-md` at every breakpoint — found by measuring
+    // `scrollWidth` in a real Chromium at 768 px, not by looking at it.
+    expect(screen.getByRole('dialog').className).toContain('sm:max-w-3xl')
+  })
+
   it('CP-13. a non-PAID row behaves exactly as before — no preview, no panel', async () => {
     renderDialog({ ...PAID_TX, status: 'PENDING' } as TransactionDto)
     typeAmount('25000')
