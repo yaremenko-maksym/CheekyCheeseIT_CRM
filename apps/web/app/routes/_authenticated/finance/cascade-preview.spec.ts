@@ -120,6 +120,23 @@ describe('canSaveCascadeEdit — the Save gate', () => {
     expect(canSaveCascadeEdit(notReverting)).toBe(true)
   })
 
+  it('G-6b. a reverting row with an UNRELATED warning still saves', () => {
+    const p = preview()
+    p.plan!.derivatives = [
+      derivative({
+        needsReconfirm: true,
+        warnings: [{ code: 'SIGNED_INVOICE', message: 'Инвойс уже подписан контрагентом' }],
+      }),
+    ]
+
+    // Refusal 3 is «reverting AND the accumulator is in another currency», not
+    // «reverting AND anything at all is flagged». Without this case the code
+    // could ask `.some(() => true)` — blocking every warned revert — and G-6
+    // would not notice, because its fixture carries the very warning it looks
+    // for.
+    expect(canSaveCascadeEdit(p)).toBe(true)
+  })
+
   it('G-7. an overpayment does NOT block — the server accepts it', () => {
     const p = preview()
     p.plan!.derivatives = [
