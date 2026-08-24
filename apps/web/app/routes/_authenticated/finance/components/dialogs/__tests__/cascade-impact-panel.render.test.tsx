@@ -259,6 +259,90 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
   })
 })
 
+describe('CascadeImpactPanel — the figures, exactly', () => {
+  it('PR-26. a settle with no recorded currency is shown in the row currency, not blank', () => {
+    renderPanel({
+      preview: preview([derivative({ settledAmount: 5000, settledCurrency: null })]),
+    })
+
+    // The row's own currency is the only honest fallback; «5 000,00» with no
+    // unit is a figure an operator cannot act on.
+    expect(desktop().textContent).toContain('USDT')
+    expect(desktop().textContent).not.toContain('undefined')
+  })
+
+  it('PR-27. «К доплате» prints the remainder, and it is not one of the other two figures', () => {
+    renderPanel({
+      preview: preview([
+        derivative({ settledAmount: 5000, settledCurrency: 'USDT', remainingToPay: 4321 }),
+      ]),
+    })
+
+    // Deliberately a figure that appears nowhere else in the row: if the cell
+    // printed the new amount, or a dash, this is what notices.
+    expect(digits(desktop())).toContain('4321')
+    expect(digits(mobile())).toContain('4321')
+  })
+
+  it('PR-28. nothing settled ⇒ the desktop «Выплачено» cell is a dash, not empty', () => {
+    renderPanel()
+
+    const cells = within(desktop()).getAllByRole('cell')
+    // An empty cell reads as "no data available"; a dash reads as "nothing was
+    // paid", which is the fact.
+    expect(cells[2]?.textContent).toBe('—')
+  })
+
+  it("PR-29. each layout carries ITS OWN badge id — not the other one's", () => {
+    renderPanel({ preview: preview([derivative({ needsReconfirm: true })]) })
+
+    // Swapping the two suffixes would leave both ids present and both queries
+    // green, while every mobile assertion silently read the desktop node.
+    expect(within(desktop()).getByTestId('cascade-derivative-reconfirm-d1')).toBeTruthy()
+    expect(within(mobile()).getByTestId('cascade-derivative-reconfirm-d1-mobile')).toBeTruthy()
+  })
+
+  it('PR-30. a warning line lives in the layout whose id it carries', () => {
+    renderPanel({
+      preview: preview([
+        derivative({ warnings: [{ code: 'OVERPAYMENT', message: 'Уже выплачено 5000' }] }),
+      ]),
+    })
+
+    expect(within(desktop()).getByTestId('cascade-derivative-warning-d1-OVERPAYMENT')).toBeTruthy()
+    expect(
+      within(mobile()).getByTestId('cascade-derivative-warning-d1-OVERPAYMENT-mobile'),
+    ).toBeTruthy()
+  })
+
+  it('PR-31. a stale plan is not interactive — it is a record, not a control', () => {
+    renderPanel({ staleMessage: 'Данные изменились' })
+
+    // `pointer-events-none` is the behaviour, not the dimming: the plan below a
+    // stale banner must not accept a click that would act on a dead figure.
+    const dimmed = screen.getByTestId('cascade-plan-body')
+    expect(dimmed.className).toContain('pointer-events-none')
+  })
+
+  it('PR-32. a fresh plan IS interactive', () => {
+    renderPanel()
+
+    expect(screen.getByTestId('cascade-plan-body').className).not.toContain('pointer-events-none')
+  })
+
+  it('PR-33. loading wins over a blocked answer — one state at a time', () => {
+    renderPanel({
+      isLoading: true,
+      preview: { editable: false, blockedReason: 'ONCHAIN_DEPOSIT', plan: null, version: null },
+    })
+
+    // Showing a refusal for the PREVIOUS amount while the next one is still
+    // being computed tells the operator something that is not (yet) true.
+    expect(screen.queryByTestId('cascade-blocked-banner')).toBeNull()
+    expect(screen.getByTestId('cascade-preview-loading')).toBeTruthy()
+  })
+})
+
 describe('CascadeImpactPanel — which layout is which', () => {
   it('PR-15. the table row is hidden below 640px and the card above it', () => {
     renderPanel()

@@ -376,7 +376,10 @@ export function CascadeImpactPanel({
 
           {/* The plan stays visible under a stale banner, dimmed: the operator
               needs to see WHAT went out of date, not lose the context. */}
-          <div className={cn(staleMessage && 'pointer-events-none opacity-60')}>
+          <div
+            className={cn(staleMessage && 'pointer-events-none opacity-60')}
+            data-testid="cascade-plan-body"
+          >
             {preview.plan.derivatives.length === 0 ? (
               <p
                 className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs"
