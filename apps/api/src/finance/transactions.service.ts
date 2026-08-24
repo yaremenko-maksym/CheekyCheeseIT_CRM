@@ -3103,8 +3103,16 @@ export class TransactionsService {
         requestedAmount: data.amount,
       })
     if (isCascadeEdit && !data.cascadeVersion) {
+      // task-cascade-preview-ui (task 5) — the tail is now an ACTION, not an
+      // apology. PR #610 shortened it to «подтвердить пересчёт пока негде»
+      // because the preview screen did not exist yet and naming a step nobody
+      // could take is worse than naming none. It exists as of this task
+      // (`CascadeImpactPanel` inside `AdminEditTransactionDialog`), so the
+      // refusal points at it. The head of the sentence is unchanged on
+      // purpose: it is what the two callers' tests match on, and the shortest
+      // honest statement of the reason.
       throw new BadRequestException(
-        'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства, подтвердить пересчёт пока негде',
+        'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства: откройте предпросмотр и повторите',
       )
     }
     // SR-M-6 (security-review round 3) — the SAME law AC5/AC7 state for the

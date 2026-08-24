@@ -522,12 +522,12 @@ describe('AC2: mandatory preview + optimistic lock', () => {
     expect(ops).toEqual([])
   })
 
-  it('the refusal text names the reason, not an action the operator cannot take', async () => {
+  it('the refusal text names the reason AND the action that now exists — open the preview', async () => {
     const { db } = makeDouble()
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN)).rejects.toThrow(
-      'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства, подтвердить пересчёт пока негде',
+      'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства: откройте предпросмотр и повторите',
     )
   })
 
