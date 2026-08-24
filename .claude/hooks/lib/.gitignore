@@ -1,6 +1,0 @@
-# The hooks import cmdscan.py on every Bash tool call; without this the repo
-# would grow a __pycache__ on the first run in any fresh checkout. The hooks
-# also export PYTHONDONTWRITEBYTECODE=1, so this is the second line of defence
-# (a manual `python3 cmdscan.py` still writes one).
-__pycache__/
-*.pyc
