@@ -258,6 +258,12 @@ export function AdminEditTransactionDialog({
                   isNetworkError={isPreviewNetworkError}
                   onRetry={() => {
                     setStaleMessage(null)
+                    // UX-2 (design fidelity): the failed-save error goes with
+                    // it. Without the reset the dialog showed a FRESH plan and
+                    // a red «сохранение не удалось» line from the previous
+                    // attempt at the same time — the same two-contradictory-
+                    // answers defect as COPY-H-1, one screen down.
+                    mutation.reset()
                     void previewQuery.refetch()
                   }}
                   staleMessage={staleMessage}

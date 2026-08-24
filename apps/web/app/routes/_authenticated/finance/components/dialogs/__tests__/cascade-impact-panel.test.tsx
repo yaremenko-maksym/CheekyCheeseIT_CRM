@@ -541,6 +541,25 @@ describe('cascade preview — the client half of the loop', () => {
     expect(note.textContent).toContain('ручное решение')
   })
 
+  it('CP-30. UX-2 — refreshing a stale preview clears the failed-save error with it', async () => {
+    adminUpdateTransactionMock.mockRejectedValue(
+      axiosError(409, 'Данные изменились с момента предпросмотра'),
+    )
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-derivative-der-1')
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+    await screen.findByTestId('cascade-stale-banner')
+
+    fireEvent.click(screen.getByTestId('cascade-refresh-preview'))
+    await waitFor(() => expect(screen.queryByTestId('cascade-stale-banner')).toBeNull())
+
+    // The plan is fresh again; a red «сохранение не удалось» line left over
+    // from the previous attempt says the opposite, at the same time, on the
+    // same screen — the same defect class as COPY-H-1.
+    expect(screen.queryByText(/Данные изменились/)).toBeNull()
+  })
+
   it('CP-13. a non-PAID row behaves exactly as before — no preview, no panel', async () => {
     renderDialog({ ...PAID_TX, status: 'PENDING' } as TransactionDto)
     typeAmount('25000')

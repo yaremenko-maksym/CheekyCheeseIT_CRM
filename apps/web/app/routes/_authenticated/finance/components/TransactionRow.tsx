@@ -588,8 +588,17 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
               data-testid={`tx-row-settled-${tx.id}`}
             >
               Выплачено {fmtAmount(settlement.settled, settlement.settledCurrency)}
+              {/* COPY-M-2: «к доплате», the same name the detail dialog, the
+                  cascade panel and the settle dialog use for the SAME number
+                  from the SAME function. It was «осталось» here alone, and the
+                  operator crosses all four surfaces in one scenario. Measured
+                  by the copy reviewer: two lines in a ~150px cell either way,
+                  so the unification costs nothing.
+                  UX-3: absent entirely once there is nothing left to pay —
+                  «к доплате 0,00» is a line to read and discard. */}
               {settlement.remaining !== null &&
-                ` · осталось ${fmtAmount(settlement.remaining, tx.currency)}`}
+                settlement.remaining > 0 &&
+                ` · к доплате ${fmtAmount(settlement.remaining, tx.currency)}`}
             </p>
           )}
           {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR

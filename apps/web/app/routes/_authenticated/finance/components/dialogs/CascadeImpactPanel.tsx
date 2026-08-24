@@ -69,14 +69,25 @@ export interface CascadeImpactPanelProps {
  * stays nameless rather than guessing — a wrong name on a money screen is worse
  * than no name.
  */
+const SENIOR_DERIVATIVE_TYPES = new Set(['SENIOR_PENDING_PAYOUT', 'SENIOR_INCOME'])
+const DROP_DERIVATIVE_TYPES = new Set(['DROP_PENDING_PAYOUT', 'PAYOUT_DROP'])
+
 function derivativeReceiverLabel(
   derivative: CascadeDerivativePlan,
   sourceReceiverName: string | null,
 ): string | null {
-  if (derivative.type === 'SENIOR_PENDING_PAYOUT' && sourceReceiverName) {
+  // UX-1 (design fidelity, HIGH): match the FAMILY, not the pending type.
+  //
+  // `settleByCompany` flips an IOU in place — `SENIOR_PENDING_PAYOUT` becomes
+  // `SENIOR_INCOME`, `DROP_PENDING_PAYOUT` becomes `PAYOUT_DROP` — and
+  // `loadCascadeSnapshot` reads `type: d.type`, i.e. the CURRENT one. Matching
+  // only the pending type therefore failed on exactly the population this
+  // screen exists for: an already-paid share about to be reverted. The single
+  // most consequential row on the panel showed no receiver at all.
+  if (SENIOR_DERIVATIVE_TYPES.has(derivative.type) && sourceReceiverName) {
     return `Синьору ${sourceReceiverName}`
   }
-  if (derivative.type === 'DROP_PENDING_PAYOUT') return 'Доля дропа'
+  if (DROP_DERIVATIVE_TYPES.has(derivative.type)) return 'Доля дропа'
   return null
 }
 
@@ -174,8 +185,12 @@ function CascadeDerivativeRow({
     derivative.settledAmount > 0
       ? fmtAmount(derivative.settledAmount, derivative.settledCurrency ?? derivative.currency)
       : null
+  // UX-3 (design fidelity): a fully closed row has nothing left to pay, and
+  // «0,00 USDT» in a «К доплате» column is a figure the operator must read and
+  // then discard on every settled row. `null` (currencies not comparable) and
+  // zero are both "no actionable remainder" — one dash for both.
   const remainingLabel =
-    derivative.remainingToPay === null
+    derivative.remainingToPay === null || derivative.remainingToPay === 0
       ? '—'
       : fmtAmount(derivative.remainingToPay, derivative.currency)
   const warningsFor = (variant: 'desktop' | 'mobile') =>

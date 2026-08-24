@@ -142,6 +142,50 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     expect(mobile().textContent).not.toContain('undefined')
   })
 
+  it('PR-41. UX-1 — a SETTLED senior share still names its receiver', () => {
+    // THE case this screen exists for: an already-paid share about to be
+    // reverted. `settleByCompany` flips the row IN PLACE, so the snapshot
+    // carries its CURRENT type — `SENIOR_INCOME`, not `SENIOR_PENDING_PAYOUT`.
+    // Matching only the pending type meant the single most consequential row
+    // on the screen — the one whose money is coming back — showed no name.
+    renderPanel({
+      preview: preview([
+        derivative({ type: 'SENIOR_INCOME', needsReconfirm: true, settledAmount: 5000 }),
+      ]),
+    })
+
+    expect(desktop().textContent).toContain('Синьору Иван Петров')
+    expect(mobile().textContent).toContain('Синьору Иван Петров')
+  })
+
+  it('PR-42. UX-1 — a SETTLED drop share is still labelled, without inventing a name', () => {
+    renderPanel({
+      preview: preview([derivative({ type: 'PAYOUT_DROP', needsReconfirm: true })]),
+    })
+
+    // Asserted as "the senior branch did NOT leak into a drop row": checking
+    // for «Доля дропа» alone would be vacuous, because that is also exactly
+    // what `TYPE_LABELS.PAYOUT_DROP` prints on the badge. The name stays
+    // absent — `CascadeDerivativePlan` carries no receiver, and the SOURCE's
+    // receiver is the senior, not the drop.
+    expect(desktop().textContent).not.toContain('Синьору')
+    expect(desktop().textContent).not.toContain('Иван Петров')
+    expect(desktop().textContent).toContain('Доля дропа')
+  })
+
+  it('PR-43. UX-3 — a fully closed row says nothing about a remainder', () => {
+    renderPanel({
+      preview: preview([
+        derivative({ settledAmount: 8000, settledCurrency: 'USDT', remainingToPay: 0 }),
+      ]),
+    })
+
+    // «осталось 0,00» is not information, it is a line the operator has to read
+    // and discard on every already-closed row.
+    const cells = within(desktop()).getAllByRole('cell')
+    expect(cells[3]?.textContent).toBe('—')
+  })
+
   it('PR-6. both figures of the transition are shown', () => {
     renderPanel()
 

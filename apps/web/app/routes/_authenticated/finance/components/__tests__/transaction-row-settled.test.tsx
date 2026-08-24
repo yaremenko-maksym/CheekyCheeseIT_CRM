@@ -101,7 +101,7 @@ describe('TransactionRow — the settle accumulator in the list', () => {
     expect(screen.queryByTestId(`tx-row-settled-${TX_ID}`)).toBeNull()
   })
 
-  it('TR-4. an overpaid row shows «осталось 0», not a negative debt', () => {
+  it('TR-4. an overpaid row shows what was paid and no remainder — never a negative debt', () => {
     renderRow({
       ...BASE_TX,
       amount: '3000.000000',
@@ -111,9 +111,31 @@ describe('TransactionRow — the settle accumulator in the list', () => {
 
     const line = screen.getByTestId(`tx-row-settled-${TX_ID}`)
 
-    expect(line.textContent).toContain('осталось')
+    // This test used to require «осталось 0». UX-3 (design fidelity) removed
+    // that clause: zero owed is not information, it is a line to read and
+    // discard. What the test was ACTUALLY guarding — that an overpaid row never
+    // renders a negative debt — is unchanged and asserted below.
+    expect(line.textContent).not.toContain('доплате')
     expect(line.textContent).not.toContain('-')
     expect(line.textContent).not.toContain('−')
+  })
+
+  it('TR-6. UX-3 — a fully closed row shows what was paid, not «осталось 0»', () => {
+    renderRow({
+      ...BASE_TX,
+      amount: '8000.000000',
+      settledAmount: '8000.000000',
+      settledCurrency: 'USDT',
+    } as TransactionDto)
+
+    const line = screen.getByTestId(`tx-row-settled-${TX_ID}`)
+
+    expect(digitsOf(line.textContent ?? '')).toContain('8000')
+    // Asserted on the SEPARATOR, not on a word: the second clause is what must
+    // disappear, whatever it is called. Checking for a particular noun would
+    // pass vacuously the moment the wording changes — which it just did
+    // (COPY-M-2, «осталось» → «к доплате»).
+    expect(line.textContent).not.toContain('·')
   })
 
   it('TR-5. money paid in another currency reports the figure but no remainder', () => {
