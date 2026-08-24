@@ -136,6 +136,9 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
 
     expect(desktop().textContent).not.toContain('Синьору')
     expect(desktop().textContent).not.toContain('undefined')
+    // And NOT the drop label either: a senior share is not a drop share, and
+    // "some label is better than none" is how a receiver gets misattributed.
+    expect(desktop().textContent).not.toContain('Доля дропа')
     expect(mobile().textContent).not.toContain('undefined')
   })
 
@@ -265,10 +268,12 @@ describe('CascadeImpactPanel — the figures, exactly', () => {
       preview: preview([derivative({ settledAmount: 5000, settledCurrency: null })]),
     })
 
-    // The row's own currency is the only honest fallback; «5 000,00» with no
-    // unit is a figure an operator cannot act on.
-    expect(desktop().textContent).toContain('USDT')
-    expect(desktop().textContent).not.toContain('undefined')
+    // Read the «Выплачено» CELL, not the whole row: every other cell in it
+    // already says USDT, so a row-wide assertion would pass even if this one
+    // figure lost its unit.
+    const paidCell = within(desktop()).getAllByRole('cell')[2]
+    expect(paidCell?.textContent).toContain('USDT')
+    expect(paidCell?.textContent).not.toContain('undefined')
   })
 
   it('PR-27. «К доплате» prints the remainder, and it is not one of the other two figures', () => {
@@ -343,6 +348,43 @@ describe('CascadeImpactPanel — the figures, exactly', () => {
   })
 })
 
+describe('CascadeImpactPanel — severity is visible, not just present', () => {
+  it('PR-34. a blocking warning reads as destructive; a weighable one as a caution', () => {
+    renderPanel({
+      preview: preview([
+        derivative({
+          newAmount: null,
+          warnings: [
+            { code: 'NO_SHARE_SNAPSHOT', message: 'Нет снимка процента доли' },
+            { code: 'OVERPAYMENT', message: 'Уже выплачено 5000' },
+          ],
+        }),
+      ]),
+    })
+
+    // The two are different kinds of news — one stops the save, the other asks
+    // the operator to think — and a single colour for both erases that.
+    const blocking = screen.getByTestId('cascade-derivative-warning-d1-NO_SHARE_SNAPSHOT')
+    const weighable = screen.getByTestId('cascade-derivative-warning-d1-OVERPAYMENT')
+    expect(blocking.className).toContain('text-destructive')
+    expect(weighable.className).toContain('text-amber-400')
+  })
+
+  it('PR-35. the row that will revert is the one marked — the single accent on the screen', () => {
+    renderPanel({
+      preview: preview([
+        derivative({ id: 'd1', needsReconfirm: true }),
+        derivative({ id: 'd2', needsReconfirm: false }),
+      ]),
+    })
+
+    expect(screen.getByTestId('cascade-derivative-d1').className).toContain('border-l-amber-500')
+    expect(screen.getByTestId('cascade-derivative-d2').className).not.toContain(
+      'border-l-amber-500',
+    )
+  })
+})
+
 describe('CascadeImpactPanel — which layout is which', () => {
   it('PR-15. the table row is hidden below 640px and the card above it', () => {
     renderPanel()
@@ -412,6 +454,19 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
       'включена в оформленную заявку на выплату',
     )
     expect(screen.queryByTestId('cascade-derivative-d1')).toBeNull()
+  })
+
+  it('PR-20b. a payout row is refused with the payout sentence, not the payout-request one', () => {
+    renderPanel({
+      preview: { editable: false, blockedReason: 'PAYOUT_FAMILY', plan: null, version: null },
+    })
+
+    // The two refusals written for this screen sit next to each other in one
+    // `Record`; a wrong key returns the WRONG sentence, and both are plausible
+    // enough that nobody would notice on a screenshot.
+    expect(screen.getByTestId('cascade-blocked-banner').textContent).toContain(
+      'подтверждена исполненным переводом',
+    )
   })
 
   it('PR-21. a blocked answer with NO reason still says something, not «undefined»', () => {

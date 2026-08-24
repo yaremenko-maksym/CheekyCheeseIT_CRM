@@ -408,6 +408,17 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.getByRole('dialog').className).toContain('sm:max-w-3xl')
   })
 
+  it('CP-23. a closed dialog (no transaction at all) renders and asks nothing', async () => {
+    // `AdminEditTransactionDialog` stays MOUNTED with `tx={null}` whenever the
+    // list is open and nothing is being edited — which is nearly always. Every
+    // access to `tx` on that path has to survive it.
+    renderDialog(null as unknown as TransactionDto)
+
+    await new Promise((r) => setTimeout(r, 500))
+    expect(getEditCascadePreviewMock).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('cascade-impact-panel')).toBeNull()
+  })
+
   it('CP-13. a non-PAID row behaves exactly as before — no preview, no panel', async () => {
     renderDialog({ ...PAID_TX, status: 'PENDING' } as TransactionDto)
     typeAmount('25000')

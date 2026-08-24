@@ -228,6 +228,20 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
     expect(screen.queryByText(/Применённый курс/)).toBeNull()
   })
 
+  it('PF-7. no session user ⇒ no payment fact — «not known yet» is not «privileged»', async () => {
+    mockUser.mockReturnValue(undefined)
+    currentTx = { ...TX, originalAmount: '800.000000' } as TransactionDto
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TransactionDetailDialog tx={currentTx} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    await screen.findByText('Дата')
+    expect(screen.queryByTestId('tx-detail-payment-fact')).toBeNull()
+  })
+
   it('DS-3. the settle split IS shown to the senior — it is their own money', async () => {
     renderDetail(
       { ...TX, settledAmount: '5000.000000', settledCurrency: 'USDT' } as TransactionDto,

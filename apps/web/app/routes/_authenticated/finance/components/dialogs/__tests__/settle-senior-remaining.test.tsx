@@ -113,6 +113,20 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     expect(await screen.findByText('К доплате сейчас')).toBeTruthy()
   })
 
+  it('SR-5. a settle accumulated in another currency shows a dash, not a fabricated figure', async () => {
+    renderDialog({
+      ...BASE_TX,
+      settledAmount: '2000.000000',
+      settledCurrency: 'UAH',
+    } as TransactionDto)
+
+    const remaining = await screen.findByTestId('settle-senior-remaining')
+
+    // 8 000 USDT − 2 000 UAH is not a smaller number, it is a wrong one, and
+    // this is the line the operator is about to pay against.
+    expect(remaining.textContent).toBe('—')
+  })
+
   it('SR-3. the ordinary case — nothing settled — is untouched', async () => {
     renderDialog(BASE_TX)
 
