@@ -522,12 +522,12 @@ describe('AC2: mandatory preview + optimistic lock', () => {
     expect(ops).toEqual([])
   })
 
-  it('the refusal text tells the operator to open the preview', async () => {
+  it('the refusal text names the reason, not an action the operator cannot take', async () => {
     const { db } = makeDouble()
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN)).rejects.toThrow(
-      /предпросмотр/i,
+      'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства, подтвердить пересчёт пока негде',
     )
   })
 
@@ -1254,7 +1254,7 @@ describe('CR-M-2: "is this a cascade amount edit" is asked in one place', () => 
       try {
         await writeSvc.adminUpdateTransaction(SOURCE_ID, { amount: c.amount }, ADMIN)
       } catch (e) {
-        needsToken = /предпросмотр/.test((e as Error).message)
+        needsToken = /не сохранена/.test((e as Error).message)
       }
       // The preview offers a version token for exactly the edits that need one.
       // Oracle computed from the FIXTURE, not read back out of the plan —
@@ -1862,7 +1862,7 @@ describe('AC5: still-open obligation — both copies of the amount move together
       const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
       await expect(
         svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-      ).rejects.toThrow(/больше не в статусе ожидания выплаты/)
+      ).rejects.toThrow(/отменена целиком/)
     })
   })
 
@@ -2362,7 +2362,7 @@ describe('refusal messages', () => {
     )
   })
 
-  it('the stale-version refusal tells the operator to refresh the preview', async () => {
+  it('the stale-version refusal instructs the only reader who can act on it — request the preview again', async () => {
     const { db } = makeDouble({
       derivatives: [pendingDerivativeRow()],
       obligations: [obligationRow()],
@@ -2376,7 +2376,7 @@ describe('refusal messages', () => {
         ADMIN,
       ),
     ).rejects.toThrow(
-      'Данные изменились с момента предпросмотра — обновите предпросмотр правки и повторите сохранение',
+      'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, запросите предпросмотр заново и повторите',
     )
   })
 
