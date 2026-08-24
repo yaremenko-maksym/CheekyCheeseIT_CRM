@@ -321,8 +321,23 @@ export const cascadeDerivativePlanSchema = z.object({
   receiverName: z.string().nullable(),
   /** Current stored amount — `pending_obligations.amount` when an obligation exists (always USDT), else the derivative row's own `amount`. */
   oldAmount: z.number(),
-  /** `roundShareAmount(newSourceAmount, sharePercent)`, or `null` when `sharePercent` is `null` (NO_SHARE_SNAPSHOT). */
+  /**
+   * What this row's `amount` WILL BE after saving — `null` when `sharePercent`
+   * is `null` (NO_SHARE_SNAPSHOT). Floored at `settledAmount`, exactly as
+   * `applyEditCascade` writes it, so the screen cannot describe a figure the
+   * system has already decided not to store (QA-H-1).
+   */
   newAmount: z.number().nullable(),
+  /**
+   * What the share COMES OUT TO — `roundShareAmount(newSourceAmount,
+   * sharePercent)`, before the accumulator floor. Equal to `newAmount` except
+   * when the recomputed share falls below what has already been paid; that gap
+   * IS the overpayment, and it is what the `OVERPAYMENT` warning quotes and
+   * what `applyEditCascade` journals as `CASCADE_OVERPAYMENT`. Carried rather
+   * than re-derived on the write side: re-deriving is how the two descriptions
+   * drifted apart in the first place (ADR AC4).
+   */
+  recomputedShare: z.number().nullable(),
   /** The percent this plan computed `newAmount` from — `null` alongside `newAmount`. */
   sharePercent: z.number().int().nullable(),
   /**
@@ -522,6 +537,7 @@ function resolveDerivative(
       receiverName: derivative.receiverName,
       oldAmount,
       newAmount: null,
+      recomputedShare: null,
       sharePercent: null,
       currency: sourceCurrency,
       settledAmount,
@@ -539,7 +555,27 @@ function resolveDerivative(
     }
   }
 
-  const newAmount = roundShareAmount(newSourceAmount, sharePercent)
+  // QA-H-1 (manual QA, HIGH) — TWO figures, because they are two different
+  // facts and conflating them is what let the preview describe a number the
+  // system had already decided never to store.
+  //
+  //   `recomputedShare` — what the share COMES OUT TO from the new source
+  //                       amount. The subject of the overpayment warning.
+  //   `newAmount`       — what this row's `amount` WILL BE after saving.
+  //
+  // They differ exactly when the recomputed share falls below what has already
+  // been paid. `applyEditCascade` has always floored the write at the
+  // accumulator (a row whose `amount` sits under `settled_amount` leaves a
+  // negative remainder and an obligation nobody can close), but the floor —
+  // extracted into `floorAmountAtAccumulator` by #608 and applied there to the
+  // SOURCE amount — never reached the derivative side of the resolver. So the
+  // panel showed «100 → 50» and the row came out at 100, measured by QA with a
+  // SQL dump either side.
+  //
+  // That is precisely the risk AC4 of the ADR names, and the reason it insists
+  // the description live in ONE place: the same defect shape as #607 and #608,
+  // a third time.
+  const recomputedShare = roundShareAmount(newSourceAmount, sharePercent)
 
   // HIGH-2 (security-review round 1) + HIGH-2-residual (round 2): `newAmount`
   // is always a share of `newSourceAmount`, expressed in the SOURCE's OWN
@@ -577,6 +613,24 @@ function resolveDerivative(
   //     kept correct anyway so a future write path cannot silently violate it.
   const currencyMismatch = settledCurrencyMismatch(settledAmount, settledCurrency, sourceCurrency)
 
+  // The floor is skipped when the two figures are not the same unit, for the
+  // same refusal-to-guess reason `remainingToPay` and `overpaid` are: `max()`
+  // over 2000 UAH and 50 USDT is not a bigger number, it is a meaningless one,
+  // and putting it on screen as «Стало» would be worse than the raw share.
+  // (`applyEditCascade`'s own floor is left exactly as it was — this changes
+  // what is SHOWN, never what is written.)
+  //
+  // `null` rather than a second conditional: `floorAmountAtAccumulator` already
+  // documents "no accumulator ⇒ NO floor" and implements it on exactly that
+  // input, so passing `null` reuses the law instead of restating it. It also
+  // matters — `settledAmount` is a NUMBER here (0 when the row never settled),
+  // and `Math.max(requested, 0)` would clamp a negative probe to zero, which is
+  // the very second rule that helper's comment refuses to state. The
+  // mutation-gate boundary case in this module's spec probes with a negative
+  // amount precisely to keep that distinction observable.
+  const comparableAccumulator = !currencyMismatch && settledAmount > 0 ? settledAmount : null
+  const newAmount = floorAmountAtAccumulator(comparableAccumulator, recomputedShare)
+
   // Same MONEY_SCALE-safe rounding as roundShareAmount itself — avoids a
   // stray float tail like 199.99999999999997 in remainingToPay.
   const remainingToPay = remainingAgainstAccumulator(newAmount, settledAmount, currencyMismatch)
@@ -590,8 +644,14 @@ function resolveDerivative(
   // warning — silently losing exactly the money HIGH-1 made visible in
   // `settledAmount` one field over. Money already paid out does not stop
   // being paid out because the row's status flipped back.
-  const overpaid = !currencyMismatch && settledAmount > 0 && newAmount < settledAmount
-  const needsReconfirm = currencyMismatch ? isSettled : isSettled && newAmount > settledAmount
+  // Both read the RECOMPUTED share, never the floored figure: after the floor
+  // `newAmount >= settledAmount` always holds, so asking `newAmount <
+  // settledAmount` would silence the overpayment warning on exactly the
+  // population it exists for. (`needsReconfirm` is provably unchanged either
+  // way — `max(raw, settled) > settled` and `raw > settled` agree on every
+  // input — but it says what it means when written against the share.)
+  const overpaid = !currencyMismatch && settledAmount > 0 && recomputedShare < settledAmount
+  const needsReconfirm = currencyMismatch ? isSettled : isSettled && recomputedShare > settledAmount
 
   const warnings: CascadeWarning[] = []
   if (overpaid) {
@@ -603,7 +663,16 @@ function resolveDerivative(
       // whether it comes back. The remedy itself stays unprescribed on purpose
       // (write-off vs claw-back is a human decision, ADR AC3); what the text
       // now closes is the dangerous half of the silence.
-      message: `Уже выплачено ${settledAmount} — пересчитанная доля ${newAmount} меньше выплаченного, строка остаётся оплаченной, разница сама не вернётся`,
+      // QA-H-1, second layer: ONE text was describing TWO outcomes, and was
+      // false for the second. «Строка остаётся оплаченной» is right for a PAID
+      // obligation that stays PAID (the write-nothing branch of
+      // `applyEditCascade`). It is simply untrue for a row that was reverted to
+      // PENDING_PAYMENT earlier and is still open now: that row is PENDING when
+      // this is shown and PENDING after saving — what happens to it is that its
+      // amount is held at the accumulator and nothing more is owed.
+      message: isSettled
+        ? `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, строка остаётся оплаченной, разница сама не вернётся`
+        : `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, сумма строки останется на уровне выплаченного, разница сама не вернётся`,
     })
   }
   if (derivative.hasSignedInvoice) {
@@ -635,6 +704,7 @@ function resolveDerivative(
     receiverName: derivative.receiverName,
     oldAmount,
     newAmount,
+    recomputedShare,
     sharePercent,
     currency: sourceCurrency,
     settledAmount,
@@ -802,6 +872,30 @@ export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSche
  * path's 400 body and the preview's blocked reason are two renderings of ONE
  * text, and so task 5's UI can show the same sentence without restating it.
  */
+/**
+ * QA-H-2 (manual QA, HIGH) — the two fields a PAID row locks, and why.
+ *
+ * These live here, beside the ledger-fact family, for the reason that family
+ * lives here: the SERVER raises them as a 400 and the CLIENT shows them
+ * proactively, and a text duplicated across that boundary drifts. Same register
+ * as the four above — name the CARRIER of the refusal, then the remedy, one
+ * sentence, no closing period.
+ *
+ * The refusal itself is not new; it was `Cannot change currency or salary month
+ * of a settled (PAID) transaction`, in English, delivered only after the click.
+ * English is a rule violation on its own (`russian-language.md`), and it was
+ * the last refusal in the cascade still shaped that way while its neighbours
+ * had already been fixed.
+ */
+export const PAID_ROW_LOCKED_FIELD_MESSAGES = {
+  /** One PAID non-USDT company-shaped row halts every payout in the system (`assertNoOffCurrencyCompanyRows`). */
+  CURRENCY:
+    'Валюта оплаченной строки не редактируется — сумма подтверждена фактическим платежом, исправляйте сторнирующей транзакцией',
+  /** Keys monthly aggregates and a unique index (`uq_transactions_salary_receiver_month`). */
+  SALARY_MONTH:
+    'Месяц зарплаты на оплаченной строке не редактируется — по нему уже посчитаны месячные итоги, исправляйте сторнирующей транзакцией',
+} as const
+
 export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, string> = {
   PAYMENT_FACT_RECORDED:
     'На этой строке зафиксирован факт платежа (сумма и курс) — сумма не редактируется, исправьте документ об оплате',

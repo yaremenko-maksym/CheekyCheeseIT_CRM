@@ -32,6 +32,7 @@ import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
+import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 import { resolveEditCascade, computeCascadeVersion, type CascadeSnapshot } from '@crm/shared'
 
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -2353,13 +2354,41 @@ describe('AC12: idempotency', () => {
 // ---------------------------------------------------------------------------
 
 describe('refusal messages', () => {
-  it('the PAID guard names the two fields that are still frozen, and no longer names amount', async () => {
+  it('the PAID guard names the FIELD the operator actually touched, in Russian, with a remedy', async () => {
+    // QA-H-2: this used to be one English sentence naming both frozen fields
+    // at once — `Cannot change currency or salary month of a settled (PAID)
+    // transaction`. English breaks `russian-language.md`, naming both fields
+    // tells an operator who touched a currency about salary months, and naming
+    // no remedy leaves them stuck. The two fields are frozen for two unrelated
+    // reasons, so they get two texts.
+    //
+    // Asserted against the shared constants rather than string literals: the
+    // SAME strings are what the dialog shows proactively, and a literal copied
+    // here would let the two drift silently — the failure mode this whole
+    // series has been fixing.
     const { db } = makeDouble()
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { currency: 'EUR' }, ADMIN)).rejects.toThrow(
-      'Cannot change currency or salary month of a settled (PAID) transaction',
+      PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY,
     )
+
+    stubFindOne(svc)
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { salaryMonth: '2026-01' }, ADMIN),
+    ).rejects.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH)
+
+    // The original point of this test, kept, but stated as BEHAVIOUR rather
+    // than as a substring: task 3 removed `amount` from this guard, and it must
+    // not quietly come back. A first draft asserted the text «does not mention
+    // сумма» and failed on its own fixture — the currency text legitimately
+    // says «сумма подтверждена фактическим платежом», naming the amount as a
+    // FACT, not as a frozen field. A word-search cannot tell those apart; the
+    // refusal an amount edit actually receives can.
+    stubFindOne(svc)
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN),
+    ).rejects.not.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY)
   })
 
   it('the stale-version refusal instructs the only reader who can act on it — request the preview again', async () => {

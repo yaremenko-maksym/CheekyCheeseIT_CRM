@@ -633,7 +633,18 @@ export function SettleSeniorPayoutDialog({
             data-testid="settle-senior-submit"
             data-track="settle-senior-payout"
           >
-            {mutation.isPending ? 'Оплата...' : 'Отметить как оплачено'}
+            {/* Owner decision, after QA reached the state live and both review
+                axes flagged it independently: with nothing left to pay this
+                click moves no money — it only closes the obligation. «Отметить
+                как оплачено» beside a transfer of zero reads as a promise to
+                send money, and the only thing telling the two apart was a
+                figure three lines above. The label now carries that fact
+                itself. */}
+            {mutation.isPending
+              ? 'Оплата...'
+              : settlement?.remaining === 0
+                ? 'Закрыть без доплаты'
+                : 'Отметить как оплачено'}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

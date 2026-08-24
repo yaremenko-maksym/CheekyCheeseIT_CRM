@@ -37,6 +37,7 @@ function derivative(over: Partial<CascadeDerivativePlan> = {}): CascadeDerivativ
     receiverName: 'Иван Петров',
     oldAmount: 8000,
     newAmount: 10000,
+    recomputedShare: 10000,
     sharePercent: 40,
     currency: 'USDT',
     settledAmount: 0,

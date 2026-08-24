@@ -46,6 +46,7 @@ import {
   computeCascadeVersion,
   classifyEditedRowLedgerFact,
   CASCADE_LEDGER_FACT_MESSAGES,
+  PAID_ROW_LOCKED_FIELD_MESSAGES,
   floorAmountAtAccumulator,
   isCascadeAmountEdit,
   cascadeEditPreviewResponseSchema,
@@ -3068,9 +3069,18 @@ export class TransactionsService {
     //
     // Lifting all three "заодно" is exactly the failure ADR AC5 §3 predicts:
     // they sit in one condition, so the easy edit takes all three.
+    //
+    // QA-H-2 (manual QA, HIGH): the text is Russian, names the CARRIER of the
+    // refusal and the remedy, and is the SAME string the dialog shows
+    // proactively — one constant in `@crm/shared`, so the screen and the 400
+    // cannot drift apart. It also branches, because the two fields are locked
+    // for two unrelated reasons (see the block above) and telling an operator
+    // about salary months when they touched a currency is noise.
     if (tx.status === 'PAID' && (currencyChanged || salaryMonthChanged)) {
       throw new BadRequestException(
-        'Cannot change currency or salary month of a settled (PAID) transaction',
+        currencyChanged
+          ? PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY
+          : PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH,
       )
     }
 
@@ -4059,6 +4069,14 @@ export class TransactionsService {
     for (const derivativePlan of plan.derivatives) {
       const snap = snapshotById.get(derivativePlan.id)!
       const newAmount = derivativePlan.newAmount!
+      // QA-H-1 — the plan now carries BOTH figures, and they mean different
+      // things: `newAmount` is what this row's amount WILL BE (already floored
+      // at the accumulator by the resolver, so the preview cannot describe a
+      // number that will not be stored), `recomputedShare` is what the share
+      // came out to. Their gap IS the overpayment, and the journals below
+      // record the share — reading `newAmount` there would now record the
+      // accumulator itself and an overpayment of exactly zero.
+      const recomputedShare = derivativePlan.recomputedShare!
       const isSettled = snap.obligation?.status === 'PAID'
       const amountMoved = amountsDiffer(newAmount, snap.amount)
 
@@ -4081,8 +4099,8 @@ export class TransactionsService {
             obligationId: snap.obligation!.id,
             causedBy: plan.sourceId,
             settledAmount: derivativePlan.settledAmount,
-            newShare: newAmount,
-            overpaidBy: Number((derivativePlan.settledAmount - newAmount).toFixed(6)),
+            newShare: recomputedShare,
+            overpaidBy: Number((derivativePlan.settledAmount - recomputedShare).toFixed(6)),
           },
         })
         continue
@@ -4296,7 +4314,13 @@ export class TransactionsService {
       // copy of it. `derivativePlan.settledAmount` is `z.number()` (0 when the
       // row never settled), so this is the identity swap it looks like.
       const flooredAmount = floorAmountAtAccumulator(derivativePlan.settledAmount, newAmount)
-      const flooredByAccumulator = amountsDiffer(flooredAmount, newAmount)
+      // Kept as the defense-in-depth it always was — the write must not depend
+      // on the plan having applied the law — but it is an identity now, so the
+      // OVERPAYMENT question can no longer be asked of it: `flooredAmount ===
+      // newAmount` holds even when there IS an overpayment, and reading the
+      // flag off it would have silently stopped journaling `CASCADE_OVERPAYMENT`
+      // on the money path. Ask the two figures that actually differ.
+      const flooredByAccumulator = amountsDiffer(recomputedShare, flooredAmount)
 
       await dbtx
         .update(pendingObligations)
@@ -4353,8 +4377,8 @@ export class TransactionsService {
             obligationId: snap.obligation?.id ?? null,
             causedBy: plan.sourceId,
             settledAmount: derivativePlan.settledAmount,
-            newShare: newAmount,
-            overpaidBy: Number((derivativePlan.settledAmount - newAmount).toFixed(6)),
+            newShare: recomputedShare,
+            overpaidBy: Number((derivativePlan.settledAmount - recomputedShare).toFixed(6)),
           },
         })
       }

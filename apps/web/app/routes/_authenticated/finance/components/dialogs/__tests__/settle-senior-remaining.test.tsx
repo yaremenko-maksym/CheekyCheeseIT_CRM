@@ -129,6 +129,35 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     expect(digitsOf(remaining.textContent ?? '')).toContain('3000')
   })
 
+  it('SR-7. with nothing left to pay, the button stops promising a payment', async () => {
+    // Reached live by QA, and both review axes landed on it independently: the
+    // dead end the spec feared is NOT there — the button works, the obligation
+    // closes, the balance does not move. What is wrong is the promise:
+    // «Отметить как оплачено» beside a transfer of zero reads as «I am about to
+    // send money», and the only thing distinguishing this click from a real
+    // payment is a figure three lines above it.
+    renderDialog({
+      ...BASE_TX,
+      settledAmount: '8000.000000',
+      settledCurrency: 'USDT',
+    } as TransactionDto)
+
+    const submit = await screen.findByTestId('settle-senior-submit')
+    expect(submit.textContent).toContain('без доплаты')
+    expect(submit.textContent).not.toContain('оплачено')
+  })
+
+  it('SR-8. with money still owed, the button still says a payment is happening', async () => {
+    renderDialog({
+      ...BASE_TX,
+      settledAmount: '5000.000000',
+      settledCurrency: 'USDT',
+    } as TransactionDto)
+
+    const submit = await screen.findByTestId('settle-senior-submit')
+    expect(submit.textContent).toContain('оплачено')
+  })
+
   it('SR-2. the full obligation is still shown — as the obligation, labelled as such', async () => {
     renderDialog({
       ...BASE_TX,

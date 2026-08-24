@@ -105,6 +105,7 @@ const SENIOR_SHARE = {
   receiverName: 'Иван Петров',
   oldAmount: 8000,
   newAmount: 10000,
+  recomputedShare: 10000,
   sharePercent: 40,
   currency: 'USDT' as const,
   settledAmount: 5000,
@@ -446,6 +447,70 @@ describe('cascade preview — the client half of the loop', () => {
 
     expect(screen.getByTestId('cascade-preview-loading')).toBeTruthy()
     expect(screen.queryByTestId('cascade-preview-error')).toBeNull()
+  })
+
+  it('CP-34. QA-H-2 — currency on a PAID row cannot be entered wrong, and the reason is in Russian', async () => {
+    // Found by manual QA: the only refusal left in the cascade still had the
+    // old shape. The operator could change the currency of a settled row,
+    // click Save, and get back `Cannot change currency or salary month of a
+    // settled (PAID) transaction` — English (russian-language.md), naming no
+    // remedy, and only after the click. Its neighbour, the ledger-fact
+    // refusal, already had both: a Russian text naming the reversing entry,
+    // and a control that never lets the state be entered.
+    renderDialog()
+
+    const note = await screen.findByTestId('admin-edit-locked-currency-note')
+    expect(note.textContent).toContain('сторнирующей')
+    // No English left in it — the defect was the language as much as the timing.
+    expect(note.textContent).not.toMatch(/[A-Za-z]{4}/)
+
+    // Proactive, not explanatory-after-the-fact: the select is unusable, so the
+    // invalid state cannot be reached and the 400 becomes unreachable too.
+    const currencySelect = screen.getByRole('combobox')
+    expect(currencySelect).toHaveProperty('disabled', true)
+  })
+
+  it('CP-35. QA-H-2 — an ordinary, unsettled row keeps its currency editable', async () => {
+    // The lock is a property of PAID, not of this dialog. Without this, the fix
+    // could disable the field for everyone and every test above would still be
+    // green.
+    renderDialog({ ...PAID_TX, status: 'PENDING_PAYMENT' })
+
+    await screen.findByTestId('admin-edit-save')
+    expect(screen.queryByTestId('admin-edit-locked-currency-note')).toBeNull()
+    expect(screen.getByRole('combobox')).toHaveProperty('disabled', false)
+  })
+
+  it('CP-36. QA-M-1 — a failed save on ONE transaction does not greet the next one', async () => {
+    // Relative of UX-2 (round 4), which cleared the leftover error when the
+    // preview was refreshed but not when the dialog was handed a DIFFERENT
+    // transaction. `mutation.error` outlives the switch, so opening row B right
+    // after a failed save on row A showed B a red banner about A before the
+    // operator touched anything. It heals on the next submit, which is exactly
+    // what makes it misleading rather than merely wrong.
+    adminUpdateTransactionMock.mockRejectedValue(axiosError(400, 'Некорректная сумма'))
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <AdminEditTransactionDialog tx={PAID_TX} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    typeAmount('25000')
+    await screen.findByTestId('cascade-derivative-der-1')
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+    await screen.findByText('Некорректная сумма')
+
+    rerender(
+      <QueryClientProvider client={qc}>
+        <AdminEditTransactionDialog
+          tx={{ ...PAID_TX, id: 'other-tx', status: 'PENDING_PAYMENT' }}
+          onClose={() => {}}
+        />
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByText('Некорректная сумма')).toBeNull()
   })
 
   it('CP-20. a 400 on save is shown as itself, not as a stale preview', async () => {

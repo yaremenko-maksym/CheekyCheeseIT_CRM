@@ -4,6 +4,7 @@ import { AlertCircle } from 'lucide-react'
 import { amountsDiffer, type TransactionDto } from '@crm/shared'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { getApiErrorMessage, getAxiosStatus, getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -121,6 +122,11 @@ export function AdminEditTransactionDialog({
   // failed preview was literally indistinguishable from one never requested.
   const previewFailed = shouldPreview && previewQuery.isError
 
+  // QA-H-2 — a PAID row locks its currency and its salary month. `status`, not
+  // «is this a cascade edit»: the two are locked by the ledger having recorded
+  // a payment, which is true whether or not the amount is being touched.
+  const isPaidRow = tx?.status === 'PAID'
+
   // The TEXT still distinguishes the two kinds, which is what CP-19 protects:
   // sending someone to check their wifi over a message the server took the
   // trouble to write is its own defect. A request that never got an answer
@@ -223,6 +229,18 @@ export function AdminEditTransactionDialog({
     },
   })
 
+  // QA-M-1 — a failed save belongs to the row it was attempted on. This cannot
+  // fold into the field-reset effect near the top: that effect runs before
+  // `mutation` exists (it needs `tx`), so the same intent lives in two places.
+  // Without it `mutation.error` outlived the switch and greeted the NEXT
+  // transaction with a red banner about the previous one, before the operator
+  // touched anything. Same family as UX-2, which cleared the leftover when the
+  // preview was refreshed but not when the dialog changed subject.
+  const resetMutation = mutation.reset
+  useEffect(() => {
+    resetMutation()
+  }, [tx, resetMutation])
+
   // `getApiErrorMessage` rather than a local `instanceof Error` check: the
   // latter renders nothing at all for a non-Error rejection, and this is the
   // only place the server's explanation of a refused money edit is shown.
@@ -298,12 +316,27 @@ export function AdminEditTransactionDialog({
           ) : (
             <div className="space-y-4">
               {/* Amount + Currency */}
+              {/* QA-H-2: on a PAID row the currency is not merely refused on
+                  save — it cannot be entered at all. The server has always
+                  rejected it, but only AFTER the click and in English; a
+                  refusal the operator can walk into is worse than a control
+                  that does not open, and the neighbouring ledger-fact refusal
+                  had already been given both halves. */}
               <AmountCurrencyInput
                 amount={amount}
                 currency={currency}
                 onAmountChange={setAmount}
                 onCurrencyChange={setCurrency}
+                disableCurrency={isPaidRow}
               />
+              {isPaidRow && (
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-testid="admin-edit-locked-currency-note"
+                >
+                  {PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY}
+                </p>
+              )}
 
               {/* Mounted BELOW the amount field and above nothing focusable —
                   a panel appearing between the field and the buttons would move
@@ -361,7 +394,20 @@ export function AdminEditTransactionDialog({
                     onChange={(e) => setSalaryMonth(e.target.value)}
                     placeholder="2025-03"
                     className="h-9 text-sm"
+                    disabled={isPaidRow}
                   />
+                  {/* Its own note, under its own field: two locked controls with
+                      two unrelated reasons (a currency halts every payout, a
+                      salary month keys monthly aggregates). One shared banner
+                      would have to say both and would be about neither. */}
+                  {isPaidRow && (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid="admin-edit-locked-salary-month-note"
+                    >
+                      {PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH}
+                    </p>
+                  )}
                 </div>
               )}
 
