@@ -174,7 +174,17 @@ export function AdminEditTransactionDialog({
 
   return (
     <Dialog open={!!tx} onOpenChange={(o) => !o && onClose()}>
-      <CrmDialogContent maxWidth="sm:max-w-md">
+      {/* The dialog grows only when there is a plan with rows to show. Measured,
+          not guessed: the five-column table needs ~750 px of content width, and
+          inside the default `sm:max-w-md` (448 px) it forced a horizontal scroll
+          at every breakpoint — found by measuring `scrollWidth` at 768 px, not
+          by looking at it. Below `sm:` the panel is a card stack and the width
+          is irrelevant. */}
+      <CrmDialogContent
+        maxWidth={
+          preview?.plan && preview.plan.derivatives.length > 0 ? 'sm:max-w-3xl' : 'sm:max-w-md'
+        }
+      >
         <CrmDialogHeader>
           <DialogDescription className="sr-only">Редактирование транзакции</DialogDescription>
           <DialogTitle className="text-base">

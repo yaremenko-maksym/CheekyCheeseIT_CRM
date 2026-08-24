@@ -13,6 +13,19 @@
  *   CP-7/CP-8  «показанное == применённое»: a 409 refuses IN PLACE rather than
  *              silently recomputing behind the operator's back
  *
+ * NOT HERE, AND WHY (design spec §11, last edge case). The spec asks for a hint
+ * when the typed amount is below `settled_amount` on a NON-cascade edit, because
+ * the server silently floors the write (`floorAmountAtAccumulator`). That state
+ * is unreachable through THIS dialog: `EDITABLE_TYPES` admits
+ * ADMIN_INCOME / SENIOR_INCOME / EXPENSE / SALARY / ADMIN_TRANSFER, while every
+ * row that can carry an accumulator while NOT being PAID is a
+ * `*_PENDING_PAYOUT` — the cascade revert sets `type: revertedType, status:
+ * 'PENDING_PAYMENT'` — and the dialog answers those with «Транзакцию нельзя
+ * редактировать» before rendering a field at all. Two tests were written for it
+ * and went red on a missing INPUT, not a missing hint, which is what surfaced
+ * this. UI for a state nobody can reach is worse than no UI: it has to be read
+ * and maintained forever without ever running.
+ *
  * CP-7 is the one worth reading twice. A client that quietly re-fetched and
  * re-submitted on 409 would save a plan the operator never saw — which is
  * precisely the divergence the version token exists to prevent, reintroduced on

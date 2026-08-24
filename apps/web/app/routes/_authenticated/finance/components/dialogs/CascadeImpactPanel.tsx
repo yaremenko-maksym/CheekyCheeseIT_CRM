@@ -133,15 +133,22 @@ function ReconfirmBadge({
 /** «Было → Стало», or an explicit dash when there is no share snapshot to recompute from. */
 function AmountTransition({ derivative }: { derivative: CascadeDerivativePlan }) {
   return (
-    <span className="inline-flex items-center gap-1.5 tabular-nums">
-      <span className="text-muted-foreground">
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
+      {/* `whitespace-nowrap` on each FIGURE, not on the pair: at 320 px the two
+          amounts do not fit on one line, and the honest break is between them.
+          Without it the break lands inside a figure and «8 000,00 USDT» renders
+          as «8 000,00 / USDT» — a number separated from its unit, on a screen
+          whose whole job is to be unambiguous about money. */}
+      <span className="whitespace-nowrap text-muted-foreground">
         {fmtAmount(derivative.oldAmount, derivative.currency)}
       </span>
       <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
       {derivative.newAmount === null ? (
         <span className="font-medium text-destructive">—</span>
       ) : (
-        <span className="font-medium">{fmtAmount(derivative.newAmount, derivative.currency)}</span>
+        <span className="whitespace-nowrap font-medium">
+          {fmtAmount(derivative.newAmount, derivative.currency)}
+        </span>
       )}
     </span>
   )
@@ -201,22 +208,22 @@ function CascadeDerivativeRow({
         )}
         data-testid={`cascade-derivative-${derivative.id}`}
       >
-        <td className="px-3 py-2.5 align-top">
+        <td className="px-2 py-2.5 align-top">
           <div className="flex flex-col gap-1">
             {typeBadge}
             {receiver && <span className="text-xs text-muted-foreground">{receiver}</span>}
           </div>
         </td>
-        <td className="px-3 py-2.5 text-right align-top whitespace-nowrap">
+        <td className="px-2 py-2.5 text-right align-top whitespace-nowrap">
           <AmountTransition derivative={derivative} />
         </td>
-        <td className="px-3 py-2.5 text-right align-top tabular-nums whitespace-nowrap">
+        <td className="px-2 py-2.5 text-right align-top tabular-nums whitespace-nowrap">
           {settledLabel ?? <span className="text-muted-foreground">—</span>}
         </td>
-        <td className="px-3 py-2.5 text-right align-top tabular-nums whitespace-nowrap font-medium">
+        <td className="px-2 py-2.5 text-right align-top tabular-nums font-medium whitespace-nowrap">
           {remainingLabel}
         </td>
-        <td className="px-3 py-2.5 align-top">
+        <td className="px-2 py-2.5 align-top">
           <div className="flex flex-col gap-1">
             {derivative.needsReconfirm && (
               <ReconfirmBadge derivativeId={derivative.id} variant="desktop" />
@@ -244,7 +251,7 @@ function CascadeDerivativeRow({
               {receiver && <span className="text-xs text-muted-foreground">{receiver}</span>}
             </div>
             <dl className="mt-2 space-y-1 border-t border-border/50 pt-2">
-              <div className="flex items-baseline justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
                 <dt className="text-xs text-muted-foreground">Было → Стало</dt>
                 <dd className="text-right">
                   <AmountTransition derivative={derivative} />
@@ -312,7 +319,16 @@ export function CascadeImpactPanel({
           data-testid="cascade-preview-error"
         >
           <span>Не удалось загрузить предпросмотр — проверьте соединение</span>
-          <Button size="sm" variant="outline" onClick={onRetry} data-testid="cascade-preview-retry">
+          {/* h-11 below `sm:` — the responsive rule's 44px touch target, not
+              the 24px WCAG floor. Measured at 320/375: the default `size="sm"`
+              button is 32px tall. */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onRetry}
+            className="h-11 shrink-0 sm:h-8"
+            data-testid="cascade-preview-retry"
+          >
             Повторить
           </Button>
         </div>
@@ -344,7 +360,7 @@ export function CascadeImpactPanel({
                 size="sm"
                 variant="outline"
                 onClick={onRetry}
-                className="w-full sm:w-auto"
+                className="h-11 w-full sm:h-8 sm:w-auto"
                 data-testid="cascade-refresh-preview"
               >
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
@@ -394,19 +410,19 @@ export function CascadeImpactPanel({
                 <table className="w-full text-sm">
                   <thead className="hidden sm:table-header-group">
                     <tr className="border-b border-border/50 text-xs text-muted-foreground">
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
+                      <th scope="col" className="px-2 py-2 text-left font-medium">
                         Получатель
                       </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                      <th scope="col" className="px-2 py-2 text-right font-medium">
                         Было → Стало
                       </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                      <th scope="col" className="px-2 py-2 text-right font-medium">
                         Выплачено
                       </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                      <th scope="col" className="px-2 py-2 text-right font-medium">
                         К доплате
                       </th>
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
+                      <th scope="col" className="px-2 py-2 text-left font-medium">
                         Статус
                       </th>
                     </tr>
