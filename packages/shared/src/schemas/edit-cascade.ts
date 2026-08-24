@@ -663,6 +663,11 @@ function resolveDerivative(
       // whether it comes back. The remedy itself stays unprescribed on purpose
       // (write-off vs claw-back is a human decision, ADR AC3); what the text
       // now closes is the dangerous half of the silence.
+      // COPY-L-7: «сумма», not «сумма строки» — the longest line in the panel
+      // (6 rows at 320px) brought to parity with the PAID branch. Deliberately
+      // NOT «сумма останется прежней», which the copy reviewer flagged: in this
+      // branch the amount DOES change — it is raised to the accumulator.
+      //
       // QA-H-1, second layer: ONE text was describing TWO outcomes, and was
       // false for the second. «Строка остаётся оплаченной» is right for a PAID
       // obligation that stays PAID (the write-nothing branch of
@@ -672,7 +677,7 @@ function resolveDerivative(
       // amount is held at the accumulator and nothing more is owed.
       message: isSettled
         ? `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, строка остаётся оплаченной, разница сама не вернётся`
-        : `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, сумма строки останется на уровне выплаченного, разница сама не вернётся`,
+        : `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, сумма останется на уровне выплаченного, разница сама не вернётся`,
     })
   }
   if (derivative.hasSignedInvoice) {
@@ -881,6 +886,12 @@ export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSche
  * as the four above — name the CARRIER of the refusal, then the remedy, one
  * sentence, no closing period.
  *
+ * COPY-L-5: the currency text explains itself with a fact about the CURRENCY
+ * («платёж уже прошёл в этой валюте»), not about the amount — a reader standing
+ * at the currency selector was being handed an argument about the neighbouring
+ * field. COPY-L-6: «правьте», the verb the four ledger-fact messages already
+ * use; one remedy should not have two verbs.
+ *
  * The refusal itself is not new; it was `Cannot change currency or salary month
  * of a settled (PAID) transaction`, in English, delivered only after the click.
  * English is a rule violation on its own (`russian-language.md`), and it was
@@ -890,10 +901,10 @@ export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSche
 export const PAID_ROW_LOCKED_FIELD_MESSAGES = {
   /** One PAID non-USDT company-shaped row halts every payout in the system (`assertNoOffCurrencyCompanyRows`). */
   CURRENCY:
-    'Валюта оплаченной строки не редактируется — сумма подтверждена фактическим платежом, исправляйте сторнирующей транзакцией',
+    'Валюта оплаченной строки не редактируется — платёж уже прошёл в этой валюте, правьте сторнирующей транзакцией',
   /** Keys monthly aggregates and a unique index (`uq_transactions_salary_receiver_month`). */
   SALARY_MONTH:
-    'Месяц зарплаты на оплаченной строке не редактируется — по нему уже посчитаны месячные итоги, исправляйте сторнирующей транзакцией',
+    'Месяц зарплаты на оплаченной строке не редактируется — по нему уже посчитаны месячные итоги, правьте сторнирующей транзакцией',
 } as const
 
 export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, string> = {

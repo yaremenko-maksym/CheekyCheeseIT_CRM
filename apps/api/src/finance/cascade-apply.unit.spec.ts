@@ -1776,6 +1776,50 @@ describe('AC5: still-open obligation — both copies of the amount move together
       expect(updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)[0]!.set.amount).toBe('260')
     })
 
+    it('SR-M-3: on an OPEN obligation with a FOREIGN accumulator, what the plan shows is what gets written', async () => {
+      // The same family as the QA finding, one corner over, and found by
+      // security-review with a measurement rather than a trace.
+      //
+      // The resolver skips the floor when the accumulator is not comparable to
+      // the share being written — `max()` over 260 USD and a 26 USDT share is
+      // not a bigger number, it is a meaningless one. The WRITE floored
+      // unconditionally, so the plan said 26 and the row would have taken 260,
+      // in a unit nobody compared: «shown ≠ stored» again.
+      //
+      // Note what is NOT done about it: this population is deliberately allowed
+      // through Phase 1 (AC15 refuses a REVERT that could not be closed again;
+      // an open obligation is not being reverted, and an ordinary INCREASE here
+      // works and must keep working — see the test that states that carve-out).
+      // The fix is that both sides now ask `settledCurrencyMismatch`, the same
+      // exported function, so they cannot disagree.
+      const derivatives = [
+        pendingDerivativeRow({
+          settledAmount: '260.000000',
+          settledCurrency: 'USD',
+          settledSharePercent: 26,
+          amount: '520.000000',
+        }),
+      ]
+      const obligations = [obligationRow({ amount: '520.000000' })]
+      const { db, ops } = makeDouble({ derivatives, obligations })
+      const svc = makeTransactionsService({ db })
+      stubFindOne(svc)
+      const snapshot = snapshotFrom({ derivatives, obligations })
+      const plan = resolveEditCascade(snapshot, { amount: 100 })
+      const shown = plan.derivatives.find((d) => d.id === SENIOR_DERIV_ID)!
+
+      await svc.adminUpdateTransaction(
+        SOURCE_ID,
+        { amount: 100, cascadeVersion: computeCascadeVersion(snapshot) },
+        ADMIN,
+      )
+
+      const written = updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)[0]!.set.amount
+      expect(String(shown.newAmount)).toBe(written)
+      // …and it is the honest share, not a cross-unit maximum.
+      expect(written).toBe('26')
+    })
+
     it('journals the overpayment as well — the floor keeps the row closable, it does not hide the fact', async () => {
       const ops = await editTo(100)
       const entries = journalEntries(ops, 'CASCADE_OVERPAYMENT')

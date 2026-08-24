@@ -46,6 +46,7 @@ import {
   computeCascadeVersion,
   classifyEditedRowLedgerFact,
   CASCADE_LEDGER_FACT_MESSAGES,
+  settledCurrencyMismatch,
   PAID_ROW_LOCKED_FIELD_MESSAGES,
   floorAmountAtAccumulator,
   isCascadeAmountEdit,
@@ -4069,13 +4070,28 @@ export class TransactionsService {
     for (const derivativePlan of plan.derivatives) {
       const snap = snapshotById.get(derivativePlan.id)!
       const newAmount = derivativePlan.newAmount!
-      // QA-H-1 — the plan now carries BOTH figures, and they mean different
-      // things: `newAmount` is what this row's amount WILL BE (already floored
-      // at the accumulator by the resolver, so the preview cannot describe a
-      // number that will not be stored), `recomputedShare` is what the share
-      // came out to. Their gap IS the overpayment, and the journals below
-      // record the share — reading `newAmount` there would now record the
-      // accumulator itself and an overpayment of exactly zero.
+      // QA-H-1 — the plan carries BOTH figures because they are different
+      // facts: `newAmount` is what this row's amount WILL BE (floored at the
+      // accumulator by the resolver, so the preview cannot describe a number
+      // that will not be stored), `recomputedShare` is what the share came out
+      // to. Their gap IS the overpayment.
+      //
+      // SR-L-6 — the reason two figures are needed, corrected. An earlier
+      // version of this comment claimed a one-figure fix would break the
+      // overpayment journal SILENTLY. That was wrong, and wrong in an
+      // instructive way: three separate code-traces (mine, code-review's,
+      // spec-review's) agreed on it, and an EXPERIMENT disproved it. Imitating
+      // the one-figure fix and running the suites turns FOUR pre-existing tests
+      // red — one in `@crm/shared` (the OVERPAYMENT warning stops firing:
+      // `expected [] to deeply equal [{ code: 'OVERPAYMENT' }]`) and three here
+      // (the `CASCADE_OVERPAYMENT` journal assertions). It fails loudly.
+      //
+      // The real reason is simpler and stronger: the floor DESTROYS the raw
+      // share, and three consumers need it — `newShare`/`overpaidBy` in the two
+      // journals below, the `overpaid` predicate, and the warning text. A
+      // single field cannot be both the figure that gets written and the figure
+      // that was computed. The shape is forced by what the information is, not
+      // by what a test would or would not have caught.
       const recomputedShare = derivativePlan.recomputedShare!
       const isSettled = snap.obligation?.status === 'PAID'
       const amountMoved = amountsDiffer(newAmount, snap.amount)
@@ -4300,20 +4316,51 @@ export class TransactionsService {
       // in `settled_currency`. `Math.max` over two figures in different units
       // would be nonsense, and nothing in THIS expression says they match.
       //
-      // What says it is AC15(b), a few screens up: under `needsReconfirm` a
-      // derivative whose `settled_currency` differs from its obligation's
-      // currency is REFUSED before any write, precisely because its remainder
-      // is not computable. So by the time control reaches here the two are in
-      // the same unit — and if that guard is ever relaxed, this `max` becomes
-      // wrong silently, which is why the dependency is named at the load-
-      // bearing line rather than only where the guard is written.
+      // SR-M-3 corrected the answer this comment used to give. It said AC15(b)
+      // guarantees the two units match by the time control reaches here. It does
+      // not: AC15(b) is scoped to a REVERT (`needsReconfirm`), so an OPEN
+      // obligation with a foreign accumulator arrives here unrefused — and used
+      // to take a `max` across units.
+      //
+      // What makes the line safe now is not a guard elsewhere but the call
+      // itself: the floor is handed `null` when `settledCurrencyMismatch` says
+      // the two are not comparable, which is the SAME function, on the same
+      // values, that the resolver uses to decide whether to floor. There is one
+      // predicate, so `newAmount` and the figure written here cannot disagree —
+      // the property, not a claim about a distant guard.
       //
       // (Today it is doubly unreachable: `assertNoOffCurrencyCompanyRows`
       // (AC9) refuses to produce a balance at all while such a row exists.)
       // SR-L-3 (review round 5) — the shared law, not a fourth hand-written
       // copy of it. `derivativePlan.settledAmount` is `z.number()` (0 when the
       // row never settled), so this is the identity swap it looks like.
-      const flooredAmount = floorAmountAtAccumulator(derivativePlan.settledAmount, newAmount)
+      // SR-M-3 (security-review) — the floor asks the SAME question here as in
+      // the resolver, by calling the SAME function on the same values.
+      //
+      // It used to floor UNCONDITIONALLY while the resolver skips the floor
+      // when the accumulator is not comparable to the share being written
+      // (`max()` over 2000 UAH and 50 USDT is not a bigger number, it is a
+      // meaningless one). Two predicates that look alike and disagree on
+      // exactly one population: an OPEN obligation with a foreign accumulator,
+      // where the plan said 26 and the row would have taken 260 — the same
+      // «shown ≠ stored» defect QA measured one corner over.
+      //
+      // Fixed HERE rather than by refusing that population in Phase 1: AC15's
+      // dead-end refusal is deliberately scoped to a REVERT (nothing is being
+      // reverted on an open obligation, so there is no dead end), and widening
+      // it would also refuse an ordinary INCREASE on such a row, which is
+      // writable and works today. A first attempt did exactly that and was
+      // caught by the test that states the carve-out in words.
+      const flooredAmount = floorAmountAtAccumulator(
+        settledCurrencyMismatch(
+          derivativePlan.settledAmount,
+          derivativePlan.settledCurrency,
+          derivativePlan.currency,
+        )
+          ? null
+          : derivativePlan.settledAmount,
+        newAmount,
+      )
       // Kept as the defense-in-depth it always was — the write must not depend
       // on the plan having applied the law — but it is an identity now, so the
       // OVERPAYMENT question can no longer be asked of it: `flooredAmount ===
