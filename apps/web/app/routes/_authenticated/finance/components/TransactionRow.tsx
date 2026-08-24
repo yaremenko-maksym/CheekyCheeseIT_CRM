@@ -25,6 +25,7 @@ import {
   fmtDate,
   type ExchangeRates,
 } from '../constants'
+import { settlementSplit } from '../cascade-preview'
 import { canAttachReceipt } from './receipt-permissions'
 
 function TypeBadge({ type }: { type: TransactionDto['type'] }) {
@@ -423,6 +424,11 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // every `can*`/`show*` gate below is additionally guarded by `!isDeleted`.
     const isDeleted = !!tx.deletedAt
 
+    // task-cascade-preview-ui (task 5). `null` on every row without a settle
+    // accumulator — which is nearly all of them, so the list is unchanged for
+    // the ordinary case.
+    const settlement = settlementSplit(tx)
+
     const canValidate =
       !isDeleted &&
       (isAdmin || isAccountant) &&
@@ -567,6 +573,23 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
           {tx.currency !== 'USD' && tx.currency !== 'USDT' && (
             <p className="text-[11px] text-muted-foreground font-normal">
               {fmtAmount(tx.amount, tx.currency)}
+            </p>
+          )}
+          {/* task-cascade-preview-ui (task 5). A partly-paid obligation is a
+              state that did not exist before tasks 3/3b, and the amount column
+              alone cannot express it: the row says 8 000 while only 3 000 is
+              still owed. Amber rather than the muted grey of «Доля: X%» — this
+              is new information worth catching while scanning, but it is not a
+              problem, so not destructive. Absent on every row without an
+              accumulator, which is nearly all of them. */}
+          {settlement && (
+            <p
+              className="text-[11px] font-normal text-amber-400"
+              data-testid={`tx-row-settled-${tx.id}`}
+            >
+              Выплачено {fmtAmount(settlement.settled, settlement.settledCurrency)}
+              {settlement.remaining !== null &&
+                ` · осталось ${fmtAmount(settlement.remaining, tx.currency)}`}
             </p>
           )}
           {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR

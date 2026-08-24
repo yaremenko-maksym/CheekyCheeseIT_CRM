@@ -88,8 +88,12 @@ export interface SettlementSplit {
 export function settlementSplit(tx: {
   amount: string | number
   currency: CurrencyEnum | string
-  settledAmount?: string | number | null
-  settledCurrency?: CurrencyEnum | string | null
+  // `| undefined` spelled out alongside the `?`: under
+  // `exactOptionalPropertyTypes` an optional marker alone does NOT accept an
+  // explicitly-`undefined` property, and `TransactionDto` declares these two
+  // as `.nullable().optional()` — i.e. exactly that shape.
+  settledAmount?: string | number | null | undefined
+  settledCurrency?: CurrencyEnum | string | null | undefined
 }): SettlementSplit | null {
   if (tx.settledAmount === null || tx.settledAmount === undefined) return null
 

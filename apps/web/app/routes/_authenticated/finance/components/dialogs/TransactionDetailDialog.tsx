@@ -46,6 +46,7 @@ import {
   type ExchangeRates,
 } from '../../constants'
 import { financeApi } from '../../api'
+import { settlementSplit } from '../../cascade-preview'
 import { ReceiptPanel } from './receipt-panel'
 import { AttachReceiptSheet } from './AttachReceiptSheet'
 import { canAttachReceipt } from '../receipt-permissions'
@@ -457,6 +458,8 @@ export function TransactionDetailDialog({
   const showReceiptPanel = t ? RECEIPT_ELIGIBLE_TYPES.has(t.type) : false
   const hasExistingReceipt = !!(t?.receiptDocumentId || t?.receiptExternalUrl)
   const showAttachButton = t ? canAttachReceipt(t, user?.id, user?.role ?? '') : false
+  // Same audience the server already uses for the audit fields on this DTO.
+  const privileged = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
   return (
     <>
@@ -496,6 +499,7 @@ export function TransactionDetailDialog({
                     rates={rates}
                     isLoading={isLoading}
                     detailReady={!!detail}
+                    privileged={privileged}
                   />
                 </div>
                 <div className="min-w-0 space-y-2">
@@ -525,6 +529,7 @@ export function TransactionDetailDialog({
                   rates={rates}
                   isLoading={isLoading}
                   detailReady={!!detail}
+                  privileged={privileged}
                 />
               </div>
             )}
@@ -562,12 +567,18 @@ function TransactionInfoBlock({
   rates,
   isLoading,
   detailReady,
+  privileged,
 }: {
   t: TransactionDto
   rates: ExchangeRates | undefined
   isLoading: boolean
   detailReady: boolean
+  /** ADMIN/ACCOUNTANT — the audience for the internal payment-fact triplet. */
+  privileged: boolean
 }) {
+  // task-cascade-preview-ui (task 5): null on every row without an accumulator.
+  const settlement = settlementSplit(t)
+
   return (
     <>
       {/* Amount + status header */}
@@ -597,6 +608,43 @@ function TransactionInfoBlock({
           </span>
         </div>
       </div>
+
+      {/* task-cascade-preview-ui (task 5). What has actually been paid against
+          this obligation, and what is still owed. Rendered only when there IS
+          an accumulator — the split is meaningless on a row that was never
+          partly settled, and until tasks 3/3b such a row could not exist. */}
+      {settlement && (
+        <Row icon={<Wallet className="h-4 w-4" />} label="Выплачено">
+          <span className="tabular-nums" data-testid="tx-detail-settled">
+            {fmtAmount(settlement.settled, settlement.settledCurrency)}
+          </span>
+          {settlement.remaining !== null && (
+            <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+              К доплате: {fmtAmount(settlement.remaining, t.currency)}
+            </span>
+          )}
+        </Row>
+      )}
+
+      {/* task-cascade-preview-ui (task 5), the payment-fact triplet. Already on
+          the wire since task-salary-pay-amount and read by nothing — so an
+          operator who hits the `PAYMENT_FACT_RECORDED` refusal («на этой строке
+          зафиксирован факт платежа») had no way to see the fact they were being
+          refused over. A refusal whose cause is invisible is worse than the
+          refusal itself. ADMIN/ACCOUNTANT only: an internal accounting detail,
+          the same audience as the other audit fields in this dialog. */}
+      {privileged && t.originalAmount != null && (
+        <Row icon={<Percent className="h-4 w-4" />} label="Факт платежа">
+          <span className="tabular-nums" data-testid="tx-detail-payment-fact">
+            Обязательство: {fmtAmount(t.originalAmount, t.originalCurrency ?? t.currency)}
+          </span>
+          {t.exchangeRate != null && (
+            <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+              Применённый курс: ×{Number(t.exchangeRate).toFixed(4)}
+            </span>
+          )}
+        </Row>
+      )}
 
       {/* Date */}
       <Row icon={<Calendar className="h-4 w-4" />} label="Дата">
