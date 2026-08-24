@@ -578,7 +578,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2500, cascadeVersion: stale.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/обновите предпросмотр/)
+    ).rejects.toThrow(/прежний расчёт больше не действует/)
 
     // Not one row moved — including the SOURCE, whose own edit is inside the
     // same transaction.
@@ -1424,7 +1424,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     await declare(PROJECT_SENIOR, 1000)
     const source = await sourceIncome(PROJECT_SENIOR)
     await expect(svc.adminUpdateTransaction(source.id, { amount: 2500 }, ADMIN)).rejects.toThrow(
-      /предпросмотр/,
+      /не сохранена/,
     )
     expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)
   })
