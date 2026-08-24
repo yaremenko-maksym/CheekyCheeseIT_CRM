@@ -412,7 +412,17 @@ export function AdminEditTransactionDialog({
             from this module three hours earlier. «Нужно ручное решение» is not
             a new phrase: it is the one `NO_SHARE_SNAPSHOT` already uses in the
             red row itself. */}
-        {isEditable && cascadeSaveBlockedByData && preview?.editable !== false && (
+        {/* The `preview?.` test comes FIRST on purpose. Ordered the other way it
+            was unreachable — `canSaveCascadeEdit(undefined)` is `true` by
+            design, so `cascadeSaveBlockedByData` short-circuited before any
+            undefined `preview` could reach the chain, and the mutation gate
+            correctly reported that `?.` could be `.` with nothing noticing.
+            Leading with it makes the guard say what it means — «the server
+            says this row IS editable, yet this plan cannot be saved» — and
+            makes the optional chain load-bearing on the two ordinary states
+            where `preview` is genuinely absent (first request in flight,
+            request failed), which CP-27/CP-31 both exercise. */}
+        {isEditable && preview?.editable === true && cascadeSaveBlockedByData && (
           <p
             className="px-4 pb-1 text-xs text-destructive sm:px-6"
             data-testid="cascade-save-blocked-note"

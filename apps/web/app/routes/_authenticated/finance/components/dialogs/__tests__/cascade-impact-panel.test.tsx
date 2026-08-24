@@ -427,6 +427,27 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', false)
   })
 
+  it('CP-33. a failed preview does not survive on screen once a NEW figure is being asked about', async () => {
+    // Reachable, and the mutation gate found it unguarded: after a failure the
+    // operator edits the amount again. For the 400 ms of the debounce the query
+    // KEY has not changed yet — so `isError` is still true and its message is
+    // still computed — while `previewAmountIsCurrent` has already gone false,
+    // i.e. the panel is recomputing. Both conditions hold at once.
+    //
+    // The screen must say ONE thing: we are recomputing. Showing yesterday's
+    // failure over today's question is the same «two answers to one moment»
+    // defect as COPY-H-2, arrived at from the other side.
+    getEditCascadePreviewMock.mockRejectedValue(bodilessError(500))
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-preview-error')
+
+    typeAmount('90000')
+
+    expect(screen.getByTestId('cascade-preview-loading')).toBeTruthy()
+    expect(screen.queryByTestId('cascade-preview-error')).toBeNull()
+  })
+
   it('CP-20. a 400 on save is shown as itself, not as a stale preview', async () => {
     adminUpdateTransactionMock.mockRejectedValue(
       axiosError(400, 'Нет снимка процента доли по производной строке'),

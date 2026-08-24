@@ -3647,6 +3647,7 @@ export class TransactionsService {
       // would pull the whole user row — email, legal name, admin note — into a
       // snapshot that gets serialised into an API response. One display name is
       // what the screen needs and all it gets (zone: projection rule 3).
+      // Stryker disable next-line ObjectLiteral,BooleanLiteral: a Drizzle query SHAPE, unobservable from a unit double — this file's own `cascade-edit-preview.unit.spec.ts` stubs `transactions.findMany` with canned rows that already carry `receiver`, so it answers identically whether this clause is here, gutted to `{}`, or asks for `displayName: false`. The mutation gate cannot run integration specs at all (mutation-gate-integration-specs.md), and the proof lives in one: `cascade-edit-preview.integration.spec.ts` «UX-1: each derivative names ITS OWN receiver». VERIFIED, not assumed — deleting this line and re-running that spec against real Postgres fails with «expected null to be 'Cascade Preview Senior'». Same class and same reasoning as the `derivativeIds` / `signatureQueryIds` suppressions a few lines down
       with: { receiver: { columns: { displayName: true } } },
     })
 
