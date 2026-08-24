@@ -497,6 +497,50 @@ describe('cascade preview — the client half of the loop', () => {
     release(planWith([SENIOR_SHARE]))
   })
 
+  it('CP-28. COPY-H-1 — the blocked banner is the only answer; no note contradicts it', async () => {
+    getEditCascadePreviewMock.mockResolvedValue({
+      editable: false,
+      blockedReason: 'PAYOUT_FAMILY',
+      plan: null,
+      version: null,
+    })
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-blocked-banner')
+
+    // The banner says «правьте сторнирующей транзакцией» — i.e. never here.
+    // A note underneath saying «устраните и сохраняйте» is the opposite
+    // instruction, on a money screen, one line apart.
+    expect(screen.queryByTestId('cascade-save-blocked-note')).toBeNull()
+    expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
+  })
+
+  it('CP-29. COPY-H-1 — the note names the reason, not a repair the operator cannot make', async () => {
+    getEditCascadePreviewMock.mockResolvedValue(
+      planWith([
+        {
+          ...SENIOR_SHARE,
+          newAmount: null,
+          sharePercent: null,
+          remainingToPay: null,
+          needsReconfirm: false,
+          warnings: [{ code: 'NO_SHARE_SNAPSHOT', message: 'Нет снимка процента доли' }],
+        },
+      ]),
+    )
+    renderDialog()
+    typeAmount('25000')
+
+    const note = await screen.findByTestId('cascade-save-blocked-note')
+
+    // Every blocking condition is a property of data already written (no share
+    // snapshot on a legacy row; an accumulator in another currency). «Пока не
+    // устранены» promised work that does not exist — the very defect #610
+    // removed from this module.
+    expect(note.textContent).not.toContain('устранен')
+    expect(note.textContent).toContain('ручное решение')
+  })
+
   it('CP-13. a non-PAID row behaves exactly as before — no preview, no panel', async () => {
     renderDialog({ ...PAID_TX, status: 'PENDING' } as TransactionDto)
     typeAmount('25000')

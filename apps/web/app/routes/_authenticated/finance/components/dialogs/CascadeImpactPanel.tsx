@@ -305,11 +305,18 @@ export function CascadeImpactPanel({
   // A narrow live region, not the whole panel: announcing the entire table
   // again on every keystroke is worse for a screen-reader user than announcing
   // nothing. The status line changes, the table does not re-announce.
+  //
+  // COPY-M-8: it reports the OUTCOME, not merely that an answer arrived. The
+  // refusal banner is not inside the live region, so on `editable: false` the
+  // only thing a screen-reader user used to hear was «Предпросмотр обновлён» —
+  // the opposite of what the screen says.
   const status = isLoading
     ? 'Пересчитываем связанные выплаты…'
-    : preview
-      ? 'Предпросмотр обновлён'
-      : ''
+    : preview && !preview.editable
+      ? 'Правка суммы этой строки запрещена, причина ниже'
+      : preview
+        ? 'Предпросмотр обновлён'
+        : ''
 
   return (
     <div className="space-y-2" data-testid="cascade-impact-panel">
@@ -329,9 +336,16 @@ export function CascadeImpactPanel({
         </div>
       )}
 
+      {/* COPY-M-7: stacks below `sm:`, exactly like the stale banner further
+          down. Measured at 320px: an inline `shrink-0` button left the text a
+          135px column and blew a 56-character sentence into five lines; the
+          neighbour's `flex-col sm:flex-row` gives it 246px. Parity with an
+          existing solution, not a new pattern — and the text stays as it is,
+          because even trimmed to 33 characters it still wrapped to three lines
+          in the narrow column. */}
       {!isLoading && isNetworkError && (
         <div
-          className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+          className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between sm:gap-3"
           data-testid="cascade-preview-error"
         >
           <span>Не удалось загрузить предпросмотр — проверьте соединение</span>
@@ -342,7 +356,7 @@ export function CascadeImpactPanel({
             size="sm"
             variant="outline"
             onClick={onRetry}
-            className="h-11 shrink-0 sm:h-8"
+            className="h-11 w-full shrink-0 sm:h-8 sm:w-auto"
             data-testid="cascade-preview-retry"
           >
             Повторить

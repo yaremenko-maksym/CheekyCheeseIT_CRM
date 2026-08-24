@@ -332,13 +332,30 @@ export function AdminEditTransactionDialog({
 
         {/* WCAG 2.2 SC 1.4.13: the reason a control is unavailable has to be
             readable without hovering it. A `title` would hide it from touch
-            and from a keyboard user entirely. */}
-        {isEditable && cascadeSaveBlocked && (
+            and from a keyboard user entirely.
+            
+            COPY-H-1: NOT shown under the refusal banner. `isEditable` is a
+            client-side type check, not `preview.editable`, so the two used to
+            render together — the banner saying «правьте сторнирующей
+            транзакцией» (i.e. never here) with a line underneath saying
+            «устраните и сохраняйте». Two contradictory instructions, one line
+            apart, on a money screen. The banner already names both the cause
+            and the remedy; a second voice can only disagree with it.
+            
+            The text itself names the CAUSE rather than a repair: every
+            blocking condition is a property of data already written (a legacy
+            row with no share snapshot, an accumulator in another currency),
+            and none of them is fixable in this dialog. «Пока не устранены»
+            promised work that does not exist — the same defect #610 removed
+            from this module three hours earlier. «Нужно ручное решение» is not
+            a new phrase: it is the one `NO_SHARE_SNAPSHOT` already uses in the
+            red row itself. */}
+        {isEditable && cascadeSaveBlocked && preview?.editable !== false && (
           <p
             className="px-4 pb-1 text-xs text-destructive sm:px-6"
             data-testid="cascade-save-blocked-note"
           >
-            Сохранить нельзя, пока не устранены проблемы в предпросмотре выше
+            Сохранить нельзя — по отмеченным строкам сумму не пересчитать, нужно ручное решение
           </p>
         )}
 

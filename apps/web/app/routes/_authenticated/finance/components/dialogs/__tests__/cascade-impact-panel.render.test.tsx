@@ -523,6 +523,31 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     expect(banner.textContent).not.toContain('undefined')
   })
 
+  it('PR-39. COPY-M-8 — a refusal is announced as a refusal, not as «предпросмотр обновлён»', () => {
+    renderPanel({
+      preview: { editable: false, blockedReason: 'ONCHAIN_DEPOSIT', plan: null, version: null },
+    })
+
+    // The banner is not in the live region, so «Предпросмотр обновлён» was the
+    // ONLY thing a screen-reader user heard here — the opposite of what the
+    // screen says.
+    const live = screen.getByTestId('cascade-preview-status')
+    expect(live.textContent).not.toContain('обновлён')
+    expect(live.textContent).toContain('запрещена')
+  })
+
+  it('PR-40. COPY-M-7 — the network banner stacks on mobile, like its neighbour', () => {
+    renderPanel({ isNetworkError: true, preview: undefined })
+
+    // Measured by the copy reviewer: inline button ⇒ 135px text column ⇒ five
+    // lines. The stale banner one block over already solves this with
+    // `flex-col sm:flex-row`; parity, not a new pattern.
+    const banner = screen.getByTestId('cascade-preview-error')
+    expect(banner.className).toContain('flex-col')
+    expect(banner.className).toContain('sm:flex-row')
+    expect(screen.getByTestId('cascade-preview-retry').className).toContain('w-full')
+  })
+
   it('PR-22. an empty plan says there is nothing to recompute', () => {
     renderPanel({ preview: preview([]) })
 
