@@ -101,11 +101,28 @@ function WarningLine({
   )
 }
 
-function ReconfirmBadge({ derivativeId }: { derivativeId: string }) {
+/**
+ * The same badge appears in both layouts, so its testid MUST differ between
+ * them: two nodes under one testid is a strict-mode violation in Playwright and
+ * an ambiguous query in Testing Library — the exact failure this file's own
+ * spec caught before review did. The suffix is passed in rather than derived
+ * inside, so adding a third layout cannot silently reuse an id.
+ */
+function ReconfirmBadge({
+  derivativeId,
+  variant,
+}: {
+  derivativeId: string
+  variant: 'desktop' | 'mobile'
+}) {
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400"
-      data-testid={`cascade-derivative-reconfirm-${derivativeId}`}
+      data-testid={
+        variant === 'mobile'
+          ? `cascade-derivative-reconfirm-${derivativeId}-mobile`
+          : `cascade-derivative-reconfirm-${derivativeId}`
+      }
     >
       <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
       Вернётся в ожидание выплаты
@@ -150,13 +167,18 @@ function CascadeDerivativeRow({
     derivative.remainingToPay === null
       ? '—'
       : fmtAmount(derivative.remainingToPay, derivative.currency)
-  const warnings = derivative.warnings.map((w) => (
-    <WarningLine
-      key={w.code}
-      warning={w}
-      testId={`cascade-derivative-warning-${derivative.id}-${w.code}`}
-    />
-  ))
+  const warningsFor = (variant: 'desktop' | 'mobile') =>
+    derivative.warnings.map((w) => (
+      <WarningLine
+        key={w.code}
+        warning={w}
+        testId={
+          variant === 'mobile'
+            ? `cascade-derivative-warning-${derivative.id}-${w.code}-mobile`
+            : `cascade-derivative-warning-${derivative.id}-${w.code}`
+        }
+      />
+    ))
   const typeBadge = (
     <span
       className={cn(
@@ -196,8 +218,10 @@ function CascadeDerivativeRow({
         </td>
         <td className="px-3 py-2.5 align-top">
           <div className="flex flex-col gap-1">
-            {derivative.needsReconfirm && <ReconfirmBadge derivativeId={derivative.id} />}
-            {warnings}
+            {derivative.needsReconfirm && (
+              <ReconfirmBadge derivativeId={derivative.id} variant="desktop" />
+            )}
+            {warningsFor('desktop')}
           </div>
         </td>
       </tr>
@@ -237,10 +261,12 @@ function CascadeDerivativeRow({
                 <dd className="text-right font-medium tabular-nums">{remainingLabel}</dd>
               </div>
             </dl>
-            {(derivative.needsReconfirm || warnings.length > 0) && (
+            {(derivative.needsReconfirm || derivative.warnings.length > 0) && (
               <div className="mt-2 flex flex-col gap-1">
-                {derivative.needsReconfirm && <ReconfirmBadge derivativeId={derivative.id} />}
-                {warnings}
+                {derivative.needsReconfirm && (
+                  <ReconfirmBadge derivativeId={derivative.id} variant="mobile" />
+                )}
+                {warningsFor('mobile')}
               </div>
             )}
           </div>
