@@ -12,9 +12,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 const get = vi.fn()
+// `vi.mock` is hoisted above the import below, so a STATIC import is correct
+// here. A top-level `await import(...)` also works under plain vitest but
+// crashes Stryker's runner on the initial test run («Cannot convert object to
+// primitive value») — measured, and the reason this is written the plain way.
 vi.mock('@/lib/axios', () => ({ api: { get: (...args: unknown[]) => get(...args) } }))
 
-const { financeApi } = await import('../api')
+import { financeApi } from '../api'
 
 const VALID = {
   editable: true,
