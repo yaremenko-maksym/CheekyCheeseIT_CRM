@@ -213,7 +213,32 @@ export function AdminEditTransactionDialog({
   // in-flight case needs its own clause: on a cascade edit with no answer yet,
   // a click used to send the amount with no token at all and earn a guaranteed
   // 400 (fail-closed, but it reads as a broken screen).
-  const cascadeSaveBlocked = !canSaveCascadeEdit(preview) || previewIsRecomputing
+  // COPY-H-2 (copy-review, HIGH): the button and the note answer DIFFERENT
+  // questions, and this line used to conflate them.
+  //
+  //   «may I press Save right now?»  — no, an answer is still in flight
+  //   «why can this row never be saved?» — a property of data already written
+  //
+  // Only the second is something the operator can act on, and only the second
+  // is what the note's text describes. Widening `cascadeSaveBlocked` to cover
+  // the recompute window (correct for the BUTTON — that is CR-M-1/SR-H-1) also
+  // dragged the note into two ordinary happy-path states: the first request in
+  // flight (`preview === undefined`, and `undefined !== false` satisfied the
+  // note's own guard) and the debounce window after every keystroke. In both
+  // the screen said «Пересчитываем связанные выплаты…» above and «по отмеченным
+  // строкам сумму не пересчитать, нужно ручное решение» below — simultaneously,
+  // about the same moment, with nothing marked and nothing to decide.
+  //
+  // No extra «Сохранить можно после пересчёта» line is added in its place. The
+  // reason is already on screen and already announced: `previewIsRecomputing`
+  // implies `shouldPreview`, so the panel is mounted with `isLoading` set and
+  // its `aria-live` status reads the recompute out loud. A second sentence at
+  // the bottom would rebuild, in miniature, the very «two texts for one state»
+  // that COPY-H-1 removed. (WCAG 1.4.13 is Content on Hover or Focus and says
+  // nothing about disabled controls; no success criterion demands a visible
+  // reason next to one.)
+  const cascadeSaveBlockedByData = !canSaveCascadeEdit(preview)
+  const cascadeSaveBlocked = cascadeSaveBlockedByData || previewIsRecomputing
   const isEditable = tx && EDITABLE_TYPES.includes(tx.type) && !tx.payoutRequestId
 
   return (
@@ -365,7 +390,7 @@ export function AdminEditTransactionDialog({
             from this module three hours earlier. «Нужно ручное решение» is not
             a new phrase: it is the one `NO_SHARE_SNAPSHOT` already uses in the
             red row itself. */}
-        {isEditable && cascadeSaveBlocked && preview?.editable !== false && (
+        {isEditable && cascadeSaveBlockedByData && preview?.editable !== false && (
           <p
             className="px-4 pb-1 text-xs text-destructive sm:px-6"
             data-testid="cascade-save-blocked-note"

@@ -477,6 +477,16 @@ describe('cascade preview — the client half of the loop', () => {
     // safest. `isFetching` alone cannot cover this: the request has not been
     // made yet.
     expect(screen.getByTestId('cascade-preview-loading')).toBeTruthy()
+
+    // COPY-H-2 (copy-review, HIGH) — the CR-M-1 fix widened `cascadeSaveBlocked`
+    // to cover this window, and the blocked-note rode along on the widening.
+    // The screen then said «Пересчитываем связанные выплаты…» at the top and
+    // «…по отмеченным строкам сумму не пересчитать, нужно ручное решение» at
+    // the bottom AT THE SAME TIME, on every keystroke. Nothing is marked,
+    // nothing needs deciding — the answer has simply not arrived yet. Those are
+    // the two contradicting instructions COPY-H-1 existed to remove, so the
+    // recompute window must carry the loading text alone.
+    expect(screen.queryByTestId('cascade-save-blocked-note')).toBeNull()
   })
 
   it('CP-27. SR-H-1 — Save is unavailable while the first preview is still in flight', async () => {
@@ -494,6 +504,13 @@ describe('cascade preview — the client half of the loop', () => {
 
     await waitFor(() => expect(getEditCascadePreviewMock).toHaveBeenCalled())
     expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
+
+    // COPY-H-2, the second of the two states the finding names: `preview` is
+    // still `undefined` here, and `undefined !== false` satisfied the note's
+    // own guard, so the FIRST keystroke of an ordinary, perfectly editable
+    // transaction was answered with a refusal citing rows that do not exist.
+    expect(screen.queryByTestId('cascade-save-blocked-note')).toBeNull()
+
     release(planWith([SENIOR_SHARE]))
   })
 
