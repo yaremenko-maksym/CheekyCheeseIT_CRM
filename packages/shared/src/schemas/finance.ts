@@ -197,13 +197,18 @@ export const transactionSchema = z.object({
    *     different one leaving the account, at the point of an irreversible
    *     decision.
    *
-   * NOT MASKED, deliberately — same rule as `originalAmount` above: this is a
-   * fact about money whose `amount` the same viewer is already shown on this
-   * very row, and a non-privileged viewer only ever receives rows they are a
-   * party to (`findAll` scopes SENIOR/JUNIOR/HR/DROP on `senderId`/`receiverId`).
-   * It carries no counterparty identity. Hiding it while leaving `amount`
-   * visible would only set the two figures on screen against each other.
-   * Pinned by `transaction-settled-exposure.unit.spec.ts` (SE-4/SE-5).
+   * NOT MASKED, deliberately — but NOT by analogy with `originalAmount` above
+   * (SR-M-2, security-review: that analogy broke inside the same task, which
+   * gates the triplet behind `privileged` in the detail dialog while showing
+   * this figure to everyone).
+   *
+   * The reason is that THE VIEWER IS A PARTY TO THIS ROW: every non-privileged
+   * path scopes rows on `senderId`/`receiverId` before the projection runs, so
+   * this describes the viewer's own money and carries no counterparty
+   * identity. Hiding it while leaving `amount` visible would only set the two
+   * figures on screen against each other. Pinned by
+   * `transaction-settled-exposure.unit.spec.ts` — SE-4/SE-5 for the disclosure,
+   * SE-6/SE-7 for the scoping premise it depends on.
    *
    * `null` reads as "this row never went through a settle" — distinct from `0`,
    * which would claim a settle that moved nothing. `.optional()` alongside

@@ -238,9 +238,18 @@ export class TransactionsController {
     return this.svc.paySalary(id, paySalarySchema.parse(body), user)
   }
 
+  // SR-L-3 (security-review): `ParseUUIDPipe`, matching its two immediate
+  // neighbours (`:id/edit-preview`, `:id/receipt`). Without it a malformed id
+  // reached the service and blew up as a 500 on the underlying Postgres uuid
+  // cast instead of the 400 the pipe gives. Pre-existing; fixed here because
+  // this route is now reachable from a screen that composes ids into requests.
   @Patch(':id/admin-edit')
   @Roles('ADMIN')
-  adminEdit(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
+  adminEdit(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
     return this.svc.adminUpdateTransaction(id, adminUpdateTransactionSchema.parse(body), user)
   }
 

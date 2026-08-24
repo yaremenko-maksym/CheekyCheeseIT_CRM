@@ -861,7 +861,7 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
       originalAmount: null,
       payoutRequestId: null,
     })
-    await expect(result).rejects.toThrow(/подтверждена фактическими выплатами/)
+    await expect(result).rejects.toThrow(/уже прошли выплаты/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -875,7 +875,7 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
         obligations: [obligationRow({ sourceTransactionId: SOURCE_ID, status: 'PAID' })],
       },
     )
-    await expect(result).rejects.toThrow(/закрытым обязательством/)
+    await expect(result).rejects.toThrow(/зафиксирована в расчёте/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -933,7 +933,7 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
       type: 'SENIOR_INCOME',
       settledAmount: '260.000000',
     })
-    await expect(result).rejects.toThrow(/подтверждена фактическими выплатами/)
+    await expect(result).rejects.toThrow(/уже прошли выплаты/)
   })
 
   it('only a CLOSED obligation on the edited row counts — an open one is the ordinary IOU case', async () => {
@@ -998,7 +998,7 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
         ],
       },
     )
-    await expect(result).rejects.toThrow(/закрытым обязательством/)
+    await expect(result).rejects.toThrow(/зафиксирована в расчёте/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -2376,7 +2376,7 @@ describe('refusal messages', () => {
         ADMIN,
       ),
     ).rejects.toThrow(
-      'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, запросите предпросмотр заново и повторите',
+      'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, обновите предпросмотр и повторите сохранение',
     )
   })
 

@@ -126,6 +126,14 @@ export function AdminEditTransactionDialog({
   //
   // `amountsDiffer` — the same six-decimal comparison the server uses — so
   // this cannot disagree with it at a rounding boundary.
+  //
+  // SR-L-1 (security-review, for the record): none of this makes «the operator
+  // saw a preview» a PROVABLE property. `computeCascadeVersion` concatenates
+  // ids and `updatedAt`s that are already visible in ordinary API responses —
+  // it is not a MAC — so a scripted ADMIN caller can assemble a token without
+  // ever opening the panel. Acceptable under the current threat model (the
+  // endpoint is ADMIN-only, and such a caller can request a real preview
+  // anyway); written down so the guarantee is not over-read.
   const previewAmountIsCurrent =
     shouldPreview && !amountsDiffer(parsedPreviewAmount, parseStrictAmount(amount))
 

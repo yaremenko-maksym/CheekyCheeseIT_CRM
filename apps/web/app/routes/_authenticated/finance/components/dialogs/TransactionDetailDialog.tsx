@@ -632,15 +632,32 @@ function TransactionInfoBlock({
           зафиксирован факт платежа») had no way to see the fact they were being
           refused over. A refusal whose cause is invisible is worse than the
           refusal itself. ADMIN/ACCOUNTANT only: an internal accounting detail,
-          the same audience as the other audit fields in this dialog. */}
+          the same audience as the other audit fields in this dialog.
+
+          SR-L-2 (security-review): this is a RENDER gate, not RBAC. The triplet
+          is on the wire for every role that can see the row — `mapTx` does not
+          mask it — so `privileged` hides it from the SCREEN and nothing more.
+          Reading it as a server-side restriction would be wrong. Pre-existing
+          on the wire; recorded here so the next reader is not misled. */}
       {privileged && t.originalAmount != null && (
         <Row icon={<Percent className="h-4 w-4" />} label="Факт платежа">
+          {/* COPY-M-6: «Обязательство» is the glossary name of a
+              `pending_obligations` row, and a SALARY — one of the two writers
+              of this triplet (`paySalary`, drop-settle) — has none. Plain words
+              that are true for both writers. */}
           <span className="tabular-nums" data-testid="tx-detail-payment-fact">
-            Обязательство: {fmtAmount(t.originalAmount, t.originalCurrency ?? t.currency)}
+            Было должно: {fmtAmount(t.originalAmount, t.originalCurrency ?? t.currency)}
           </span>
+          {/* COPY-M-5: the same shape `fmtRate` prints one row up
+              («1 EUR = 1.0800 USD»). «×0.0243» did not say what to multiply by
+              what, and a rate reads identically to its reciprocal — unusable on
+              the one screen that exists so an accountant can CHECK the figure.
+              `exchangeRate` is paid-currency units per 1 unit of what was owed,
+              so the owed currency is the left-hand side. */}
           {t.exchangeRate != null && (
             <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
-              Применённый курс: ×{Number(t.exchangeRate).toFixed(4)}
+              Курс: 1 {t.originalCurrency ?? t.currency} = {Number(t.exchangeRate).toFixed(4)}{' '}
+              {t.currency}
             </span>
           )}
         </Row>

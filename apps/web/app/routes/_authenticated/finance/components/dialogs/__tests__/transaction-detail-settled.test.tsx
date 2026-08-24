@@ -136,16 +136,21 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
     const fact = await screen.findByTestId('tx-detail-payment-fact')
 
     expect(digitsOf(fact.textContent ?? '')).toContain('800')
+    // COPY-M-6: «Обязательство» named an entity (`pending_obligations`) that a
+    // SALARY row — one of the two writers of this triplet — does not have. The
+    // label has to be true for both writers.
+    expect(fact.textContent).toContain('Было должно')
+    expect(fact.textContent).not.toContain('Обязательство')
     // The rate is what makes the refusal legible: `amount = original × rate`,
     // so editing `amount` alone would silently break the identity.
     //
-    // A DOT, not the comma the amounts beside it use. That is deliberate and
-    // pre-existing: `fmtRate` renders the «Курс (USD)» line of this very dialog
-    // as `1 USD = 41.00 UAH`. This assertion originally expected `37,5000` and
-    // went red — the code was following the neighbouring rate convention and
-    // the expectation was the thing that was wrong. Keeping the dot means the
-    // two rate lines in one dialog read the same way.
-    expect(fact.parentElement?.textContent).toContain('37.5000')
+    // COPY-M-5/M-6: the rate is stated in the SAME shape `fmtRate` already uses
+    // one row up — «1 <было-должно> = <курс> <оплачено>». «×37.5000» could not
+    // be checked by the accountant this row exists for: it did not say what to
+    // multiply by what, and a rate is indistinguishable from its reciprocal.
+    // The dot is the module's rate convention (`fmtRate`), unchanged.
+    expect(fact.parentElement?.textContent).toContain('1 USD = 37.5000 USDT')
+    expect(fact.parentElement?.textContent).not.toContain('×')
   })
 
   it('PF-2. no triplet ⇒ no row — most transactions are untouched', async () => {

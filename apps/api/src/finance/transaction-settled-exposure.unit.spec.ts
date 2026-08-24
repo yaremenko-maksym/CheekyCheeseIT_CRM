@@ -11,24 +11,37 @@
  * `SettleSeniorPayoutDialog`) cannot be computed from anything else that is
  * already exposed, so this is a contract change, not a nicety.
  *
- * WHY A UNIT DOUBLE AND NOT ONLY THE REAL-DB SPEC. The mutation gate runs the
- * UNIT suite only and cannot execute an `*.integration.spec.ts` at all
- * (`mutation-gate-integration-specs.md`), so a projection line proved solely by
- * the real-DB spec next door would report as `NoCoverage`. The double here
- * exercises `mapTx` through its real call sites (`findAll` / `findOne`); the
- * companion integration spec still proves the Drizzle column actually arrives.
+ * WHY A UNIT DOUBLE. The mutation gate runs the UNIT suite only and cannot
+ * execute an `*.integration.spec.ts` at all
+ * (`mutation-gate-integration-specs.md`), so a projection line proved solely in
+ * an integration spec would report as `NoCoverage`. The double here exercises
+ * `mapTx` through its real call sites (`findAll` / `findOne`).
+ *
+ * SR-M-1 (security-review): an earlier version of this comment claimed «the
+ * companion integration spec still proves the Drizzle column actually
+ * arrives». It does not exist. All five `*.integration.spec.ts` files that
+ * mention `settledAmount` read it either straight from the database or out of
+ * a preview plan; none asserts the field on an HTTP-shaped DTO. Corrected
+ * rather than quietly deleted, because a docblock that cites a proof nobody
+ * wrote is worse than one that cites none.
  *
  * VISIBILITY (the decision this spec pins, not merely describes). The figure is
- * exposed UNMASKED, exactly like `originalAmount`/`exchangeRate` before it, and
- * for the same stated reason: it is a fact about money whose `amount` this
- * viewer is ALREADY shown on this very row. A non-privileged viewer only ever
- * receives rows they are a party to (`findAll`'s SENIOR/JUNIOR/HR/DROP filters
- * scope on `senderId`/`receiverId`), so «сколько из этой суммы уже выплачено»
- * discloses no third party and no counterparty identity. Masking it while
- * leaving `amount` visible would only make the two numbers contradict each
- * other on the operator's screen. SE-4/SE-5 below hold that line: they are the
- * regression guard if someone later "hardens" the projection by nulling it for
- * the very people whose own money it describes.
+ * exposed UNMASKED. The reason is NOT «the same rule as `originalAmount`» —
+ * SR-M-2 (security-review) pointed out that the analogy had already broken
+ * inside this very task: the triplet is gated behind `privileged` in the detail
+ * dialog while the accumulator is shown to everyone, so citing it would read as
+ * permission to the next person who adds a money field.
+ *
+ * The reason that actually holds, and is checkable: **the viewer is a party to
+ * this row**. Every non-privileged path scopes rows on `senderId`/`receiverId`
+ * before `mapTx` is ever reached (`findAll`'s role filters, `findOne`'s
+ * visibility assertions, `findPayoutRequest`'s creditor filter), so «сколько из
+ * этой суммы уже выплачено» describes the viewer's own money and discloses no
+ * third party and no counterparty identity. Masking it while leaving `amount`
+ * visible would only set the two figures against each other on one screen.
+ *
+ * SE-4/SE-5 hold the positive half of that line; SE-6/SE-7 hold the premise
+ * itself, so it goes red if a caller is ever widened.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -149,6 +162,36 @@ describe('settled accumulator on the transaction wire (task 5)', () => {
     const [dto] = await svc.findAll(user('SENIOR', SENIOR_ID))
 
     expect(dto?.settledAmount).toBe('5000.000000')
+  })
+
+  it('SE-6. a SENIOR who is not a party to the row never receives it at all', async () => {
+    // SR-M-1 (security-review, MED). The decision NOT to mask this field rests
+    // on a property of the CALLERS — «a non-privileged viewer only ever gets
+    // rows they are a party to» — which lives in `findAll`'s role filters, not
+    // in the projection. SE-1…SE-5 only prove the positive half (ADMIN sees it,
+    // the receiving senior sees their own), so the premise itself was untested
+    // and would fail silently if someone widened a caller.
+    //
+    // Not theoretical for THIS projection: `mapTx` has two documented
+    // near-leaks of exactly this shape (#590 MED-1 and backlog 168), both times
+    // a foreign row reaching a viewer through a widened caller rather than a
+    // changed projection. The next such widening would carry the accumulator
+    // with it.
+    const svc = serviceReturning(partlySettledRow())
+
+    const rows = await svc.findAll(user('SENIOR', '99999999-9999-4999-8999-999999999999'))
+
+    expect(rows).toEqual([])
+  })
+
+  it('SE-7. a JUNIOR who is not the receiver never receives it either', async () => {
+    // The other scoping predicate (`receiverId === self`, no sender branch),
+    // asserted separately because it is a different filter.
+    const svc = serviceReturning(partlySettledRow())
+
+    const rows = await svc.findAll(user('JUNIOR', '99999999-9999-4999-8999-999999999999'))
+
+    expect(rows).toEqual([])
   })
 
   it('SE-5. a row that never went through a settle reports null, not 0', async () => {

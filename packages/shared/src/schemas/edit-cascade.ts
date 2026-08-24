@@ -567,7 +567,13 @@ function resolveDerivative(
   if (overpaid) {
     warnings.push({
       code: 'OVERPAYMENT',
-      message: `Уже выплачено ${settledAmount} — пересчитанная доля ${newAmount} меньше выплаченного, строка остаётся оплаченной`,
+      // COPY-M-4 (copy-review): every neighbour in this family names a remedy;
+      // this one — the only message about money that was ACTUALLY overpaid —
+      // named none, so the operator learned that an overpayment exists and not
+      // whether it comes back. The remedy itself stays unprescribed on purpose
+      // (write-off vs claw-back is a human decision, ADR AC3); what the text
+      // now closes is the dangerous half of the silence.
+      message: `Уже выплачено ${settledAmount} — пересчитанная доля ${newAmount} меньше выплаченного, строка остаётся оплаченной, разница сама не вернётся`,
     })
   }
   if (derivative.hasSignedInvoice) {
@@ -768,10 +774,20 @@ export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSche
 export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, string> = {
   PAYMENT_FACT_RECORDED:
     'На этой строке зафиксирован факт платежа (сумма и курс) — сумма не редактируется, исправьте документ об оплате',
+  // COPY-M-3 (copy-review): these two used to open with the SAME four words
+  // («Эта строка закрывает обязательство»), while describing different facts —
+  // the first has an accumulator of actual transfers behind it, the second IS
+  // the closing transaction. The second also explained itself with itself
+  // («сумма подтверждена закрытым обязательством»). Neither text changed in the
+  // diff of this task, but this is the first task in which a human ever sees
+  // them: before the preview panel existed, `blockedReason` had no reader.
+  //
+  // «Расчёт» is the glossary name for a settle (`CONTEXT.md`), so the second
+  // one now names a carrier instead of restating its own label.
   SETTLED_AMOUNT_RECORDED:
-    'Эта строка закрывает обязательство, её сумма подтверждена фактическими выплатами — правьте сторнирующей транзакцией, а не суммой',
+    'По этой строке уже прошли выплаты — её сумма подтверждена фактически перечисленным, правьте сторнирующей транзакцией',
   CLOSES_OBLIGATION:
-    'Эта строка закрывает обязательство — сумма подтверждена закрытым обязательством, правьте сторнирующей транзакцией',
+    'Этой строкой закрыто обязательство — её сумма зафиксирована в расчёте, правьте сторнирующей транзакцией',
   ONCHAIN_DEPOSIT:
     'Сумма депозита сверена с блокчейном — она не редактируется, оформляйте расхождение отдельной транзакцией',
 }

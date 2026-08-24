@@ -836,7 +836,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/подтверждена фактическими выплатами/)
+    ).rejects.toThrow(/уже прошли выплаты/)
 
     // Without AC13 the edit lands, term 7's debit drops 260 → 26, and the
     // balance rises by 234 — money the company has already paid out.
@@ -916,7 +916,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/закрытым обязательством/)
+    ).rejects.toThrow(/зафиксирована в расчёте/)
 
     // Without the disjunct the edit lands, term 7's debit falls 260 → 26 and
     // the balance rises by 234 that has already left the account.

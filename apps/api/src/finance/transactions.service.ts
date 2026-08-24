@@ -872,15 +872,24 @@ export class TransactionsService {
       originalCurrency: tx.originalCurrency,
       exchangeRate: tx.exchangeRate,
       // task-cascade-preview-ui (task 5) — the settle accumulator (task 1, PR
-      // #599) reaches the operator. Same non-masking rule as the triplet above
-      // and for the same reason: it says how much of an `amount` this viewer is
-      // ALREADY shown has actually left the account, carries no counterparty
-      // identity, and a non-privileged viewer only ever receives rows they are
-      // a party to (findAll's role filters scope on senderId/receiverId).
-      // Masking it while leaving `amount` visible would make the two figures on
-      // one screen contradict each other. See the schema comment in
-      // `packages/shared/src/schemas/finance.ts` for the full rationale;
-      // `transaction-settled-exposure.unit.spec.ts` pins it.
+      // #599) reaches the operator, unmasked.
+      //
+      // SR-M-2 (security-review): the reason is NOT «same rule as the triplet
+      // above». That analogy broke inside task 5 itself — the triplet is gated
+      // behind `privileged` in the detail dialog while this figure is shown to
+      // everyone — so leaning on it would read as permission to whoever adds
+      // the next money field.
+      //
+      // The reason that holds is checkable: THE VIEWER IS A PARTY TO THIS ROW.
+      // Every non-privileged path scopes rows on senderId/receiverId before
+      // `mapTx` runs (findAll's role filters, findOne's visibility assertions,
+      // findPayoutRequest's creditor filter), so this says how much of the
+      // viewer's OWN money has left the account. It carries no counterparty
+      // identity, and masking it while `amount` stays visible would only set
+      // the two figures against each other on one screen. The premise is pinned
+      // negatively by SE-6/SE-7 in
+      // `transaction-settled-exposure.unit.spec.ts`, so widening a caller goes
+      // red instead of silently carrying the accumulator along.
       settledAmount: tx.settledAmount,
       settledCurrency: tx.settledCurrency,
       senderId: senderMasked ? null : tx.senderId,
@@ -3225,7 +3234,15 @@ export class TransactionsService {
           // AC4).
           if (computeCascadeVersion(snapshot) !== data.cascadeVersion) {
             throw new ConflictException(
-              'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, запросите предпросмотр заново и повторите',
+              // COPY-M-1 (copy-review, self-corrected from #610): when this text
+              // was written its only reader was an API caller, for whom
+              // «запросите предпросмотр заново» was the right verb. Task 5 gave
+              // it a second reader — an operator with a button labelled
+              // «Обновить предпросмотр» directly underneath. Asking someone to
+              // «запросить» next to a button that says «обновить» makes them
+              // translate. «повторите сохранение» names the second step, which
+              // the API reader never had and the operator does.
+              'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, обновите предпросмотр и повторите сохранение',
             )
           }
           // The server computes the cascade itself. The client's version is an
