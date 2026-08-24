@@ -285,6 +285,11 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
       {
         id: SENIOR_DERIV_ID,
         type: 'SENIOR_PENDING_PAYOUT',
+        // UX-1: the joined receiver. Deliberately NOT the source's receiver —
+        // the source here is an `ADMIN_INCOME` (received by the admin), which
+        // is the shape that made the panel print the admin's name against the
+        // senior's share.
+        receiver: { displayName: 'Nazar Ponomarenko' },
         status: 'PENDING_PAYMENT',
         amount: '260.000000',
         currency: 'USDT',
@@ -298,6 +303,8 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
       {
         id: DROP_DERIV_ID,
         type: 'PAYOUT_DROP',
+        // The other branch of `receiver?.displayName ?? null`: no joined user.
+        receiver: null,
         status: 'PAID',
         amount: '50.000000',
         currency: 'UAH',
@@ -357,6 +364,7 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
         {
           id: SENIOR_DERIV_ID,
           type: 'SENIOR_PENDING_PAYOUT',
+          receiverName: 'Nazar Ponomarenko',
           status: 'PENDING_PAYMENT',
           amount: 260,
           currency: 'USDT',
@@ -376,6 +384,7 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
         {
           id: DROP_DERIV_ID,
           type: 'PAYOUT_DROP',
+          receiverName: null,
           status: 'PAID',
           amount: 50,
           currency: 'UAH',
