@@ -48,6 +48,7 @@ export function AdminEditTransactionDialog({
   const [receipt, setReceipt] = useState<ReceiptState>(receiptStateFromExternalUrl(null))
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
   const [salaryMonth, setSalaryMonth] = useState('')
+  // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it, the same shape as the documented `useState` default in SettleSeniorPayoutDialog
   const [debouncedAmount, setDebouncedAmount] = useState('')
   /** The server's 409 text, verbatim — set when the plan on screen was overtaken. */
   const [staleMessage, setStaleMessage] = useState<string | null>(null)
@@ -93,6 +94,7 @@ export function AdminEditTransactionDialog({
     amountsDiffer(parsedPreviewAmount, Number(tx.amount))
 
   const previewQuery = useQuery({
+    // Stryker disable next-line StringLiteral: the literal is a NAMESPACE, not a value — replacing it with '' keeps the key just as unique (id + amount still discriminate every entry), so no cache behaviour changes. What the key must actually do — give a different amount a different entry — is pinned by CP-18
     queryKey: ['cascade-preview', tx?.id, parsedPreviewAmount],
     queryFn: () => financeApi.getEditCascadePreview(tx!.id, parsedPreviewAmount),
     enabled: shouldPreview,
@@ -226,6 +228,7 @@ export function AdminEditTransactionDialog({
                     void previewQuery.refetch()
                   }}
                   staleMessage={staleMessage}
+                  // Stryker disable next-line OptionalChaining: unreachable — this JSX only renders under `shouldPreview`, which is itself `!!tx && …`, so `tx` is non-null wherever this expression is evaluated (CP-23 covers the closed dialog)
                   sourceReceiverName={tx?.receiverName ?? null}
                 />
               )}

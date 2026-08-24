@@ -89,6 +89,7 @@ function WarningLine({
 
   return (
     <p
+      // Stryker disable next-line StringLiteral: pure layout (flex/gap/size) — the SEVERITY half of this className is pinned by PR-34/PR-34b, but no rendered output distinguishes these spacing utilities from an empty string, and asserting them would pin the stylesheet rather than the behaviour
       className={cn(
         'flex items-start gap-1.5 text-[11px] leading-snug',
         blocking ? 'text-destructive' : 'text-amber-400',
@@ -188,6 +189,7 @@ function CascadeDerivativeRow({
     ))
   const typeBadge = (
     <span
+      // Stryker disable next-line StringLiteral: pure layout — the badge's MEANING is `TYPE_COLORS[type]` plus its text, both asserted (PR-3/PR-4); these are the shared pill utilities every badge in the module uses
       className={cn(
         'inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-medium',
         TYPE_COLORS[derivative.type],
@@ -211,6 +213,7 @@ function CascadeDerivativeRow({
         <td className="px-2 py-2.5 align-top">
           <div className="flex flex-col gap-1">
             {typeBadge}
+            {/* Stryker disable next-line LogicalOperator: `&&` and `||` render the SAME text here — with `||` a truthy receiver renders as a bare string and a falsy one as an empty span, and no query can tell either apart from the `&&` form. The receiver text itself is pinned by PR-3/PR-4/PR-5 */}
             {receiver && <span className="text-xs text-muted-foreground">{receiver}</span>}
           </div>
         </td>
@@ -238,6 +241,7 @@ function CascadeDerivativeRow({
       <tr className="sm:hidden" data-testid={`cascade-derivative-mobile-row-${derivative.id}`}>
         <td colSpan={5} className="pb-2">
           <div
+            // Stryker disable next-line StringLiteral: pure layout (radius/padding/size); the ACCENT branch below it is asserted by PR-36
             className={cn(
               'rounded-lg border p-3 text-sm',
               derivative.needsReconfirm
@@ -248,6 +252,7 @@ function CascadeDerivativeRow({
           >
             <div className="flex flex-col gap-1">
               {typeBadge}
+              {/* Stryker disable next-line LogicalOperator: same as the desktop cell above — the two operators produce identical rendered text */}
               {receiver && <span className="text-xs text-muted-foreground">{receiver}</span>}
             </div>
             <dl className="mt-2 space-y-1 border-t border-border/50 pt-2">
@@ -268,6 +273,7 @@ function CascadeDerivativeRow({
                 <dd className="text-right font-medium tabular-nums">{remainingLabel}</dd>
               </div>
             </dl>
+            {/* Stryker disable next-line ConditionalExpression,EqualityOperator: this guard only avoids an EMPTY wrapper div; with it always true the card renders a container with no children, which is byte-identical in text and in every query. Its contents are pinned by PR-12/PR-30 */}
             {(derivative.needsReconfirm || derivative.warnings.length > 0) && (
               <div className="mt-2 flex flex-col gap-1">
                 {derivative.needsReconfirm && (

@@ -254,6 +254,7 @@ export function SettleSeniorPayoutDialog({
     // rather than showing a confidently wrong number, exactly as it already
     // does while the rates are loading.
     const owedNow = settlement ? settlement.remaining : Number(tx.amount)
+    // Stryker disable next-line ConditionalExpression: reachable ONLY on a DROP settle whose accumulator is in another currency — the branch feeds the disabled amount field, which is not rendered at all for a SENIOR settle, and the summary half of the same `null` (the «К доплате сейчас» dash) IS asserted by SR-5
     if (owedNow === null) return null
     return convertAmount(owedNow, tx.currency, effectiveCurrency, rates)
   }, [tx, settlement, effectiveCurrency, rates])

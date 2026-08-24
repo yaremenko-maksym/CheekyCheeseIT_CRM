@@ -166,7 +166,11 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     // «10 000» must be gone: there is no recomputed figure, and printing the
     // old one twice would read as "nothing changes".
     expect(digits(desktop())).not.toContain('10000')
-    expect(desktop().textContent).toContain('—')
+    // The dash has to be in the «Было → Стало» CELL. «К доплате» is also a dash
+    // on this fixture, so a row-wide assertion passes even when the transition
+    // cell prints a fabricated figure instead.
+    const cells = within(desktop()).getAllByRole('cell')
+    expect(cells[1]?.textContent).toContain('—')
     expect(mobile().textContent).toContain('—')
   })
 
@@ -370,6 +374,36 @@ describe('CascadeImpactPanel — severity is visible, not just present', () => {
     expect(weighable.className).toContain('text-amber-400')
   })
 
+  it('PR-34b. an obligation-currency mismatch is destructive too — it blocks the save', () => {
+    renderPanel({
+      preview: preview([
+        derivative({
+          warnings: [
+            {
+              code: 'OBLIGATION_CURRENCY_MISMATCH',
+              message: 'Обязательство учтено в другой валюте',
+            },
+          ],
+        }),
+      ]),
+    })
+
+    // The second member of the blocking set. Written out because a set with one
+    // member reads as complete while silently down-grading the other refusal to
+    // a caution the operator may dismiss.
+    expect(
+      screen.getByTestId('cascade-derivative-warning-d1-OBLIGATION_CURRENCY_MISMATCH').className,
+    ).toContain('text-destructive')
+  })
+
+  it('PR-36. the reverting card is accented too, not only the table row', () => {
+    renderPanel({ preview: preview([derivative({ needsReconfirm: true })]) })
+
+    // Mobile is not a lesser rendering: the one accent this screen has must
+    // survive the layout the operator most often reads it in.
+    expect(mobile().className).toContain('border-amber-500/30')
+  })
+
   it('PR-35. the row that will revert is the one marked — the single accent on the screen', () => {
     renderPanel({
       preview: preview([
@@ -512,5 +546,19 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     expect(live.getAttribute('aria-live')).toBe('polite')
     expect(live.getAttribute('aria-atomic')).toBe('true')
     expect(live.textContent).toContain('Пересчитываем')
+  })
+
+  it('PR-37. once the plan is in, the status line says so — silence reads as "still working"', () => {
+    renderPanel()
+
+    // A live region that announces the start and never the end leaves a
+    // screen-reader user waiting for an update that already happened.
+    expect(screen.getByTestId('cascade-preview-status').textContent).toBe('Предпросмотр обновлён')
+  })
+
+  it('PR-38. with nothing requested at all the status line is empty, not stale', () => {
+    renderPanel({ preview: undefined })
+
+    expect(screen.getByTestId('cascade-preview-status').textContent).toBe('')
   })
 })

@@ -85,6 +85,36 @@ function digitsOf(text: string): string {
 }
 
 describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () => {
+  it('SR-6. opening the dialog on a DIFFERENT row recomputes the split', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const settled = {
+      ...BASE_TX,
+      settledAmount: '5000.000000',
+      settledCurrency: 'USDT',
+    } as TransactionDto
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <SettleSeniorPayoutDialog tx={settled} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    await screen.findByTestId('settle-senior-remaining')
+
+    rerender(
+      <QueryClientProvider client={qc}>
+        <SettleSeniorPayoutDialog
+          tx={{ ...BASE_TX, id: 'other', settledAmount: null } as TransactionDto}
+          onClose={() => {}}
+        />
+      </QueryClientProvider>,
+    )
+
+    // A split memoised without `tx` in its dependencies would keep showing the
+    // PREVIOUS row's «уже выплачено» over the new row's obligation — the same
+    // class of lie this whole fix exists to remove, one row over.
+    expect(await screen.findByText('Сумма')).toBeTruthy()
+    expect(screen.queryByTestId('settle-senior-remaining')).toBeNull()
+  })
+
   it('SR-1. a PARTLY settled obligation shows what is still owed, not the full amount', async () => {
     renderDialog({
       ...BASE_TX,
