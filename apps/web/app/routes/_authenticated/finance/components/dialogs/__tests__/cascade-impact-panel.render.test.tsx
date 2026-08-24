@@ -173,6 +173,26 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     expect(desktop().textContent).toContain('Доля дропа')
   })
 
+  it('PR-44. a settled drop row names itself once, not twice', () => {
+    renderPanel({ preview: preview([derivative({ type: 'PAYOUT_DROP' })]) })
+
+    // `TYPE_LABELS.PAYOUT_DROP` is itself «Доля дропа», so without the
+    // duplicate guard the badge and the line under it said the same three words
+    // twice. Found by looking at the rendered screen, and pinned here so it
+    // cannot come back.
+    const occurrences = (desktop().textContent ?? '').split('Доля дропа').length - 1
+    expect(occurrences).toBe(1)
+  })
+
+  it('PR-45. a PENDING drop row keeps its label — the badge says something else', () => {
+    renderPanel({ preview: preview([derivative({ type: 'DROP_PENDING_PAYOUT' })]) })
+
+    // The other side of the same guard: here the badge reads «Ожидаемая выплата
+    // дропу», so the label adds information rather than repeating it.
+    expect(desktop().textContent).toContain('Ожидаемая выплата дропу')
+    expect(desktop().textContent).toContain('Доля дропа')
+  })
+
   it('PR-43. UX-3 — a fully closed row says nothing about a remainder', () => {
     renderPanel({
       preview: preview([

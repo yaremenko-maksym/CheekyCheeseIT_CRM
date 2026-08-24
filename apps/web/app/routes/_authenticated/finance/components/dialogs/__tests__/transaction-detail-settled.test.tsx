@@ -229,8 +229,13 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
       'ADMIN',
     )
 
-    await screen.findByTestId('tx-detail-payment-fact')
-    expect(screen.queryByText(/Применённый курс/)).toBeNull()
+    const fact = await screen.findByTestId('tx-detail-payment-fact')
+    // Matched on «Курс:», the CURRENT wording. The old assertion still said
+    // «Применённый курс» after COPY-M-5 renamed the line, so it passed by
+    // matching nothing — the mutation gate is what surfaced that: removing the
+    // `!= null` guard entirely (rendering «Курс: 1 USDT = 0.0000 USDT») left
+    // every test green.
+    expect(fact.parentElement?.textContent).not.toContain('Курс:')
   })
 
   it('PF-7. no session user ⇒ no payment fact — «not known yet» is not «privileged»', async () => {

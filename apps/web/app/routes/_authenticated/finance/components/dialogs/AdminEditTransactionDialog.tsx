@@ -175,6 +175,7 @@ export function AdminEditTransactionDialog({
         // the submitted figure. The gate below makes this branch unreachable
         // in the UI; keeping the condition here too means the worst case
         // degrades to the server's own 400 rather than a silent apply.
+        // Stryker disable next-line LogicalOperator: defense in depth, deliberately unreachable through the UI — `cascadeSaveBlocked` disables the button whenever `previewAmountIsCurrent` is false (CP-25), so no click can reach this branch with the two disagreeing. `&&` vs `||` is therefore unobservable from the outside, and that is the POINT: if the gate above were ever removed, this keeps the worst case at the server's own 400 instead of a silent apply
         ...(preview?.version && previewAmountIsCurrent ? { cascadeVersion: preview.version } : {}),
         ...(!receiptUnchanged && {
           receiptDocumentId: nextReceiptDocId,

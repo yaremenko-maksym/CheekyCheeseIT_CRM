@@ -596,8 +596,13 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                   so the unification costs nothing.
                   UX-3: absent entirely once there is nothing left to pay —
                   «к доплате 0,00» is a line to read and discard. */}
-              {settlement.remaining !== null &&
-                settlement.remaining > 0 &&
+              {/* `> 0` alone. `null > 0` is already `false`, so an explicit
+                  null check beside it could be deleted without any test
+                  noticing — the mutation gate proved exactly that. One
+                  condition, not two spellings of the same one. Cross-currency
+                  (`remaining === null`) and fully-closed (`0`) both mean the
+                  same thing here: no actionable remainder. */}
+              {(settlement.remaining ?? 0) > 0 &&
                 ` · к доплате ${fmtAmount(settlement.remaining, tx.currency)}`}
             </p>
           )}

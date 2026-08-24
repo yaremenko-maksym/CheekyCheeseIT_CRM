@@ -70,6 +70,7 @@ export interface CascadeImpactPanelProps {
  * than no name.
  */
 const SENIOR_DERIVATIVE_TYPES = new Set(['SENIOR_PENDING_PAYOUT', 'SENIOR_INCOME'])
+// Stryker disable next-line StringLiteral: `PAYOUT_DROP`'s membership is not observable and cannot be — `TYPE_LABELS.PAYOUT_DROP` is itself «Доля дропа», so the duplicate guard below suppresses the label for that type whether the set matches it or not. Kept because it states the intent (both drop spellings belong to one family) and because a future rename of that label would make it load-bearing again; PR-44/PR-45 pin the rendered outcome for both spellings
 const DROP_DERIVATIVE_TYPES = new Set(['DROP_PENDING_PAYOUT', 'PAYOUT_DROP'])
 
 function derivativeReceiverLabel(
