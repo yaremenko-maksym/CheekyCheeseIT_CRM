@@ -419,6 +419,84 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.queryByTestId('cascade-impact-panel')).toBeNull()
   })
 
+  it('CP-24. SR-H-1 — a figure changed after the preview is never saved against that preview', async () => {
+    // The security probe, as a test. Type 25 000, let the plan arrive, then
+    // correct to 90 000 and press Save INSIDE the 400 ms debounce window.
+    //
+    // Before the fix the dialog submitted 90 000 carrying the token of the
+    // 25 000 plan. The token is `id` + `updatedAt` — it does NOT encode the
+    // amount — so the server accepts it (nothing moved), recomputes the
+    // cascade for 90 000 and applies it: shares rewritten, obligations
+    // reopened, invoice voided, for a figure whose consequences the operator
+    // never saw. That is the «предпросмотр == факт» invariant (ADR AC4 /
+    // AC5 §11), broken on the client, not the server.
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-derivative-der-1')
+
+    typeAmount('90000')
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+    await new Promise((r) => setTimeout(r, 100))
+
+    // Stated as "no submission carries that token", not "the first one does
+    // not": an unconditional assertion over ALL calls, so it cannot pass by
+    // there being no call to look at.
+    const submissionsClaimingTheStalePlan = adminUpdateTransactionMock.mock.calls.filter(
+      ([, body]) => (body as { cascadeVersion?: string }).cascadeVersion === VERSION,
+    )
+    expect(submissionsClaimingTheStalePlan).toEqual([])
+    // And the plan really was for a different figure — otherwise the assertion
+    // above would be vacuous.
+    expect(getEditCascadePreviewMock).toHaveBeenCalledTimes(1)
+    expect(getEditCascadePreviewMock).toHaveBeenCalledWith(PAID_TX.id, 25000)
+  })
+
+  it('CP-25. SR-H-1 — Save is unavailable while the shown plan is not the typed figure', async () => {
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-derivative-der-1')
+    expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', false)
+
+    typeAmount('90000')
+
+    // The gate that makes CP-24 true BY CONSTRUCTION rather than by the
+    // operator noticing: the moment the field and the plan disagree, the
+    // button is unavailable.
+    expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
+  })
+
+  it('CP-26. CR-M-1 — the panel says it is recomputing during the debounce window', async () => {
+    renderDialog()
+    typeAmount('25000')
+    await screen.findByTestId('cascade-derivative-der-1')
+
+    typeAmount('90000')
+
+    // Before the fix the panel kept showing the 25 000 plan for a full 400 ms
+    // with nothing to mark it stale — precisely the moment a click looks
+    // safest. `isFetching` alone cannot cover this: the request has not been
+    // made yet.
+    expect(screen.getByTestId('cascade-preview-loading')).toBeTruthy()
+  })
+
+  it('CP-27. SR-H-1 — Save is unavailable while the first preview is still in flight', async () => {
+    // `canSaveCascadeEdit(undefined)` is `true` by design (an ordinary
+    // non-cascade edit must not be blocked), so before the fix the button was
+    // live during the very first request and a click sent the amount with NO
+    // `cascadeVersion` — a guaranteed 400. Fail-closed, but for the same
+    // reason as CP-24, and it looks like a broken screen to the operator.
+    let release: (v: unknown) => void = () => {}
+    getEditCascadePreviewMock.mockImplementation(
+      () => new Promise((res) => (release = res as (v: unknown) => void)),
+    )
+    renderDialog()
+    typeAmount('25000')
+
+    await waitFor(() => expect(getEditCascadePreviewMock).toHaveBeenCalled())
+    expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
+    release(planWith([SENIOR_SHARE]))
+  })
+
   it('CP-13. a non-PAID row behaves exactly as before — no preview, no panel', async () => {
     renderDialog({ ...PAID_TX, status: 'PENDING' } as TransactionDto)
     typeAmount('25000')

@@ -111,6 +111,31 @@ export function AdminEditTransactionDialog({
   const isPreviewNetworkError =
     shouldPreview && previewQuery.isError && getAxiosStatus(previewQuery.error) === undefined
 
+  // SR-H-1 (security-review, HIGH). Is the plan on screen the plan for the
+  // figure currently in the field?
+  //
+  // The version token is `id` + `updatedAt` of the source and its derivatives
+  // — it does NOT encode the amount. So a token proves «the world has not
+  // moved», never «this is the plan you were shown». The server, holding a
+  // valid token, recomputes the cascade for whatever amount arrived and
+  // applies it. Between the 400 ms debounce and the live `amount` there was a
+  // window where those two were different figures, and a save inside it
+  // rewrote shares, reopened obligations and voided an invoice for a number
+  // the operator had never seen a plan for. Measured, not argued: the probe
+  // submitted 90 000 carrying the token of the 25 000 plan (CP-24).
+  //
+  // `amountsDiffer` — the same six-decimal comparison the server uses — so
+  // this cannot disagree with it at a rounding boundary.
+  const previewAmountIsCurrent =
+    shouldPreview && !amountsDiffer(parsedPreviewAmount, parseStrictAmount(amount))
+
+  // CR-M-1 (code-review, MED) — the same window, its visible half. `isFetching`
+  // only rises once a request is actually in flight, so during the debounce the
+  // panel showed the PREVIOUS plan with nothing marking it stale — exactly the
+  // moment a click looks safest. The recompute indicator now covers the whole
+  // window, not just the request.
+  const previewIsRecomputing = shouldPreview && (previewQuery.isFetching || !previewAmountIsCurrent)
+
   const mutation = useMutation({
     mutationFn: () => {
       const amt = parseStrictAmount(amount)
@@ -134,12 +159,15 @@ export function AdminEditTransactionDialog({
         amount: amt,
         currency,
         notes: notes || null,
-        // The token of the plan the operator actually saw. The server compares
-        // it against the world as it stands at write time and refuses with a
-        // 409 if anything moved — «предпросмотр == факт» holds because the
-        // preview is what gets applied, not because two computations are kept
-        // in step. Sent ONLY on a cascade edit; an ordinary edit has no plan.
-        ...(preview?.version ? { cascadeVersion: preview.version } : {}),
+        // The token of the plan the operator actually saw — and ONLY when the
+        // figure being submitted is the figure that plan was built for
+        // (SR-H-1). Without that second condition the token vouched for a
+        // different amount than the one in the payload, and the server, which
+        // cannot tell (the token carries no amount), applied the cascade for
+        // the submitted figure. The gate below makes this branch unreachable
+        // in the UI; keeping the condition here too means the worst case
+        // degrades to the server's own 400 rather than a silent apply.
+        ...(preview?.version && previewAmountIsCurrent ? { cascadeVersion: preview.version } : {}),
         ...(!receiptUnchanged && {
           receiptDocumentId: nextReceiptDocId,
           receiptExternalUrl: nextReceiptExternalUrl,
@@ -171,7 +199,12 @@ export function AdminEditTransactionDialog({
   const error = mutation.error ? getApiErrorMessage(mutation.error) : null
   // A 409 is rendered by the panel, in place, not duplicated as a red line.
   const submitError = staleMessage ? null : error
-  const cascadeSaveBlocked = !canSaveCascadeEdit(preview)
+  // `canSaveCascadeEdit(undefined)` is `true` on purpose — an ordinary,
+  // non-cascade edit must never be blocked by this feature. That is why the
+  // in-flight case needs its own clause: on a cascade edit with no answer yet,
+  // a click used to send the amount with no token at all and earn a guaranteed
+  // 400 (fail-closed, but it reads as a broken screen).
+  const cascadeSaveBlocked = !canSaveCascadeEdit(preview) || previewIsRecomputing
   const isEditable = tx && EDITABLE_TYPES.includes(tx.type) && !tx.payoutRequestId
 
   return (
@@ -221,7 +254,7 @@ export function AdminEditTransactionDialog({
               {shouldPreview && (
                 <CascadeImpactPanel
                   preview={preview}
-                  isLoading={previewQuery.isFetching}
+                  isLoading={previewIsRecomputing}
                   isNetworkError={isPreviewNetworkError}
                   onRetry={() => {
                     setStaleMessage(null)
