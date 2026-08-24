@@ -392,6 +392,55 @@ export function amountsDiffer(a: number, b: number): boolean {
   return Number(a).toFixed(6) !== Number(b).toFixed(6)
 }
 
+/**
+ * Are «сколько уже выплачено» and «сколько должно быть» the same unit?
+ *
+ * HIGH-2 / HIGH-2-residual, stated once. `settledAmount` is accumulated in the
+ * currency the payment was actually made in (`settleByCompany` stamps
+ * `settled_currency`), while the figure it is compared against is always in the
+ * ROW's own currency. A drop obligation closed in UAH puts ~2000 into the
+ * accumulator and would call almost any USDT edit an overpayment.
+ *
+ * A zero accumulator is never a mismatch: there is nothing to compare, so a
+ * stale currency column says nothing. A NON-zero accumulator whose currency was
+ * never recorded IS a mismatch — "unknown" is not "assume it matches", the same
+ * refusal-to-guess `NO_SHARE_SNAPSHOT` applies one field over.
+ *
+ * Extracted for task 5: `resolveDerivative` below asks it about a RECOMPUTED
+ * share, and three UI surfaces ask it about a row's own stored amount. Same
+ * question, and therefore deliberately not two spellings of it.
+ */
+export function settledCurrencyMismatch(
+  settledAmount: number,
+  settledCurrency: CurrencyEnum | null,
+  rowCurrency: CurrencyEnum,
+): boolean {
+  return settledAmount > 0 && settledCurrency !== rowCurrency
+}
+
+/**
+ * What is still owed: `max(0, amount - settledAmount)`, or `null` when the two
+ * are not the same unit (`settledCurrencyMismatch` above).
+ *
+ * Both refusals are load-bearing, not defensive padding:
+ *   - the floor at zero, because an overpaid row owes nothing and «осталось
+ *     −100» is a figure no operator can act on;
+ *   - the `null`, because a manufactured cross-currency difference would be
+ *     shown as «к доплате» and paid.
+ *
+ * `.toFixed(6)` before `Math.max` is the same MONEY_SCALE-safe rounding
+ * `roundShareAmount` uses — without it a stray float tail
+ * (`199.99999999999997`) reaches the screen.
+ */
+export function remainingAgainstAccumulator(
+  amount: number,
+  settledAmount: number,
+  currencyMismatch: boolean,
+): number | null {
+  if (currencyMismatch) return null
+  return Math.max(0, Number((amount - settledAmount).toFixed(6)))
+}
+
 function resolveDerivative(
   derivative: CascadeDerivativeSnapshot,
   newSourceAmount: number,
@@ -496,13 +545,11 @@ function resolveDerivative(
   //     `NO_SHARE_SNAPSHOT` above already applies. Unreachable today (a
   //     settle always stamps `settled_amount`/`settled_currency` together),
   //     kept correct anyway so a future write path cannot silently violate it.
-  const currencyMismatch = settledAmount > 0 && settledCurrency !== sourceCurrency
+  const currencyMismatch = settledCurrencyMismatch(settledAmount, settledCurrency, sourceCurrency)
 
   // Same MONEY_SCALE-safe rounding as roundShareAmount itself — avoids a
   // stray float tail like 199.99999999999997 in remainingToPay.
-  const remainingToPay = currencyMismatch
-    ? null
-    : Math.max(0, Number((newAmount - settledAmount).toFixed(6)))
+  const remainingToPay = remainingAgainstAccumulator(newAmount, settledAmount, currencyMismatch)
   // MED-A (security-review round 2): AC3 defines "переплата" purely through
   // the MONOTONIC `settledAmount` accumulator — the exact same principle
   // HIGH-1 (round 1) already established for reading that accumulator at
