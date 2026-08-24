@@ -1058,7 +1058,8 @@ describe('resolveEditCascade — AC7 property test', () => {
       // future refactor of the expression above cannot quietly satisfy the
       // arithmetic while breaking the rule: a row's amount is never written
       // below what has already been paid out of it.
-      if (comparableAccumulator) expect(d.newAmount!).toBeGreaterThanOrEqual(settledAmount)
+      const neverBelowAccumulator = comparableAccumulator ? d.newAmount! >= settledAmount : true
+      expect(neverBelowAccumulator).toBe(true)
       // The wire contract's currency tag — always the source's own currency,
       // regardless of everything else varied per iteration.
       expect(d.currency).toBe(sourceCurrency)

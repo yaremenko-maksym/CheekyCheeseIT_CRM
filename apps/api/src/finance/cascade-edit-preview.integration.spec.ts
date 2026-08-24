@@ -475,7 +475,13 @@ describe.skipIf(!hasDatabaseUrl())(
       const plan = await svc.getEditCascadePreview(income.id, 100, ADMIN_MAKSYM)
       const senior = plan.plan!.derivatives.find((d) => d.id === obligation.sourceTransactionId)!
       expect(senior.settledAmount).toBeCloseTo((1000 * SENIOR_SHARE) / 100, 6)
-      expect(senior.newAmount).toBeCloseTo(26, 6)
+      // QA-H-1: 26 is what the share RECOMPUTED to; `newAmount` is what the row
+      // will actually hold, floored at the 260 already paid. This assertion
+      // used to read `newAmount === 26`, which is precisely the divergence
+      // manual QA measured against a SQL dump — the preview describing a figure
+      // the write had already decided not to store.
+      expect(senior.recomputedShare).toBeCloseTo(26, 6)
+      expect(senior.newAmount).toBeCloseTo((1000 * SENIOR_SHARE) / 100, 6)
       expect(senior.remainingToPay).toBe(0)
       // The bug this pins: the old `isSettled && ...` gate never fired here
       // because the row is PENDING, not PAID — money already paid out went

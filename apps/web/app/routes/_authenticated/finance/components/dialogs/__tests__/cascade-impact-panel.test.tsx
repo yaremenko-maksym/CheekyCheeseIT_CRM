@@ -481,6 +481,20 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.getByRole('combobox')).toHaveProperty('disabled', false)
   })
 
+  it('CP-37. QA-H-2 — a PAID salary locks its month too, for its own reason', async () => {
+    // The mutation gate found this one: the salary-month half of the lock had
+    // no test at all, because every other case in this file uses a non-SALARY
+    // row and the field only renders for `type: 'SALARY'`. Two locked controls
+    // with two unrelated reasons deserve two tests, not one that happens to
+    // cover whichever branch the default fixture walks into.
+    renderDialog({ ...PAID_TX, type: 'SALARY', salaryMonth: '2026-01' })
+
+    const note = await screen.findByTestId('admin-edit-locked-salary-month-note')
+    expect(note.textContent).toContain('сторнирующей')
+    expect(note.textContent).not.toMatch(/[A-Za-z]{4}/)
+    expect(screen.getByPlaceholderText('2025-03')).toHaveProperty('disabled', true)
+  })
+
   it('CP-36. QA-M-1 — a failed save on ONE transaction does not greet the next one', async () => {
     // Relative of UX-2 (round 4), which cleared the leftover error when the
     // preview was refreshed but not when the dialog was handed a DIFFERENT
