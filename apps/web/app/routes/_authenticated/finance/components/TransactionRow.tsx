@@ -428,6 +428,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // accumulator — which is nearly all of them, so the list is unchanged for
     // the ordinary case.
     const settlement = settlementSplit(tx)
+    const remainingToPay = settlement?.remaining ?? 0
 
     const canValidate =
       !isDeleted &&
@@ -596,14 +597,16 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                   so the unification costs nothing.
                   UX-3: absent entirely once there is nothing left to pay —
                   «к доплате 0,00» is a line to read and discard. */}
-              {/* `> 0` alone. `null > 0` is already `false`, so an explicit
-                  null check beside it could be deleted without any test
-                  noticing — the mutation gate proved exactly that. One
-                  condition, not two spellings of the same one. Cross-currency
-                  (`remaining === null`) and fully-closed (`0`) both mean the
-                  same thing here: no actionable remainder. */}
-              {(settlement.remaining ?? 0) > 0 &&
-                ` · к доплате ${fmtAmount(settlement.remaining, tx.currency)}`}
+              {/* ONE number, ONE condition. The explicit `remaining !== null`
+                  test that stood beside `> 0` was dead at RUNTIME — `null > 0`
+                  is already `false`, which the mutation gate proved by deleting
+                  it with every test still green. It was NOT dead to the type
+                  system, though: dropping it alone made `remaining` a
+                  `number | null` inside the branch and `pnpm typecheck` caught
+                  it. Collapsing to a single narrowed value satisfies both.
+                  Cross-currency (`null`) and fully closed (`0`) mean the same
+                  thing here: no actionable remainder. */}
+              {remainingToPay > 0 && ` · к доплате ${fmtAmount(remainingToPay, tx.currency)}`}
             </p>
           )}
           {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR
