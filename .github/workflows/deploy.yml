@@ -145,6 +145,11 @@ jobs:
             SHA=$(git rev-parse --short HEAD)
             echo "image_tag=${SHA}" >> "$GITHUB_OUTPUT"
           fi
+          # backlog 113 — GET /api/health's build fingerprint
+          # (apps/api/src/health/health.controller.ts). Plain UTC ISO-8601
+          # timestamp of THIS CI run, always computed (never blank) — consumed
+          # below as the API image's BUILD_TIME build-arg.
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -157,12 +162,32 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # ── Build API image ─────────────────────────────────────────────────
+      # backlog 113: GIT_COMMIT/BUILD_TIME feed GET /api/health's build
+      # fingerprint (apps/api/src/health/health.controller.ts + config/env.ts).
+      # GIT_COMMIT reuses steps.meta.outputs.image_tag — the SAME value the
+      # nginx image below gets as VITE_BUILD_VERSION — on purpose: this is the
+      # one place both images' notion of "which build is this" must agree, or
+      # the fingerprint answers a different question for each image. Per the
+      # rollback runbook (docs/runbooks/deployment.md §9) that value is ALWAYS
+      # a git SHA, whether it comes from the default `git rev-parse --short
+      # HEAD` branch above or from a manual workflow_dispatch `image_tag` used
+      # to redeploy a previously-built image — so it always satisfies
+      # env.ts's `^[0-9a-f]{7,40}$` GIT_COMMIT validation. BUILD_TIME is a
+      # plain UTC timestamp of this CI run, not git-derived. Neither value can
+      # be blank here (both branches of the `if` above always set
+      # image_tag; build_time is unconditional) — but even if one were, the
+      # Dockerfile's `ARG ...=` empty default + env.ts's blank-to-undefined
+      # preprocess degrade to the honest 'unknown' response, never a boot
+      # crash or an empty string (see health.controller.ts + env.ts comments).
       - name: Build & push API image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/api/Dockerfile
           push: true
+          build-args: |
+            GIT_COMMIT=${{ steps.meta.outputs.image_tag }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:main
