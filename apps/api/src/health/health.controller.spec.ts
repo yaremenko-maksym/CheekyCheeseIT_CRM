@@ -11,17 +11,21 @@
  * Pattern follows auth.controller.spec.ts: no NestJS testing module
  * overhead, direct class instantiation with a typed ConfigService stub.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ConfigService } from '@nestjs/config'
 import type { Env } from '../config/env'
 import { HealthController } from './health.controller'
 
-function makeConfig(
-  overrides: Partial<Record<'GIT_COMMIT' | 'BUILD_TIME', string>>,
-): ConfigService<Env> {
-  return {
-    get: (key: string) => (overrides as Record<string, string | undefined>)[key],
-  } as unknown as ConfigService<Env>
+// `vi.fn()`, not a plain arrow function that ignores its 2nd argument: a
+// stub that never looks at what it was called WITH cannot tell `{ infer:
+// true }` apart from `{}` or `{ infer: false }` — both read exactly the same
+// override map either way, so a mutant swapping that options object was
+// invisible to this suite until the assertions on `.mock.calls` below were
+// added (task-mutation-gate-mechanical AC4's whole point: a "reads right"
+// test and a "calls right" test catch different mutants).
+function makeConfig(overrides: Partial<Record<'GIT_COMMIT' | 'BUILD_TIME', string>>) {
+  const get = vi.fn((key: string) => (overrides as Record<string, string | undefined>)[key])
+  return { get } as unknown as ConfigService<Env> & { get: typeof get }
 }
 
 describe('HealthController', () => {
@@ -73,5 +77,23 @@ describe('HealthController', () => {
 
     expect(() => new Date(result.timestamp).toISOString()).not.toThrow()
     expect(new Date(result.timestamp).toISOString()).toBe(result.timestamp)
+  })
+
+  // `{ infer: true }` is NestJS's documented way of saying "resolve this
+  // key's type from the Env schema, don't treat the 2nd argument as a
+  // default value" (see @nestjs/config's ConfigService.get — an options
+  // object without `infer: true` is read as a plain default value instead).
+  // R1-a/b/d above only check the RETURN of a stub that ignores its
+  // arguments, so `{ infer: true }` silently becoming `{}` or `{ infer:
+  // false }` changed nothing they could see. This asserts the call shape
+  // itself, on the real `ConfigService<Env>` contract.
+  it('R1-e: calls config.get with the exact key + { infer: true } options NestJS expects', () => {
+    const config = makeConfig({ GIT_COMMIT: 'abc1234', BUILD_TIME: '2026-08-25T00:00:00Z' })
+    const controller = new HealthController(config)
+
+    controller.check()
+
+    expect(config.get).toHaveBeenCalledWith('GIT_COMMIT', { infer: true })
+    expect(config.get).toHaveBeenCalledWith('BUILD_TIME', { infer: true })
   })
 })
