@@ -466,27 +466,35 @@ describe('validateEnv — Google Indexing API env (Section G)', () => {
       expect(env.GIT_COMMIT).toBe(fullSha)
     })
 
-    it('a non-hex/garbage GIT_COMMIT throws with the specific hex-SHA message', () => {
-      // Asserts the MESSAGE text itself, not just that "GIT_COMMIT" appears
-      // somewhere in the thrown string — validateEnv's catch block always
-      // prefixes every issue with its path (`${path}: ${message}`), so a
-      // bare /GIT_COMMIT/ match would still pass even if the regex's own
-      // message were replaced by an empty string.
-      expect(() => validateEnv({ ...BASE_DEV, GIT_COMMIT: 'not-a-sha!' })).toThrow(
-        /must be a short or full hex commit SHA/,
-      )
+    // security-review round 2 (task-cascade-apply, SR-H-1) — this used to
+    // `.toThrow()`. DELIBERATELY CHANGED, not a regression: a manual
+    // workflow_dispatch `image_tag` (see env.ts's GIT_COMMIT comment) is
+    // free text an operator types, and the documented rollback flow sends
+    // them to a tag list where a non-SHA tag (e.g. `main`) sits right next
+    // to real SHAs — a typo there must not crash-loop the whole API. If you
+    // are reading this because you are about to restore the `.toThrow()`
+    // assertion below: don't — that is the exact defect this round fixed.
+    // GIT_COMMIT is reference data for "did prod redeploy", never something
+    // the process needs in order to run; a value that doesn't look real
+    // must degrade to "absent" (→ HealthController's 'unknown'), the same
+    // way an accidentally-empty build-arg already does two tests below.
+    it('a non-hex/garbage GIT_COMMIT is treated as absent, not thrown', () => {
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: 'not-a-sha!' })
+      expect(env.GIT_COMMIT).toBeUndefined()
     })
 
-    it('a hex SUFFIX preceded by non-hex garbage still throws (the ^ anchor is load-bearing)', () => {
+    it('a hex SUFFIX preceded by non-hex garbage is ALSO treated as absent (the ^ anchor is load-bearing)', () => {
       // Without the leading `^`, /[0-9a-f]{7,40}$/i would match just the
-      // "a1b2c3d" tail of this value and wrongly accept it.
-      expect(() => validateEnv({ ...BASE_DEV, GIT_COMMIT: 'zzz-a1b2c3d' })).toThrow(/GIT_COMMIT/)
+      // "a1b2c3d" tail of this value and wrongly accept it as real.
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: 'zzz-a1b2c3d' })
+      expect(env.GIT_COMMIT).toBeUndefined()
     })
 
-    it('a hex PREFIX followed by non-hex garbage still throws (the $ anchor is load-bearing)', () => {
+    it('a hex PREFIX followed by non-hex garbage is ALSO treated as absent (the $ anchor is load-bearing)', () => {
       // Without the trailing `$`, /^[0-9a-f]{7,40}/i would match just the
-      // "a1b2c3d" head of this value and wrongly accept it.
-      expect(() => validateEnv({ ...BASE_DEV, GIT_COMMIT: 'a1b2c3d-zzz' })).toThrow(/GIT_COMMIT/)
+      // "a1b2c3d" head of this value and wrongly accept it as real.
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: 'a1b2c3d-zzz' })
+      expect(env.GIT_COMMIT).toBeUndefined()
     })
 
     it('BUILD_TIME is stored as-is (diagnostic-only, not parsed)', () => {
