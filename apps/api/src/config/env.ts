@@ -218,6 +218,46 @@ const envSchema = z
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.coerce.number().min(0).max(1).default(DEFAULT_JOB_MATCH_THRESHOLD),
     ),
+
+    // backlog 113 — GET /api/health's build fingerprint. Populated ONLY by
+    // the Docker image build: deploy.yml resolves the git SHA it is about to
+    // tag the image with and passes it (plus a build timestamp) as
+    // `--build-arg`s to apps/api/Dockerfile, which bakes them in as plain
+    // `ENV` in the runtime stage — there is no `.git` directory inside the
+    // container to read this from at request time. Deliberately NO default:
+    // a fabricated value here would be indistinguishable from a real build
+    // identity to whoever is reading the health check to answer "did prod
+    // actually redeploy" — HealthController falls back to the literal string
+    // 'unknown' at the response layer instead (see that file), which is
+    // never mistakable for a real commit hash. GIT_COMMIT is validated as a
+    // short hex string (guards against a garbage build-arg being echoed back
+    // as if it were real); BUILD_TIME is intentionally a loose string (an
+    // ISO-8601 UTC timestamp in practice) — it is shown, never parsed, so
+    // there is nothing to gain from strict format validation here.
+    //
+    // The `preprocess` on BOTH is load-bearing, not decorative — verified by
+    // actually building and booting the image with NEITHER `--build-arg`
+    // supplied (the exact shape of a `docker build .` run outside deploy.yml,
+    // or deploy.yml itself before this task ever passed them): the
+    // Dockerfile's `ARG GIT_COMMIT=` default is an EMPTY STRING, and `ENV
+    // GIT_COMMIT=$GIT_COMMIT` bakes that empty string in as a PRESENT env var
+    // — `.optional()` alone does not fire (the key exists), so the regex/
+    // min-length check below rejected it and the container crash-looped on
+    // boot before this preprocess was added. Same blank-to-undefined shape as
+    // JOB_MATCH_THRESHOLD above, for the identical reason: an accidentally-
+    // empty value must fall through to "absent", not be treated as present-
+    // but-invalid.
+    GIT_COMMIT: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z
+        .string()
+        .regex(/^[0-9a-f]{7,40}$/i, 'GIT_COMMIT must be a short or full hex commit SHA')
+        .optional(),
+    ),
+    BUILD_TIME: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.string().min(1).optional(),
+    ),
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
     message:

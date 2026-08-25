@@ -440,4 +440,83 @@ describe('validateEnv — Google Indexing API env (Section G)', () => {
       expect(() => validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: 'Infinity' })).toThrow()
     })
   })
+
+  /**
+   * backlog 113 — GIT_COMMIT/BUILD_TIME, the health endpoint's build
+   * fingerprint. Both are populated ONLY by the Docker build (see the
+   * schema's own comment for the full chain) — a local `pnpm dev` boots
+   * with neither set, which must stay a legitimate, non-throwing state
+   * (HealthController is what turns "undefined" into the visible 'unknown').
+   */
+  describe('GIT_COMMIT / BUILD_TIME (backlog 113)', () => {
+    it('both omitted (local dev boot) → ok, both undefined', () => {
+      const env = validateEnv({ ...BASE_DEV })
+      expect(env.GIT_COMMIT).toBeUndefined()
+      expect(env.BUILD_TIME).toBeUndefined()
+    })
+
+    it('a real short SHA (Docker build-arg) → ok, stored as-is', () => {
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: 'a1b2c3d' })
+      expect(env.GIT_COMMIT).toBe('a1b2c3d')
+    })
+
+    it('a full 40-char SHA → ok, stored as-is', () => {
+      const fullSha = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: fullSha })
+      expect(env.GIT_COMMIT).toBe(fullSha)
+    })
+
+    it('a non-hex/garbage GIT_COMMIT throws with the specific hex-SHA message', () => {
+      // Asserts the MESSAGE text itself, not just that "GIT_COMMIT" appears
+      // somewhere in the thrown string — validateEnv's catch block always
+      // prefixes every issue with its path (`${path}: ${message}`), so a
+      // bare /GIT_COMMIT/ match would still pass even if the regex's own
+      // message were replaced by an empty string.
+      expect(() => validateEnv({ ...BASE_DEV, GIT_COMMIT: 'not-a-sha!' })).toThrow(
+        /must be a short or full hex commit SHA/,
+      )
+    })
+
+    it('a hex SUFFIX preceded by non-hex garbage still throws (the ^ anchor is load-bearing)', () => {
+      // Without the leading `^`, /[0-9a-f]{7,40}$/i would match just the
+      // "a1b2c3d" tail of this value and wrongly accept it.
+      expect(() => validateEnv({ ...BASE_DEV, GIT_COMMIT: 'zzz-a1b2c3d' })).toThrow(/GIT_COMMIT/)
+    })
+
+    it('a hex PREFIX followed by non-hex garbage still throws (the $ anchor is load-bearing)', () => {
+      // Without the trailing `$`, /^[0-9a-f]{7,40}/i would match just the
+      // "a1b2c3d" head of this value and wrongly accept it.
+      expect(() => validateEnv({ ...BASE_DEV, GIT_COMMIT: 'a1b2c3d-zzz' })).toThrow(/GIT_COMMIT/)
+    })
+
+    it('BUILD_TIME is stored as-is (diagnostic-only, not parsed)', () => {
+      const env = validateEnv({ ...BASE_DEV, BUILD_TIME: '2026-08-25T00:00:00Z' })
+      expect(env.BUILD_TIME).toBe('2026-08-25T00:00:00Z')
+    })
+
+    // Regression, found by actually building+booting the API image with
+    // NEITHER --build-arg supplied: apps/api/Dockerfile's `ARG GIT_COMMIT=`
+    // default is an EMPTY STRING, and `ENV GIT_COMMIT=$GIT_COMMIT` bakes that
+    // in as a PRESENT env var (not an absent one) — `.optional()` alone does
+    // NOT catch this, because the key exists with value ''. Before the
+    // preprocess above was added, this crash-looped the container on boot
+    // (`Invalid environment variables: GIT_COMMIT: ... / BUILD_TIME: Too
+    // small`). An empty string from an unset Docker build-arg must be treated
+    // exactly like an absent variable, not like present-but-invalid input.
+    it("an EMPTY string (Docker's default for an unset --build-arg) is treated as absent, not invalid", () => {
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: '', BUILD_TIME: '' })
+      expect(env.GIT_COMMIT).toBeUndefined()
+      expect(env.BUILD_TIME).toBeUndefined()
+    })
+
+    // Same shape as the JOB_MATCH_THRESHOLD "blank line left behind" case
+    // above: a whitespace-only value (not literally '') must ALSO fall
+    // through to "absent", proving the preprocess trims rather than doing a
+    // bare `=== ''` comparison.
+    it('a WHITESPACE-ONLY value is trimmed to absent, not rejected as invalid', () => {
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: '   ', BUILD_TIME: '   ' })
+      expect(env.GIT_COMMIT).toBeUndefined()
+      expect(env.BUILD_TIME).toBeUndefined()
+    })
+  })
 })
