@@ -30,21 +30,28 @@ const worktree = isGitWorktree()
 
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
-  ...(worktree && {
-    resolve: {
-      alias: {
-        // @crm/shared has no dist/ in a fresh worktree — point directly to TS
-        // source. IMPORTANT: resolve against THIS worktree's own
-        // packages/shared, NOT the primary checkout's — a task branch that
-        // edits packages/shared (e.g. new shared schemas/exports) must see
-        // its OWN changes, not whatever branch the primary checkout happens
-        // to have checked out (previously aliased there — silently resolved
-        // to a stale/unrelated shared source and broke tests that exercised
-        // freshly-added shared exports).
-        '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
-      },
+  // '@crm/shared' is aliased straight to TypeScript SOURCE unconditionally —
+  // in the main repo as well as in a worktree (previously this lived inside
+  // the `worktree &&` block below and only applied there, which left the
+  // main-repo checkout resolving the bare specifier through pnpm's
+  // node_modules symlink to `dist/` — untracked, gitignored, and NOT
+  // rebuilt by `git checkout`). `turbo.json`/`package.json`
+  // (task-infra-shared-build-freshness, 2026-08-25) close that gap for
+  // turbo-routed runs (`pnpm test`, `pnpm test --filter=@crm/web`); this
+  // closes it for the OTHER, documented per-package form
+  // (`pnpm --filter @crm/web test`, also what `.husky/pre-push` runs),
+  // which bypasses turbo's task graph entirely and was still exposed — see
+  // BACKLOG-followups.md #111 for the reproduction (a stale compiled
+  // `@crm/shared` made a real fix look like it changed nothing, or a fresh
+  // regression look pre-existing). Resolving THIS worktree's own
+  // packages/shared (not the primary checkout's — a task branch editing
+  // shared schemas must see its OWN changes) removes the dependency on a
+  // build step for tests altogether: nothing is left that can go stale.
+  resolve: {
+    alias: {
+      '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
     },
-  }),
+  },
   test: {
     globals: true,
     environment: 'happy-dom',
