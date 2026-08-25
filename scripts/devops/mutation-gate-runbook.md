@@ -377,6 +377,31 @@ Everything lives in `scripts/devops/mutation-gate.mjs`:
   than duplication). The gate labels this heuristically
   (`looksIntegrationOnly()` — a filename match, not proof); always look before
   trusting the label either way.
+- **A per-package `vitest.config` that computes its own repo root by a FIXED
+  `path.resolve(__dirname, '../..')` walk-up breaks the moment Stryker's
+  sandbox reloads it from two levels deeper** (`apps/<pkg>/.stryker-tmp/
+sandbox-<id>/`, not `apps/<pkg>/`) — the fixed walk-up lands ON the package
+  root instead of the real repo root, and any `@crm/shared` alias built from
+  it points at a directory that does not exist. Reproduced live 2026-08-25
+  (PR #613): `apps/api/vitest.config.mts` carried exactly this bug, invisibly,
+  until `env-git-commit-boot.spec.ts` (added the same day) did a real Node
+  `import()` that actually needed the alias to resolve — `mutation-gate: @crm/
+api: the test suite itself is red BEFORE any mutation is applied`, with
+  Node's own `Cannot find package '@crm/shared'` underneath. `apps/web/
+vitest.config.ts` carried the IDENTICAL bug and was NOT observably broken —
+  verified live with the same diff's web-side changes (`cascade-preview.ts`,
+  a real runtime `@crm/shared` import): Vite's alias resolver falls back to a
+  real `node_modules` lookup when the aliased absolute path is missing, where
+  plain Node ESM resolution (what `apps/api`'s tests go through) does not.
+  That fallback is a resolver ACCIDENT, not a contract to rely on — both
+  configs now compute their root the same way `apps/api/vitest.config.mts`
+  already had an (until-then-unused) helper for: walk up from `__dirname`
+  looking for an actual `.git` entry, which exists only at the true checkout
+  root regardless of how deep a tool nests its own working copy beneath it.
+  Fail loud (`throw`) if that walk-up finds nothing, rather than falling back
+  to a guess — the whole point is that a wrong root here does not error
+  immediately, it errors LATER, at an unrelated import site, which is how
+  this one went unnoticed as long as it did.
 - **A suppression's printed count is per (line, mutator), not per author's
   intent.** `// Stryker disable next-line <mutator>` silences EVERY mutant that
   mutator produces on that line — measured three times higher than expected

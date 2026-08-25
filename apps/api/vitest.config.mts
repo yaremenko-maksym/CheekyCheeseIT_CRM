@@ -33,9 +33,48 @@ function findGitRoot(startDir: string): string | null {
   return null
 }
 
-function resolveMainRepoRoot(): string | null {
-  const worktreeRoot = path.resolve(__dirname, '../..')
-  const gitEntry = path.join(worktreeRoot, '.git')
+// `worktreeRoot` (the repo/worktree checkout root, used below both as the
+// `@crm/shared` alias base and as the search start for the main-repo-behind-
+// a-worktree lookup) used to be `path.resolve(__dirname, '../..')` — a FIXED
+// two-level walk-up that only holds while this config file is loaded from
+// its normal on-disk location, `<root>/apps/api/vitest.config.mts`. StrykerJS
+// copies the whole `apps/api` tree two levels deeper, into
+// `apps/api/.stryker-tmp/sandbox-<id>/`, and re-loads this same config from
+// there — so `__dirname` gains two extra path segments the fixed walk-up
+// never accounted for, and `../..` landed on `apps/api` itself instead of the
+// real root. The alias then pointed `@crm/shared` at a
+// `apps/api/packages/shared/src/index.ts` that does not exist, which is what
+// produced `Cannot find package '@crm/shared'` deep inside Node's own
+// resolver once Vite gave up on the bogus alias target (reproduced locally:
+// `node scripts/devops/mutation-gate.mjs --changed` with
+// `MUTATION_ONLY_FILES` scoped to any `@crm/api` file; see
+// `scripts/devops/mutation-gate-runbook.md` "Known limits" for the full
+// mechanism, including why `apps/web/vitest.config.ts` carried the identical
+// bug without ever crashing). `findGitRoot` above already existed to do this
+// walk-up properly — it just was not, until now, the function actually
+// computing `worktreeRoot`.
+// Walking up for an actual `.git` entry is nesting-depth-agnostic: it finds
+// the same root from `apps/api/vitest.config.mts`, from a git worktree
+// checkout, and from three levels deeper inside a Stryker sandbox alike,
+// because a `.git` file/directory only ever exists at the true checkout
+// root, never inside a sandbox copy of one of its subdirectories.
+const worktreeRoot = findGitRoot(__dirname)
+if (!worktreeRoot) {
+  // Fail loud, not bogus-and-quiet: a wrong `worktreeRoot` here does not
+  // error immediately, it silently mis-resolves `@crm/shared` (or, in a
+  // worktree, the main-repo node_modules lookup) to a path that looks
+  // plausible until something imports it — which is exactly how the bug
+  // this replaces went unnoticed. Same discipline as `mutation-gate.mjs`'s
+  // own `fail()`: "could not determine X" must never look like "X is fine".
+  throw new Error(
+    `apps/api/vitest.config.mts: could not find a ".git" entry walking up from ` +
+      `${__dirname}. Refusing to guess a repo root — '@crm/shared' would resolve to a ` +
+      `made-up path from here.`,
+  )
+}
+
+function resolveMainRepoRoot(root: string): string | null {
+  const gitEntry = path.join(root, '.git')
   if (!existsSync(gitEntry)) return null
 
   const stat = statSync(gitEntry)
@@ -58,11 +97,10 @@ function resolveMainRepoRoot(): string | null {
   return existsSync(path.join(mainRepo, 'node_modules')) ? mainRepo : null
 }
 
-const mainRepoRoot = resolveMainRepoRoot()
+const mainRepoRoot = resolveMainRepoRoot(worktreeRoot)
 const isWorktree = mainRepoRoot !== null
 const mainApiNodeModules = mainRepoRoot ? `${mainRepoRoot}/apps/api/node_modules` : ''
 const mainRootNodeModules = mainRepoRoot ? `${mainRepoRoot}/node_modules` : ''
-const worktreeRoot = path.resolve(__dirname, '../..')
 
 // ── Integration-run detection & DB safety ─────────────────────────────────
 //
