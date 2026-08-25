@@ -7,6 +7,20 @@ import { z } from 'zod'
  */
 export const DEFAULT_JOB_MATCH_THRESHOLD = 0.2
 
+/**
+ * Shape of a real git commit SHA (short or full). Shared by GIT_COMMIT's
+ * preprocess AND its regex below — one pattern, not two copies that could
+ * drift apart. See the GIT_COMMIT field's own comment for why a value that
+ * fails this test must fall through to "absent" rather than fail validation.
+ *
+ * Exported — HealthController re-checks a value read back off
+ * `ConfigService` against this SAME pattern before it will show it as a
+ * commit (see that file's doc for why: `ConfigService.get()` can hand back
+ * the RAW, un-validated `process.env.GIT_COMMIT` string in a path this
+ * schema's own `.optional()` does not reach).
+ */
+export const GIT_COMMIT_SHAPE = /^[0-9a-f]{7,40}$/i
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -229,31 +243,31 @@ const envSchema = z
     // identity to whoever is reading the health check to answer "did prod
     // actually redeploy" — HealthController falls back to the literal string
     // 'unknown' at the response layer instead (see that file), which is
-    // never mistakable for a real commit hash. GIT_COMMIT is validated as a
-    // short hex string (guards against a garbage build-arg being echoed back
-    // as if it were real); BUILD_TIME is intentionally a loose string (an
-    // ISO-8601 UTC timestamp in practice) — it is shown, never parsed, so
-    // there is nothing to gain from strict format validation here.
+    // never mistakable for a real commit hash. BUILD_TIME is intentionally a
+    // loose string (an ISO-8601 UTC timestamp in practice) — it is shown,
+    // never parsed, so there is nothing to gain from strict format
+    // validation here.
     //
-    // The `preprocess` on BOTH is load-bearing, not decorative — verified by
-    // actually building and booting the image with NEITHER `--build-arg`
-    // supplied (the exact shape of a `docker build .` run outside deploy.yml,
-    // or deploy.yml itself before this task ever passed them): the
-    // Dockerfile's `ARG GIT_COMMIT=` default is an EMPTY STRING, and `ENV
-    // GIT_COMMIT=$GIT_COMMIT` bakes that empty string in as a PRESENT env var
-    // — `.optional()` alone does not fire (the key exists), so the regex/
-    // min-length check below rejected it and the container crash-looped on
-    // boot before this preprocess was added. Same blank-to-undefined shape as
-    // JOB_MATCH_THRESHOLD above, for the identical reason: an accidentally-
-    // empty value must fall through to "absent", not be treated as present-
-    // but-invalid.
-    GIT_COMMIT: z.preprocess(
-      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
-      z
-        .string()
-        .regex(/^[0-9a-f]{7,40}$/i, 'GIT_COMMIT must be a short or full hex commit SHA')
-        .optional(),
-    ),
+    // security-review round 2 (task-cascade-apply, SR-H-1) — GIT_COMMIT
+    // is REFERENCE DATA ("did prod redeploy"), never something the running
+    // process needs in order to work, so a value that fails the hex-SHA
+    // shape check must collapse to "absent" (→ HealthController's 'unknown'
+    // fallback) exactly like the blank-string case below, NOT throw and take
+    // the whole API down. Two deploy.yml paths feed this build-arg: the
+    // automatic ones compute the SHA with a command, but the manual
+    // workflow_dispatch `image_tag` input is free text the operator types —
+    // and the documented emergency-rollback flow (docs/runbooks/deployment.md
+    // §Rollback) sends that operator to a GHCR tag list where a non-SHA tag
+    // (e.g. the moving `main` tag deploy.yml itself pushes) sits right next
+    // to the real SHAs. A typo there used to crash-loop the API during the
+    // exact moment someone is already fixing a different incident. Regex
+    // validation stays — it is what DECIDES "does this look real", it just
+    // no longer gets to veto boot.
+    GIT_COMMIT: z.preprocess((v) => {
+      if (typeof v !== 'string') return v
+      const trimmed = v.trim()
+      return GIT_COMMIT_SHAPE.test(trimmed) ? trimmed : undefined
+    }, z.string().regex(GIT_COMMIT_SHAPE, 'GIT_COMMIT must be a short or full hex commit SHA').optional()),
     BUILD_TIME: z.preprocess(
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.string().min(1).optional(),
