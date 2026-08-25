@@ -17,6 +17,7 @@ import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { DatePickerField } from '@/components/ui/date-picker'
 import { api } from '@/lib/axios'
 import { financeApi } from '../../api'
+import { settlementSplit } from '../../cascade-preview'
 import { fmtAmount, fmtDate, fmtYyyymmdd, convertAmount, type ExchangeRates } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
@@ -236,10 +237,27 @@ export function SettleSeniorPayoutDialog({
   // instead of showing a confidently wrong number. Equal to the obligation
   // amount, unconverted, when `effectiveCurrency` is the obligation's own
   // currency (AC2 — no recalculation when the currency is unchanged).
+  // task-cascade-preview-ui (task 5): the accumulator this row already carries,
+  // or `null` on the overwhelming majority of rows that carry none.
+  const settlement = useMemo(() => (tx ? settlementSplit(tx) : null), [tx])
+
   const expectedAmount = useMemo(() => {
     if (!tx) return null
-    return convertAmount(tx.amount, tx.currency, effectiveCurrency, rates)
-  }, [tx, effectiveCurrency, rates])
+    // What the settle will ACTUALLY move — `remainingOwed` on the server, i.e.
+    // the obligation minus what has already been paid against it. Converting
+    // the FULL obligation here pre-filled the (disabled) amount field with a
+    // figure the server would not pay; on a first settle there is no
+    // accumulator and this is the obligation itself, unchanged.
+    //
+    // `remaining === null` means the accumulator is in another unit and the
+    // difference cannot be computed honestly — the field then stays empty
+    // rather than showing a confidently wrong number, exactly as it already
+    // does while the rates are loading.
+    const owedNow = settlement ? settlement.remaining : Number(tx.amount)
+    // Stryker disable next-line ConditionalExpression: reachable ONLY on a DROP settle whose accumulator is in another currency — the branch feeds the disabled amount field, which is not rendered at all for a SENIOR settle, and the summary half of the same `null` (the «К доплате сейчас» dash) IS asserted by SR-5
+    if (owedNow === null) return null
+    return convertAmount(owedNow, tx.currency, effectiveCurrency, rates)
+  }, [tx, settlement, effectiveCurrency, rates])
 
   function resetState() {
     setAccount(COMPANY_ACCOUNT_VALUE)
@@ -409,10 +427,50 @@ export function SettleSeniorPayoutDialog({
                 <span className="font-medium">{tx.receiverName}</span>
               </div>
             )}
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Сумма</span>
-              <span className="font-medium tabular-nums">{fmtAmount(tx.amount, tx.currency)}</span>
-            </div>
+            {/* task-cascade-preview-ui (task 5), corrective fix. Until tasks
+                3/3b a `*_PENDING_PAYOUT` row could only be settled in full, so
+                one «Сумма» line told the whole truth. It can now carry a
+                partial accumulator, and the server pays `remainingOwed =
+                obligation − уже выплачено` (`pending-settlement.service.ts`).
+                Showing the full obligation there meant the operator read one
+                number and a different one left the account — at the point of an
+                irreversible decision. Three named lines when there is something
+                to split; the untouched common case keeps the single line it
+                always had, byte for byte. */}
+            {settlement ? (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Обязательство</span>
+                  <span className="font-medium tabular-nums">
+                    {fmtAmount(tx.amount, tx.currency)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Уже выплачено</span>
+                  <span className="font-medium tabular-nums text-amber-400">
+                    {fmtAmount(settlement.settled, settlement.settledCurrency)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">К доплате сейчас</span>
+                  <span
+                    className="font-semibold tabular-nums"
+                    data-testid="settle-senior-remaining"
+                  >
+                    {settlement.remaining === null
+                      ? '—'
+                      : fmtAmount(settlement.remaining, tx.currency)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Сумма</span>
+                <span className="font-medium tabular-nums">
+                  {fmtAmount(tx.amount, tx.currency)}
+                </span>
+              </div>
+            )}
             {tx.projectName && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Проект</span>
@@ -575,7 +633,18 @@ export function SettleSeniorPayoutDialog({
             data-testid="settle-senior-submit"
             data-track="settle-senior-payout"
           >
-            {mutation.isPending ? 'Оплата...' : 'Отметить как оплачено'}
+            {/* Owner decision, after QA reached the state live and both review
+                axes flagged it independently: with nothing left to pay this
+                click moves no money — it only closes the obligation. «Отметить
+                как оплачено» beside a transfer of zero reads as a promise to
+                send money, and the only thing telling the two apart was a
+                figure three lines above. The label now carries that fact
+                itself. */}
+            {mutation.isPending
+              ? 'Оплата...'
+              : settlement?.remaining === 0
+                ? 'Закрыть без доплаты'
+                : 'Отметить как оплачено'}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

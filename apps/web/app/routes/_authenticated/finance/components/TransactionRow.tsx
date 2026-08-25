@@ -25,6 +25,7 @@ import {
   fmtDate,
   type ExchangeRates,
 } from '../constants'
+import { settlementSplit } from '../cascade-preview'
 import { canAttachReceipt } from './receipt-permissions'
 
 function TypeBadge({ type }: { type: TransactionDto['type'] }) {
@@ -423,6 +424,12 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // every `can*`/`show*` gate below is additionally guarded by `!isDeleted`.
     const isDeleted = !!tx.deletedAt
 
+    // task-cascade-preview-ui (task 5). `null` on every row without a settle
+    // accumulator — which is nearly all of them, so the list is unchanged for
+    // the ordinary case.
+    const settlement = settlementSplit(tx)
+    const remainingToPay = settlement?.remaining ?? 0
+
     const canValidate =
       !isDeleted &&
       (isAdmin || isAccountant) &&
@@ -567,6 +574,39 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
           {tx.currency !== 'USD' && tx.currency !== 'USDT' && (
             <p className="text-[11px] text-muted-foreground font-normal">
               {fmtAmount(tx.amount, tx.currency)}
+            </p>
+          )}
+          {/* task-cascade-preview-ui (task 5). A partly-paid obligation is a
+              state that did not exist before tasks 3/3b, and the amount column
+              alone cannot express it: the row says 8 000 while only 3 000 is
+              still owed. Amber rather than the muted grey of «Доля: X%» — this
+              is new information worth catching while scanning, but it is not a
+              problem, so not destructive. Absent on every row without an
+              accumulator, which is nearly all of them. */}
+          {settlement && (
+            <p
+              className="text-[11px] font-normal text-amber-400"
+              data-testid={`tx-row-settled-${tx.id}`}
+            >
+              Выплачено {fmtAmount(settlement.settled, settlement.settledCurrency)}
+              {/* COPY-M-2: «к доплате», the same name the detail dialog, the
+                  cascade panel and the settle dialog use for the SAME number
+                  from the SAME function. It was «осталось» here alone, and the
+                  operator crosses all four surfaces in one scenario. Measured
+                  by the copy reviewer: two lines in a ~150px cell either way,
+                  so the unification costs nothing.
+                  UX-3: absent entirely once there is nothing left to pay —
+                  «к доплате 0,00» is a line to read and discard. */}
+              {/* ONE number, ONE condition. The explicit `remaining !== null`
+                  test that stood beside `> 0` was dead at RUNTIME — `null > 0`
+                  is already `false`, which the mutation gate proved by deleting
+                  it with every test still green. It was NOT dead to the type
+                  system, though: dropping it alone made `remaining` a
+                  `number | null` inside the branch and `pnpm typecheck` caught
+                  it. Collapsing to a single narrowed value satisfies both.
+                  Cross-currency (`null`) and fully closed (`0`) mean the same
+                  thing here: no actionable remainder. */}
+              {remainingToPay > 0 && ` · к доплате ${fmtAmount(remainingToPay, tx.currency)}`}
             </p>
           )}
           {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR

@@ -53,6 +53,9 @@ function makePendingDerivative(
   return {
     id: 'deriv-1',
     type: 'SENIOR_PENDING_PAYOUT',
+    // UX-1 — the share carries its OWN receiver; it is not inherited from the
+    // edited row (on `ADMIN_INCOME`, the main path, the two are different people).
+    receiverName: 'Иван Петров',
     status: 'PENDING_PAYMENT',
     amount: 260,
     currency: 'USDT',
@@ -86,6 +89,7 @@ function makePaidDerivative(
   return {
     id: 'deriv-1',
     type: 'SENIOR_INCOME',
+    receiverName: 'Иван Петров',
     status: 'PAID',
     amount: 260,
     currency: 'USDT',
@@ -396,8 +400,14 @@ describe('resolveEditCascade — AC6 case 3: decrease WITH overpayment', () => {
     const s = snapshot({ amount: 1000 }, [makePaidDerivative({ settledAmount: 260 })])
     const plan = resolveEditCascade(s, { amount: 100 }) // new share = 26
     const d = plan.derivatives[0]!
-    expect(d.newAmount).toBe(roundShareAmount(100, 26))
-    expect(d.newAmount).toBeLessThan(260)
+    // QA-H-1: the share came out at 26 and the row will KEEP its 260 — this is
+    // the write-nothing branch of `applyEditCascade` (a PAID obligation whose
+    // recomputed share does not exceed what was paid stays exactly as it is).
+    // The two figures are now stated separately instead of the plan reporting
+    // the share as though it were the outcome.
+    expect(d.recomputedShare).toBe(roundShareAmount(100, 26))
+    expect(d.recomputedShare!).toBeLessThan(260)
+    expect(d.newAmount).toBe(260)
     expect(d.needsReconfirm).toBe(false)
     expect(d.remainingToPay).toBe(0)
     expect(d.warnings).toEqual([
@@ -642,6 +652,62 @@ describe('resolveEditCascade — HIGH-2 (security-review round 1): a cross-curre
     // The bug this pins: `max(0, 520 - 9000)` used to silently yield 0 here,
     // reading as "fully paid" instead of "we cannot tell".
     expect(d.remainingToPay).toBeNull()
+  })
+
+  it('QA-H-1. an OPEN obligation shows the figure that will actually be WRITTEN, not the raw share below the accumulator', () => {
+    // Found by manual QA on live data, with a SQL dump either side: the panel
+    // said «100 → 50» and the row came out at 100.
+    //
+    // Reachable in four steps: close a drop obligation in full → RAISE the
+    // source (share now exceeds the accumulator, so the obligation reopens
+    // into PENDING_PAYMENT still carrying `settled_amount`) → LOWER it again
+    // until the recomputed share falls back below what was paid.
+    //
+    // `applyEditCascade` floors the write at the accumulator
+    // (`floorAmountAtAccumulator`, the shared law extracted in #608) because a
+    // row whose `amount` sits below `settled_amount` leaves a negative
+    // remainder and an obligation nobody can close. The resolver did not, so
+    // the preview described a number the system had already decided never to
+    // store — the one thing AC4 of the ADR says must not happen, and it
+    // happened because the law reached one of its two call sites.
+    const s = snapshot({ amount: 1000 }, [
+      makePendingDerivative({ settledAmount: 260, settledCurrency: 'USDT' }),
+    ])
+
+    // 26% of 500 = 130, below the 260 already paid.
+    const d = resolveEditCascade(s, { amount: 500 }).derivatives[0]!
+
+    expect(d.newAmount).toBe(260)
+    expect(d.remainingToPay).toBe(0)
+    // The overpayment is still a fact and must still be announced — flooring
+    // the figure must not silence the warning about it.
+    expect(d.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(true)
+  })
+
+  it('QA-H-1b. the overpayment text does not call an OPEN row «оплаченной»', () => {
+    // Second layer of the same finding. The message was written for the one
+    // state that existed when it was written — a PAID row that stays PAID —
+    // and is simply false for the state above: the row is PENDING_PAYMENT
+    // when it is shown and PENDING_PAYMENT after saving, with nothing left
+    // to pay. One sentence describing two different outcomes.
+    const open = resolveEditCascade(
+      snapshot({ amount: 1000 }, [
+        makePendingDerivative({ settledAmount: 260, settledCurrency: 'USDT' }),
+      ]),
+      { amount: 500 },
+    ).derivatives[0]!
+    const openText = open.warnings.find((w) => w.code === 'OVERPAYMENT')!.message
+    expect(openText).not.toContain('остаётся оплаченной')
+
+    // …while the PAID row, which really does stay paid, keeps saying so.
+    const paid = resolveEditCascade(
+      snapshot({ amount: 1000 }, [
+        makePaidDerivative({ settledAmount: 260, settledCurrency: 'USDT' }),
+      ]),
+      { amount: 500 },
+    ).derivatives[0]!
+    const paidText = paid.warnings.find((w) => w.code === 'OVERPAYMENT')!.message
+    expect(paidText).toContain('остаётся оплаченной')
   })
 
   it('does NOT claim OVERPAYMENT purely because the non-USDT figure is numerically larger than the USDT share', () => {
@@ -924,6 +990,7 @@ describe('resolveEditCascade — AC7 property test', () => {
       const deriv: CascadeDerivativeSnapshot = {
         id: 'deriv-1',
         type: isSettled ? 'SENIOR_INCOME' : 'SENIOR_PENDING_PAYOUT',
+        receiverName: 'Иван Петров',
         status: isSettled ? 'PAID' : 'PENDING_PAYMENT',
         amount: 1,
         currency: 'USDT',
@@ -975,7 +1042,24 @@ describe('resolveEditCascade — AC7 property test', () => {
 
       if (!plan.sourceAmountChanged) continue // delta==0 path — covered separately
       const d = plan.derivatives[0]!
-      expect(d.newAmount).toBe(roundShareAmount(newIncome, percent))
+      // QA-H-1 split this into TWO invariants, because the plan now carries two
+      // figures. The RECOMPUTED share is the pure arithmetic it always was…
+      expect(d.recomputedShare).toBe(roundShareAmount(newIncome, percent))
+      // …while `newAmount` is what will be WRITTEN: the share, floored at the
+      // accumulator wherever the two are the same unit. This is the invariant
+      // whose absence let the preview describe a figure that never got stored.
+      const comparableAccumulator = settledAmount > 0 && settledCurrency === sourceCurrency
+      expect(d.newAmount).toBe(
+        comparableAccumulator
+          ? Math.max(roundShareAmount(newIncome, percent), settledAmount)
+          : roundShareAmount(newIncome, percent),
+      )
+      // Stated once more as the law itself rather than as a formula, so a
+      // future refactor of the expression above cannot quietly satisfy the
+      // arithmetic while breaking the rule: a row's amount is never written
+      // below what has already been paid out of it.
+      const neverBelowAccumulator = comparableAccumulator ? d.newAmount! >= settledAmount : true
+      expect(neverBelowAccumulator).toBe(true)
       // The wire contract's currency tag — always the source's own currency,
       // regardless of everything else varied per iteration.
       expect(d.currency).toBe(sourceCurrency)
@@ -1006,7 +1090,7 @@ describe('resolveEditCascade — AC7 property test', () => {
       // question (isSettled).
       const expectedNeedsReconfirm = currencyMismatch
         ? isSettled
-        : isSettled && d.newAmount! > settledAmount
+        : isSettled && d.recomputedShare! > settledAmount
       expect(d.needsReconfirm).toBe(expectedNeedsReconfirm)
 
       // Invariant 4 (MED-A, security-review round 2): OVERPAYMENT is driven
@@ -1018,11 +1102,19 @@ describe('resolveEditCascade — AC7 property test', () => {
       // `isSettled && ...` gate changes `d.warnings` (via the SUT) without
       // changing this expected value — and the assertion catches the
       // divergence, on the `pendingOverpaidCases` iterations specifically.
-      if (!currencyMismatch && obligationStatus === 'PENDING' && d.newAmount! < settledAmount) {
+      if (
+        !currencyMismatch &&
+        obligationStatus === 'PENDING' &&
+        d.recomputedShare! < settledAmount
+      ) {
         pendingOverpaidCases++
       }
+      // QA-H-1: the overpayment is a property of the RECOMPUTED share, not of
+      // the written figure. After the floor `newAmount >= settledAmount` always
+      // holds, so asking it here would assert the warning never fires — on
+      // exactly the population it exists for.
       const expectedOverpaymentWarning =
-        !currencyMismatch && settledAmount > 0 && d.newAmount! < settledAmount
+        !currencyMismatch && settledAmount > 0 && d.recomputedShare! < settledAmount
       expect(d.warnings.some((w) => w.code === 'OVERPAYMENT')).toBe(expectedOverpaymentWarning)
       expect(d.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')).toBe(currencyMismatch)
     }
@@ -1079,8 +1171,10 @@ describe('cascadePlanSchema — full round-trip (also covers nested cascadeDeriv
     const derivativePlan: CascadeDerivativePlan = {
       id: '11111111-1111-4111-8111-111111111111',
       type: 'SENIOR_PENDING_PAYOUT',
+      receiverName: 'Иван Петров',
       oldAmount: 260,
       newAmount: 520,
+      recomputedShare: 520,
       sharePercent: 26,
       currency: 'USDT',
       settledAmount: 260,
