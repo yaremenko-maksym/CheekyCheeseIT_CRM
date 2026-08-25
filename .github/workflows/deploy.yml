@@ -120,6 +120,40 @@ permissions:
 
 jobs:
   # ── 1. Build & push images to GHCR ───────────────────────────────────────
+  # security review (PR #613 round 2, SR-M-3) — INVARIANT for anyone adding a
+  # new `build-args:` line to either build step below, written down here
+  # because it existed only as an unstated assumption before this review:
+  #
+  #   Security confirmed BY FACT (not by reading this comment) that these
+  #   images are pulled ANONYMOUSLY — the GHCR manifest is served with no
+  #   pull-side auth check. A build-arg is not a build-time-only value: it is
+  #   baked into a layer of a manifest anyone can `docker pull` without
+  #   credentials. There is no private-build/public-runtime boundary to lean
+  #   on here — public the moment it's pushed.
+  #
+  #   Several build-args below already read `${{ secrets.* }}`
+  #   (VITE_TURNSTILE_SITE_KEY, INDEXNOW_KEY, BING_SITE_VERIFICATION_ID,
+  #   YANDEX_VERIFICATION_FILENAME, YANDEX_VERIFICATION_CONTENT). That is
+  #   correct AS IS: GitHub Secrets is where these are stored for
+  #   provisioning convenience, not because the values are confidential — a
+  #   Turnstile *site* key and a search-engine verification file are meant to
+  #   be public. The invariant is about actual confidentiality, never about
+  #   which GitHub Actions store a value happened to come from.
+  #
+  #   Anything that carries real authority if someone else reads it —
+  #   credentials, private keys, write-scoped API tokens, any of the values
+  #   the `write-env` job below pipes over SSH into /opt/crm/.env.production —
+  #   must NEVER become a build-arg. That job's SSH-env pattern is precisely
+  #   the mechanism that exists so those values reach the VPS without ever
+  #   touching an image layer; use it, don't route around it via build-args.
+  #
+  #   No mechanical gate enforces this (a text-scan of `build-args:` blocks
+  #   would have to distinguish "public value we store as a GH secret" from
+  #   "real secret" — a distinction that lives in what the value IS, not in
+  #   its syntax — so it would either miss real leaks or flag the four
+  #   legitimate ones above on every run; a gate that cries wolf on known-safe
+  #   lines teaches the next author to route around it, not to read it). This
+  #   comment is the check.
   build:
     name: Build & Push to GHCR
     runs-on: ubuntu-latest
@@ -136,10 +170,52 @@ jobs:
 
       - name: Resolve image tag
         id: meta
+        env:
+          # security review (PR #613 round 2, SR-M-1): passed as an env var,
+          # NEVER interpolated into the run: script body. `${{ inputs.image_tag }}`
+          # substituted directly into a shell string (the old
+          # `INPUT_TAG="${{ inputs.image_tag }}"` line) is GitHub Actions'
+          # canonical script-injection shape — a workflow_dispatch caller
+          # controls that string verbatim, so it becomes attacker-controlled
+          # shell source, not just an attacker-controlled value. Routing it
+          # through `env:` first turns it into an opaque environment variable
+          # instead — the shell below only ever reads `$INPUT_TAG`, never
+          # re-parses the literal input text as code.
+          INPUT_TAG: ${{ inputs.image_tag }}
         run: |
           # Use explicit input tag if provided; otherwise git SHA (short).
-          INPUT_TAG="${{ inputs.image_tag }}"
+          #
+          # Per docs/runbooks/deployment.md §9 this value is ALWAYS a git SHA —
+          # whether it's the default `git rev-parse --short HEAD` below, or a
+          # manual workflow_dispatch value used to redeploy/roll back a
+          # previously-built image (same invariant apps/api/src/config/env.ts's
+          # GIT_COMMIT validator already assumes: `^[0-9a-f]{7,40}$`, case-
+          # insensitive). Enforcing that invariant HERE, before the value goes
+          # anywhere, closes a second injection class on top of the env: fix
+          # above: $GITHUB_OUTPUT is a newline-delimited `key=value` file, so an
+          # input containing an embedded newline could otherwise smuggle an
+          # extra `key=value` line into it — and from there an extra docker
+          # build-arg, since this output flows straight into the multi-line
+          # `build-args: |` blocks below (GIT_COMMIT / VITE_BUILD_VERSION). A
+          # hex SHA cannot contain a newline or any shell/YAML metacharacter, so
+          # a passing regex match makes both injection classes structurally
+          # impossible rather than merely escaped — a malformed value fails the
+          # run outright instead of being sanitized-and-continued.
+          #
+          # Match with bash's own `[[ =~ ]]` against the WHOLE variable, not
+          # `grep -E '^...$'` piped from `printf` — `^`/`$` in POSIX grep
+          # anchor to each LINE of the input, not to the buffer as a whole, so
+          # a value like $'abc1234\nextra_key=extra_value' would satisfy
+          # `grep -qE '^[0-9a-fA-F]{7,40}$'` on its first line and let the
+          # smuggled second line straight through — verified locally with a
+          # throwaway harness before landing this fix. `[[ "$var" =~ ^...$ ]]`
+          # has no such per-line splitting: the anchors bind to the start and
+          # end of the actual string, so an embedded newline fails the match.
           if [ -n "$INPUT_TAG" ]; then
+            if [[ ! "$INPUT_TAG" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+              echo "::error::image_tag input is not a valid git SHA (expected 7-40 hex chars, see docs/runbooks/deployment.md §9). Refusing to use it as a Docker tag / build-arg."
+              exit 1
+            fi
             echo "image_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
           else
             SHA=$(git rev-parse --short HEAD)
@@ -179,6 +255,9 @@ jobs:
       # Dockerfile's `ARG ...=` empty default + env.ts's blank-to-undefined
       # preprocess degrade to the honest 'unknown' response, never a boot
       # crash or an empty string (see health.controller.ts + env.ts comments).
+      # security review (PR #613 round 2, SR-M-3): this image is pulled
+      # anonymously — no secrets here. See the invariant at the top of this
+      # job (above `build:`) before adding a new build-arg.
       - name: Build & push API image
         uses: docker/build-push-action@v6
         with:
@@ -257,6 +336,14 @@ jobs:
       # pattern, this workflow's top-level `env:` block, single source of
       # truth for the origin-IP gate's observe/enforce mode. See
       # nginx/Dockerfile's own `ARG ORIGIN_GATE_MODE` comment.
+      #
+      # security review (PR #613 round 2, SR-M-3): this image is pulled
+      # anonymously — no secrets here. The four `secrets.*` values already in
+      # the block below (VITE_TURNSTILE_SITE_KEY / INDEXNOW_KEY /
+      # BING_SITE_VERIFICATION_ID / YANDEX_VERIFICATION_*) are intentionally
+      # public values stored via GH Secrets for provisioning, not confidential
+      # ones — see the invariant at the top of this job (above `build:`)
+      # before adding a new build-arg.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
