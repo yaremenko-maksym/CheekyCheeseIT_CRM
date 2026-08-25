@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { financeApi } from '../../api'
-import { canSaveCascadeEdit } from '../../cascade-preview'
+import { canSaveCascadeEdit, needsCascadePreview } from '../../cascade-preview'
 import { EXPENSE_CATEGORIES, TYPE_LABELS, fmtAmount } from '../../constants'
 import { CascadeImpactPanel } from './CascadeImpactPanel'
 import {
@@ -83,16 +83,11 @@ export function AdminEditTransactionDialog({
   }, [amount])
 
   const parsedPreviewAmount = parseStrictAmount(debouncedAmount)
-  // `amountsDiffer` is imported from @crm/shared, not re-written: it is the
-  // SAME six-decimal comparison the server uses to decide whether an edit is a
-  // cascade edit at all. A local copy would agree until the first rounding
-  // boundary and then ask for a preview the server would not honour.
-  const shouldPreview =
-    !!tx &&
-    tx.status === 'PAID' &&
-    Number.isFinite(parsedPreviewAmount) &&
-    parsedPreviewAmount > 0 &&
-    amountsDiffer(parsedPreviewAmount, Number(tx.amount))
+  // `needsCascadePreview` (cascade-preview.ts) is the SAME six-decimal
+  // comparison the server uses to decide whether an edit is a cascade edit at
+  // all. A local copy would agree until the first rounding boundary and then
+  // ask for a preview the server would not honour.
+  const shouldPreview = needsCascadePreview(tx, parsedPreviewAmount)
 
   const previewQuery = useQuery({
     // Stryker disable next-line StringLiteral: the literal is a NAMESPACE, not a value — replacing it with '' keeps the key just as unique (id + amount still discriminate every entry), so no cache behaviour changes. What the key must actually do — give a different amount a different entry — is pinned by CP-18
@@ -165,6 +160,20 @@ export function AdminEditTransactionDialog({
   // anyway); written down so the guarantee is not over-read.
   const previewAmountIsCurrent =
     shouldPreview && !amountsDiffer(parsedPreviewAmount, parseStrictAmount(amount))
+
+  // Backlog finding 107. `shouldPreview` above is built off the DEBOUNCED
+  // figure and stays false for up to 400 ms after the FIRST edit of a PAID
+  // row — deliberately, the same lag that keeps five keystrokes from firing
+  // five previews (CP-17). But that lag left a real window: right after that
+  // first keystroke `debouncedAmount` still equals `tx.amount`, so
+  // `shouldPreview` read false, no plan was ever asked for, and Save stayed
+  // enabled. A click inside that window sent the new amount with no version
+  // token; the server refused it pointing at a preview panel that was not
+  // even mounted to open. `needsCascadePreview` run against the LIVE amount
+  // — the SAME rule `shouldPreview` uses, just not lagged — answers "does
+  // the figure on screen right now need a plan", independent of whether the
+  // debounce has caught up to ask for one yet.
+  const liveAmountNeedsPreview = needsCascadePreview(tx, parseStrictAmount(amount))
 
   // CR-M-1 (code-review, MED) — the same window, its visible half. `isFetching`
   // only rises once a request is actually in flight, so during the debounce the
@@ -279,7 +288,17 @@ export function AdminEditTransactionDialog({
   // nothing about disabled controls; no success criterion demands a visible
   // reason next to one.)
   const cascadeSaveBlockedByData = !canSaveCascadeEdit(preview)
-  const cascadeSaveBlocked = cascadeSaveBlockedByData || previewIsRecomputing || previewFailed
+  // Finding 107's own term is intentionally NOT folded into
+  // `cascadeSaveBlockedByData` — that flag also gates
+  // `cascade-save-blocked-note` (below), and this window has nothing to name
+  // yet: no plan was ever requested, so there is no reason to print. Held out
+  // of the note's guard the same way `previewIsRecomputing` already is
+  // (COPY-H-2) — it only widens the BUTTON's gate.
+  const cascadeSaveBlocked =
+    cascadeSaveBlockedByData ||
+    previewIsRecomputing ||
+    previewFailed ||
+    (liveAmountNeedsPreview && !previewAmountIsCurrent)
   const isEditable = tx && EDITABLE_TYPES.includes(tx.type) && !tx.payoutRequestId
 
   return (

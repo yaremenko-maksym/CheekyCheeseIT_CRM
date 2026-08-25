@@ -10,11 +10,41 @@
  * row show about its own accumulator.
  */
 import {
+  amountsDiffer,
   remainingAgainstAccumulator,
   settledCurrencyMismatch,
   type CascadeEditPreviewResponse,
   type CurrencyEnum,
 } from '@crm/shared'
+
+/**
+ * Does editing `tx`'s amount to `parsedAmount` need a cascade preview at all —
+ * a PAID row whose amount genuinely changes?
+ *
+ * Backlog finding 107. `AdminEditTransactionDialog` used this exact rule
+ * TWICE with two different inputs: once against the DEBOUNCED figure (to
+ * decide whether to fetch a preview — deliberately lagged by ~400 ms so five
+ * keystrokes don't fire five previews) and once, here, against the LIVE
+ * figure the operator is looking at right now (to decide whether Save may be
+ * pressed). Written inline twice, the two copies read identically at rest and
+ * only disagree in the ~400 ms window between a keystroke and the debounce
+ * catching up — which is exactly the window where they need to disagree: the
+ * debounced copy says "not a cascade edit yet" while the live one already
+ * knows better. One function, two call sites, makes that the ONE place the
+ * rule can be read, instead of two copies that could quietly drift.
+ */
+export function needsCascadePreview(
+  tx: { status: string; amount: string | number } | null | undefined,
+  parsedAmount: number,
+): boolean {
+  return (
+    !!tx &&
+    tx.status === 'PAID' &&
+    Number.isFinite(parsedAmount) &&
+    parsedAmount > 0 &&
+    amountsDiffer(parsedAmount, Number(tx.amount))
+  )
+}
 
 /**
  * May «Сохранить» be pressed?

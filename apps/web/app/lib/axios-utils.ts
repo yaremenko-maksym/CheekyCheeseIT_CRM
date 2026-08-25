@@ -41,19 +41,83 @@ export function stripQueryString(url: string | undefined): string {
 }
 
 /**
+ * Nest's own STANDARD, generic HTTP reason phrase — what `response.data.message`
+ * holds when nobody wrote an actual explanation. Two sources, both in this
+ * exact wording:
+ *
+ * - Any `@nestjs/common` `HttpException` subclass constructed with no
+ *   explicit message (`new ForbiddenException()`) defaults its message to its
+ *   OWN reason phrase — `exceptions/*.exception.js`'s constructor defaults.
+ * - Any exception `@nestjs/core`'s `BaseExceptionFilter` did not recognise as
+ *   an `HttpException` at all (a genuinely unhandled bug) becomes exactly
+ *   `'Internal server error'` — `MESSAGES.UNKNOWN_EXCEPTION_MESSAGE`.
+ *
+ * Compared case-insensitively: the two sources disagree on casing for the
+ * same 500 ('Internal Server Error' vs 'Internal server error').
+ */
+const GENERIC_HTTP_REASON_PHRASES = new Set([
+  'bad request',
+  'unauthorized',
+  'forbidden',
+  'not found',
+  'method not allowed',
+  'not acceptable',
+  'request timeout',
+  'conflict',
+  'gone',
+  'precondition failed',
+  'payload too large',
+  'unsupported media type',
+  'misdirected',
+  'unprocessable entity',
+  'internal server error',
+  'not implemented',
+  'bad gateway',
+  'service unavailable',
+  'gateway timeout',
+  'http version not supported',
+])
+
+/**
+ * True when `message` is NOTHING MORE than one of Nest's own generic reason
+ * phrases (see `GENERIC_HTTP_REASON_PHRASES`) — text that LOOKS like a
+ * backend explanation (`response.data.message` is populated) but adds
+ * nothing a status code doesn't already say.
+ *
+ * Backlog finding 110, found live in the cascade-preview panel: a raw 500/403
+ * with no custom message reached the money screen as English ("Internal
+ * server error", "Forbidden") because `extractBackendMessage` trusted ANY
+ * populated `data.message` as a real explanation. A genuine business message
+ * — `'Некорректная сумма'`, `'Зарплата уже создана'`, the 409 cascade-stale
+ * text — never matches this set (it is not one of the ~19 fixed English
+ * phrases above) and passes through completely unaffected.
+ */
+function isGenericHttpReasonPhrase(message: string): boolean {
+  return GENERIC_HTTP_REASON_PHRASES.has(message.trim().toLowerCase())
+}
+
+/**
  * Extracts a message the BACKEND explicitly put in the response body, or
- * `undefined` if the body carried nothing usable. Shared by
- * `getApiErrorMessage` (below — falls through to axios's own generic
- * `.message` when this returns nothing) and `getUserFacingErrorMessage`
- * (falls through to a status-code-derived Russian message instead — see its
- * doc for why raw `.message` is never shown to the user).
+ * `undefined` if the body carried nothing usable — nothing usable now also
+ * covers Nest's own generic reason phrase (finding 110, see
+ * `isGenericHttpReasonPhrase`), which explains nothing beyond the status
+ * code and is English besides. Shared by `getApiErrorMessage` (below — falls
+ * through to axios's own generic `.message` when this returns nothing) and
+ * `getUserFacingErrorMessage` (falls through to a status-code-derived
+ * Russian message instead — see its doc for why raw `.message` is never
+ * shown to the user). Fixed HERE rather than in either caller, or in a
+ * component: both functions — and every screen that calls them, including
+ * ones written after this fix — inherit the correction for free.
  *
  * Priority (highest first):
  * 1. `response.data.errors[]` — ZodExceptionFilter shape:
  *    `{ statusCode, message: "Validation failed", errors: [{ path, message }] }`
  *    path is already a dot-joined string from the filter, but we also accept
  *    array paths defensively. Multiple errors joined with "; ".
- * 2. `response.data.message` — NestJS exception string or string[].
+ * 2. `response.data.message` — NestJS exception string or string[], UNLESS it
+ *    is nothing more than one of Nest's own generic reason phrases (checked
+ *    against the message text alone, not cross-referenced with the status —
+ *    the phrase itself is already unambiguous, whatever status it rides on).
  */
 function extractBackendMessage(err: unknown): string | undefined {
   if (err === null || typeof err !== 'object') return undefined
@@ -86,7 +150,9 @@ function extractBackendMessage(err: unknown): string | undefined {
 
   // Priority 2: standard NestJS message field (string or string[]).
   const msg = d['message']
-  if (typeof msg === 'string' && msg.length > 0) return msg
+  if (typeof msg === 'string' && msg.length > 0) {
+    return isGenericHttpReasonPhrase(msg) ? undefined : msg
+  }
   if (Array.isArray(msg) && msg.length > 0) {
     return msg.map((m) => (typeof m === 'string' ? m : String(m))).join('. ')
   }
