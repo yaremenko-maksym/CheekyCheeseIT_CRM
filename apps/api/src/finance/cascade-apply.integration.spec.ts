@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { MAKSYM_ID, roundShareAmount } from '@crm/shared'
+import { MAKSYM_ID, PAID_ROW_LOCKED_FIELD_MESSAGES, roundShareAmount } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { PendingSettlementService } from './pending-settlement.service'
@@ -641,7 +641,10 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     await settleSvc.settleByCompany((await derivativeFor(SENIOR.id)).obligation.id, ADMIN)
 
     await expect(svc.adminUpdateTransaction(source.id, { currency: 'EUR' }, ADMIN)).rejects.toThrow(
-      /currency or salary month/,
+      // QA-H-2: the refusal is Russian now and names one field with a remedy.
+      // Asserted against the shared constant, not a literal — the dialog shows
+      // the SAME string proactively, and a copy here could drift from it.
+      PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY,
     )
 
     expect((await sourceIncome(PROJECT_SENIOR)).currency).toBe('USDT')
@@ -836,7 +839,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/подтверждена фактическими выплатами/)
+    ).rejects.toThrow(/уже прошли выплаты/)
 
     // Without AC13 the edit lands, term 7's debit drops 260 → 26, and the
     // balance rises by 234 — money the company has already paid out.
@@ -916,7 +919,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/закрытым обязательством/)
+    ).rejects.toThrow(/зафиксирована в расчёте/)
 
     // Without the disjunct the edit lands, term 7's debit falls 260 → 26 and
     // the balance rises by 234 that has already left the account.
@@ -1418,6 +1421,43 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     expect(entries.length).toBeGreaterThan(0)
     const meta = entries.at(-1)!.metadata as Record<string, unknown>
     expect(meta['overpaidBy']).toBeCloseTo(settledFigure - 26, 6)
+  })
+
+  it('QA-H-1: what the preview SHOWS for that same edit is what the database ENDS UP with', async () => {
+    // The neighbour above proved the WRITE floors at the accumulator. Nothing
+    // proved the PREVIEW agreed — and it did not: manual QA saw «100 → 50» on
+    // screen and `amount = 100` in a SQL dump either side of the save. The
+    // floor (`floorAmountAtAccumulator`, extracted by #608) had reached the
+    // write and the source amount, but not the derivative side of the resolver.
+    //
+    // Asserted as the invariant itself — preview == fact — rather than against
+    // a literal, because that is the property AC4 of the ADR actually claims.
+    await declare(PROJECT_SENIOR, 1000)
+    const first = await derivativeFor(SENIOR.id)
+    await settleSvc.settleByCompany(first.obligation.id, ADMIN)
+    const settledFigure = roundShareAmount(1000, SENIOR_SHARE) // 260
+
+    const source = await sourceIncome(PROJECT_SENIOR)
+    await editWithPreview(source.id, 2000) // revert: reopens PENDING with the accumulator
+
+    // The preview the operator would be looking at before the second save.
+    const shown = await svc.getEditCascadePreview(source.id, 100, ADMIN)
+    const shownDerivative = shown.plan!.derivatives.find((d) => d.id === first.row.id)!
+
+    await svc.adminUpdateTransaction(
+      source.id,
+      { amount: 100, cascadeVersion: shown.version! },
+      ADMIN,
+    )
+
+    const stored = parseFloat((await derivativeFor(SENIOR.id)).row.amount)
+    expect(shownDerivative.newAmount).toBeCloseTo(stored, 6)
+    // …and it is the accumulator, not the raw share — the figure the screen
+    // used to promise.
+    expect(stored).toBeCloseTo(settledFigure, 6)
+    // The share that was actually recomputed is still reported, separately,
+    // because the overpayment warning and the journal both quote it.
+    expect(shownDerivative.recomputedShare).toBeCloseTo(roundShareAmount(100, SENIOR_SHARE), 6)
   })
 
   it('AC2: saving a PAID amount edit without a preview token is refused outright', async () => {

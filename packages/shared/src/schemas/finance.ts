@@ -182,6 +182,41 @@ export const transactionSchema = z.object({
   originalAmount: z.string().nullable().optional(),
   originalCurrency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).nullable().optional(),
   exchangeRate: z.string().nullable().optional(),
+  /**
+   * task-cascade-preview-ui (task 5) — the MONOTONIC accumulator of what has
+   * actually been paid out against this row, and the currency it accumulated
+   * in. The columns landed with task 1 (PR #599) and drive `loadCascadeSnapshot`
+   * / `applyEditCascade` server-side; this is the wire-contract restatement of
+   * them, added because three operator-facing surfaces cannot be honest without
+   * it and cannot derive it from anything already exposed:
+   *
+   *   - the list («Выплачено 5 000 · осталось 3 000» under the amount),
+   *   - the detail dialog (the same split as a `Row`),
+   *   - `SettleSeniorPayoutDialog`, which showed the FULL obligation as «Сумма»
+   *     while the server pays only the remainder — one number on screen, a
+   *     different one leaving the account, at the point of an irreversible
+   *     decision.
+   *
+   * NOT MASKED, deliberately — but NOT by analogy with `originalAmount` above
+   * (SR-M-2, security-review: that analogy broke inside the same task, which
+   * gates the triplet behind `privileged` in the detail dialog while showing
+   * this figure to everyone).
+   *
+   * The reason is that THE VIEWER IS A PARTY TO THIS ROW: every non-privileged
+   * path scopes rows on `senderId`/`receiverId` before the projection runs, so
+   * this describes the viewer's own money and carries no counterparty
+   * identity. Hiding it while leaving `amount` visible would only set the two
+   * figures on screen against each other. Pinned by
+   * `transaction-settled-exposure.unit.spec.ts` — SE-4/SE-5 for the disclosure,
+   * SE-6/SE-7 for the scoping premise it depends on.
+   *
+   * `null` reads as "this row never went through a settle" — distinct from `0`,
+   * which would claim a settle that moved nothing. `.optional()` alongside
+   * `.nullable()` keeps every pre-existing fixture valid, same pattern as
+   * `originalAmount` / `dropCascadeOrigin`.
+   */
+  settledAmount: z.string().nullable().optional(),
+  settledCurrency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).nullable().optional(),
   senderId: z.string().uuid().nullable(),
   senderLabel: z.string().nullable(),
   senderName: z.string().nullable(), // resolved from user if senderId set

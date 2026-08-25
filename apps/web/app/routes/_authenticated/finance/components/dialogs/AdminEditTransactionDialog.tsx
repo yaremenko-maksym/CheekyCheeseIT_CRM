@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
-import type { TransactionDto } from '@crm/shared'
+import { amountsDiffer, type TransactionDto } from '@crm/shared'
 import { cn, parseStrictAmount } from '@/lib/utils'
+import { getApiErrorMessage, getAxiosStatus, getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -18,7 +20,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { financeApi } from '../../api'
+import { canSaveCascadeEdit } from '../../cascade-preview'
 import { EXPENSE_CATEGORIES, TYPE_LABELS, fmtAmount } from '../../constants'
+import { CascadeImpactPanel } from './CascadeImpactPanel'
 import {
   ReceiptInput,
   receiptStateFromDocument,
@@ -45,6 +49,10 @@ export function AdminEditTransactionDialog({
   const [receipt, setReceipt] = useState<ReceiptState>(receiptStateFromExternalUrl(null))
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
   const [salaryMonth, setSalaryMonth] = useState('')
+  // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it, the same shape as the documented `useState` default in SettleSeniorPayoutDialog
+  const [debouncedAmount, setDebouncedAmount] = useState('')
+  /** The server's 409 text, verbatim — set when the plan on screen was overtaken. */
+  const [staleMessage, setStaleMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (!tx) return
@@ -58,7 +66,112 @@ export function AdminEditTransactionDialog({
     }
     setCategory(tx.receiverLabel ?? EXPENSE_CATEGORIES[0]!)
     setSalaryMonth(tx.salaryMonth ?? '')
+    setDebouncedAmount(parseFloat(tx.amount).toString())
+    setStaleMessage(null)
   }, [tx])
+
+  // task-cascade-preview-ui (task 5). Editing the amount of a PAID row drags
+  // shares and obligations with it, and the server refuses such an edit unless
+  // the operator has seen the plan and sends its version back. Everything below
+  // is what makes that possible from the interface.
+  //
+  // 400 ms rather than per-keystroke: «10000» is five requests otherwise, four
+  // of them describing a cascade for a number nobody meant («1», «10», …).
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedAmount(amount), 400)
+    return () => clearTimeout(timer)
+  }, [amount])
+
+  const parsedPreviewAmount = parseStrictAmount(debouncedAmount)
+  // `amountsDiffer` is imported from @crm/shared, not re-written: it is the
+  // SAME six-decimal comparison the server uses to decide whether an edit is a
+  // cascade edit at all. A local copy would agree until the first rounding
+  // boundary and then ask for a preview the server would not honour.
+  const shouldPreview =
+    !!tx &&
+    tx.status === 'PAID' &&
+    Number.isFinite(parsedPreviewAmount) &&
+    parsedPreviewAmount > 0 &&
+    amountsDiffer(parsedPreviewAmount, Number(tx.amount))
+
+  const previewQuery = useQuery({
+    // Stryker disable next-line StringLiteral: the literal is a NAMESPACE, not a value — replacing it with '' keeps the key just as unique (id + amount still discriminate every entry), so no cache behaviour changes. What the key must actually do — give a different amount a different entry — is pinned by CP-18
+    queryKey: ['cascade-preview', tx?.id, parsedPreviewAmount],
+    queryFn: () => financeApi.getEditCascadePreview(tx!.id, parsedPreviewAmount),
+    enabled: shouldPreview,
+    // A refusal (`editable: false`) is a 200 with a reason, so retries have
+    // nothing to do with it. What they DO affect is a real connection failure:
+    // without this the panel would sit in «пересчитываем…» for seconds while
+    // three doomed attempts run, dressing a network error up as work.
+    retry: false,
+  })
+
+  const preview = shouldPreview ? previewQuery.data : undefined
+
+  // UX-6 (design fidelity, HIGH) — THREE states, named, because conflating two
+  // of them left a live Save button over an empty panel.
+  //
+  //   not asked   — `!shouldPreview`: an ordinary edit, no cascade, no panel
+  //   in flight   — `previewIsRecomputing` below: skeleton, Save held
+  //   FAILED      — here: banner + retry, Save held
+  //
+  // The old code only knew «network error» (`status === undefined`). A bare 500
+  // with no body — what a dev proxy returns when the API is down, found by
+  // stopping the process — has a status, so it fell through every branch: no
+  // banner, and `canSaveCascadeEdit(undefined) === true` kept Save live. A
+  // failed preview was literally indistinguishable from one never requested.
+  const previewFailed = shouldPreview && previewQuery.isError
+
+  // QA-H-2 — a PAID row locks its currency and its salary month. `status`, not
+  // «is this a cascade edit»: the two are locked by the ledger having recorded
+  // a payment, which is true whether or not the amount is being touched.
+  const isPaidRow = tx?.status === 'PAID'
+
+  // The TEXT still distinguishes the two kinds, which is what CP-19 protects:
+  // sending someone to check their wifi over a message the server took the
+  // trouble to write is its own defect. A request that never got an answer
+  // keeps the panel's own short line; anything the server actually answered is
+  // rendered by `getUserFacingErrorMessage` — the project's existing resolver
+  // (backend message → Russian text per status → generic), reused rather than
+  // re-invented, and it never surfaces axios's English `.message`.
+  const previewErrorMessage = !previewFailed
+    ? null
+    : getAxiosStatus(previewQuery.error) === undefined
+      ? 'Не удалось загрузить предпросмотр — проверьте соединение'
+      : getUserFacingErrorMessage(previewQuery.error)
+
+  // SR-H-1 (security-review, HIGH). Is the plan on screen the plan for the
+  // figure currently in the field?
+  //
+  // The version token is `id` + `updatedAt` of the source and its derivatives
+  // — it does NOT encode the amount. So a token proves «the world has not
+  // moved», never «this is the plan you were shown». The server, holding a
+  // valid token, recomputes the cascade for whatever amount arrived and
+  // applies it. Between the 400 ms debounce and the live `amount` there was a
+  // window where those two were different figures, and a save inside it
+  // rewrote shares, reopened obligations and voided an invoice for a number
+  // the operator had never seen a plan for. Measured, not argued: the probe
+  // submitted 90 000 carrying the token of the 25 000 plan (CP-24).
+  //
+  // `amountsDiffer` — the same six-decimal comparison the server uses — so
+  // this cannot disagree with it at a rounding boundary.
+  //
+  // SR-L-1 (security-review, for the record): none of this makes «the operator
+  // saw a preview» a PROVABLE property. `computeCascadeVersion` concatenates
+  // ids and `updatedAt`s that are already visible in ordinary API responses —
+  // it is not a MAC — so a scripted ADMIN caller can assemble a token without
+  // ever opening the panel. Acceptable under the current threat model (the
+  // endpoint is ADMIN-only, and such a caller can request a real preview
+  // anyway); written down so the guarantee is not over-read.
+  const previewAmountIsCurrent =
+    shouldPreview && !amountsDiffer(parsedPreviewAmount, parseStrictAmount(amount))
+
+  // CR-M-1 (code-review, MED) — the same window, its visible half. `isFetching`
+  // only rises once a request is actually in flight, so during the debounce the
+  // panel showed the PREVIOUS plan with nothing marking it stale — exactly the
+  // moment a click looks safest. The recompute indicator now covers the whole
+  // window, not just the request.
+  const previewIsRecomputing = shouldPreview && (previewQuery.isFetching || !previewAmountIsCurrent)
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -83,6 +196,16 @@ export function AdminEditTransactionDialog({
         amount: amt,
         currency,
         notes: notes || null,
+        // The token of the plan the operator actually saw — and ONLY when the
+        // figure being submitted is the figure that plan was built for
+        // (SR-H-1). Without that second condition the token vouched for a
+        // different amount than the one in the payload, and the server, which
+        // cannot tell (the token carries no amount), applied the cascade for
+        // the submitted figure. The gate below makes this branch unreachable
+        // in the UI; keeping the condition here too means the worst case
+        // degrades to the server's own 400 rather than a silent apply.
+        // Stryker disable next-line LogicalOperator: defense in depth, deliberately unreachable through the UI — `cascadeSaveBlocked` disables the button whenever `previewAmountIsCurrent` is false (CP-25), so no click can reach this branch with the two disagreeing. `&&` vs `||` is therefore unobservable from the outside, and that is the POINT: if the gate above were ever removed, this keeps the worst case at the server's own 400 instead of a silent apply
+        ...(preview?.version && previewAmountIsCurrent ? { cascadeVersion: preview.version } : {}),
         ...(!receiptUnchanged && {
           receiptDocumentId: nextReceiptDocId,
           receiptExternalUrl: nextReceiptExternalUrl,
@@ -90,6 +213,13 @@ export function AdminEditTransactionDialog({
         ...(tx?.type === 'EXPENSE' && { category }),
         ...(tx?.type === 'SALARY' && salaryMonth && { salaryMonth }),
       })
+    },
+    onError: (err) => {
+      // 409 is not an ordinary failure: the plan below is still on screen and
+      // still readable, it is merely no longer true. Surfacing it INSIDE the
+      // panel (with a re-fetch button) rather than as a generic red line keeps
+      // the operator's context — they can see exactly what went out of date.
+      setStaleMessage(getAxiosStatus(err) === 409 ? getApiErrorMessage(err) : null)
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
@@ -99,12 +229,72 @@ export function AdminEditTransactionDialog({
     },
   })
 
-  const error = mutation.error instanceof Error ? mutation.error.message : null
+  // QA-M-1 — a failed save belongs to the row it was attempted on. This cannot
+  // fold into the field-reset effect near the top: that effect runs before
+  // `mutation` exists (it needs `tx`), so the same intent lives in two places.
+  // Without it `mutation.error` outlived the switch and greeted the NEXT
+  // transaction with a red banner about the previous one, before the operator
+  // touched anything. Same family as UX-2, which cleared the leftover when the
+  // preview was refreshed but not when the dialog changed subject.
+  const resetMutation = mutation.reset
+  useEffect(() => {
+    resetMutation()
+  }, [tx, resetMutation])
+
+  // `getApiErrorMessage` rather than a local `instanceof Error` check: the
+  // latter renders nothing at all for a non-Error rejection, and this is the
+  // only place the server's explanation of a refused money edit is shown.
+  // (The axios interceptor already humanises `.message`, so for a normal axios
+  // failure the two agree — this is about the cases where they do not.)
+  const error = mutation.error ? getApiErrorMessage(mutation.error) : null
+  // A 409 is rendered by the panel, in place, not duplicated as a red line.
+  const submitError = staleMessage ? null : error
+  // `canSaveCascadeEdit(undefined)` is `true` on purpose — an ordinary,
+  // non-cascade edit must never be blocked by this feature. That is why the
+  // in-flight case needs its own clause: on a cascade edit with no answer yet,
+  // a click used to send the amount with no token at all and earn a guaranteed
+  // 400 (fail-closed, but it reads as a broken screen).
+  // COPY-H-2 (copy-review, HIGH): the button and the note answer DIFFERENT
+  // questions, and this line used to conflate them.
+  //
+  //   «may I press Save right now?»  — no, an answer is still in flight
+  //   «why can this row never be saved?» — a property of data already written
+  //
+  // Only the second is something the operator can act on, and only the second
+  // is what the note's text describes. Widening `cascadeSaveBlocked` to cover
+  // the recompute window (correct for the BUTTON — that is CR-M-1/SR-H-1) also
+  // dragged the note into two ordinary happy-path states: the first request in
+  // flight (`preview === undefined`, and `undefined !== false` satisfied the
+  // note's own guard) and the debounce window after every keystroke. In both
+  // the screen said «Пересчитываем связанные выплаты…» above and «по отмеченным
+  // строкам сумму не пересчитать, нужно ручное решение» below — simultaneously,
+  // about the same moment, with nothing marked and nothing to decide.
+  //
+  // No extra «Сохранить можно после пересчёта» line is added in its place. The
+  // reason is already on screen and already announced: `previewIsRecomputing`
+  // implies `shouldPreview`, so the panel is mounted with `isLoading` set and
+  // its `aria-live` status reads the recompute out loud. A second sentence at
+  // the bottom would rebuild, in miniature, the very «two texts for one state»
+  // that COPY-H-1 removed. (WCAG 1.4.13 is Content on Hover or Focus and says
+  // nothing about disabled controls; no success criterion demands a visible
+  // reason next to one.)
+  const cascadeSaveBlockedByData = !canSaveCascadeEdit(preview)
+  const cascadeSaveBlocked = cascadeSaveBlockedByData || previewIsRecomputing || previewFailed
   const isEditable = tx && EDITABLE_TYPES.includes(tx.type) && !tx.payoutRequestId
 
   return (
     <Dialog open={!!tx} onOpenChange={(o) => !o && onClose()}>
-      <CrmDialogContent maxWidth="sm:max-w-md">
+      {/* The dialog grows only when there is a plan with rows to show. Measured,
+          not guessed: the five-column table needs ~750 px of content width, and
+          inside the default `sm:max-w-md` (448 px) it forced a horizontal scroll
+          at every breakpoint — found by measuring `scrollWidth` at 768 px, not
+          by looking at it. Below `sm:` the panel is a card stack and the width
+          is irrelevant. */}
+      <CrmDialogContent
+        maxWidth={
+          preview?.plan && preview.plan.derivatives.length > 0 ? 'sm:max-w-3xl' : 'sm:max-w-md'
+        }
+      >
         <CrmDialogHeader>
           <DialogDescription className="sr-only">Редактирование транзакции</DialogDescription>
           <DialogTitle className="text-base">
@@ -126,12 +316,50 @@ export function AdminEditTransactionDialog({
           ) : (
             <div className="space-y-4">
               {/* Amount + Currency */}
+              {/* QA-H-2: on a PAID row the currency is not merely refused on
+                  save — it cannot be entered at all. The server has always
+                  rejected it, but only AFTER the click and in English; a
+                  refusal the operator can walk into is worse than a control
+                  that does not open, and the neighbouring ledger-fact refusal
+                  had already been given both halves. */}
               <AmountCurrencyInput
                 amount={amount}
                 currency={currency}
                 onAmountChange={setAmount}
                 onCurrencyChange={setCurrency}
+                disableCurrency={isPaidRow}
               />
+              {isPaidRow && (
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-testid="admin-edit-locked-currency-note"
+                >
+                  {PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY}
+                </p>
+              )}
+
+              {/* Mounted BELOW the amount field and above nothing focusable —
+                  a panel appearing between the field and the buttons would move
+                  focus out from under the operator mid-typing. */}
+              {shouldPreview && (
+                <CascadeImpactPanel
+                  preview={preview}
+                  isLoading={previewIsRecomputing}
+                  errorMessage={previewErrorMessage}
+                  onRetry={() => {
+                    setStaleMessage(null)
+                    // UX-2 (design fidelity): the failed-save error goes with
+                    // it. Without the reset the dialog showed a FRESH plan and
+                    // a red «сохранение не удалось» line from the previous
+                    // attempt at the same time — the same two-contradictory-
+                    // answers defect as COPY-H-1, one screen down.
+                    mutation.reset()
+                    void previewQuery.refetch()
+                  }}
+                  staleMessage={staleMessage}
+                  // Stryker disable next-line OptionalChaining: unreachable — this JSX only renders under `shouldPreview`, which is itself `!!tx && …`, so `tx` is non-null wherever this expression is evaluated (CP-23 covers the closed dialog)
+                />
+              )}
 
               {/* Expense category */}
               {tx?.type === 'EXPENSE' && (
@@ -166,7 +394,20 @@ export function AdminEditTransactionDialog({
                     onChange={(e) => setSalaryMonth(e.target.value)}
                     placeholder="2025-03"
                     className="h-9 text-sm"
+                    disabled={isPaidRow}
                   />
+                  {/* Its own note, under its own field: two locked controls with
+                      two unrelated reasons (a currency halts every payout, a
+                      salary month keys monthly aggregates). One shared banner
+                      would have to say both and would be about neither. */}
+                  {isPaidRow && (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid="admin-edit-locked-salary-month-note"
+                    >
+                      {PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -187,22 +428,66 @@ export function AdminEditTransactionDialog({
                 />
               </div>
 
-              {error && (
+              {submitError && (
                 <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  {error}
+                  {submitError}
                 </div>
               )}
             </div>
           )}
         </CrmDialogBody>
 
+        {/* WCAG 2.2 SC 1.4.13: the reason a control is unavailable has to be
+            readable without hovering it. A `title` would hide it from touch
+            and from a keyboard user entirely.
+            
+            COPY-H-1: NOT shown under the refusal banner. `isEditable` is a
+            client-side type check, not `preview.editable`, so the two used to
+            render together — the banner saying «правьте сторнирующей
+            транзакцией» (i.e. never here) with a line underneath saying
+            «устраните и сохраняйте». Two contradictory instructions, one line
+            apart, on a money screen. The banner already names both the cause
+            and the remedy; a second voice can only disagree with it.
+            
+            The text itself names the CAUSE rather than a repair: every
+            blocking condition is a property of data already written (a legacy
+            row with no share snapshot, an accumulator in another currency),
+            and none of them is fixable in this dialog. «Пока не устранены»
+            promised work that does not exist — the same defect #610 removed
+            from this module three hours earlier. «Нужно ручное решение» is not
+            a new phrase: it is the one `NO_SHARE_SNAPSHOT` already uses in the
+            red row itself. */}
+        {/* The `preview?.` test comes FIRST on purpose. Ordered the other way it
+            was unreachable — `canSaveCascadeEdit(undefined)` is `true` by
+            design, so `cascadeSaveBlockedByData` short-circuited before any
+            undefined `preview` could reach the chain, and the mutation gate
+            correctly reported that `?.` could be `.` with nothing noticing.
+            Leading with it makes the guard say what it means — «the server
+            says this row IS editable, yet this plan cannot be saved» — and
+            makes the optional chain load-bearing on the two ordinary states
+            where `preview` is genuinely absent (first request in flight,
+            request failed), which CP-27/CP-31 both exercise. */}
+        {isEditable && preview?.editable === true && cascadeSaveBlockedByData && (
+          <p
+            className="px-4 pb-1 text-xs text-destructive sm:px-6"
+            data-testid="cascade-save-blocked-note"
+          >
+            Сохранить нельзя — по отмеченным строкам сумму не пересчитать, нужно ручное решение
+          </p>
+        )}
+
         <CrmDialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>
             Отмена
           </Button>
           {isEditable && (
-            <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+            <Button
+              size="sm"
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending || cascadeSaveBlocked || !!staleMessage}
+              data-testid="admin-edit-save"
+            >
               {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
             </Button>
           )}

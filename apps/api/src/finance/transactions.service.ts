@@ -46,6 +46,8 @@ import {
   computeCascadeVersion,
   classifyEditedRowLedgerFact,
   CASCADE_LEDGER_FACT_MESSAGES,
+  settledCurrencyMismatch,
+  PAID_ROW_LOCKED_FIELD_MESSAGES,
   floorAmountAtAccumulator,
   isCascadeAmountEdit,
   cascadeEditPreviewResponseSchema,
@@ -871,6 +873,27 @@ export class TransactionsService {
       originalAmount: tx.originalAmount,
       originalCurrency: tx.originalCurrency,
       exchangeRate: tx.exchangeRate,
+      // task-cascade-preview-ui (task 5) — the settle accumulator (task 1, PR
+      // #599) reaches the operator, unmasked.
+      //
+      // SR-M-2 (security-review): the reason is NOT «same rule as the triplet
+      // above». That analogy broke inside task 5 itself — the triplet is gated
+      // behind `privileged` in the detail dialog while this figure is shown to
+      // everyone — so leaning on it would read as permission to whoever adds
+      // the next money field.
+      //
+      // The reason that holds is checkable: THE VIEWER IS A PARTY TO THIS ROW.
+      // Every non-privileged path scopes rows on senderId/receiverId before
+      // `mapTx` runs (findAll's role filters, findOne's visibility assertions,
+      // findPayoutRequest's creditor filter), so this says how much of the
+      // viewer's OWN money has left the account. It carries no counterparty
+      // identity, and masking it while `amount` stays visible would only set
+      // the two figures against each other on one screen. The premise is pinned
+      // negatively by SE-6/SE-7 in
+      // `transaction-settled-exposure.unit.spec.ts`, so widening a caller goes
+      // red instead of silently carrying the accumulator along.
+      settledAmount: tx.settledAmount,
+      settledCurrency: tx.settledCurrency,
       senderId: senderMasked ? null : tx.senderId,
       senderLabel: senderMasked ? 'CheekyCheeseIT' : tx.senderLabel,
       senderName: senderMasked ? null : (tx.sender?.displayName ?? null),
@@ -3047,9 +3070,18 @@ export class TransactionsService {
     //
     // Lifting all three "заодно" is exactly the failure ADR AC5 §3 predicts:
     // they sit in one condition, so the easy edit takes all three.
+    //
+    // QA-H-2 (manual QA, HIGH): the text is Russian, names the CARRIER of the
+    // refusal and the remedy, and is the SAME string the dialog shows
+    // proactively — one constant in `@crm/shared`, so the screen and the 400
+    // cannot drift apart. It also branches, because the two fields are locked
+    // for two unrelated reasons (see the block above) and telling an operator
+    // about salary months when they touched a currency is noise.
     if (tx.status === 'PAID' && (currencyChanged || salaryMonthChanged)) {
       throw new BadRequestException(
-        'Cannot change currency or salary month of a settled (PAID) transaction',
+        currencyChanged
+          ? PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY
+          : PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH,
       )
     }
 
@@ -3091,8 +3123,16 @@ export class TransactionsService {
         requestedAmount: data.amount,
       })
     if (isCascadeEdit && !data.cascadeVersion) {
+      // task-cascade-preview-ui (task 5) — the tail is now an ACTION, not an
+      // apology. PR #610 shortened it to «подтвердить пересчёт пока негде»
+      // because the preview screen did not exist yet and naming a step nobody
+      // could take is worse than naming none. It exists as of this task
+      // (`CascadeImpactPanel` inside `AdminEditTransactionDialog`), so the
+      // refusal points at it. The head of the sentence is unchanged on
+      // purpose: it is what the two callers' tests match on, and the shortest
+      // honest statement of the reason.
       throw new BadRequestException(
-        'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства, подтвердить пересчёт пока негде',
+        'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства: откройте предпросмотр и повторите',
       )
     }
     // SR-M-6 (security-review round 3) — the SAME law AC5/AC7 state for the
@@ -3205,7 +3245,15 @@ export class TransactionsService {
           // AC4).
           if (computeCascadeVersion(snapshot) !== data.cascadeVersion) {
             throw new ConflictException(
-              'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, запросите предпросмотр заново и повторите',
+              // COPY-M-1 (copy-review, self-corrected from #610): when this text
+              // was written its only reader was an API caller, for whom
+              // «запросите предпросмотр заново» was the right verb. Task 5 gave
+              // it a second reader — an operator with a button labelled
+              // «Обновить предпросмотр» directly underneath. Asking someone to
+              // «запросить» next to a button that says «обновить» makes them
+              // translate. «повторите сохранение» names the second step, which
+              // the API reader never had and the operator does.
+              'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, обновите предпросмотр и повторите сохранение',
             )
           }
           // The server computes the cascade itself. The client's version is an
@@ -3594,6 +3642,24 @@ export class TransactionsService {
         eq(transactions.sourceIncomeTransactionId, sourceId),
         isNull(transactions.deletedAt),
       ),
+      // UX-1 (design fidelity, HIGH, reopened): the preview must be able to say
+      // WHOSE share each row is, and that identity lives on the derivative —
+      // not on the source. Inferring it from the source row printed the admin's
+      // name against a senior's share on every `ADMIN_INCOME` cascade, which is
+      // the main path of this feature.
+      //
+      // A plain relational read, no lock: `lockCascadeRows` has already taken
+      // every row lock this snapshot needs, and `users` is not among them
+      // (nothing here writes a user). So this join cannot participate in the
+      // lock ordering the comment above guards, and cannot deadlock against
+      // `settleByCompany`.
+      //
+      // `columns` is an explicit allow-list, deliberately: `with: { receiver: true }`
+      // would pull the whole user row — email, legal name, admin note — into a
+      // snapshot that gets serialised into an API response. One display name is
+      // what the screen needs and all it gets (zone: projection rule 3).
+      // Stryker disable next-line ObjectLiteral,BooleanLiteral: a Drizzle query SHAPE, unobservable from a unit double — this file's own `cascade-edit-preview.unit.spec.ts` stubs `transactions.findMany` with canned rows that already carry `receiver`, so it answers identically whether this clause is here, gutted to `{}`, or asks for `displayName: false`. The mutation gate cannot run integration specs at all (mutation-gate-integration-specs.md), and the proof lives in one: `cascade-edit-preview.integration.spec.ts` «UX-1: each derivative names ITS OWN receiver». VERIFIED, not assumed — deleting this line and re-running that spec against real Postgres fails with «expected null to be 'Cascade Preview Senior'». Same class and same reasoning as the `derivativeIds` / `signatureQueryIds` suppressions a few lines down
+      with: { receiver: { columns: { displayName: true } } },
     })
 
     // Stryker disable next-line ArrowFunction: the VALUES this feeds into the
@@ -3716,6 +3782,8 @@ export class TransactionsService {
       return {
         id: d.id,
         type: d.type,
+        // UX-1 — see the `with:` allow-list on the query above.
+        receiverName: d.receiver?.displayName ?? null,
         status: d.status,
         amount: Number(d.amount),
         currency: d.currency,
@@ -4002,6 +4070,29 @@ export class TransactionsService {
     for (const derivativePlan of plan.derivatives) {
       const snap = snapshotById.get(derivativePlan.id)!
       const newAmount = derivativePlan.newAmount!
+      // QA-H-1 — the plan carries BOTH figures because they are different
+      // facts: `newAmount` is what this row's amount WILL BE (floored at the
+      // accumulator by the resolver, so the preview cannot describe a number
+      // that will not be stored), `recomputedShare` is what the share came out
+      // to. Their gap IS the overpayment.
+      //
+      // SR-L-6 — the reason two figures are needed, corrected. An earlier
+      // version of this comment claimed a one-figure fix would break the
+      // overpayment journal SILENTLY. That was wrong, and wrong in an
+      // instructive way: three separate code-traces (mine, code-review's,
+      // spec-review's) agreed on it, and an EXPERIMENT disproved it. Imitating
+      // the one-figure fix and running the suites turns FOUR pre-existing tests
+      // red — one in `@crm/shared` (the OVERPAYMENT warning stops firing:
+      // `expected [] to deeply equal [{ code: 'OVERPAYMENT' }]`) and three here
+      // (the `CASCADE_OVERPAYMENT` journal assertions). It fails loudly.
+      //
+      // The real reason is simpler and stronger: the floor DESTROYS the raw
+      // share, and three consumers need it — `newShare`/`overpaidBy` in the two
+      // journals below, the `overpaid` predicate, and the warning text. A
+      // single field cannot be both the figure that gets written and the figure
+      // that was computed. The shape is forced by what the information is, not
+      // by what a test would or would not have caught.
+      const recomputedShare = derivativePlan.recomputedShare!
       const isSettled = snap.obligation?.status === 'PAID'
       const amountMoved = amountsDiffer(newAmount, snap.amount)
 
@@ -4024,8 +4115,8 @@ export class TransactionsService {
             obligationId: snap.obligation!.id,
             causedBy: plan.sourceId,
             settledAmount: derivativePlan.settledAmount,
-            newShare: newAmount,
-            overpaidBy: Number((derivativePlan.settledAmount - newAmount).toFixed(6)),
+            newShare: recomputedShare,
+            overpaidBy: Number((derivativePlan.settledAmount - recomputedShare).toFixed(6)),
           },
         })
         continue
@@ -4225,21 +4316,58 @@ export class TransactionsService {
       // in `settled_currency`. `Math.max` over two figures in different units
       // would be nonsense, and nothing in THIS expression says they match.
       //
-      // What says it is AC15(b), a few screens up: under `needsReconfirm` a
-      // derivative whose `settled_currency` differs from its obligation's
-      // currency is REFUSED before any write, precisely because its remainder
-      // is not computable. So by the time control reaches here the two are in
-      // the same unit — and if that guard is ever relaxed, this `max` becomes
-      // wrong silently, which is why the dependency is named at the load-
-      // bearing line rather than only where the guard is written.
+      // SR-M-3 corrected the answer this comment used to give. It said AC15(b)
+      // guarantees the two units match by the time control reaches here. It does
+      // not: AC15(b) is scoped to a REVERT (`needsReconfirm`), so an OPEN
+      // obligation with a foreign accumulator arrives here unrefused — and used
+      // to take a `max` across units.
+      //
+      // What makes the line safe now is not a guard elsewhere but the call
+      // itself: the floor is handed `null` when `settledCurrencyMismatch` says
+      // the two are not comparable, which is the SAME function, on the same
+      // values, that the resolver uses to decide whether to floor. There is one
+      // predicate, so `newAmount` and the figure written here cannot disagree —
+      // the property, not a claim about a distant guard.
       //
       // (Today it is doubly unreachable: `assertNoOffCurrencyCompanyRows`
       // (AC9) refuses to produce a balance at all while such a row exists.)
       // SR-L-3 (review round 5) — the shared law, not a fourth hand-written
       // copy of it. `derivativePlan.settledAmount` is `z.number()` (0 when the
       // row never settled), so this is the identity swap it looks like.
-      const flooredAmount = floorAmountAtAccumulator(derivativePlan.settledAmount, newAmount)
-      const flooredByAccumulator = amountsDiffer(flooredAmount, newAmount)
+      // SR-M-3 (security-review) — the floor asks the SAME question here as in
+      // the resolver, by calling the SAME function on the same values.
+      //
+      // It used to floor UNCONDITIONALLY while the resolver skips the floor
+      // when the accumulator is not comparable to the share being written
+      // (`max()` over 2000 UAH and 50 USDT is not a bigger number, it is a
+      // meaningless one). Two predicates that look alike and disagree on
+      // exactly one population: an OPEN obligation with a foreign accumulator,
+      // where the plan said 26 and the row would have taken 260 — the same
+      // «shown ≠ stored» defect QA measured one corner over.
+      //
+      // Fixed HERE rather than by refusing that population in Phase 1: AC15's
+      // dead-end refusal is deliberately scoped to a REVERT (nothing is being
+      // reverted on an open obligation, so there is no dead end), and widening
+      // it would also refuse an ordinary INCREASE on such a row, which is
+      // writable and works today. A first attempt did exactly that and was
+      // caught by the test that states the carve-out in words.
+      const flooredAmount = floorAmountAtAccumulator(
+        settledCurrencyMismatch(
+          derivativePlan.settledAmount,
+          derivativePlan.settledCurrency,
+          derivativePlan.currency,
+        )
+          ? null
+          : derivativePlan.settledAmount,
+        newAmount,
+      )
+      // Kept as the defense-in-depth it always was — the write must not depend
+      // on the plan having applied the law — but it is an identity now, so the
+      // OVERPAYMENT question can no longer be asked of it: `flooredAmount ===
+      // newAmount` holds even when there IS an overpayment, and reading the
+      // flag off it would have silently stopped journaling `CASCADE_OVERPAYMENT`
+      // on the money path. Ask the two figures that actually differ.
+      const flooredByAccumulator = amountsDiffer(recomputedShare, flooredAmount)
 
       await dbtx
         .update(pendingObligations)
@@ -4296,8 +4424,8 @@ export class TransactionsService {
             obligationId: snap.obligation?.id ?? null,
             causedBy: plan.sourceId,
             settledAmount: derivativePlan.settledAmount,
-            newShare: newAmount,
-            overpaidBy: Number((derivativePlan.settledAmount - newAmount).toFixed(6)),
+            newShare: recomputedShare,
+            overpaidBy: Number((derivativePlan.settledAmount - recomputedShare).toFixed(6)),
           },
         })
       }

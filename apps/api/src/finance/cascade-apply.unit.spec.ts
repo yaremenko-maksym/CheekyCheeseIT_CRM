@@ -32,6 +32,7 @@ import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
+import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 import { resolveEditCascade, computeCascadeVersion, type CascadeSnapshot } from '@crm/shared'
 
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -522,12 +523,12 @@ describe('AC2: mandatory preview + optimistic lock', () => {
     expect(ops).toEqual([])
   })
 
-  it('the refusal text names the reason, not an action the operator cannot take', async () => {
+  it('the refusal text names the reason AND the action that now exists — open the preview', async () => {
     const { db } = makeDouble()
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN)).rejects.toThrow(
-      'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства, подтвердить пересчёт пока негде',
+      'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства: откройте предпросмотр и повторите',
     )
   })
 
@@ -861,7 +862,7 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
       originalAmount: null,
       payoutRequestId: null,
     })
-    await expect(result).rejects.toThrow(/подтверждена фактическими выплатами/)
+    await expect(result).rejects.toThrow(/уже прошли выплаты/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -875,7 +876,7 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
         obligations: [obligationRow({ sourceTransactionId: SOURCE_ID, status: 'PAID' })],
       },
     )
-    await expect(result).rejects.toThrow(/закрытым обязательством/)
+    await expect(result).rejects.toThrow(/зафиксирована в расчёте/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -933,7 +934,7 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
       type: 'SENIOR_INCOME',
       settledAmount: '260.000000',
     })
-    await expect(result).rejects.toThrow(/подтверждена фактическими выплатами/)
+    await expect(result).rejects.toThrow(/уже прошли выплаты/)
   })
 
   it('only a CLOSED obligation on the edited row counts — an open one is the ordinary IOU case', async () => {
@@ -998,7 +999,7 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
         ],
       },
     )
-    await expect(result).rejects.toThrow(/закрытым обязательством/)
+    await expect(result).rejects.toThrow(/зафиксирована в расчёте/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -1775,6 +1776,50 @@ describe('AC5: still-open obligation — both copies of the amount move together
       expect(updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)[0]!.set.amount).toBe('260')
     })
 
+    it('SR-M-3: on an OPEN obligation with a FOREIGN accumulator, what the plan shows is what gets written', async () => {
+      // The same family as the QA finding, one corner over, and found by
+      // security-review with a measurement rather than a trace.
+      //
+      // The resolver skips the floor when the accumulator is not comparable to
+      // the share being written — `max()` over 260 USD and a 26 USDT share is
+      // not a bigger number, it is a meaningless one. The WRITE floored
+      // unconditionally, so the plan said 26 and the row would have taken 260,
+      // in a unit nobody compared: «shown ≠ stored» again.
+      //
+      // Note what is NOT done about it: this population is deliberately allowed
+      // through Phase 1 (AC15 refuses a REVERT that could not be closed again;
+      // an open obligation is not being reverted, and an ordinary INCREASE here
+      // works and must keep working — see the test that states that carve-out).
+      // The fix is that both sides now ask `settledCurrencyMismatch`, the same
+      // exported function, so they cannot disagree.
+      const derivatives = [
+        pendingDerivativeRow({
+          settledAmount: '260.000000',
+          settledCurrency: 'USD',
+          settledSharePercent: 26,
+          amount: '520.000000',
+        }),
+      ]
+      const obligations = [obligationRow({ amount: '520.000000' })]
+      const { db, ops } = makeDouble({ derivatives, obligations })
+      const svc = makeTransactionsService({ db })
+      stubFindOne(svc)
+      const snapshot = snapshotFrom({ derivatives, obligations })
+      const plan = resolveEditCascade(snapshot, { amount: 100 })
+      const shown = plan.derivatives.find((d) => d.id === SENIOR_DERIV_ID)!
+
+      await svc.adminUpdateTransaction(
+        SOURCE_ID,
+        { amount: 100, cascadeVersion: computeCascadeVersion(snapshot) },
+        ADMIN,
+      )
+
+      const written = updatesTargeting(ops, 'transactions', SENIOR_DERIV_ID)[0]!.set.amount
+      expect(String(shown.newAmount)).toBe(written)
+      // …and it is the honest share, not a cross-unit maximum.
+      expect(written).toBe('26')
+    })
+
     it('journals the overpayment as well — the floor keeps the row closable, it does not hide the fact', async () => {
       const ops = await editTo(100)
       const entries = journalEntries(ops, 'CASCADE_OVERPAYMENT')
@@ -2353,13 +2398,41 @@ describe('AC12: idempotency', () => {
 // ---------------------------------------------------------------------------
 
 describe('refusal messages', () => {
-  it('the PAID guard names the two fields that are still frozen, and no longer names amount', async () => {
+  it('the PAID guard names the FIELD the operator actually touched, in Russian, with a remedy', async () => {
+    // QA-H-2: this used to be one English sentence naming both frozen fields
+    // at once — `Cannot change currency or salary month of a settled (PAID)
+    // transaction`. English breaks `russian-language.md`, naming both fields
+    // tells an operator who touched a currency about salary months, and naming
+    // no remedy leaves them stuck. The two fields are frozen for two unrelated
+    // reasons, so they get two texts.
+    //
+    // Asserted against the shared constants rather than string literals: the
+    // SAME strings are what the dialog shows proactively, and a literal copied
+    // here would let the two drift silently — the failure mode this whole
+    // series has been fixing.
     const { db } = makeDouble()
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { currency: 'EUR' }, ADMIN)).rejects.toThrow(
-      'Cannot change currency or salary month of a settled (PAID) transaction',
+      PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY,
     )
+
+    stubFindOne(svc)
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { salaryMonth: '2026-01' }, ADMIN),
+    ).rejects.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH)
+
+    // The original point of this test, kept, but stated as BEHAVIOUR rather
+    // than as a substring: task 3 removed `amount` from this guard, and it must
+    // not quietly come back. A first draft asserted the text «does not mention
+    // сумма» and failed on its own fixture — the currency text legitimately
+    // says «сумма подтверждена фактическим платежом», naming the amount as a
+    // FACT, not as a frozen field. A word-search cannot tell those apart; the
+    // refusal an amount edit actually receives can.
+    stubFindOne(svc)
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN),
+    ).rejects.not.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY)
   })
 
   it('the stale-version refusal instructs the only reader who can act on it — request the preview again', async () => {
@@ -2376,7 +2449,7 @@ describe('refusal messages', () => {
         ADMIN,
       ),
     ).rejects.toThrow(
-      'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, запросите предпросмотр заново и повторите',
+      'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, обновите предпросмотр и повторите сохранение',
     )
   })
 

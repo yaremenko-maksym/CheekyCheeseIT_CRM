@@ -116,6 +116,24 @@ export interface CascadeDerivativeSnapshot {
   id: string
   /** e.g. 'SENIOR_PENDING_PAYOUT' / 'DROP_PENDING_PAYOUT' (still open) or 'SENIOR_INCOME' / 'PAYOUT_DROP' (flipped by settle). */
   type: string
+  /**
+   * UX-1 (design fidelity, HIGH, reopened) — `transactions.receiver.displayName`
+   * of THIS derivative row, read from the database like every other field here.
+   *
+   * It is carried rather than derived because it cannot be derived. The client
+   * previously inferred the receiver from the SOURCE row, on the premise
+   * "source receiver == derivative receiver". That premise holds for
+   * `SENIOR_INCOME` (a senior declaring their own income) and FAILS for
+   * `ADMIN_INCOME` — the main path of this feature, where the source receiver
+   * is always the admin. The panel then printed the ADMIN's name against the
+   * SENIOR's share: not a missing name, a WRONG one, on the screen where an
+   * operator decides whose money moves. Static review could not catch it
+   * (the type universe genuinely is closed); a live run against real rows did.
+   *
+   * `null` when the row has no receiver or the join finds no user — the panel
+   * falls back to a family label rather than inventing an identity.
+   */
+  receiverName: string | null
   status: string
   /** `transactions.amount` on the derivative row AS STORED TODAY. */
   amount: number
@@ -290,10 +308,36 @@ export type CascadeWarning = z.infer<typeof cascadeWarningSchema>
 export const cascadeDerivativePlanSchema = z.object({
   id: z.string().uuid(),
   type: transactionTypeSchema,
+  /**
+   * UX-1 — who this share is FOR, carried from the row itself (see
+   * `CascadeDerivativeSnapshot.receiverName` for why deriving it client-side
+   * was wrong). Reaches only ADMIN: the sole route onto the wire is
+   * `GET /transactions/:id/edit-preview`, which is `@Roles('ADMIN')` at the
+   * guard layer AND re-checks `currentUser.role !== 'ADMIN'` in the service —
+   * a viewer who already sees every counterparty unmasked in `mapTx`. Pinned
+   * negatively by the preview RBAC specs so widening that route goes red
+   * instead of quietly carrying an identity along.
+   */
+  receiverName: z.string().nullable(),
   /** Current stored amount — `pending_obligations.amount` when an obligation exists (always USDT), else the derivative row's own `amount`. */
   oldAmount: z.number(),
-  /** `roundShareAmount(newSourceAmount, sharePercent)`, or `null` when `sharePercent` is `null` (NO_SHARE_SNAPSHOT). */
+  /**
+   * What this row's `amount` WILL BE after saving — `null` when `sharePercent`
+   * is `null` (NO_SHARE_SNAPSHOT). Floored at `settledAmount`, exactly as
+   * `applyEditCascade` writes it, so the screen cannot describe a figure the
+   * system has already decided not to store (QA-H-1).
+   */
   newAmount: z.number().nullable(),
+  /**
+   * What the share COMES OUT TO — `roundShareAmount(newSourceAmount,
+   * sharePercent)`, before the accumulator floor. Equal to `newAmount` except
+   * when the recomputed share falls below what has already been paid; that gap
+   * IS the overpayment, and it is what the `OVERPAYMENT` warning quotes and
+   * what `applyEditCascade` journals as `CASCADE_OVERPAYMENT`. Carried rather
+   * than re-derived on the write side: re-deriving is how the two descriptions
+   * drifted apart in the first place (ADR AC4).
+   */
+  recomputedShare: z.number().nullable(),
   /** The percent this plan computed `newAmount` from — `null` alongside `newAmount`. */
   sharePercent: z.number().int().nullable(),
   /**
@@ -392,6 +436,55 @@ export function amountsDiffer(a: number, b: number): boolean {
   return Number(a).toFixed(6) !== Number(b).toFixed(6)
 }
 
+/**
+ * Are «сколько уже выплачено» and «сколько должно быть» the same unit?
+ *
+ * HIGH-2 / HIGH-2-residual, stated once. `settledAmount` is accumulated in the
+ * currency the payment was actually made in (`settleByCompany` stamps
+ * `settled_currency`), while the figure it is compared against is always in the
+ * ROW's own currency. A drop obligation closed in UAH puts ~2000 into the
+ * accumulator and would call almost any USDT edit an overpayment.
+ *
+ * A zero accumulator is never a mismatch: there is nothing to compare, so a
+ * stale currency column says nothing. A NON-zero accumulator whose currency was
+ * never recorded IS a mismatch — "unknown" is not "assume it matches", the same
+ * refusal-to-guess `NO_SHARE_SNAPSHOT` applies one field over.
+ *
+ * Extracted for task 5: `resolveDerivative` below asks it about a RECOMPUTED
+ * share, and three UI surfaces ask it about a row's own stored amount. Same
+ * question, and therefore deliberately not two spellings of it.
+ */
+export function settledCurrencyMismatch(
+  settledAmount: number,
+  settledCurrency: CurrencyEnum | null,
+  rowCurrency: CurrencyEnum,
+): boolean {
+  return settledAmount > 0 && settledCurrency !== rowCurrency
+}
+
+/**
+ * What is still owed: `max(0, amount - settledAmount)`, or `null` when the two
+ * are not the same unit (`settledCurrencyMismatch` above).
+ *
+ * Both refusals are load-bearing, not defensive padding:
+ *   - the floor at zero, because an overpaid row owes nothing and «осталось
+ *     −100» is a figure no operator can act on;
+ *   - the `null`, because a manufactured cross-currency difference would be
+ *     shown as «к доплате» and paid.
+ *
+ * `.toFixed(6)` before `Math.max` is the same MONEY_SCALE-safe rounding
+ * `roundShareAmount` uses — without it a stray float tail
+ * (`199.99999999999997`) reaches the screen.
+ */
+export function remainingAgainstAccumulator(
+  amount: number,
+  settledAmount: number,
+  currencyMismatch: boolean,
+): number | null {
+  if (currencyMismatch) return null
+  return Math.max(0, Number((amount - settledAmount).toFixed(6)))
+}
+
 function resolveDerivative(
   derivative: CascadeDerivativeSnapshot,
   newSourceAmount: number,
@@ -441,8 +534,10 @@ function resolveDerivative(
     return {
       id: derivative.id,
       type: derivative.type as CascadeDerivativePlan['type'],
+      receiverName: derivative.receiverName,
       oldAmount,
       newAmount: null,
+      recomputedShare: null,
       sharePercent: null,
       currency: sourceCurrency,
       settledAmount,
@@ -460,7 +555,27 @@ function resolveDerivative(
     }
   }
 
-  const newAmount = roundShareAmount(newSourceAmount, sharePercent)
+  // QA-H-1 (manual QA, HIGH) — TWO figures, because they are two different
+  // facts and conflating them is what let the preview describe a number the
+  // system had already decided never to store.
+  //
+  //   `recomputedShare` — what the share COMES OUT TO from the new source
+  //                       amount. The subject of the overpayment warning.
+  //   `newAmount`       — what this row's `amount` WILL BE after saving.
+  //
+  // They differ exactly when the recomputed share falls below what has already
+  // been paid. `applyEditCascade` has always floored the write at the
+  // accumulator (a row whose `amount` sits under `settled_amount` leaves a
+  // negative remainder and an obligation nobody can close), but the floor —
+  // extracted into `floorAmountAtAccumulator` by #608 and applied there to the
+  // SOURCE amount — never reached the derivative side of the resolver. So the
+  // panel showed «100 → 50» and the row came out at 100, measured by QA with a
+  // SQL dump either side.
+  //
+  // That is precisely the risk AC4 of the ADR names, and the reason it insists
+  // the description live in ONE place: the same defect shape as #607 and #608,
+  // a third time.
+  const recomputedShare = roundShareAmount(newSourceAmount, sharePercent)
 
   // HIGH-2 (security-review round 1) + HIGH-2-residual (round 2): `newAmount`
   // is always a share of `newSourceAmount`, expressed in the SOURCE's OWN
@@ -496,13 +611,29 @@ function resolveDerivative(
   //     `NO_SHARE_SNAPSHOT` above already applies. Unreachable today (a
   //     settle always stamps `settled_amount`/`settled_currency` together),
   //     kept correct anyway so a future write path cannot silently violate it.
-  const currencyMismatch = settledAmount > 0 && settledCurrency !== sourceCurrency
+  const currencyMismatch = settledCurrencyMismatch(settledAmount, settledCurrency, sourceCurrency)
+
+  // The floor is skipped when the two figures are not the same unit, for the
+  // same refusal-to-guess reason `remainingToPay` and `overpaid` are: `max()`
+  // over 2000 UAH and 50 USDT is not a bigger number, it is a meaningless one,
+  // and putting it on screen as «Стало» would be worse than the raw share.
+  // (`applyEditCascade`'s own floor is left exactly as it was — this changes
+  // what is SHOWN, never what is written.)
+  //
+  // `null` rather than a second conditional: `floorAmountAtAccumulator` already
+  // documents "no accumulator ⇒ NO floor" and implements it on exactly that
+  // input, so passing `null` reuses the law instead of restating it. It also
+  // matters — `settledAmount` is a NUMBER here (0 when the row never settled),
+  // and `Math.max(requested, 0)` would clamp a negative probe to zero, which is
+  // the very second rule that helper's comment refuses to state. The
+  // mutation-gate boundary case in this module's spec probes with a negative
+  // amount precisely to keep that distinction observable.
+  const comparableAccumulator = !currencyMismatch && settledAmount > 0 ? settledAmount : null
+  const newAmount = floorAmountAtAccumulator(comparableAccumulator, recomputedShare)
 
   // Same MONEY_SCALE-safe rounding as roundShareAmount itself — avoids a
   // stray float tail like 199.99999999999997 in remainingToPay.
-  const remainingToPay = currencyMismatch
-    ? null
-    : Math.max(0, Number((newAmount - settledAmount).toFixed(6)))
+  const remainingToPay = remainingAgainstAccumulator(newAmount, settledAmount, currencyMismatch)
   // MED-A (security-review round 2): AC3 defines "переплата" purely through
   // the MONOTONIC `settledAmount` accumulator — the exact same principle
   // HIGH-1 (round 1) already established for reading that accumulator at
@@ -513,14 +644,40 @@ function resolveDerivative(
   // warning — silently losing exactly the money HIGH-1 made visible in
   // `settledAmount` one field over. Money already paid out does not stop
   // being paid out because the row's status flipped back.
-  const overpaid = !currencyMismatch && settledAmount > 0 && newAmount < settledAmount
-  const needsReconfirm = currencyMismatch ? isSettled : isSettled && newAmount > settledAmount
+  // Both read the RECOMPUTED share, never the floored figure: after the floor
+  // `newAmount >= settledAmount` always holds, so asking `newAmount <
+  // settledAmount` would silence the overpayment warning on exactly the
+  // population it exists for. (`needsReconfirm` is provably unchanged either
+  // way — `max(raw, settled) > settled` and `raw > settled` agree on every
+  // input — but it says what it means when written against the share.)
+  const overpaid = !currencyMismatch && settledAmount > 0 && recomputedShare < settledAmount
+  const needsReconfirm = currencyMismatch ? isSettled : isSettled && recomputedShare > settledAmount
 
   const warnings: CascadeWarning[] = []
   if (overpaid) {
     warnings.push({
       code: 'OVERPAYMENT',
-      message: `Уже выплачено ${settledAmount} — пересчитанная доля ${newAmount} меньше выплаченного, строка остаётся оплаченной`,
+      // COPY-M-4 (copy-review): every neighbour in this family names a remedy;
+      // this one — the only message about money that was ACTUALLY overpaid —
+      // named none, so the operator learned that an overpayment exists and not
+      // whether it comes back. The remedy itself stays unprescribed on purpose
+      // (write-off vs claw-back is a human decision, ADR AC3); what the text
+      // now closes is the dangerous half of the silence.
+      // COPY-L-7: «сумма», not «сумма строки» — the longest line in the panel
+      // (6 rows at 320px) brought to parity with the PAID branch. Deliberately
+      // NOT «сумма останется прежней», which the copy reviewer flagged: in this
+      // branch the amount DOES change — it is raised to the accumulator.
+      //
+      // QA-H-1, second layer: ONE text was describing TWO outcomes, and was
+      // false for the second. «Строка остаётся оплаченной» is right for a PAID
+      // obligation that stays PAID (the write-nothing branch of
+      // `applyEditCascade`). It is simply untrue for a row that was reverted to
+      // PENDING_PAYMENT earlier and is still open now: that row is PENDING when
+      // this is shown and PENDING after saving — what happens to it is that its
+      // amount is held at the accumulator and nothing more is owed.
+      message: isSettled
+        ? `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, строка остаётся оплаченной, разница сама не вернётся`
+        : `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, сумма останется на уровне выплаченного, разница сама не вернётся`,
     })
   }
   if (derivative.hasSignedInvoice) {
@@ -549,8 +706,10 @@ function resolveDerivative(
   return {
     id: derivative.id,
     type: derivative.type as CascadeDerivativePlan['type'],
+    receiverName: derivative.receiverName,
     oldAmount,
     newAmount,
+    recomputedShare,
     sharePercent,
     currency: sourceCurrency,
     settledAmount,
@@ -718,13 +877,53 @@ export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSche
  * path's 400 body and the preview's blocked reason are two renderings of ONE
  * text, and so task 5's UI can show the same sentence without restating it.
  */
+/**
+ * QA-H-2 (manual QA, HIGH) — the two fields a PAID row locks, and why.
+ *
+ * These live here, beside the ledger-fact family, for the reason that family
+ * lives here: the SERVER raises them as a 400 and the CLIENT shows them
+ * proactively, and a text duplicated across that boundary drifts. Same register
+ * as the four above — name the CARRIER of the refusal, then the remedy, one
+ * sentence, no closing period.
+ *
+ * COPY-L-5: the currency text explains itself with a fact about the CURRENCY
+ * («платёж уже прошёл в этой валюте»), not about the amount — a reader standing
+ * at the currency selector was being handed an argument about the neighbouring
+ * field. COPY-L-6: «правьте», the verb the four ledger-fact messages already
+ * use; one remedy should not have two verbs.
+ *
+ * The refusal itself is not new; it was `Cannot change currency or salary month
+ * of a settled (PAID) transaction`, in English, delivered only after the click.
+ * English is a rule violation on its own (`russian-language.md`), and it was
+ * the last refusal in the cascade still shaped that way while its neighbours
+ * had already been fixed.
+ */
+export const PAID_ROW_LOCKED_FIELD_MESSAGES = {
+  /** One PAID non-USDT company-shaped row halts every payout in the system (`assertNoOffCurrencyCompanyRows`). */
+  CURRENCY:
+    'Валюта оплаченной строки не редактируется — платёж уже прошёл в этой валюте, правьте сторнирующей транзакцией',
+  /** Keys monthly aggregates and a unique index (`uq_transactions_salary_receiver_month`). */
+  SALARY_MONTH:
+    'Месяц зарплаты на оплаченной строке не редактируется — по нему уже посчитаны месячные итоги, правьте сторнирующей транзакцией',
+} as const
+
 export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, string> = {
   PAYMENT_FACT_RECORDED:
     'На этой строке зафиксирован факт платежа (сумма и курс) — сумма не редактируется, исправьте документ об оплате',
+  // COPY-M-3 (copy-review): these two used to open with the SAME four words
+  // («Эта строка закрывает обязательство»), while describing different facts —
+  // the first has an accumulator of actual transfers behind it, the second IS
+  // the closing transaction. The second also explained itself with itself
+  // («сумма подтверждена закрытым обязательством»). Neither text changed in the
+  // diff of this task, but this is the first task in which a human ever sees
+  // them: before the preview panel existed, `blockedReason` had no reader.
+  //
+  // «Расчёт» is the glossary name for a settle (`CONTEXT.md`), so the second
+  // one now names a carrier instead of restating its own label.
   SETTLED_AMOUNT_RECORDED:
-    'Эта строка закрывает обязательство, её сумма подтверждена фактическими выплатами — правьте сторнирующей транзакцией, а не суммой',
+    'По этой строке уже прошли выплаты — её сумма подтверждена фактически перечисленным, правьте сторнирующей транзакцией',
   CLOSES_OBLIGATION:
-    'Эта строка закрывает обязательство — сумма подтверждена закрытым обязательством, правьте сторнирующей транзакцией',
+    'Этой строкой закрыто обязательство — её сумма зафиксирована в расчёте, правьте сторнирующей транзакцией',
   ONCHAIN_DEPOSIT:
     'Сумма депозита сверена с блокчейном — она не редактируется, оформляйте расхождение отдельной транзакцией',
 }

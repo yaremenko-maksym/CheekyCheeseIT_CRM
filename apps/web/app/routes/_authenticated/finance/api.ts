@@ -1,5 +1,9 @@
 import { api } from '@/lib/axios'
-import { incomeComplianceOverviewSchema, type IncomeComplianceOverviewDto } from '@crm/shared'
+import {
+  cascadeEditPreviewResponseSchema,
+  incomeComplianceOverviewSchema,
+  type IncomeComplianceOverviewDto,
+} from '@crm/shared'
 import type {
   FinanceSummaryDto,
   TransactionDto,
@@ -91,6 +95,23 @@ export const financeApi = {
 
   adminUpdateTransaction: (id: string, data: AdminUpdateTransactionDto) =>
     api.patch<TransactionDto>(`/transactions/${id}/admin-edit`, data).then((r) => r.data),
+
+  /**
+   * task-cascade-preview-ui (task 5). Read-only preview of what editing a PAID
+   * row's amount would cascade to — the shares and obligations it drags with
+   * it, what has already been paid out of them, and which of them would go back
+   * to «ожидание выплаты».
+   *
+   * Parsed through the SAME schema the server validated on the way out, so a
+   * contract drift fails here rather than three renders deep inside the panel.
+   * The `version` it returns is what `adminUpdateTransaction` must send back as
+   * `cascadeVersion`: the plan the operator saw is the plan the server applies,
+   * or it refuses with a 409.
+   */
+  getEditCascadePreview: (id: string, amount: number) =>
+    api
+      .get<unknown>(`/transactions/${id}/edit-preview`, { params: { amount } })
+      .then((r) => cascadeEditPreviewResponseSchema.parse(r.data)),
 
   // task-receipts-frontend. Generic attach/replace-receipt endpoint — used by
   // `AttachReceiptSheet` (row icon + detail-dialog entry points). RBAC/status

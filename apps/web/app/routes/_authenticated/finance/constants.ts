@@ -1,5 +1,43 @@
-import type { TransactionType, TransactionStatus } from '@crm/shared'
+import {
+  CASCADE_LEDGER_FACT_MESSAGES,
+  type CascadeEditPreviewBlockedReason,
+  type TransactionType,
+  type TransactionStatus,
+} from '@crm/shared'
 import { formatAmount } from '@/lib/format-amount'
+
+/**
+ * task-cascade-preview-ui (task 5) — why the amount on THIS row cannot be
+ * edited, in the operator's language.
+ *
+ * Four of the six come straight from `@crm/shared`: the write path's 400 body
+ * and the preview's blocked reason are two renderings of ONE sentence, and this
+ * screen is the third — restating them here would be a second description of a
+ * refusal, which is exactly the drift the shared constant exists to prevent.
+ *
+ * Two are written here because they have no server-side counterpart to reuse:
+ * `PAYOUT_FAMILY` and `LINKED_TO_PAYOUT_REQUEST` are decided by
+ * `getEditCascadePreview` before a plan is built. They follow the register of
+ * the four above deliberately — name the CARRIER of the number, then name the
+ * remedy, one sentence, no closing period — because they are rendered in the
+ * same banner, one after another, and a register change reads as a different
+ * system talking.
+ */
+export const CASCADE_BLOCKED_REASON_MESSAGES: Record<CascadeEditPreviewBlockedReason, string> = {
+  ...CASCADE_LEDGER_FACT_MESSAGES,
+  PAYOUT_FAMILY:
+    'Это строка выплаты — сумма подтверждена исполненным переводом, она не редактируется, правьте сторнирующей транзакцией',
+  LINKED_TO_PAYOUT_REQUEST:
+    'Строка включена в оформленную заявку на выплату — сумма уже вошла в расчёт перевода, правьте сторнирующей транзакцией',
+}
+
+/**
+ * Shown when `editable` is false but `blockedReason` is not one of the six —
+ * impossible by the contract, and therefore exactly the case where a
+ * `Record` lookup would render `undefined` into the DOM instead of saying
+ * anything. An honest short sentence beats a blank refusal.
+ */
+export const CASCADE_BLOCKED_FALLBACK_MESSAGE = 'Правка суммы для этой строки недоступна'
 
 export const TYPE_LABELS: Record<TransactionType, string> = {
   ADMIN_INCOME: 'Приход Admin',

@@ -335,6 +335,34 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(drop.needsReconfirm).toBe(false)
     })
 
+    // ── UX-1 (design fidelity, HIGH, reopened) ──────────────────────────────
+    it('UX-1: each derivative names ITS OWN receiver, read from Postgres — never the source row’s', async () => {
+      // Why this belongs in an INTEGRATION spec and not only in the unit
+      // double: the fix is a Drizzle relational read
+      // (`with: { receiver: { columns: { displayName: true } } }`), and a mock
+      // that returns canned rows cannot tell a working join from a missing one
+      // — it would answer the same either way. Only a real round-trip proves
+      // the column arrives. (This is the same gap the SR-M-1 docblock in
+      // `transaction-settled-exposure.unit.spec.ts` was corrected for claiming
+      // a companion spec that did not exist; here the companion is real.)
+      //
+      // `declare()` books an ADMIN_INCOME — the MAIN path of this feature, and
+      // exactly the shape where deriving the name from the source was wrong:
+      // the source is received by the admin, each share by someone else.
+      const income = await declare(1000)
+      const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
+
+      const senior = plan.plan!.derivatives.find((d) => d.type === 'SENIOR_PENDING_PAYOUT')!
+      const drop = plan.plan!.derivatives.find((d) => d.type === 'DROP_PENDING_PAYOUT')!
+
+      expect(senior.receiverName).toBe(SENIOR.displayName)
+      expect(drop.receiverName).toBe(DROP.displayName)
+      // The defect itself, stated: the admin received the SOURCE, so their name
+      // appearing on a share is the bug this test exists to prevent.
+      expect(senior.receiverName).not.toBe(ADMIN_MAKSYM.displayName)
+      expect(drop.receiverName).not.toBe(ADMIN_MAKSYM.displayName)
+    })
+
     // ── AC8 — ADMIN, a derivative already settled (real settled_* columns) ───
     it('ADMIN: senior derivative already settled → plan reads REAL settled_amount/settled_share_percent, needsReconfirm true', async () => {
       const income = await declare(1000)
@@ -447,7 +475,13 @@ describe.skipIf(!hasDatabaseUrl())(
       const plan = await svc.getEditCascadePreview(income.id, 100, ADMIN_MAKSYM)
       const senior = plan.plan!.derivatives.find((d) => d.id === obligation.sourceTransactionId)!
       expect(senior.settledAmount).toBeCloseTo((1000 * SENIOR_SHARE) / 100, 6)
-      expect(senior.newAmount).toBeCloseTo(26, 6)
+      // QA-H-1: 26 is what the share RECOMPUTED to; `newAmount` is what the row
+      // will actually hold, floored at the 260 already paid. This assertion
+      // used to read `newAmount === 26`, which is precisely the divergence
+      // manual QA measured against a SQL dump — the preview describing a figure
+      // the write had already decided not to store.
+      expect(senior.recomputedShare).toBeCloseTo(26, 6)
+      expect(senior.newAmount).toBeCloseTo((1000 * SENIOR_SHARE) / 100, 6)
       expect(senior.remainingToPay).toBe(0)
       // The bug this pins: the old `isSettled && ...` gate never fired here
       // because the row is PENDING, not PAID — money already paid out went

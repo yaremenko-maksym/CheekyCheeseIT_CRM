@@ -46,6 +46,7 @@ import {
   type ExchangeRates,
 } from '../../constants'
 import { financeApi } from '../../api'
+import { settlementSplit } from '../../cascade-preview'
 import { ReceiptPanel } from './receipt-panel'
 import { AttachReceiptSheet } from './AttachReceiptSheet'
 import { canAttachReceipt } from '../receipt-permissions'
@@ -457,6 +458,8 @@ export function TransactionDetailDialog({
   const showReceiptPanel = t ? RECEIPT_ELIGIBLE_TYPES.has(t.type) : false
   const hasExistingReceipt = !!(t?.receiptDocumentId || t?.receiptExternalUrl)
   const showAttachButton = t ? canAttachReceipt(t, user?.id, user?.role ?? '') : false
+  // Same audience the server already uses for the audit fields on this DTO.
+  const privileged = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
   return (
     <>
@@ -496,6 +499,7 @@ export function TransactionDetailDialog({
                     rates={rates}
                     isLoading={isLoading}
                     detailReady={!!detail}
+                    privileged={privileged}
                   />
                 </div>
                 <div className="min-w-0 space-y-2">
@@ -525,6 +529,7 @@ export function TransactionDetailDialog({
                   rates={rates}
                   isLoading={isLoading}
                   detailReady={!!detail}
+                  privileged={privileged}
                 />
               </div>
             )}
@@ -562,12 +567,25 @@ function TransactionInfoBlock({
   rates,
   isLoading,
   detailReady,
+  privileged,
 }: {
   t: TransactionDto
   rates: ExchangeRates | undefined
   isLoading: boolean
   detailReady: boolean
+  /** ADMIN/ACCOUNTANT — the audience for the internal payment-fact triplet. */
+  privileged: boolean
 }) {
+  // task-cascade-preview-ui (task 5): null on every row without an accumulator.
+  const settlement = settlementSplit(t)
+  // UX-8: ONE narrowed value, the same shape `TransactionRow` settled on for
+  // this exact question. A separate `remaining !== null` test would be dead at
+  // RUNTIME — `null > 0` is already false in JS, which the mutation gate proved
+  // by surviving its removal — but not dead to the type system, since dropping
+  // it alone leaves `number | null` inside the branch. Cross-currency (`null`)
+  // and fully closed (`0`) mean the same thing here: no actionable remainder.
+  const remainingToPay = settlement?.remaining ?? 0
+
   return (
     <>
       {/* Amount + status header */}
@@ -597,6 +615,66 @@ function TransactionInfoBlock({
           </span>
         </div>
       </div>
+
+      {/* task-cascade-preview-ui (task 5). What has actually been paid against
+          this obligation, and what is still owed. Rendered only when there IS
+          an accumulator — the split is meaningless on a row that was never
+          partly settled, and until tasks 3/3b such a row could not exist. */}
+      {settlement && (
+        <Row icon={<Wallet className="h-4 w-4" />} label="Выплачено">
+          <span className="tabular-nums" data-testid="tx-detail-settled">
+            {fmtAmount(settlement.settled, settlement.settledCurrency)}
+          </span>
+          {/* UX-8 (design fidelity): `> 0`, not merely «есть остаток». This is
+              the THIRD surface of UX-3 — `TransactionRow` and
+              `CascadeImpactPanel` stopped printing a remainder of zero two
+              rounds ago, and this dialog, reading the very same
+              `settlementSplit`, kept printing «К доплате: 0,00» beside an
+              obligation whose own badge already says «Оплачено». */}
+          {remainingToPay > 0 && (
+            <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+              К доплате: {fmtAmount(remainingToPay, t.currency)}
+            </span>
+          )}
+        </Row>
+      )}
+
+      {/* task-cascade-preview-ui (task 5), the payment-fact triplet. Already on
+          the wire since task-salary-pay-amount and read by nothing — so an
+          operator who hits the `PAYMENT_FACT_RECORDED` refusal («на этой строке
+          зафиксирован факт платежа») had no way to see the fact they were being
+          refused over. A refusal whose cause is invisible is worse than the
+          refusal itself. ADMIN/ACCOUNTANT only: an internal accounting detail,
+          the same audience as the other audit fields in this dialog.
+
+          SR-L-2 (security-review): this is a RENDER gate, not RBAC. The triplet
+          is on the wire for every role that can see the row — `mapTx` does not
+          mask it — so `privileged` hides it from the SCREEN and nothing more.
+          Reading it as a server-side restriction would be wrong. Pre-existing
+          on the wire; recorded here so the next reader is not misled. */}
+      {privileged && t.originalAmount != null && (
+        <Row icon={<Percent className="h-4 w-4" />} label="Факт платежа">
+          {/* COPY-M-6: «Обязательство» is the glossary name of a
+              `pending_obligations` row, and a SALARY — one of the two writers
+              of this triplet (`paySalary`, drop-settle) — has none. Plain words
+              that are true for both writers. */}
+          <span className="tabular-nums" data-testid="tx-detail-payment-fact">
+            Было должно: {fmtAmount(t.originalAmount, t.originalCurrency ?? t.currency)}
+          </span>
+          {/* COPY-M-5: the same shape `fmtRate` prints one row up
+              («1 EUR = 1.0800 USD»). «×0.0243» did not say what to multiply by
+              what, and a rate reads identically to its reciprocal — unusable on
+              the one screen that exists so an accountant can CHECK the figure.
+              `exchangeRate` is paid-currency units per 1 unit of what was owed,
+              so the owed currency is the left-hand side. */}
+          {t.exchangeRate != null && (
+            <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+              Курс: 1 {t.originalCurrency ?? t.currency} = {Number(t.exchangeRate).toFixed(4)}{' '}
+              {t.currency}
+            </span>
+          )}
+        </Row>
+      )}
 
       {/* Date */}
       <Row icon={<Calendar className="h-4 w-4" />} label="Дата">
