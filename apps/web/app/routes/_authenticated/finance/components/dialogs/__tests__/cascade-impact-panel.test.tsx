@@ -734,26 +734,41 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.queryByText(/Данные изменились/)).toBeNull()
   })
 
-  it('CP-38. finding 107 — Save is unavailable in the window before the debounced preview exists', async () => {
+  it('CP-38. finding 107 — Save is unavailable, and the panel explains why, in the window before the debounced preview exists', async () => {
     // The gate that makes CP-25 true is built off `shouldPreview`, which is
     // itself built off the DEBOUNCED figure — deliberately, so five
     // keystrokes fire one preview (CP-17), not five. That lag opens a window
     // on the VERY FIRST edit of a PAID row: right after the keystroke,
     // `debouncedAmount` still equals `tx.amount`, so `shouldPreview` reads
-    // false — no panel mounts, nothing marks the edit as a cascade edit — and
-    // before this fix Save stayed enabled for the ~400 ms until the debounce
-    // caught up. A click there sent the new amount with NO version token; the
-    // server refused it with "откройте предпросмотр", pointing at a panel
-    // that was not on screen to open.
+    // false — no version token exists yet, and a click there would send the
+    // new amount with none. `liveAmountNeedsPreview` closes it for the
+    // BUTTON synchronously, before the debounce (or React's own effect
+    // scheduling) has had any chance to run.
     renderDialog()
     typeAmount('25000')
 
     // Synchronous — no `await`, no `findBy*`: this is the exact instant the
-    // bug lived in, before the 400 ms debounce (or React's own effect
-    // scheduling) has had any chance to run.
+    // window opens.
     expect(getEditCascadePreviewMock).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('cascade-impact-panel')).toBeNull()
     expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
+
+    // COPY-H-1 (copy-review, HIGH, PR #613 round 2): a disabled button is not
+    // the whole fix. The round that closed the button-side of this window
+    // left it unmounted on screen — `CascadeImpactPanel` mounted on
+    // `shouldPreview` alone, which is false throughout this exact window by
+    // construction. "~400 ms" undersold it besides: the debounce timer
+    // restarts on every keystroke, so while the operator keeps typing this
+    // window does not close at all — seconds, not milliseconds, of a dark
+    // button with nothing on screen saying why. The panel now mounts on the
+    // SAME live rule the button's own gate uses, and shows the recompute
+    // state CR-M-1 already wrote for the debounce window — no new copy, an
+    // existing message reused for a window it used to miss entirely.
+    expect(screen.getByTestId('cascade-impact-panel')).toBeTruthy()
+    expect(screen.getByTestId('cascade-preview-loading')).toBeTruthy()
+    // The server has not been asked anything yet, so there is nothing to
+    // name a specific reason for — the blocked-note stays reserved for a
+    // plan the server actually returned (CP-9/CP-27/CP-28).
+    expect(screen.queryByTestId('cascade-save-blocked-note')).toBeNull()
 
     // A disabled button does not dispatch a click handler at all (real DOM
     // behaviour, honoured by jsdom) — so this is also the proof that a click
