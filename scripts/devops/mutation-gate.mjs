@@ -50,9 +50,13 @@
  *
  * VERDICT RULES
  * -------------
- *   Survived      → RED. Not a percentage: the eight findings above were single
- *                   mutants each, and any percentage threshold would have passed
- *                   them.
+ *   Survived      → RED, UNLESS Stryker's own report says zero tests ran for
+ *                   that specific mutant (`testsCompleted === 0`) — see
+ *                   "TOOL FAILURE vs a surviving mutant" below. A genuine
+ *                   survivor (tests ran, none failed) is still red, and still
+ *                   not a percentage: the eight findings above were single
+ *                   mutants each, and any percentage threshold would have
+ *                   passed them.
  *   Ignored       → allowed ONLY with a reason (`// Stryker disable next-line
  *                   <mutator>: <why>`). The reason is read back out of Stryker's
  *                   own report, so a suppression without one is red HERE too, not
@@ -72,6 +76,40 @@
  *                   the direction of the risk: a too-TIGHT timeout turns
  *                   survivors into false "killed", i.e. a false GREEN. That is
  *                   why timeoutMS below is generous rather than tight.
+ *
+ * TOOL FAILURE vs A SURVIVING MUTANT
+ * -----------------------------------
+ * @stryker-mutator/api's own toMutantRunResult() (run-result-helpers.js) has
+ * exactly one rule for a completed mutant run: no failing test → Survived.
+ * It does not ask HOW MANY tests ran first — a run that executed zero tests
+ * and a run that executed the whole suite both read as "no failure", so both
+ * come back Survived. The one field that tells them apart is written into
+ * Stryker's own JSON report for every Survived mutant regardless
+ * (mutation-test-report-helper.js: `testsCompleted: result.nrOfTests`), and
+ * this gate was not reading it. A mutant the runner never actually exercised
+ * was therefore reported, and blocked, exactly like one real tests looked at
+ * and missed — accusing the CODE of a gap that was actually the TOOL's.
+ *
+ * This is not hypothetical: reproduced live on this repo, 2026-08-25 — a
+ * `@crm/web` diff (task 5/6, cascade edit-preview) generated 33 mutants,
+ * Stryker's own clear-text reporter printed "Ran 0.00 tests per mutant on
+ * average", and all 33 carried `testsCompleted: 0` in the JSON report despite
+ * real, passing unit specs existing for that code. See
+ * scripts/devops/mutation-gate-runbook.md "Tool failure vs a surviving
+ * mutant" for the reproduction and for why the mechanism (believed to be
+ * `vitest.related` test-file resolution not surviving Stryker's per-mutant
+ * sandbox path) is named but deliberately NOT fixed here — that is separate,
+ * harder work, and this task's job is the gate's honesty, not the runner's
+ * behavior.
+ *
+ * The fix here is a per-mutant reclassification, nothing coarser: a
+ * `Survived` mutant with `testsCompleted === 0` is read into `toolFailures`
+ * instead of `survivors` — reported loudly (its own report section, its own
+ * counted total) but NEVER counted toward the exit code. A `Survived` mutant
+ * on the very same line with `testsCompleted > 0` is a real survivor and
+ * blocks exactly as before; nothing here raises the bar for genuine coverage,
+ * it only stops the gate from inventing a defect out of its own inability to
+ * run a test.
  *
  * TIME BUDGET
  * -----------
@@ -565,12 +603,25 @@ function readReport(reportPath, pkg) {
     Killed: 0,
     Timeout: 0,
     Survived: 0,
+    // A Stryker STATUS is never "ToolFailure" — this bucket is OURS, carved
+    // out of Survived per-mutant (see the module header, "TOOL FAILURE vs a
+    // surviving mutant"), never out of Killed/Timeout/NoCoverage/etc. It
+    // exists so the per-package table below can show a total that still adds
+    // up: Killed+Timeout+Survived+ToolFailure+NoCoverage+Ignored+errors is
+    // every mutant Stryker generated, same as before this bucket existed.
+    ToolFailure: 0,
     NoCoverage: 0,
     Ignored: 0,
     CompileError: 0,
     RuntimeError: 0,
   }
   const survivors = []
+  // Same shape as `survivors` ({ where, mutator, replacement }) — deliberately,
+  // so every place that already knows how to print a survivor (the PR-body
+  // list, the ::error/::warning annotation) can print one of these with the
+  // same code, just a different label and a different verb ("NOT VERIFIED",
+  // not "SURVIVED").
+  const toolFailures = []
   const uncovered = []
   const badSuppressions = []
   // EVERY Ignored mutant, not just the reasonless ones — this is what AC2 of
@@ -581,8 +632,22 @@ function readReport(reportPath, pkg) {
 
   for (const [file, entry] of Object.entries(report.files ?? {})) {
     for (const mutant of entry.mutants ?? []) {
-      counts[mutant.status] = (counts[mutant.status] ?? 0) + 1
       const where = `${pkg.dir}/${file}:${mutant.location?.start?.line ?? '?'}`
+
+      // Reclassify BEFORE the generic tally below, and PER MUTANT — never by
+      // file, package, or "this run looked suspicious": Stryker's own
+      // `testsCompleted` (mutation-test-report-helper.js:
+      // `testsCompleted: result.nrOfTests`, written for every Survived
+      // mutant) is the one fact that tells "the runner executed zero tests"
+      // apart from "tests ran and missed it". A mutant on the SAME line
+      // that a test DID execute stays a real survivor two lines down.
+      if (mutant.status === 'Survived' && (mutant.testsCompleted ?? 0) === 0) {
+        counts.ToolFailure++
+        toolFailures.push({ where, mutator: mutant.mutatorName, replacement: mutant.replacement })
+        continue
+      }
+
+      counts[mutant.status] = (counts[mutant.status] ?? 0) + 1
       if (mutant.status === 'Survived') {
         survivors.push({ where, mutator: mutant.mutatorName, replacement: mutant.replacement })
       } else if (mutant.status === 'NoCoverage') {
@@ -597,7 +662,7 @@ function readReport(reportPath, pkg) {
       }
     }
   }
-  return { counts, survivors, uncovered, badSuppressions, suppressed }
+  return { counts, survivors, toolFailures, uncovered, badSuppressions, suppressed }
 }
 
 /**
@@ -786,12 +851,14 @@ async function main() {
     Killed: 0,
     Timeout: 0,
     Survived: 0,
+    ToolFailure: 0,
     NoCoverage: 0,
     Ignored: 0,
     CompileError: 0,
     RuntimeError: 0,
   }
   const allSurvivors = []
+  const allToolFailures = []
   const allUncovered = []
   const allBadSuppressions = []
   const allSuppressed = []
@@ -845,6 +912,7 @@ async function main() {
 
     for (const k of Object.keys(totals)) totals[k] += parsed.counts[k] ?? 0
     allSurvivors.push(...parsed.survivors)
+    allToolFailures.push(...parsed.toolFailures)
     allUncovered.push(...parsed.uncovered)
     allBadSuppressions.push(...parsed.badSuppressions)
     allSuppressed.push(...parsed.suppressed)
@@ -861,13 +929,19 @@ async function main() {
   if (baseInfo) lines.push(`Base: \`${baseInfo.sha.slice(0, 12)}\` (${baseInfo.how})`)
   lines.push(`Budget: ${budgetSeconds}s · used ${totalSeconds}s · ${mutantTotal} mutant(s)`)
   lines.push('')
-  lines.push('| package | scope | killed | survived | no cov | ignored | errors | time |')
-  lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |')
+  // "survived" here is the REAL count (testsCompleted > 0) — a mutant the
+  // runner never actually executed is in "tool" instead, never both, so this
+  // row and the ToolFailure section below always add up to what Stryker
+  // generated (see readReport()'s reclassification, module header "TOOL
+  // FAILURE vs a surviving mutant").
+  lines.push('| package | scope | killed | survived | tool | no cov | ignored | errors | time |')
+  lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
   for (const p of perPackage) {
     lines.push(
       `| ${p.name} | ${p.scope} | ${(p.counts.Killed ?? 0) + (p.counts.Timeout ?? 0)} | ` +
-        `${p.counts.Survived ?? 0} | ${p.counts.NoCoverage ?? 0} | ${p.counts.Ignored ?? 0} | ` +
-        `${(p.counts.CompileError ?? 0) + (p.counts.RuntimeError ?? 0)} | ${p.seconds}s |`,
+        `${p.counts.Survived ?? 0} | ${p.counts.ToolFailure ?? 0} | ${p.counts.NoCoverage ?? 0} | ` +
+        `${p.counts.Ignored ?? 0} | ${(p.counts.CompileError ?? 0) + (p.counts.RuntimeError ?? 0)} | ` +
+        `${p.seconds}s |`,
     )
   }
 
@@ -875,10 +949,63 @@ async function main() {
   console.log(
     `mutation-gate: ${mutantTotal} mutant(s) in ${totalSeconds}s — ` +
       `killed ${totals.Killed + totals.Timeout}, survived ${totals.Survived}, ` +
-      `no-coverage ${totals.NoCoverage}, ignored ${totals.Ignored}`,
+      `tool-failure ${totals.ToolFailure}, no-coverage ${totals.NoCoverage}, ignored ${totals.Ignored}`,
   )
 
   let exitCode = 0
+
+  // ── tool failures (Survived mutants the runner executed ZERO tests for) ────
+  //
+  // Printed FIRST, ahead of every other section, and never folded into the
+  // Survived list below — see the module header ("TOOL FAILURE vs a surviving
+  // mutant") for the mechanism. Loud on purpose: this run verified NOTHING
+  // for these mutants, which is worse than an ordinary NoCoverage entry (that
+  // one at least means "expected — an integration-only path", see
+  // mutation-gate-integration-specs.md); a ToolFailure entry means the gate
+  // itself could not do its job on code that DOES have tests. Not red,
+  // though — see the "does not block" reasoning in the module header: the
+  // defect is in the runner's per-mutant test-file resolution, not in the
+  // changed code, and reds belong to the code.
+  if (allToolFailures.length > 0) {
+    lines.push(
+      '',
+      `#### ⚠️ ${allToolFailures.length} mutant(s) NOT VERIFIED — the test runner executed ZERO tests for them`,
+    )
+    lines.push(
+      '',
+      `This is a TOOL FAILURE, not a code defect and NOT a surviving mutant — Stryker's own ` +
+        `report says \`testsCompleted: 0\` for every one of these, meaning the run completed ` +
+        `having tried no test at all. "Ran to completion with no failure" is exactly what ` +
+        `Stryker calls Survived whether zero tests ran or a hundred did (see ` +
+        `@stryker-mutator/api's \`toMutantRunResult()\`); without this split every entry here ` +
+        `would read as a real survivor and block on code nobody actually tested. Does **NOT** ` +
+        `fail the build — see \`scripts/devops/mutation-gate-runbook.md\` "Tool failure vs a ` +
+        `surviving mutant" for the reproduction and the mechanism (believed to be ` +
+        `\`vitest.related\` test-file resolution, not fixed here on purpose).`,
+    )
+    const shownTF = allToolFailures.slice(0, 100)
+    if (shownTF.length < allToolFailures.length) {
+      console.log(
+        `::notice::showing the first ${shownTF.length} of ${allToolFailures.length} tool-failure mutants; the full list is in reports/mutation/*.report.json`,
+      )
+    }
+    console.log('')
+    for (const t of shownTF) {
+      const replacement = (t.replacement ?? '').replace(/\s+/g, ' ').slice(0, 160)
+      const msg =
+        `mutant NOT VERIFIED (${t.mutator}) — the test runner executed ZERO tests for it ` +
+        `(testsCompleted: 0). This is a TOOL FAILURE, not a passing check and not a surviving ` +
+        `mutant; it does not fail the build. Replacement: ${replacement}`
+      console.log(`::warning file=${t.where.split(':')[0]},line=${t.where.split(':')[1]}::${msg}`)
+      lines.push(`- \`${t.where}\` — **${t.mutator}** → \`${replacement}\``)
+    }
+    console.log(
+      `::warning::${allToolFailures.length} mutant(s) could not be verified — the test runner ` +
+        `ran ZERO tests for each of them. NOT failing the build (see ` +
+        `mutation-gate-runbook.md), but NOTHING was checked for this code either — read the ` +
+        `list above before trusting a clean exit code on this diff.`,
+    )
+  }
 
   if (allBadSuppressions.length > 0) {
     exitCode = 1

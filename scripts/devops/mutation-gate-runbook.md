@@ -65,6 +65,70 @@ the gate itself out of Stryker's report. A file-scoped `// Stryker disable`
 (without `next-line`) is always rejected: it silences code nobody has written
 yet.
 
+### `mutant NOT VERIFIED (...)` — tool failure, not a surviving mutant (warning)
+
+**What it means:** the test runner executed **zero tests** for this specific
+mutant. Stryker's own report says so directly — `testsCompleted: 0` — and that
+field is written for every `Survived` mutant regardless of whether the runner
+ran the whole suite or nothing at all
+(`@stryker-mutator/core`'s `mutation-test-report-helper.js`:
+`testsCompleted: result.nrOfTests`). "Completed, no failure" is the ONLY rule
+`@stryker-mutator/api`'s own `toMutantRunResult()` applies to decide
+`Survived` — it does not ask how many tests ran first. Before this gate read
+`testsCompleted`, a mutant nobody actually tested and a mutant real tests
+looked at and missed were the same bucket: `Survived`, blocking either way.
+
+**How this is different from a surviving mutant:** a survivor means a test
+DID run the mutated line and still passed — real verification happened and
+missed something. A tool failure means NO verification happened at all. The
+gate now tells them apart per mutant (not per file, not per package — two
+mutants on the very same line can land in different buckets, see the "mixed
+report" test case in `scripts/devops/tests/test-mutation-gate-reporting.sh`)
+and treats them differently: a real survivor still blocks the build exactly as
+before; a tool failure is reported loudly — its own report section, `::warning::`
+annotations, counted in the per-package table's `tool` column — but **never**
+counted toward the exit code.
+
+**Why it does NOT block:** the defect, whatever it is, is in the test
+runner's ability to associate a mutant with the tests that cover it — not in
+the code that was changed. Blocking a PR over a fact about the CI machine's
+tooling, on code that may well be perfectly tested, would train exactly the
+kind of learned mistrust ("the gate is just flaky, re-run it") that a mutation
+gate exists to prevent for everything else.
+
+**Live reproduction (2026-08-25, this repo, before this fix existed):** a
+`@crm/web` diff (task 5/6, cascade edit-preview — `cascade-preview.ts` +
+`AdminEditTransactionDialog.tsx`, both with real, passing unit specs) produced
+33 mutants, ALL status `Survived`, ALL with `testsCompleted: 0`. Stryker's own
+clear-text reporter said as much in plain English — `Ran 0.00 tests per mutant
+on average` — and the gate still went red, on code the runner had not
+executed a single assertion against. After the fix, the identical run: `killed
+0, survived 0, tool-failure 33` — `mutation-gate: PASS`, with the same 33
+mutants still listed, now correctly labeled and non-blocking.
+
+**Suspected mechanism, named but deliberately NOT fixed here:** the
+`@stryker-mutator/vitest-runner` plugin resolves, per mutant, which test files
+to run via Vitest's own `related` (dependency-graph) file selection, pointed
+at the SANDBOXED copy of the mutated file
+(`vitest-test-runner.js`'s `mutantRun()`: `relatedFiles: [options.sandboxFileName]`).
+If that resolution comes back empty for a mutant Stryker's coverage analysis
+otherwise believed was covered, `mutantRun()` runs zero tests, `Complete` with
+no failure, `Survived`, `testsCompleted: 0` — silently, because the one
+warning this runner does emit for that situation
+(`"Vitest failed to find test files related to mutated files"`) is logged only
+during the DRY run, never during an individual mutant run. **Fixing the
+runner's related-file resolution is separate, harder work and explicitly out
+of scope for this fix** — this fix is about the gate's HONESTY given whatever
+the runner reports, not the runner's behavior. If you find yourself tempted to
+"fix" this by touching `vitest.related` config, stop: that is the follow-up
+task, not this one.
+
+**Where this can still hide a real gap:** a tool failure is not proof the code
+IS tested elsewhere — it is proof the gate could not verify one way or the
+other on this run. Treat the file it names the same way you would treat a
+`NoCoverage` entry with no integration-spec hint (see below): worth a look,
+not an emergency.
+
 ### `N mutant(s) in changed code are not executed by any test` (warning)
 
 Changed lines no test ever reaches. Reported loudly, does **not** fail the build:
@@ -319,3 +383,18 @@ Everything lives in `scripts/devops/mutation-gate.mjs`:
   (#531: eight vs. two intended; #554: four vs. one). `groupSuppressions()`
   prints the real count from Stryker's own report specifically so nobody has to
   get this right by memory a fourth time.
+- **The tool-failure vs survivor split (above) lives ONLY in `mutation-gate.mjs`
+  — `check-mutation-tally.mjs`, which drives the NIGHTLY alert issue, does not
+  share it.** That script reads `Survived` straight off the raw Stryker report
+  (`counts.Survived`, no `testsCompleted` check) as its own, independent
+  codepath — it does not call `readReport()`. A nightly full sweep can hit the
+  same runner behavior described above (it mutates whole packages, `apps/web`
+  alone is 27947 mutants — see "Measured cost" — so the exposure is larger, not
+  smaller) and would still count a tool failure as a real survivor, potentially
+  opening or keeping open a `mutants-surviving` issue for mutants nobody's
+  tests were ever run against. Noted here rather than fixed silently — carrying
+  the same reclassification into the nightly tally is its own scoped follow-up,
+  not a one-line change (`check-mutation-tally.mjs` aggregates ACROSS reports
+  from multiple sweep-leg jobs, each a separate CI job with its own uploaded
+  artifact, which is a different shape of problem than one process reading one
+  report path it just wrote).
