@@ -440,4 +440,54 @@ describe('validateEnv — Google Indexing API env (Section G)', () => {
       expect(() => validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: 'Infinity' })).toThrow()
     })
   })
+
+  /**
+   * backlog 113 — GIT_COMMIT/BUILD_TIME, the health endpoint's build
+   * fingerprint. Both are populated ONLY by the Docker build (see the
+   * schema's own comment for the full chain) — a local `pnpm dev` boots
+   * with neither set, which must stay a legitimate, non-throwing state
+   * (HealthController is what turns "undefined" into the visible 'unknown').
+   */
+  describe('GIT_COMMIT / BUILD_TIME (backlog 113)', () => {
+    it('both omitted (local dev boot) → ok, both undefined', () => {
+      const env = validateEnv({ ...BASE_DEV })
+      expect(env.GIT_COMMIT).toBeUndefined()
+      expect(env.BUILD_TIME).toBeUndefined()
+    })
+
+    it('a real short SHA (Docker build-arg) → ok, stored as-is', () => {
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: 'a1b2c3d' })
+      expect(env.GIT_COMMIT).toBe('a1b2c3d')
+    })
+
+    it('a full 40-char SHA → ok, stored as-is', () => {
+      const fullSha = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: fullSha })
+      expect(env.GIT_COMMIT).toBe(fullSha)
+    })
+
+    it('a non-hex/garbage GIT_COMMIT throws rather than being echoed back as if real', () => {
+      expect(() => validateEnv({ ...BASE_DEV, GIT_COMMIT: 'not-a-sha!' })).toThrow(/GIT_COMMIT/)
+    })
+
+    it('BUILD_TIME is stored as-is (diagnostic-only, not parsed)', () => {
+      const env = validateEnv({ ...BASE_DEV, BUILD_TIME: '2026-08-25T00:00:00Z' })
+      expect(env.BUILD_TIME).toBe('2026-08-25T00:00:00Z')
+    })
+
+    // Regression, found by actually building+booting the API image with
+    // NEITHER --build-arg supplied: apps/api/Dockerfile's `ARG GIT_COMMIT=`
+    // default is an EMPTY STRING, and `ENV GIT_COMMIT=$GIT_COMMIT` bakes that
+    // in as a PRESENT env var (not an absent one) — `.optional()` alone does
+    // NOT catch this, because the key exists with value ''. Before the
+    // preprocess above was added, this crash-looped the container on boot
+    // (`Invalid environment variables: GIT_COMMIT: ... / BUILD_TIME: Too
+    // small`). An empty string from an unset Docker build-arg must be treated
+    // exactly like an absent variable, not like present-but-invalid input.
+    it("an EMPTY string (Docker's default for an unset --build-arg) is treated as absent, not invalid", () => {
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: '', BUILD_TIME: '' })
+      expect(env.GIT_COMMIT).toBeUndefined()
+      expect(env.BUILD_TIME).toBeUndefined()
+    })
+  })
 })

@@ -97,6 +97,24 @@ RUN pnpm --filter @crm/api --prod deploy /app/prod-deploy
 # ============================================================
 FROM node:20-alpine AS runtime
 
+# backlog 113 — build fingerprint for GET /api/health (see
+# apps/api/src/config/env.ts's GIT_COMMIT/BUILD_TIME doc + health.controller.ts
+# for the full chain). Deliberately set HERE, in the runtime stage, not the
+# builder stage above: these are plain `ENV`, not compiled into anything (the
+# API is not bundled the way apps/web's Vite build is — VITE_BUILD_VERSION
+# there needs the builder stage because Vite bakes it into the JS at compile
+# time), so there is no reason to invalidate the builder stage's Docker layer
+# cache — which DOES change every build, since the tag/timestamp differ every
+# run — for a value nothing before this line reads. No default on either ARG:
+# an empty/unset value flows through as an unset ENV, and apps/api's own env.ts
+# leaves both `undefined` rather than substituting a fake default — see that
+# file's doc for why a fabricated build identity would be worse than an
+# honest "unknown" (the whole point of this backlog item).
+ARG GIT_COMMIT=
+ENV GIT_COMMIT=$GIT_COMMIT
+ARG BUILD_TIME=
+ENV BUILD_TIME=$BUILD_TIME
+
 # Security: don't run the API as root.
 # node user (uid 1000) is built into the node:20-alpine image.
 USER node
