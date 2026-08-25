@@ -178,6 +178,42 @@ export const GLOBAL_LIMIT_DEFAULT = 100
 /** Default sliding-window TTL (ms) when THROTTLER_TTL_MS is unset. Mirrors ThrottlerModule default in app.module.ts. */
 export const GLOBAL_TTL_DEFAULT_MS = 60_000
 
+/**
+ * COPY-H-6 (copy-review, HIGH, PR #613 round 3). `@nestjs/throttler`'s own
+ * default, undocumented anywhere in THIS codebase, is the literal string
+ * `"ThrottlerException: Too Many Requests"` — English, and not one of Nest's
+ * own generic HTTP reason phrases either (`isGenericHttpReasonPhrase` in
+ * `apps/web/app/lib/axios-utils.ts` only recognises the phrases
+ * `@nestjs/common`'s own `HttpException` subclasses default to, and this
+ * string, with its `"ThrottlerException: "` prefix, is not one of them). The
+ * client's `extractBackendMessage` therefore read it as a genuine backend
+ * explanation and rendered it VERBATIM on the money screen — the exact shape
+ * of finding 110 (round 2), on a status nobody had exercised yet.
+ *
+ * Fixed HERE, at the one place the throttler emits the string, rather than
+ * by teaching the client one more English phrase to recognise
+ * (`GENERIC_HTTP_REASON_PHRASES`). That set is a list, and a list's
+ * incompleteness IS the defect — each phrase added there closes one case,
+ * never the class. This message is wired into `ThrottlerModule.forRootAsync`
+ * (`app.module.ts`) via the `errorMessage` config key
+ * (`@nestjs/throttler`'s own supported hook — `ThrottlerModuleOptions.errorMessage`,
+ * confirmed against upstream `README.md`/`_autodocs/configuration.md`), so
+ * every route behind the GLOBAL guard gets Russian text from the SERVER —
+ * consistent with how every other business message on this screen already
+ * works (`cascade-preview.ts`'s own doc: "Everything money-EXPLAINING comes
+ * from the server verbatim").
+ *
+ * Deliberately worded like `axios-utils.ts`'s own `STATUS_MESSAGES[429]`
+ * (two sentences, closing periods): this guard is GLOBAL — every route in
+ * the CRM, not only the finance/cascade module — so it speaks the app's
+ * general voice, not the cascade screen's local one-clause register. A
+ * genuine backend message still always wins first wherever it is read
+ * (`extractBackendMessage`'s own priority order); this is only what a
+ * bare 429 now carries instead of nothing.
+ */
+export const THROTTLER_ERROR_MESSAGE =
+  'Слишком много запросов подряд. Подождите немного и повторите попытку.'
+
 // ── Private helpers (called per-request via Resolvable) ─────────────────────
 
 /**

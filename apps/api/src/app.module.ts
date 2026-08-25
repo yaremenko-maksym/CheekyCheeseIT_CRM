@@ -11,6 +11,7 @@ import { UserAwareThrottlerGuard } from './common/guards/user-aware-throttler.gu
 import { ContactModule } from './contact/contact.module'
 import { validateEnv } from './config/env'
 import type { Env } from './config/env'
+import { THROTTLER_ERROR_MESSAGE } from './config/throttle-decorators'
 import { ContractsModule } from './contracts/contracts.module'
 import { CredentialsModule } from './credentials/credentials.module'
 import { CspReportsModule } from './csp-reports/csp-reports.module'
@@ -46,15 +47,26 @@ import { SeniorResumesModule } from './resumes/resumes.module'
     //
     // If neither var is set the behaviour is byte-for-byte identical to the
     // previous forRoot([{ ttl: 60_000, limit: 100 }]) call, so prod is safe.
+    //
+    // COPY-H-6 (copy-review, HIGH, PR #613 round 3): the object-config shape
+    // (`{ throttlers: [...], errorMessage }`) rather than the bare array this
+    // used to return — `@nestjs/throttler`'s own docs are explicit that
+    // `errorMessage` is only honoured in that shape ("errorMessage won't work"
+    // with the array form). Everything else (name/ttl/limit) is unchanged;
+    // see `THROTTLER_ERROR_MESSAGE`'s own doc (`throttle-decorators.ts`) for
+    // why the message itself is wired here instead of on the client.
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService<Env>) => [
-        {
-          name: 'default',
-          ttl: config.get('THROTTLER_TTL_MS', { infer: true })!,
-          limit: config.get('THROTTLER_LIMIT', { infer: true })!,
-        },
-      ],
+      useFactory: (config: ConfigService<Env>) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: config.get('THROTTLER_TTL_MS', { infer: true })!,
+            limit: config.get('THROTTLER_LIMIT', { infer: true })!,
+          },
+        ],
+        errorMessage: THROTTLER_ERROR_MESSAGE,
+      }),
     }),
     DatabaseModule,
     // Global cross-cutting providers (HrAccessService). Imported early so it is
