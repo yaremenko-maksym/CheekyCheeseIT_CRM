@@ -128,6 +128,32 @@ export function cascadeStaleMessage(err: unknown): string {
 }
 
 /**
+ * COPY-M-8 (copy-review, MED, PR #613 round 3). The shared lead-in for every
+ * `cascade-preview-error` rendering, INCLUDING the network-only line the
+ * caller owns (`AdminEditTransactionDialog`'s own "проверьте соединение"
+ * case — see that file). One constant, not four copies of the same words,
+ * for the same reason `CASCADE_STALE_FALLBACK` is a constant above: a typo
+ * in one copy and not the others is how a banner starts disagreeing with
+ * itself.
+ *
+ * Measured at 320px (the narrowest class this module supports —
+ * `responsive-design.md`), not guessed: the OLD lead-in, "Не удалось
+ * загрузить предпросмотр" (33 chars), does not fit `cascade-preview-error`'s
+ * ~244px text column on ONE line — it splits mid-phrase, "предпросмотр"
+ * itself carried onto the SECOND of the banner's three lines, so the actual
+ * explanation (why it failed) never starts before line 2 ends. Measured via
+ * `Range.getClientRects()` per word (not eyeballed): with THIS lead-in
+ * (23 chars) the three shorter variants (403 / generic / the caller's
+ * network line) drop from 3 lines to 2, and the lead-in itself — now
+ * "Предпросмотр недоступен —" — stays whole on line 1 for every variant,
+ * including the one long enough that its OWN tail still wraps to a third
+ * line ("ошибка на нашей стороне, попробуйте позже" — unavoidable at this
+ * width without shortening what it actually says, which is a different
+ * finding than this one).
+ */
+export const CASCADE_PREVIEW_LEAD_IN = 'Предпросмотр недоступен'
+
+/**
  * The text for a FAILED cascade-preview GET (`previewQuery.isError`) — the
  * network-only case (no status at all) is handled by the caller
  * (`AdminEditTransactionDialog`'s own "проверьте соединение" line); this is
@@ -157,11 +183,64 @@ export function cascadePreviewErrorMessage(err: unknown): string {
   if (backendMessage !== undefined) return backendMessage
 
   const status = getAxiosStatus(err)
-  if (status === 403) return 'Не удалось загрузить предпросмотр — недостаточно прав'
+  if (status === 403) return `${CASCADE_PREVIEW_LEAD_IN} — недостаточно прав`
   if (status !== undefined && status >= 500) {
-    return 'Не удалось загрузить предпросмотр — ошибка на нашей стороне, попробуйте позже'
+    return `${CASCADE_PREVIEW_LEAD_IN} — ошибка на нашей стороне, попробуйте позже`
   }
-  return 'Не удалось загрузить предпросмотр — попробуйте ещё раз'
+  return `${CASCADE_PREVIEW_LEAD_IN} — попробуйте ещё раз`
+}
+
+/**
+ * The text for a FAILED cascade SAVE (`mutation.error` in
+ * `AdminEditTransactionDialog`) — the red line at the bottom of the dialog,
+ * under the plan.
+ *
+ * COPY-M-10 (copy-review, MED, PR #613 round 3), "introduced last round":
+ * before this, that line read `getApiErrorMessage(mutation.error)` — the
+ * project's GENERAL resolver (`axios-utils.ts`), used by every screen in the
+ * CRM. A genuine backend message still agreed either way (both read
+ * `response.data.message` first, verbatim, via the same
+ * `extractBackendMessage`), but the FALLBACK — for a 403/5xx/network failure
+ * the server said nothing usable about — did not: full sentences, closing
+ * periods, first person plural, landing one paragraph below a plan written
+ * in this screen's own one-clause, no-period register
+ * (`cascadePreviewErrorMessage`, COPY-M-3, the previous round). Two voices,
+ * one dialog, simultaneously.
+ *
+ * Fixed HERE, in the cascade module — NOT by editing `getApiErrorMessage` or
+ * `axios-utils.ts`'s `STATUS_MESSAGES` table, which every OTHER screen in the
+ * CRM also reads; narrowing this dialog's own voice must not narrow theirs.
+ *
+ * The one thing `getApiErrorMessage` did that a bare `extractBackendMessage`
+ * read does not: fall through to a THROWN `Error`'s own `.message` — the
+ * amount-validation check right above this mutation
+ * (`if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')`) is
+ * exactly that shape, and it carries no `response` at all, so
+ * `extractBackendMessage` alone would silently drop it. Preserved by
+ * distinguishing a genuine axios failure (`isAxiosError === true` — the same
+ * flag `axios-utils.ts`'s own `isAxiosErrorShape` checks, not re-exported so
+ * checked the same way here) from a plain local `Error`: only the former
+ * reaches the cascade-voice status branches below; the latter's own message
+ * — the whole point of throwing it — is returned as-is.
+ */
+export function cascadeSaveErrorMessage(err: unknown): string {
+  const backendMessage = extractBackendMessage(err)
+  if (backendMessage !== undefined) return backendMessage
+
+  const isAxiosFailure =
+    err !== null &&
+    typeof err === 'object' &&
+    (err as Record<string, unknown>)['isAxiosError'] === true
+
+  if (!isAxiosFailure) {
+    return err instanceof Error ? err.message : 'Не удалось сохранить — попробуйте ещё раз'
+  }
+
+  const status = getAxiosStatus(err)
+  if (status === undefined) return 'Не удалось сохранить — проверьте соединение'
+  if (status === 403) return 'Не удалось сохранить — недостаточно прав'
+  if (status >= 500) return 'Не удалось сохранить — ошибка на нашей стороне, попробуйте позже'
+  return 'Не удалось сохранить — попробуйте ещё раз'
 }
 
 export interface SettlementSplit {

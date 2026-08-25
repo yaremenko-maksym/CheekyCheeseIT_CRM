@@ -31,6 +31,7 @@ import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/sha
 import {
   canSaveCascadeEdit,
   cascadePreviewErrorMessage,
+  cascadeSaveErrorMessage,
   cascadeStaleMessage,
   needsCascadePreview,
   settlementSplit,
@@ -340,16 +341,18 @@ describe('cascadePreviewErrorMessage — COPY-M-3, one register for the whole ba
   it('PE-2. 403 with no usable body reads as a permissions refusal, not a sentence with a period', () => {
     const message = cascadePreviewErrorMessage(axiosError(403))
 
-    expect(message).toBe('Не удалось загрузить предпросмотр — недостаточно прав')
+    // COPY-M-8 (copy-review, MED, PR #613 round 3): the lead-in shortened
+    // from "Не удалось загрузить предпросмотр" — measured at 320px to no
+    // longer split mid-phrase across the banner's first two lines (see
+    // `CASCADE_PREVIEW_LEAD_IN`'s own doc for the measurement).
+    expect(message).toBe('Предпросмотр недоступен — недостаточно прав')
     expect(message.endsWith('.')).toBe(false)
   })
 
   it('PE-3. a 5xx with no usable body names the side of the problem, not "Мы уже знаем"', () => {
     const message = cascadePreviewErrorMessage(axiosError(500))
 
-    expect(message).toBe(
-      'Не удалось загрузить предпросмотр — ошибка на нашей стороне, попробуйте позже',
-    )
+    expect(message).toBe('Предпросмотр недоступен — ошибка на нашей стороне, попробуйте позже')
     expect(message).not.toContain('Мы')
   })
 
@@ -365,6 +368,71 @@ describe('cascadePreviewErrorMessage — COPY-M-3, one register for the whole ba
   it("PE-5. an unmapped status still says SOMETHING, in this screen's own voice", () => {
     const message = cascadePreviewErrorMessage(axiosError(404))
 
-    expect(message).toBe('Не удалось загрузить предпросмотр — попробуйте ещё раз')
+    expect(message).toBe('Предпросмотр недоступен — попробуйте ещё раз')
+  })
+})
+
+describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan above it', () => {
+  it('SE-1. a real backend explanation wins, verbatim, whatever the status', () => {
+    expect(cascadeSaveErrorMessage(axiosError(400, 'Некорректная сумма для этой строки'))).toBe(
+      'Некорректная сумма для этой строки',
+    )
+  })
+
+  it('SE-2. a plain client-thrown Error (the amount-validation check) keeps its OWN message', () => {
+    // `AdminEditTransactionDialog`'s mutation throws `new Error('Некорректная
+    // сумма')` before any request is sent — no `.response`, and critically no
+    // `isAxiosError` either. It must not be mistaken for a network failure.
+    expect(cascadeSaveErrorMessage(new Error('Некорректная сумма'))).toBe('Некорректная сумма')
+  })
+
+  it('SE-3. an axios network failure (no response at all) speaks the CASCADE voice, not the general one', () => {
+    const message = cascadeSaveErrorMessage(networkError())
+
+    expect(message).toBe('Не удалось сохранить — проверьте соединение')
+    // The general resolver's fallback for this case is «Нет связи с
+    // сервером. Проверьте подключение к интернету и попробуйте снова.» —
+    // full sentence, closing period. This must not be that.
+    expect(message.endsWith('.')).toBe(false)
+  })
+
+  it('SE-4. 403 with no usable body reads in the cascade voice, not "Недостаточно прав для этого действия."', () => {
+    const message = cascadeSaveErrorMessage(axiosError(403))
+
+    expect(message).toBe('Не удалось сохранить — недостаточно прав')
+    expect(message.endsWith('.')).toBe(false)
+  })
+
+  it('SE-5. a 5xx with no usable body names the side of the problem, cascade voice', () => {
+    const message = cascadeSaveErrorMessage(axiosError(500))
+
+    expect(message).toBe('Не удалось сохранить — ошибка на нашей стороне, попробуйте позже')
+    expect(message).not.toContain('Мы')
+  })
+
+  it("SE-6. Nest's own generic reason phrase is filtered exactly like finding 110 requires", () => {
+    const message = cascadeSaveErrorMessage(axiosError(500, 'Internal server error'))
+
+    expect(message).not.toContain('Internal server error')
+    expect(message).toContain('нашей стороне')
+  })
+
+  it("SE-7. an unmapped status still says SOMETHING, in this screen's own voice", () => {
+    expect(cascadeSaveErrorMessage(axiosError(404))).toBe(
+      'Не удалось сохранить — попробуйте ещё раз',
+    )
+  })
+
+  it('SE-8. a 429 whose backend message is the SAME text the general resolver would show is still returned verbatim', () => {
+    // COPY-H-6 fixed the SERVER to hand back a real (Russian) explanation for
+    // a throttled request instead of nothing — so `extractBackendMessage`
+    // now wins here too, same as everywhere else. This is not a regression
+    // of COPY-M-10: a genuine backend message has always taken priority over
+    // either fallback voice, in both resolvers.
+    const message = cascadeSaveErrorMessage(
+      axiosError(429, 'Слишком много запросов подряд. Подождите немного и повторите попытку.'),
+    )
+
+    expect(message).toBe('Слишком много запросов подряд. Подождите немного и повторите попытку.')
   })
 })
