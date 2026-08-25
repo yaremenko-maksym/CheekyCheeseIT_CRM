@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "start": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "turbo run build --filter=@crm/shared && tsc --noEmit",
     "lint": "eslint app",
     "test": "vitest run",
     "test:watch": "vitest"

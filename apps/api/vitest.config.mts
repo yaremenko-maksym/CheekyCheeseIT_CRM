@@ -170,21 +170,27 @@ if (!isIntegrationRun) {
 }
 
 export default defineConfig({
-  ...(isWorktree && {
-    resolve: {
-      alias: {
-        // Point bare-module imports to the main repo's installed packages.
-        // pnpm uses a flat node_modules structure via symlinks, so resolving
-        // to the api-level node_modules covers NestJS, Drizzle, pdf-lib etc.
-        //
-        // @crm/shared: point vitest to the TypeScript source so it always
-        // reflects the latest schema without requiring a `pnpm build` step.
-        // Using dist/index.js masked schema drift between source and compiled
-        // output; pointing to src/index.ts eliminates that risk entirely.
-        '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
-      },
+  // '@crm/shared' is aliased straight to TypeScript SOURCE unconditionally —
+  // in the main repo as well as in a worktree (previously this lived inside
+  // the `isWorktree &&` block below and only applied there). Without it, a
+  // plain, unfiltered checkout resolves the bare specifier through pnpm's
+  // node_modules symlink to `packages/shared`'s `package.json` `exports`,
+  // which points at `dist/` — untracked, gitignored, and NOT rebuilt by
+  // `git checkout`. `turbo.json`/`package.json` (task-infra-shared-build-
+  // freshness, 2026-08-25) close that gap for turbo-routed runs (`pnpm test`,
+  // `pnpm test --filter=@crm/api`); this closes it for the OTHER, documented
+  // per-package form (`pnpm --filter @crm/api test`, also what
+  // `.husky/pre-push` runs), which bypasses turbo's task graph entirely and
+  // was still exposed — see BACKLOG-followups.md #111 for the reproduction
+  // (a stale compiled `@crm/shared` made a real fix look like it changed
+  // nothing, or a fresh regression look pre-existing). Resolving to source
+  // removes the dependency on a build step for tests altogether: there is
+  // nothing left that can go stale, and no build to wait on either.
+  resolve: {
+    alias: {
+      '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
     },
-  }),
+  },
   test: {
     globals: true,
     environment: 'node',

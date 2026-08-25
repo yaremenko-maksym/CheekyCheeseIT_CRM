@@ -8,7 +8,7 @@
     "build": "vite build",
     "build:prerender": "vite build && node scripts/prerender.mjs",
     "start": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "turbo run build --filter=@crm/shared && tsc --noEmit",
     "lint": "eslint app",
     "test": "vitest run",
     "test:watch": "vitest"
