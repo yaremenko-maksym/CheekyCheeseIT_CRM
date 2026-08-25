@@ -28,7 +28,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/shared'
 
-import { canSaveCascadeEdit, settlementSplit } from './cascade-preview'
+import { canSaveCascadeEdit, needsCascadePreview, settlementSplit } from './cascade-preview'
 
 function derivative(over: Partial<CascadeDerivativePlan> = {}): CascadeDerivativePlan {
   return {
@@ -189,6 +189,36 @@ describe('canSaveCascadeEdit — the Save gate', () => {
     p.plan!.derivatives = []
 
     expect(canSaveCascadeEdit(p)).toBe(true)
+  })
+})
+
+describe('needsCascadePreview — finding 107, one rule for both the debounced and the live figure', () => {
+  const PAID = { status: 'PAID', amount: '20000' }
+
+  it('N-1. a PAID row with a genuinely different amount needs a preview', () => {
+    expect(needsCascadePreview(PAID, 25000)).toBe(true)
+  })
+
+  it('N-2. the SAME amount is not a cascade edit — nothing changed', () => {
+    expect(needsCascadePreview(PAID, 20000)).toBe(false)
+  })
+
+  it('N-3. a non-PAID row never needs a preview, however different the amount', () => {
+    expect(needsCascadePreview({ status: 'PENDING', amount: '20000' }, 25000)).toBe(false)
+  })
+
+  it('N-4. zero or negative is not an amount to preview — there is no cascade for "nothing"', () => {
+    expect(needsCascadePreview(PAID, 0)).toBe(false)
+    expect(needsCascadePreview(PAID, -5)).toBe(false)
+  })
+
+  it('N-5. NaN (an unparseable field) is not a cascade edit either', () => {
+    expect(needsCascadePreview(PAID, NaN)).toBe(false)
+  })
+
+  it('N-6. no transaction at all (closed dialog) never needs a preview', () => {
+    expect(needsCascadePreview(null, 25000)).toBe(false)
+    expect(needsCascadePreview(undefined, 25000)).toBe(false)
   })
 })
 

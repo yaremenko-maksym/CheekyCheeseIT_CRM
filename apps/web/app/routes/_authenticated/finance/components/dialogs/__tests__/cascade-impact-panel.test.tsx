@@ -734,6 +734,51 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.queryByText(/Данные изменились/)).toBeNull()
   })
 
+  it('CP-38. finding 107 — Save is unavailable in the window before the debounced preview exists', async () => {
+    // The gate that makes CP-25 true is built off `shouldPreview`, which is
+    // itself built off the DEBOUNCED figure — deliberately, so five
+    // keystrokes fire one preview (CP-17), not five. That lag opens a window
+    // on the VERY FIRST edit of a PAID row: right after the keystroke,
+    // `debouncedAmount` still equals `tx.amount`, so `shouldPreview` reads
+    // false — no panel mounts, nothing marks the edit as a cascade edit — and
+    // before this fix Save stayed enabled for the ~400 ms until the debounce
+    // caught up. A click there sent the new amount with NO version token; the
+    // server refused it with "откройте предпросмотр", pointing at a panel
+    // that was not on screen to open.
+    renderDialog()
+    typeAmount('25000')
+
+    // Synchronous — no `await`, no `findBy*`: this is the exact instant the
+    // bug lived in, before the 400 ms debounce (or React's own effect
+    // scheduling) has had any chance to run.
+    expect(getEditCascadePreviewMock).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('cascade-impact-panel')).toBeNull()
+    expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
+
+    // A disabled button does not dispatch a click handler at all (real DOM
+    // behaviour, honoured by jsdom) — so this is also the proof that a click
+    // in this window cannot reach the server.
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+    expect(adminUpdateTransactionMock).not.toHaveBeenCalled()
+  })
+
+  it('CP-39. finding 110 — a raw 500 with Nest\'s own generic body shows in Russian, not "Internal server error"', async () => {
+    // `axiosError` reproduces the REAL shape a genuinely unhandled backend
+    // exception arrives in — `@nestjs/core`'s `BaseExceptionFilter` fills
+    // `response.data.message` with exactly this text
+    // (`MESSAGES.UNKNOWN_EXCEPTION_MESSAGE`) for any exception it does not
+    // recognise as an intentional `HttpException`. Before the fix this
+    // reached the money screen verbatim, in English.
+    getEditCascadePreviewMock.mockRejectedValue(axiosError(500, 'Internal server error'))
+    renderDialog()
+    typeAmount('25000')
+
+    const err = await screen.findByTestId('cascade-preview-error')
+
+    expect(err.textContent).not.toContain('Internal server error')
+    expect(err.textContent?.toLowerCase()).toContain('нашей стороне')
+  })
+
   it('CP-13. a non-PAID row behaves exactly as before — no preview, no panel', async () => {
     renderDialog({ ...PAID_TX, status: 'PENDING' } as TransactionDto)
     typeAmount('25000')
