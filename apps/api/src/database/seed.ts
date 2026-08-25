@@ -561,9 +561,25 @@ async function main() {
   console.log('=== Seeding 12-month realistic dataset ===')
 
   // ---- 1. Truncate all data (order matters for FK constraints) ----
+  //
+  // `company_account` (backlog 109): NOT named here from the table's
+  // introduction (#249) through 2026-08-25 — checked, no commit or comment
+  // ever explains an intentional exclusion. Verified by direct experiment
+  // (TRUNCATE run standalone against a scratch DB) that it was NEVER actually
+  // skipped in practice: it carries `updated_by → users.id`, and `users` IS
+  // in this list, so plain Postgres TRUNCATE...CASCADE semantics already pull
+  // it (and nine other unlisted tables — consumed_tx_hashes among them) into
+  // the same truncation as a side effect, before this line ever existed. A
+  // two-cycle db:seed rehearsal with a real credit+debit in between confirms
+  // the derived company-account balance returns to 0 on the second run either
+  // way. Listed explicitly anyway: the single-row invariant `company_account`
+  // depends on (`CompanyAccountService.getRow`'s "single row, created in
+  // seed" comment) should not rest on an incidental FK that a later refactor
+  // could silently remove, re-opening exactly the accumulation this backlog
+  // item worried about with no test to catch it.
   console.log('\n[1/8] Truncating existing data...')
   await db.execute(
-    'TRUNCATE TABLE tos_acceptances, employee_contracts, signed_contracts, tos_versions, contract_templates, notifications, user_audit_log, team_audit_log, project_audit_log, invoice_signatures, pending_obligations, transactions, payout_requests, project_credentials, legend_entries, legends, project_finance_settings, project_members, projects, interviews, team_members, teams, documents, users RESTART IDENTITY CASCADE' as unknown as Parameters<
+    'TRUNCATE TABLE tos_acceptances, employee_contracts, signed_contracts, tos_versions, contract_templates, notifications, user_audit_log, team_audit_log, project_audit_log, invoice_signatures, pending_obligations, company_account, transactions, payout_requests, project_credentials, legend_entries, legends, project_finance_settings, project_members, projects, interviews, team_members, teams, documents, users RESTART IDENTITY CASCADE' as unknown as Parameters<
       typeof db.execute
     >[0],
   )
