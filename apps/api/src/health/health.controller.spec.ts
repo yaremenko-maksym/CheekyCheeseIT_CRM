@@ -7,6 +7,10 @@
  *  R1-b: GIT_COMMIT/BUILD_TIME unset (local `pnpm dev` / any non-Docker
  *        boot) → both report the literal string 'unknown', never '' and
  *        never a fabricated value.
+ *  R1-f: security-review round 2 (task-cascade-apply, SR-H-1) — a garbage,
+ *        non-SHA GIT_COMMIT (as `ConfigService.get()` can hand back straight
+ *        off `process.env` — see health.controller.ts's doc block) reports
+ *        'unknown' too, rather than being echoed as if it were real.
  *
  * Pattern follows auth.controller.spec.ts: no NestJS testing module
  * overhead, direct class instantiation with a typed ConfigService stub.
@@ -68,6 +72,25 @@ describe('HealthController', () => {
 
     expect(result.commit).toBe('unknown')
     expect(result.buildTime).toBe('unknown')
+  })
+
+  // security-review round 2 (task-cascade-apply, SR-H-1). `makeConfig`'s stub
+  // is deliberately a stand-in for BOTH of `ConfigService.get()`'s possible
+  // sources here: the Zod-VALIDATED value (real image builds) and the RAW,
+  // un-validated `process.env` value it falls back to when the validated one
+  // is `undefined` (a manual `workflow_dispatch image_tag` typo, e.g. the
+  // rollback runbook's non-SHA `main` tag — see env.ts's GIT_COMMIT comment
+  // for the full deploy.yml chain). This spec cannot tell those two sources
+  // apart — from `HealthController`'s point of view they are the identical
+  // string 'main' — which is exactly why `resolveGitCommit` re-validates the
+  // SHAPE at read time instead of trusting whichever source produced it.
+  it('R1-f: a non-SHA GIT_COMMIT ("main" — the rollback runbook\'s moving tag) reports "unknown", not the raw string', () => {
+    const controller = new HealthController(makeConfig({ GIT_COMMIT: 'main' }))
+
+    const result = controller.check()
+
+    expect(result.commit).toBe('unknown')
+    expect(result.commit).not.toBe('main')
   })
 
   it('R1-c: timestamp is a fresh, well-formed ISO string on every call', () => {

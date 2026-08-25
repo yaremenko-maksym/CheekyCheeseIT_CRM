@@ -12,8 +12,14 @@ export const DEFAULT_JOB_MATCH_THRESHOLD = 0.2
  * preprocess AND its regex below — one pattern, not two copies that could
  * drift apart. See the GIT_COMMIT field's own comment for why a value that
  * fails this test must fall through to "absent" rather than fail validation.
+ *
+ * Exported — HealthController re-checks a value read back off
+ * `ConfigService` against this SAME pattern before it will show it as a
+ * commit (see that file's doc for why: `ConfigService.get()` can hand back
+ * the RAW, un-validated `process.env.GIT_COMMIT` string in a path this
+ * schema's own `.optional()` does not reach).
  */
-const GIT_COMMIT_SHAPE = /^[0-9a-f]{7,40}$/i
+export const GIT_COMMIT_SHAPE = /^[0-9a-f]{7,40}$/i
 
 const envSchema = z
   .object({
