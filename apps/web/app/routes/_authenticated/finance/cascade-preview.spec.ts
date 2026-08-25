@@ -28,7 +28,26 @@ import { describe, expect, it } from 'vitest'
 
 import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/shared'
 
-import { canSaveCascadeEdit, needsCascadePreview, settlementSplit } from './cascade-preview'
+import {
+  canSaveCascadeEdit,
+  cascadePreviewErrorMessage,
+  cascadeStaleMessage,
+  needsCascadePreview,
+  settlementSplit,
+} from './cascade-preview'
+
+/** An axios-error-shaped fixture — only the parts `extractBackendMessage`/`getAxiosStatus` read. */
+function axiosError(status: number, message?: string): unknown {
+  return {
+    isAxiosError: true,
+    response: { status, data: message === undefined ? {} : { message } },
+  }
+}
+
+/** A bare error with no `response` at all — a real network/CORS/timeout failure. */
+function networkError(): unknown {
+  return { isAxiosError: true }
+}
 
 function derivative(over: Partial<CascadeDerivativePlan> = {}): CascadeDerivativePlan {
   return {
@@ -278,5 +297,74 @@ describe('settlementSplit — what a row shows about its own accumulator', () =>
         settledCurrency: 'USDT',
       }),
     ).toEqual({ settled: 5000, settledCurrency: 'USDT', remaining: 0 })
+  })
+})
+
+describe('cascadeStaleMessage — COPY-M-2, the 409 conflict banner never suggests a reload', () => {
+  it('SM-1. a real backend explanation wins, verbatim', () => {
+    expect(cascadeStaleMessage(axiosError(409, 'Данные изменились с момента предпросмотра'))).toBe(
+      'Данные изменились с момента предпросмотра',
+    )
+  })
+
+  it('SM-2. no body at all ⇒ the cascade-owned fallback, never «обновите страницу»', () => {
+    const message = cascadeStaleMessage(axiosError(409))
+
+    expect(message).not.toMatch(/страниц/i)
+    expect(message).toContain('Обновить предпросмотр')
+  })
+
+  it("SM-3. one of Nest's own generic reason phrases is not a real explanation either", () => {
+    // `axiosError(409, 'Conflict')` reproduces a bodiless `ConflictException`
+    // — Nest fills `.message` with its own reason phrase, not a business
+    // explanation. Showing it verbatim would put an English word on a
+    // Russian money screen — the exact shape of finding 110, one level up.
+    const message = cascadeStaleMessage(axiosError(409, 'Conflict'))
+
+    expect(message).not.toBe('Conflict')
+    expect(message).toContain('Обновить предпросмотр')
+  })
+
+  it('SM-4. no `response` at all (a genuine network failure) still returns the fallback, not a throw', () => {
+    expect(cascadeStaleMessage(networkError())).toContain('Обновить предпросмотр')
+  })
+})
+
+describe('cascadePreviewErrorMessage — COPY-M-3, one register for the whole banner', () => {
+  it('PE-1. a real backend explanation wins, verbatim, whatever the status', () => {
+    expect(cascadePreviewErrorMessage(axiosError(400, 'Некорректная сумма'))).toBe(
+      'Некорректная сумма',
+    )
+  })
+
+  it('PE-2. 403 with no usable body reads as a permissions refusal, not a sentence with a period', () => {
+    const message = cascadePreviewErrorMessage(axiosError(403))
+
+    expect(message).toBe('Не удалось загрузить предпросмотр — недостаточно прав')
+    expect(message.endsWith('.')).toBe(false)
+  })
+
+  it('PE-3. a 5xx with no usable body names the side of the problem, not "Мы уже знаем"', () => {
+    const message = cascadePreviewErrorMessage(axiosError(500))
+
+    expect(message).toBe(
+      'Не удалось загрузить предпросмотр — ошибка на нашей стороне, попробуйте позже',
+    )
+    expect(message).not.toContain('Мы')
+  })
+
+  it("PE-4. Nest's own generic reason phrase is filtered exactly like finding 110 requires", () => {
+    // The same fixture CP-39 (component level) exercises through the dialog —
+    // pinned here at the pure-function level too.
+    const message = cascadePreviewErrorMessage(axiosError(500, 'Internal server error'))
+
+    expect(message).not.toContain('Internal server error')
+    expect(message).toContain('нашей стороне')
+  })
+
+  it("PE-5. an unmapped status still says SOMETHING, in this screen's own voice", () => {
+    const message = cascadePreviewErrorMessage(axiosError(404))
+
+    expect(message).toBe('Не удалось загрузить предпросмотр — попробуйте ещё раз')
   })
 })
