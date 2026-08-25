@@ -246,6 +246,18 @@ jobs:
               echo "::error::image_tag input is not a valid git SHA (expected 7-40 hex chars, see docs/runbooks/deployment.md §9). Refusing to use it as a Docker tag / build-arg."
               exit 1
             fi
+            # Owner request following SR-H-2 (PR #613 round 3): this run is
+            # about to OVERWRITE whatever image currently lives under
+            # $INPUT_TAG with a fresh build from $ACTUAL_COMMIT (see the big
+            # comment at the top of this step for why those two are not the
+            # same thing) — the exact failure mode that made GIT_COMMIT
+            # dishonest before this PR. If $INPUT_TAG names the sha someone
+            # is trying to roll back TO, this run destroys the very image the
+            # rollback needed. Say so, only here (manual input present) —
+            # never on the automatic push/schedule path, where no such input
+            # exists to warn about and a warning nobody can act on just
+            # trains people to stop reading warnings.
+            echo "::warning::This run will BUILD code from ${ACTUAL_COMMIT} (the current checkout) and PUBLISH it under tag '${INPUT_TAG}' in GHCR, OVERWRITING whatever image is stored under that tag right now. If you wanted to redeploy the build already tagged '${INPUT_TAG}' WITHOUT rebuilding it, stop this run and instead SSH to the VPS and pull+restart that existing image directly — docs/runbooks/deployment.md §9, the 'docker compose pull' path."
             echo "image_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
           else
             echo "image_tag=${ACTUAL_COMMIT}" >> "$GITHUB_OUTPUT"
