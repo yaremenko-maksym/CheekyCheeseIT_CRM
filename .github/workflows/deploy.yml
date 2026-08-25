@@ -183,24 +183,54 @@ jobs:
           # re-parses the literal input text as code.
           INPUT_TAG: ${{ inputs.image_tag }}
         run: |
-          # Use explicit input tag if provided; otherwise git SHA (short).
+          # actual_commit — the git SHA of the commit THIS RUN actually
+          # checked out and is about to build, computed by command
+          # UNCONDITIONALLY (both branches below run this line first).
+          # Deliberately kept separate from image_tag below:
           #
-          # Per docs/runbooks/deployment.md §9 this value is ALWAYS a git SHA —
-          # whether it's the default `git rev-parse --short HEAD` below, or a
-          # manual workflow_dispatch value used to redeploy/roll back a
-          # previously-built image (same invariant apps/api/src/config/env.ts's
-          # GIT_COMMIT validator already assumes: `^[0-9a-f]{7,40}$`, case-
-          # insensitive). Enforcing that invariant HERE, before the value goes
-          # anywhere, closes a second injection class on top of the env: fix
-          # above: $GITHUB_OUTPUT is a newline-delimited `key=value` file, so an
-          # input containing an embedded newline could otherwise smuggle an
-          # extra `key=value` line into it — and from there an extra docker
-          # build-arg, since this output flows straight into the multi-line
-          # `build-args: |` blocks below (GIT_COMMIT / VITE_BUILD_VERSION). A
-          # hex SHA cannot contain a newline or any shell/YAML metacharacter, so
-          # a passing regex match makes both injection classes structurally
-          # impossible rather than merely escaped — a malformed value fails the
-          # run outright instead of being sanitized-and-continued.
+          #   image_tag    = WHERE the built image gets published — a label.
+          #                  On a manual workflow_dispatch run the operator
+          #                  chooses it freely (any existing git SHA).
+          #   actual_commit = WHAT was really checked out and compiled — a
+          #                  FACT. The checkout step above has no `ref:`, so
+          #                  it always builds from whatever ref triggered
+          #                  this run (main HEAD for push/schedule, or the
+          #                  branch picked in the dispatch UI — main by
+          #                  default) REGARDLESS of what image_tag says.
+          #
+          # security review (PR #613 round 3, SR-H-2): a prior version of
+          # this workflow fed GIT_COMMIT from image_tag, which conflated the
+          # two above. On a manual dispatch naming an OLD sha as image_tag
+          # ("redeploy this build"), the checkout step still builds from main
+          # HEAD — so that run would rebuild from main, publish the result
+          # under the OLD tag (overwriting whatever image previously lived
+          # there), and bake the OLD sha into GIT_COMMIT even though main's
+          # code is what actually shipped. See the "Build & push API image"
+          # step below for where actual_commit closes that gap; see
+          # docs/runbooks/deployment.md §9's SSH `docker compose pull` path
+          # for the rollback method that genuinely reuses a previously-built
+          # image without rebuilding.
+          ACTUAL_COMMIT=$(git rev-parse --short HEAD)
+          echo "actual_commit=${ACTUAL_COMMIT}" >> "$GITHUB_OUTPUT"
+
+          # image_tag: explicit input if provided (destination label, see
+          # above); otherwise the actual_commit just computed.
+          #
+          # Per docs/runbooks/deployment.md §9 an explicit image_tag input is
+          # ALWAYS expected to be a git SHA — same invariant
+          # apps/api/src/config/env.ts's GIT_COMMIT validator already
+          # assumes: `^[0-9a-f]{7,40}$`, case-insensitive. Enforcing that
+          # invariant HERE, before the value goes anywhere, closes a second
+          # injection class on top of the env: fix above: $GITHUB_OUTPUT is a
+          # newline-delimited `key=value` file, so an input containing an
+          # embedded newline could otherwise smuggle an extra `key=value`
+          # line into it — and from there an extra docker build-arg or tag,
+          # since this output flows straight into the multi-line
+          # `build-args: |` / `tags: |` blocks below. A hex SHA cannot
+          # contain a newline or any shell/YAML metacharacter, so a passing
+          # regex match makes that structurally impossible rather than
+          # merely escaped — a malformed value fails the run outright
+          # instead of being sanitized-and-continued.
           #
           # Match with bash's own `[[ =~ ]]` against the WHOLE variable, not
           # `grep -E '^...$'` piped from `printf` — `^`/`$` in POSIX grep
@@ -218,8 +248,7 @@ jobs:
             fi
             echo "image_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
           else
-            SHA=$(git rev-parse --short HEAD)
-            echo "image_tag=${SHA}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${ACTUAL_COMMIT}" >> "$GITHUB_OUTPUT"
           fi
           # backlog 113 — GET /api/health's build fingerprint
           # (apps/api/src/health/health.controller.ts). Plain UTC ISO-8601
@@ -239,22 +268,48 @@ jobs:
 
       # ── Build API image ─────────────────────────────────────────────────
       # backlog 113: GIT_COMMIT/BUILD_TIME feed GET /api/health's build
-      # fingerprint (apps/api/src/health/health.controller.ts + config/env.ts).
-      # GIT_COMMIT reuses steps.meta.outputs.image_tag — the SAME value the
-      # nginx image below gets as VITE_BUILD_VERSION — on purpose: this is the
-      # one place both images' notion of "which build is this" must agree, or
-      # the fingerprint answers a different question for each image. Per the
-      # rollback runbook (docs/runbooks/deployment.md §9) that value is ALWAYS
-      # a git SHA, whether it comes from the default `git rev-parse --short
-      # HEAD` branch above or from a manual workflow_dispatch `image_tag` used
-      # to redeploy a previously-built image — so it always satisfies
-      # env.ts's `^[0-9a-f]{7,40}$` GIT_COMMIT validation. BUILD_TIME is a
-      # plain UTC timestamp of this CI run, not git-derived. Neither value can
-      # be blank here (both branches of the `if` above always set
-      # image_tag; build_time is unconditional) — but even if one were, the
-      # Dockerfile's `ARG ...=` empty default + env.ts's blank-to-undefined
-      # preprocess degrade to the honest 'unknown' response, never a boot
-      # crash or an empty string (see health.controller.ts + env.ts comments).
+      # fingerprint (apps/api/src/health/health.controller.ts + config/env.ts),
+      # whose entire job is answering "did prod actually redeploy" — see
+      # config/env.ts's GIT_COMMIT comment: "REFERENCE DATA ... never
+      # something the running process needs in order to work". That is why
+      # GIT_COMMIT is fed steps.meta.outputs.ACTUAL_COMMIT below, not
+      # steps.meta.outputs.image_tag.
+      #
+      # security review (PR #613 round 3, SR-H-2): a prior version of this
+      # step fed GIT_COMMIT from image_tag, on the stated reasoning that both
+      # images should "agree on which build this is". That reasoning was
+      # wrong: image_tag is WHERE the image gets published (an operator-
+      # chosen label on a manual workflow_dispatch run), actual_commit is
+      # WHAT was actually checked out and compiled (see the "Resolve image
+      # tag" step's comment for the full mechanism and why they can diverge).
+      # On the automatic paths (push/schedule) the two are equal by
+      # construction, so nothing observable changes there. On a manual
+      # dispatch naming an OLD sha as image_tag to "redeploy" it, they now
+      # diverge ON PURPOSE: the checkout step still builds from main HEAD (no
+      # `ref:` keyed off image_tag), so GIT_COMMIT honestly reports main's
+      # sha instead of echoing back the old sha as if main's fresh build were
+      # that old commit. This does NOT turn that manual-dispatch path into an
+      # actual rollback — it still rebuilds from main and republishes under
+      # the requested tag, which is a separate, pre-existing problem (see
+      # docs/runbooks/deployment.md §9's SSH `docker compose pull` path for
+      # the rollback method that genuinely reuses a previously-built image
+      # without rebuilding). It only makes the resulting fingerprint honest,
+      # so a "rollback" that didn't roll back is visible at GET /api/health
+      # instead of silently papered over.
+      #
+      # VITE_BUILD_VERSION on the nginx image below still uses image_tag, not
+      # actual_commit — it is a client-side cache-buster / telemetry label
+      # (apps/web/vite.config.ts), not a "did prod redeploy" claim anything
+      # relies on for correctness, so there is no honesty property to
+      # preserve there the way there is for GIT_COMMIT.
+      #
+      # BUILD_TIME is a plain UTC timestamp of this CI run, not git-derived —
+      # always computed by the step above, never blank. Neither build-arg is
+      # blank here (actual_commit and build_time are both unconditional) —
+      # but even if one were, the Dockerfile's `ARG ...=` empty default +
+      # env.ts's blank-to-undefined preprocess degrade to the honest
+      # 'unknown' response, never a boot crash or an empty string (see
+      # health.controller.ts + env.ts comments).
       # security review (PR #613 round 2, SR-M-3): this image is pulled
       # anonymously — no secrets here. See the invariant at the top of this
       # job (above `build:`) before adding a new build-arg.
@@ -265,7 +320,7 @@ jobs:
           file: apps/api/Dockerfile
           push: true
           build-args: |
-            GIT_COMMIT=${{ steps.meta.outputs.image_tag }}
+            GIT_COMMIT=${{ steps.meta.outputs.actual_commit }}
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:${{ steps.meta.outputs.image_tag }}
