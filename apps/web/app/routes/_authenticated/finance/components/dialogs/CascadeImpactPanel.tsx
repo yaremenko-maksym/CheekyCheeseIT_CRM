@@ -369,13 +369,23 @@ export function CascadeImpactPanel({
   // refusal banner is not inside the live region, so on `editable: false` the
   // only thing a screen-reader user used to hear was «Предпросмотр обновлён» —
   // the opposite of what the screen says.
+  //
+  // QA-MED-1 (manual QA, live-reproduced): the same gap existed for a genuine
+  // NETWORK failure — `errorMessage` renders a visible red banner + «Повторить»
+  // for sighted users, but this region fell through to the `''` branch below
+  // (isLoading false, `preview` undefined on error), so a screen-reader user
+  // heard nothing at all. Checked BEFORE `preview` — on error `preview` is
+  // always undefined anyway, but the explicit branch keeps the precedence
+  // honest as the two states evolve independently.
   const status = isLoading
     ? 'Пересчитываем связанные выплаты…'
-    : preview && !preview.editable
-      ? 'Правка суммы этой строки запрещена, причина ниже'
-      : preview
-        ? 'Предпросмотр обновлён'
-        : ''
+    : errorMessage
+      ? errorMessage
+      : preview && !preview.editable
+        ? 'Правка суммы этой строки запрещена, причина ниже'
+        : preview
+          ? 'Предпросмотр обновлён'
+          : ''
 
   return (
     <div className="space-y-2" data-testid="cascade-impact-panel">
