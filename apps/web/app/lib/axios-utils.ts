@@ -118,8 +118,18 @@ function isGenericHttpReasonPhrase(message: string): boolean {
  *    is nothing more than one of Nest's own generic reason phrases (checked
  *    against the message text alone, not cross-referenced with the status —
  *    the phrase itself is already unambiguous, whatever status it rides on).
+ *
+ * EXPORTED (COPY-M-2/COPY-M-3, PR #613 round 2) for one more reuse besides the
+ * two above: a screen that needs to show a REAL backend explanation verbatim
+ * but wants its OWN fallback for the "backend said nothing usable" case,
+ * instead of the general per-status table `getUserFacingErrorMessage` falls
+ * back to (see `cascade-preview.ts`'s `cascadeStaleMessage` /
+ * `cascadePreviewErrorMessage`). Exporting this one function, rather than
+ * copying its body, keeps the "what counts as a real backend message" rule in
+ * exactly one place — the same reasoning `needsCascadePreview`'s own doc
+ * gives for not inlining that rule twice.
  */
-function extractBackendMessage(err: unknown): string | undefined {
+export function extractBackendMessage(err: unknown): string | undefined {
   if (err === null || typeof err !== 'object') return undefined
 
   const response = (err as Record<string, unknown>)['response']

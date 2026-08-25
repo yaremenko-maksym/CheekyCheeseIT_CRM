@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { amountsDiffer, type TransactionDto } from '@crm/shared'
 import { cn, parseStrictAmount } from '@/lib/utils'
-import { getApiErrorMessage, getAxiosStatus, getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
 import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,7 +20,12 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { financeApi } from '../../api'
-import { canSaveCascadeEdit, needsCascadePreview } from '../../cascade-preview'
+import {
+  canSaveCascadeEdit,
+  cascadePreviewErrorMessage,
+  cascadeStaleMessage,
+  needsCascadePreview,
+} from '../../cascade-preview'
 import { EXPENSE_CATEGORIES, TYPE_LABELS, fmtAmount } from '../../constants'
 import { CascadeImpactPanel } from './CascadeImpactPanel'
 import {
@@ -125,15 +130,26 @@ export function AdminEditTransactionDialog({
   // The TEXT still distinguishes the two kinds, which is what CP-19 protects:
   // sending someone to check their wifi over a message the server took the
   // trouble to write is its own defect. A request that never got an answer
-  // keeps the panel's own short line; anything the server actually answered is
-  // rendered by `getUserFacingErrorMessage` — the project's existing resolver
-  // (backend message → Russian text per status → generic), reused rather than
-  // re-invented, and it never surfaces axios's English `.message`.
+  // keeps the panel's own short line.
+  //
+  // COPY-M-3 (copy-review, MED, PR #613 round 2): anything the server
+  // actually answered used to be rendered by `getUserFacingErrorMessage` —
+  // the project's GENERAL resolver (backend message → Russian text per
+  // status → generic). Reusing it looked right — a genuine backend
+  // explanation still comes through it verbatim, and it never surfaces
+  // axios's raw English `.message` — but its status-derived FALLBACK is a
+  // different register: full sentences with a closing period, sometimes two,
+  // first person plural ("Мы уже знаем о проблеме"), landing in the exact
+  // banner slot that otherwise carries this screen's own one-clause,
+  // no-period, impersonal lines. `cascadePreviewErrorMessage`
+  // (`cascade-preview.ts`) keeps the same priority — a real backend message
+  // still wins first, verbatim — and gives only the fallback tail this
+  // screen's own voice; see its own doc.
   const previewErrorMessage = !previewFailed
     ? null
     : getAxiosStatus(previewQuery.error) === undefined
       ? 'Не удалось загрузить предпросмотр — проверьте соединение'
-      : getUserFacingErrorMessage(previewQuery.error)
+      : cascadePreviewErrorMessage(previewQuery.error)
 
   // SR-H-1 (security-review, HIGH). Is the plan on screen the plan for the
   // figure currently in the field?
@@ -162,17 +178,21 @@ export function AdminEditTransactionDialog({
     shouldPreview && !amountsDiffer(parsedPreviewAmount, parseStrictAmount(amount))
 
   // Backlog finding 107. `shouldPreview` above is built off the DEBOUNCED
-  // figure and stays false for up to 400 ms after the FIRST edit of a PAID
-  // row — deliberately, the same lag that keeps five keystrokes from firing
-  // five previews (CP-17). But that lag left a real window: right after that
-  // first keystroke `debouncedAmount` still equals `tx.amount`, so
-  // `shouldPreview` read false, no plan was ever asked for, and Save stayed
-  // enabled. A click inside that window sent the new amount with no version
-  // token; the server refused it pointing at a preview panel that was not
-  // even mounted to open. `needsCascadePreview` run against the LIVE amount
-  // — the SAME rule `shouldPreview` uses, just not lagged — answers "does
-  // the figure on screen right now need a plan", independent of whether the
-  // debounce has caught up to ask for one yet.
+  // figure, deliberately — the same lag that keeps five keystrokes from
+  // firing five previews (CP-17). But the debounce (the effect above) is a
+  // TRAILING one, restarted on every change to `amount` — so it is NOT a
+  // bounded ~400 ms lag after the first edit (an earlier round of this fix
+  // said so, and PR #613 round 2 corrected it): while the operator keeps
+  // typing, `debouncedAmount` never catches up at all, and `shouldPreview`
+  // stays false for the whole burst. Right after the FIRST keystroke
+  // `debouncedAmount` still equals `tx.amount`, so `shouldPreview` read
+  // false, no plan was ever asked for, and Save stayed enabled. A click
+  // inside that window sent the new amount with no version token; the
+  // server refused it pointing at a preview panel that was not even mounted
+  // to open. `needsCascadePreview` run against the LIVE amount — the SAME
+  // rule `shouldPreview` uses, just not lagged — answers "does the figure on
+  // screen right now need a plan", independent of whether the debounce has
+  // caught up to ask for one yet.
   const liveAmountNeedsPreview = needsCascadePreview(tx, parseStrictAmount(amount))
 
   // CR-M-1 (code-review, MED) — the same window, its visible half. `isFetching`
@@ -228,7 +248,19 @@ export function AdminEditTransactionDialog({
       // still readable, it is merely no longer true. Surfacing it INSIDE the
       // panel (with a re-fetch button) rather than as a generic red line keeps
       // the operator's context — they can see exactly what went out of date.
-      setStaleMessage(getAxiosStatus(err) === 409 ? getApiErrorMessage(err) : null)
+      //
+      // COPY-M-2 (copy-review, MED, PR #613 round 2): `getApiErrorMessage`
+      // was here before. Its own third priority is axios's `.message` —
+      // which, by the time this handler runs, has already been overwritten
+      // by the shared interceptor (`axios.ts`) to the GENERAL per-status
+      // fallback whenever the body carries nothing usable. For 409 that
+      // fallback tells the operator to reload the page — destructive here
+      // (it throws away the amount just typed), and this very banner already
+      // offers a non-destructive way out of the same conflict, one button
+      // over: «Обновить предпросмотр». `cascadeStaleMessage`
+      // (`cascade-preview.ts`) reads the response body directly instead;
+      // see its own doc.
+      setStaleMessage(getAxiosStatus(err) === 409 ? cascadeStaleMessage(err) : null)
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
@@ -287,6 +319,20 @@ export function AdminEditTransactionDialog({
   // that COPY-H-1 removed. (WCAG 1.4.13 is Content on Hover or Focus and says
   // nothing about disabled controls; no success criterion demands a visible
   // reason next to one.)
+  //
+  // COPY-H-1 (copy-review, HIGH), one round later: this premise held for
+  // `previewIsRecomputing` but NOT for the term below,
+  // `(liveAmountNeedsPreview && !previewAmountIsCurrent)` — finding 107's own
+  // term, which widens the BUTTON's gate but, until this round, widened
+  // nothing about the PANEL. In that term's own window `shouldPreview` is
+  // false by construction (that is its entire point), so the panel — mounted
+  // on `shouldPreview` alone — was not on screen at all: no skeleton, no
+  // `aria-live`, nothing to read. Fixed at the panel's mount condition and
+  // `isLoading` prop below (same live rule, `liveAmountNeedsPreview`, not a
+  // new one), not by moving this comment — with that fix in place, mounting
+  // the panel now tracks every disjunct of `cascadeSaveBlocked` below,
+  // including this one, so the premise above is finally true for the whole
+  // gate, not just its first two thirds.
   const cascadeSaveBlockedByData = !canSaveCascadeEdit(preview)
   // Finding 107's own term is intentionally NOT folded into
   // `cascadeSaveBlockedByData` — that flag also gates
@@ -359,11 +405,33 @@ export function AdminEditTransactionDialog({
 
               {/* Mounted BELOW the amount field and above nothing focusable —
                   a panel appearing between the field and the buttons would move
-                  focus out from under the operator mid-typing. */}
-              {shouldPreview && (
+                  focus out from under the operator mid-typing.
+
+                  COPY-H-1 (copy-review, HIGH, PR #613 round 2): mounted on
+                  `shouldPreview` alone, this stayed UNMOUNTED for the whole
+                  window finding 107's gate (`liveAmountNeedsPreview`, above)
+                  already disables Save for — that gate is a live rule, this
+                  mount condition was a lagged one. The debounce is trailing
+                  and restarts on every keystroke, so that window is not a
+                  bounded ~400 ms; it lasts as long as the operator keeps
+                  typing. A dark button with nothing on screen explaining it
+                  reads as a frozen interface; for a screen reader it was
+                  outright silence. Mounted on the SAME live rule the gate
+                  uses, not a new one — whatever makes Save refuse a click
+                  must also be what shows the panel that explains the
+                  refusal. */}
+              {(shouldPreview || liveAmountNeedsPreview) && (
                 <CascadeImpactPanel
                   preview={preview}
-                  isLoading={previewIsRecomputing}
+                  // The extra disjunct covers exactly finding 107's window:
+                  // `liveAmountNeedsPreview` true, `shouldPreview` still
+                  // false (the debounce has not caught up), so
+                  // `previewIsRecomputing` — itself gated on `shouldPreview`
+                  // — has nothing to be true about yet. No new copy: this is
+                  // the same "Пересчитываем связанные выплаты…" skeleton
+                  // CR-M-1 already wrote for the debounce window, now shown
+                  // for the window before that one too.
+                  isLoading={previewIsRecomputing || (liveAmountNeedsPreview && !shouldPreview)}
                   errorMessage={previewErrorMessage}
                   onRetry={() => {
                     setStaleMessage(null)
@@ -376,7 +444,7 @@ export function AdminEditTransactionDialog({
                     void previewQuery.refetch()
                   }}
                   staleMessage={staleMessage}
-                  // Stryker disable next-line OptionalChaining: unreachable — this JSX only renders under `shouldPreview`, which is itself `!!tx && …`, so `tx` is non-null wherever this expression is evaluated (CP-23 covers the closed dialog)
+                  // Stryker disable next-line OptionalChaining: unreachable — this JSX only renders under `shouldPreview || liveAmountNeedsPreview`, both of which are `!!tx && …`, so `tx` is non-null wherever this expression is evaluated (CP-23 covers the closed dialog)
                 />
               )}
 

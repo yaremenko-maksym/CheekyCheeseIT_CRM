@@ -16,6 +16,7 @@ import {
   type CascadeEditPreviewResponse,
   type CurrencyEnum,
 } from '@crm/shared'
+import { extractBackendMessage, getAxiosStatus } from '@/lib/axios-utils'
 
 /**
  * Does editing `tx`'s amount to `parsedAmount` need a cascade preview at all —
@@ -23,15 +24,23 @@ import {
  *
  * Backlog finding 107. `AdminEditTransactionDialog` used this exact rule
  * TWICE with two different inputs: once against the DEBOUNCED figure (to
- * decide whether to fetch a preview — deliberately lagged by ~400 ms so five
+ * decide whether to fetch a preview — deliberately lagged by 400 ms so five
  * keystrokes don't fire five previews) and once, here, against the LIVE
  * figure the operator is looking at right now (to decide whether Save may be
  * pressed). Written inline twice, the two copies read identically at rest and
- * only disagree in the ~400 ms window between a keystroke and the debounce
- * catching up — which is exactly the window where they need to disagree: the
- * debounced copy says "not a cascade edit yet" while the live one already
- * knows better. One function, two call sites, makes that the ONE place the
- * rule can be read, instead of two copies that could quietly drift.
+ * only disagree in the window between a keystroke and the debounce settling —
+ * which is exactly the window where they need to disagree: the debounced copy
+ * says "not a cascade edit yet" while the live one already knows better.
+ *
+ * That window is NOT a bounded ~400 ms (an earlier round of this fix said so,
+ * and PR #613 round 2 corrected it): the debounce is a TRAILING one, restarted
+ * on every keystroke, so for as long as the operator keeps typing the
+ * debounced copy never catches up at all — the disagreement lasts the whole
+ * burst, plus the trailing 400 ms after the last keystroke, not a fixed
+ * fraction of a second. One function, two call sites, makes the RULE the one
+ * place that could drift; it says nothing about how long the two copies'
+ * answers can differ, which is a property of the debounce, not of this
+ * function.
  */
 export function needsCascadePreview(
   tx: { status: string; amount: string | number } | null | undefined,
@@ -82,6 +91,77 @@ export function canSaveCascadeEdit(preview: CascadeEditPreviewResponse | undefin
       !d.warnings.some((w) => w.code === 'OBLIGATION_CURRENCY_MISMATCH') &&
       !(d.needsReconfirm && d.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')),
   )
+}
+
+/**
+ * The text for a SAVE that was refused as stale (409 — the plan on screen was
+ * overtaken by a concurrent change).
+ *
+ * COPY-M-2 (copy-review, MED, PR #613 round 2). The dialog used to hand this
+ * straight to `getApiErrorMessage`, whose third priority is axios's own
+ * `.message` — and by the time an `onError` handler runs anywhere in this
+ * app, that property has already been overwritten by the shared interceptor
+ * (`axios.ts`) to `getUserFacingErrorMessage`'s GENERAL per-status text
+ * whenever the response body carried nothing usable. For 409 that text is
+ * "Конфликт данных. Обновите страницу и попробуйте снова." — a full reload
+ * is destructive here (it throws away the amount the operator just typed),
+ * and the SAME banner already offers a non-destructive way out of the same
+ * conflict, one button over: «Обновить предпросмотр».
+ *
+ * Reads the response body directly — via `extractBackendMessage`, reused
+ * rather than duplicated — instead of trusting `err.message`, which is the
+ * one place left that still holds what the SERVER actually said, if it said
+ * anything. Latent today: the cascade save's own 409 handler always sends
+ * `"Данные изменились с момента предпросмотра"`, so `CASCADE_STALE_FALLBACK`
+ * is never actually reached in production. Guarded anyway, for the day a
+ * bodiless 409 reaches this handler (a proxy timeout, a future refactor that
+ * forgets the message) — and fixed HERE, in the cascade module, not in
+ * `axios-utils.ts`'s general table: that table is shared by every screen in
+ * the CRM, and "reload the page" is the right advice on all of them except
+ * this one.
+ */
+const CASCADE_STALE_FALLBACK =
+  'Данные изменились с момента предпросмотра — нажмите «Обновить предпросмотр»'
+
+export function cascadeStaleMessage(err: unknown): string {
+  return extractBackendMessage(err) ?? CASCADE_STALE_FALLBACK
+}
+
+/**
+ * The text for a FAILED cascade-preview GET (`previewQuery.isError`) — the
+ * network-only case (no status at all) is handled by the caller
+ * (`AdminEditTransactionDialog`'s own "проверьте соединение" line); this is
+ * for anything the server actually answered.
+ *
+ * COPY-M-3 (copy-review, MED, PR #613 round 2). Same shape of defect as
+ * COPY-M-2, in the neighbouring banner. This used to be
+ * `getUserFacingErrorMessage(previewQuery.error)` — correct in that a real
+ * backend explanation still comes through it verbatim, wrong in its
+ * FALLBACK: full sentences with a closing period, sometimes two of them,
+ * first person plural ("Мы уже знаем о проблеме") — a different register
+ * from the rest of this screen. `constants.ts`, above
+ * `CASCADE_BLOCKED_REASON_MESSAGES`, states the house rule in words: one
+ * sentence, no closing period, because these renderings share ONE banner and
+ * a register change reads as a different system talking. The general
+ * fallback breaks that rule the moment it lands in THIS banner
+ * (`cascade-preview-error`) — the rule was written before this route existed
+ * to reach it.
+ *
+ * A genuine backend message still wins first, verbatim, via
+ * `extractBackendMessage` (reused, not duplicated) — only the STATUS-DERIVED
+ * generic tail is replaced, and only here; `axios-utils.ts`'s table is
+ * untouched and still correct for every other screen in the CRM.
+ */
+export function cascadePreviewErrorMessage(err: unknown): string {
+  const backendMessage = extractBackendMessage(err)
+  if (backendMessage !== undefined) return backendMessage
+
+  const status = getAxiosStatus(err)
+  if (status === 403) return 'Не удалось загрузить предпросмотр — недостаточно прав'
+  if (status !== undefined && status >= 500) {
+    return 'Не удалось загрузить предпросмотр — ошибка на нашей стороне, попробуйте позже'
+  }
+  return 'Не удалось загрузить предпросмотр — попробуйте ещё раз'
 }
 
 export interface SettlementSplit {
