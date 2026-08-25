@@ -36,6 +36,20 @@
   // never touched — the correct trade given the alternative is a check that
   // can report a result it never computed.
   "cacheDir": ".turbo/cache",
+  // globalDependencies — task-infra-shared-build-freshness (2026-08-25).
+  // Every workspace tsconfig.json `extends` this file (`grep -l
+  // tsconfig.base.json apps/*/tsconfig*.json packages/*/tsconfig*.json` —
+  // five hits, all of them). Without declaring it here, turbo's per-task
+  // content hash for `@crm/shared:build` (and every other build/typecheck/
+  // lint/test task) does NOT include it — verified by editing this file,
+  // re-running `pnpm build --filter=@crm/shared`, and getting `cache hit,
+  // replaying logs` instead of a rebuild. A compiler-option change here
+  // (target/lib/strictness) would then silently keep serving `dist/` built
+  // under the OLD tsconfig, on every machine and in CI, until something else
+  // happened to bust the cache. `globalDependencies` makes ANY task's hash
+  // depend on this file, repo-wide — the same class of fix as `^build`
+  // below, just for config drift instead of source drift.
+  "globalDependencies": ["tsconfig.base.json"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
