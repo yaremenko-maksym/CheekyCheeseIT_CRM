@@ -21,6 +21,22 @@ export const DEFAULT_JOB_MATCH_THRESHOLD = 0.2
  */
 export const GIT_COMMIT_SHAPE = /^[0-9a-f]{7,40}$/i
 
+/**
+ * `GIT_COMMIT`'s own `.regex()` message, below — pulled out to its own
+ * declaration (task-mutation-gate follow-up, PR #613, backlog 121) purely so
+ * a `// Stryker disable next-line` comment can attach to a node whose own
+ * `loc` starts on this exact line. Inline as `.regex(GIT_COMMIT_SHAPE,
+ * 'text')`, the STRING LITERAL mutant's own line is the literal's line, but
+ * the comment above a chained `.regex(...)` call attaches to the ENCLOSING
+ * CallExpression, whose `loc.start` is the start of the WHOLE chain (`z`) —
+ * several lines earlier — so the two never lined up and the suppression
+ * silently did nothing (verified: it survived twice, in two different
+ * positions, before this fix). See that field's own comment for why the
+ * message is unreachable at all.
+ */
+// Stryker disable next-line StringLiteral: unreachable message text — see GIT_COMMIT's own field comment for why
+const GIT_COMMIT_REGEX_MESSAGE = 'GIT_COMMIT must be a short or full hex commit SHA'
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -274,18 +290,11 @@ const envSchema = z
     // a coverage gap. Kept as defense-in-depth documentation of the
     // invariant (a future edit that decouples the preprocess's shape check
     // from this one would need it), not as reachable validation.
-    GIT_COMMIT: z.preprocess(
-      (v) => {
-        if (typeof v !== 'string') return v
-        const trimmed = v.trim()
-        return GIT_COMMIT_SHAPE.test(trimmed) ? trimmed : undefined
-      },
-      // Stryker disable next-line StringLiteral: unreachable message text — see the comment above this field for why
-      z
-        .string()
-        .regex(GIT_COMMIT_SHAPE, 'GIT_COMMIT must be a short or full hex commit SHA')
-        .optional(),
-    ),
+    GIT_COMMIT: z.preprocess((v) => {
+      if (typeof v !== 'string') return v
+      const trimmed = v.trim()
+      return GIT_COMMIT_SHAPE.test(trimmed) ? trimmed : undefined
+    }, z.string().regex(GIT_COMMIT_SHAPE, GIT_COMMIT_REGEX_MESSAGE).optional()),
     BUILD_TIME: z.preprocess(
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.string().min(1).optional(),

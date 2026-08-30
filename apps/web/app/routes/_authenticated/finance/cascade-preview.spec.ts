@@ -370,6 +370,21 @@ describe('cascadePreviewErrorMessage — COPY-M-3, one register for the whole ba
 
     expect(message).toBe('Предпросмотр недоступен — попробуйте ещё раз')
   })
+
+  // task-mutation-gate follow-up (PR #613, backlog 121). The caller
+  // (`AdminEditTransactionDialog`) already routes a status-less failure to
+  // its OWN "проверьте соединение" line before this function is ever
+  // reached — but this function is exported and callable directly, and
+  // `(status ?? -Infinity) >= 500` has a whole branch (the `?? -Infinity`
+  // side) no other PE-* test ever exercises, since they all supply a real
+  // status. Without this, that branch is untested code in a function this
+  // task just edited, not merely unreachable-through-the-UI like the JSX
+  // suppressions elsewhere in this module.
+  it('PE-6. no status at all (a genuine network failure) still falls to the generic line, never the 5xx one', () => {
+    const message = cascadePreviewErrorMessage(networkError())
+
+    expect(message).toBe('Предпросмотр недоступен — попробуйте ещё раз')
+  })
 })
 
 describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan above it', () => {
