@@ -3605,6 +3605,43 @@ jobs:
 
             echo "==> Deploy complete. IMAGE_TAG=${IMAGE_TAG}"
 
+      # ── Rollback reminder → job summary (this state is TEMPORARY) ───────
+      # security review (PR #615 round 2, SR-H-1): a rollback dispatch does
+      # not touch `main` — it only redeploys an already-built image (see the
+      # "Resolve image tag" step's notice, emitted earlier in the `build`
+      # job's log). That makes the result TEMPORARY by construction: the
+      # next merge to `main` (auto-deploy) or the next scheduled Sunday
+      # 03:00 UTC rebuild redeploys `main` HEAD regardless, silently undoing
+      # this run — possibly with nobody watching, hours or days later. This
+      # step says so a SECOND time, here, in the run's $GITHUB_STEP_SUMMARY
+      # — the one place on the run's GitHub page an operator sees without
+      # scrolling a several-hundred-line SSH log, and the one that is still
+      # visible after the run itself has scrolled out of view. Runs only
+      # after the deploy step above SUCCEEDED (no `if: always()` here,
+      # unlike the DDL-summary steps below — a failed rollback deployed
+      # nothing, so there is nothing temporary to warn about).
+      - name: Rollback reminder (job summary) — this state is temporary
+        if: ${{ inputs.image_tag != '' }}
+        env:
+          TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          {
+            echo "## ⚠️ Rollback deployed — this state is TEMPORARY"
+            echo ""
+            echo "Prod is now running the image published under tag \`${TAG}\`."
+            echo "\`main\` was **not** changed by this run."
+            echo ""
+            echo "Without further action, prod reverts to \`main\` HEAD:"
+            echo "- at the **next merge** to \`main\` (auto-deploy), or"
+            echo "- at the **next scheduled Sunday 03:00 UTC** rebuild —"
+            echo "  possibly with nobody watching."
+            echo ""
+            echo "**To make this rollback permanent:** revert the offending"
+            echo "commit(s) in \`main\` (e.g. \`git revert <bad-sha>\`, open a"
+            echo "PR, merge it) so the next automatic deploy IS the state you"
+            echo "want running. See docs/runbooks/deployment.md §9."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # ── Drop-share pending-parity DDL summary → job summary (money numbers, not buried) ──
       # security-review PR #443 (this infra-PR's task): the marker/precount RAISE NOTICE
       # output above was captured into /opt/crm/.last-ddl-summary.txt (reset near the top of
