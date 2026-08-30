@@ -618,6 +618,28 @@ RUN set -eu; \
     nginx -t -c /tmp/nginx-build-test/nginx.conf; \
     rm -rf /tmp/nginx-build-test
 
+# security review (PR #615 round 3, LOW): manifest-readable build fingerprint
+# for this image, same shape as apps/api/Dockerfile's own GIT_COMMIT ARG/ENV
+# (see that file's comment for the full "why runtime stage, why plain ENV"
+# reasoning — identical here). Deliberately the LAST instruction before
+# EXPOSE/HEALTHCHECK/CMD, not placed up near FROM the way apps/api's is: an
+# ARG/ENV pair invalidates the Docker layer cache for every instruction AFTER
+# it, and GIT_COMMIT changes on every deploy build by construction — placed
+# early in THIS stage (unlike apps/api's, which has almost nothing left to
+# cache after it) it would have defeated GHA layer caching (`cache-from`/
+# `cache-to: scope=nginx` in deploy.yml) for the entire config-baking +
+# static-file-copy sequence above, every single build, for a value nothing
+# above this line reads. Before this, the nginx image carried NO
+# manifest-readable fingerprint at all — VITE_BUILD_VERSION only ever lives
+# in the crm-builder stage's Vite build env (baked into the JS bundle, never
+# a Docker image ENV), so `docker buildx imagetools inspect` could never see
+# it; deploy.yml's "Verify rollback image fingerprint" step checked the API
+# image only for exactly this reason, until this round made the check on
+# both images possible. No default on ARG, matching apps/api's own choice —
+# an unset value flows through as an unset ENV rather than a fabricated one.
+ARG GIT_COMMIT=
+ENV GIT_COMMIT=$GIT_COMMIT
+
 # Ports: 80 (HTTP), 443 (HTTPS — certs must be mounted at runtime).
 EXPOSE 80 443
 

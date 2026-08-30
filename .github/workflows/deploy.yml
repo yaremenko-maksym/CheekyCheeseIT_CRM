@@ -431,7 +431,7 @@ jobs:
       # abbreviate). A brittle exact-length comparison would false-positive
       # a MISMATCH on a perfectly legitimate rollback the moment the two
       # abbreviation lengths happened to differ.
-      - name: Verify rollback image fingerprint (API image, best-effort)
+      - name: Verify rollback image fingerprint (API + nginx images)
         if: ${{ inputs.image_tag != '' }}
         env:
           TAG: ${{ steps.meta.outputs.image_tag }}
@@ -440,23 +440,200 @@ jobs:
           REPO_SLUG: ${{ env.REPO_SLUG }}
         run: |
           set -euo pipefail
+
+          # security review (PR #615 round 3, SR-M-4): a prior version of
+          # this step piped `docker buildx imagetools inspect --format
+          # '{{json .Image.Config.Env}}'` straight into jq and treated an
+          # EMPTY result as "this image predates GIT_COMMIT (PR #613)" —
+          # the same code path as the genuinely benign case. Reproduced
+          # against a real MULTI-PLATFORM manifest before landing this fix:
+          # `.Image` is not a top-level field on a manifest LIST/index (the
+          # per-platform configs live under separate child manifests), so
+          # the command exits 0 and prints nothing — indistinguishable from
+          # "read fine, field just isn't there" by exit code alone. This
+          # workflow does not build multi-platform images today (no
+          # `platforms:` on either `docker/build-push-action` step below),
+          # so this is not live yet — but the day someone adds one, this
+          # check would silently stop verifying ANYTHING, with a log line
+          # that looks identical to the harmless case, and nobody would
+          # know. `read_env_fingerprint` below separates that outcome
+          # (STRUCTURAL failure — could not read a Config.Env array at all)
+          # from the genuine "read it fine, GIT_COMMIT just isn't set"
+          # case, and reports the former as a loud, distinct
+          # `::warning::` rather than folding it into the same `::notice::`
+          # the latter gets. "Could not read" and "field absent" are not
+          # the same claim — the first means this check did not run, and
+          # that must never be silent.
+          read_env_fingerprint() {
+            local ref="$1" label="$2" out_var="$3"
+            local env_json
+            set +e
+            env_json=$(docker buildx imagetools inspect "$ref" --format '{{json .Image.Config.Env}}' 2>&1)
+            local status=$?
+            set -e
+
+            if [ "$status" -ne 0 ] || [ -z "$env_json" ] || ! printf '%s' "$env_json" | jq -e 'type == "array"' > /dev/null 2>&1; then
+              echo "::warning::Could not read a Config.Env array from ${ref} (exit ${status}, output: '${env_json}'). This is DIFFERENT from '${label} predates the GIT_COMMIT build-arg' — the check below did NOT run at all for this image, most likely because its manifest is multi-platform (this workflow builds single-platform today; if that ever changes, this is what the regression looks like). Proceeding WITHOUT fingerprint verification for ${label} — the existence check above is still in force, but a poisoned tag would not be caught here for it."
+              printf -v "$out_var" '%s' ""
+              return 0
+            fi
+
+            printf -v "$out_var" '%s' "$(printf '%s' "$env_json" | jq -r '.[]? | select(startswith("GIT_COMMIT=")) | ltrimstr("GIT_COMMIT=")' | head -n1)"
+          }
+
+          check_fingerprint() {
+            local ref="$1" label="$2" baked_commit="$3"
+            if [ -z "$baked_commit" ]; then
+              echo "::notice::Cannot verify — the ${label} image at tag '${TAG}' carries no GIT_COMMIT fingerprint (built before that build-arg existed, or the manifest could not be read — see the warning above if so). Proceeding without this check; the existence check above is still in force."
+            elif [[ "$baked_commit" == "$TAG"* || "$TAG" == "$baked_commit"* ]]; then
+              echo "==> Fingerprint matches: the ${label} image published under tag '${TAG}' was actually built from commit ${baked_commit}."
+            else
+              echo "::error::The ${label} image published under tag '${TAG}' was actually built from commit '${baked_commit}' — NOT '${TAG}'. This tag was almost certainly poisoned by the pre-task-infra-rollback-deploys-not-rebuilds rebuild-and-overwrite bug (see docs/runbooks/deployment.md §9). Refusing to deploy a tag whose contents do not match its name. If you actually want the commit that got baked in, re-run naming it '${baked_commit}' instead."
+              exit 1
+            fi
+          }
+
           API_REF="${REGISTRY}/${IMAGE_OWNER}/${REPO_SLUG}-api:${TAG}"
+          read_env_fingerprint "$API_REF" "API" API_BAKED_COMMIT
+          check_fingerprint "$API_REF" "API" "$API_BAKED_COMMIT"
 
-          BAKED_COMMIT=$(
-            docker buildx imagetools inspect "$API_REF" \
-              --format '{{json .Image.Config.Env}}' 2>/dev/null \
-              | jq -r '.[]? | select(startswith("GIT_COMMIT=")) | ltrimstr("GIT_COMMIT=")' \
-              | head -n1
-          ) || true
+          # security review (PR #615 round 3, LOW): the nginx image now
+          # carries the same GIT_COMMIT ENV as the API image (nginx/
+          # Dockerfile's `runtime` stage, added this round — previously
+          # VITE_BUILD_VERSION was the only build-time label threaded into
+          # it, and that one lives purely in the crm-builder stage's Vite
+          # env and never becomes a Docker image ENV, so it was never
+          # visible to `imagetools inspect` at all — "no fingerprint",
+          # not "fingerprint absent"). Checking both images, not just API,
+          # is what makes this a verification of the PAIR the rollback
+          # actually deploys, not half of it.
+          NGINX_REF="${REGISTRY}/${IMAGE_OWNER}/${REPO_SLUG}-nginx:${TAG}"
+          read_env_fingerprint "$NGINX_REF" "nginx" NGINX_BAKED_COMMIT
+          check_fingerprint "$NGINX_REF" "nginx" "$NGINX_BAKED_COMMIT"
 
-          if [ -z "$BAKED_COMMIT" ]; then
-            echo "::notice::Cannot verify — the API image at tag '${TAG}' carries no GIT_COMMIT fingerprint (built before that build-arg existed, PR #613, or the config could not be read). Proceeding without this check; the existence check above is still in force."
-          elif [[ "$BAKED_COMMIT" == "$TAG"* || "$TAG" == "$BAKED_COMMIT"* ]]; then
-            echo "==> Fingerprint matches: the image published under tag '${TAG}' was actually built from commit ${BAKED_COMMIT}."
-          else
-            echo "::error::The API image published under tag '${TAG}' was actually built from commit '${BAKED_COMMIT}' — NOT '${TAG}'. This tag was almost certainly poisoned by the pre-task-infra-rollback-deploys-not-rebuilds rebuild-and-overwrite bug (see docs/runbooks/deployment.md §9). Refusing to deploy a tag whose contents do not match its name. If you actually want the commit that got baked in, re-run naming it '${BAKED_COMMIT}' instead."
+      # ── Rollback path: verify the target commit has every file the
+      # deploy pipeline treats as unconditionally present ─────────────────
+      # security review (PR #615 round 3, SR-H-3): the two checks above
+      # only ask "does GHCR have an image under this tag, and does it claim
+      # to be built from this commit". Neither asks whether the FILES this
+      # rollback is about to copy to the VPS — the two compose files, and
+      # every DDL/script the `deploy` job's SSH script treats as
+      # UNCONDITIONALLY present (its own "Step 2/2b/2c/2d/2e/2g/2h/2ab/2ac/
+      # 2ad/2af" — see that job for the per-file "why unconditional"
+      # reasoning) — actually EXIST in the git tree at the rollback target
+      # commit. Before this step, a rollback target older than one of those
+      # files' introducing commit was refused too late to make the comments
+      # elsewhere in this workflow (and docs/runbooks/deployment.md §9)
+      # honest about "before anything reaches the VPS":
+      #
+      #   - `write-env` is a SIBLING of `copy-compose` (both `needs: build`
+      #     ONLY — no dependency on each other), not its successor. It ran
+      #     in PARALLEL and had already SSHed the rollback tag into
+      #     /opt/crm/.env.production well before anything else could fail.
+      #   - WITHIN `copy-compose` itself, the four newest such files
+      #     (2026-08-19 through 2026-08-22 — task-senior-drop-income-
+      #     idempotency / task-settle-payout-link / task-settled-amount-
+      #     snapshot / task-invoice-signature-integrity) are copied by
+      #     unconditional `scp` steps with NO `if:` guard, placed at the
+      #     very END of that job's ~25 steps — AFTER the big first "Copy
+      #     compose files and DDL via SCP" step had already copied both
+      #     compose files and eight earlier DDL files, and after ~17 more
+      #     guarded steps had already run. A rollback target older than
+      #     2026-08-19 would fail one of those last four `scp` steps
+      #     (source file does not exist in the pinned checkout) — by which
+      #     point plenty was already on the VPS.
+      #
+      # Checking HERE instead — in `build`, the ONE job both `write-env`
+      # and `copy-compose` `needs:` — is what actually makes "fails before
+      # anything reaches the VPS" true: a failed `build` job means NEITHER
+      # dependent job ever starts. Do NOT "fix" this by adding `if:` guards
+      # to the four unconditional `scp` steps in `copy-compose` instead —
+      # that would make them silently SKIP a file the `deploy` job's own
+      # script still hard-requires, moving the failure to the VPS itself,
+      # after the containers are already mid-restart. Refusing here is
+      # strictly better than either.
+      #
+      # This file list is a PARALLEL, MANUALLY-MAINTAINED mirror of the
+      # paths already hardcoded as unconditional in `copy-compose`'s fixed
+      # `source:` list + its four single-file unconditional `scp` steps,
+      # and in the `deploy` job's own `_FILE=` variables for the same
+      # steps — not derived from them. There is no cheaper way to ask git
+      # "which files does a workflow script consider mandatory" than naming
+      # them; a text-scan of this very file was already rejected for the
+      # analogous build-args question earlier in this job, for the same
+      # reason (it cannot tell "legitimately optional" from "actually
+      # missing" without knowing the author's intent). Whoever adds a new
+      # UNCONDITIONAL, same-PR DDL/script wiring step to `copy-compose`/
+      # `deploy` MUST add its path here too — and to
+      # docs/runbooks/deployment.md §9's rollback-depth-limit command,
+      # which mirrors this same list for the same reason.
+      #
+      # `fetch-depth: 0` (full history), same reasoning and same proven
+      # pattern as `copy-compose`'s own "Checkout (for compose files) —
+      # rollback, full history" step: `steps.meta.outputs.image_tag` is
+      # commonly a SHORT sha (7-8 hex chars) and `actions/checkout`'s `ref:`
+      # input requires the FULL 40-char form, so pinning via `ref:` directly
+      # would break the common case. A second, unconditional-ref checkout
+      # here just re-fetches the SAME ref this job already has (harmless —
+      # the build/push steps below are all skipped on this path anyway) but
+      # WITH full history, so plain `git` commands can resolve the
+      # (possibly abbreviated) rollback target locally.
+      - name: Checkout (rollback target file verification) — full history
+        if: ${{ inputs.image_tag != '' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify rollback target commit has all hard-required files
+        if: ${{ inputs.image_tag != '' }}
+        env:
+          TARGET: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          # No working-tree checkout of TARGET needed — `git cat-file -e`
+          # reads a commit's tree straight from the (now-complete) object
+          # database; this job's own working tree stays on the ref that
+          # triggered the run, which is fine, since nothing else in this
+          # job depends on it after this point on the rollback path.
+          if ! git rev-parse --quiet --verify "${TARGET}^{commit}" > /dev/null; then
+            echo "::error::Rollback target '${TARGET}' does not resolve to a commit reachable from this fetch. Nothing was sent to the VPS."
             exit 1
           fi
+
+          MISSING=0
+          for FILE in \
+            docker-compose.prod.yml \
+            docker-compose.ghcr.yml \
+            apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql \
+            apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql \
+            apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql \
+            apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql \
+            apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql \
+            apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql \
+            apps/api/drizzle/manual/2026-07-22_vacancies.sql \
+            apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql \
+            apps/api/drizzle/manual/2026-08-19_senior_drop_income_idempotency_index.sql \
+            apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql \
+            apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql \
+            apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql \
+            scripts/devops/check-security-headers.sh \
+            scripts/devops/check-nginx-perimeter.sh \
+          ; do
+            if git cat-file -e "${TARGET}:${FILE}" 2>/dev/null; then
+              echo "    found ${FILE}"
+            else
+              echo "::error::Rollback target '${TARGET}' is missing '${FILE}' — the deploy pipeline treats this file as unconditionally present (it was added to main by a commit newer than the rollback target). Deploying this target as-is would have write-env and copy-compose reach the VPS successfully, then have the deploy job's SSH script hard-fail on this exact file deep into a ~25-step script, after write-env already renamed .env.production's IMAGE_TAG and copy-compose already copied everything that DOES exist at this commit."
+              MISSING=1
+            fi
+          done
+
+          if [ "$MISSING" -eq 1 ]; then
+            echo "::error::Rollback target '${TARGET}' is missing one or more hard-required files (see above). Nothing was sent to the VPS. See docs/runbooks/deployment.md §9 for a command to compute today's actual rollback-depth floor, or pick a newer tag."
+            exit 1
+          fi
+
+          echo "==> All hard-required files present at rollback target '${TARGET}'."
 
       # ── Build API image ─────────────────────────────────────────────────
       # backlog 113: GIT_COMMIT/BUILD_TIME feed GET /api/health's build
@@ -497,7 +674,17 @@ jobs:
       # actual_commit — it is a client-side cache-buster / telemetry label
       # (apps/web/vite.config.ts), not a "did prod redeploy" claim anything
       # relies on for correctness, so there is no honesty property to
-      # preserve there the way there is for GIT_COMMIT.
+      # preserve there the way there is for GIT_COMMIT. UNRELATED to and
+      # unchanged by the point below: the nginx image ALSO now gets its own
+      # GIT_COMMIT build-arg (security review PR #615 round 3, LOW), fed
+      # actual_commit — same honesty property, same reasoning, as the API
+      # image's GIT_COMMIT. Before this, the nginx image carried no
+      # manifest-readable fingerprint at all: VITE_BUILD_VERSION only ever
+      # lives in the crm-builder stage's Vite build env, never becomes a
+      # Docker image ENV in the final `runtime` stage, and so was invisible
+      # to `docker buildx imagetools inspect` — see the "Verify rollback
+      # image fingerprint" step above, which now checks both images because
+      # of this.
       #
       # BUILD_TIME is a plain UTC timestamp of this CI run, not git-derived —
       # always computed by the step above, never blank. Neither build-arg is
@@ -611,6 +798,7 @@ jobs:
           build-args: |
             VITE_API_URL=/api
             VITE_BUILD_VERSION=${{ steps.meta.outputs.image_tag }}
+            GIT_COMMIT=${{ steps.meta.outputs.actual_commit }}
             VITE_TURNSTILE_SITE_KEY=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
             PRERENDER_API_ORIGIN=https://cheekycheese.tech
             VITE_TELEMETRY=on
