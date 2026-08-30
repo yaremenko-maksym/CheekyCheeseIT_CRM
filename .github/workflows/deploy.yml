@@ -343,10 +343,24 @@ jobs:
         if: ${{ inputs.image_tag != '' }}
         env:
           TAG: ${{ steps.meta.outputs.image_tag }}
+          # security review (PR #615 round 2, LOW-2): the three values below
+          # are plain repo-owned constants (registry host / owner / repo
+          # slug), not secrets and not attacker-controlled — but this file's
+          # OWN stated convention (see e.g. the "Resolve image tag" step's
+          # SR-M-1 comment, and the write-env job's header comment) is that
+          # nothing gets interpolated directly into a `run:` script string;
+          # everything travels through `env:` first. This step, being new in
+          # this PR, is where that convention was first missed. No injection
+          # risk either way (these three never vary per-run), fixed purely
+          # so the convention stays true without an asterisk for the next
+          # person reading it as a pattern to copy.
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
+          REPO_SLUG: ${{ env.REPO_SLUG }}
         run: |
           set -euo pipefail
-          API_REF="${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:${TAG}"
-          NGINX_REF="${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${TAG}"
+          API_REF="${REGISTRY}/${IMAGE_OWNER}/${REPO_SLUG}-api:${TAG}"
+          NGINX_REF="${REGISTRY}/${IMAGE_OWNER}/${REPO_SLUG}-nginx:${TAG}"
 
           MISSING=0
           for REF in "$API_REF" "$NGINX_REF"; do
@@ -365,6 +379,84 @@ jobs:
           fi
 
           echo "==> Both images exist for tag '${TAG}'. Skipping build/publish — the deploy job will pull these as-is."
+
+      # ── Rollback path: verify the found tag is not a POISONED tag ───────
+      # security review (PR #615 round 2, SR-M-1): the check above confirms a
+      # manifest EXISTS under the requested tag — it does not confirm that
+      # manifest actually came from the commit its own name claims. Before
+      # THIS PR (task-infra-rollback-deploys-not-rebuilds) merged, a rollback
+      # dispatch rebuilt from `main` HEAD and republished the result UNDER
+      # THE OLD TAG (see the "Resolve image tag" step's SR-H-2 history note
+      # above) — any tag published by that bug now points at a commit that is
+      # NOT what its name says. A future rollback naming that tag would
+      # silently deploy the wrong build, which is exactly the failure mode
+      # this whole PR exists to close, just moved one layer down.
+      #
+      # apps/api/Dockerfile bakes its ACTUAL build commit into a `GIT_COMMIT`
+      # env var (`ARG GIT_COMMIT=` / `ENV GIT_COMMIT=$GIT_COMMIT`), fed
+      # `steps.meta.outputs.actual_commit` — a git-derived FACT, independent
+      # of whatever tag the image later gets published under (see the
+      # "Build & push API image" step below). The nginx image has no
+      # equivalent: its own `VITE_BUILD_VERSION` build-arg is fed
+      # `steps.meta.outputs.image_tag` — the SAME operator-chosen label the
+      # tag itself is, so a poisoned tag poisons that value identically and
+      # it proves nothing. Checking the API image only is deliberate, not an
+      # oversight — see docs/runbooks/deployment.md §9 "Проверка после
+      # отката" for the operator-facing version of this same caveat.
+      #
+      # `docker buildx imagetools inspect --format '{{json .Image.Config.Env}}'`
+      # reads the image CONFIG blob (Env vars), not layers — confirmed live
+      # against a real single-platform manifest before landing this fix: no
+      # layer download, same cheap manifest-only cost as the existence check
+      # above.
+      #
+      # THREE-VALUED on purpose, not a plain pass/fail — see the `if`/`elif`/
+      # `else` below:
+      #   - MISMATCH  → refuse (`exit 1`) — the strong signal, a poisoned tag.
+      #   - MATCH     → proceed, log the confirmation.
+      #   - ABSENT    → proceed with a `::notice::`, NOT a failure. GIT_COMMIT
+      #     was only added to this image's build-args by PR #613 — every
+      #     image published BEFORE that PR (i.e. every legitimate rollback
+      #     target an owner could realistically name on the day this PR
+      #     lands) carries no GIT_COMMIT at all. Treating "absent" as
+      #     "mismatch" would refuse every rollback target that predates the
+      #     very fix meant to protect it — the opposite of this step's job.
+      #
+      # Prefix-match (`==` on either direction), not exact string equality:
+      # `image_tag` is validated as 7-40 hex chars (see the "Resolve image
+      # tag" step) and the baked GIT_COMMIT is `git rev-parse --short HEAD`
+      # (commonly 7-8 chars, auto-lengthened by git as the repo grows) — two
+      # abbreviations of the SAME commit are not always the same LENGTH, but
+      # one is always a prefix of the other (or of the full 40-char sha both
+      # abbreviate). A brittle exact-length comparison would false-positive
+      # a MISMATCH on a perfectly legitimate rollback the moment the two
+      # abbreviation lengths happened to differ.
+      - name: Verify rollback image fingerprint (API image, best-effort)
+        if: ${{ inputs.image_tag != '' }}
+        env:
+          TAG: ${{ steps.meta.outputs.image_tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
+          REPO_SLUG: ${{ env.REPO_SLUG }}
+        run: |
+          set -euo pipefail
+          API_REF="${REGISTRY}/${IMAGE_OWNER}/${REPO_SLUG}-api:${TAG}"
+
+          BAKED_COMMIT=$(
+            docker buildx imagetools inspect "$API_REF" \
+              --format '{{json .Image.Config.Env}}' 2>/dev/null \
+              | jq -r '.[]? | select(startswith("GIT_COMMIT=")) | ltrimstr("GIT_COMMIT=")' \
+              | head -n1
+          ) || true
+
+          if [ -z "$BAKED_COMMIT" ]; then
+            echo "::notice::Cannot verify — the API image at tag '${TAG}' carries no GIT_COMMIT fingerprint (built before that build-arg existed, PR #613, or the config could not be read). Proceeding without this check; the existence check above is still in force."
+          elif [[ "$BAKED_COMMIT" == "$TAG"* || "$TAG" == "$BAKED_COMMIT"* ]]; then
+            echo "==> Fingerprint matches: the image published under tag '${TAG}' was actually built from commit ${BAKED_COMMIT}."
+          else
+            echo "::error::The API image published under tag '${TAG}' was actually built from commit '${BAKED_COMMIT}' — NOT '${TAG}'. This tag was almost certainly poisoned by the pre-task-infra-rollback-deploys-not-rebuilds rebuild-and-overwrite bug (see docs/runbooks/deployment.md §9). Refusing to deploy a tag whose contents do not match its name. If you actually want the commit that got baked in, re-run naming it '${BAKED_COMMIT}' instead."
+            exit 1
+          fi
 
       # ── Build API image ─────────────────────────────────────────────────
       # backlog 113: GIT_COMMIT/BUILD_TIME feed GET /api/health's build
@@ -777,8 +869,78 @@ jobs:
       contents: read
 
     steps:
+      # ── Automatic path (image_tag empty): unchanged — shallow checkout of
+      # whatever ref triggered this run, same as before this PR. ───────────
       - name: Checkout (for compose files)
+        if: ${{ inputs.image_tag == '' }}
         uses: actions/checkout@v4
+
+      # ── Rollback path: pin the checkout to the ACTUAL commit being
+      # redeployed, not whatever `main` happens to be right now ───────────
+      # security review (PR #615 round 2, SR-H-2): before this fix, this
+      # job's ONLY checkout carried no `ref:` at all, so on a rollback
+      # dispatch it silently checked out CURRENT `main` HEAD — meaning every
+      # DDL file merged to `main` AFTER the commit being rolled back to
+      # (including non-additive ones — a view redefinition, a column drop)
+      # got copied to the VPS and applied by the `deploy` job's "Pull, up,
+      # migrate, health-check" step, on top of the OLD code the rollback was
+      # trying to restore. Result: old code running against a schema newer
+      # than that code was ever tested against — silently, on the one path
+      # that exists specifically to recover from an incident.
+      #
+      # `fetch-depth: 0` (full history) ONLY on this branch — the automatic
+      # path above stays a shallow depth-1 checkout, same cost as before this
+      # PR. Needed here because `needs.build.outputs.image_tag` is commonly a
+      # SHORT sha (`git rev-parse --short HEAD`, 7-8 chars): `actions/
+      # checkout`'s own `ref:` input requires a FULL 40-char sha (confirmed —
+      # a short sha makes it try to resolve the value as a branch/tag pattern
+      # instead and fail), so pinning via `ref:` directly would break the
+      # common case. Fetching full history and letting plain `git checkout`
+      # resolve the (possibly abbreviated) sha locally sidesteps that limit.
+      - name: Checkout (for compose files) — rollback, full history
+        if: ${{ inputs.image_tag != '' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Every DDL-guard step further down in this job (and in the `deploy`
+      # job's SSH script) already checks `[ -f <file> ]` before applying —
+      # pinning the checkout here means a file that did not exist yet AT the
+      # target commit simply is not present, and those guards soft-skip it
+      # exactly the way they already soft-skip a DDL file whose owning PR
+      # "has not merged to main yet" — same code path, no new logic needed
+      # for the common case.
+      #
+      # ASYMMETRY, not a bug: a HANDFUL of DDL-apply steps in the `deploy`
+      # job's SSH script (Step 2/2b-2e, 2ab-2af — see their own
+      # "UNCONDITIONAL" / legacy comments) hard-`exit 1` if their file is
+      # missing, on the stated assumption that "the migration file lands in
+      # the SAME PR as this wiring, so it is unconditionally present in the
+      # checkout by construction". Pinning to a commit OLDER than one of
+      # those wiring commits breaks that assumption — the SCP step for that
+      # specific file below has nothing to copy and this job fails LOUD,
+      # before anything reaches the VPS. That is the correct outcome:
+      # refusing a rollback this script cannot honestly represent is
+      # strictly better than the silent old-code/new-schema state this fix
+      # exists to prevent. In practice this only bites a rollback target
+      # OLDER than the most recent such commit on `main` — see
+      # docs/runbooks/deployment.md §9 for what to do if that happens.
+      #
+      # Schema itself is NOT rolled back by this step, and generally cannot
+      # be: a migration that already ran against the LIVE database before
+      # the rollback decision was made (e.g. a dropped column) stays
+      # dropped — pinning the checkout only stops THIS run from applying
+      # anything FURTHER, it does not undo what an earlier, bad deploy
+      # already did to the schema. Name that state, do not hide it — see
+      # docs/runbooks/deployment.md §9 "Проверка после отката".
+      - name: Check out rollback target commit
+        if: ${{ inputs.image_tag != '' }}
+        env:
+          TARGET: ${{ needs.build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          git checkout "$TARGET"
+          echo "==> Compose files + DDL will be taken from commit $(git rev-parse HEAD) (rollback target '${TARGET}')"
 
       - name: Copy compose files and DDL via SCP
         uses: appleboy/scp-action@v0.1.7
