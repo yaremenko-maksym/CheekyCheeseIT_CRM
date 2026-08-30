@@ -566,7 +566,15 @@ jobs:
       # UNCONDITIONAL, same-PR DDL/script wiring step to `copy-compose`/
       # `deploy` MUST add its path here too — and to
       # docs/runbooks/deployment.md §9's rollback-depth-limit command,
-      # which mirrors this same list for the same reason.
+      # which mirrors this same list for the same reason. That second half
+      # is no longer just a comment asking for a synchronized edit: PR #615
+      # round 4 taught scripts/devops/check-prod-ddl-wiring.py's own
+      # "HARD-REQUIRED FILE LIST MIRROR INVARIANT" to compare this list
+      # against the runbook's command by set difference and fail the CI
+      # "Prod DDL wiring guard" step by name (which file, which side) the
+      # moment either one is edited without the other — the exact class of
+      # drift this guard already existed to catch for the scp/psql pair
+      # above (module docstring, PR #422), extended rather than duplicated.
       #
       # `fetch-depth: 0` (full history), same reasoning and same proven
       # pattern as `copy-compose`'s own "Checkout (for compose files) —

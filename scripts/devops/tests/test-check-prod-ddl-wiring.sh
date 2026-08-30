@@ -36,6 +36,25 @@ make_case() {
 
 run_guard() { python3 "$1/scripts/devops/$GUARD"; }
 
+# ── hard-required file list mirror fixtures (task-infra-rollback-deploys-not-
+# rebuilds, PR #615 round 4) ────────────────────────────────────────────────
+# Like make_case, but ALSO writes docs/runbooks/deployment.md so the mirror
+# check has both sides to compare. $3 unset (or "absent") omits the runbook
+# file entirely — for the "one side has the step, the other side has no file
+# at all" structural-error cases.
+make_mirror_case() {
+  local name="$1" deploy_yml="$2" runbook_md="${3-}"
+  local root="$WS/$name"
+  guard_test_fake_repo "$root" "$GUARD"
+  mkdir -p "$root/apps/api/drizzle/manual" "$root/docs/runbooks"
+  printf 'ALTER TABLE t ADD COLUMN IF NOT EXISTS c text;\n' >"$root/apps/api/drizzle/manual/$DDL"
+  printf '%s' "$deploy_yml" >"$root/.github/workflows/deploy.yml"
+  if [ "$runbook_md" != "absent" ]; then
+    printf '%s' "$runbook_md" >"$root/docs/runbooks/deployment.md"
+  fi
+  printf '%s' "$root"
+}
+
 # ── manual-private reverse-invariant fixtures ───────────────────────────────────
 # apps/api/drizzle/manual-private/ (task-guard-manual-private-ddl, 2026-08-12,
 # PR #517 security review): the reverse of everything above — these files must
@@ -679,6 +698,127 @@ jobs:
           target: '/opt/crm'
 YML
 
+# ── hard-required file list mirror (task-infra-rollback-deploys-not-rebuilds,
+# PR #615 round 4) ──────────────────────────────────────────────────────────
+# A `build` job carrying the rollback preflight's `for FILE in \ ... ; do`
+# list, on top of an otherwise normally-wired copy-compose/deploy pair (same
+# shape as $WIRED_YML) so the pre-existing wiring invariants stay green and
+# only the mirror invariant is what each assertion below is actually testing.
+read -r -d '' MIRROR_BASE_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify rollback target commit has all hard-required files
+        if: \${{ inputs.image_tag != '' }}
+        run: |
+          for FILE in \\
+            docker-compose.prod.yml \\
+            apps/api/drizzle/manual/$DDL \\
+          ; do
+            echo "check \$FILE"
+          done
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'docker-compose.prod.yml,apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            FIXTURE_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+            if [ ! -f "\$FIXTURE_FILE" ]; then
+              echo "ERROR: DDL file not found at \$FIXTURE_FILE"
+              exit 1
+            fi
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$FIXTURE_FILE"
+YML
+
+# Same DDL fixture as MIRROR_BASE_YML's preflight list, in deploy.yml's OWN
+# job — a `for` loop of a different loop variable, which must NOT be mistaken
+# for the preflight step's `for FILE in \` shape (proves the anchor regex is
+# specific to the real step, not to "any for-loop over paths").
+read -r -d '' MIRROR_OTHER_LOOP_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'docker-compose.prod.yml,apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sanity-check unrelated report paths
+        run: |
+          for REPORT in \\
+            docker-compose.prod.yml \\
+          ; do
+            echo "unrelated: \$REPORT"
+          done
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            FIXTURE_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+            if [ ! -f "\$FIXTURE_FILE" ]; then
+              echo "ERROR: DDL file not found at \$FIXTURE_FILE"
+              exit 1
+            fi
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$FIXTURE_FILE"
+YML
+
+read -r -d '' MIRROR_MATCH_MD <<MD || true
+# Deployment runbook
+
+\`\`\`bash
+git log -1 --format='%h  %ad  %s' --date=short -- \\
+  docker-compose.prod.yml \\
+  apps/api/drizzle/manual/$DDL
+\`\`\`
+MD
+
+read -r -d '' MIRROR_MISSING_DDL_MD <<MD || true
+# Deployment runbook
+
+\`\`\`bash
+git log -1 --format='%h  %ad  %s' --date=short -- \\
+  docker-compose.prod.yml
+\`\`\`
+MD
+
+read -r -d '' MIRROR_EXTRA_FILE_MD <<MD || true
+# Deployment runbook
+
+\`\`\`bash
+git log -1 --format='%h  %ad  %s' --date=short -- \\
+  docker-compose.prod.yml \\
+  apps/api/drizzle/manual/$DDL \\
+  apps/api/drizzle/manual/2099-01-02_never_in_preflight.sql
+\`\`\`
+MD
+
 echo "== test-check-prod-ddl-wiring.sh =="
 echo
 
@@ -798,5 +938,43 @@ assert_red "manual-private/ file referenced in a DIFFERENT workflow file (not de
   --contains "FAIL: the following apps/api/drizzle/manual-private" \
   --contains "referenced in .github/workflows/debug-dump.yml" \
   -- run_guard "$(make_private_other_workflow_case private-leaked-other-workflow)"
+
+# ── hard-required file list mirror (task-infra-rollback-deploys-not-rebuilds,
+# PR #615 round 4) ──────────────────────────────────────────────────────────
+assert_green "no rollback preflight step anywhere -> mirror check is a no-op (every other fixture in this suite stays unaffected)" \
+  --contains "Hard-required list drift (preflight vs runbook): 0" \
+  --not-contains "mirrored in only one place" \
+  -- run_guard "$(make_case no-preflight "$WIRED_YML")"
+
+assert_green "a differently-named for-loop (for REPORT in) is not mistaken for the preflight step's for FILE in -> no false positive" \
+  --contains "Hard-required list drift (preflight vs runbook): 0" \
+  --not-contains "mirrored in only one place" \
+  -- run_guard "$(make_case other-loop-shape "$MIRROR_OTHER_LOOP_YML")"
+
+assert_green "preflight list and runbook mirror command name the same files -> green" \
+  --contains "Hard-required list drift (preflight vs runbook): 0" \
+  -- run_guard "$(make_mirror_case mirror-match "$MIRROR_BASE_YML" "$MIRROR_MATCH_MD")"
+
+assert_red "runbook mirror is missing a file the preflight list requires -> red, names the file and the fix" \
+  --contains "IN deploy.yml's PREFLIGHT LIST, MISSING FROM THE RUNBOOK MIRROR" \
+  --contains "apps/api/drizzle/manual/$DDL" \
+  --contains "add these to docs/runbooks/deployment.md" \
+  -- run_guard "$(make_mirror_case mirror-missing-in-runbook "$MIRROR_BASE_YML" "$MIRROR_MISSING_DDL_MD")"
+
+assert_red "runbook mirror names a file the preflight list does not require -> red, names the file and the fix" \
+  --contains "IN THE RUNBOOK MIRROR, MISSING FROM deploy.yml's PREFLIGHT LIST" \
+  --contains "2099-01-02_never_in_preflight.sql" \
+  --contains "add these to deploy.yml" \
+  -- run_guard "$(make_mirror_case mirror-extra-in-runbook "$MIRROR_BASE_YML" "$MIRROR_EXTRA_FILE_MD")"
+
+assert_red "deploy.yml has the preflight list but docs/runbooks/deployment.md has no mirror at all -> red" \
+  --contains "mirrored in only one place" \
+  --contains "has no matching \`git log -1 -- <paths>\` command" \
+  -- run_guard "$(make_mirror_case mirror-runbook-absent "$MIRROR_BASE_YML" absent)"
+
+assert_red "docs/runbooks/deployment.md has the mirror command but deploy.yml has no preflight step -> red" \
+  --contains "mirrored in only one place" \
+  --contains "has no matching 'Verify rollback target commit has all hard-required files' step" \
+  -- run_guard "$(make_mirror_case mirror-preflight-absent "$WIRED_YML" "$MIRROR_MATCH_MD")"
 
 guard_test_summary "test-check-prod-ddl-wiring.sh"

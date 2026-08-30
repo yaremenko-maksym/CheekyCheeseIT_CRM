@@ -191,6 +191,7 @@ DDL_MANUAL_DIR = os.path.join(REPO_ROOT, "apps", "api", "drizzle", "manual")
 DEPLOY_YML = os.path.join(REPO_ROOT, ".github", "workflows", "deploy.yml")
 MANUAL_PRIVATE_DIR = os.path.join(REPO_ROOT, "apps", "api", "drizzle", "manual-private")
 WORKFLOWS_DIR = os.path.join(REPO_ROOT, ".github", "workflows")
+RUNBOOK_MD = os.path.join(REPO_ROOT, "docs", "runbooks", "deployment.md")
 
 # ---------------------------------------------------------------------------
 # KNOWN_NOT_WIRED — explicit, reasoned exceptions. A file only belongs here if
@@ -647,6 +648,164 @@ def build_zones(steps):
     return copy_texts, apply_texts
 
 
+# ---------------------------------------------------------------------------
+# HARD-REQUIRED FILE LIST MIRROR INVARIANT (task-infra-rollback-deploys-not-
+# rebuilds, PR #615 round 4, 2026-08-30)
+# ---------------------------------------------------------------------------
+# PR #615 round 3 (SR-H-3) added a preflight step to deploy.yml's `build` job
+# — "Verify rollback target commit has all hard-required files" — that checks
+# a rollback target commit against a hardcoded `for FILE in \ ... ; do` list
+# of every path the deploy pipeline treats as UNCONDITIONALLY present. The
+# same round's SR-M-3 added a `git log -1 -- <paths>` command to
+# docs/runbooks/deployment.md §9 that lets an operator compute today's actual
+# rollback-depth floor WITHOUT waiting for the preflight to fail — and that
+# command's own comment says the enforcement mechanism in so many words:
+# "Список путей — сознательное зеркало ... если тот список меняется ... эта
+# команда должна измениться тем же PR, иначе она снова начнёт врать про
+# предел".
+#
+# That sentence IS the entire enforcement: a comment asking whoever edits one
+# list to remember the other. This guard already exists because that exact
+# failure mode — a comment asking for a synchronized edit, nothing checking
+# that it happened — put unapplied DDL on prod once (module docstring above,
+# PR #422). Extending it here rather than writing a second guard: the failure
+# mode is identical, only the two texts being compared moved from (scp
+# source: / psql apply) to (deploy.yml preflight list / runbook mirror
+# command).
+#
+# Drift in EITHER direction is a real bug, not just untidiness:
+#   - a file in the preflight list but missing from the runbook command makes
+#     the runbook UNDER-report the safe floor: its answer looks older/safer
+#     than reality, an operator picks a rollback target the runbook's own
+#     advice called safe, and the preflight refuses it anyway — the runbook
+#     lied, even though the preflight itself still caught the real problem.
+#   - a file in the runbook command but missing from the preflight list means
+#     the runbook enforces a STRICTER floor than the pipeline actually does —
+#     the opposite direction, equally a lie about what the code does, and the
+#     more dangerous one to leave undetected if it ever flips into the
+#     preflight being the one that is actually too permissive.
+#
+# WHY THIS DOES NOT NEED A WORKFLOW PARSER: both lists share one shape — one
+# path per line, backslash-continued — a bash `for FILE in \ ... ; do` block
+# and a `git log -1 ... -- \ ...` block respectively. Extracting them is a
+# couple of line-anchored regexes, not a grammar. What gets checked is SET
+# EQUALITY of two path lists — nothing about whether either list is itself
+# semantically correct (that would require classifying which DDL files are
+# genuinely UNCONDITIONAL vs GUARDED — real work, deliberately left alone
+# here, same kind of boundary this file's own KNOWN LIMITATIONS paragraph
+# draws elsewhere).
+#
+# GATED ON PRESENCE, NOT ASSUMED: `extract_preflight_files` /
+# `extract_runbook_mirror_files` return None (not an empty list) when their
+# anchor pattern is absent. `for FILE in \` is this one step's specific
+# shape, not a generic pattern that could accidentally match one of this
+# repo's many OTHER for-loops or git-log invocations (verified: exactly one
+# occurrence of each anchor, in deploy.yml / deployment.md, as of this
+# guard's introduction — `grep -n` both). Both None -> the feature does not
+# exist in this checkout at all -> silently skipped. This is what keeps every
+# OTHER fixture in this guard's own test suite green: none of them model this
+# step, so this whole invariant is a no-op for them, by construction rather
+# than by exemption. Exactly one of the two present -> that gap IS the drift
+# (one side gained or lost the step, the other did not follow) -> reported
+# below at the same severity as a set mismatch.
+FOR_FILE_LOOP_RE = re.compile(r"for\s+FILE\s+in\s+\\\s*$")
+FOR_LOOP_END_RE = re.compile(r"^\s*;\s*do\s*$")
+RUNBOOK_GITLOG_RE = re.compile(r"git log -1 .* -- \\\s*$")
+RUNBOOK_FENCE_RE = re.compile(r"^\s*```")
+
+
+def _extract_backslash_list(lines, start_index, end_re):
+    """Collect one-path-per-line entries after `lines[start_index]` until a
+    line matching `end_re`, stripping a trailing continuation backslash and
+    skipping blank lines. Returns None if `end_re` is never reached — a
+    malformed or edited-away block, treated the same as "not found" by the
+    caller. That is the conservative direction: this check should never
+    invent a comparison out of a block it could not cleanly close.
+    """
+    files = []
+    j = start_index + 1
+    while j < len(lines):
+        raw = lines[j]
+        if end_re.match(raw):
+            return files
+        token = raw.strip()
+        if token.endswith("\\"):
+            token = token[:-1].strip()
+        if token:
+            files.append(token)
+        j += 1
+    return None
+
+
+def extract_preflight_files(deploy_yml_content):
+    """The `for FILE in \\ ... ; do` path list in deploy.yml's hard-required-
+    files preflight step. None if that step is not present in this checkout.
+    """
+    lines = deploy_yml_content.splitlines()
+    for i, ln in enumerate(lines):
+        if FOR_FILE_LOOP_RE.search(ln):
+            return _extract_backslash_list(lines, i, FOR_LOOP_END_RE)
+    return None
+
+
+def extract_runbook_mirror_files(runbook_content):
+    """The `git log -1 ... -- \\ ...` path list in the runbook's rollback-
+    depth-limit command. None if that command is not present — including the
+    case where the runbook file itself does not exist (`runbook_content is
+    None`).
+    """
+    if runbook_content is None:
+        return None
+    lines = runbook_content.splitlines()
+    for i, ln in enumerate(lines):
+        if RUNBOOK_GITLOG_RE.search(ln):
+            return _extract_backslash_list(lines, i, RUNBOOK_FENCE_RE)
+    return None
+
+
+def check_hard_required_mirror(deploy_yml_content, runbook_content):
+    """Returns (only_in_preflight, only_in_runbook, structural_error).
+
+    `structural_error` is a human-readable string when exactly one side has
+    the step and the other does not (a mirror missing one half cannot be
+    set-compared); otherwise None, and the two lists — possibly both empty —
+    are compared by set difference.
+    """
+    preflight_files = extract_preflight_files(deploy_yml_content)
+    runbook_files = extract_runbook_mirror_files(runbook_content)
+
+    if preflight_files is None and runbook_files is None:
+        return [], [], None
+
+    if preflight_files is None:
+        return (
+            [],
+            [],
+            "docs/runbooks/deployment.md has the rollback-depth-limit `git log -1 "
+            "-- <paths>` command, but .github/workflows/deploy.yml's `build` job "
+            "has no matching 'Verify rollback target commit has all hard-required "
+            "files' step (its `for FILE in \\ ... ; do` block was not found). "
+            "Restore that step, or remove the now-stale command from the runbook "
+            "if the preflight check was deliberately dropped.",
+        )
+
+    if runbook_files is None:
+        return (
+            [],
+            [],
+            "deploy.yml's `build` job has the 'Verify rollback target commit has "
+            "all hard-required files' preflight step, but docs/runbooks/"
+            "deployment.md has no matching `git log -1 -- <paths>` command (or "
+            "the file does not exist). Add that command back to deployment.md §9 "
+            "— it is what lets an operator compute today's rollback-depth floor "
+            "without first triggering the preflight failure.",
+        )
+
+    only_in_preflight = sorted(set(preflight_files) - set(runbook_files))
+    only_in_runbook = sorted(set(runbook_files) - set(preflight_files))
+    return only_in_preflight, only_in_runbook, None
+
+
 def main():
     if not os.path.isfile(DEPLOY_YML):
         print("ERROR: deploy.yml not found: {}".format(DEPLOY_YML))
@@ -685,6 +844,15 @@ def main():
 
     flag_gaps = find_psql_without_on_error_stop(steps)
 
+    runbook_content = None
+    if os.path.isfile(RUNBOOK_MD):
+        with open(RUNBOOK_MD, "r") as f:
+            runbook_content = f.read()
+    only_in_preflight, only_in_runbook, mirror_error = check_hard_required_mirror(
+        deploy_yml_content, runbook_content
+    )
+    mirror_drift = len(only_in_preflight) + len(only_in_runbook) + (1 if mirror_error else 0)
+
     print("Prod DDL Wiring Guard")
     print("  Total manual DDL files:  {}".format(len(all_files)))
     print("  Copied AND applied:      {}".format(len(fully_wired)))
@@ -694,6 +862,7 @@ def main():
     print("  Manual-private files:    {}".format(len(private_files)))
     print("  Manual-private LEAKED:   {}".format(len(private_leaks)))
     print("  psql missing ON_ERROR_STOP: {}".format(len(flag_gaps)))
+    print("  Hard-required list drift (preflight vs runbook): {}".format(mirror_drift))
 
     if ghost_allowlist:
         print()
@@ -785,14 +954,45 @@ def main():
         print("directly above it and add a reasoned, named exception here — never a silent")
         print("omission.")
 
-    if broken or private_leaks or flag_gaps:
+    if mirror_error:
+        print()
+        print("FAIL: the rollback hard-required file list is mirrored in only one place.")
+        print(mirror_error)
+
+    if only_in_preflight or only_in_runbook:
+        print()
+        print("FAIL: deploy.yml's rollback preflight file list and docs/runbooks/")
+        print("deployment.md's rollback-depth-limit mirror command have drifted apart.")
+        print("(This checks only that the two manually-maintained copies agree with each")
+        print("other — not that either one is itself the semantically correct list.)")
+        if only_in_preflight:
+            print()
+            print("  IN deploy.yml's PREFLIGHT LIST, MISSING FROM THE RUNBOOK MIRROR:")
+            print("  -> add these to docs/runbooks/deployment.md §9's `git log -1 -- <paths>`")
+            print("     command:")
+            for f in only_in_preflight:
+                print("    {}".format(f))
+        if only_in_runbook:
+            print()
+            print("  IN THE RUNBOOK MIRROR, MISSING FROM deploy.yml's PREFLIGHT LIST:")
+            print("  -> add these to deploy.yml's 'Verify rollback target commit has all")
+            print("     hard-required files' step's `for FILE in \\ ... ; do` list:")
+            for f in only_in_runbook:
+                print("    {}".format(f))
+        print()
+        print("This is the same class of drift check-prod-ddl-wiring.py already guards")
+        print("against for the scp/psql pair above (PR #422): a comment asking two texts to")
+        print("stay in sync, with nothing checking that they did.")
+
+    if broken or private_leaks or flag_gaps or mirror_error or only_in_preflight or only_in_runbook:
         return 1
 
     print()
     print("OK: every manual DDL file is either copied AND applied by deploy.yml, or")
     print("explicitly acknowledged as intentionally not wired, no manual-private file is")
-    print("referenced by any workflow, and every psql invocation in deploy.yml passes")
-    print("-v ON_ERROR_STOP=1.")
+    print("referenced by any workflow, every psql invocation in deploy.yml passes")
+    print("-v ON_ERROR_STOP=1, and the rollback hard-required file list (when present)")
+    print("agrees between deploy.yml and its runbook mirror.")
     return 0
 
 
