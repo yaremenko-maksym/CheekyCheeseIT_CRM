@@ -276,7 +276,21 @@ jobs:
             # next. Say so, only here (manual input present) — never on the
             # automatic push/schedule path, where no such input exists to
             # notify about.
-            echo "::notice::Rollback run — deploying the image already published under tag '${INPUT_TAG}' in GHCR. Build & publish are skipped for this run (see the build job's step conditions). If no image exists under that tag, the 'Verify rollback image exists in GHCR' step below fails this run before anything is sent to the VPS. See docs/runbooks/deployment.md §9."
+            # security review (PR #615 round 2, SR-H-1): this run does not touch
+            # `main` — it only redeploys an already-built image. That makes the
+            # rollback TEMPORARY by construction: the next merge to `main`
+            # (auto-deploy) or the next scheduled Sunday 03:00 UTC rebuild
+            # rebuilds and redeploys `main` HEAD regardless, silently undoing
+            # this run — possibly with nobody watching. Before this PR there was
+            # nothing to undo (a rollback dispatch didn't actually roll back
+            # anything, see the SR-H-2 history note above); this self-reverting
+            # behavior is a direct, new consequence of THIS fix, so it is said
+            # here, not assumed obvious. Said again, more visibly, in the
+            # `deploy` job's job-summary reminder (only reachable after a
+            # successful deploy) — this early notice is the one an operator
+            # sees immediately on dispatch, before waiting for the rest of the
+            # run.
+            echo "::notice::Rollback run — deploying the image already published under tag '${INPUT_TAG}' in GHCR. Build & publish are skipped for this run (see the build job's step conditions). If no image exists under that tag, the 'Verify rollback image exists in GHCR' step below fails this run before anything is sent to the VPS. THIS IS TEMPORARY: 'main' is unchanged by this run — the next merge or the next scheduled Sunday 03:00 UTC rebuild redeploys 'main' HEAD and undoes this rollback. To make it permanent, revert the offending commit(s) in 'main' (e.g. 'git revert <bad-sha>', open a PR, merge it) so the next automatic deploy IS the state you want running. See docs/runbooks/deployment.md §9."
             echo "image_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
           else
             echo "image_tag=${ACTUAL_COMMIT}" >> "$GITHUB_OUTPUT"
