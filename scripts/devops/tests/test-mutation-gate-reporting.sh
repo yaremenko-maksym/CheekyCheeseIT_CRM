@@ -276,4 +276,70 @@ process.exit(
 )
 "
 
+# ── timeouts are collected separately, never silently folded into "killed"
+# (task-mutation-gate-timeout-visibility) ────────────────────────────────────
+#
+# Owner-approved follow-up to the ToolFailure split above: BOTH places that
+# print a "killed" figure used to add Killed + Timeout with no way to tell
+# how much of that number was a timeout — 16 of 34 in one real run, invisible
+# in the summary. readReport() now collects every Timeout mutant into its own
+# array (same shape as toolFailures/survivors), and formatKilled() renders the
+# combined figure as `N (M timeout)` — but ONLY when M > 0, so a run with zero
+# timeouts prints exactly what it always did.
+
+R7="$WS/case7.report.json"
+write_report "$R7" \
+  "Killed:StringLiteral:2" \
+  "Timeout:ConditionalExpression:6" \
+  "Timeout:ConditionalExpression:11" \
+  "Survived:EqualityOperator:20::3"
+
+assert_green "readReport: Timeout mutants land in their own array, counted, never mixed into survivors/toolFailures" \
+  --contains 'TIMEOUTS=2 COUNT=2 SURV=1 TOOL=0' \
+  -- node --input-type=module -e "
+import { readReport } from '$GUARD'
+const parsed = readReport('$R7', { dir: 'pkg' })
+console.log(
+  'TIMEOUTS=' + parsed.timeouts.length +
+  ' COUNT=' + parsed.counts.Timeout +
+  ' SURV=' + parsed.survivors.length +
+  ' TOOL=' + parsed.toolFailures.length,
+)
+process.exit(
+  parsed.timeouts.length === 2 &&
+  parsed.counts.Timeout === 2 &&
+  parsed.survivors.length === 1 &&
+  parsed.toolFailures.length === 0 &&
+  parsed.timeouts.every((t) => t.where && t.mutator)
+    ? 0 : 1,
+)
+"
+
+assert_green "readReport: zero timeouts -> empty timeouts array, counts.Timeout stays 0" \
+  --contains 'TIMEOUTS=0 COUNT=0' \
+  -- node --input-type=module -e "
+import { readReport } from '$GUARD'
+const parsed = readReport('$R4', { dir: 'pkg' })
+console.log('TIMEOUTS=' + parsed.timeouts.length + ' COUNT=' + parsed.counts.Timeout)
+process.exit(parsed.timeouts.length === 0 && parsed.counts.Timeout === 0 ? 0 : 1)
+"
+
+assert_green "formatKilled: some timeouts -> 'N (M timeout)', the exact shape the owner asked for" \
+  -- node --input-type=module -e "
+import { formatKilled } from '$GUARD'
+process.exit(formatKilled(34, 16) === '34 (16 timeout)' ? 0 : 1)
+"
+
+assert_green "formatKilled: zero timeouts -> plain number, no '(0 timeout)' noise" \
+  -- node --input-type=module -e "
+import { formatKilled } from '$GUARD'
+process.exit(formatKilled(18, 0) === '18' ? 0 : 1)
+"
+
+assert_green "formatKilled: single timeout still pluralised the same way (no special-case for 1)" \
+  -- node --input-type=module -e "
+import { formatKilled } from '$GUARD'
+process.exit(formatKilled(5, 1) === '5 (1 timeout)' ? 0 : 1)
+"
+
 guard_test_summary "test-mutation-gate-reporting.sh"

@@ -129,6 +129,50 @@ other on this run. Treat the file it names the same way you would treat a
 `NoCoverage` entry with no integration-spec hint (see below): worth a look,
 not an emergency.
 
+### `N mutant(s) TIMED OUT` — counted as killed, shown separately (non-blocking)
+
+**What it means:** Stryker's own convention counts a `Timeout` mutant as
+`Killed` for the exit code — a mutant that made the suite hang, or simply ran
+long enough to trip `timeoutMS`/`timeoutFactor`, is not told apart from one an
+assertion actually caught (see "VERDICT RULES" in `mutation-gate.mjs`'s module
+header). That verdict is **not** changed by this section. What changed is
+visibility: before `readReport()` collected `Timeout` mutants into their own
+list and `formatKilled()` existed, the timeout count was invisible inside
+"killed" at **both** places that print it — the per-package table and the
+console summary — so a run where a large share of "killed" was actually
+timeouts read as an ordinary, undifferentiated pass.
+
+**What it looks like now:** `killed N (M timeout)` in the table and the
+summary line when `M > 0`, plain `killed N` when it is zero — and, if `M > 0`,
+its own report section listing every timed-out mutant, the same shape as the
+tool-failure list above (`where`, `mutator`, `replacement`), printed with
+`::notice::` rather than `::warning::` or `::error::`, since nothing here is
+wrong by itself.
+
+**Why it does NOT block:** raising this to a real, exit-code-affecting
+distinction would be a decision about `timeoutMS`/`timeoutFactor` themselves —
+whether the budget is too generous — and that is deliberately a SEPARATE,
+harder decision with its own cost (see "Tuning" below on why `timeoutMS` is
+generous on purpose: a too-tight timeout turns real survivors into a false
+green, which is a strictly worse failure mode than an over-generous one hiding
+a slow mutant inside "killed"). This section only makes the number visible; it
+does not touch either constant.
+
+#### Zero survivors with timeouts
+
+Zero survivors alongside a notable timeout count is not, by itself, a clean
+pass — it is a reason to re-run on an idle machine before trusting the green,
+not proof the code is fine. Observed directly on this repo (historical, dated
+so it is not read as a live coordinate): the identical commit produced seven
+surviving mutants on a loaded host and zero survivors on an idle one, nothing
+about the code having changed between the two runs. A pile of timeouts is one
+of the ways a loaded host produces that same false confidence — a mutant that
+would have been caught given enough wall-clock time instead trips the timeout
+and gets counted as killed. Treat a clean exit code that carries a lot of `⏱`
+entries the same way you would treat any other suspiciously convenient
+result: worth a second run before it goes into a decision, not an emergency,
+but not automatically trusted either.
+
 ### `N mutant(s) in changed code are not executed by any test` (warning)
 
 Changed lines no test ever reaches. Reported loudly, does **not** fail the build:

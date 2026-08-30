@@ -75,7 +75,14 @@
  *   Timeout       → counted as killed, which is Stryker's own convention. Note
  *                   the direction of the risk: a too-TIGHT timeout turns
  *                   survivors into false "killed", i.e. a false GREEN. That is
- *                   why timeoutMS below is generous rather than tight.
+ *                   why timeoutMS below is generous rather than tight. This
+ *                   verdict is unchanged, but the COUNT is no longer hidden
+ *                   inside "killed": both places that print a killed figure
+ *                   show it as `N (M timeout)` when M > 0, and every timeout
+ *                   mutant is also listed in its own, non-blocking report
+ *                   section — see "Zero survivors with timeouts" in
+ *                   mutation-gate-runbook.md for why that count matters even
+ *                   though it never fails the build.
  *
  * TOOL FAILURE vs A SURVIVING MUTANT
  * -----------------------------------
@@ -622,6 +629,15 @@ function readReport(reportPath, pkg) {
   // same code, just a different label and a different verb ("NOT VERIFIED",
   // not "SURVIVED").
   const toolFailures = []
+  // Same shape again, collected for the same reason: task-mutation-gate-
+  // timeout-visibility. Stryker counts a Timeout as Killed for the exit code
+  // (module header, "VERDICT RULES") — that does not change here — but until
+  // this list existed, the number of timeouts was added into "killed" at BOTH
+  // places that print it (the per-package table and the console summary) and
+  // never printed on its own anywhere. A run with 16 of 34 mutants timing out
+  // read as a plain, undifferentiated "killed 34" — indistinguishable from 34
+  // mutants an assertion actually caught.
+  const timeouts = []
   const uncovered = []
   const badSuppressions = []
   // EVERY Ignored mutant, not just the reasonless ones — this is what AC2 of
@@ -650,6 +666,8 @@ function readReport(reportPath, pkg) {
       counts[mutant.status] = (counts[mutant.status] ?? 0) + 1
       if (mutant.status === 'Survived') {
         survivors.push({ where, mutator: mutant.mutatorName, replacement: mutant.replacement })
+      } else if (mutant.status === 'Timeout') {
+        timeouts.push({ where, mutator: mutant.mutatorName, replacement: mutant.replacement })
       } else if (mutant.status === 'NoCoverage') {
         uncovered.push({ where, mutator: mutant.mutatorName })
       } else if (mutant.status === 'Ignored') {
@@ -662,7 +680,21 @@ function readReport(reportPath, pkg) {
       }
     }
   }
-  return { counts, survivors, toolFailures, uncovered, badSuppressions, suppressed }
+  return { counts, survivors, toolFailures, timeouts, uncovered, badSuppressions, suppressed }
+}
+
+/**
+ * Formats the "killed" figure so a timeout is visible without being counted
+ * separately — task-mutation-gate-timeout-visibility. `killedCount` already
+ * includes `timeoutCount` (Stryker's own convention: Timeout counts as Killed
+ * for the exit code, and that is NOT changed here — see the module header,
+ * "VERDICT RULES"). This only changes what is PRINTED: `killed N (M timeout)`
+ * when there were any, plain `killed N` when there were none, so a run with
+ * zero timeouts reads exactly as it did before this task and does not grow a
+ * "(0 timeout)" nobody asked for.
+ */
+function formatKilled(killedCount, timeoutCount) {
+  return timeoutCount > 0 ? `${killedCount} (${timeoutCount} timeout)` : `${killedCount}`
 }
 
 /**
@@ -859,6 +891,7 @@ async function main() {
   }
   const allSurvivors = []
   const allToolFailures = []
+  const allTimeouts = []
   const allUncovered = []
   const allBadSuppressions = []
   const allSuppressed = []
@@ -913,6 +946,7 @@ async function main() {
     for (const k of Object.keys(totals)) totals[k] += parsed.counts[k] ?? 0
     allSurvivors.push(...parsed.survivors)
     allToolFailures.push(...parsed.toolFailures)
+    allTimeouts.push(...parsed.timeouts)
     allUncovered.push(...parsed.uncovered)
     allBadSuppressions.push(...parsed.badSuppressions)
     allSuppressed.push(...parsed.suppressed)
@@ -938,7 +972,10 @@ async function main() {
   lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
   for (const p of perPackage) {
     lines.push(
-      `| ${p.name} | ${p.scope} | ${(p.counts.Killed ?? 0) + (p.counts.Timeout ?? 0)} | ` +
+      `| ${p.name} | ${p.scope} | ${formatKilled(
+        (p.counts.Killed ?? 0) + (p.counts.Timeout ?? 0),
+        p.counts.Timeout ?? 0,
+      )} | ` +
         `${p.counts.Survived ?? 0} | ${p.counts.ToolFailure ?? 0} | ${p.counts.NoCoverage ?? 0} | ` +
         `${p.counts.Ignored ?? 0} | ${(p.counts.CompileError ?? 0) + (p.counts.RuntimeError ?? 0)} | ` +
         `${p.seconds}s |`,
@@ -948,7 +985,8 @@ async function main() {
   console.log(`\n${'='.repeat(72)}`)
   console.log(
     `mutation-gate: ${mutantTotal} mutant(s) in ${totalSeconds}s — ` +
-      `killed ${totals.Killed + totals.Timeout}, survived ${totals.Survived}, ` +
+      `killed ${formatKilled(totals.Killed + totals.Timeout, totals.Timeout)}, ` +
+      `survived ${totals.Survived}, ` +
       `tool-failure ${totals.ToolFailure}, no-coverage ${totals.NoCoverage}, ignored ${totals.Ignored}`,
   )
 
@@ -1004,6 +1042,59 @@ async function main() {
         `ran ZERO tests for each of them. NOT failing the build (see ` +
         `mutation-gate-runbook.md), but NOTHING was checked for this code either — read the ` +
         `list above before trusting a clean exit code on this diff.`,
+    )
+  }
+
+  // ── timeouts (task-mutation-gate-timeout-visibility) ───────────────────────
+  //
+  // Same treatment as the tool-failure section above, for a DIFFERENT reason:
+  // these mutants WERE executed, and Stryker's own convention counts a Timeout
+  // as Killed for the exit code (module header, "VERDICT RULES") — that verdict
+  // is unchanged here, on purpose. What changed is visibility: before this
+  // section (and before formatKilled() above), a Timeout was invisible inside
+  // "killed" at both places that print it, so a run where roughly half the
+  // "killed" total was actually a timeout read as an ordinary clean pass. See
+  // `scripts/devops/mutation-gate-runbook.md` "Zero survivors with timeouts"
+  // for why a HIGH timeout count on an otherwise-clean run is itself worth a
+  // second look (observed live on this repo: the same code, same commit, gave
+  // 7 survivors on a loaded host and 0 on an idle one).
+  if (allTimeouts.length > 0) {
+    lines.push(
+      '',
+      `#### ⏱ ${allTimeouts.length} mutant(s) TIMED OUT — counted as killed by Stryker's own convention`,
+    )
+    lines.push(
+      '',
+      `Stryker treats Timeout the same as Killed for the exit code (module header, "VERDICT ` +
+        `RULES") — a mutant that made the suite hang, or simply run long enough to trip ` +
+        `\`timeoutMS\`/\`timeoutFactor\`, is not told apart from one an assertion actually caught. ` +
+        `\`timeoutMS\` is deliberately generous rather than tight for exactly this reason: a TIGHT ` +
+        `timeout would turn real survivors into a false green. This section does **NOT** fail the ` +
+        `build and does not change the verdict — it exists so a clean exit code is not mistaken for ` +
+        `"every one of these mutants was actually caught by an assertion". A large count here on an ` +
+        `otherwise-clean run is a reason to re-run on an idle machine before trusting it — see ` +
+        `\`scripts/devops/mutation-gate-runbook.md\` "Zero survivors with timeouts".`,
+    )
+    const shownTO = allTimeouts.slice(0, 100)
+    if (shownTO.length < allTimeouts.length) {
+      console.log(
+        `::notice::showing the first ${shownTO.length} of ${allTimeouts.length} timeout mutants; the full list is in reports/mutation/*.report.json`,
+      )
+    }
+    console.log('')
+    for (const t of shownTO) {
+      const replacement = (t.replacement ?? '').replace(/\s+/g, ' ').slice(0, 160)
+      const msg =
+        `mutant TIMED OUT (${t.mutator}) — counted as killed by Stryker's own convention, not ` +
+        `caught by a failing assertion. Replacement: ${replacement}`
+      console.log(`::notice file=${t.where.split(':')[0]},line=${t.where.split(':')[1]}::${msg}`)
+      lines.push(`- \`${t.where}\` — **${t.mutator}** → \`${replacement}\``)
+    }
+    console.log(
+      `::notice::${allTimeouts.length} mutant(s) timed out and were counted as killed. Not failing ` +
+        `the build — but a notable count here, especially alongside zero survivors, is a reason to ` +
+        `re-run on an idle machine before trusting the pass (mutation-gate-runbook.md "Zero ` +
+        `survivors with timeouts").`,
     )
   }
 
@@ -1163,9 +1254,10 @@ function budgetExceeded(pkg, budgetSeconds, elapsedMs, perPackage) {
 
 // Guarded so scripts/devops/tests/test-mutation-gate-reporting.sh can `import`
 // groupSuppressions() / looksIntegrationOnly() / splitUncoveredByIntegrationHint()
-// (task-mutation-gate-mechanical AC2/AC3/AC6) without triggering a real Stryker
-// run — `node mutation-gate.mjs --changed` is unaffected, since argv[1] there IS
-// this file.
+// (task-mutation-gate-mechanical AC2/AC3/AC6) / formatKilled() (task-mutation-
+// gate-timeout-visibility) without triggering a real Stryker run —
+// `node mutation-gate.mjs --changed` is unaffected, since argv[1] there IS this
+// file.
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`
 if (isMain) {
   main().then(
@@ -1174,4 +1266,10 @@ if (isMain) {
   )
 }
 
-export { groupSuppressions, looksIntegrationOnly, splitUncoveredByIntegrationHint, readReport }
+export {
+  groupSuppressions,
+  looksIntegrationOnly,
+  splitUncoveredByIntegrationHint,
+  readReport,
+  formatKilled,
+}
