@@ -167,6 +167,23 @@ beforeEach(() => {
 })
 
 describe('cascade preview — the client half of the loop', () => {
+  // task-mutation-gate follow-up (PR #613, backlog 121). `cascadePanelEngaged`
+  // starts `false` — the panel is not shown just because a PAID row's dialog
+  // opened, only once its amount has actually needed a plan. `PAID_TX`'s
+  // amount is unchanged from mount (`renderDialog()` alone, no `typeAmount`),
+  // so neither `shouldPreview` nor `liveAmountNeedsPreview` is ever true and
+  // the render-time latch never fires — this is the one moment in the whole
+  // suite where `cascadePanelEngaged`'s OWN initial value, not something it
+  // gets set to, decides what is on screen.
+  it('CP-0. the panel is not engaged on mount, before the amount has ever needed a plan', async () => {
+    renderDialog()
+
+    // Past the 400 ms debounce, same margin CP-2 uses — the dialog has had
+    // every chance to mount the panel if it were going to.
+    await new Promise((r) => setTimeout(r, 500))
+    expect(screen.queryByTestId('cascade-impact-panel')).toBeNull()
+  })
+
   it('CP-1. typing a different amount on a PAID row asks the server what it would cascade to', async () => {
     renderDialog()
     typeAmount('25000')

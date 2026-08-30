@@ -435,4 +435,35 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
 
     expect(message).toBe('Слишком много запросов подряд. Подождите немного и повторите попытку.')
   })
+
+  // task-mutation-gate follow-up (PR #613, backlog 121). `isAxiosFailure`
+  // reads `err['isAxiosError']` after checking `err !== null && typeof err
+  // === 'object'` — both halves of that check are load-bearing, but for
+  // different reasons, and each needs its OWN fixture to prove it:
+  it('SE-9. `err === null` falls to the plain fallback, not a throw — `err !== null` is load-bearing', () => {
+    // `typeof null === 'object'` is JS's own famous quirk — without the
+    // `err !== null` half, `isAxiosFailure` would still reach
+    // `(err as Record<string, unknown>)['isAxiosError']` for a `null` err,
+    // which THROWS (reading a property off `null`), not merely misreads.
+    expect(cascadeSaveErrorMessage(null)).toBe('Не удалось сохранить — попробуйте ещё раз')
+  })
+
+  it("SE-10. a non-object value carrying its own `isAxiosError` is NOT read as an axios failure — `typeof err === 'object'` is load-bearing", () => {
+    // `err: unknown` accepts anything a caller can construct — including a
+    // FUNCTION with arbitrary own properties attached. A function is the one
+    // JS-native shape that is neither `null` nor `typeof 'object'` (so it
+    // passes the first half of the guard and fails the second) yet CAN still
+    // carry a property the way a real axios error does. Proves the `typeof
+    // === 'object'` half is doing real work: without it, this would read the
+    // attached `.response.status` and answer with the axios-shaped 500
+    // branch instead of falling through to the plain fallback below.
+    const fakeAxiosShapedFunction = Object.assign(() => {}, {
+      isAxiosError: true,
+      response: { status: 500 },
+    })
+
+    expect(cascadeSaveErrorMessage(fakeAxiosShapedFunction)).toBe(
+      'Не удалось сохранить — попробуйте ещё раз',
+    )
+  })
 })
