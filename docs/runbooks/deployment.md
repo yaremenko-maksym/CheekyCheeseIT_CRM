@@ -923,7 +923,9 @@ SHA всё равно пересобирал текущий `main` HEAD и пу�
     apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql \
     apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql \
     scripts/devops/check-security-headers.sh \
-    scripts/devops/check-nginx-perimeter.sh
+    scripts/devops/check-nginx-perimeter.sh \
+    scripts/devops/pg-backup.sh \
+    scripts/devops/check-backup-freshness.sh
   ```
 
   `git log -1 -- <список путей>` берёт САМЫЙ СВЕЖИЙ коммит, тронувший ЛЮБОЙ
@@ -940,6 +942,21 @@ SHA всё равно пересобирал текущий `main` HEAD и пу�
   списка путей по множеству и валит CI-шаг "Prod DDL wiring guard", называя
   конкретный файл и куда его добавить, если кто-то поправил один список и
   забыл про второй.
+
+  **Security review PR #615 round 4, SR-M-5.** Сверка "зеркало с зеркалом"
+  выше не видит одного класса ошибки: если ОБА списка (этот и preflight-список
+  в deploy.yml) пропускают один и тот же файл, который `copy-compose`
+  реально копирует безусловным `scp`, расхождения между ними нет — и вывод
+  зелёный, хотя предел вычисляется неверно. Ровно так `scripts/devops/pg-backup.sh`
+  и `scripts/devops/check-backup-freshness.sh` отсутствовали в обоих списках,
+  оставаясь в фиксированном `source:` первого `scp`-шага (добавлены в оба
+  списка этим же раундом). `check-prod-ddl-wiring.py` теперь сверяет
+  preflight-список ещё и с фактическим множеством путей из БЕЗУСЛОВНЫХ
+  (без `if:`) `scp`-шагов `copy-compose` — preflight-список обязан их
+  ПОКРЫВАТЬ (superset, не точное равенство: сам список может называть файл,
+  которого нет ни в одном `scp`, если он unconditionally присутствует
+  каким-то другим путём). Синтаксический факт "есть ли `if:`" — это всё,
+  что здесь проверяется; семантику "условный по существу" гейт не выводит.
 
 - **Схема при этом НЕ откатывается назад — и в общем случае не может.**
   Если между коммитом отката и моментом аварии проходила НЕАДДИТИВНАЯ

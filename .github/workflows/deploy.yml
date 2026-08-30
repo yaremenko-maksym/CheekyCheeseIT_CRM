@@ -576,6 +576,17 @@ jobs:
       # drift this guard already existed to catch for the scp/psql pair
       # above (module docstring, PR #422), extended rather than duplicated.
       #
+      # security review (PR #615 round 4, SR-M-5): a mirror-vs-mirror check
+      # cannot catch BOTH copies silently omitting the SAME file — which is
+      # exactly what happened here (scripts/devops/pg-backup.sh and
+      # scripts/devops/check-backup-freshness.sh sat in copy-compose's fixed
+      # `source:` list, unlisted here and in the runbook, invisible to the
+      # round-4 guard because both sides agreed on the wrong thing). Round 5
+      # taught check-prod-ddl-wiring.py to additionally require this list to
+      # COVER every path named by an scp-action step in copy-compose that
+      # carries no `if:` at all — the actual source of truth, not a second
+      # hand-maintained copy of it.
+      #
       # `fetch-depth: 0` (full history), same reasoning and same proven
       # pattern as `copy-compose`'s own "Checkout (for compose files) —
       # rollback, full history" step: `steps.meta.outputs.image_tag` is
@@ -627,6 +638,8 @@ jobs:
             apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
+            scripts/devops/pg-backup.sh \
+            scripts/devops/check-backup-freshness.sh \
           ; do
             if git cat-file -e "${TARGET}:${FILE}" 2>/dev/null; then
               echo "    found ${FILE}"

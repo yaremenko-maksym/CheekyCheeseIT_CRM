@@ -696,18 +696,29 @@ def build_zones(steps):
 # draws elsewhere).
 #
 # GATED ON PRESENCE, NOT ASSUMED: `extract_preflight_files` /
-# `extract_runbook_mirror_files` return None (not an empty list) when their
-# anchor pattern is absent. `for FILE in \` is this one step's specific
-# shape, not a generic pattern that could accidentally match one of this
-# repo's many OTHER for-loops or git-log invocations (verified: exactly one
-# occurrence of each anchor, in deploy.yml / deployment.md, as of this
-# guard's introduction — `grep -n` both). Both None -> the feature does not
-# exist in this checkout at all -> silently skipped. This is what keeps every
-# OTHER fixture in this guard's own test suite green: none of them model this
+# `extract_runbook_mirror_files` return (None, None) when their anchor
+# pattern is absent. `for FILE in \` is this one step's specific shape, not a
+# generic pattern that could accidentally match one of this repo's many
+# OTHER for-loops or git-log invocations (verified: exactly one occurrence of
+# each anchor, in deploy.yml / deployment.md, as of this guard's
+# introduction — `grep -n` both). Both absent -> the feature does not exist
+# in this checkout at all -> silently skipped. This is what keeps every OTHER
+# fixture in this guard's own test suite green: none of them model this
 # step, so this whole invariant is a no-op for them, by construction rather
 # than by exemption. Exactly one of the two present -> that gap IS the drift
 # (one side gained or lost the step, the other did not follow) -> reported
 # below at the same severity as a set mismatch.
+#
+# ANCHOR MUST BE UNIQUE (PR #615 round 5, LOW): "verified: exactly one
+# occurrence" above was a one-time manual check at introduction time, not
+# something later edits are held to. Both extract functions now COUNT anchor
+# matches instead of taking the first one silently: a second `for FILE in \`
+# (or `git log -1 ... -- \`) block added anywhere ABOVE the real one would
+# otherwise make extraction compare against the wrong block without any
+# indication that it did — the same "silently not the thing you meant" class
+# every other invariant in this section exists to refuse. Two-or-more is
+# reported as its own structural error, same severity as a set mismatch,
+# never silently resolved to "the first match wins".
 FOR_FILE_LOOP_RE = re.compile(r"for\s+FILE\s+in\s+\\\s*$")
 FOR_LOOP_END_RE = re.compile(r"^\s*;\s*do\s*$")
 RUNBOOK_GITLOG_RE = re.compile(r"git log -1 .* -- \\\s*$")
@@ -739,40 +750,78 @@ def _extract_backslash_list(lines, start_index, end_re):
 
 def extract_preflight_files(deploy_yml_content):
     """The `for FILE in \\ ... ; do` path list in deploy.yml's hard-required-
-    files preflight step. None if that step is not present in this checkout.
+    files preflight step.
+
+    Returns (files, error) — `files` is None if that step is not present in
+    this checkout; `error` is a human-readable string (files then also None)
+    if the anchor matches MORE than once, since picking "the first match"
+    silently would compare against a for-loop that may not be the real
+    preflight step (PR #615 round 5, LOW).
     """
     lines = deploy_yml_content.splitlines()
-    for i, ln in enumerate(lines):
-        if FOR_FILE_LOOP_RE.search(ln):
-            return _extract_backslash_list(lines, i, FOR_LOOP_END_RE)
-    return None
+    matches = [i for i, ln in enumerate(lines) if FOR_FILE_LOOP_RE.search(ln)]
+    if not matches:
+        return None, None
+    if len(matches) > 1:
+        return None, (
+            "deploy.yml has {} lines matching the rollback preflight's `for "
+            "FILE in \\` anchor — expected at most one. Extraction would "
+            "silently use the FIRST match, which may not be the real "
+            "'Verify rollback target commit has all hard-required files' "
+            "step. Rename or remove the extra for-loop so the anchor is "
+            "unambiguous again.".format(len(matches))
+        )
+    return _extract_backslash_list(lines, matches[0], FOR_LOOP_END_RE), None
 
 
 def extract_runbook_mirror_files(runbook_content):
     """The `git log -1 ... -- \\ ...` path list in the runbook's rollback-
-    depth-limit command. None if that command is not present — including the
-    case where the runbook file itself does not exist (`runbook_content is
-    None`).
+    depth-limit command.
+
+    Returns (files, error) — `files` is None if that command is not present
+    (including the case where the runbook file itself does not exist,
+    `runbook_content is None`); `error` is a human-readable string (files
+    then also None) if the anchor matches MORE than once, same reasoning as
+    `extract_preflight_files` above (PR #615 round 5, LOW).
     """
     if runbook_content is None:
-        return None
+        return None, None
     lines = runbook_content.splitlines()
-    for i, ln in enumerate(lines):
-        if RUNBOOK_GITLOG_RE.search(ln):
-            return _extract_backslash_list(lines, i, RUNBOOK_FENCE_RE)
-    return None
+    matches = [i for i, ln in enumerate(lines) if RUNBOOK_GITLOG_RE.search(ln)]
+    if not matches:
+        return None, None
+    if len(matches) > 1:
+        return None, (
+            "docs/runbooks/deployment.md has {} lines matching the "
+            "rollback-depth-limit `git log -1 ... -- \\` anchor — expected "
+            "at most one. Extraction would silently use the FIRST match, "
+            "which may not be the real rollback-depth-limit command. Rename "
+            "or remove the extra command so the anchor is unambiguous "
+            "again.".format(len(matches))
+        )
+    return _extract_backslash_list(lines, matches[0], RUNBOOK_FENCE_RE), None
 
 
-def check_hard_required_mirror(deploy_yml_content, runbook_content):
+def check_hard_required_mirror(preflight_result, runbook_result):
     """Returns (only_in_preflight, only_in_runbook, structural_error).
 
-    `structural_error` is a human-readable string when exactly one side has
-    the step and the other does not (a mirror missing one half cannot be
-    set-compared); otherwise None, and the two lists — possibly both empty —
-    are compared by set difference.
+    `preflight_result` / `runbook_result` are the (files, error) pairs
+    returned by `extract_preflight_files` / `extract_runbook_mirror_files` —
+    computed once in `main()` and passed in here (and reused by
+    `check_preflight_covers_unconditional_scp` below) rather than
+    re-extracted, so an ambiguous-anchor error is reported exactly once.
+
+    `structural_error` is a human-readable string when either side's anchor
+    was ambiguous, or when exactly one side has the step and the other does
+    not (a mirror missing one half cannot be set-compared); otherwise None,
+    and the two lists — possibly both empty — are compared by set
+    difference.
     """
-    preflight_files = extract_preflight_files(deploy_yml_content)
-    runbook_files = extract_runbook_mirror_files(runbook_content)
+    preflight_files, preflight_error = preflight_result
+    runbook_files, runbook_error = runbook_result
+
+    if preflight_error or runbook_error:
+        return [], [], "\n".join(e for e in (preflight_error, runbook_error) if e)
 
     if preflight_files is None and runbook_files is None:
         return [], [], None
@@ -804,6 +853,105 @@ def check_hard_required_mirror(deploy_yml_content, runbook_content):
     only_in_preflight = sorted(set(preflight_files) - set(runbook_files))
     only_in_runbook = sorted(set(runbook_files) - set(preflight_files))
     return only_in_preflight, only_in_runbook, None
+
+
+# ---------------------------------------------------------------------------
+# PREFLIGHT-COVERS-SOURCE INVARIANT (task-infra-rollback-deploys-not-rebuilds,
+# PR #615 round 5, security review round 4 finding SR-M-5, 2026-08-30)
+# ---------------------------------------------------------------------------
+# `check_hard_required_mirror` above proves the preflight list and the
+# runbook command agree with EACH OTHER. It cannot prove either one is
+# actually correct — its own module-docstring-adjacent comment already says
+# so ("not that either one is itself the semantically correct list"). SR-M-5
+# found the gap this leaves open: `scripts/devops/pg-backup.sh` and
+# `scripts/devops/check-backup-freshness.sh` sat in copy-compose's fixed,
+# UNCONDITIONAL `source:` list (no `if:` on that step — it runs on every
+# deploy, automatic or rollback) while being absent from BOTH the preflight
+# list and the runbook mirror. Two lists that agree with each other while
+# both being wrong the same way produce a drift of zero — the mirror check
+# is a no-op for exactly this class of bug, by construction, not by
+# oversight.
+#
+# The fix compares the preflight list against the one thing that is not a
+# hand-maintained copy: the actual `source:` values of every scp-action step
+# in deploy.yml that carries NO `if:` key anywhere in its own body. Four such
+# steps exist today — the "big" first one (14 files: two compose files, eight
+# early DDL files, the two security-check scripts, and the two backup
+# scripts) plus four later single-file steps, one per newest DDL file added
+# after that big step existed (2026-08-19 through 2026-08-22, see the `build`
+# job's own "Rollback path" comment for why those four are separate steps at
+# all) — 18 files total, matching SR-M-5's count exactly.
+#
+# SUPERSET, not set equality (see `check_preflight_covers_unconditional_scp`
+# docstring below for why): every file an unconditional scp step copies MUST
+# be in the preflight list, but the preflight list may legitimately name a
+# file no scp step ever copies (some other unconditionally-present
+# mechanism this guard does not need to enumerate to check this direction).
+#
+# WHY `if:` PRESENCE ALONE, NOT ITS VALUE: distinguishing "guarded, but this
+# particular condition always evaluates true" from "genuinely unconditional"
+# needs GitHub Actions expression semantics — exactly the kind of
+# interpretive work the HARD-REQUIRED FILE LIST MIRROR INVARIANT section
+# above already declines ("classifying which DDL files are genuinely
+# UNCONDITIONAL vs GUARDED — real work, deliberately left alone here").
+# Presence of `if:` is a SYNTACTIC fact, checked exactly that way here too —
+# every scp-action step in this repo's deploy.yml today is either truly
+# unconditional (no `if:` at all) or guarded by an `if:` that reads a prior
+# step's own output (a DDL-file-existence check), so this simplification
+# misclassifies nothing that exists in this file.
+IF_KEY_RE = re.compile(r"^\s*if:\s*\S")
+SCP_ACTION_USES_RE = re.compile(r"^\s*uses:\s*appleboy/scp-action@")
+
+
+def unconditional_scp_source_files(steps):
+    """Every path named in the `source:` of an scp-action step that has NO
+    `if:` key anywhere in its own body — i.e. a step this pipeline always
+    runs, on both the automatic-deploy and rollback paths.
+
+    Only splits a literal, comma-separated `source:` value — the shape every
+    UNCONDITIONAL scp step in this repo uses today (single file or a fixed
+    comma list). A `${{ steps.X.outputs.Y }}` expression source is used only
+    by the GUARDED steps (already excluded by the `if:` check above), so
+    resolving it via `STEPS_EXPR_RE` the way `build_zones` does for the
+    copy-wiring check above would add real complexity for a case that does
+    not occur.
+    """
+    files = set()
+    for step in steps:
+        if not any(SCP_ACTION_USES_RE.match(line) for line in step.lines):
+            continue
+        if any(IF_KEY_RE.match(line) for line in step.lines):
+            continue
+        for value in source_values(step):
+            for token in value.split(","):
+                token = token.strip().strip("'\"")
+                if token:
+                    files.add(token)
+    return files
+
+
+def check_preflight_covers_unconditional_scp(preflight_result, steps):
+    """Paths an UNCONDITIONAL scp-action step copies to the VPS that the
+    rollback preflight's own `for FILE in \\` list does not require.
+
+    Empty (a no-op, same as the mirror invariant above) when the preflight
+    step is absent from this checkout, or when its anchor was ambiguous —
+    that error is already reported by `check_hard_required_mirror`, and
+    this function does not have a meaningful preflight list to check
+    coverage against in either case.
+
+    SUPERSET check, not set equality: the preflight list is allowed to name
+    MORE than this function returns (a file made unconditionally present by
+    some other mechanism); it must never require LESS, or a rollback target
+    that passes the preflight can still fail deep inside `copy-compose` —
+    after `write-env` has already reached the VPS — which is the exact
+    SR-H-3 failure mode this preflight step exists to prevent, reopened
+    through the one file class the mirror-vs-mirror check cannot see.
+    """
+    preflight_files, preflight_error = preflight_result
+    if preflight_files is None or preflight_error:
+        return []
+    return sorted(unconditional_scp_source_files(steps) - set(preflight_files))
 
 
 def main():
@@ -848,10 +996,20 @@ def main():
     if os.path.isfile(RUNBOOK_MD):
         with open(RUNBOOK_MD, "r") as f:
             runbook_content = f.read()
+
+    # Extracted ONCE, reused by both invariants below — an ambiguous-anchor
+    # error (PR #615 round 5, LOW) is then reported exactly once too, and
+    # the coverage check reuses the same preflight list the mirror check
+    # already validated the shape of.
+    preflight_result = extract_preflight_files(deploy_yml_content)
+    runbook_result = extract_runbook_mirror_files(runbook_content)
+
     only_in_preflight, only_in_runbook, mirror_error = check_hard_required_mirror(
-        deploy_yml_content, runbook_content
+        preflight_result, runbook_result
     )
     mirror_drift = len(only_in_preflight) + len(only_in_runbook) + (1 if mirror_error else 0)
+
+    missing_from_preflight = check_preflight_covers_unconditional_scp(preflight_result, steps)
 
     print("Prod DDL Wiring Guard")
     print("  Total manual DDL files:  {}".format(len(all_files)))
@@ -863,6 +1021,7 @@ def main():
     print("  Manual-private LEAKED:   {}".format(len(private_leaks)))
     print("  psql missing ON_ERROR_STOP: {}".format(len(flag_gaps)))
     print("  Hard-required list drift (preflight vs runbook): {}".format(mirror_drift))
+    print("  Preflight missing unconditional scp files: {}".format(len(missing_from_preflight)))
 
     if ghost_allowlist:
         print()
@@ -984,15 +1143,46 @@ def main():
         print("against for the scp/psql pair above (PR #422): a comment asking two texts to")
         print("stay in sync, with nothing checking that they did.")
 
-    if broken or private_leaks or flag_gaps or mirror_error or only_in_preflight or only_in_runbook:
+    if missing_from_preflight:
+        print()
+        print("FAIL: deploy.yml copies the following files to the VPS on EVERY deploy — an")
+        print("scp-action step with no `if:` at all, in the copy-compose job — but the")
+        print("rollback preflight's `for FILE in \\ ... ; do` list does not require them.")
+        print("(security review PR #615 round 4, SR-M-5: the mirror check above proves the")
+        print("preflight list agrees with its runbook copy, never that either one is the")
+        print("actually-correct list — this is the class of bug that leaves open: both")
+        print("copies silently missing the SAME file, so their drift is zero.)")
+        print()
+        print("-> add these to BOTH deploy.yml's 'Verify rollback target commit has all")
+        print("   hard-required files' step's `for FILE in \\ ... ; do` list AND")
+        print("   docs/runbooks/deployment.md §9's `git log -1 -- <paths>` command:")
+        for f in missing_from_preflight:
+            print("    {}".format(f))
+        print()
+        print("Left unfixed, a rollback target older than one of these files' introducing")
+        print("commit passes the preflight (which does not know to check them) and then")
+        print("fails deep inside copy-compose's scp step — after write-env has already")
+        print("reached the VPS. That is the SR-H-3 failure mode this preflight step exists")
+        print("to prevent, reopened through the one file class the mirror check cannot see.")
+
+    if (
+        broken
+        or private_leaks
+        or flag_gaps
+        or mirror_error
+        or only_in_preflight
+        or only_in_runbook
+        or missing_from_preflight
+    ):
         return 1
 
     print()
     print("OK: every manual DDL file is either copied AND applied by deploy.yml, or")
     print("explicitly acknowledged as intentionally not wired, no manual-private file is")
     print("referenced by any workflow, every psql invocation in deploy.yml passes")
-    print("-v ON_ERROR_STOP=1, and the rollback hard-required file list (when present)")
-    print("agrees between deploy.yml and its runbook mirror.")
+    print("-v ON_ERROR_STOP=1, the rollback hard-required file list (when present) agrees")
+    print("between deploy.yml and its runbook mirror, and that list covers every file an")
+    print("unconditional scp-action step actually copies.")
     return 0
 
 
