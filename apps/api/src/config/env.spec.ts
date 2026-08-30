@@ -466,6 +466,23 @@ describe('validateEnv — Google Indexing API env (Section G)', () => {
       expect(env.GIT_COMMIT).toBe(fullSha)
     })
 
+    // task-mutation-gate follow-up (PR #613, backlog 121/122) — the two
+    // whitespace tests below this one (empty-string and whitespace-ONLY)
+    // both land on the SAME outcome as "absent" no matter whether the
+    // preprocess actually calls `.trim()` first: `GIT_COMMIT_SHAPE.test()`
+    // already rejects a string that is entirely non-hex, trimmed or not.
+    // Neither one can tell a real `.trim()` apart from a mutant that skips
+    // it. This is the one shape that can: a SHA with real surrounding
+    // whitespace, where trimming is the ONLY thing that turns a
+    // shape-test failure into a pass. Without `.trim()`, `GIT_COMMIT_SHAPE`'s
+    // `^`/`$` anchors reject the untrimmed string outright (leading/trailing
+    // spaces are not hex) and this would wrongly fall through to `undefined`
+    // instead of the real, trimmed commit.
+    it('a SHA surrounded by whitespace is trimmed to the bare commit, not rejected as garbage', () => {
+      const env = validateEnv({ ...BASE_DEV, GIT_COMMIT: '  a1b2c3d  ' })
+      expect(env.GIT_COMMIT).toBe('a1b2c3d')
+    })
+
     // security-review round 2 (task-cascade-apply, SR-H-1) — this used to
     // `.toThrow()`. DELIBERATELY CHANGED, not a regression: a manual
     // workflow_dispatch `image_tag` (see env.ts's GIT_COMMIT comment) is

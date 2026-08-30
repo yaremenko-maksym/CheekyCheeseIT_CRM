@@ -54,8 +54,17 @@ export function stripQueryString(url: string | undefined): string {
  *
  * Compared case-insensitively: the two sources disagree on casing for the
  * same 500 ('Internal Server Error' vs 'Internal server error').
+ *
+ * EXPORTED (task-mutation-gate follow-up, PR #613, backlog 121) so the spec
+ * can iterate the LIVE set instead of a second, hand-copied list — a set this
+ * size (~19 one-word-different string literals) is exactly the shape where a
+ * handful of sampled test cases leaves most entries provably untested: the
+ * mutation gate found three ('unauthorized' / 'method not allowed' / 'not
+ * acceptable') still readable as a literal `""` with every existing test
+ * green. Iterating the export closes all of them at once and any future
+ * addition automatically, rather than one more hand-picked row per finding.
  */
-const GENERIC_HTTP_REASON_PHRASES = new Set([
+export const GENERIC_HTTP_REASON_PHRASES = new Set([
   'bad request',
   'unauthorized',
   'forbidden',

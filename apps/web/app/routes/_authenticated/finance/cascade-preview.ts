@@ -184,7 +184,15 @@ export function cascadePreviewErrorMessage(err: unknown): string {
 
   const status = getAxiosStatus(err)
   if (status === 403) return `${CASCADE_PREVIEW_LEAD_IN} — недостаточно прав`
-  if (status !== undefined && status >= 500) {
+  // `(status ?? -Infinity)`, not a `status !== undefined &&` guard: a missing
+  // status must never read as ">= 500" (absent means no response was ever
+  // received — the opposite of "the server answered with a 5xx"), and
+  // `-Infinity` makes that true by construction. `undefined >= 500` is
+  // already `false` in JS (a NaN comparison), so the guard changed nothing
+  // OBSERVABLE either way — it existed only because TypeScript's `>=` needs
+  // a `number`, not `number | undefined`, and this satisfies that without a
+  // conditional branch a test would have to pin.
+  if ((status ?? -Infinity) >= 500) {
     return `${CASCADE_PREVIEW_LEAD_IN} — ошибка на нашей стороне, попробуйте позже`
   }
   return `${CASCADE_PREVIEW_LEAD_IN} — попробуйте ещё раз`

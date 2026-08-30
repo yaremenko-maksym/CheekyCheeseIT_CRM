@@ -4,6 +4,7 @@ import {
   getApiErrorMessage,
   getUserFacingErrorMessage,
   stripQueryString,
+  GENERIC_HTTP_REASON_PHRASES,
 } from './axios-utils'
 
 // security-review round 2, MED-2: one consistent policy — never log a
@@ -246,6 +247,12 @@ describe('getUserFacingErrorMessage', () => {
     [403, 'Forbidden', 'прав'],
     [404, 'Not Found', 'не найдены'],
     [400, 'Bad Request', 'некорректный'],
+    // task-mutation-gate follow-up (PR #613, backlog 121): whitespace
+    // padding around an otherwise-generic phrase must still be recognised —
+    // `isGenericHttpReasonPhrase` trims before comparing, and this is the
+    // one shape that can tell a real `.trim()` apart from a no-op (an exact
+    // phrase with no padding passes either way).
+    [403, '  Forbidden  ', 'прав'],
   ])(
     'status %i with Nest\'s own default body ("%s") falls through to the honest Russian text',
     (status, backendMessage, expectedFragment) => {
@@ -258,6 +265,20 @@ describe('getUserFacingErrorMessage', () => {
       expect(result.toLowerCase()).toContain(expectedFragment)
     },
   )
+
+  // task-mutation-gate follow-up (PR #613, backlog 121). The five rows above
+  // sample five of the set's ~19 phrases — every OTHER entry could be
+  // silently dropped (mutated to `""`) with all of them still green. Iterates
+  // the LIVE export instead of a second hand-copied list, so this closes
+  // every entry the gate found (`unauthorized` / `method not allowed` /
+  // `not acceptable`) and any future addition to the set for free.
+  it('filters EVERY phrase in GENERIC_HTTP_REASON_PHRASES, not just the sampled few above — none reaches the user verbatim', () => {
+    for (const phrase of GENERIC_HTTP_REASON_PHRASES) {
+      const err = { response: { status: 500, data: { message: phrase } }, message: 'irrelevant' }
+      const result = getUserFacingErrorMessage(err)
+      expect(result).not.toBe(phrase)
+    }
+  })
 
   it('a REAL backend business message for the same status is still shown verbatim — the filter is narrow', () => {
     const err = { response: { status: 403, data: { message: 'Только владелец может это делать' } } }

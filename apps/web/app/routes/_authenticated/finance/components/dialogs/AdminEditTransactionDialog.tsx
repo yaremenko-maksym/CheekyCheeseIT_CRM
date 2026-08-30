@@ -66,6 +66,7 @@ export function AdminEditTransactionDialog({
    * for what sets this `true`; reset here, per-`tx`, alongside every other
    * per-row field.
    */
+  // Stryker disable next-line BooleanLiteral: unobservable through any test that lets effects settle — the mount effect below sets this to `false` from `tx` before an assertion can read the raw default (same shape as the `debouncedAmount` suppression a few lines up). A direct-mutation check confirms this: replacing `false` with `true` here still passes CP-0 (added specifically to try to catch it) because `render()`'s own `act()` flushes the mount effect's `setCascadePanelEngaged(false)` before the test's first assertion ever runs
   const [cascadePanelEngaged, setCascadePanelEngaged] = useState(false)
 
   useEffect(() => {
@@ -480,28 +481,58 @@ export function AdminEditTransactionDialog({
                   must also be what shows the panel that explains the
                   refusal.
 
-                  COPY-M-7 (copy-review, MED, PR #613 round 3): the third
-                  disjunct, `cascadePanelEngaged`, bridges the transient dip
-                  described at that flag's own definition above — WITHOUT it,
-                  the panel unmounts and remounts mid-edit on the two most
-                  common paths through a first edit (erase-then-retype;
-                  typing back through the original digits before
-                  continuing). Purely a display concern: `shouldPreview` /
-                  `liveAmountNeedsPreview` still gate `enabled`/`isLoading`/
-                  `cascadeSaveBlocked` below, unchanged.
+                  COPY-M-7 (copy-review, MED, PR #613 round 3) introduced
+                  `cascadePanelEngaged` as a THIRD disjunct alongside
+                  `shouldPreview`/`liveAmountNeedsPreview`, to bridge the
+                  transient dip described at that flag's own definition
+                  above — WITHOUT it, the panel unmounts and remounts
+                  mid-edit on the two most common paths through a first edit
+                  (erase-then-retype; typing back through the original
+                  digits before continuing).
 
-                  The leading `!!tx &&` is NOT redundant with the two
-                  original disjuncts here (both already `!!tx && …` inside
-                  `needsCascadePreview`) — it is what keeps the invariant the
-                  Stryker suppression two components down relies on
-                  (`tx` non-null wherever this JSX renders) true for the NEW
-                  disjunct too. `cascadePanelEngaged` is per-`tx` state and
-                  is reset on a genuine row SWITCH, but `onClose`'s own
-                  effect deliberately returns early on `tx === null` (so the
-                  dialog's fields do not visibly clear mid closing-animation)
-                  — without this guard a stale `true` from the JUST-CLOSED
-                  row would keep the panel mounted with `tx` already null. */}
-              {!!tx && (shouldPreview || liveAmountNeedsPreview || cascadePanelEngaged) && (
+                  task-mutation-gate follow-up (PR #613, backlog 121):
+                  mounting on all three together turned out to mount on
+                  EXACTLY the same renders `cascadePanelEngaged` alone would
+                  — the latch above (`if ((shouldPreview ||
+                  liveAmountNeedsPreview) && !cascadePanelEngaged) {
+                  setCascadePanelEngaged(true) }`) runs, unconditionally, on
+                  every render, BEFORE this return statement. React's own
+                  documented "adjust state during render" behaviour (cited
+                  at that latch's definition above) means that when it flips
+                  `cascadePanelEngaged` to `true`, this component re-renders
+                  IMMEDIATELY, before any JSX from THIS pass is ever
+                  committed — so on the render that actually reaches the
+                  screen, `cascadePanelEngaged` is ALREADY `true` whenever
+                  `shouldPreview || liveAmountNeedsPreview` is. Verified
+                  empirically too, not just argued: swapping this line's
+                  three-term condition for `cascadePanelEngaged` alone left
+                  every test in cascade-impact-panel.test.tsx green,
+                  including CP-1/CP-31 which exercise exactly the render
+                  where one of the two live flags first turns true. The two
+                  live flags keep gating `enabled`/`isLoading`/
+                  `cascadeSaveBlocked` below, unchanged — those must stay
+                  keystroke-precise, narrowing THEM would risk narrowing
+                  them for money too. Only the MOUNT condition collapses,
+                  because mounting asks "has this ever been true", and the
+                  latch above already answers exactly that question.
+
+                  This depends on `setCascadePanelEngaged` staying a
+                  render-time call, not a `useEffect` — moving it into an
+                  effect would reopen the one-render gap this simplification
+                  relies on, and the two live flags would need to come back
+                  into this condition.
+
+                  The leading `!!tx &&` is NOT redundant with
+                  `cascadePanelEngaged` — it is what keeps the invariant the
+                  Stryker suppression two components down relies on (`tx`
+                  non-null wherever this JSX renders) true. `cascadePanelEngaged`
+                  is per-`tx` state and is reset on a genuine row SWITCH, but
+                  `onClose`'s own effect deliberately returns early on
+                  `tx === null` (so the dialog's fields do not visibly clear
+                  mid closing-animation) — without this guard a stale `true`
+                  from the JUST-CLOSED row would keep the panel mounted with
+                  `tx` already null. */}
+              {!!tx && cascadePanelEngaged && (
                 <CascadeImpactPanel
                   preview={preview}
                   // The extra disjunct covers exactly finding 107's window:
@@ -525,7 +556,7 @@ export function AdminEditTransactionDialog({
                     void previewQuery.refetch()
                   }}
                   staleMessage={staleMessage}
-                  // Stryker disable next-line OptionalChaining: unreachable — this JSX only renders under `shouldPreview || liveAmountNeedsPreview`, both of which are `!!tx && …`, so `tx` is non-null wherever this expression is evaluated (CP-23 covers the closed dialog)
+                  // Stryker disable next-line OptionalChaining: unreachable — this JSX only renders under the leading `!!tx &&` guard above, so `tx` is non-null wherever this expression is evaluated (CP-23 covers the closed dialog)
                 />
               )}
 
