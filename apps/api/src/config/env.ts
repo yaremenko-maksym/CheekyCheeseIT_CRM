@@ -263,11 +263,29 @@ const envSchema = z
     // exact moment someone is already fixing a different incident. Regex
     // validation stays — it is what DECIDES "does this look real", it just
     // no longer gets to veto boot.
-    GIT_COMMIT: z.preprocess((v) => {
-      if (typeof v !== 'string') return v
-      const trimmed = v.trim()
-      return GIT_COMMIT_SHAPE.test(trimmed) ? trimmed : undefined
-    }, z.string().regex(GIT_COMMIT_SHAPE, 'GIT_COMMIT must be a short or full hex commit SHA').optional()),
+    // The `.regex()` message text below can never actually reach a caller:
+    // the preprocess function directly above returns EITHER `trimmed` (only
+    // once `GIT_COMMIT_SHAPE.test(trimmed)` has already passed) OR
+    // `undefined` — and `.optional()` skips the regex entirely for
+    // `undefined`. So by the time this `.regex()` step runs at all, the
+    // value has already been proven, with the SAME regex, to match. No
+    // input reaches `.regex()` and fails it, so no test can observe this
+    // message's text changing — mutating it is silent by construction, not
+    // a coverage gap. Kept as defense-in-depth documentation of the
+    // invariant (a future edit that decouples the preprocess's shape check
+    // from this one would need it), not as reachable validation.
+    GIT_COMMIT: z.preprocess(
+      (v) => {
+        if (typeof v !== 'string') return v
+        const trimmed = v.trim()
+        return GIT_COMMIT_SHAPE.test(trimmed) ? trimmed : undefined
+      },
+      // Stryker disable next-line StringLiteral: unreachable message text — see the comment above this field for why
+      z
+        .string()
+        .regex(GIT_COMMIT_SHAPE, 'GIT_COMMIT must be a short or full hex commit SHA')
+        .optional(),
+    ),
     BUILD_TIME: z.preprocess(
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.string().min(1).optional(),

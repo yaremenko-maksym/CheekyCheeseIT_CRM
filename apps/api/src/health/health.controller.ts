@@ -84,6 +84,30 @@ export class HealthController {
  * capable of handing back (a validated value, OR an unvalidated one leaked
  * from `process.env`), without needing a real `ConfigService` instance.
  */
+/**
+ * A user-defined type guard, not a bare boolean helper, so the ternary below
+ * narrows `value` to `string` on its own — no cast needed.
+ *
+ * task-mutation-gate follow-up (PR #613, backlog 121). This used to be
+ * `value !== undefined && GIT_COMMIT_SHAPE.test(value)` inline in
+ * `resolveGitCommit`, and the mutation gate could not kill a mutant that
+ * dropped the `value !== undefined` half: `RegExp.prototype.test()` coerces
+ * a non-string argument via `String()` internally, so `.test(value)` with
+ * `value === undefined` already evaluates `GIT_COMMIT_SHAPE.test('undefined')`
+ * — and the literal text "undefined" (it contains 'u'/'n'/'i') can never
+ * match a hex-only pattern regardless. The explicit `!== undefined` guard
+ * was true defense-in-depth for TYPES (this codebase does not pass `unknown`
+ * here) but added no OBSERVABLE behaviour a test could pin — so per this
+ * project's own mutation-gate policy ("недостающая проверка или лишняя
+ * сложность?"), the answer here was simplify, not suppress: `String(value)`
+ * below makes the SAME coercion `.test()` already performed implicit
+ * anyway, explicit and self-documenting, and removes the redundant
+ * conditional entirely rather than hiding it behind a suppression comment.
+ */
+function looksLikeGitCommit(value: string | undefined): value is string {
+  return GIT_COMMIT_SHAPE.test(String(value))
+}
+
 export function resolveGitCommit(value: string | undefined): string {
-  return value !== undefined && GIT_COMMIT_SHAPE.test(value) ? value : 'unknown'
+  return looksLikeGitCommit(value) ? value : 'unknown'
 }
