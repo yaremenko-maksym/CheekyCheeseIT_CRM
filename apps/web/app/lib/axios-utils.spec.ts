@@ -268,12 +268,64 @@ describe('getUserFacingErrorMessage', () => {
 
   // task-mutation-gate follow-up (PR #613, backlog 121). The five rows above
   // sample five of the set's ~19 phrases — every OTHER entry could be
-  // silently dropped (mutated to `""`) with all of them still green. Iterates
-  // the LIVE export instead of a second hand-copied list, so this closes
-  // every entry the gate found (`unauthorized` / `method not allowed` /
-  // `not acceptable`) and any future addition to the set for free.
-  it('filters EVERY phrase in GENERIC_HTTP_REASON_PHRASES, not just the sampled few above — none reaches the user verbatim', () => {
+  // silently dropped without a test noticing. This loop iterates the LIVE
+  // export so no current entry is skipped just because nobody picked it —
+  // real value, and worth keeping — but it reads BOTH the phrase it sends
+  // AND the phrase it checks the result against from that same live
+  // export. Corrupt a literal INSIDE `GENERIC_HTTP_REASON_PHRASES` (mutate
+  // `'unauthorized'` to `''`, say) and `phrase` here becomes `''` right
+  // along with it: the mutant filters `''` out of itself and the assertion
+  // stays green. That is exactly how the gate found five survivors
+  // (`unauthorized` / `method not allowed` / `not acceptable` / `request
+  // timeout` / `http version not supported`) with every test passing —
+  // this test was checking the set's self-consistency, not its content.
+  // What this loop is genuinely good for: a phrase added to the export
+  // LATER, with no corresponding row anywhere else, still gets exercised
+  // here for free. Content itself is pinned separately below.
+  it('filters EVERY phrase currently in GENERIC_HTTP_REASON_PHRASES, not just the sampled few above — catches a phrase added later with no dedicated test', () => {
     for (const phrase of GENERIC_HTTP_REASON_PHRASES) {
+      const err = { response: { status: 500, data: { message: phrase } }, message: 'irrelevant' }
+      const result = getUserFacingErrorMessage(err)
+      expect(result).not.toBe(phrase)
+    }
+  })
+
+  // Closes what the loop above cannot: KNOWN_GENERIC_HTTP_REASON_PHRASES is
+  // typed out by hand, a genuinely separate literal from the source's
+  // `GENERIC_HTTP_REASON_PHRASES` export — NOT imported, NOT derived from
+  // it. That duplication is not slack to trim, it is the actual mechanism.
+  // If a literal inside the SOURCE set is corrupted, this copy does not
+  // move with it: the test still sends the real word (e.g. `'unauthorized'`)
+  // as the backend message, the corrupted source set no longer recognises
+  // it as generic, and the raw English reaches the return value instead of
+  // being filtered — the exact production bug (finding 110) this whole set
+  // exists to prevent. `expect(result).not.toBe(phrase)` then fails, where
+  // the live-set loop above structurally cannot.
+  const KNOWN_GENERIC_HTTP_REASON_PHRASES = [
+    'bad request',
+    'unauthorized',
+    'forbidden',
+    'not found',
+    'method not allowed',
+    'not acceptable',
+    'request timeout',
+    'conflict',
+    'gone',
+    'precondition failed',
+    'payload too large',
+    'unsupported media type',
+    'misdirected',
+    'unprocessable entity',
+    'internal server error',
+    'not implemented',
+    'bad gateway',
+    'service unavailable',
+    'gateway timeout',
+    'http version not supported',
+  ]
+
+  it('pins every phrase against an independent hardcoded copy — a corrupted literal in the source set is visible here even though the live-set loop above cannot see it', () => {
+    for (const phrase of KNOWN_GENERIC_HTTP_REASON_PHRASES) {
       const err = { response: { status: 500, data: { message: phrase } }, message: 'irrelevant' }
       const result = getUserFacingErrorMessage(err)
       expect(result).not.toBe(phrase)

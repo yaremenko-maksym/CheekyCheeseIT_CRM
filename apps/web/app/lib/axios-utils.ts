@@ -56,13 +56,22 @@ export function stripQueryString(url: string | undefined): string {
  * same 500 ('Internal Server Error' vs 'Internal server error').
  *
  * EXPORTED (task-mutation-gate follow-up, PR #613, backlog 121) so the spec
- * can iterate the LIVE set instead of a second, hand-copied list — a set this
- * size (~19 one-word-different string literals) is exactly the shape where a
- * handful of sampled test cases leaves most entries provably untested: the
- * mutation gate found three ('unauthorized' / 'method not allowed' / 'not
- * acceptable') still readable as a literal `""` with every existing test
- * green. Iterating the export closes all of them at once and any future
- * addition automatically, rather than one more hand-picked row per finding.
+ * can iterate the LIVE set — a set this size (~19 one-word-different string
+ * literals) is exactly the shape where a handful of sampled test cases
+ * leaves most entries provably untested. The mutation gate found FIVE
+ * ('unauthorized' / 'method not allowed' / 'not acceptable' / 'request
+ * timeout' / 'http version not supported') still readable as a literal `""`
+ * with every existing test green, because that first iterating test read
+ * BOTH the phrase it sent AND the phrase it checked against from this same
+ * live export — a mutated literal travels with the import, so the loop only
+ * proved the code agrees with itself (fixed in test/pr613-phrase-set-pinning).
+ * Closing that gap needed a SECOND list in the spec — typed out by hand,
+ * not derived from this export — that a mutation HERE cannot also corrupt.
+ * That second list (`KNOWN_GENERIC_HTTP_REASON_PHRASES` in the spec) is
+ * deliberate duplication, not slack to trim: duplication is what makes a
+ * corrupted literal visible. The live-set loop stays too, for what it is
+ * actually good for — catching a phrase added here later with no matching
+ * row in the hand-copied list.
  */
 export const GENERIC_HTTP_REASON_PHRASES = new Set([
   'bad request',
