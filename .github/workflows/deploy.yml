@@ -11,10 +11,19 @@ name: Deploy
 #
 # 2. `workflow_dispatch`
 #    Used for:
-#      a) Manual one-off runs (e.g. rollback, re-deploy a specific image_tag).
-#      b) Explicit dispatch from auto-merge-on-label.yml after a squash-merge,
-#         because GITHUB_TOKEN-pushes do not create push events for workflows
-#         (workflow_dispatch is the documented exception to this rule).
+#      a) Manual one-off runs with `image_tag` LEFT EMPTY — builds and
+#         publishes fresh images from whatever ref triggered this run (main
+#         by default), exactly like the automatic `push`/`schedule` paths.
+#      b) Rollback — `image_tag` set to an EXISTING git SHA already published
+#         in GHCR (task-infra-rollback-deploys-not-rebuilds). This SKIPS the
+#         build/publish steps entirely (`build` job's `if: inputs.image_tag
+#         == ''` guards) and deploys that already-built image as-is — it
+#         does NOT rebuild and does NOT overwrite the tag. See the "Verify
+#         rollback image exists in GHCR" step and docs/runbooks/deployment.md §9.
+#      c) Explicit dispatch from auto-merge-on-label.yml after a squash-merge
+#         — always case (a), an empty image_tag — because GITHUB_TOKEN-pushes
+#         do not create push events for workflows (workflow_dispatch is the
+#         documented exception to this rule).
 #
 # 3. `schedule` (weekly rebuild — task-infra-weekly-rebuild)
 #    Rebuilds and redeploys `main` every Sunday even with zero merges that
@@ -206,10 +215,17 @@ jobs:
           # under the OLD tag (overwriting whatever image previously lived
           # there), and bake the OLD sha into GIT_COMMIT even though main's
           # code is what actually shipped. See the "Build & push API image"
-          # step below for where actual_commit closes that gap; see
-          # docs/runbooks/deployment.md §9's SSH `docker compose pull` path
-          # for the rollback method that genuinely reuses a previously-built
-          # image without rebuilding.
+          # step below for where actual_commit closed that GIT_COMMIT-honesty
+          # gap. The SEPARATE rebuild/overwrite defect this paragraph also
+          # describes — a manual dispatch naming an old tag still rebuilding
+          # and republishing under it — is fixed by
+          # task-infra-rollback-deploys-not-rebuilds (this PR): see the
+          # `if: inputs.image_tag == ''` guards on the build/push steps below,
+          # which now skip both entirely whenever INPUT_TAG is set, so this
+          # ACTUAL_COMMIT value (still computed unconditionally, for the
+          # automatic-path case) goes unused on that branch. See the "Verify
+          # rollback image exists in GHCR" step below and
+          # docs/runbooks/deployment.md §9 for the resulting rollback flow.
           ACTUAL_COMMIT=$(git rev-parse --short HEAD)
           echo "actual_commit=${ACTUAL_COMMIT}" >> "$GITHUB_OUTPUT"
 
@@ -246,18 +262,21 @@ jobs:
               echo "::error::image_tag input is not a valid git SHA (expected 7-40 hex chars, see docs/runbooks/deployment.md §9). Refusing to use it as a Docker tag / build-arg."
               exit 1
             fi
-            # Owner request following SR-H-2 (PR #613 round 3): this run is
-            # about to OVERWRITE whatever image currently lives under
-            # $INPUT_TAG with a fresh build from $ACTUAL_COMMIT (see the big
-            # comment at the top of this step for why those two are not the
-            # same thing) — the exact failure mode that made GIT_COMMIT
-            # dishonest before this PR. If $INPUT_TAG names the sha someone
-            # is trying to roll back TO, this run destroys the very image the
-            # rollback needed. Say so, only here (manual input present) —
-            # never on the automatic push/schedule path, where no such input
-            # exists to warn about and a warning nobody can act on just
-            # trains people to stop reading warnings.
-            echo "::warning::This run will BUILD code from ${ACTUAL_COMMIT} (the current checkout) and PUBLISH it under tag '${INPUT_TAG}' in GHCR, OVERWRITING whatever image is stored under that tag right now. If you wanted to redeploy the build already tagged '${INPUT_TAG}' WITHOUT rebuilding it, stop this run and instead SSH to the VPS and pull+restart that existing image directly — docs/runbooks/deployment.md §9, the 'docker compose pull' path."
+            # task-infra-rollback-deploys-not-rebuilds (this PR): a non-empty
+            # INPUT_TAG now means "redeploy the already-published image with
+            # this tag" — the build/push steps below carry
+            # `if: inputs.image_tag == ''` and are skipped entirely on this
+            # branch, and the "Verify rollback image exists in GHCR" step
+            # confirms both images are actually present in GHCR before this
+            # job can succeed. Before this PR, this exact branch silently did
+            # the OPPOSITE of a rollback: it rebuilt from whatever the
+            # checkout step happened to have (main HEAD, regardless of
+            # $INPUT_TAG) and republished the result under $INPUT_TAG,
+            # OVERWRITING the very image a rollback needed to fall back to
+            # next. Say so, only here (manual input present) — never on the
+            # automatic push/schedule path, where no such input exists to
+            # notify about.
+            echo "::notice::Rollback run — deploying the image already published under tag '${INPUT_TAG}' in GHCR. Build & publish are skipped for this run (see the build job's step conditions). If no image exists under that tag, the 'Verify rollback image exists in GHCR' step below fails this run before anything is sent to the VPS. See docs/runbooks/deployment.md §9."
             echo "image_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
           else
             echo "image_tag=${ACTUAL_COMMIT}" >> "$GITHUB_OUTPUT"
@@ -275,8 +294,63 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Used by the two `docker/build-push-action` steps below on the
+      # automatic path AND by `docker buildx imagetools inspect` in the
+      # "Verify rollback image exists in GHCR" step right after it on the
+      # rollback path — kept unconditional (cheap, no build cost by itself)
+      # so both paths get a consistent, known-working buildx rather than
+      # relying on whatever the runner image happens to ship by default.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      # ── Rollback path: verify the requested tag actually exists ─────────
+      # task-infra-rollback-deploys-not-rebuilds: when INPUT_TAG is set (see
+      # the "Resolve image tag" step above), this run is a ROLLBACK — deploy
+      # the already-published image under that tag, do not rebuild it. Both
+      # `docker/build-push-action` steps below are skipped entirely on this
+      # path (`if: inputs.image_tag == ''`), so without this check nothing
+      # would notice a typo'd or never-published tag until the `deploy` job
+      # SSHes to the VPS and runs `docker compose pull` there — an opaque
+      # "manifest unknown" failure on the VPS, AFTER write-env/copy-compose
+      # have already run against a target that cannot actually deploy.
+      # Checking HERE, on the runner, before write-env/copy-compose even
+      # start (this job — `build` — is a dependency of both; a failed job
+      # skips everything that `needs:` it) turns that into one clear failure
+      # in the very first job, before anything reaches the VPS.
+      #
+      # `docker buildx imagetools inspect` queries the registry manifest
+      # directly — it does not pull image layers, so this is cheap (a couple
+      # of HTTP calls) regardless of image size. Checks BOTH images (api AND
+      # nginx), because the `deploy` job's pull step further down pulls both;
+      # the two are always built and published together on the automatic
+      # path below, but a partial/failed prior run is exactly the kind of gap
+      # this check exists to catch — refused here, not discovered on the VPS.
+      - name: Verify rollback image exists in GHCR
+        if: ${{ inputs.image_tag != '' }}
+        env:
+          TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          API_REF="${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:${TAG}"
+          NGINX_REF="${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${TAG}"
+
+          MISSING=0
+          for REF in "$API_REF" "$NGINX_REF"; do
+            echo "==> Checking ${REF}"
+            if docker buildx imagetools inspect "$REF" > /dev/null 2>&1; then
+              echo "    found"
+            else
+              echo "::error::No image found in GHCR at ${REF}"
+              MISSING=1
+            fi
+          done
+
+          if [ "$MISSING" -eq 1 ]; then
+            echo "::error::Rollback requested tag '${TAG}', but at least one image above does not exist in GHCR. Nothing was sent to the VPS. Pick a tag that GitHub → Packages actually lists (docs/runbooks/deployment.md §9), or leave image_tag empty to build and publish a fresh image instead."
+            exit 1
+          fi
+
+          echo "==> Both images exist for tag '${TAG}'. Skipping build/publish — the deploy job will pull these as-is."
 
       # ── Build API image ─────────────────────────────────────────────────
       # backlog 113: GIT_COMMIT/BUILD_TIME feed GET /api/health's build
@@ -294,20 +368,24 @@ jobs:
       # chosen label on a manual workflow_dispatch run), actual_commit is
       # WHAT was actually checked out and compiled (see the "Resolve image
       # tag" step's comment for the full mechanism and why they can diverge).
-      # On the automatic paths (push/schedule) the two are equal by
-      # construction, so nothing observable changes there. On a manual
-      # dispatch naming an OLD sha as image_tag to "redeploy" it, they now
-      # diverge ON PURPOSE: the checkout step still builds from main HEAD (no
-      # `ref:` keyed off image_tag), so GIT_COMMIT honestly reports main's
-      # sha instead of echoing back the old sha as if main's fresh build were
-      # that old commit. This does NOT turn that manual-dispatch path into an
-      # actual rollback — it still rebuilds from main and republishes under
-      # the requested tag, which is a separate, pre-existing problem (see
-      # docs/runbooks/deployment.md §9's SSH `docker compose pull` path for
-      # the rollback method that genuinely reuses a previously-built image
-      # without rebuilding). It only makes the resulting fingerprint honest,
-      # so a "rollback" that didn't roll back is visible at GET /api/health
-      # instead of silently papered over.
+      # SR-H-2 fixed GIT_COMMIT to read actual_commit instead of image_tag.
+      #
+      # HISTORICAL NOTE, no longer reachable: at the time, the divergence
+      # happened because a manual dispatch naming an OLD sha as image_tag
+      # ("redeploy this build") still ran THIS step, which still checked out
+      # and built main HEAD (no `ref:` keyed off image_tag) and republished
+      # the result under the old tag — overwriting the very image a rollback
+      # needed. SR-H-2 only made the resulting GIT_COMMIT fingerprint honest
+      # about that; it did not stop the overwrite. task-infra-rollback-
+      # deploys-not-rebuilds (this PR) closed the actual gap: this step now
+      # carries `if: inputs.image_tag == ''` (see below), so a manual
+      # dispatch naming an existing tag never reaches this step at all — see
+      # the "Verify rollback image exists in GHCR" step above and
+      # docs/runbooks/deployment.md §9. The divergence this paragraph
+      # describes cannot happen anymore; kept here because the reasoning for
+      # why actual_commit and image_tag must stay conceptually separate (see
+      # the "Resolve image tag" step) still holds, and the next divergence
+      # bug will look exactly like this one if that separation is lost.
       #
       # VITE_BUILD_VERSION on the nginx image below still uses image_tag, not
       # actual_commit — it is a client-side cache-buster / telemetry label
@@ -326,6 +404,7 @@ jobs:
       # anonymously — no secrets here. See the invariant at the top of this
       # job (above `build:`) before adding a new build-arg.
       - name: Build & push API image
+        if: ${{ inputs.image_tag == '' }}
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -347,7 +426,12 @@ jobs:
       # in the bundle either — an empty build-arg here is expected and safe
       # until #390 merges and the VITE_TURNSTILE_SITE_KEY secret is created
       # (see docs/runbooks/deployment.md "Turnstile secrets").
+      #
+      # task-infra-rollback-deploys-not-rebuilds: gated the same as the two
+      # `docker/build-push-action` steps around it — this warning is about a
+      # build-arg that only matters when a build is actually about to happen.
       - name: Warn if VITE_TURNSTILE_SITE_KEY is unset
+        if: ${{ inputs.image_tag == '' }}
         env:
           # Read via env: (not interpolated into the run: script string) —
           # consistent with the secrets-handling pattern used in the
@@ -412,6 +496,7 @@ jobs:
       # ones — see the invariant at the top of this job (above `build:`)
       # before adding a new build-arg.
       - name: Build & push nginx image
+        if: ${{ inputs.image_tag == '' }}
         uses: docker/build-push-action@v6
         with:
           context: .
