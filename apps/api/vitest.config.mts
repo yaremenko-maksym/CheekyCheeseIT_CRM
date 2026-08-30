@@ -33,9 +33,48 @@ function findGitRoot(startDir: string): string | null {
   return null
 }
 
-function resolveMainRepoRoot(): string | null {
-  const worktreeRoot = path.resolve(__dirname, '../..')
-  const gitEntry = path.join(worktreeRoot, '.git')
+// `worktreeRoot` (the repo/worktree checkout root, used below both as the
+// `@crm/shared` alias base and as the search start for the main-repo-behind-
+// a-worktree lookup) used to be `path.resolve(__dirname, '../..')` — a FIXED
+// two-level walk-up that only holds while this config file is loaded from
+// its normal on-disk location, `<root>/apps/api/vitest.config.mts`. StrykerJS
+// copies the whole `apps/api` tree two levels deeper, into
+// `apps/api/.stryker-tmp/sandbox-<id>/`, and re-loads this same config from
+// there — so `__dirname` gains two extra path segments the fixed walk-up
+// never accounted for, and `../..` landed on `apps/api` itself instead of the
+// real root. The alias then pointed `@crm/shared` at a
+// `apps/api/packages/shared/src/index.ts` that does not exist, which is what
+// produced `Cannot find package '@crm/shared'` deep inside Node's own
+// resolver once Vite gave up on the bogus alias target (reproduced locally:
+// `node scripts/devops/mutation-gate.mjs --changed` with
+// `MUTATION_ONLY_FILES` scoped to any `@crm/api` file; see
+// `scripts/devops/mutation-gate-runbook.md` "Known limits" for the full
+// mechanism, including why `apps/web/vitest.config.ts` carried the identical
+// bug without ever crashing). `findGitRoot` above already existed to do this
+// walk-up properly — it just was not, until now, the function actually
+// computing `worktreeRoot`.
+// Walking up for an actual `.git` entry is nesting-depth-agnostic: it finds
+// the same root from `apps/api/vitest.config.mts`, from a git worktree
+// checkout, and from three levels deeper inside a Stryker sandbox alike,
+// because a `.git` file/directory only ever exists at the true checkout
+// root, never inside a sandbox copy of one of its subdirectories.
+const worktreeRoot = findGitRoot(__dirname)
+if (!worktreeRoot) {
+  // Fail loud, not bogus-and-quiet: a wrong `worktreeRoot` here does not
+  // error immediately, it silently mis-resolves `@crm/shared` (or, in a
+  // worktree, the main-repo node_modules lookup) to a path that looks
+  // plausible until something imports it — which is exactly how the bug
+  // this replaces went unnoticed. Same discipline as `mutation-gate.mjs`'s
+  // own `fail()`: "could not determine X" must never look like "X is fine".
+  throw new Error(
+    `apps/api/vitest.config.mts: could not find a ".git" entry walking up from ` +
+      `${__dirname}. Refusing to guess a repo root — '@crm/shared' would resolve to a ` +
+      `made-up path from here.`,
+  )
+}
+
+function resolveMainRepoRoot(root: string): string | null {
+  const gitEntry = path.join(root, '.git')
   if (!existsSync(gitEntry)) return null
 
   const stat = statSync(gitEntry)
@@ -58,11 +97,10 @@ function resolveMainRepoRoot(): string | null {
   return existsSync(path.join(mainRepo, 'node_modules')) ? mainRepo : null
 }
 
-const mainRepoRoot = resolveMainRepoRoot()
+const mainRepoRoot = resolveMainRepoRoot(worktreeRoot)
 const isWorktree = mainRepoRoot !== null
 const mainApiNodeModules = mainRepoRoot ? `${mainRepoRoot}/apps/api/node_modules` : ''
 const mainRootNodeModules = mainRepoRoot ? `${mainRepoRoot}/node_modules` : ''
-const worktreeRoot = path.resolve(__dirname, '../..')
 
 // ── Integration-run detection & DB safety ─────────────────────────────────
 //
@@ -170,21 +208,27 @@ if (!isIntegrationRun) {
 }
 
 export default defineConfig({
-  ...(isWorktree && {
-    resolve: {
-      alias: {
-        // Point bare-module imports to the main repo's installed packages.
-        // pnpm uses a flat node_modules structure via symlinks, so resolving
-        // to the api-level node_modules covers NestJS, Drizzle, pdf-lib etc.
-        //
-        // @crm/shared: point vitest to the TypeScript source so it always
-        // reflects the latest schema without requiring a `pnpm build` step.
-        // Using dist/index.js masked schema drift between source and compiled
-        // output; pointing to src/index.ts eliminates that risk entirely.
-        '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
-      },
+  // '@crm/shared' is aliased straight to TypeScript SOURCE unconditionally —
+  // in the main repo as well as in a worktree (previously this lived inside
+  // the `isWorktree &&` block below and only applied there). Without it, a
+  // plain, unfiltered checkout resolves the bare specifier through pnpm's
+  // node_modules symlink to `packages/shared`'s `package.json` `exports`,
+  // which points at `dist/` — untracked, gitignored, and NOT rebuilt by
+  // `git checkout`. `turbo.json`/`package.json` (task-infra-shared-build-
+  // freshness, 2026-08-25) close that gap for turbo-routed runs (`pnpm test`,
+  // `pnpm test --filter=@crm/api`); this closes it for the OTHER, documented
+  // per-package form (`pnpm --filter @crm/api test`, also what
+  // `.husky/pre-push` runs), which bypasses turbo's task graph entirely and
+  // was still exposed — see BACKLOG-followups.md #111 for the reproduction
+  // (a stale compiled `@crm/shared` made a real fix look like it changed
+  // nothing, or a fresh regression look pre-existing). Resolving to source
+  // removes the dependency on a build step for tests altogether: there is
+  // nothing left that can go stale, and no build to wait on either.
+  resolve: {
+    alias: {
+      '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
     },
-  }),
+  },
   test: {
     globals: true,
     environment: 'node',

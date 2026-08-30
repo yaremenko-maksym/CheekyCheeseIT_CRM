@@ -42,16 +42,20 @@ trap 'rm -rf "$WS"' EXIT
 
 # ── fixture report writer ────────────────────────────────────────────────────
 # $1 = report path. Remaining args describe mutants as
-# STATUS[:mutator[:line[:reason]]] — defaults keep the common cases terse.
+# STATUS[:mutator[:line[:reason[:testsCompleted]]]] — defaults keep the common
+# cases terse. `testsCompleted` mirrors the field Stryker itself writes for
+# every Survived mutant (mutation-test-report-helper.js: `testsCompleted:
+# result.nrOfTests`) — omit it to fabricate the exact "tool ran zero tests"
+# shape (case5 below), set it >0 for a genuine survivor (case4/case6).
 write_report() {
   local report_path="$1"
   shift
   mkdir -p "$(dirname "$report_path")"
   {
     printf '{"schemaVersion":"1.0","files":{"src/thing.ts":{"language":"typescript","source":"","mutants":['
-    local first=1 spec status mutator line reason id
+    local first=1 spec status mutator line reason testsCompleted id
     for spec in "$@"; do
-      IFS=':' read -r status mutator line reason <<<"$spec"
+      IFS=':' read -r status mutator line reason testsCompleted <<<"$spec"
       mutator="${mutator:-ArrowFunction}"
       line="${line:-1}"
       id="${status}${RANDOM}"
@@ -61,6 +65,9 @@ write_report() {
         "$id" "$mutator" "$status" "$line" "$line"
       if [ -n "${reason:-}" ]; then
         printf ',"statusReason":"%s"' "$reason"
+      fi
+      if [ -n "${testsCompleted:-}" ]; then
+        printf ',"testsCompleted":%s' "$testsCompleted"
       fi
       printf '}'
     done
@@ -185,8 +192,11 @@ process.exit(likely.length === 1 && real.length === 1 ? 0 : 1)
 # ── Survived and NoCoverage are read into separate arrays, never conflated ──
 
 R4="$WS/case4.report.json"
+# testsCompleted:4 makes this a GENUINE survivor (tests ran, none failed) —
+# see case5/case6 below for the zero-tests shape this used to be
+# indistinguishable from before the reclassification existed.
 write_report "$R4" \
-  "Survived:StringLiteral:3" \
+  "Survived:StringLiteral:3::4" \
   "NoCoverage:ConditionalExpression:8" \
   "NoCoverage:ConditionalExpression:9"
 
@@ -195,6 +205,75 @@ assert_green "readReport: 1 survivor, 2 uncovered — counted and kept in separa
 import { readReport } from '$GUARD'
 const parsed = readReport('$R4', { dir: 'pkg' })
 process.exit(parsed.survivors.length === 1 && parsed.uncovered.length === 2 ? 0 : 1)
+"
+
+# ── tool failure vs a surviving mutant (owner decision, 2026-08-25) ─────────
+#
+# Reproduced live on this repo before this fix existed: a @crm/web diff
+# generated 33 Survived mutants, Stryker's clear-text reporter printed "Ran
+# 0.00 tests per mutant on average", and the gate blocked a PR on code no
+# test had actually touched. See mutation-gate-runbook.md "Tool failure vs a
+# surviving mutant" for the full reproduction; these cases pin the
+# reporting-layer contract that fixes it, per-mutant.
+
+R5="$WS/case5.report.json"
+# Status Survived, testsCompleted OMITTED entirely — the exact shape
+# @stryker-mutator/api's toMutantRunResult() writes when a mutant run
+# completes having executed zero tests (nrOfTests defaults to 0, and Stryker
+# calls that "no failure" i.e. Survived regardless of how many tests ran).
+write_report "$R5" "Survived:ConditionalExpression:10"
+
+assert_green "readReport: a Survived mutant with NO testsCompleted field is a TOOL FAILURE, not a survivor" \
+  -- node --input-type=module -e "
+import { readReport } from '$GUARD'
+const parsed = readReport('$R5', { dir: 'pkg' })
+process.exit(
+  parsed.survivors.length === 0 &&
+  parsed.toolFailures.length === 1 &&
+  parsed.counts.Survived === 0 &&
+  parsed.counts.ToolFailure === 1
+    ? 0 : 1,
+)
+"
+
+R5B="$WS/case5b.report.json"
+# Same shape, testsCompleted EXPLICITLY 0 rather than omitted — the field is
+# optional in the schema, but readReport() must treat 'absent' and '0' the
+# same way (both mean "coalesces to zero" via \`?? 0\`), not just the one the
+# fixture writer happens to emit by default.
+write_report "$R5B" "Survived:ConditionalExpression:10::0"
+
+assert_green "readReport: testsCompleted:0 (explicit) is ALSO a tool failure, same as omitted" \
+  -- node --input-type=module -e "
+import { readReport } from '$GUARD'
+const parsed = readReport('$R5B', { dir: 'pkg' })
+process.exit(parsed.survivors.length === 0 && parsed.toolFailures.length === 1 ? 0 : 1)
+"
+
+R6="$WS/case6.report.json"
+# The mixed case is the one that matters most: ONE real survivor (tests ran,
+# missed it) alongside ONE tool failure (zero tests ran), same report, same
+# mutator even — proving the split is per-mutant, not per-file or per-run.
+# A batch/heuristic reclassification would get this case wrong in one
+# direction or the other; a per-mutant one is the only shape that can put
+# exactly one mutant in each bucket here.
+write_report "$R6" \
+  "Survived:EqualityOperator:20::7" \
+  "Survived:EqualityOperator:25"
+
+assert_green "readReport: mixed report — real survivor blocks, tool failure does not, never conflated" \
+  --contains 'SURV=1 TOOL=1' \
+  -- node --input-type=module -e "
+import { readReport } from '$GUARD'
+const parsed = readReport('$R6', { dir: 'pkg' })
+console.log('SURV=' + parsed.survivors.length + ' TOOL=' + parsed.toolFailures.length)
+process.exit(
+  parsed.survivors.length === 1 &&
+  parsed.toolFailures.length === 1 &&
+  parsed.survivors[0].where.endsWith(':20') &&
+  parsed.toolFailures[0].where.endsWith(':25')
+    ? 0 : 1,
+)
 "
 
 guard_test_summary "test-mutation-gate-reporting.sh"

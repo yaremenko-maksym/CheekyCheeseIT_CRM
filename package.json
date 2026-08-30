@@ -4,6 +4,7 @@
   "packageManager": "pnpm@7.32.4",
   "scripts": {
     "build": "turbo build",
+    "shared:build": "turbo run build --filter=@crm/shared",
     "dev": "turbo dev",
     "dev:start": "docker compose up -d && docker compose ps && pnpm dev",
     "dev:stop": "docker compose stop",

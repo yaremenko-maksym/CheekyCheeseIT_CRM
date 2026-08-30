@@ -7,6 +7,36 @@ import { z } from 'zod'
  */
 export const DEFAULT_JOB_MATCH_THRESHOLD = 0.2
 
+/**
+ * Shape of a real git commit SHA (short or full). Shared by GIT_COMMIT's
+ * preprocess AND its regex below — one pattern, not two copies that could
+ * drift apart. See the GIT_COMMIT field's own comment for why a value that
+ * fails this test must fall through to "absent" rather than fail validation.
+ *
+ * Exported — HealthController re-checks a value read back off
+ * `ConfigService` against this SAME pattern before it will show it as a
+ * commit (see that file's doc for why: `ConfigService.get()` can hand back
+ * the RAW, un-validated `process.env.GIT_COMMIT` string in a path this
+ * schema's own `.optional()` does not reach).
+ */
+export const GIT_COMMIT_SHAPE = /^[0-9a-f]{7,40}$/i
+
+/**
+ * `GIT_COMMIT`'s own `.regex()` message, below — pulled out to its own
+ * declaration (task-mutation-gate follow-up, PR #613, backlog 121) purely so
+ * a `// Stryker disable next-line` comment can attach to a node whose own
+ * `loc` starts on this exact line. Inline as `.regex(GIT_COMMIT_SHAPE,
+ * 'text')`, the STRING LITERAL mutant's own line is the literal's line, but
+ * the comment above a chained `.regex(...)` call attaches to the ENCLOSING
+ * CallExpression, whose `loc.start` is the start of the WHOLE chain (`z`) —
+ * several lines earlier — so the two never lined up and the suppression
+ * silently did nothing (verified: it survived twice, in two different
+ * positions, before this fix). See that field's own comment for why the
+ * message is unreachable at all.
+ */
+// Stryker disable next-line StringLiteral: unreachable message text — see GIT_COMMIT's own field comment for why
+const GIT_COMMIT_REGEX_MESSAGE = 'GIT_COMMIT must be a short or full hex commit SHA'
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -217,6 +247,57 @@ const envSchema = z
     JOB_MATCH_THRESHOLD: z.preprocess(
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.coerce.number().min(0).max(1).default(DEFAULT_JOB_MATCH_THRESHOLD),
+    ),
+
+    // backlog 113 — GET /api/health's build fingerprint. Populated ONLY by
+    // the Docker image build: deploy.yml resolves the git SHA it is about to
+    // tag the image with and passes it (plus a build timestamp) as
+    // `--build-arg`s to apps/api/Dockerfile, which bakes them in as plain
+    // `ENV` in the runtime stage — there is no `.git` directory inside the
+    // container to read this from at request time. Deliberately NO default:
+    // a fabricated value here would be indistinguishable from a real build
+    // identity to whoever is reading the health check to answer "did prod
+    // actually redeploy" — HealthController falls back to the literal string
+    // 'unknown' at the response layer instead (see that file), which is
+    // never mistakable for a real commit hash. BUILD_TIME is intentionally a
+    // loose string (an ISO-8601 UTC timestamp in practice) — it is shown,
+    // never parsed, so there is nothing to gain from strict format
+    // validation here.
+    //
+    // security-review round 2 (task-cascade-apply, SR-H-1) — GIT_COMMIT
+    // is REFERENCE DATA ("did prod redeploy"), never something the running
+    // process needs in order to work, so a value that fails the hex-SHA
+    // shape check must collapse to "absent" (→ HealthController's 'unknown'
+    // fallback) exactly like the blank-string case below, NOT throw and take
+    // the whole API down. Two deploy.yml paths feed this build-arg: the
+    // automatic ones compute the SHA with a command, but the manual
+    // workflow_dispatch `image_tag` input is free text the operator types —
+    // and the documented emergency-rollback flow (docs/runbooks/deployment.md
+    // §Rollback) sends that operator to a GHCR tag list where a non-SHA tag
+    // (e.g. the moving `main` tag deploy.yml itself pushes) sits right next
+    // to the real SHAs. A typo there used to crash-loop the API during the
+    // exact moment someone is already fixing a different incident. Regex
+    // validation stays — it is what DECIDES "does this look real", it just
+    // no longer gets to veto boot.
+    // The `.regex()` message text below can never actually reach a caller:
+    // the preprocess function directly above returns EITHER `trimmed` (only
+    // once `GIT_COMMIT_SHAPE.test(trimmed)` has already passed) OR
+    // `undefined` — and `.optional()` skips the regex entirely for
+    // `undefined`. So by the time this `.regex()` step runs at all, the
+    // value has already been proven, with the SAME regex, to match. No
+    // input reaches `.regex()` and fails it, so no test can observe this
+    // message's text changing — mutating it is silent by construction, not
+    // a coverage gap. Kept as defense-in-depth documentation of the
+    // invariant (a future edit that decouples the preprocess's shape check
+    // from this one would need it), not as reachable validation.
+    GIT_COMMIT: z.preprocess((v) => {
+      if (typeof v !== 'string') return v
+      const trimmed = v.trim()
+      return GIT_COMMIT_SHAPE.test(trimmed) ? trimmed : undefined
+    }, z.string().regex(GIT_COMMIT_SHAPE, GIT_COMMIT_REGEX_MESSAGE).optional()),
+    BUILD_TIME: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.string().min(1).optional(),
     ),
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {

@@ -167,6 +167,23 @@ beforeEach(() => {
 })
 
 describe('cascade preview — the client half of the loop', () => {
+  // task-mutation-gate follow-up (PR #613, backlog 121). `cascadePanelEngaged`
+  // starts `false` — the panel is not shown just because a PAID row's dialog
+  // opened, only once its amount has actually needed a plan. `PAID_TX`'s
+  // amount is unchanged from mount (`renderDialog()` alone, no `typeAmount`),
+  // so neither `shouldPreview` nor `liveAmountNeedsPreview` is ever true and
+  // the render-time latch never fires — this is the one moment in the whole
+  // suite where `cascadePanelEngaged`'s OWN initial value, not something it
+  // gets set to, decides what is on screen.
+  it('CP-0. the panel is not engaged on mount, before the amount has ever needed a plan', async () => {
+    renderDialog()
+
+    // Past the 400 ms debounce, same margin CP-2 uses — the dialog has had
+    // every chance to mount the panel if it were going to.
+    await new Promise((r) => setTimeout(r, 500))
+    expect(screen.queryByTestId('cascade-impact-panel')).toBeNull()
+  })
+
   it('CP-1. typing a different amount on a PAID row asks the server what it would cascade to', async () => {
     renderDialog()
     typeAmount('25000')
@@ -732,6 +749,140 @@ describe('cascade preview — the client half of the loop', () => {
     // from the previous attempt says the opposite, at the same time, on the
     // same screen — the same defect class as COPY-H-1.
     expect(screen.queryByText(/Данные изменились/)).toBeNull()
+  })
+
+  it('CP-38. finding 107 — Save is unavailable, and the panel explains why, in the window before the debounced preview exists', async () => {
+    // The gate that makes CP-25 true is built off `shouldPreview`, which is
+    // itself built off the DEBOUNCED figure — deliberately, so five
+    // keystrokes fire one preview (CP-17), not five. That lag opens a window
+    // on the VERY FIRST edit of a PAID row: right after the keystroke,
+    // `debouncedAmount` still equals `tx.amount`, so `shouldPreview` reads
+    // false — no version token exists yet, and a click there would send the
+    // new amount with none. `liveAmountNeedsPreview` closes it for the
+    // BUTTON synchronously, before the debounce (or React's own effect
+    // scheduling) has had any chance to run.
+    renderDialog()
+    typeAmount('25000')
+
+    // Synchronous — no `await`, no `findBy*`: this is the exact instant the
+    // window opens.
+    expect(getEditCascadePreviewMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
+
+    // COPY-H-1 (copy-review, HIGH, PR #613 round 2): a disabled button is not
+    // the whole fix. The round that closed the button-side of this window
+    // left it unmounted on screen — `CascadeImpactPanel` mounted on
+    // `shouldPreview` alone, which is false throughout this exact window by
+    // construction. "~400 ms" undersold it besides: the debounce timer
+    // restarts on every keystroke, so while the operator keeps typing this
+    // window does not close at all — seconds, not milliseconds, of a dark
+    // button with nothing on screen saying why. The panel now mounts on the
+    // SAME live rule the button's own gate uses, and shows the recompute
+    // state CR-M-1 already wrote for the debounce window — no new copy, an
+    // existing message reused for a window it used to miss entirely.
+    expect(screen.getByTestId('cascade-impact-panel')).toBeTruthy()
+    expect(screen.getByTestId('cascade-preview-loading')).toBeTruthy()
+    // The server has not been asked anything yet, so there is nothing to
+    // name a specific reason for — the blocked-note stays reserved for a
+    // plan the server actually returned (CP-9/CP-27/CP-28).
+    expect(screen.queryByTestId('cascade-save-blocked-note')).toBeNull()
+
+    // A disabled button does not dispatch a click handler at all (real DOM
+    // behaviour, honoured by jsdom) — so this is also the proof that a click
+    // in this window cannot reach the server.
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+    expect(adminUpdateTransactionMock).not.toHaveBeenCalled()
+  })
+
+  it('CP-39. finding 110 — a raw 500 with Nest\'s own generic body shows in Russian, not "Internal server error"', async () => {
+    // `axiosError` reproduces the REAL shape a genuinely unhandled backend
+    // exception arrives in — `@nestjs/core`'s `BaseExceptionFilter` fills
+    // `response.data.message` with exactly this text
+    // (`MESSAGES.UNKNOWN_EXCEPTION_MESSAGE`) for any exception it does not
+    // recognise as an intentional `HttpException`. Before the fix this
+    // reached the money screen verbatim, in English.
+    getEditCascadePreviewMock.mockRejectedValue(axiosError(500, 'Internal server error'))
+    renderDialog()
+    typeAmount('25000')
+
+    const err = await screen.findByTestId('cascade-preview-error')
+
+    expect(err.textContent).not.toContain('Internal server error')
+    expect(err.textContent?.toLowerCase()).toContain('нашей стороне')
+  })
+
+  it('CP-40. COPY-M-7 — the panel does not unmount through a transient empty value while erasing the old amount', () => {
+    // `PAID_TX.amount` is '20000'. The FIRST edit of a PAID row pins
+    // `debouncedAmount` at that original value for the whole synchronous
+    // typing burst below (the debounce is a TRAILING timer and none of these
+    // `fireEvent.change` calls waits for it) — so `shouldPreview` stays false
+    // throughout, exactly like CP-38. What CP-40 pins is different: WITHOUT
+    // the COPY-M-7 fix, `liveAmountNeedsPreview` alone drove the mount, and
+    // an erase-to-empty keystroke (the most common way to retype an amount)
+    // makes it false too — unmounting `CascadeImpactPanel` for one tick.
+    renderDialog()
+
+    typeAmount('2')
+    const firstMount = screen.getByTestId('cascade-impact-panel')
+
+    // The transient dip finding 107's own gate does not cover: `amount` is
+    // unparseable, `debouncedAmount` still equals `tx.amount` — both
+    // `shouldPreview` and `liveAmountNeedsPreview` are false at this exact
+    // instant. A bare `(shouldPreview || liveAmountNeedsPreview)` mount
+    // condition would unmount the panel here.
+    typeAmount('')
+    expect(screen.getByTestId('cascade-impact-panel')).toBe(firstMount)
+
+    // Same DOM node continues typing the new figure.
+    typeAmount('2')
+    typeAmount('25')
+    typeAmount('250')
+    typeAmount('2500')
+    typeAmount('25000')
+    expect(screen.getByTestId('cascade-impact-panel')).toBe(firstMount)
+  })
+
+  it('CP-41. COPY-M-7 — the panel does not unmount when the typed figure passes back through the original amount', () => {
+    // The second transient dip: continuing to type past a value that
+    // momentarily spells out the ORIGINAL stored amount again (here
+    // '20000', matching `PAID_TX.amount`) before moving on to a genuinely
+    // different final figure.
+    renderDialog()
+
+    typeAmount('2')
+    const firstMount = screen.getByTestId('cascade-impact-panel')
+
+    typeAmount('20')
+    typeAmount('200')
+    typeAmount('2000')
+    typeAmount('20000') // == tx.amount: both flags false for this one instant
+    expect(screen.getByTestId('cascade-impact-panel')).toBe(firstMount)
+
+    typeAmount('200000')
+    expect(screen.getByTestId('cascade-impact-panel')).toBe(firstMount)
+  })
+
+  it('CP-42. COPY-M-7 — settling back on the ORIGINAL amount and stopping still shows nothing extra (no stuck skeleton)', async () => {
+    // The sticky flag is intentionally NEVER un-latched mid-dialog (only a
+    // row switch resets it — see `cascadePanelEngaged`'s own doc). This pins
+    // that leaving `cascadePanelEngaged` engaged after the operator settles
+    // back on the unchanged amount is harmless: with both `shouldPreview`
+    // and `liveAmountNeedsPreview` false and the debounce SETTLED (not
+    // merely pinned mid-burst), the panel renders no visible content at all.
+    renderDialog()
+
+    typeAmount('25000')
+    expect(screen.getByTestId('cascade-impact-panel')).toBeTruthy()
+
+    typeAmount('20000') // back to tx.amount, and this time we let it settle
+    await new Promise((r) => setTimeout(r, 500))
+
+    expect(screen.queryByTestId('cascade-preview-loading')).toBeNull()
+    expect(screen.queryByTestId('cascade-preview-error')).toBeNull()
+    expect(screen.queryByTestId('cascade-blocked-banner')).toBeNull()
+    expect(screen.queryByTestId('cascade-plan-body')).toBeNull()
+    // The wrapper itself may still be mounted (sticky) — asserted separately
+    // from its CONTENTS, which is what an operator actually sees.
   })
 
   it('CP-13. a non-PAID row behaves exactly as before — no preview, no panel', async () => {

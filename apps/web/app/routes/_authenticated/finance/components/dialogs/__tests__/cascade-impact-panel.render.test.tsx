@@ -663,6 +663,23 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     expect(screen.getByTestId('cascade-preview-retry').className).toContain('w-full')
   })
 
+  it('PR-41. QA-MED-1 — a network failure is announced to a screen reader too, not left silent', () => {
+    // SPEC-M-2 (spec-review, PR #613 round 2): QA-MED-1 shipped as a manual,
+    // live-reproduced fix (an XHR intercept in a real browser, per the fixing
+    // commit's own body) with no automated regression test — the ONE finding
+    // among 107/109/110/111/112/113 that landed without one. Before the fix
+    // the status branch only handled `isLoading` / `preview.editable` /
+    // `preview` — a genuine network failure (`errorMessage` set, `preview`
+    // undefined) fell through every branch to the empty string, so a sighted
+    // operator saw the red banner (PR-19) while a screen-reader user heard
+    // nothing at all. This pins the branch PR-19 cannot see: PR-19 only reads
+    // the VISIBLE banner, never the `aria-live` region.
+    renderPanel({ errorMessage: NETWORK_TEXT, preview: undefined })
+
+    const live = screen.getByTestId('cascade-preview-status')
+    expect(live.textContent).toBe(NETWORK_TEXT)
+  })
+
   it('PR-22. an empty plan says there is nothing to recompute', () => {
     renderPanel({ preview: preview([]) })
 

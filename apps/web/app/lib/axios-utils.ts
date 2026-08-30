@@ -41,21 +41,113 @@ export function stripQueryString(url: string | undefined): string {
 }
 
 /**
+ * Nest's own STANDARD, generic HTTP reason phrase — what `response.data.message`
+ * holds when nobody wrote an actual explanation. Two sources, both in this
+ * exact wording:
+ *
+ * - Any `@nestjs/common` `HttpException` subclass constructed with no
+ *   explicit message (`new ForbiddenException()`) defaults its message to its
+ *   OWN reason phrase — `exceptions/*.exception.js`'s constructor defaults.
+ * - Any exception `@nestjs/core`'s `BaseExceptionFilter` did not recognise as
+ *   an `HttpException` at all (a genuinely unhandled bug) becomes exactly
+ *   `'Internal server error'` — `MESSAGES.UNKNOWN_EXCEPTION_MESSAGE`.
+ *
+ * Compared case-insensitively: the two sources disagree on casing for the
+ * same 500 ('Internal Server Error' vs 'Internal server error').
+ *
+ * EXPORTED (task-mutation-gate follow-up, PR #613, backlog 121) so the spec
+ * can iterate the LIVE set — a set this size (~19 one-word-different string
+ * literals) is exactly the shape where a handful of sampled test cases
+ * leaves most entries provably untested. The mutation gate found FIVE
+ * ('unauthorized' / 'method not allowed' / 'not acceptable' / 'request
+ * timeout' / 'http version not supported') still readable as a literal `""`
+ * with every existing test green, because that first iterating test read
+ * BOTH the phrase it sent AND the phrase it checked against from this same
+ * live export — a mutated literal travels with the import, so the loop only
+ * proved the code agrees with itself (fixed in test/pr613-phrase-set-pinning).
+ * Closing that gap needed a SECOND list in the spec — typed out by hand,
+ * not derived from this export — that a mutation HERE cannot also corrupt.
+ * That second list (`KNOWN_GENERIC_HTTP_REASON_PHRASES` in the spec) is
+ * deliberate duplication, not slack to trim: duplication is what makes a
+ * corrupted literal visible. The live-set loop stays too, for what it is
+ * actually good for — catching a phrase added here later with no matching
+ * row in the hand-copied list.
+ */
+export const GENERIC_HTTP_REASON_PHRASES = new Set([
+  'bad request',
+  'unauthorized',
+  'forbidden',
+  'not found',
+  'method not allowed',
+  'not acceptable',
+  'request timeout',
+  'conflict',
+  'gone',
+  'precondition failed',
+  'payload too large',
+  'unsupported media type',
+  'misdirected',
+  'unprocessable entity',
+  'internal server error',
+  'not implemented',
+  'bad gateway',
+  'service unavailable',
+  'gateway timeout',
+  'http version not supported',
+])
+
+/**
+ * True when `message` is NOTHING MORE than one of Nest's own generic reason
+ * phrases (see `GENERIC_HTTP_REASON_PHRASES`) — text that LOOKS like a
+ * backend explanation (`response.data.message` is populated) but adds
+ * nothing a status code doesn't already say.
+ *
+ * Backlog finding 110, found live in the cascade-preview panel: a raw 500/403
+ * with no custom message reached the money screen as English ("Internal
+ * server error", "Forbidden") because `extractBackendMessage` trusted ANY
+ * populated `data.message` as a real explanation. A genuine business message
+ * — `'Некорректная сумма'`, `'Зарплата уже создана'`, the 409 cascade-stale
+ * text — never matches this set (it is not one of the ~19 fixed English
+ * phrases above) and passes through completely unaffected.
+ */
+function isGenericHttpReasonPhrase(message: string): boolean {
+  return GENERIC_HTTP_REASON_PHRASES.has(message.trim().toLowerCase())
+}
+
+/**
  * Extracts a message the BACKEND explicitly put in the response body, or
- * `undefined` if the body carried nothing usable. Shared by
- * `getApiErrorMessage` (below — falls through to axios's own generic
- * `.message` when this returns nothing) and `getUserFacingErrorMessage`
- * (falls through to a status-code-derived Russian message instead — see its
- * doc for why raw `.message` is never shown to the user).
+ * `undefined` if the body carried nothing usable — nothing usable now also
+ * covers Nest's own generic reason phrase (finding 110, see
+ * `isGenericHttpReasonPhrase`), which explains nothing beyond the status
+ * code and is English besides. Shared by `getApiErrorMessage` (below — falls
+ * through to axios's own generic `.message` when this returns nothing) and
+ * `getUserFacingErrorMessage` (falls through to a status-code-derived
+ * Russian message instead — see its doc for why raw `.message` is never
+ * shown to the user). Fixed HERE rather than in either caller, or in a
+ * component: both functions — and every screen that calls them, including
+ * ones written after this fix — inherit the correction for free.
  *
  * Priority (highest first):
  * 1. `response.data.errors[]` — ZodExceptionFilter shape:
  *    `{ statusCode, message: "Validation failed", errors: [{ path, message }] }`
  *    path is already a dot-joined string from the filter, but we also accept
  *    array paths defensively. Multiple errors joined with "; ".
- * 2. `response.data.message` — NestJS exception string or string[].
+ * 2. `response.data.message` — NestJS exception string or string[], UNLESS it
+ *    is nothing more than one of Nest's own generic reason phrases (checked
+ *    against the message text alone, not cross-referenced with the status —
+ *    the phrase itself is already unambiguous, whatever status it rides on).
+ *
+ * EXPORTED (COPY-M-2/COPY-M-3, PR #613 round 2) for one more reuse besides the
+ * two above: a screen that needs to show a REAL backend explanation verbatim
+ * but wants its OWN fallback for the "backend said nothing usable" case,
+ * instead of the general per-status table `getUserFacingErrorMessage` falls
+ * back to (see `cascade-preview.ts`'s `cascadeStaleMessage` /
+ * `cascadePreviewErrorMessage`). Exporting this one function, rather than
+ * copying its body, keeps the "what counts as a real backend message" rule in
+ * exactly one place — the same reasoning `needsCascadePreview`'s own doc
+ * gives for not inlining that rule twice.
  */
-function extractBackendMessage(err: unknown): string | undefined {
+export function extractBackendMessage(err: unknown): string | undefined {
   if (err === null || typeof err !== 'object') return undefined
 
   const response = (err as Record<string, unknown>)['response']
@@ -86,7 +178,9 @@ function extractBackendMessage(err: unknown): string | undefined {
 
   // Priority 2: standard NestJS message field (string or string[]).
   const msg = d['message']
-  if (typeof msg === 'string' && msg.length > 0) return msg
+  if (typeof msg === 'string' && msg.length > 0) {
+    return isGenericHttpReasonPhrase(msg) ? undefined : msg
+  }
   if (Array.isArray(msg) && msg.length > 0) {
     return msg.map((m) => (typeof m === 'string' ? m : String(m))).join('. ')
   }

@@ -28,7 +28,27 @@ import { describe, expect, it } from 'vitest'
 
 import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/shared'
 
-import { canSaveCascadeEdit, settlementSplit } from './cascade-preview'
+import {
+  canSaveCascadeEdit,
+  cascadePreviewErrorMessage,
+  cascadeSaveErrorMessage,
+  cascadeStaleMessage,
+  needsCascadePreview,
+  settlementSplit,
+} from './cascade-preview'
+
+/** An axios-error-shaped fixture — only the parts `extractBackendMessage`/`getAxiosStatus` read. */
+function axiosError(status: number, message?: string): unknown {
+  return {
+    isAxiosError: true,
+    response: { status, data: message === undefined ? {} : { message } },
+  }
+}
+
+/** A bare error with no `response` at all — a real network/CORS/timeout failure. */
+function networkError(): unknown {
+  return { isAxiosError: true }
+}
 
 function derivative(over: Partial<CascadeDerivativePlan> = {}): CascadeDerivativePlan {
   return {
@@ -192,6 +212,36 @@ describe('canSaveCascadeEdit — the Save gate', () => {
   })
 })
 
+describe('needsCascadePreview — finding 107, one rule for both the debounced and the live figure', () => {
+  const PAID = { status: 'PAID', amount: '20000' }
+
+  it('N-1. a PAID row with a genuinely different amount needs a preview', () => {
+    expect(needsCascadePreview(PAID, 25000)).toBe(true)
+  })
+
+  it('N-2. the SAME amount is not a cascade edit — nothing changed', () => {
+    expect(needsCascadePreview(PAID, 20000)).toBe(false)
+  })
+
+  it('N-3. a non-PAID row never needs a preview, however different the amount', () => {
+    expect(needsCascadePreview({ status: 'PENDING', amount: '20000' }, 25000)).toBe(false)
+  })
+
+  it('N-4. zero or negative is not an amount to preview — there is no cascade for "nothing"', () => {
+    expect(needsCascadePreview(PAID, 0)).toBe(false)
+    expect(needsCascadePreview(PAID, -5)).toBe(false)
+  })
+
+  it('N-5. NaN (an unparseable field) is not a cascade edit either', () => {
+    expect(needsCascadePreview(PAID, NaN)).toBe(false)
+  })
+
+  it('N-6. no transaction at all (closed dialog) never needs a preview', () => {
+    expect(needsCascadePreview(null, 25000)).toBe(false)
+    expect(needsCascadePreview(undefined, 25000)).toBe(false)
+  })
+})
+
 describe('settlementSplit — what a row shows about its own accumulator', () => {
   it('S-1. nothing settled ⇒ nothing to show', () => {
     expect(settlementSplit({ amount: '8000', currency: 'USDT', settledAmount: null })).toBeNull()
@@ -248,5 +298,187 @@ describe('settlementSplit — what a row shows about its own accumulator', () =>
         settledCurrency: 'USDT',
       }),
     ).toEqual({ settled: 5000, settledCurrency: 'USDT', remaining: 0 })
+  })
+})
+
+describe('cascadeStaleMessage — COPY-M-2, the 409 conflict banner never suggests a reload', () => {
+  it('SM-1. a real backend explanation wins, verbatim', () => {
+    expect(cascadeStaleMessage(axiosError(409, 'Данные изменились с момента предпросмотра'))).toBe(
+      'Данные изменились с момента предпросмотра',
+    )
+  })
+
+  it('SM-2. no body at all ⇒ the cascade-owned fallback, never «обновите страницу»', () => {
+    const message = cascadeStaleMessage(axiosError(409))
+
+    expect(message).not.toMatch(/страниц/i)
+    expect(message).toContain('Обновить предпросмотр')
+  })
+
+  it("SM-3. one of Nest's own generic reason phrases is not a real explanation either", () => {
+    // `axiosError(409, 'Conflict')` reproduces a bodiless `ConflictException`
+    // — Nest fills `.message` with its own reason phrase, not a business
+    // explanation. Showing it verbatim would put an English word on a
+    // Russian money screen — the exact shape of finding 110, one level up.
+    const message = cascadeStaleMessage(axiosError(409, 'Conflict'))
+
+    expect(message).not.toBe('Conflict')
+    expect(message).toContain('Обновить предпросмотр')
+  })
+
+  it('SM-4. no `response` at all (a genuine network failure) still returns the fallback, not a throw', () => {
+    expect(cascadeStaleMessage(networkError())).toContain('Обновить предпросмотр')
+  })
+})
+
+describe('cascadePreviewErrorMessage — COPY-M-3, one register for the whole banner', () => {
+  it('PE-1. a real backend explanation wins, verbatim, whatever the status', () => {
+    expect(cascadePreviewErrorMessage(axiosError(400, 'Некорректная сумма'))).toBe(
+      'Некорректная сумма',
+    )
+  })
+
+  it('PE-2. 403 with no usable body reads as a permissions refusal, not a sentence with a period', () => {
+    const message = cascadePreviewErrorMessage(axiosError(403))
+
+    // COPY-M-8 (copy-review, MED, PR #613 round 3): the lead-in shortened
+    // from "Не удалось загрузить предпросмотр" — measured at 320px to no
+    // longer split mid-phrase across the banner's first two lines (see
+    // `CASCADE_PREVIEW_LEAD_IN`'s own doc for the measurement).
+    expect(message).toBe('Предпросмотр недоступен — недостаточно прав')
+    expect(message.endsWith('.')).toBe(false)
+  })
+
+  it('PE-3. a 5xx with no usable body names the side of the problem, not "Мы уже знаем"', () => {
+    const message = cascadePreviewErrorMessage(axiosError(500))
+
+    expect(message).toBe('Предпросмотр недоступен — ошибка на нашей стороне, попробуйте позже')
+    expect(message).not.toContain('Мы')
+  })
+
+  it("PE-4. Nest's own generic reason phrase is filtered exactly like finding 110 requires", () => {
+    // The same fixture CP-39 (component level) exercises through the dialog —
+    // pinned here at the pure-function level too.
+    const message = cascadePreviewErrorMessage(axiosError(500, 'Internal server error'))
+
+    expect(message).not.toContain('Internal server error')
+    expect(message).toContain('нашей стороне')
+  })
+
+  it("PE-5. an unmapped status still says SOMETHING, in this screen's own voice", () => {
+    const message = cascadePreviewErrorMessage(axiosError(404))
+
+    expect(message).toBe('Предпросмотр недоступен — попробуйте ещё раз')
+  })
+
+  // task-mutation-gate follow-up (PR #613, backlog 121). The caller
+  // (`AdminEditTransactionDialog`) already routes a status-less failure to
+  // its OWN "проверьте соединение" line before this function is ever
+  // reached — but this function is exported and callable directly, and
+  // `(status ?? -Infinity) >= 500` has a whole branch (the `?? -Infinity`
+  // side) no other PE-* test ever exercises, since they all supply a real
+  // status. Without this, that branch is untested code in a function this
+  // task just edited, not merely unreachable-through-the-UI like the JSX
+  // suppressions elsewhere in this module.
+  it('PE-6. no status at all (a genuine network failure) still falls to the generic line, never the 5xx one', () => {
+    const message = cascadePreviewErrorMessage(networkError())
+
+    expect(message).toBe('Предпросмотр недоступен — попробуйте ещё раз')
+  })
+})
+
+describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan above it', () => {
+  it('SE-1. a real backend explanation wins, verbatim, whatever the status', () => {
+    expect(cascadeSaveErrorMessage(axiosError(400, 'Некорректная сумма для этой строки'))).toBe(
+      'Некорректная сумма для этой строки',
+    )
+  })
+
+  it('SE-2. a plain client-thrown Error (the amount-validation check) keeps its OWN message', () => {
+    // `AdminEditTransactionDialog`'s mutation throws `new Error('Некорректная
+    // сумма')` before any request is sent — no `.response`, and critically no
+    // `isAxiosError` either. It must not be mistaken for a network failure.
+    expect(cascadeSaveErrorMessage(new Error('Некорректная сумма'))).toBe('Некорректная сумма')
+  })
+
+  it('SE-3. an axios network failure (no response at all) speaks the CASCADE voice, not the general one', () => {
+    const message = cascadeSaveErrorMessage(networkError())
+
+    expect(message).toBe('Не удалось сохранить — проверьте соединение')
+    // The general resolver's fallback for this case is «Нет связи с
+    // сервером. Проверьте подключение к интернету и попробуйте снова.» —
+    // full sentence, closing period. This must not be that.
+    expect(message.endsWith('.')).toBe(false)
+  })
+
+  it('SE-4. 403 with no usable body reads in the cascade voice, not "Недостаточно прав для этого действия."', () => {
+    const message = cascadeSaveErrorMessage(axiosError(403))
+
+    expect(message).toBe('Не удалось сохранить — недостаточно прав')
+    expect(message.endsWith('.')).toBe(false)
+  })
+
+  it('SE-5. a 5xx with no usable body names the side of the problem, cascade voice', () => {
+    const message = cascadeSaveErrorMessage(axiosError(500))
+
+    expect(message).toBe('Не удалось сохранить — ошибка на нашей стороне, попробуйте позже')
+    expect(message).not.toContain('Мы')
+  })
+
+  it("SE-6. Nest's own generic reason phrase is filtered exactly like finding 110 requires", () => {
+    const message = cascadeSaveErrorMessage(axiosError(500, 'Internal server error'))
+
+    expect(message).not.toContain('Internal server error')
+    expect(message).toContain('нашей стороне')
+  })
+
+  it("SE-7. an unmapped status still says SOMETHING, in this screen's own voice", () => {
+    expect(cascadeSaveErrorMessage(axiosError(404))).toBe(
+      'Не удалось сохранить — попробуйте ещё раз',
+    )
+  })
+
+  it('SE-8. a 429 whose backend message is the SAME text the general resolver would show is still returned verbatim', () => {
+    // COPY-H-6 fixed the SERVER to hand back a real (Russian) explanation for
+    // a throttled request instead of nothing — so `extractBackendMessage`
+    // now wins here too, same as everywhere else. This is not a regression
+    // of COPY-M-10: a genuine backend message has always taken priority over
+    // either fallback voice, in both resolvers.
+    const message = cascadeSaveErrorMessage(
+      axiosError(429, 'Слишком много запросов подряд. Подождите немного и повторите попытку.'),
+    )
+
+    expect(message).toBe('Слишком много запросов подряд. Подождите немного и повторите попытку.')
+  })
+
+  // task-mutation-gate follow-up (PR #613, backlog 121). `isAxiosFailure`
+  // reads `err['isAxiosError']` after checking `err !== null && typeof err
+  // === 'object'` — both halves of that check are load-bearing, but for
+  // different reasons, and each needs its OWN fixture to prove it:
+  it('SE-9. `err === null` falls to the plain fallback, not a throw — `err !== null` is load-bearing', () => {
+    // `typeof null === 'object'` is JS's own famous quirk — without the
+    // `err !== null` half, `isAxiosFailure` would still reach
+    // `(err as Record<string, unknown>)['isAxiosError']` for a `null` err,
+    // which THROWS (reading a property off `null`), not merely misreads.
+    expect(cascadeSaveErrorMessage(null)).toBe('Не удалось сохранить — попробуйте ещё раз')
+  })
+
+  it("SE-10. a non-object value carrying its own `isAxiosError` is NOT read as an axios failure — `typeof err === 'object'` is load-bearing", () => {
+    // `err: unknown` accepts anything a caller can construct — including a
+    // FUNCTION with arbitrary own properties attached. A function is the one
+    // JS-native shape that is neither `null` nor `typeof 'object'` (so it
+    // passes the first half of the guard and fails the second) yet CAN still
+    // carry a property the way a real axios error does. Proves the `typeof
+    // === 'object'` half is doing real work: without it, this would read the
+    // attached `.response.status` and answer with the axios-shaped 500
+    // branch instead of falling through to the plain fallback below.
+    const fakeAxiosShapedFunction = Object.assign(() => {}, {
+      isAxiosError: true,
+      response: { status: 500 },
+    })
+
+    expect(cascadeSaveErrorMessage(fakeAxiosShapedFunction)).toBe(
+      'Не удалось сохранить — попробуйте ещё раз',
+    )
   })
 })

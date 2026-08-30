@@ -120,6 +120,40 @@ permissions:
 
 jobs:
   # ── 1. Build & push images to GHCR ───────────────────────────────────────
+  # security review (PR #613 round 2, SR-M-3) — INVARIANT for anyone adding a
+  # new `build-args:` line to either build step below, written down here
+  # because it existed only as an unstated assumption before this review:
+  #
+  #   Security confirmed BY FACT (not by reading this comment) that these
+  #   images are pulled ANONYMOUSLY — the GHCR manifest is served with no
+  #   pull-side auth check. A build-arg is not a build-time-only value: it is
+  #   baked into a layer of a manifest anyone can `docker pull` without
+  #   credentials. There is no private-build/public-runtime boundary to lean
+  #   on here — public the moment it's pushed.
+  #
+  #   Several build-args below already read `${{ secrets.* }}`
+  #   (VITE_TURNSTILE_SITE_KEY, INDEXNOW_KEY, BING_SITE_VERIFICATION_ID,
+  #   YANDEX_VERIFICATION_FILENAME, YANDEX_VERIFICATION_CONTENT). That is
+  #   correct AS IS: GitHub Secrets is where these are stored for
+  #   provisioning convenience, not because the values are confidential — a
+  #   Turnstile *site* key and a search-engine verification file are meant to
+  #   be public. The invariant is about actual confidentiality, never about
+  #   which GitHub Actions store a value happened to come from.
+  #
+  #   Anything that carries real authority if someone else reads it —
+  #   credentials, private keys, write-scoped API tokens, any of the values
+  #   the `write-env` job below pipes over SSH into /opt/crm/.env.production —
+  #   must NEVER become a build-arg. That job's SSH-env pattern is precisely
+  #   the mechanism that exists so those values reach the VPS without ever
+  #   touching an image layer; use it, don't route around it via build-args.
+  #
+  #   No mechanical gate enforces this (a text-scan of `build-args:` blocks
+  #   would have to distinguish "public value we store as a GH secret" from
+  #   "real secret" — a distinction that lives in what the value IS, not in
+  #   its syntax — so it would either miss real leaks or flag the four
+  #   legitimate ones above on every run; a gate that cries wolf on known-safe
+  #   lines teaches the next author to route around it, not to read it). This
+  #   comment is the check.
   build:
     name: Build & Push to GHCR
     runs-on: ubuntu-latest
@@ -136,15 +170,103 @@ jobs:
 
       - name: Resolve image tag
         id: meta
+        env:
+          # security review (PR #613 round 2, SR-M-1): passed as an env var,
+          # NEVER interpolated into the run: script body. `${{ inputs.image_tag }}`
+          # substituted directly into a shell string (the old
+          # `INPUT_TAG="${{ inputs.image_tag }}"` line) is GitHub Actions'
+          # canonical script-injection shape — a workflow_dispatch caller
+          # controls that string verbatim, so it becomes attacker-controlled
+          # shell source, not just an attacker-controlled value. Routing it
+          # through `env:` first turns it into an opaque environment variable
+          # instead — the shell below only ever reads `$INPUT_TAG`, never
+          # re-parses the literal input text as code.
+          INPUT_TAG: ${{ inputs.image_tag }}
         run: |
-          # Use explicit input tag if provided; otherwise git SHA (short).
-          INPUT_TAG="${{ inputs.image_tag }}"
+          # actual_commit — the git SHA of the commit THIS RUN actually
+          # checked out and is about to build, computed by command
+          # UNCONDITIONALLY (both branches below run this line first).
+          # Deliberately kept separate from image_tag below:
+          #
+          #   image_tag    = WHERE the built image gets published — a label.
+          #                  On a manual workflow_dispatch run the operator
+          #                  chooses it freely (any existing git SHA).
+          #   actual_commit = WHAT was really checked out and compiled — a
+          #                  FACT. The checkout step above has no `ref:`, so
+          #                  it always builds from whatever ref triggered
+          #                  this run (main HEAD for push/schedule, or the
+          #                  branch picked in the dispatch UI — main by
+          #                  default) REGARDLESS of what image_tag says.
+          #
+          # security review (PR #613 round 3, SR-H-2): a prior version of
+          # this workflow fed GIT_COMMIT from image_tag, which conflated the
+          # two above. On a manual dispatch naming an OLD sha as image_tag
+          # ("redeploy this build"), the checkout step still builds from main
+          # HEAD — so that run would rebuild from main, publish the result
+          # under the OLD tag (overwriting whatever image previously lived
+          # there), and bake the OLD sha into GIT_COMMIT even though main's
+          # code is what actually shipped. See the "Build & push API image"
+          # step below for where actual_commit closes that gap; see
+          # docs/runbooks/deployment.md §9's SSH `docker compose pull` path
+          # for the rollback method that genuinely reuses a previously-built
+          # image without rebuilding.
+          ACTUAL_COMMIT=$(git rev-parse --short HEAD)
+          echo "actual_commit=${ACTUAL_COMMIT}" >> "$GITHUB_OUTPUT"
+
+          # image_tag: explicit input if provided (destination label, see
+          # above); otherwise the actual_commit just computed.
+          #
+          # Per docs/runbooks/deployment.md §9 an explicit image_tag input is
+          # ALWAYS expected to be a git SHA — same invariant
+          # apps/api/src/config/env.ts's GIT_COMMIT validator already
+          # assumes: `^[0-9a-f]{7,40}$`, case-insensitive. Enforcing that
+          # invariant HERE, before the value goes anywhere, closes a second
+          # injection class on top of the env: fix above: $GITHUB_OUTPUT is a
+          # newline-delimited `key=value` file, so an input containing an
+          # embedded newline could otherwise smuggle an extra `key=value`
+          # line into it — and from there an extra docker build-arg or tag,
+          # since this output flows straight into the multi-line
+          # `build-args: |` / `tags: |` blocks below. A hex SHA cannot
+          # contain a newline or any shell/YAML metacharacter, so a passing
+          # regex match makes that structurally impossible rather than
+          # merely escaped — a malformed value fails the run outright
+          # instead of being sanitized-and-continued.
+          #
+          # Match with bash's own `[[ =~ ]]` against the WHOLE variable, not
+          # `grep -E '^...$'` piped from `printf` — `^`/`$` in POSIX grep
+          # anchor to each LINE of the input, not to the buffer as a whole, so
+          # a value like $'abc1234\nextra_key=extra_value' would satisfy
+          # `grep -qE '^[0-9a-fA-F]{7,40}$'` on its first line and let the
+          # smuggled second line straight through — verified locally with a
+          # throwaway harness before landing this fix. `[[ "$var" =~ ^...$ ]]`
+          # has no such per-line splitting: the anchors bind to the start and
+          # end of the actual string, so an embedded newline fails the match.
           if [ -n "$INPUT_TAG" ]; then
+            if [[ ! "$INPUT_TAG" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+              echo "::error::image_tag input is not a valid git SHA (expected 7-40 hex chars, see docs/runbooks/deployment.md §9). Refusing to use it as a Docker tag / build-arg."
+              exit 1
+            fi
+            # Owner request following SR-H-2 (PR #613 round 3): this run is
+            # about to OVERWRITE whatever image currently lives under
+            # $INPUT_TAG with a fresh build from $ACTUAL_COMMIT (see the big
+            # comment at the top of this step for why those two are not the
+            # same thing) — the exact failure mode that made GIT_COMMIT
+            # dishonest before this PR. If $INPUT_TAG names the sha someone
+            # is trying to roll back TO, this run destroys the very image the
+            # rollback needed. Say so, only here (manual input present) —
+            # never on the automatic push/schedule path, where no such input
+            # exists to warn about and a warning nobody can act on just
+            # trains people to stop reading warnings.
+            echo "::warning::This run will BUILD code from ${ACTUAL_COMMIT} (the current checkout) and PUBLISH it under tag '${INPUT_TAG}' in GHCR, OVERWRITING whatever image is stored under that tag right now. If you wanted to redeploy the build already tagged '${INPUT_TAG}' WITHOUT rebuilding it, stop this run and instead SSH to the VPS and pull+restart that existing image directly — docs/runbooks/deployment.md §9, the 'docker compose pull' path."
             echo "image_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
           else
-            SHA=$(git rev-parse --short HEAD)
-            echo "image_tag=${SHA}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${ACTUAL_COMMIT}" >> "$GITHUB_OUTPUT"
           fi
+          # backlog 113 — GET /api/health's build fingerprint
+          # (apps/api/src/health/health.controller.ts). Plain UTC ISO-8601
+          # timestamp of THIS CI run, always computed (never blank) — consumed
+          # below as the API image's BUILD_TIME build-arg.
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -157,12 +279,61 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # ── Build API image ─────────────────────────────────────────────────
+      # backlog 113: GIT_COMMIT/BUILD_TIME feed GET /api/health's build
+      # fingerprint (apps/api/src/health/health.controller.ts + config/env.ts),
+      # whose entire job is answering "did prod actually redeploy" — see
+      # config/env.ts's GIT_COMMIT comment: "REFERENCE DATA ... never
+      # something the running process needs in order to work". That is why
+      # GIT_COMMIT is fed steps.meta.outputs.ACTUAL_COMMIT below, not
+      # steps.meta.outputs.image_tag.
+      #
+      # security review (PR #613 round 3, SR-H-2): a prior version of this
+      # step fed GIT_COMMIT from image_tag, on the stated reasoning that both
+      # images should "agree on which build this is". That reasoning was
+      # wrong: image_tag is WHERE the image gets published (an operator-
+      # chosen label on a manual workflow_dispatch run), actual_commit is
+      # WHAT was actually checked out and compiled (see the "Resolve image
+      # tag" step's comment for the full mechanism and why they can diverge).
+      # On the automatic paths (push/schedule) the two are equal by
+      # construction, so nothing observable changes there. On a manual
+      # dispatch naming an OLD sha as image_tag to "redeploy" it, they now
+      # diverge ON PURPOSE: the checkout step still builds from main HEAD (no
+      # `ref:` keyed off image_tag), so GIT_COMMIT honestly reports main's
+      # sha instead of echoing back the old sha as if main's fresh build were
+      # that old commit. This does NOT turn that manual-dispatch path into an
+      # actual rollback — it still rebuilds from main and republishes under
+      # the requested tag, which is a separate, pre-existing problem (see
+      # docs/runbooks/deployment.md §9's SSH `docker compose pull` path for
+      # the rollback method that genuinely reuses a previously-built image
+      # without rebuilding). It only makes the resulting fingerprint honest,
+      # so a "rollback" that didn't roll back is visible at GET /api/health
+      # instead of silently papered over.
+      #
+      # VITE_BUILD_VERSION on the nginx image below still uses image_tag, not
+      # actual_commit — it is a client-side cache-buster / telemetry label
+      # (apps/web/vite.config.ts), not a "did prod redeploy" claim anything
+      # relies on for correctness, so there is no honesty property to
+      # preserve there the way there is for GIT_COMMIT.
+      #
+      # BUILD_TIME is a plain UTC timestamp of this CI run, not git-derived —
+      # always computed by the step above, never blank. Neither build-arg is
+      # blank here (actual_commit and build_time are both unconditional) —
+      # but even if one were, the Dockerfile's `ARG ...=` empty default +
+      # env.ts's blank-to-undefined preprocess degrade to the honest
+      # 'unknown' response, never a boot crash or an empty string (see
+      # health.controller.ts + env.ts comments).
+      # security review (PR #613 round 2, SR-M-3): this image is pulled
+      # anonymously — no secrets here. See the invariant at the top of this
+      # job (above `build:`) before adding a new build-arg.
       - name: Build & push API image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/api/Dockerfile
           push: true
+          build-args: |
+            GIT_COMMIT=${{ steps.meta.outputs.actual_commit }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:main
@@ -232,6 +403,14 @@ jobs:
       # pattern, this workflow's top-level `env:` block, single source of
       # truth for the origin-IP gate's observe/enforce mode. See
       # nginx/Dockerfile's own `ARG ORIGIN_GATE_MODE` comment.
+      #
+      # security review (PR #613 round 2, SR-M-3): this image is pulled
+      # anonymously — no secrets here. The four `secrets.*` values already in
+      # the block below (VITE_TURNSTILE_SITE_KEY / INDEXNOW_KEY /
+      # BING_SITE_VERIFICATION_ID / YANDEX_VERIFICATION_*) are intentionally
+      # public values stored via GH Secrets for provisioning, not confidential
+      # ones — see the invariant at the top of this job (above `build:`)
+      # before adding a new build-arg.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:

@@ -324,16 +324,45 @@ jobs:
       # same thing dorny/paths-filter relies on). If the base cannot be resolved
       # the script exits 2 rather than reporting "nothing changed".
       #
-      # Budget: 15 minutes. On the diffs measured for this PR the gate costs
-      # 3.5s (2 changed lines) to ~10s (223 changed lines, 55 mutants); the
-      # largest recent PR in this repo (#504, 4565 changed lines in apps/api)
-      # generates 2220 mutants and is the case this budget exists for. Exceeding
-      # it is RED with an explicit message, never a silent skip — see the script's
-      # TIME BUDGET section.
+      # Budget: 1 hour (recalibrated 2026-08-30 — see below; was 900s/15min).
+      #
+      # The old 900s figure was measured against a BROKEN `apps/web` gate: a
+      # fixed repo-root walk-up in the vitest configs landed on the wrong
+      # directory once Stryker reloaded the config from its sandbox two levels
+      # deeper, so `@crm/web` mutants ran ZERO tests each and the whole run
+      # finished in seconds no matter the diff size (fixed same day, commit
+      # dd1e7528, "the gate's blindness was our arithmetic, not an upstream
+      # bug" — .claude/tasks/BACKLOG-followups.md #121). 900s was therefore
+      # calibrated against a gate that was not doing any real work.
+      #
+      # With the fix in, real numbers on PR #613 (237 changed `apps/api`
+      # lines + 543 changed `apps/web` lines):
+      #   - CI: apps/api finished in 33.5s; apps/web did NOT finish inside
+      #     900s and was killed — the CI runner could not even complete what
+      #     900s was supposed to cover.
+      #   - Same diff, local quiet host: whole run (190 mutants) 312s, PASS.
+      #   - Same diff, local host under load (~10 concurrent agent worktrees):
+      #     841s — a 2.7x spread from host contention alone, on the SAME
+      #     hardware. GitHub's hosted runners have fewer cores than the
+      #     machine that produced the 312s number, which is consistent with
+      #     CI needing MORE than 900s where the quiet local host needed only
+      #     312s (a >=2.9x gap, and an unknown amount worse since the CI run
+      #     never got to report its own completion time).
+      #
+      # 3600s is chosen with that spread in mind: comfortably above the
+      # worst MEASURED number (841s, local-under-load) with margin to spare
+      # for a CI runner that is already shown to be slower still, while
+      # staying a bounded, reasoned figure rather than "large enough it can
+      # never fire" — a budget that cannot go red is as useless as one that
+      # goes red for no reason. It also stays well under the nightly
+      # `--full` sweep's 18000s (5h) per-package budget in
+      # mutation-nightly.yml, keeping the PR gate materially cheaper than the
+      # nightly. Exceeding it is still RED with an explicit message, never a
+      # silent skip — see the script's TIME BUDGET section.
       - name: Mutation gate (changed code only)
         if: steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
         env:
-          MUTATION_BUDGET_SECONDS: '900'
+          MUTATION_BUDGET_SECONDS: '3600'
         run: node scripts/devops/mutation-gate.mjs --changed
 
       - name: Upload mutation report

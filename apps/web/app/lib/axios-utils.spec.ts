@@ -4,6 +4,7 @@ import {
   getApiErrorMessage,
   getUserFacingErrorMessage,
   stripQueryString,
+  GENERIC_HTTP_REASON_PHRASES,
 } from './axios-utils'
 
 // security-review round 2, MED-2: one consistent policy — never log a
@@ -226,5 +227,148 @@ describe('getUserFacingErrorMessage', () => {
       const result = getUserFacingErrorMessage(c)
       expect(result).not.toMatch(/Request failed|Network Error/)
     }
+  })
+
+  // Backlog finding 110. A REAL production 500/403 does not arrive with an
+  // EMPTY body (the `data: {}` cases above) — Nest's own default handling
+  // populates `response.data.message` with the STANDARD, generic HTTP reason
+  // phrase: `BaseExceptionFilter` sends 'Internal server error' for any
+  // genuinely unhandled exception (`@nestjs/core`'s
+  // `MESSAGES.UNKNOWN_EXCEPTION_MESSAGE`), and `ForbiddenException()` /
+  // `NotFoundException()` etc constructed with no explicit text default to
+  // their exception class's own reason phrase ('Forbidden', 'Not Found', …
+  // — `@nestjs/common`'s `exceptions/*.exception.js`). Both shapes made
+  // `extractBackendMessage`'s priority-2 branch treat that phrase as if the
+  // backend had explained something — it had not — and the raw English
+  // reached a money screen (found live in the cascade-preview panel).
+  it.each([
+    [500, 'Internal server error', 'нашей стороне'],
+    [500, 'Internal Server Error', 'нашей стороне'], // InternalServerErrorException()'s own casing
+    [403, 'Forbidden', 'прав'],
+    [404, 'Not Found', 'не найдены'],
+    [400, 'Bad Request', 'некорректный'],
+    // task-mutation-gate follow-up (PR #613, backlog 121): whitespace
+    // padding around an otherwise-generic phrase must still be recognised —
+    // `isGenericHttpReasonPhrase` trims before comparing, and this is the
+    // one shape that can tell a real `.trim()` apart from a no-op (an exact
+    // phrase with no padding passes either way).
+    [403, '  Forbidden  ', 'прав'],
+  ])(
+    'status %i with Nest\'s own default body ("%s") falls through to the honest Russian text',
+    (status, backendMessage, expectedFragment) => {
+      const err = {
+        response: { status, data: { message: backendMessage } },
+        message: `Request failed with status code ${status}`,
+      }
+      const result = getUserFacingErrorMessage(err)
+      expect(result).not.toBe(backendMessage)
+      expect(result.toLowerCase()).toContain(expectedFragment)
+    },
+  )
+
+  // task-mutation-gate follow-up (PR #613, backlog 121). The five rows above
+  // sample five of the set's ~19 phrases — every OTHER entry could be
+  // silently dropped without a test noticing. This loop iterates the LIVE
+  // export so no current entry is skipped just because nobody picked it —
+  // real value, and worth keeping — but it reads BOTH the phrase it sends
+  // AND the phrase it checks the result against from that same live
+  // export. Corrupt a literal INSIDE `GENERIC_HTTP_REASON_PHRASES` (mutate
+  // `'unauthorized'` to `''`, say) and `phrase` here becomes `''` right
+  // along with it: the mutant filters `''` out of itself and the assertion
+  // stays green. That is exactly how the gate found five survivors
+  // (`unauthorized` / `method not allowed` / `not acceptable` / `request
+  // timeout` / `http version not supported`) with every test passing —
+  // this test was checking the set's self-consistency, not its content.
+  // What this loop is genuinely good for: a phrase added to the export
+  // LATER, with no corresponding row anywhere else, still gets exercised
+  // here for free. Content itself is pinned separately below.
+  it('filters EVERY phrase currently in GENERIC_HTTP_REASON_PHRASES, not just the sampled few above — catches a phrase added later with no dedicated test', () => {
+    for (const phrase of GENERIC_HTTP_REASON_PHRASES) {
+      const err = { response: { status: 500, data: { message: phrase } }, message: 'irrelevant' }
+      const result = getUserFacingErrorMessage(err)
+      expect(result).not.toBe(phrase)
+    }
+  })
+
+  // Closes what the loop above cannot: KNOWN_GENERIC_HTTP_REASON_PHRASES is
+  // typed out by hand, a genuinely separate literal from the source's
+  // `GENERIC_HTTP_REASON_PHRASES` export — NOT imported, NOT derived from
+  // it. That duplication is not slack to trim, it is the actual mechanism.
+  // If a literal inside the SOURCE set is corrupted, this copy does not
+  // move with it: the test still sends the real word (e.g. `'unauthorized'`)
+  // as the backend message, the corrupted source set no longer recognises
+  // it as generic, and the raw English reaches the return value instead of
+  // being filtered — the exact production bug (finding 110) this whole set
+  // exists to prevent. `expect(result).not.toBe(phrase)` then fails, where
+  // the live-set loop above structurally cannot.
+  const KNOWN_GENERIC_HTTP_REASON_PHRASES = [
+    'bad request',
+    'unauthorized',
+    'forbidden',
+    'not found',
+    'method not allowed',
+    'not acceptable',
+    'request timeout',
+    'conflict',
+    'gone',
+    'precondition failed',
+    'payload too large',
+    'unsupported media type',
+    'misdirected',
+    'unprocessable entity',
+    'internal server error',
+    'not implemented',
+    'bad gateway',
+    'service unavailable',
+    'gateway timeout',
+    'http version not supported',
+  ]
+
+  it('pins every phrase against an independent hardcoded copy — a corrupted literal in the source set is visible here even though the live-set loop above cannot see it', () => {
+    for (const phrase of KNOWN_GENERIC_HTTP_REASON_PHRASES) {
+      const err = { response: { status: 500, data: { message: phrase } }, message: 'irrelevant' }
+      const result = getUserFacingErrorMessage(err)
+      expect(result).not.toBe(phrase)
+    }
+  })
+
+  it('a REAL backend business message for the same status is still shown verbatim — the filter is narrow', () => {
+    const err = { response: { status: 403, data: { message: 'Только владелец может это делать' } } }
+    expect(getUserFacingErrorMessage(err)).toBe('Только владелец может это делать')
+  })
+})
+
+// Backlog finding 110, the other consumer of `extractBackendMessage`. Every
+// caller reading `mutation.error` off a real save (staleMessage/submitError
+// in AdminEditTransactionDialog) goes through THIS function, not
+// `getUserFacingErrorMessage` — it deliberately keeps raw backend text for
+// genuine business messages (CP-19/CP-20 pin exactly that). The generic-phrase
+// filter has to live where BOTH functions read it (`extractBackendMessage`
+// itself) so this one inherits the fix instead of re-introducing the leak.
+describe("getApiErrorMessage — Nest's own generic reason phrase is not a real explanation either (finding 110)", () => {
+  it('a raw 500 with Nest\'s default body does not leak "Internal server error"', () => {
+    const err = {
+      response: { status: 500, data: { message: 'Internal server error' } },
+      // Simulates the shape a component actually receives: the axios
+      // response interceptor (axios.ts) has ALREADY run and overwritten
+      // `.message` with the honest Russian text before any consumer sees it.
+      message: 'Ошибка на нашей стороне. Мы уже знаем о проблеме — попробуйте немного позже.',
+    }
+    const result = getApiErrorMessage(err)
+    expect(result).not.toBe('Internal server error')
+    expect(result.toLowerCase()).toContain('нашей стороне')
+  })
+
+  it('a raw 403 with Nest\'s default body does not leak "Forbidden"', () => {
+    const err = {
+      response: { status: 403, data: { message: 'Forbidden' } },
+      message: 'Недостаточно прав для этого действия.',
+    }
+    expect(getApiErrorMessage(err)).not.toBe('Forbidden')
+  })
+
+  it('a real backend business message is unaffected — CP-19/CP-20 keep passing', () => {
+    const err = { response: { data: { message: 'Некорректная сумма' } }, message: 'irrelevant' }
+    expect(getApiErrorMessage(err)).toBe('Некорректная сумма')
   })
 })
