@@ -181,6 +181,51 @@ with open(out, "w") as fh:
 PY
 }
 
+# A registration whose command names no file under the hooks dir at all. The
+# check cannot vouch for what it cannot find, and must say so rather than drop
+# the row (CR-M-3).
+write_settings_inline() {
+  local out="$1"
+  python3 - "$out" <<'PY2'
+import json, sys
+
+with open(sys.argv[1], "w") as fh:
+    json.dump(
+        {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{"type": "command", "command": "echo inline gate"}],
+                        "id": "pre:bash:inline",
+                    }
+                ]
+            }
+        },
+        fh,
+        indent=1,
+    )
+PY2
+}
+
+# A hook written in something other than bash. Nothing about a hook's contract
+# requires it to be a shell script; the previous inventory matched `*.sh` only
+# and would have missed this one silently.
+write_refusing_node_hook() {
+  printf '#!/usr/bin/env node\nif (process.env.X === "bad") {\n  process.exit(2)\n}\n' >"$1"
+}
+
+write_advisory_node_hook() {
+  printf '#!/usr/bin/env node\nconsole.log("just a nudge")\n' >"$1"
+}
+
+# An extension this check has no reader for. It must be treated as REFUSING
+# (i.e. owing a test), never as advisory — guessing "harmless" about code you
+# cannot read is the whole failure mode.
+write_unreadable_hook() {
+  printf '#!/usr/bin/env ruby\nabort if ENV["X"] == "bad"\n' >"$1"
+}
+
 HOOK_OK="$(new_hook_case hooks-compliant)"
 write_refusing_hook "$HOOK_OK/hooks/pre-bash-fixture-gate.sh"
 write_test_with_negative "$HOOK_OK/tests/test-pre-bash-fixture-gate.sh"
@@ -209,6 +254,26 @@ HOOK_EMPTY_REGISTRY="$(new_hook_case hooks-empty-registry)"
 write_refusing_hook "$HOOK_EMPTY_REGISTRY/hooks/pre-bash-fixture-gate.sh"
 write_test_with_negative "$HOOK_EMPTY_REGISTRY/tests/test-pre-bash-fixture-gate.sh"
 printf '{"hooks":{}}\n' >"$HOOK_EMPTY_REGISTRY/settings.json"
+
+HOOK_NODE_UNTESTED="$(new_hook_case hooks-node-untested)"
+write_refusing_node_hook "$HOOK_NODE_UNTESTED/hooks/pre-bash-fixture-gate.mjs"
+write_settings "$HOOK_NODE_UNTESTED/settings.json" pre-bash-fixture-gate.mjs
+
+HOOK_NODE_OK="$(new_hook_case hooks-node-ok)"
+write_refusing_node_hook "$HOOK_NODE_OK/hooks/pre-bash-fixture-gate.mjs"
+write_test_with_negative "$HOOK_NODE_OK/tests/test-pre-bash-fixture-gate.sh"
+write_settings "$HOOK_NODE_OK/settings.json" pre-bash-fixture-gate.mjs
+
+HOOK_NODE_ADVISORY="$(new_hook_case hooks-node-advisory)"
+write_advisory_node_hook "$HOOK_NODE_ADVISORY/hooks/pre-edit-write-fixture-nudge.mjs"
+write_settings "$HOOK_NODE_ADVISORY/settings.json" pre-edit-write-fixture-nudge.mjs
+
+HOOK_UNREADABLE="$(new_hook_case hooks-unreadable)"
+write_unreadable_hook "$HOOK_UNREADABLE/hooks/pre-bash-fixture-gate.rb"
+write_settings "$HOOK_UNREADABLE/settings.json" pre-bash-fixture-gate.rb
+
+HOOK_INLINE="$(new_hook_case hooks-inline)"
+write_settings_inline "$HOOK_INLINE/settings.json"
 
 HOOK_NO_SETTINGS="$(new_hook_case hooks-no-settings)"
 write_refusing_hook "$HOOK_NO_SETTINGS/hooks/pre-bash-fixture-gate.sh"
@@ -315,5 +380,32 @@ assert_red "a missing registry is not a vacuous green either" \
 assert_red "a wrong number of arguments is refused, not half-interpreted" \
   --contains "usage:" \
   -- bash "$GUARD" "$HOOK_OK/guards" "$HOOK_OK/tests" "$HOOK_OK/settings.json"
+
+# ── CR-M-3: the inventory is language-agnostic ────────────────────────────────
+# The first version matched `*.sh`. Today every hook is bash, so nothing was
+# wrong yet — which is precisely how the blind spot this whole change fixes
+# stayed invisible for months. These cases make the widening observable.
+
+assert_red "a refusing hook that is NOT a shell script, with no test -> red" \
+  --contains "have NO test at all" \
+  --contains "pre-bash-fixture-gate.mjs" \
+  -- run_guard4 "$HOOK_NODE_UNTESTED"
+
+assert_green "a non-shell hook maps to test-<basename-without-extension>.sh like part A does" \
+  --contains "1 hooks guarded, 0 unguarded" \
+  -- run_guard4 "$HOOK_NODE_OK"
+
+assert_green "a non-shell hook that never refuses is advisory, same as a bash one" \
+  --contains "0 hooks guarded, 0 unguarded, 1 advisory" \
+  -- run_guard4 "$HOOK_NODE_ADVISORY"
+
+assert_red "an extension with no reader is assumed to REFUSE, not assumed harmless" \
+  --contains "have NO test at all" \
+  --contains "pre-bash-fixture-gate.rb" \
+  -- run_guard4 "$HOOK_UNREADABLE"
+
+assert_red "a registration naming no hook file is reported, not dropped" \
+  --contains "do not name a file under the hooks dir" \
+  -- run_guard4 "$HOOK_INLINE"
 
 guard_test_summary "test-check-guard-tests-exist.sh"

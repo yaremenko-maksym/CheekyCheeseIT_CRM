@@ -47,12 +47,17 @@
 #
 #   B. For every hook registered in .claude/settings.json that CAN REFUSE:
 #      the same two things, at the same path, with the same negative-assertion
-#      rule. "Can refuse" = the hook's file has a line that begins with
-#      `exit 2` — the documented refusal contract of a Claude Code hook.
+#      rule. "Can refuse" = the hook's file contains the refusal contract of a
+#      Claude Code hook — exit code 2 — spelled the way its language spells it
+#      (`exit 2`, `process.exit(2)`, `sys.exit(2)`; see refusal_re_for).
 #      Registered hooks that never refuse (`pre:edit-write:suggest-compact`,
 #      `post:edit-write:coder-progress` — both advisory by design and by their
 #      own settings.json description) are listed as advisory and not required
 #      to have one, because there is no red for anyone to have watched.
+#
+#      The hook list itself is EXTENSION-AGNOSTIC: a registered command is
+#      traced to any file it names under `.claude/hooks/`, whatever it is
+#      called. A registration that names no such file is REPORTED, not skipped.
 #
 # Requirement 2 is the whole point. "A test exists" is satisfied by `touch`, and
 # a test that only asserts the guard stays quiet on good input is satisfied by a
@@ -105,6 +110,22 @@
 # through untested), which is the only direction worth being wrong in here. As
 # of today it separates the nine refusing hooks from the two advisory ones
 # exactly.
+#
+# WHY LANGUAGE-AGNOSTIC, when all eleven hooks are bash (review CR-M-3). The
+# first version of part B matched `*.sh` and read only `exit 2`. Nothing was
+# wrong yet — and that is the whole objection. An inventory that looks complete
+# while silently dropping a category is the exact defect this script was just
+# widened to fix, and repeating it one level down would be indefensible in the
+# change that fixes it. The first hook written in anything but bash would have
+# been invisible, and we would have learned that the way we learned about the
+# blind spot above: by accident, months later.
+#
+# The load-bearing half is the UNKNOWN case. An extension with no reader here
+# is treated as REFUSING, so it must have a test. Reading "I cannot parse this"
+# as "this is probably harmless" is how a gate stops being checked; reading it
+# as "prove it" costs somebody five minutes. Same for a registered command that
+# names no file: it is a FAIL saying "this check cannot see what you run",
+# because dropping the row is how an inventory starts lying.
 #
 # KNOWN REMAINING BLIND SPOT, stated because an unstated one is how we got here:
 # part A still reads ONE directory. There are `check-*` scripts elsewhere in the
@@ -170,9 +191,24 @@ esac
 # counts too.
 NEGATIVE_ASSERTION_RE='^[[:space:]]*assert_red'
 
-# A hook refuses by exiting 2 with a decision body on stdout. Anchored for the
-# same reason as above, and over-inclusive on purpose — see the header.
-REFUSAL_RE='^[[:space:]]*exit 2'
+# A hook refuses by exiting 2 with a decision body on stdout. HOW that is
+# spelled depends on the language the hook is written in, so the predicate is
+# chosen per extension rather than assumed to be bash (review CR-M-3: assuming
+# one language is the same silent-inventory defect this script exists to stop,
+# one level down).
+#
+# The UNKNOWN case is the load-bearing one: an extension nothing here recognises
+# is treated as REFUSING, so it is required to have a test. Erring toward
+# demanding a test costs somebody five minutes; erring the other way is how a
+# live gate goes untested for months, which is the thing being fixed.
+refusal_re_for() {
+  case "$1" in
+    *.sh | *.bash) printf '%s' '^[[:space:]]*exit 2' ;;
+    *.mjs | *.cjs | *.js) printf '%s' '^[[:space:]]*(process\.exit\(2\)|return[[:space:]]+process\.exit\(2\))' ;;
+    *.py) printf '%s' '^[[:space:]]*(sys\.exit\(2\)|raise[[:space:]]+SystemExit\(2\))' ;;
+    *) printf '%s' '' ;;
+  esac
+}
 
 PASS=0
 FAIL=0
@@ -234,6 +270,7 @@ HOOK_ADVISORY=0
 HOOK_MISSING_TEST=""
 HOOK_NO_NEGATIVE=""
 HOOK_NOT_ON_DISK=""
+HOOK_UNRESOLVED=""
 
 if [ "$HOOKS_MODE" = "1" ]; then
   echo
@@ -255,15 +292,31 @@ import json, re, sys
 with open(sys.argv[1]) as fh:
     settings = json.load(fh)
 
-names = []
+# Any token that points INSIDE the hooks directory, whatever it is called and
+# whatever language it is written in. The previous version matched `*.sh` only,
+# which would have made the first hook written in anything else invisible —
+# silently, exactly like the blind spot this whole change is about (CR-M-3).
+HOOK_PATH = re.compile(r"[^\s'\"]*[/\\]\.claude[/\\]hooks[/\\]([^\s'\"/\\]+)")
+
+seen = set()
+rows = []
 for entries in (settings.get("hooks") or {}).values():
     for entry in entries or []:
         for hook in entry.get("hooks") or []:
-            for match in re.findall(r"[A-Za-z0-9._-]+\.sh", hook.get("command", "")):
-                if match not in names:
-                    names.append(match)
+            command = hook.get("command", "")
+            found = HOOK_PATH.findall(command)
+            if not found:
+                # A registered command this check cannot trace to a file. It is
+                # reported rather than skipped: "I cannot see what this runs" is
+                # information, and dropping it is how inventories start lying.
+                rows.append(("unresolved", " ".join(command.split())[:120] or "(empty command)"))
+                continue
+            for name in found:
+                if name not in seen:
+                    seen.add(name)
+                    rows.append(("hook", name))
 
-print("\n".join(names))
+print("\n".join("%s\t%s" % row for row in rows))
 PY
   )" || {
     echo "ERROR: could not parse $SETTINGS_JSON" >&2
@@ -275,8 +328,17 @@ PY
     exit 1
   fi
 
-  while IFS= read -r hook_name; do
-    [ -n "$hook_name" ] || continue
+  while IFS="$(printf '\t')" read -r kind hook_name; do
+    [ -n "$kind" ] || continue
+
+    if [ "$kind" = "unresolved" ]; then
+      HOOK_FAIL=$((HOOK_FAIL + 1))
+      HOOK_UNRESOLVED="${HOOK_UNRESOLVED}  $hook_name
+"
+      printf 'FAIL  %-52s registered command traces to no hook file\n' "${hook_name:0:52}"
+      continue
+    fi
+
     hook_path="$HOOKS_DIR/$hook_name"
 
     if [ ! -f "$hook_path" ]; then
@@ -287,13 +349,18 @@ PY
       continue
     fi
 
-    if ! grep -qE "$REFUSAL_RE" "$hook_path"; then
+    # An extension nothing recognises yields an EMPTY pattern, and an empty
+    # pattern means "assume it refuses" — so a hook in a new language is
+    # required to have a test rather than quietly excused from one (CR-M-3).
+    refusal_re="$(refusal_re_for "$hook_name")"
+    if [ -n "$refusal_re" ] && ! grep -qE "$refusal_re" "$hook_path"; then
       HOOK_ADVISORY=$((HOOK_ADVISORY + 1))
       printf 'ADVS  %-52s never refuses (no test required)\n' "$hook_name"
       continue
     fi
 
-    base="${hook_name%.sh}"
+    # Extension-agnostic, matching part A: check-foo.py -> test-check-foo.sh.
+    base="${hook_name%.*}"
     test_path="$TESTS_DIR/test-$base.sh"
 
     if [ ! -f "$test_path" ]; then
@@ -345,6 +412,14 @@ if [ "$TOTAL_FAIL" -gt 0 ]; then
     echo "  A test that only proves 'the guard is quiet on good input' is satisfied by a"
     echo "  guard that does nothing at all. Add at least one assert_red / assert_red_signal"
     echo "  case feeding the guard input it MUST reject."
+  fi
+  if [ -n "$HOOK_UNRESOLVED" ]; then
+    echo "FAIL: these registered commands do not name a file under the hooks dir:"
+    printf '%s' "$HOOK_UNRESOLVED"
+    echo
+    echo "  This check can only vouch for hooks it can find on disk. A registration it"
+    echo "  cannot trace is reported, not skipped — an inventory that drops what it does"
+    echo "  not understand is how this script missed every hook until 2026-09-01."
   fi
   if [ -n "$HOOK_NOT_ON_DISK" ]; then
     echo "FAIL: these hooks are registered in settings.json but absent from disk:"
