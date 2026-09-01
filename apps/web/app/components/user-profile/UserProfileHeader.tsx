@@ -1,4 +1,4 @@
-import { CalendarDays, Camera, KanbanSquare, Mail, Phone, Send } from 'lucide-react'
+import { CalendarDays, Camera, KanbanSquare, Mail, MailPlus, Phone, Send } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -97,6 +97,19 @@ export function UserProfileHeader({
             <Mail className="h-4 w-4" />
             {user.email}
           </a>
+          {user.personalEmail && (
+            // §4.4 — personal address on file. Not (yet) a login method —
+            // labelled "личный", not duplicated as a second "email" link, so
+            // it reads as contact info rather than a second account.
+            <a
+              href={`mailto:${user.personalEmail}`}
+              className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
+              title="Личный email"
+            >
+              <MailPlus className="h-4 w-4" />
+              {user.personalEmail}
+            </a>
+          )}
           {hasRealPhone(user.phone) && (
             <a
               href={`tel:${user.phone}`}

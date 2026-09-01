@@ -508,6 +508,9 @@ export function UserDialog(props: UserDialogProps) {
   const form = useForm({
     defaultValues: {
       email: editingUser?.email ?? '',
+      // §4.4 — ADMIN-entered at creation only (no edit-mode default: the
+      // spec's decision 7 restricts this field to the create flow).
+      personalEmail: '',
       displayName: editingUser?.displayName ?? '',
       role: initialRole,
       telegram: editingUser?.telegram ?? '',
@@ -701,6 +704,8 @@ export function UserDialog(props: UserDialogProps) {
 
         const payload: CreateUserDto = {
           email: value.email.trim(),
+          // §4.4 — optional, ADMIN-entered at creation only.
+          ...(value.personalEmail.trim() && { personalEmail: value.personalEmail.trim() }),
           displayName: value.displayName.trim(),
           role: value.role,
           telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
@@ -867,6 +872,8 @@ export function UserDialog(props: UserDialogProps) {
       const role = editingUser.role as Role
       form.reset({
         email: editingUser.email,
+        // §4.4 — create-only field, always blank on re-seed for Edit mode.
+        personalEmail: '',
         displayName: editingUser.displayName,
         role,
         telegram: editingUser.telegram ?? '',
@@ -1054,6 +1061,60 @@ export function UserDialog(props: UserDialogProps) {
                     )
                   }}
                 </form.Field>
+
+                {/* §4.4 — personal address, ADMIN-entered at creation only.
+                    Not a login method until an invite is accepted (separate
+                    task) — the label says so, so the admin doesn't read this
+                    as "second working login" by mistake. */}
+                {isCreate && (
+                  <form.Field
+                    name="personalEmail"
+                    validators={{
+                      onBlur: ({ value, fieldApi }) => {
+                        if (!fieldApi.state.meta.isDirty) return undefined
+                        const trimmed = value.trim()
+                        if (!trimmed) return undefined
+                        const r = z.string().email('Некорректный email').safeParse(trimmed)
+                        if (!r.success) return r.error.issues[0]?.message
+                        if (
+                          trimmed.toLowerCase() ===
+                          fieldApi.form.getFieldValue('email').trim().toLowerCase()
+                        ) {
+                          return 'Личный email должен отличаться от рабочего'
+                        }
+                        return undefined
+                      },
+                    }}
+                  >
+                    {(field) => {
+                      const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                      const err = showError ? field.state.meta.errors[0] : undefined
+                      return (
+                        <Field
+                          label="Личный email (необязательно)"
+                          error={err}
+                          hint="Не даёт входа сам по себе — станет способом входа только после приглашения"
+                        >
+                          <Input
+                            type="email"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            placeholder="ivan.petrov@gmail.com"
+                            value={field.state.value}
+                            onChange={(e) => field.handleChange(e.target.value)}
+                            onBlur={field.handleBlur}
+                            className={cn(
+                              err && 'border-destructive focus-visible:ring-destructive/30',
+                            )}
+                            autoComplete="off"
+                            data-testid="user-dialog-personal-email"
+                          />
+                        </Field>
+                      )
+                    }}
+                  </form.Field>
+                )}
 
                 <form.Field
                   name="displayName"
