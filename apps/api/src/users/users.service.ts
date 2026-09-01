@@ -23,6 +23,7 @@ import {
   teams,
   transactions,
   userAuditLog,
+  userEmails,
   users,
   type User,
 } from '../database/schema'
@@ -136,6 +137,77 @@ export class UsersService {
       .then((rows) => rows[0])
   }
 
+  /**
+   * The ONLY email lookup the login paths should use (§5 of the
+   * notifications-and-confirmations spec — AuthController.googleCallback /
+   * googleOneTap / devLogin, three call sites, one file). Looks up
+   * `user_emails` (NOT `users.email` directly) so a personal address that
+   * exists but has not yet been activated via invite-accept behaves exactly
+   * like an unrecognized email — `canLogin=false` and "not found" are the
+   * same outcome for a caller trying to sign in.
+   *
+   * The session identity minted afterwards still comes from `findById` (the
+   * canonical `users.email`, unchanged) — the ADDRESS used to sign in is not
+   * the session's identity, only the key that unlocked it.
+   */
+  async findLoginableUserByEmail(email: string): Promise<User | undefined> {
+    const row = await this.db.db.query.userEmails.findFirst({
+      where: and(eq(userEmails.email, email), eq(userEmails.canLogin, true)),
+    })
+    if (!row) return undefined
+    return this.findById(row.userId)
+  }
+
+  /**
+   * §4.4 structural guarantee, application-side half. The DB unique index
+   * on `user_emails.email` (schema.ts) is what actually makes "one address,
+   * two accounts" impossible — this is only the friendly half: turns the
+   * would-be raw 23505 constraint violation into a clean 409 that names the
+   * problem, checked BEFORE the row that would collide is even inserted.
+   * `excludeUserId` lets an update re-save a user's own unchanged address
+   * without tripping over itself.
+   */
+  private async assertEmailAvailable(
+    db: DatabaseService['db'] | DrizzleTx,
+    email: string,
+    excludeUserId?: string,
+  ): Promise<void> {
+    const existing = await db.query.userEmails.findFirst({ where: eq(userEmails.email, email) })
+    if (existing && existing.userId !== excludeUserId) {
+      throw new ConflictException('User with this email already exists')
+    }
+  }
+
+  /**
+   * Keeps a user's WORK row in `user_emails` in sync with `users.email` —
+   * called at creation (insert) and whenever an admin changes a user's
+   * email (update). Every writer of `users.email` MUST call this in the
+   * same statement/transaction as that write, or the user silently loses
+   * the ability to log in (login now reads `user_emails`, not
+   * `users.email` — see `findLoginableUserByEmail`). Find-then-branch
+   * rather than `onConflictDoUpdate` so the write goes through the same
+   * generic insert/update surface every other writer in this service uses.
+   */
+  private async upsertWorkEmail(
+    db: DatabaseService['db'] | DrizzleTx,
+    userId: string,
+    email: string,
+  ): Promise<void> {
+    const existing = await db.query.userEmails.findFirst({
+      where: and(eq(userEmails.userId, userId), eq(userEmails.kind, 'WORK')),
+    })
+    if (existing) {
+      await db
+        .update(userEmails)
+        .set({ email, updatedAt: new Date() })
+        .where(eq(userEmails.id, existing.id))
+    } else {
+      await db
+        .insert(userEmails)
+        .values({ userId, email, kind: 'WORK', canLogin: true, verifiedAt: new Date() })
+    }
+  }
+
   findById(id: string): Promise<User | undefined> {
     return this.db.db
       .select()
@@ -229,6 +301,8 @@ export class UsersService {
 
   async createUser(data: {
     email: string
+    /** §4.4 — optional personal address, ADMIN-entered at creation only. */
+    personalEmail?: string | null
     displayName: string
     role: AppRole
     telegram?: string | null
@@ -317,6 +391,13 @@ export class UsersService {
     }
     const existing = await this.findByEmail(data.email)
     if (existing) throw new ConflictException('User with this email already exists')
+    // §4.4: `users.email` uniqueness alone cannot see a PERSONAL row on
+    // another user — check the whole `user_emails` table too, for both the
+    // work address AND the optional personal one, BEFORE creating anything.
+    await this.assertEmailAvailable(this.db.db, data.email)
+    if (data.personalEmail) {
+      await this.assertEmailAvailable(this.db.db, data.personalEmail)
+    }
 
     // Build insert payload — only include payment columns when relevant so we
     // keep "no requisites" rows clean (null in DB rather than empty string).
@@ -356,6 +437,25 @@ export class UsersService {
 
     const created = rows[0]
     if (!created) throw new Error('Failed to create user')
+
+    // §4.4: the WORK row is what login now actually reads (see
+    // findLoginableUserByEmail) — without it this user could never sign in.
+    // Already verified/loginable, mirroring the trust `users.email` carries
+    // today.
+    await this.db.db.insert(userEmails).values({
+      userId: created.id,
+      email: created.email,
+      kind: 'WORK',
+      canLogin: true,
+      verifiedAt: new Date(),
+    })
+    if (data.personalEmail) {
+      // canLogin defaults false (column default) — a personal address is
+      // NOT a login method until the invite-accept flow (separate task).
+      await this.db.db
+        .insert(userEmails)
+        .values({ userId: created.id, email: data.personalEmail, kind: 'PERSONAL' })
+    }
 
     // Seed initial audit event — always has changes so record() won't skip it
     await this.auditLogService.record({
@@ -488,6 +588,9 @@ export class UsersService {
       if (conflict && conflict.id !== id) {
         throw new ConflictException('User with this email already exists')
       }
+      // §4.4 — see createUser's identical check: users.email alone cannot
+      // see a collision with someone else's PERSONAL row.
+      await this.assertEmailAvailable(this.db.db, data.email, id)
     }
 
     const set: Partial<{
@@ -585,6 +688,14 @@ export class UsersService {
       // form, unchanged `role` and `monthlySalary` included, and must not be
       // blocked (that edit is settlement, not a new entitlement).
       const u = await this.updateUserRow(tx, id, existing, set)
+
+      // §4.4: keep the WORK row in `user_emails` in sync — login now reads
+      // THAT table (findLoginableUserByEmail), so without this an admin
+      // changing a user's email would silently lock them out of the new
+      // address (and leave the old one still working, which is worse).
+      if (data.email !== undefined && data.email !== existing.email) {
+        await this.upsertWorkEmail(tx, u.id, u.email)
+      }
 
       // SENIOR-only: optional team composition reconcile.
       if (u.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
@@ -1846,6 +1957,16 @@ export class UsersService {
       throw new ForbiddenException()
     }
 
+    // §4.4: personal address lives in user_emails, not on `target` — fetch it
+    // only when the viewer would actually see contacts at all (same gate as
+    // `email`/`phone`/`telegram` below), so a masked viewer never triggers
+    // the extra query for data it will not receive anyway.
+    const personalEmailRow = permissions.fields.realContacts
+      ? await this.db.db.query.userEmails.findFirst({
+          where: and(eq(userEmails.userId, target.id), eq(userEmails.kind, 'PERSONAL')),
+        })
+      : undefined
+
     // ---------------------------------------------------------------------------
     // Build filteredUser with explicit allow-list projection (OWASP A01 guard).
     //
@@ -1871,7 +1992,10 @@ export class UsersService {
     // SEC-09: exclude googleId — Google's internal identifier is not part of the
     // profile API contract and should not be returned to any caller. The field
     // is used only for OAuth callback flow (updateGoogleId), never for display.
-    type FilteredUser = Omit<User, 'email' | 'googleId'> & { email: string | null }
+    type FilteredUser = Omit<User, 'email' | 'googleId'> & {
+      email: string | null
+      personalEmail: string | null
+    }
     const filteredUser: FilteredUser = {
       // Always-safe identity fields (persona display, never masked)
       id: target.id,
@@ -1887,6 +2011,8 @@ export class UsersService {
       email: permissions.fields.realContacts ? target.email : null,
       phone: permissions.fields.realContacts ? (target.phone ?? null) : null,
       telegram: permissions.fields.realContacts ? (target.telegram ?? null) : null,
+      // §4.4 — same realContacts gate as email/phone/telegram above.
+      personalEmail: permissions.fields.realContacts ? (personalEmailRow?.email ?? null) : null,
 
       // Admin-only internal note (never visible to subject or non-ADMIN)
       adminNote: permissions.fields.adminNote ? (target.adminNote ?? null) : null,
@@ -2069,6 +2195,8 @@ export class UsersService {
     }
     const existing = await this.findByEmail(data.email)
     if (existing) throw new ConflictException('Пользователь с таким email уже существует')
+    // §4.4 — see createUser's identical check for the full rationale.
+    await this.assertEmailAvailable(this.db.db, data.email)
 
     return this.db.db.transaction(async (tx) => {
       const insertValues: typeof users.$inferInsert = {
@@ -2104,6 +2232,15 @@ export class UsersService {
       const rows = await tx.insert(users).values(insertValues).returning()
       const created = rows[0]
       if (!created) throw new Error('Failed to create drop user')
+
+      // §4.4 — see createUser's identical insert for the full rationale.
+      await tx.insert(userEmails).values({
+        userId: created.id,
+        email: created.email,
+        kind: 'WORK',
+        canLogin: true,
+        verifiedAt: new Date(),
+      })
 
       await this.auditLogService.record(
         {

@@ -120,6 +120,12 @@ export class UsersController {
     const isHrActor = currentUser.role === 'HR'
     return this.usersService.createUser({
       email: dto.email,
+      // §4.4: same posture as legalFullName/wallet*/bankUah* above — an HR
+      // actor's provisioning surface is deliberately narrowed to
+      // seniorSharePercent only (see the security comment above), so a
+      // personal address (PII the invite flow will email) is forced to
+      // server-default (unset) for HR, same as everything else in this list.
+      personalEmail: isHrActor ? null : (dto.personalEmail ?? null),
       displayName: dto.displayName,
       role: dto.role,
       telegram: dto.telegram ?? null,

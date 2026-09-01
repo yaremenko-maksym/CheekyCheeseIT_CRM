@@ -192,7 +192,11 @@ export class AuthController {
       return
     }
 
-    const user = await this.usersService.findByEmail(googleUser.email)
+    // §4.4/§5: lookup goes through user_emails (findLoginableUserByEmail),
+    // NOT users.email directly — a personal address that exists but has not
+    // been activated via invite-accept must behave exactly like "not
+    // found" here, not like a valid login.
+    const user = await this.usersService.findLoginableUserByEmail(googleUser.email)
     if (!user) {
       await reply.redirect(`${this.frontendUrl}/login?error=unauthorized`, 302)
       return
@@ -402,7 +406,8 @@ export class AuthController {
       throw new UnauthorizedException('Invalid Google credential')
     }
 
-    const user = await this.usersService.findByEmail(googleUser.email)
+    // §4.4/§5 — same rationale as googleCallback above.
+    const user = await this.usersService.findLoginableUserByEmail(googleUser.email)
     if (!user) throw new UnauthorizedException('Email not authorized')
 
     // LOW (security-audit authz-hardening): mirrors the same check in
@@ -465,7 +470,11 @@ export class AuthController {
   async devLogin(@Body() body: { email: string }, @Res({ passthrough: true }) reply: FastifyReply) {
     if (this.isProduction) throw new UnauthorizedException('Not available in production')
 
-    const user = await this.usersService.findByEmail(body.email)
+    // §4.4/§5 — same rationale as googleCallback above: dev-login stands in
+    // for real OAuth login, so it must respect the same canLogin gate (an
+    // E2E/dev script exercising "personal email cannot log in yet" needs
+    // this path to behave identically to the real one).
+    const user = await this.usersService.findLoginableUserByEmail(body.email)
     if (!user) throw new NotFoundException(`User ${body.email} not found in DB`)
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
