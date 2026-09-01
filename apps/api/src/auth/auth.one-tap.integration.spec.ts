@@ -12,7 +12,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '../database/schema'
 import * as schema from '../database/schema'
-import { users } from '../database/schema'
+import { userEmails, users } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
 import { UsersService } from '../users/users.service'
 import { AuthController } from './auth.controller'
@@ -68,7 +68,30 @@ const ARCHIVED_USER_ID = 'a17a0001-0000-0000-0000-000000000004'
 const ARCHIVED_EMAIL = 'auth-onetap-archived@test.spec'
 const ARCHIVED_SUB = 'google-sub-archived-004'
 
-const TEST_USER_IDS = [VERIFIED_USER_ID, MISMATCH_USER_ID, FRESH_USER_ID, ARCHIVED_USER_ID]
+// §4.4/§5 — personal-address login gate (task-user-emails-dual-login).
+// PERSONAL_NOLOGIN mirrors "admin set a personal email, nobody has accepted
+// an invite yet" — the row exists, mail could go to it, but it must not open
+// the door. PERSONAL_CANLOGIN mirrors the state AFTER an (out-of-scope-for-
+// this-PR) invite is accepted — proves the mechanism itself works, not just
+// its default.
+const PERSONAL_NOLOGIN_USER_ID = 'a17a0001-0000-0000-0000-000000000005'
+const PERSONAL_NOLOGIN_WORK_EMAIL = 'auth-onetap-personal-nologin-work@test.spec'
+const PERSONAL_NOLOGIN_PERSONAL_EMAIL = 'auth-onetap-personal-nologin-personal@test.spec'
+const PERSONAL_NOLOGIN_SUB = 'google-sub-personal-nologin-005'
+
+const PERSONAL_CANLOGIN_USER_ID = 'a17a0001-0000-0000-0000-000000000006'
+const PERSONAL_CANLOGIN_WORK_EMAIL = 'auth-onetap-personal-canlogin-work@test.spec'
+const PERSONAL_CANLOGIN_PERSONAL_EMAIL = 'auth-onetap-personal-canlogin-personal@test.spec'
+const PERSONAL_CANLOGIN_SUB = 'google-sub-personal-canlogin-006'
+
+const TEST_USER_IDS = [
+  VERIFIED_USER_ID,
+  MISMATCH_USER_ID,
+  FRESH_USER_ID,
+  ARCHIVED_USER_ID,
+  PERSONAL_NOLOGIN_USER_ID,
+  PERSONAL_CANLOGIN_USER_ID,
+]
 
 function makeRow(overrides: Partial<User>): User {
   return {
@@ -233,6 +256,60 @@ describe.skipIf(!hasDatabaseUrl())(
             googleId: ARCHIVED_SUB,
             archivedAt: new Date(),
           }),
+          makeRow({
+            id: PERSONAL_NOLOGIN_USER_ID,
+            email: PERSONAL_NOLOGIN_WORK_EMAIL,
+            displayName: 'OneTap Personal NoLogin',
+            role: 'JUNIOR',
+            googleId: null,
+          }),
+          makeRow({
+            id: PERSONAL_CANLOGIN_USER_ID,
+            email: PERSONAL_CANLOGIN_WORK_EMAIL,
+            displayName: 'OneTap Personal CanLogin',
+            role: 'JUNIOR',
+            googleId: null,
+          }),
+        ])
+        .onConflictDoNothing()
+
+      // §4.4/§5: googleOneTap now reads user_emails (findLoginableUserByEmail),
+      // NOT users.email directly — every seeded persona needs a matching,
+      // login-enabled WORK row, exactly like the real backfill migration
+      // gives every pre-existing user (2026-09-01_user_emails.sql).
+      await db
+        .insert(userEmails)
+        .values([
+          { userId: VERIFIED_USER_ID, email: VERIFIED_EMAIL, kind: 'WORK', canLogin: true },
+          { userId: MISMATCH_USER_ID, email: MISMATCH_EMAIL, kind: 'WORK', canLogin: true },
+          { userId: FRESH_USER_ID, email: FRESH_EMAIL, kind: 'WORK', canLogin: true },
+          { userId: ARCHIVED_USER_ID, email: ARCHIVED_EMAIL, kind: 'WORK', canLogin: true },
+          {
+            userId: PERSONAL_NOLOGIN_USER_ID,
+            email: PERSONAL_NOLOGIN_WORK_EMAIL,
+            kind: 'WORK',
+            canLogin: true,
+          },
+          {
+            userId: PERSONAL_NOLOGIN_USER_ID,
+            email: PERSONAL_NOLOGIN_PERSONAL_EMAIL,
+            kind: 'PERSONAL',
+            canLogin: false, // the default — not activated by an invite
+          },
+          {
+            userId: PERSONAL_CANLOGIN_USER_ID,
+            email: PERSONAL_CANLOGIN_WORK_EMAIL,
+            kind: 'WORK',
+            canLogin: true,
+          },
+          {
+            userId: PERSONAL_CANLOGIN_USER_ID,
+            email: PERSONAL_CANLOGIN_PERSONAL_EMAIL,
+            kind: 'PERSONAL',
+            // Simulates the post-invite-accept state (the invite flow itself
+            // is a separate task) — proves the GATE works, not just its default.
+            canLogin: true,
+          },
         ])
         .onConflictDoNothing()
     }, 30_000)
@@ -244,6 +321,8 @@ describe.skipIf(!hasDatabaseUrl())(
         // ignore
       }
       try {
+        // user_emails rows cascade-delete with their users row (FK ON DELETE
+        // CASCADE) — deleting users is sufficient cleanup for both tables.
         await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
       } catch {
         // Non-fatal cleanup failure — do not mask test results
@@ -375,6 +454,78 @@ describe.skipIf(!hasDatabaseUrl())(
 
       expect(res.statusCode).toBe(401)
       expect(res.headers['set-cookie']).toBeUndefined()
+    })
+
+    // ── §4.4/§5 — personal-address login gate (task-user-emails-dual-login) ──
+
+    it('I7: personal email with canLogin=false → 401, no cookie (the row exists, mail could go to it, it does not open the door)', async () => {
+      verifyGoogleIdToken.mockResolvedValue({
+        sub: PERSONAL_NOLOGIN_SUB,
+        email: PERSONAL_NOLOGIN_PERSONAL_EMAIL,
+        name: 'OneTap Personal NoLogin',
+        picture: 'p',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/google/one-tap',
+        payload: { credential: 'cred' },
+      })
+
+      // Same outcome as an email that was never seeded at all (I3) — a
+      // personal address that exists but is not yet activated must be
+      // indistinguishable from "not found" to a caller trying to sign in.
+      expect(res.statusCode).toBe(401)
+      expect(res.headers['set-cookie']).toBeUndefined()
+
+      // The account itself is untouched — no googleId binding was created
+      // from this rejected attempt.
+      const row = await dbSvc.db
+        .select()
+        .from(users)
+        .where(eq(users.id, PERSONAL_NOLOGIN_USER_ID))
+        .then((rows) => rows[0])
+      expect(row?.googleId).toBeNull()
+    })
+
+    it('I8: the SAME work address for that user still logs in normally (personal row does not shadow it)', async () => {
+      verifyGoogleIdToken.mockResolvedValue({
+        sub: PERSONAL_NOLOGIN_SUB,
+        email: PERSONAL_NOLOGIN_WORK_EMAIL,
+        name: 'OneTap Personal NoLogin',
+        picture: 'p',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/google/one-tap',
+        payload: { credential: 'cred' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const setCookie = res.headers['set-cookie']
+      const cookieStr = Array.isArray(setCookie) ? setCookie.join(';') : (setCookie ?? '')
+      expect(cookieStr).toContain('jwt=')
+    })
+
+    it('I9: personal email with canLogin=true → 200 + jwt cookie set (proves the gate itself, not just its default)', async () => {
+      verifyGoogleIdToken.mockResolvedValue({
+        sub: PERSONAL_CANLOGIN_SUB,
+        email: PERSONAL_CANLOGIN_PERSONAL_EMAIL,
+        name: 'OneTap Personal CanLogin',
+        picture: 'p',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/google/one-tap',
+        payload: { credential: 'cred' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const setCookie = res.headers['set-cookie']
+      const cookieStr = Array.isArray(setCookie) ? setCookie.join(';') : (setCookie ?? '')
+      expect(cookieStr).toContain('jwt=')
     })
   },
 )
