@@ -17,6 +17,7 @@ import type {
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
+  lowerEmail,
   projectMembers,
   projects,
   teamMembers,
@@ -28,6 +29,7 @@ import {
   type User,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { isUniqueViolation } from '../database/pg-errors'
 import {
   ARCHIVED_ENTITLEMENT_MESSAGE,
   changedEntitlementFields,
@@ -152,7 +154,10 @@ export class UsersService {
    */
   async findLoginableUserByEmail(email: string): Promise<User | undefined> {
     const row = await this.db.db.query.userEmails.findFirst({
-      where: and(eq(userEmails.email, email), eq(userEmails.canLogin, true)),
+      where: and(
+        eq(lowerEmail(userEmails.email), email.toLowerCase()),
+        eq(userEmails.canLogin, true),
+      ),
     })
     if (!row) return undefined
     return this.findById(row.userId)
@@ -165,17 +170,55 @@ export class UsersService {
    * would-be raw 23505 constraint violation into a clean 409 that names the
    * problem, checked BEFORE the row that would collide is even inserted.
    * `excludeUserId` lets an update re-save a user's own unchanged address
-   * without tripping over itself.
+   * without tripping over itself — it does NOT excuse a collision with a
+   * DIFFERENT row belonging to the same user (own WORK vs own PERSONAL);
+   * that one is real and still throws (see `isOwnRow` below), just later —
+   * `writeUserEmailOrConflict` catches it at the DB write (SR-M-2).
+   *
+   * security-review PR #623 (SR-H-1): compares case-folded, matching the
+   * unique index in schema.ts (`idx_user_emails_email_lower`) — mail is
+   * case-insensitive, `varchar` equality is not, and a mismatch here is a
+   * direct one-address-two-accounts hole (see schema.ts's migration file
+   * header for the proof-by-experiment that found it).
    */
   private async assertEmailAvailable(
     db: DatabaseService['db'] | DrizzleTx,
     email: string,
     excludeUserId?: string,
   ): Promise<void> {
-    const existing = await db.query.userEmails.findFirst({ where: eq(userEmails.email, email) })
-    // Stryker disable next-line ConditionalExpression: both directions ARE unit-tested (users.service.spec.ts "rejects with ConflictException…" throws on a genuine collision then succeeds with none configured, same test body) and hand-mutating this line to `if (true)` reproducibly fails that test in isolation — Stryker's own batched --changed run still reports it Survived; investigated, not resolved, see task-user-emails-dual-login's final report.
-    if (existing && existing.userId !== excludeUserId) {
-      throw new ConflictException('User with this email already exists')
+    const existing = await db.query.userEmails.findFirst({
+      where: eq(lowerEmail(userEmails.email), email.toLowerCase()),
+    })
+    if (!existing) return
+    const isOwnRow = existing.userId === excludeUserId
+    if (isOwnRow) return
+    throw new ConflictException('User with this email already exists')
+  }
+
+  /**
+   * Turns a DB-level unique_violation (23505) on `user_emails` into the
+   * SAME clean ConflictException every OTHER collision in this file
+   * already produces, instead of a raw 500 — SR-M-2 (security-review PR
+   * #623): `assertEmailAvailable`'s `excludeUserId` exception correctly
+   * lets a write through when the only existing row belongs to the SAME
+   * user (e.g. re-saving an unchanged email) — but it does NOT, and must
+   * not, excuse a collision with a DIFFERENT row of that SAME user (their
+   * own WORK address set equal to their own PERSONAL address): the unique
+   * index is on `email` globally, not scoped by kind, so that write still
+   * hits the index. That collision is real, not a bug to route around —
+   * this only makes it fail the way every other conflict in this table
+   * does. Every caller that writes to `user_emails` (insert or update)
+   * MUST go through this, or a legitimate same-user-two-kinds collision
+   * surfaces as an unhandled crash instead of a 409.
+   */
+  private async writeUserEmailOrConflict<T>(write: () => Promise<T>): Promise<T> {
+    try {
+      return await write()
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictException('User with this email already exists')
+      }
+      throw err
     }
   }
 
@@ -188,25 +231,40 @@ export class UsersService {
    * `users.email` — see `findLoginableUserByEmail`). Find-then-branch
    * rather than `onConflictDoUpdate` so the write goes through the same
    * generic insert/update surface every other writer in this service uses.
+   *
+   * Confirmed writers of `users.email` as of this comment: `createUser`,
+   * `createDrop`, `adminUpdateUser` (all call this), and `seed.ts`'s bulk
+   * `SEED_USERS` insert, which does NOT call this — seed.ts inserts its
+   * own matching `user_emails` rows directly instead (see that file),
+   * since it bypasses this service entirely by design (fixture data, not
+   * a request path). If a future writer of `users.email` is added, it
+   * must either call `upsertWorkEmail` (through this service) or its own
+   * equivalent (like seed.ts) — checked by
+   * `user-emails-writer-inventory.spec.ts`, which scans for `.update(users)`
+   * / `.insert(users)` call sites the same way `archived-entitlement`'s own
+   * inventory test already does for entitlement columns (security-review
+   * PR #623, SR-H-3 — this rule was ALREADY violated by seed.ts when first
+   * written; nothing enumerated the writers to catch it).
    */
   private async upsertWorkEmail(
     db: DatabaseService['db'] | DrizzleTx,
     userId: string,
     email: string,
   ): Promise<void> {
-    // Stryker disable next-line ObjectLiteral: this find-existing-row lookup is the read half of the exact round-trip the insert branch below (same shape, IS unit-asserted) writes — verified end-to-end against real Postgres by user-emails-uniqueness.integration.spec.ts.
     const existing = await db.query.userEmails.findFirst({
-      // Stryker disable next-line StringLiteral: the `kind: 'WORK'` literal lives inside a Drizzle query-builder `where` clause a plain vi.fn() mock cannot inspect (mutation-gate-integration-specs.md) — see the ObjectLiteral suppression two lines up for the full reasoning.
       where: and(eq(userEmails.userId, userId), eq(userEmails.kind, 'WORK')),
     })
     if (existing) {
-      // Stryker disable next-line ObjectLiteral: the update-branch mock shares its `.set()` spy with updateUserRow's OWN `.set()` call in the same transaction (both target `{ email, updatedAt }` when only email changes), so toHaveBeenCalledWith cannot tell which call was mutated without a larger mock-harness rework — the "UPDATES the existing WORK row" test asserts what it can (the update happens on the right table, not a duplicate insert).
       const workRowUpdate = { email, updatedAt: new Date() }
-      await db.update(userEmails).set(workRowUpdate).where(eq(userEmails.id, existing.id))
+      await this.writeUserEmailOrConflict(() =>
+        db.update(userEmails).set(workRowUpdate).where(eq(userEmails.id, existing.id)),
+      )
     } else {
-      await db
-        .insert(userEmails)
-        .values({ userId, email, kind: 'WORK', canLogin: true, verifiedAt: new Date() })
+      await this.writeUserEmailOrConflict(() =>
+        db
+          .insert(userEmails)
+          .values({ userId, email, kind: 'WORK', canLogin: true, verifiedAt: new Date() }),
+      )
     }
   }
 
@@ -435,29 +493,47 @@ export class UsersService {
       }
     }
 
-    const rows = await this.db.db.insert(users).values(insertValues).returning()
+    // security-review PR #623 (SR-M-1, MED): these three writes used to be
+    // three separate statements with no transaction — a personalEmail long
+    // enough to pass Zod's `.email()` (unbounded) but too long for the
+    // column (255, same bound as `email`) died on the DB constraint AFTER
+    // the `users` row already existed, leaving a half-created account an
+    // admin could never attach a personal address to again (the field is
+    // create-only). Wrapping in one transaction makes any write failure —
+    // this one, a 23505 from `writeUserEmailOrConflict`, anything else —
+    // roll back the whole creation instead of leaving a partial row.
+    const rows = await this.db.db.transaction(async (tx) => {
+      const insertedRows = await tx.insert(users).values(insertValues).returning()
+      const createdUser = insertedRows[0]
+      if (!createdUser) throw new Error('Failed to create user')
+
+      // §4.4: the WORK row is what login now actually reads (see
+      // findLoginableUserByEmail) — without it this user could never sign in.
+      // Already verified/loginable, mirroring the trust `users.email` carries
+      // today.
+      await this.writeUserEmailOrConflict(() =>
+        tx.insert(userEmails).values({
+          userId: createdUser.id,
+          email: createdUser.email,
+          kind: 'WORK',
+          canLogin: true,
+          verifiedAt: new Date(),
+        }),
+      )
+      if (data.personalEmail) {
+        // canLogin defaults false (column default) — a personal address is
+        // NOT a login method until the invite-accept flow (separate task).
+        await this.writeUserEmailOrConflict(() =>
+          tx
+            .insert(userEmails)
+            .values({ userId: createdUser.id, email: data.personalEmail!, kind: 'PERSONAL' }),
+        )
+      }
+      return insertedRows
+    })
 
     const created = rows[0]
     if (!created) throw new Error('Failed to create user')
-
-    // §4.4: the WORK row is what login now actually reads (see
-    // findLoginableUserByEmail) — without it this user could never sign in.
-    // Already verified/loginable, mirroring the trust `users.email` carries
-    // today.
-    await this.db.db.insert(userEmails).values({
-      userId: created.id,
-      email: created.email,
-      kind: 'WORK',
-      canLogin: true,
-      verifiedAt: new Date(),
-    })
-    if (data.personalEmail) {
-      // canLogin defaults false (column default) — a personal address is
-      // NOT a login method until the invite-accept flow (separate task).
-      await this.db.db
-        .insert(userEmails)
-        .values({ userId: created.id, email: data.personalEmail, kind: 'PERSONAL' })
-    }
 
     // Seed initial audit event — always has changes so record() won't skip it
     await this.auditLogService.record({
@@ -1959,11 +2035,15 @@ export class UsersService {
       throw new ForbiddenException()
     }
 
-    // §4.4: personal address lives in user_emails, not on `target` — fetch it
-    // only when the viewer would actually see contacts at all (same gate as
-    // `email`/`phone`/`telegram` below), so a masked viewer never triggers
-    // the extra query for data it will not receive anyway.
-    const personalEmailRow = permissions.fields.realContacts
+    // §4.4: personal address lives in user_emails, not on `target` — fetch
+    // it only when the viewer may actually see it. security-review PR #623
+    // (SR-M-4): gated on `fields.personalContact`, NOT `fields.realContacts`
+    // — the two used to be the same flag, which meant HR (realContacts=true
+    // for a teammate) could VIEW a personalEmail that HR is deliberately
+    // barred from ever SETTING (UsersController.createUser forces it null
+    // for an HR actor). Same sensitivity boundary now enforced in both
+    // places — see users-access.service.ts's `personalContact` comment.
+    const personalEmailRow = permissions.fields.personalContact
       ? await this.db.db.query.userEmails.findFirst({
           // Stryker disable next-line StringLiteral: `kind: 'PERSONAL'` is a literal inside a Drizzle query-builder `where` clause a plain vi.fn() mock cannot distinguish from `""` (mutation-gate-integration-specs.md) — the PERSONAL-vs-WORK distinction it encodes is exercised end-to-end against real Postgres by user-emails-uniqueness.integration.spec.ts, which asserts `personalRow?.kind === 'PERSONAL'` on an actual inserted row.
           where: and(eq(userEmails.userId, target.id), eq(userEmails.kind, 'PERSONAL')),
@@ -2015,7 +2095,8 @@ export class UsersService {
       phone: permissions.fields.realContacts ? (target.phone ?? null) : null,
       telegram: permissions.fields.realContacts ? (target.telegram ?? null) : null,
       // §4.4 — same realContacts gate as email/phone/telegram above.
-      personalEmail: permissions.fields.realContacts ? (personalEmailRow?.email ?? null) : null,
+      // SR-M-4 — same `personalContact` gate as the fetch above.
+      personalEmail: permissions.fields.personalContact ? (personalEmailRow?.email ?? null) : null,
 
       // Admin-only internal note (never visible to subject or non-ADMIN)
       adminNote: permissions.fields.adminNote ? (target.adminNote ?? null) : null,
@@ -2237,13 +2318,17 @@ export class UsersService {
       if (!created) throw new Error('Failed to create drop user')
 
       // §4.4 — see createUser's identical insert for the full rationale.
-      await tx.insert(userEmails).values({
-        userId: created.id,
-        email: created.email,
-        kind: 'WORK',
-        canLogin: true,
-        verifiedAt: new Date(),
-      })
+      // writeUserEmailOrConflict: SR-M-2 — same 23505-to-409 conversion as
+      // every other user_emails write in this file.
+      await this.writeUserEmailOrConflict(() =>
+        tx.insert(userEmails).values({
+          userId: created.id,
+          email: created.email,
+          kind: 'WORK',
+          canLogin: true,
+          verifiedAt: new Date(),
+        }),
+      )
 
       await this.auditLogService.record(
         {

@@ -1,4 +1,4 @@
-import { isNull, relations, sql } from 'drizzle-orm'
+import { isNull, relations, sql, type SQL } from 'drizzle-orm'
 import {
   bigserial,
   boolean,
@@ -391,6 +391,22 @@ export const users = pgTable('users', {
 
 export const userEmailKindEnum = pgEnum('user_email_kind', ['WORK', 'PERSONAL'])
 
+/**
+ * security-review PR #623 (SR-H-1, HIGH): mail is case-insensitive,
+ * Postgres varchar equality is not. A plain unique index on `email` let
+ * `Alice@corp.com` and `alice@corp.com` coexist as two different rows —
+ * one address, reachable through two case variants, landing on two
+ * different accounts. Wrap every column reference to `email` used for
+ * comparison/uniqueness through this so the DB index and every app-level
+ * check fold case the SAME way — see the Drizzle-documented pattern for a
+ * case-insensitive unique email column (case-insensitive-email guide).
+ * The column itself keeps the CASE the admin/OAuth provider typed
+ * (unchanged for display); only comparisons fold.
+ */
+export function lowerEmail(email: AnyPgColumn): SQL {
+  return sql`lower(${email})`
+}
+
 export const userEmails = pgTable(
   'user_emails',
   {
@@ -415,8 +431,14 @@ export const userEmails = pgTable(
   },
   (t) => [
     // The structural guarantee this whole table exists for — see module
-    // comment above. Global across every user and both kinds.
-    uniqueIndex('idx_user_emails_email').on(t.email),
+    // comment above. Global across every user and both kinds, CASE-FOLDED
+    // (SR-H-1) — replaces a plain `.on(t.email)` unique index, which is
+    // strictly weaker (case-insensitive uniqueness implies case-sensitive
+    // uniqueness, never the other way). Every app-level query MUST go
+    // through `lowerEmail(...)` too (see UsersService.assertEmailAvailable /
+    // findLoginableUserByEmail / upsertWorkEmail) — an index alone does not
+    // make a `.where(eq(userEmails.email, rawEmail))` case-insensitive.
+    uniqueIndex('idx_user_emails_email_lower').on(lowerEmail(t.email)),
     // One WORK + one PERSONAL row per user. Also the index `upsertWorkEmail`'s
     // find-by-(userId,kind) lookup rides on.
     uniqueIndex('idx_user_emails_user_kind').on(t.userId, t.kind),

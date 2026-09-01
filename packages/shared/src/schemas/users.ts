@@ -164,7 +164,14 @@ const CONTRACT_ROLES = new Set<string>(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT', 
 
 export const createUserSchema = z
   .object({
-    email: z.string().email('Некорректный email'),
+    // security-review PR #623 (SR-M-1): `.max(255)` matches the `varchar(255)`
+    // column both `users.email` and `user_emails.email` actually are —
+    // `.email()` alone accepts arbitrarily long strings, and UsersService now
+    // wraps the write in a transaction specifically so a value that slips
+    // past validation and hits the column bound rolls back cleanly instead
+    // of leaving a half-created user — but catching it here means the admin
+    // sees a clear field error instead of a raw request failure at all.
+    email: z.string().email('Некорректный email').max(255, 'Email не длиннее 255 символов'),
     /**
      * Personal address (§4.4) — optional, set by ADMIN at creation only.
      * Not editable later in this PR (the accept-invite flow that would let
@@ -172,7 +179,12 @@ export const createUserSchema = z
      * set. Kept OUT of `adminUpdateUserSchema` deliberately — see the spec's
      * decision 7 ("Личный адрес вводит админ при создании").
      */
-    personalEmail: z.string().email('Некорректный email').nullable().optional(),
+    personalEmail: z
+      .string()
+      .email('Некорректный email')
+      .max(255, 'Email не длиннее 255 символов')
+      .nullable()
+      .optional(),
     displayName: z.string().min(2).max(255),
     role: roleSchema,
     telegram: telegramSchema.nullable().optional(),

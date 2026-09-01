@@ -590,6 +590,29 @@ async function main() {
   await db.insert(schema.users).values(SEED_USERS)
   console.log(`  ✓ ${SEED_USERS.length} users inserted`)
 
+  // security-review PR #623 (SR-H-3, HIGH): this bulk insert bypasses
+  // UsersService.createUser entirely (fixture data, not a request path) —
+  // which means it also bypasses `upsertWorkEmail`, the ONLY other place a
+  // `users.email` write is paired with the matching `user_emails` WORK row
+  // login now actually reads (see `findLoginableUserByEmail`). Without
+  // this, db:seed produces a database where NO seeded user can log in —
+  // caught by two red E2E shards on `dev-login … 404` before this was
+  // added. Every SEED_USERS entry gets its own login-enabled WORK row here,
+  // by the same rule `UsersService.upsertWorkEmail`'s docblock states: every
+  // writer of `users.email` maintains the matching `user_emails` row, or is
+  // named as a documented exception. See `user-emails-writer-inventory.spec.ts`
+  // for the mechanical check that keeps this list honest.
+  await db.insert(schema.userEmails).values(
+    SEED_USERS.map((u) => ({
+      userId: u.id!,
+      email: u.email,
+      kind: 'WORK' as const,
+      canLogin: true,
+      verifiedAt: u.createdAt ?? new Date(),
+    })),
+  )
+  console.log(`  ✓ ${SEED_USERS.length} user_emails (WORK) rows inserted`)
+
   // ---- 3. Teams ----
   console.log('\n[3/8] Inserting teams...')
 

@@ -33,6 +33,7 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { AdminWriteThrottle } from '../config/throttle-decorators'
 import { Roles } from '../common/decorators/roles.decorator'
 import { AuditLog } from '../common/decorators/audit-log.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -93,6 +94,13 @@ export class UsersController {
 
   @Post()
   @Roles('ADMIN', 'HR')
+  // security-review PR #623 (SR-M-5, MED): a 409 here confirms an email is
+  // already registered — including as someone's PERSONAL address, which the
+  // caller (HR included) has no read access to otherwise. Uniqueness itself
+  // cannot be relaxed (that reopens SR-H-1's one-address-two-accounts hole),
+  // so this throttles the only remaining lever: how many probes per minute
+  // an HR/ADMIN session can burn turning this into an enumeration oracle.
+  @AdminWriteThrottle()
   async createUser(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
     const dto = createUserSchema.parse(body)
     // ut-12: ADMIN creation is fixed-pool — block at the HTTP boundary too.
@@ -164,6 +172,8 @@ export class UsersController {
    */
   @Post('drops')
   @Roles('ADMIN')
+  // SR-M-5 — same existence-oracle reasoning as createUser above.
+  @AdminWriteThrottle()
   async createDrop(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
     const dto = createDropSchema.parse(body)
     return this.usersService.createDrop(

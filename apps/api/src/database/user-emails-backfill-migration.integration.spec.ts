@@ -40,7 +40,15 @@ const LEGACY_USER_A_EMAIL = 'backfill-legacy-a@test.spec'
 const LEGACY_USER_B_ID = 'a17a0004-0000-0000-0000-000000000002'
 const LEGACY_USER_B_EMAIL = 'backfill-legacy-b@test.spec'
 
-const TEST_USER_IDS = [LEGACY_USER_A_ID, LEGACY_USER_B_ID]
+// SR-H-1 (security-review PR #623): a THIRD legacy user whose `users.email`
+// collides with LEGACY_USER_A's, case-insensitively only. `users.email` has
+// always been case-SENSITIVE unique, so this pair is a legitimate
+// pre-existing state the migration's own "Case collisions in existing
+// data" section has to handle without bricking everyone else's backfill.
+const LEGACY_USER_C_ID = 'a17a0004-0000-0000-0000-000000000003'
+const LEGACY_USER_C_EMAIL = 'Backfill-Legacy-A@Test.Spec'
+
+const TEST_USER_IDS = [LEGACY_USER_A_ID, LEGACY_USER_B_ID, LEGACY_USER_C_ID]
 
 describe.skipIf(!hasDatabaseUrl())(
   'user_emails backfill migration (2026-09-01_user_emails.sql) — real DB integration',
@@ -87,6 +95,12 @@ describe.skipIf(!hasDatabaseUrl())(
           email: LEGACY_USER_B_EMAIL,
           displayName: 'Backfill Legacy B',
           role: 'SENIOR',
+        },
+        {
+          id: LEGACY_USER_C_ID,
+          email: LEGACY_USER_C_EMAIL,
+          displayName: 'Backfill Legacy C (case-collides with A)',
+          role: 'JUNIOR',
         },
       ])
     }, 30_000)
@@ -141,7 +155,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .from(userEmails)
         .where(inArray(userEmails.userId, TEST_USER_IDS))
       // Still exactly one WORK row per legacy user — the second apply's
-      // ON CONFLICT (user_id, kind) DO NOTHING made it a true no-op.
+      // bare ON CONFLICT DO NOTHING made it a true no-op.
       expect(rows).toHaveLength(2)
     })
 
@@ -155,6 +169,44 @@ describe.skipIf(!hasDatabaseUrl())(
         disabled,
         'A backfilled WORK row with canLogin=false would mean the migration silently locked an existing user out.',
       ).toEqual([])
+    })
+
+    // ── SR-H-1 — the migration's own "Case collisions in existing data" ──
+
+    it('a pre-existing case-collision (LEGACY_USER_C vs LEGACY_USER_A) does not brick the whole backfill — exactly one of the pair is skipped', async () => {
+      // By this point in the file the migration has already run at least
+      // once (the earlier tests apply it). Re-confirm on THIS pair
+      // specifically: A and C can never BOTH have a WORK row (that would be
+      // the SR-H-1 hole reopened), and at least one of them does (the
+      // migration must not have thrown and skipped EVERY row in the run).
+      const rowA = await db.query.userEmails.findFirst({
+        where: eq(userEmails.userId, LEGACY_USER_A_ID),
+      })
+      const rowC = await db.query.userEmails.findFirst({
+        where: eq(userEmails.userId, LEGACY_USER_C_ID),
+      })
+      const gotRow = [rowA, rowC].filter((r) => r !== undefined)
+      expect(gotRow).toHaveLength(1)
+
+      // The migration's own documented VERIFY query — the exact SQL its
+      // footer tells the operator to run — surfaces the skipped user by
+      // name instead of leaving them to fail a login with no explanation.
+      const skipped = await pool.query<{ id: string; email: string }>(
+        `SELECT u.id, u.email FROM users u
+         WHERE u.id = ANY($1)
+           AND NOT EXISTS (
+             SELECT 1 FROM user_emails ue WHERE ue.user_id = u.id AND ue.kind = 'WORK'
+           )`,
+        [[LEGACY_USER_A_ID, LEGACY_USER_C_ID]],
+      )
+      expect(skipped.rows).toHaveLength(1)
+      // And the OTHER of the pair — Postgres, not the migration's INSERT
+      // ordering — is the ultimate source of truth for who "won"; cross-
+      // check that the skipped id is exactly the one without a row above.
+      const skippedId = skipped.rows[0]?.id
+      const wonId = rowA ? LEGACY_USER_A_ID : LEGACY_USER_C_ID
+      expect(skippedId).not.toBe(wonId)
+      expect([LEGACY_USER_A_ID, LEGACY_USER_C_ID]).toContain(skippedId)
     })
   },
 )

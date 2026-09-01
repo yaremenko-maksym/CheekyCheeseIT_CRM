@@ -370,6 +370,55 @@ describe('createUserSchema — personalEmail must differ from work email (§4.4)
   })
 })
 
+// security-review PR #623 (SR-M-1): `.max(255)` caps `email` / `personalEmail`
+// at the `varchar(255)` column bound — `.email()` alone accepts arbitrarily
+// long strings. Pins BOTH the boundary itself and the Russian message text
+// (a mutation-gate run on this file found the message string on both calls
+// unasserted — StringLiteral survivors on schemas/users.ts:174/185 — while
+// every OTHER mutant on this same line, including the 255 boundary itself,
+// was already killed by unrelated tests that merely happen to exercise a
+// valid-length email).
+describe('createUserSchema — email / personalEmail length cap (security-review PR #623, SR-M-1)', () => {
+  const DOMAIN = '@x.co' // 5 chars
+  const email256 = `${'a'.repeat(256 - DOMAIN.length)}${DOMAIN}` // 256 chars total — one over the cap
+  const email255 = email256.slice(1) // 255 chars — exactly at the cap
+
+  it('rejects an email one character over the 255 cap, with the field-specific message', () => {
+    expect(email256).toHaveLength(256)
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: email256,
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'email')
+      : undefined
+    expect(issue?.message).toBe('Email не длиннее 255 символов')
+  })
+
+  it('accepts an email exactly at the 255 cap', () => {
+    expect(email255).toHaveLength(255)
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: email255,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a personalEmail one character over the 255 cap, with the field-specific message', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: email256,
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'personalEmail')
+      : undefined
+    expect(issue?.message).toBe('Email не длиннее 255 символов')
+  })
+})
+
 describe('adminUpdateUserSchema.monthlySalary — floor (security-review MED-1)', () => {
   it('rejects an amount below the smallest storable unit', () => {
     const result = adminUpdateUserSchema.safeParse({ monthlySalary: 0.001 })

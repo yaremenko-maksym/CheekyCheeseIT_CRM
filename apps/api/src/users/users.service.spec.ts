@@ -1229,6 +1229,41 @@ describe('UsersService.adminUpdateUser', () => {
     const userEmailsInsertCalls = insertMock.mock.calls.filter((c) => c[0] === userEmails)
     expect(userEmailsInsertCalls).toHaveLength(0)
   })
+
+  // SR-M-3 (security-review PR #623, MED): `assertEmailAvailable`'s
+  // `isOwnRow` guard (`existing.userId === excludeUserId`) used to live
+  // inside one compound `if`, under a single Stryker suppression that
+  // covered every mutation of the whole condition at once. It is now two
+  // independent `if` statements specifically so each can be pinned on its
+  // own — this is the pin for the SECOND one: a row already exists, but it
+  // belongs to the SAME user the write is for, so the APP-LEVEL check must
+  // let it through (return, not throw) and let the actual write proceed.
+  // Every REAL caller in this codebase happens to hit a genuine DB
+  // constraint immediately afterward when this branch is taken (see
+  // user-emails-uniqueness.integration.spec.ts's SR-M-2 test) — which means
+  // an end-to-end test alone cannot tell "the app-level check correctly
+  // passed through, then the DB legitimately objected" apart from "the
+  // app-level check incorrectly objected on its own": both produce the same
+  // ConflictException. Only a mocked unit test, where the write is made to
+  // SUCCEED, can observe the pass-through in isolation — which is the
+  // entire point of this test.
+  it('SR-M-3: does NOT throw when the only existing row for that email belongs to the SAME user (isOwnRow pass-through)', async () => {
+    const existing = makeUser({ id: 'user-1', email: 'old@example.com' })
+    const updated = makeUser({ id: 'user-1', email: 'shared@example.com' })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    // assertEmailAvailable's pre-check finds a row — but its userId is the
+    // SAME 'user-1' that adminUpdateUser is called for (excludeUserId).
+    // A mutant flipping `===` to `!==`, or negating either `if`, would
+    // make this call throw ConflictException instead of resolving.
+    ;(db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: 'row-other-kind', userId: 'user-1', kind: 'PERSONAL' }) // assertEmailAvailable: own row, different kind
+      .mockResolvedValueOnce(undefined) // upsertWorkEmail: no existing WORK row → insert branch
+    const service = makeUsersService(db)
+
+    await expect(
+      service.adminUpdateUser('user-1', { email: 'shared@example.com' }),
+    ).resolves.toMatchObject({ id: 'user-1' })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1943,17 +1978,24 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     expect((result.user as Record<string, unknown>).registrationAddress).toBe('Lviv, Rynok sq 1')
   })
 
-  // §4.4 (task-user-emails-dual-login): personalEmail follows the SAME
-  // realContacts gate as email/phone/telegram above, but lives in a
-  // separate table — its own dedicated coverage.
-  describe('personalEmail (§4.4)', () => {
+  // §4.4 (task-user-emails-dual-login): personalEmail is gated by its OWN
+  // `personalContact` flag, NOT `realContacts` — security-review PR #623
+  // (SR-M-4) found the two conflated: HR gets `realContacts=true` for a
+  // teammate (see the isHr branch in users-access.service.ts) but is
+  // deliberately barred from ever SETTING personalEmail
+  // (UsersController.createUser forces it null for an HR actor) — reading
+  // it through the wider flag let HR see what it cannot write. This block
+  // pins BOTH the positive case and, separately, that realContacts alone
+  // (without personalContact) does NOT unlock it — the exact shape of the
+  // regression that shipped.
+  describe('personalEmail (§4.4, gated by personalContact — SR-M-4)', () => {
     const fullAccessPermissions = {
       tabs: ['overview'],
       actions: [],
-      fields: { realContacts: true },
+      fields: { realContacts: true, personalContact: true },
     }
 
-    it('returns the PERSONAL row email when the viewer has contact access and one exists', async () => {
+    it('returns the PERSONAL row email when the viewer has personalContact access and one exists', async () => {
       const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
       const service = makeServicePii(seniorTarget, fullAccessPermissions, {
         email: 'personal@example.com',
@@ -1962,24 +2004,45 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
       expect((result.user as Record<string, unknown>).personalEmail).toBe('personal@example.com')
     })
 
-    it('is null when no PERSONAL row exists, even with full contact access', async () => {
+    it('is null when no PERSONAL row exists, even with full access', async () => {
       const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
       const service = makeServicePii(seniorTarget, fullAccessPermissions)
       const result = await service.buildProfileView(viewer as never, 'senior-target')
       expect((result.user as Record<string, unknown>).personalEmail).toBeNull()
     })
 
-    it('is null when the viewer lacks contact access, even though a PERSONAL row exists', async () => {
+    it('is null when the viewer lacks ALL contact access, even though a PERSONAL row exists', async () => {
       const viewer = makeJunior({ id: 'junior-viewer' })
       const noContactsPermissions = {
         tabs: ['overview'],
         actions: [],
-        fields: { realContacts: false },
+        fields: { realContacts: false, personalContact: false },
       }
       const service = makeServicePii(seniorTarget, noContactsPermissions, {
         email: 'personal@example.com',
       })
       const result = await service.buildProfileView(viewer as never, 'senior-target')
+      expect((result.user as Record<string, unknown>).personalEmail).toBeNull()
+    })
+
+    it('SR-M-4 regression: realContacts=true WITHOUT personalContact does NOT unlock it (the HR case)', async () => {
+      const viewer = makeUser({ id: 'hr-id', role: 'HR' })
+      // Mirrors what users-access.service.ts actually hands HR viewing a
+      // teammate: realContacts=true, personalContact left at its `false`
+      // default (never set in the isHr branch).
+      const hrTeammatePermissions = {
+        tabs: ['overview', 'team'],
+        actions: [],
+        fields: { realContacts: true },
+      }
+      const service = makeServicePii(seniorTarget, hrTeammatePermissions, {
+        email: 'personal@example.com',
+      })
+      const result = await service.buildProfileView(viewer as never, 'senior-target')
+      // The regular email field DOES show (realContacts=true) — only
+      // personalEmail is masked. Proves the fields are independently gated,
+      // not that everything got locked down together.
+      expect((result.user as Record<string, unknown>).email).toBe(seniorTarget.email)
       expect((result.user as Record<string, unknown>).personalEmail).toBeNull()
     })
   })
