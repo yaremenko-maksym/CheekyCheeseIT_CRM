@@ -45,7 +45,15 @@ vision: ✓ /team, /team/$teamId    # ТОЛЬКО для UI задач — за
 - Если часть не сделана — указать сделанные + комментарий: `ac_verified: 1,2,4 (3,5 — blocked, см. .blocked.md)`
 - Если задача без UI — `vision:` строку опустить, `ac_verified:` обязательна.
 
-Pre-push gate (Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-coder-push-gate.sh`, id `pre:bash:coder-push-gate`) блокирует `git push` если последний commit на ветке `feature/*` / `fix/*` / `infra/*` / `test/*` не содержит `ac_verified:`. Не обходить — доделать AC. Энфорс на harness-уровне (PreToolUse), а не через husky: в свежем `isolation=worktree` worktree husky-хуки молча пропускаются (`.husky/_/` gitignored, генерируется только при `pnpm install`).
+Pre-push gate (Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-coder-push-gate.sh`, id `pre:bash:coder-push-gate`) блокирует `git push`, если последний commit **на любой ветке** не содержит строки `ac_verified:`. Не обходить — доделать AC. Энфорс на harness-уровне (PreToolUse), а не через husky: в свежем `isolation=worktree` worktree husky-хуки молча пропускаются (`.husky/_/` gitignored, генерируется только при `pnpm install`).
+
+**Гейт закрывает всё, кроме трёх исключений (правка 2026-09-01).** Раньше он перечислял «ловимые» префиксы — `feature|fix|infra|test` — и `feat/` в этот список не попал: 15 смёрженных PR прошли мимо гейта молча, и заметил это кодер, а не гейт. Тот же аудит показал код на `perf/` (#474), `ci/` (#433) и `docs/` (#613 — 24 файла под `apps/`, включая финансовый диалог). Перечисление ломается тихо, исключение — громко, поэтому список перевёрнут.
+
+Свободны от отметки только: `main`/`master` (не рабочая ветка), `architect/*` и `legal/*` (у их задач нет AC-списка в task-файле; перенесено из старой формулировки хука, не выдано заново). Цена каждого исключения расписана в шапке хука — читать её **до** добавления четвёртого.
+
+Ветке, у которой честно нечего верифицировать (скриншоты, заметки), доступны два ответа, и оба — утверждение, а не обход: `wip:` в теме коммита либо `ac_verified: n/a (<почему>)`.
+
+Тест: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 кейсов, исполнением). До 2026-09-01 у хука не было теста вообще, и мета-страж `scripts/devops/check-guard-tests-exist.sh` не мог этого сообщить — он читал только `scripts/devops/check-*`. Теперь он берёт список хуков из `.claude/settings.json` и требует тест с негативным кейсом от каждого, кто умеет отказывать.
 
 ## Prettier pre-push gate (формат ловим ДО push)
 
