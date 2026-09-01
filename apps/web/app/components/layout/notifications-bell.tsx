@@ -181,7 +181,7 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
           </div>
         ) : (
           <ul
-            className="max-h-[28rem] divide-y divide-border/40 overflow-y-auto"
+            className="max-h-[28rem] divide-y divide-border/40 overflow-y-auto overflow-x-hidden"
             data-testid="notifications-list"
           >
             {items.map((n) => (
@@ -213,8 +213,17 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
                       >
                         {n.title}
                       </p>
+                      {/* `wrap-anywhere` (overflow-wrap: anywhere), not `break-words`
+                          (overflow-wrap: break-word) — break-word is explicitly
+                          excluded from min-content intrinsic-size calculations per the
+                          CSS Text spec, so an unbreakable run (a wallet address, a long
+                          link) still forces this flex-nested box to grow to fit it on
+                          one line before break-word ever gets a chance to wrap.
+                          wrap-anywhere factors mid-word breaks into that intrinsic-size
+                          calculation, so the box actually stays inside the 320px
+                          popover instead of growing past it. */}
                       {n.body ? (
-                        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                        <p className="mt-0.5 line-clamp-2 wrap-anywhere text-xs text-muted-foreground">
                           {n.body}
                         </p>
                       ) : null}
