@@ -316,6 +316,60 @@ describe('createUserSchema.monthlySalary — floor (security-review MED-1)', () 
   })
 })
 
+// ─── §4.4: personalEmail must differ from the work email ──────────────────────
+
+describe('createUserSchema — personalEmail must differ from work email (§4.4)', () => {
+  it('rejects when personalEmail is byte-identical to email', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: 'ivan@example.com',
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success ? result.error.issues[0] : undefined
+    expect(issue?.path).toEqual(['personalEmail'])
+    expect(issue?.message).toBe('Личный email должен отличаться от рабочего')
+    expect(issue?.code).toBe('custom')
+  })
+
+  it('rejects when the two addresses differ only by case', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: 'IVAN@EXAMPLE.COM',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a genuinely different personal email', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: 'ivan.personal@gmail.com',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts an omitted personalEmail (the common case — most users have none)', () => {
+    expect(
+      createUserSchema.safeParse({ ...juniorWithLegalName, email: 'ivan@example.com' }).success,
+    ).toBe(true)
+  })
+
+  it('rejects an invalid personalEmail shape with the standard email message', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: 'not-an-email',
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'personalEmail')
+      : undefined
+    expect(issue?.message).toBe('Некорректный email')
+  })
+})
+
 describe('adminUpdateUserSchema.monthlySalary — floor (security-review MED-1)', () => {
   it('rejects an amount below the smallest storable unit', () => {
     const result = adminUpdateUserSchema.safeParse({ monthlySalary: 0.001 })

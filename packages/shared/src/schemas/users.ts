@@ -7,16 +7,6 @@ import { withSalaryFloor } from './money'
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
 /**
- * §4.4 of the notifications-and-confirmations spec. A user can have a WORK
- * address (ours, always a login method) and a PERSONAL address (entered by
- * an ADMIN at creation, NOT a login method until the holder accepts an
- * invite — separate PR). Kept as its own schema (not inlined) so the API
- * and the frontend form share one source of truth for the two literal values.
- */
-export const userEmailKindSchema = z.enum(['WORK', 'PERSONAL'])
-export type UserEmailKind = z.infer<typeof userEmailKindSchema>
-
-/**
  * Roles eligible to receive a SALARY transaction.
  * ADMIN is excluded — admin income flows through shares (ADMIN_INCOME / PAYOUT).
  * Single source of truth shared by backend (createSalary allow-list) and
@@ -240,11 +230,11 @@ export const createUserSchema = z
     // §4.4: a personal address identical to the work address is nonsensical
     // input (same DB unique index would reject it at insert time anyway,
     // but that surfaces as a raw 409 with no field pointer — catch it here
-    // so the admin sees exactly which field is wrong).
-    if (
-      data.personalEmail &&
-      data.personalEmail.trim().toLowerCase() === data.email.trim().toLowerCase()
-    ) {
+    // so the admin sees exactly which field is wrong). No `.trim()` here —
+    // both fields are already `z.string().email()`, which rejects leading/
+    // trailing whitespace on its own (verified empirically), so by the time
+    // this line runs neither value can carry any to trim away.
+    if (data.personalEmail && data.personalEmail.toLowerCase() === data.email.toLowerCase()) {
       ctx.addIssue({
         code: 'custom',
         message: 'Личный email должен отличаться от рабочего',
