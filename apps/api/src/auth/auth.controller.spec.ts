@@ -63,7 +63,12 @@ const TEST_USER = {
 
 function makeUsersService(foundUser: typeof TEST_USER | null): UsersService {
   return {
-    findByEmail: vi.fn().mockResolvedValue(foundUser),
+    // §4.4/§5: the controller's 3 login lookups now go through
+    // findLoginableUserByEmail (user_emails, canLogin gate), not
+    // findByEmail (which still exists on the real service for
+    // createUser/adminUpdateUser's users.email conflict check — unrelated
+    // to these login-path tests).
+    findLoginableUserByEmail: vi.fn().mockResolvedValue(foundUser),
     findById: vi.fn().mockResolvedValue(foundUser),
     updateGoogleId: vi.fn().mockResolvedValue(undefined),
   } as unknown as UsersService

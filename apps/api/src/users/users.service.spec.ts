@@ -164,6 +164,18 @@ function makeDb({
     }),
   }
 
+  // user_emails lookups (§4.4) go through the Drizzle relational query API
+  // (`db.query.userEmails.findFirst`), a SEPARATE surface from `.select()`
+  // above — so it does not disturb `selectChain`'s call-count-based
+  // existingUser/createdUser sequencing that the rest of this harness
+  // relies on. Default: "nothing found" (no email conflict, no existing
+  // WORK row to update) — the common case for every test that does not
+  // specifically exercise the §4.4 paths. Tests that DO exercise them
+  // override via `mockResolvedValueOnce` on the returned handle.
+  const queryChain = {
+    query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
+  }
+
   // Stub `db.transaction(cb)` so callers that wrap their work in a tx still
   // exercise the same select/insert/update/delete chains. The `tx` arg shares
   // the same chain handles — sufficient for these unit-level assertions which
@@ -174,6 +186,7 @@ function makeDb({
     ...insertChain,
     ...updateChain,
     ...deleteChain,
+    ...queryChain,
     // Drizzle's `tx.update(table).set(set).where(...).returning()` shape — but
     // the wrapping transaction body for adminUpdateUser uses a fresh update
     // chain inside the tx, so we expose the same one.
@@ -183,6 +196,7 @@ function makeDb({
     ...insertChain,
     ...updateChain,
     ...deleteChain,
+    ...queryChain,
     transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(txHandle)),
   }
 
@@ -403,8 +417,8 @@ describe('UsersService.createUser — JUNIOR', () => {
     expect(result.email).toBe(junior.email)
     // No project insert should happen (projectId not provided)
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
-    // Only one insert call: users table
-    expect(insertMock).toHaveBeenCalledTimes(1)
+    // Two insert calls: users + user_emails WORK row (§4.4)
+    expect(insertMock).toHaveBeenCalledTimes(2)
   })
 
   it('creates a JUNIOR user and assigns them to a project when projectId provided', async () => {
@@ -422,8 +436,8 @@ describe('UsersService.createUser — JUNIOR', () => {
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
-    // insert called twice: users + projectMembers
-    expect(insertMock).toHaveBeenCalledTimes(2)
+    // insert called three times: users + user_emails WORK row (§4.4) + projectMembers
+    expect(insertMock).toHaveBeenCalledTimes(3)
   })
 
   it('creates a JUNIOR with null projectId — no project assignment', async () => {
@@ -441,8 +455,9 @@ describe('UsersService.createUser — JUNIOR', () => {
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
-    // Only one insert: users table (projectId null → no project assignment)
-    expect(insertMock).toHaveBeenCalledTimes(1)
+    // Two insert calls: users + user_emails WORK row (§4.4) — projectId null
+    // → no project assignment
+    expect(insertMock).toHaveBeenCalledTimes(2)
   })
 
   it('stores telegram and phone when provided', async () => {
@@ -520,8 +535,8 @@ describe('UsersService.createUser — SENIOR', () => {
 
     expect(result.role).toBe('SENIOR')
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
-    // insert: users + teams + teamMembers(senior only)
-    expect(insertMock).toHaveBeenCalledTimes(3)
+    // insert: users + user_emails WORK row (§4.4) + teams + teamMembers(senior only)
+    expect(insertMock).toHaveBeenCalledTimes(4)
   })
 
   it('creates a SENIOR team with HR and accountant members', async () => {
@@ -540,8 +555,9 @@ describe('UsersService.createUser — SENIOR', () => {
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
-    // insert: users + teams + teamMembers(senior) + teamMembers(hr-1) + teamMembers(hr-2) + teamMembers(acc-1) = 6
-    expect(insertMock).toHaveBeenCalledTimes(6)
+    // insert: users + user_emails WORK row (§4.4) + teams + teamMembers(senior)
+    // + teamMembers(hr-1) + teamMembers(hr-2) + teamMembers(acc-1) = 7
+    expect(insertMock).toHaveBeenCalledTimes(7)
   })
 
   it('creates a SENIOR team with HR only (no accountant)', async () => {
@@ -560,8 +576,9 @@ describe('UsersService.createUser — SENIOR', () => {
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
-    // insert: users + teams + teamMembers(senior) + teamMembers(hr-1) = 4
-    expect(insertMock).toHaveBeenCalledTimes(4)
+    // insert: users + user_emails WORK row (§4.4) + teams + teamMembers(senior)
+    // + teamMembers(hr-1) = 5
+    expect(insertMock).toHaveBeenCalledTimes(5)
   })
 
   it('auto-names the team after the senior displayName', async () => {
@@ -626,7 +643,8 @@ describe('UsersService.createUser — HR / ACCOUNTANT', () => {
 
       expect(result.role).toBe(role)
       const insertMock = db.db.insert as ReturnType<typeof vi.fn>
-      expect(insertMock).toHaveBeenCalledTimes(1)
+      // users + user_emails WORK row (§4.4)
+      expect(insertMock).toHaveBeenCalledTimes(2)
     },
   )
 })
@@ -1079,6 +1097,9 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
         insert: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
+        // §4.4: buildProfileView's personalEmail lookup — no PERSONAL row by
+        // default (most of these tests don't care about it either way).
+        query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
       },
     } as unknown as DrizzleDb
 
@@ -1436,6 +1457,8 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
         insert: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
+        // §4.4: buildProfileView's personalEmail lookup.
+        query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
       },
     } as unknown as DrizzleDb
 
@@ -1695,6 +1718,8 @@ describe('UsersService.buildProfileView — ToS hidden from JUNIOR self (data-pr
         insert: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
+        // §4.4: buildProfileView's personalEmail lookup.
+        query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
       },
     } as unknown as DrizzleDb
 

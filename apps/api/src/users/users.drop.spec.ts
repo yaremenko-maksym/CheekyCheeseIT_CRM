@@ -57,6 +57,11 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
         }),
       }),
     }),
+    // §4.4: createDrop's assertEmailAvailable pre-check (user_emails, NOT
+    // users.email) — "nothing found" default, matching the not-a-conflict
+    // shape of `existingRow` above for every test that doesn't set
+    // `existingEmail`.
+    query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
     transaction: vi
       .fn()
       .mockImplementation((fn: (tx: unknown) => unknown) => Promise.resolve(fn(txHandle))),
