@@ -693,7 +693,20 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     const user = userEvent.setup()
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
 
-    await user.type(screen.getByTestId('user-dialog-personal-email'), '   ')
+    const input = screen.getByTestId('user-dialog-personal-email')
+    await user.type(input, '   ')
+    await user.tab()
+
+    // mutation-gate closure: a mutant that bypasses the validator's
+    // `!trimmed` early-return would fall through to `z.string().email()`
+    // on an EMPTY string (post-trim) and produce the format error here —
+    // whitespace-only is meant to behave exactly like untouched/empty, not
+    // like invalid input.
+    await waitFor(() => {
+      expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+    })
+    expect(input.className).not.toContain('border-destructive')
+
     await fillStep1AndAdvance(user)
 
     await waitFor(() => {
