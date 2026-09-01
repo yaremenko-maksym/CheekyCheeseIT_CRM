@@ -61,6 +61,13 @@ export function DatePickerField({
         <Calendar
           mode="single"
           selected={selected}
+          // Bug: without this, react-day-picker's own default (`defaultMonth`
+          // defaults to "the current month" per its docs — it does NOT infer
+          // the month from `selected`) opens the calendar on TODAY's month
+          // regardless of which date is already chosen. Radix's
+          // PopoverContent unmounts on close (no forceMount above), so this
+          // recomputes fresh — and correctly — every time the popover opens.
+          defaultMonth={selected ?? new Date()}
           onSelect={(day) => {
             if (day) {
               onChange(format(day, 'yyyy-MM-dd'))
