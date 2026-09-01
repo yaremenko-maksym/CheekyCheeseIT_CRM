@@ -137,10 +137,16 @@
  * Instrumented 1 source file(s) with 0 mutant(s)`, Stryker exit 0, no report
  * file written, gate exit 2 on a diff with no logic in it at all.
  *
- * The trap: the SAME early-return path is also what the ALREADY-documented
- * "vitest.related found no tests" tool failure above goes through, on code
- * that DOES have real mutants — so "no report + Stryker exited 0" is NOT by
- * itself proof there was nothing to check. The one fact that tells the two
+ * The trap, stated correctly (code-review CR-M-1 on PR #621 corrected an
+ * earlier version of this comment): the danger is NOT the "vitest.related
+ * found no tests" failure documented above — that one DOES write a report,
+ * with its mutants marked Survived and testsCompleted 0, which is exactly
+ * why the per-mutant reclassification catches it. It never reaches here.
+ *
+ * The danger is any OTHER whole-run failure that also ends with no report
+ * and a clean exit code. Such a failure is indistinguishable from a
+ * legitimate zero by those two facts alone, so "no report + Stryker exited
+ * 0" is NOT by itself proof there was nothing to check. The one fact that tells the two
  * apart is written to Stryker's own log unconditionally, before either path
  * is even reached: the instrumenter's own mutant count
  * (`@stryker-mutator/instrumenter`'s `instrumenter.js`: `this.logger.info(
