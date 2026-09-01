@@ -131,14 +131,20 @@ describe('proposeApprovalInputSchema', () => {
     ).not.toThrow()
   })
 
-  it('rejects an empty approverUserIds array', () => {
-    expect(() => proposeApprovalInputSchema.parse({ ...validInput, approverUserIds: [] })).toThrow()
+  it('rejects an empty approverUserIds array with the exact Russian message', () => {
+    const result = proposeApprovalInputSchema.safeParse({ ...validInput, approverUserIds: [] })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toBe('Нужен хотя бы один подтверждающий')
   })
 
-  it('rejects duplicate approverUserIds', () => {
-    expect(() =>
-      proposeApprovalInputSchema.parse({ ...validInput, approverUserIds: [uuid1, uuid1] }),
-    ).toThrow()
+  it('rejects duplicate approverUserIds with the exact Russian message on the right field', () => {
+    const result = proposeApprovalInputSchema.safeParse({
+      ...validInput,
+      approverUserIds: [uuid1, uuid1],
+    })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toBe('approverUserIds не должен содержать повторов')
+    expect(result.error?.issues[0]?.path).toEqual(['approverUserIds'])
   })
 
   it('rejects a non-uuid entry in approverUserIds', () => {
@@ -178,12 +184,16 @@ describe('rejectApprovalInputSchema', () => {
     expect(() => rejectApprovalInputSchema.parse(validReject)).not.toThrow()
   })
 
-  it('rejects a blank (whitespace-only) reason', () => {
-    expect(() => rejectApprovalInputSchema.parse({ ...validReject, reason: '   ' })).toThrow()
+  it('rejects a blank (whitespace-only) reason with the exact Russian message', () => {
+    const result = rejectApprovalInputSchema.safeParse({ ...validReject, reason: '   ' })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toBe('Причина отказа обязательна')
   })
 
-  it('rejects an empty reason', () => {
-    expect(() => rejectApprovalInputSchema.parse({ ...validReject, reason: '' })).toThrow()
+  it('rejects an empty reason with the exact Russian message', () => {
+    const result = rejectApprovalInputSchema.safeParse({ ...validReject, reason: '' })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toBe('Причина отказа обязательна')
   })
 
   it('rejects a missing reason field', () => {

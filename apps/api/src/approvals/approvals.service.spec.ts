@@ -110,6 +110,16 @@ function makeService(txHandle: Record<string, unknown>) {
   return new ApprovalsService(db)
 }
 
+/** Runs `fn`, returns the rejection it throws (never the resolved value). */
+async function catchRejection(fn: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await fn()
+  } catch (err) {
+    return err
+  }
+  throw new Error('expected fn() to reject, but it resolved')
+}
+
 // ---------------------------------------------------------------------------
 // Zod validation — throws before the DB is ever touched
 // ---------------------------------------------------------------------------
@@ -186,6 +196,12 @@ describe('ApprovalsService.propose', () => {
     })
 
     expect(txHandle.update).toHaveBeenCalledTimes(1)
+    // The supersede update must actually SET supersededAt — not a no-op {}
+    // (kills the ObjectLiteral→{} mutant on supersedeLiveRows).
+    const supersedeSetArg = supersedeChain.set.mock.calls[0]![0] as Record<string, unknown>
+    expect(supersedeSetArg).toHaveProperty('supersededAt')
+    expect(supersedeSetArg['supersededAt']).toBeInstanceOf(Date)
+
     expect(valuesFn).toHaveBeenCalledTimes(1)
     const insertedRows = valuesFn.mock.calls[0]![0] as Array<Record<string, unknown>>
     expect(insertedRows).toHaveLength(2)
@@ -204,32 +220,40 @@ describe('ApprovalsService.propose', () => {
 // ---------------------------------------------------------------------------
 
 describe('ApprovalsService.approve', () => {
-  it('throws NotFoundException when there is no live row for (subject, approver)', async () => {
-    const txHandle = { select: vi.fn(() => makeSelectForUpdateChain(null)), update: vi.fn() }
+  it('throws NotFoundException with the exact user-facing message when there is no live row', async () => {
+    const selectChain = makeSelectForUpdateChain(null)
+    const txHandle = { select: vi.fn(() => selectChain), update: vi.fn() }
     const service = makeService(txHandle)
 
-    await expect(
+    const err = await catchRejection(() =>
       service.approve({
         subjectType: SUBJECT_TYPE,
         subjectId: SUBJECT_ID,
         approverUserId: SENIOR_ID,
       }),
-    ).rejects.toBeInstanceOf(NotFoundException)
+    )
+    expect(err).toBeInstanceOf(NotFoundException)
+    expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
     expect(txHandle.update).not.toHaveBeenCalled()
+    // The row lookup must lock FOR UPDATE, not for an empty/mutated mode
+    // (kills the StringLiteral→"" mutant on .for('update')).
+    expect(selectChain.for).toHaveBeenCalledWith('update')
   })
 
-  it('throws ConflictException when the live row already left PENDING', async () => {
+  it('throws ConflictException with the exact user-facing message when the row already left PENDING', async () => {
     const decidedRow = makeRow({ status: 'APPROVED', decidedAt: new Date('2026-09-01T01:00:00Z') })
     const txHandle = { select: vi.fn(() => makeSelectForUpdateChain(decidedRow)), update: vi.fn() }
     const service = makeService(txHandle)
 
-    await expect(
+    const err = await catchRejection(() =>
       service.approve({
         subjectType: SUBJECT_TYPE,
         subjectId: SUBJECT_ID,
         approverUserId: SENIOR_ID,
       }),
-    ).rejects.toBeInstanceOf(ConflictException)
+    )
+    expect(err).toBeInstanceOf(ConflictException)
+    expect((err as Error).message).toBe('Согласование уже получило ответ')
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 
@@ -255,6 +279,24 @@ describe('ApprovalsService.approve', () => {
     expect(setArg['status']).toBe('APPROVED')
     expect(setArg['decidedAt']).toBeInstanceOf(Date)
   })
+
+  it('throws a generic Error if the update somehow returns no row (defensive branch)', async () => {
+    const pendingRow = makeRow()
+    const emptyUpdateChain = makeUpdateChain([]) // .returning() resolves []
+    const txHandle = {
+      select: vi.fn(() => makeSelectForUpdateChain(pendingRow)),
+      update: vi.fn(() => emptyUpdateChain),
+    }
+    const service = makeService(txHandle)
+
+    await expect(
+      service.approve({
+        subjectType: SUBJECT_TYPE,
+        subjectId: SUBJECT_ID,
+        approverUserId: SENIOR_ID,
+      }),
+    ).rejects.toThrow('Failed to record approval')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -262,8 +304,50 @@ describe('ApprovalsService.approve', () => {
 // ---------------------------------------------------------------------------
 
 describe('ApprovalsService.reject', () => {
-  it('throws NotFoundException when there is no live row for (subject, approver)', async () => {
-    const txHandle = { select: vi.fn(() => makeSelectForUpdateChain(null)), update: vi.fn() }
+  it('throws NotFoundException with the exact user-facing message when there is no live row', async () => {
+    const selectChain = makeSelectForUpdateChain(null)
+    const txHandle = { select: vi.fn(() => selectChain), update: vi.fn() }
+    const service = makeService(txHandle)
+
+    const err = await catchRejection(() =>
+      service.reject({
+        subjectType: SUBJECT_TYPE,
+        subjectId: SUBJECT_ID,
+        approverUserId: SENIOR_ID,
+        reason: 'Не согласен',
+      }),
+    )
+    expect(err).toBeInstanceOf(NotFoundException)
+    expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
+    expect(txHandle.update).not.toHaveBeenCalled()
+    expect(selectChain.for).toHaveBeenCalledWith('update')
+  })
+
+  it('throws ConflictException with the exact user-facing message when the row already left PENDING', async () => {
+    const decidedRow = makeRow({ status: 'REJECTED', decidedAt: new Date(), rejectionReason: 'x' })
+    const txHandle = { select: vi.fn(() => makeSelectForUpdateChain(decidedRow)), update: vi.fn() }
+    const service = makeService(txHandle)
+
+    const err = await catchRejection(() =>
+      service.reject({
+        subjectType: SUBJECT_TYPE,
+        subjectId: SUBJECT_ID,
+        approverUserId: SENIOR_ID,
+        reason: 'Ещё раз',
+      }),
+    )
+    expect(err).toBeInstanceOf(ConflictException)
+    expect((err as Error).message).toBe('Согласование уже получило ответ')
+    expect(txHandle.update).not.toHaveBeenCalled()
+  })
+
+  it('throws a generic Error if the row-update somehow returns no row (defensive branch)', async () => {
+    const pendingRow = makeRow()
+    const emptyUpdateChain = makeUpdateChain([]) // .returning() resolves []
+    const txHandle = {
+      select: vi.fn(() => makeSelectForUpdateChain(pendingRow)),
+      update: vi.fn(() => emptyUpdateChain),
+    }
     const service = makeService(txHandle)
 
     await expect(
@@ -273,24 +357,7 @@ describe('ApprovalsService.reject', () => {
         approverUserId: SENIOR_ID,
         reason: 'Не согласен',
       }),
-    ).rejects.toBeInstanceOf(NotFoundException)
-    expect(txHandle.update).not.toHaveBeenCalled()
-  })
-
-  it('throws ConflictException when the live row already left PENDING', async () => {
-    const decidedRow = makeRow({ status: 'REJECTED', decidedAt: new Date(), rejectionReason: 'x' })
-    const txHandle = { select: vi.fn(() => makeSelectForUpdateChain(decidedRow)), update: vi.fn() }
-    const service = makeService(txHandle)
-
-    await expect(
-      service.reject({
-        subjectType: SUBJECT_TYPE,
-        subjectId: SUBJECT_ID,
-        approverUserId: SENIOR_ID,
-        reason: 'Ещё раз',
-      }),
-    ).rejects.toBeInstanceOf(ConflictException)
-    expect(txHandle.update).not.toHaveBeenCalled()
+    ).rejects.toThrow('Failed to record rejection')
   })
 
   it('sets status=REJECTED with the reason on the row, THEN supersedes every other live sibling', async () => {
