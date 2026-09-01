@@ -118,6 +118,41 @@
  * it only stops the gate from inventing a defect out of its own inability to
  * run a test.
  *
+ * NOTHING TO MUTATE vs A REPORT-LESS TOOL FAILURE
+ * -------------------------------------------------
+ * A diff that changes only comments, class names, or other non-mutable text
+ * generates ZERO mutants — and Stryker never writes a JSON report for that
+ * run at all. `@stryker-mutator/core`'s `MutationTestExecutor.execute()`
+ * (`4-mutation-test-executor.js`) short-circuits BEFORE `reportAll()` ever
+ * runs whenever its own INITIAL dry run finds no tests to execute
+ * (`dryRunResult.tests.length === 0 && this.options.allowEmpty`) — and with
+ * zero mutants there is, correctly, nothing for that dry run to relate tests
+ * to. `readReport()` above returns `null` for a run like this exactly as it
+ * would for a genuine crash, and before this fix `main()` treated the two the
+ * same: RED, "Stryker produced no report ... nothing was verified" — which
+ * accuses the code of an unverified change when nothing in the diff was
+ * verifiable in the first place. Reproduced live, 2026-09-01, on a two-line
+ * Tailwind-class-only diff (PR #620,
+ * apps/web/app/components/layout/notifications-bell.tsx): `Instrumenter
+ * Instrumented 1 source file(s) with 0 mutant(s)`, Stryker exit 0, no report
+ * file written, gate exit 2 on a diff with no logic in it at all.
+ *
+ * The trap: the SAME early-return path is also what the ALREADY-documented
+ * "vitest.related found no tests" tool failure above goes through, on code
+ * that DOES have real mutants — so "no report + Stryker exited 0" is NOT by
+ * itself proof there was nothing to check. The one fact that tells the two
+ * apart is written to Stryker's own log unconditionally, before either path
+ * is even reached: the instrumenter's own mutant count
+ * (`@stryker-mutator/instrumenter`'s `instrumenter.js`: `this.logger.info(
+ * 'Instrumented %d source file(s) with %d mutant(s)', files.length,
+ * mutants.length)`, logged during instrumentation, step 2 of 4, well before
+ * the dry run in step 3 that decides whether a report gets written at all).
+ * `parseInstrumentedMutantCount()` below reads that count straight out of the
+ * captured log; only an EXACT zero, combined with Stryker's own exit code 0,
+ * is read as "legitimately nothing to mutate" and passes with a loud,
+ * explicit message. A nonzero count, a missing line, or a nonzero exit still
+ * fails exactly as before this fix — this widens nothing else.
+ *
  * TIME BUDGET
  * -----------
  * The run is killed at MUTATION_BUDGET_SECONDS and the gate goes RED with an
@@ -586,6 +621,44 @@ function runStryker(pkg, configFile, remainingMs) {
   })
 }
 
+/**
+ * Reads Stryker's OWN instrumenter count straight out of the captured log —
+ * task-mutation-gate-zero-mutants (2026-09-01). See the module header,
+ * "NOTHING TO MUTATE vs A REPORT-LESS TOOL FAILURE", for why this is the only
+ * fact that tells a legitimate zero-mutant run apart from the already-
+ * documented report-less tool failure: both leave `readReport()` with nothing
+ * to read, but only one of them means there was nothing to verify.
+ * `@stryker-mutator/instrumenter` logs this line UNCONDITIONALLY, immediately
+ * after instrumenting and before the dry run that decides whether a report
+ * ever gets written, with `mutants.length` — the total across every file the
+ * run touched, not per file. Returns `null` when the line is not present at
+ * all (a different failure — Stryker never got that far), never `0` for
+ * "could not tell": a caller that cannot distinguish "zero" from "unknown"
+ * here would silently pass exactly the crash this function exists to keep
+ * red.
+ */
+function parseInstrumentedMutantCount(out) {
+  const m = /Instrumented \d+ source file\(s\) with (\d+) mutant\(s\)/.exec(out)
+  return m ? Number(m[1]) : null
+}
+
+/** The zero-valued shape of a per-package mutant tally — one definition, used
+ * both for the running `totals` accumulator and for a package that turned out
+ * to have nothing to mutate (see `parseInstrumentedMutantCount` above), so the
+ * per-package summary table's columns always line up with `totals`'s. */
+function zeroCounts() {
+  return {
+    Killed: 0,
+    Timeout: 0,
+    Survived: 0,
+    ToolFailure: 0,
+    NoCoverage: 0,
+    Ignored: 0,
+    CompileError: 0,
+    RuntimeError: 0,
+  }
+}
+
 // ── report → verdict ──────────────────────────────────────────────────────────
 
 const MIN_REASON_LENGTH = 12
@@ -879,16 +952,7 @@ async function main() {
   }
 
   const startedAt = Date.now()
-  const totals = {
-    Killed: 0,
-    Timeout: 0,
-    Survived: 0,
-    ToolFailure: 0,
-    NoCoverage: 0,
-    Ignored: 0,
-    CompileError: 0,
-    RuntimeError: 0,
-  }
+  const totals = zeroCounts()
   const allSurvivors = []
   const allToolFailures = []
   const allTimeouts = []
@@ -896,6 +960,12 @@ async function main() {
   const allBadSuppressions = []
   const allSuppressed = []
   const perPackage = []
+  // Packages where Stryker instrumented the changed lines and found ZERO
+  // mutants — task-mutation-gate-zero-mutants. Tracked separately from
+  // `perPackage` (which already carries one row per package regardless) so
+  // the verdict section can call this out explicitly, by name, instead of
+  // it reading as an ordinary all-zero row that happens to look clean.
+  const zeroMutantPackages = []
 
   for (const { pkg, patterns, files, lines } of plan) {
     const elapsed = Date.now() - startedAt
@@ -921,6 +991,27 @@ async function main() {
 
     const parsed = readReport(reportPath, pkg)
     if (!parsed) {
+      // Legitimately nothing to mutate — task-mutation-gate-zero-mutants. See
+      // the module header, "NOTHING TO MUTATE vs A REPORT-LESS TOOL FAILURE",
+      // for the full mechanism. The check is deliberately narrow and BOTH
+      // halves are required: Stryker's own exit code must be clean AND its
+      // own instrumenter log must say EXACTLY zero mutants — a nonzero count,
+      // a missing line (`parseInstrumentedMutantCount` returns `null`, which
+      // `=== 0` never matches), or a nonzero exit all fall through to the
+      // existing fail() paths below, unchanged.
+      const instrumentedMutants = parseInstrumentedMutantCount(res.out)
+      if (res.code === 0 && instrumentedMutants === 0) {
+        console.log(
+          `mutation-gate: ${pkg.name} — nothing to mutate: Stryker instrumented the ` +
+            `changed line(s) and generated 0 mutants. The diff has no mutable code here ` +
+            `(comments, class names, whitespace, ...) — verified nothing, because there ` +
+            `was nothing to verify. This is NOT a tool failure.`,
+        )
+        perPackage.push({ name: pkg.name, seconds: pkgSeconds, counts: zeroCounts(), scope })
+        zeroMutantPackages.push({ name: pkg.name, scope })
+        continue
+      }
+
       console.error(res.out.split('\n').slice(-40).join('\n'))
       // Stryker refuses to mutate anything when the UNMUTATED suite is already
       // red, and says so in one specific sentence. Worth naming explicitly:
@@ -989,6 +1080,30 @@ async function main() {
       `survived ${totals.Survived}, ` +
       `tool-failure ${totals.ToolFailure}, no-coverage ${totals.NoCoverage}, ignored ${totals.Ignored}`,
   )
+
+  // ── nothing to mutate (task-mutation-gate-zero-mutants) ────────────────────
+  //
+  // Said OUT LOUD, its own section, never a silent zero row in the table
+  // above — see the module header, "NOTHING TO MUTATE vs A REPORT-LESS TOOL
+  // FAILURE". Deliberately worded differently from the early `plan.length ===
+  // 0` return above (`no mutable source lines changed vs the base`): THAT one
+  // means there was no changed line at all in any mutation-eligible file;
+  // THIS one means there was a changed line, Stryker instrumented it, and
+  // found nothing mutable there (a class name, a comment, whitespace). Never
+  // affects the exit code — a package here already contributed nothing to
+  // `totals`.
+  if (zeroMutantPackages.length > 0) {
+    const names = zeroMutantPackages.map((p) => p.name).join(', ')
+    lines.push('', `#### Nothing to mutate (${zeroMutantPackages.length} package(s))`)
+    lines.push(
+      '',
+      `Stryker instrumented the changed line(s) in **${names}** and found ZERO mutants — ` +
+        `the diff touches no mutable code there (class names, comments, whitespace, ...). ` +
+        `Verified nothing, because there was nothing to verify; not a tool failure.`,
+    )
+    for (const p of zeroMutantPackages) lines.push(`- \`${p.name}\` — ${p.scope}`)
+    console.log(`mutation-gate: nothing to mutate in ${names} — 0 mutants generated, 0 to verify.`)
+  }
 
   let exitCode = 0
 
@@ -1255,7 +1370,8 @@ function budgetExceeded(pkg, budgetSeconds, elapsedMs, perPackage) {
 // Guarded so scripts/devops/tests/test-mutation-gate-reporting.sh can `import`
 // groupSuppressions() / looksIntegrationOnly() / splitUncoveredByIntegrationHint()
 // (task-mutation-gate-mechanical AC2/AC3/AC6) / formatKilled() (task-mutation-
-// gate-timeout-visibility) without triggering a real Stryker run —
+// gate-timeout-visibility) / parseInstrumentedMutantCount() (task-mutation-
+// gate-zero-mutants) without triggering a real Stryker run —
 // `node mutation-gate.mjs --changed` is unaffected, since argv[1] there IS this
 // file.
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`
@@ -1272,4 +1388,5 @@ export {
   splitUncoveredByIntegrationHint,
   readReport,
   formatKilled,
+  parseInstrumentedMutantCount,
 }
