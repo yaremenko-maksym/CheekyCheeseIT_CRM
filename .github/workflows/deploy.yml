@@ -1996,6 +1996,38 @@ jobs:
           # apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql
 
+      # task-approvals-foundation: `approvals` table + `approval_status` enum —
+      # the foundation registry for "actions touching an employee's money or
+      # responsibility do not take effect until they agree in the CRM" (see
+      # docs/superpowers/specs/2026-09-01-notifications-and-confirmations-design.md
+      # position 3). One brand-new table + one new enum — fully additive, no
+      # existing table/column touched. Ships empty (no caller wires a real
+      # subject yet — that is a later position in the same plan), so this
+      # migration carries zero data risk.
+      #
+      # UNCONDITIONAL (like Step 2af/2ac/2ab above): the migration file lands
+      # in the SAME branch as this wiring (infra/wire-approvals-ddl branches
+      # from feat/approvals-foundation, which already carries the .sql file),
+      # so it is unconditionally present in the checkout by construction — no
+      # cross-PR merge-order race to guard against. `.github/workflows/**` is
+      # normally DevOps's zone (not Coder's); this edit exists only because
+      # `scripts/devops/check-prod-ddl-wiring.py`'s CI gate hard-fails any new
+      # apps/api/drizzle/manual/*.sql file that is neither wired here nor
+      # listed in that script's KNOWN_NOT_WIRED — this is the wiring half of
+      # satisfying that gate (mirrors the same DEFAULT the guard's own error
+      # message names: "the pattern used for e.g. 2026-07-22_vacancies.sql").
+      - name: Copy approvals foundation DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-09-01_approvals.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-09-01_approvals.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-09-01_approvals.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
