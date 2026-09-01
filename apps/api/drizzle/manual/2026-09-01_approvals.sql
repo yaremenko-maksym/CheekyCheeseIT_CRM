@@ -35,15 +35,17 @@
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
 --     < apps/api/drizzle/manual/2026-09-01_approvals.sql
 --
--- DEPENDENCY (DevOps): add this file to the SCP `source:` list AND to a step
--- in .github/workflows/deploy.yml that invokes psql against it — same two-part
--- wiring `scripts/devops/check-prod-ddl-wiring.py` verifies for every other
--- file in this directory (COPY + APPLY, not just a comment mentioning the
--- filename). Out of Coder zone-of-write (`.claude/rules/common/zone-of-write.md`
--- — `.github/workflows/**` is DevOps-owned); this PR ships the script + this
--- note only, same division of labour as `2026-07-26_csp_reports.sql` /
--- `infra/csp-report-wiring` (coordinated via a companion DevOps PR, #430 in
--- that precedent).
+-- Wired into .github/workflows/deploy.yml (both the SCP `source:` copy step
+-- and the psql-apply step) in this SAME PR — CR-H-2 (code-review PR #624):
+-- an earlier revision of this note deferred the wiring to a companion DevOps
+-- PR, the way `2026-07-26_csp_reports.sql` / `infra/csp-report-wiring` (#430)
+-- did. That plan changed: a security-review finding on a neighbouring PR
+-- required the migration file and its deploy-pipeline wiring to land in ONE
+-- merge (without the table, the code in this PR does not work; splitting
+-- across two PRs would leave a window where prod is broken). DevOps authored
+-- the wiring on its own branch and it was merged into this one.
+-- `scripts/devops/check-prod-ddl-wiring.py` verifies both parts are present
+-- (COPY + APPLY, not just a comment mentioning the filename).
 --
 -- Idempotent: guarded `CREATE TYPE` (duplicate_object exception swallowed) +
 -- `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX/CONSTRAINT IF NOT EXISTS`

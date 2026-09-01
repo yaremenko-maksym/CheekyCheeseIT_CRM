@@ -114,13 +114,29 @@ export class ApprovalsService {
    * generation, which is why `getStatus()` reads "any live REJECTED row" as
    * the whole subject being rejected regardless of what else was approved
    * before this call.
+   *
+   * CR-H-1 (code-review, PR #624): this used to lock the caller's OWN row
+   * first (a single-row `SELECT … approverUserId = $me FOR UPDATE`) and only
+   * THEN cascade-lock every sibling via the `UPDATE … WHERE id <> $me`
+   * below. Two approvers of the SAME subject calling reject() at the same
+   * time each locked their own row first and then asked for the other's — an
+   * ABBA lock-order inversion, reproduced by the reviewer as a real Postgres
+   * deadlock (40P01) on a scratch DB. Same class, same fix shape as
+   * `transactions.service.ts`'s `lockCascadeRows` (closed there via
+   * PR #598, MED-2): take every lock this call could possibly need in ONE
+   * statement, in a deterministic order, before writing to any of them —
+   * `lockLiveRows` below (`ORDER BY id FOR UPDATE`). Two concurrent
+   * reject()/propose() calls on the same subject then acquire locks in the
+   * SAME order regardless of which approver called first, so a lock-order
+   * cycle is structurally impossible rather than merely unlikely.
    */
   async reject(rawInput: RejectApprovalInput): Promise<Approval> {
     const input = rejectApprovalInputSchema.parse(rawInput)
     const now = new Date()
 
     return this.db.db.transaction(async (tx) => {
-      const row = await this.loadLiveRowForUpdate(tx, input)
+      const liveRows = await this.lockLiveRows(tx, input.subjectType, input.subjectId)
+      const row = liveRows.find((r) => r.approverUserId === input.approverUserId) ?? null
       this.assertRespondable(row)
 
       const [updated] = await tx
@@ -209,6 +225,15 @@ export class ApprovalsService {
     subjectId: string,
     at: Date,
   ): Promise<void> {
+    // CR-H-1 (code-review, PR #624): lock every live row for the subject —
+    // in the SAME deterministic order `lockLiveRows` uses for reject() —
+    // BEFORE writing to any of them. A bare cascading `UPDATE` (the previous
+    // shape here) locks rows in whatever order Postgres's own scan happens
+    // to visit them, which is not guaranteed to agree with another
+    // transaction's acquisition order; the explicit `ORDER BY id FOR UPDATE`
+    // below is what makes propose() and reject() take these locks in the
+    // SAME order as each other, so they cannot form an ABBA cycle.
+    await this.lockLiveRows(tx, subjectType, subjectId)
     await tx
       .update(approvals)
       .set({ supersededAt: at })
@@ -222,12 +247,46 @@ export class ApprovalsService {
   }
 
   /**
+   * Locks (`FOR UPDATE`, deterministic `ORDER BY id`) and returns EVERY live
+   * row for a subject in ONE statement, before any write touches any of
+   * them. This is the same ordering discipline `transactions.service.ts`'s
+   * `lockCascadeRows` uses (see that method's own comment) — any two
+   * concurrent callers that each need more than one row of the SAME subject
+   * (reject() vs reject(), reject() vs propose()) acquire those locks in the
+   * SAME id order, so a lock-order cycle (ABBA) is structurally impossible
+   * rather than merely unlikely to line up in time. `approve()` does not go
+   * through here: it only ever needs its OWN single row, and one lock cannot
+   * invert against itself — see `loadLiveRowForUpdate` below.
+   */
+  private async lockLiveRows(
+    tx: DrizzleTx,
+    subjectType: string,
+    subjectId: string,
+  ): Promise<ApprovalRow[]> {
+    return tx
+      .select()
+      .from(approvals)
+      .where(
+        and(
+          eq(approvals.subjectType, subjectType),
+          eq(approvals.subjectId, subjectId),
+          isNull(approvals.supersededAt),
+        ),
+      )
+      .orderBy(asc(approvals.id))
+      .for('update')
+  }
+
+  /**
    * Locks (`FOR UPDATE`) and returns the live row for one (subject, approver)
-   * pair, so two concurrent approve()/reject() calls on the same row
-   * serialise instead of racing. Null if there is no live row — either
-   * nobody ever proposed for this (subjectType, subjectId, approverUserId)
-   * triple, or it was already superseded (a sibling's rejection, or a
-   * re-proposal).
+   * pair, so two concurrent approve() calls on the same row serialise
+   * instead of racing. Null if there is no live row — either nobody ever
+   * proposed for this (subjectType, subjectId, approverUserId) triple, or it
+   * was already superseded (a sibling's rejection, or a re-proposal). Safe
+   * to keep as a single-row lock (no `lockLiveRows` ordering needed):
+   * approve() never acquires a SECOND lock inside the same transaction, so
+   * it cannot participate in a lock-order cycle against reject()/propose()
+   * — see the CR-H-1 comment on `reject()` for the case that DOES need one.
    */
   private async loadLiveRowForUpdate(
     tx: DrizzleTx,

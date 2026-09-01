@@ -1873,13 +1873,14 @@ export const notifications = pgTable(
 //       superseded — it IS the terminal state of that generation.
 // Same "void, never delete" discipline as `invoiceSignatures.voidedAt`.
 //
-// Prod DDL intentionally deferred (owner-reversible, A1): this table has no
-// caller yet (no controller, no subject wired) — nothing in prod depends on
-// it existing until positions 4-6 of the plan ship real subjects against it.
-// A manual `drizzle/manual/*.sql` migration will be added together with the
-// first real caller so `scripts/devops/check-prod-ddl-wiring.py` has an
-// actual deploy.yml step to point the file at, instead of shipping a table
-// prod would carry unused for several more PRs.
+// Prod DDL ships in THIS SAME PR, not deferred to whichever position adds
+// the first real subject (CR-H-2, code-review PR #624 — an earlier revision
+// of this comment said the opposite and was left behind when the plan
+// changed). See `drizzle/manual/2026-09-01_approvals.sql`'s own header for
+// the reasoning: the table is additive and empty on ship, so shipping the
+// migration now costs nothing and removes a hand-off nobody would be forced
+// to remember later. `scripts/devops/check-prod-ddl-wiring.py` verifies the
+// file is wired into `.github/workflows/deploy.yml`.
 export const approvalStatusEnum = pgEnum('approval_status', ['PENDING', 'APPROVED', 'REJECTED'])
 
 export const approvals = pgTable(
