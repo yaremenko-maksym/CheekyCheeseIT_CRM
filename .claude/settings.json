@@ -37,7 +37,7 @@
             "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-coder-push-gate.sh"
           }
         ],
-        "description": "Coder push gate — require ac_verified: in commit msg before push on feature|fix|infra|test branches",
+        "description": "Coder push gate — require an `ac_verified:` LINE in the last commit before push on EVERY branch except main/master, architect/* and legal/*. Inverted 2026-09-01: the old feature|fix|infra|test allowlist silently missed feat/ across 15 merged PRs (and docs/, ci/, perf/, worktree-agent-*), because an allowlist fails by saying nothing. Honest escapes when a branch has nothing to verify: a `wip:` subject, or `ac_verified: n/a (<why>)`. Exemption costs are written in the hook header; test: scripts/devops/tests/test-pre-bash-coder-push-gate.sh",
         "id": "pre:bash:coder-push-gate"
       },
       {

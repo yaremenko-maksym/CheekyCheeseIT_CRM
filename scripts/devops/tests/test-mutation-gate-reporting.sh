@@ -342,4 +342,73 @@ import { formatKilled } from '$GUARD'
 process.exit(formatKilled(5, 1) === '5 (1 timeout)' ? 0 : 1)
 "
 
+# ── nothing to mutate vs a report-less tool failure ──────────────────────────
+# (task-mutation-gate-zero-mutants, 2026-09-01)
+#
+# main() reads a report-less Stryker run as "legitimately nothing to mutate"
+# ONLY when the instrumenter's own log line says EXACTLY zero mutants — see
+# the module header, "NOTHING TO MUTATE vs A REPORT-LESS TOOL FAILURE", for
+# why "no report + clean exit" is not by itself proof of that (the SAME shape
+# is also what the already-documented `vitest.related` tool failure produces
+# on code that DOES have real mutants). parseInstrumentedMutantCount() is the
+# one fact read straight out of Stryker's own log, before any report exists —
+# these cases pin its contract directly, against text shaped the way the real
+# child-process output actually reads (captured live, PR #620, 2026-09-01),
+# not a hand-simplified stand-in for it.
+
+REAL_ZERO_LOG='mutation-gate: diff base 6624b7851837 (MUTATION_BASE_SHA)
+
+=== mutation-gate: @crm/web — 1 file(s), 11 changed line(s) ===
+    mutate app/components/layout/notifications-bell.tsx:184-184
+12:06:43 (65654) INFO ProjectReader Found 1 of 443 file(s) to be mutated.
+12:06:43 (65654) INFO Instrumenter Instrumented 1 source file(s) with 0 mutant(s)
+12:06:46 (65654) INFO ConcurrencyTokenProvider Creating 4 test runner process(es).
+12:06:49 (65654) INFO DryRunExecutor Starting initial test run (vitest test runner with "perTest" coverage analysis). This may take a while.
+12:07:01 (65691) WARN VitestTestRunner Vitest failed to find test files related to mutated files.
+12:07:01 (65654) INFO DryRunExecutor No tests were found
+12:07:01 (65654) INFO MutationTestExecutor Done in 19 seconds.'
+
+# Written to a real file rather than embedded inline — same discipline
+# write_report() above uses for its JSON fixtures: the log text contains
+# quotes, parens and newlines that would fight the surrounding shell
+# quoting if passed straight into a 'node -e "..."' string.
+LOG_ZERO="$WS/zero-mutant.log"
+printf '%s' "$REAL_ZERO_LOG" >"$LOG_ZERO"
+
+assert_green "parseInstrumentedMutantCount: real captured zero-mutant log -> 0" \
+  -- node --input-type=module -e "
+import { readFileSync } from 'node:fs'
+import { parseInstrumentedMutantCount } from '$GUARD'
+const out = readFileSync('$LOG_ZERO', 'utf8')
+process.exit(parseInstrumentedMutantCount(out) === 0 ? 0 : 1)
+"
+
+REAL_NONZERO_LOG='=== mutation-gate: @crm/web — 2 file(s), 30 changed line(s) ===
+12:14:10 (71380) INFO ProjectReader Found 2 of 443 file(s) to be mutated.
+12:14:10 (71380) INFO Instrumenter Instrumented 2 source file(s) with 5 mutant(s)
+12:14:16 (71380) INFO ConcurrencyTokenProvider Creating 4 test runner process(es).'
+LOG_NONZERO="$WS/nonzero-mutant.log"
+printf '%s' "$REAL_NONZERO_LOG" >"$LOG_NONZERO"
+
+assert_green "parseInstrumentedMutantCount: real captured 5-mutant log (2 files) -> 5, never mistaken for zero" \
+  -- node --input-type=module -e "
+import { readFileSync } from 'node:fs'
+import { parseInstrumentedMutantCount } from '$GUARD'
+const out = readFileSync('$LOG_NONZERO', 'utf8')
+process.exit(parseInstrumentedMutantCount(out) === 5 ? 0 : 1)
+"
+
+assert_green "parseInstrumentedMutantCount: line absent entirely -> null, never coerced to 0" \
+  -- node --input-type=module -e "
+import { parseInstrumentedMutantCount } from '$GUARD'
+const out = 'Stryker crashed before instrumentation even started\nsome other noise\n'
+process.exit(parseInstrumentedMutantCount(out) === null ? 0 : 1)
+"
+
+assert_green "parseInstrumentedMutantCount: empty string -> null" \
+  -- node --input-type=module -e "
+import { parseInstrumentedMutantCount } from '$GUARD'
+process.exit(parseInstrumentedMutantCount('') === null ? 0 : 1)
+"
+
 guard_test_summary "test-mutation-gate-reporting.sh"

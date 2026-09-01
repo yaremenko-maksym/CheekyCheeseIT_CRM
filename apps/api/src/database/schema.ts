@@ -1916,6 +1916,104 @@ export const notifications = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Approvals — task 3 of the notifications-and-confirmations plan
+// (docs/superpowers/specs/2026-09-01-notifications-and-confirmations-design.md
+// §3/§4.1)
+// ---------------------------------------------------------------------------
+//
+// FOUNDATION ONLY. Nothing in this file wires PROJECT or SHARE subjects — that
+// is positions 4/5 of the plan's order-of-work. What this table guarantees is
+// the mechanics: "actions touching an employee's money or responsibility do
+// not take effect until they agree", built so that partial agreement, "one
+// rejection voids the whole proposal", and "re-proposal never rewrites
+// history" all fall out of ONE shape (one proposal = one row per approver)
+// instead of needing separate machinery each.
+//
+// `subjectType` + `subjectId`: what is being confirmed. `subjectId` is
+// deliberately NOT an FK — same reasoning as `consumedTxHashes.referenceId`:
+// this registry is shared across future subject tables and must be able to
+// outlive (and predate) any one of them. `subjectType` is a plain varchar,
+// not a closed enum, for the same reason `consumedTxHashes.purpose` is a
+// varchar — the set of kinds is owned by the calling module, not by this file.
+//
+// "Одно предложение — несколько строк, по строке на подтверждающего" is what
+// makes partial agreement free (one row APPROVED, another still PENDING —
+// no extra field) and turns "which rows belong to the same proposal" into a
+// query: (subjectType, subjectId, supersededAt IS NULL).
+//
+// `supersededAt` is the ONE mechanism behind both:
+//   (a) re-proposal (ApprovalsService.propose) — the entire previous live
+//       generation is superseded before the new rows are inserted, so old
+//       rows are never rewritten, only extinguished (history stays queryable
+//       by `subjectType`+`subjectId` with no filter);
+//   (b) a sibling rejecting (ApprovalsService.reject) — decision #5 "отказ
+//       одного гасит предложение целиком": every other still-live row for
+//       the same subject (PENDING or already APPROVED) is superseded in the
+//       SAME transaction as the reject. The rejected row itself is NOT
+//       superseded — it IS the terminal state of that generation.
+// Same "void, never delete" discipline as `invoiceSignatures.voidedAt`.
+//
+// Prod DDL ships in THIS SAME PR, not deferred to whichever position adds
+// the first real subject (CR-H-2, code-review PR #624 — an earlier revision
+// of this comment said the opposite and was left behind when the plan
+// changed). See `drizzle/manual/2026-09-01_approvals.sql`'s own header for
+// the reasoning: the table is additive and empty on ship, so shipping the
+// migration now costs nothing and removes a hand-off nobody would be forced
+// to remember later. `scripts/devops/check-prod-ddl-wiring.py` verifies the
+// file is wired into `.github/workflows/deploy.yml`.
+export const approvalStatusEnum = pgEnum('approval_status', ['PENDING', 'APPROVED', 'REJECTED'])
+
+export const approvals = pgTable(
+  'approvals',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    subjectType: varchar('subject_type', { length: 50 }).notNull(),
+    subjectId: uuid('subject_id').notNull(),
+    approverUserId: uuid('approver_user_id')
+      .notNull()
+      .references(() => users.id),
+    status: approvalStatusEnum('status').notNull().default('PENDING'),
+    rejectionReason: text('rejection_reason'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    proposedByUserId: uuid('proposed_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    // NULL = still the live decision point for this subject. See the header
+    // comment above for the two things that set it.
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Drives "history for this subject" reads (admin re-propose screen, audit).
+    index('idx_approvals_subject').on(t.subjectType, t.subjectId),
+    // Drives "what's waiting on me" (Экран «что от меня ждут», position 7).
+    index('idx_approvals_approver_pending')
+      .on(t.approverUserId)
+      .where(sql`${t.status} = 'PENDING' AND ${t.supersededAt} IS NULL`),
+    // Race guard: at most one LIVE row per (subject, approver) at a time — a
+    // concurrent propose() for the same subject cannot leave a duplicate live
+    // ask for the same approver. Partial so history (supersededAt IS NOT NULL)
+    // is never constrained.
+    uniqueIndex('uq_approvals_live_subject_approver')
+      .on(t.subjectType, t.subjectId, t.approverUserId)
+      .where(sql`${t.supersededAt} IS NULL`),
+    // "Отказ возможен и требует причины" (§3.3) — enforced at the DB, not just
+    // in the Zod DTO, because this table is a shared registry future callers
+    // reach directly.
+    check(
+      'ck_approvals_rejection_reason_required',
+      sql`${t.status} <> 'REJECTED' OR (${t.rejectionReason} IS NOT NULL AND btrim(${t.rejectionReason}) <> '')`,
+    ),
+    // decidedAt is set exactly when a row leaves PENDING — never before, never
+    // left null after.
+    check(
+      'ck_approvals_decided_at_matches_status',
+      sql`(${t.status} = 'PENDING') = (${t.decidedAt} IS NULL)`,
+    ),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Legends — client-facing persona profiles, one per project
 //
 // 1:1 with a PROJECT (not a user). The legend is the persona the senior

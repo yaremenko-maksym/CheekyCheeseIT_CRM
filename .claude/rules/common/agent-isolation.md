@@ -167,8 +167,17 @@ Worktree: /abs/path (verified: toplevel == dispatched path)
 ## Проверка гейтов
 
 ```bash
-bash .claude/hooks/tests/cross-agent-hooks-smoke.sh   # 33 кейса, обе стороны
+bash .claude/hooks/tests/cross-agent-hooks-smoke.sh   # 42 кейса, обе стороны
 ```
+
+**Этот смоук до 2026-09-01 не запускал никто, кроме человека вручную.** Ни один
+воркфлоу на него не ссылался (`grep -rn cross-agent-hooks-smoke .github` — пусто):
+42 настоящих кейса, которые CI не выполнял ни разу. Теперь он вызывается из
+`scripts/devops/tests/test-pre-bash-cross-agent-blast.sh`, а тот входит в
+`run-guard-tests.sh` — шаг внутри **required**-чека. Плюс у каждого из двух хуков
+появился собственный набор кейсов в `scripts/devops/tests/`, потому что мета-страж
+`check-guard-tests-exist.sh` теперь берёт список хуков из `.claude/settings.json`
+и требует негативный кейс от каждого, кто умеет отказывать.
 
 Смоук-тест сначала делает `bash -n` обоих хуков и требует от заблокированного
 кейса не только код 2, но и тело `{"decision":"block"}`: синтаксическая ошибка в

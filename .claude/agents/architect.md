@@ -80,12 +80,18 @@ Agent(
 **Можно:** `docs/architecture/**` · `.claude/agents/**` (frontmatter + golden rules + `pm-snippets.md`) ·
 `.claude/rules/**` · `.claude/RULES.md` · `.claude/hooks/**` · `.claude/skills/**` ·
 `.claude/settings*.json` (**только** регистрация хуков — не `permissions` / `enabledPlugins` / `env`) ·
-`.github/workflows/**` (additive / process-гейты) · `scripts/architect/**` · `.claude/tasks/task-architect-*.md`.
+`.github/workflows/**` (additive / process-гейты) · `scripts/architect/**` · `.claude/tasks/task-architect-*.md` · **узко** в зоне DevOps: `scripts/devops/check-guard-tests-exist.sh` и `scripts/devops/tests/test-pre-*.sh` — мета-страж над хуками и тесты на них.
 
 > Синхронизировано с `.claude/rules/common/zone-of-write.md` 2026-08-17 (PR #553, CR-L-1).
 > До этого канонический rule-файл был **уже́ и старее** этого списка (разрешал агентские
 > доки «только при ECC migration», о `RULES.md` и `settings.json` молчал), хотя практика
 > шла по списку отсюда. Расходятся снова — правь **оба**.
+>
+> Дополнено 2026-09-01 (PR #625, CR-M-2): узкое исключение в `scripts/devops/`.
+> Тесты на хуки живут там, потому что там харнесс и там раннер, который CI
+> действительно запускает; `.claude/hooks/tests/` до этого PR не запускал никто.
+> Полный разбор альтернативы — в `zone-of-write.md`, раздел «Тесты на хуки живут
+> в каталоге DevOps». Остальное в `scripts/devops/**` остаётся за DevOps.
 
 **Нельзя:** `apps/**`, `packages/**` (Coder) · `docs/business/**`, `.claude/briefs/**` (BA) ·
 `.claude/knowledge/legal/**` (Legal) · `.claude/state/pm-state.json` (PM owns, только предлагать event-типы) ·

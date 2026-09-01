@@ -636,6 +636,7 @@ jobs:
             apps/api/drizzle/manual/2026-08-21_pending_obligations_payout_request_id.sql \
             apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql \
             apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql \
+            apps/api/drizzle/manual/2026-09-01_approvals.sql \
             apps/api/drizzle/manual/2026-09-01_user_emails.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
@@ -1997,9 +1998,38 @@ jobs:
           # apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql
 
+      # task-approvals-foundation: `approvals` table + `approval_status` enum —
+      # the foundation registry for "actions touching an employee's money or
+      # responsibility do not take effect until they agree in the CRM" (see
+      # docs/superpowers/specs/2026-09-01-notifications-and-confirmations-design.md
+      # position 3). One brand-new table + one new enum — fully additive, no
+      # existing table/column touched. Ships empty (no caller wires a real
+      # subject yet — that is a later position in the same plan), so this
+      # migration carries zero data risk.
+      #
+      # UNCONDITIONAL (like Step 2af/2ac/2ab above): the migration file lands
+      # in the SAME branch as this wiring (infra/wire-approvals-ddl branches
+      # from feat/approvals-foundation, which already carries the .sql file),
+      # so it is unconditionally present in the checkout by construction — no
+      # cross-PR merge-order race to guard against. `.github/workflows/**` is
+      # normally DevOps's zone (not Coder's); this edit exists only because
+      # `scripts/devops/check-prod-ddl-wiring.py`'s CI gate hard-fails any new
+      # apps/api/drizzle/manual/*.sql file that is neither wired here nor
+      # listed in that script's KNOWN_NOT_WIRED — this is the wiring half of
+      # satisfying that gate (mirrors the same DEFAULT the guard's own error
+      # message names: "the pattern used for e.g. 2026-07-22_vacancies.sql").
+      - name: Copy approvals foundation DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-09-01_approvals.sql'
+          target: '/opt/crm'
+
       # user_emails (task-notifications position 2, PR #623): the login path
-      # reads this table. Without it EVERY sign-in fails, so the file and its
-      # wiring must land in the same merge — this is not an optional extra.
+      # reads this table, so without it EVERY sign-in fails. The file and its
+      # wiring have to land in the same merge — this is not an optional extra.
       - name: Copy user_emails DDL via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -2008,6 +2038,9 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           source: 'apps/api/drizzle/manual/2026-09-01_user_emails.sql'
           target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-09-01_approvals.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-09-01_approvals.sql
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
@@ -3487,6 +3520,44 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$INVOICE_SIGNATURE_VOID_SNAPSHOT_FILE"
             echo "==> invoice-signature void/snapshot DDL applied successfully"
+
+            # ── Step 2ag: approvals table + approval_status enum (idempotent) ──
+            # task-approvals-foundation: the foundation registry for
+            # "actions touching an employee's money or responsibility do not
+            # take effect until they agree in the CRM" (see
+            # docs/superpowers/specs/2026-09-01-notifications-and-confirmations-
+            # design.md position 3). One brand-new table + one new enum —
+            # fully additive, no existing table/column touched. Ships empty
+            # (no caller wires a real subject yet — a later position in the
+            # same plan), so this apply carries zero data risk on prod.
+            #
+            # UNCONDITIONAL (like Step 2af/2ac/2ab above): the migration file
+            # lands in the SAME branch as this wiring, so it is
+            # unconditionally present in the checkout by construction — no
+            # cross-PR merge-order race to guard against. Idempotent: guarded
+            # `CREATE TYPE` (duplicate_object swallowed) + `CREATE TABLE IF
+            # NOT EXISTS` + `CREATE INDEX/UNIQUE INDEX IF NOT EXISTS` + guarded
+            # `ADD CONSTRAINT` DO blocks (duplicate_object swallowed) — safe
+            # to re-run on every deploy, forever. `-v ON_ERROR_STOP=1` passed
+            # explicitly, same as every apply step in this job.
+            # Source: apps/api/drizzle/manual/2026-09-01_approvals.sql
+            APPROVALS_FOUNDATION_FILE="/opt/crm/apps/api/drizzle/manual/2026-09-01_approvals.sql"
+
+            if [ ! -f "$APPROVALS_FOUNDATION_FILE" ]; then
+              echo "ERROR: DDL file not found at $APPROVALS_FOUNDATION_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying approvals foundation DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$APPROVALS_FOUNDATION_FILE"
+            echo "==> approvals foundation DDL applied successfully"
 
             # Source: apps/api/drizzle/manual/2026-09-01_user_emails.sql
             USER_EMAILS_FILE="/opt/crm/apps/api/drizzle/manual/2026-09-01_user_emails.sql"
