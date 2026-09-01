@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerModule } from '@nestjs/throttler'
 import { AdminModule } from './admin/admin.module'
+import { ApprovalsModule } from './approvals/approvals.module'
 import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt.guard'
 import { OnboardingGuard } from './auth/onboarding.guard'
@@ -106,6 +107,11 @@ import { SeniorResumesModule } from './resumes/resumes.module'
     // task-csp-reports-and-flip: public CSP violation report endpoint —
     // POST /api/public/csp-report, aggregated storage, digest visibility.
     CspReportsModule,
+    // Position 3 of docs/superpowers/specs/2026-09-01-notifications-and-
+    // confirmations-design.md — foundation for employee-facing confirmations
+    // (propose/approve/reject). No controller yet; consumed by future
+    // modules (project creation, share change — positions 4/5).
+    ApprovalsModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order
