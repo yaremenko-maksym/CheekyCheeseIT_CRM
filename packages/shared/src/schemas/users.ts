@@ -7,6 +7,16 @@ import { withSalaryFloor } from './money'
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
 /**
+ * §4.4 of the notifications-and-confirmations spec. A user can have a WORK
+ * address (ours, always a login method) and a PERSONAL address (entered by
+ * an ADMIN at creation, NOT a login method until the holder accepts an
+ * invite — separate PR). Kept as its own schema (not inlined) so the API
+ * and the frontend form share one source of truth for the two literal values.
+ */
+export const userEmailKindSchema = z.enum(['WORK', 'PERSONAL'])
+export type UserEmailKind = z.infer<typeof userEmailKindSchema>
+
+/**
  * Roles eligible to receive a SALARY transaction.
  * ADMIN is excluded — admin income flows through shares (ADMIN_INCOME / PAYOUT).
  * Single source of truth shared by backend (createSalary allow-list) and
@@ -71,6 +81,13 @@ export const userProfileSchema = z.object({
   archivedAt: z.coerce.date().nullable(),
   adminNote: z.string().nullable(),
   createdAt: z.coerce.date(),
+  /**
+   * Personal address on file (§4.4). Set by ADMIN at creation, visible on
+   * the profile. `null` when never set. Masked the same way as `email`
+   * (realContacts permission) — never shown to a viewer without contact
+   * access. NOT a login method by itself — see `user_emails.canLogin`.
+   */
+  personalEmail: z.string().email().nullable().optional(),
 })
 
 export const updateProfileSchema = z.object({
@@ -158,6 +175,14 @@ const CONTRACT_ROLES = new Set<string>(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT', 
 export const createUserSchema = z
   .object({
     email: z.string().email('Некорректный email'),
+    /**
+     * Personal address (§4.4) — optional, set by ADMIN at creation only.
+     * Not editable later in this PR (the accept-invite flow that would let
+     * it become a login method is a separate task). `null`/omitted = not
+     * set. Kept OUT of `adminUpdateUserSchema` deliberately — see the spec's
+     * decision 7 ("Личный адрес вводит админ при создании").
+     */
+    personalEmail: z.string().email('Некорректный email').nullable().optional(),
     displayName: z.string().min(2).max(255),
     role: roleSchema,
     telegram: telegramSchema.nullable().optional(),
@@ -211,6 +236,21 @@ export const createUserSchema = z
   })
   .superRefine((data, ctx) => {
     refineRequisitePresence(data, ctx)
+
+    // §4.4: a personal address identical to the work address is nonsensical
+    // input (same DB unique index would reject it at insert time anyway,
+    // but that surfaces as a raw 409 with no field pointer — catch it here
+    // so the admin sees exactly which field is wrong).
+    if (
+      data.personalEmail &&
+      data.personalEmail.trim().toLowerCase() === data.email.trim().toLowerCase()
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Личный email должен отличаться от рабочего',
+        path: ['personalEmail'],
+      })
+    }
 
     // A3-3 / A2c: legalFullName required for contract-eligible roles.
     if (CONTRACT_ROLES.has(data.role) && !data.legalFullName?.trim()) {

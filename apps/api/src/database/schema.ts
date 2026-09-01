@@ -366,6 +366,64 @@ export const users = pgTable('users', {
 })
 
 // ---------------------------------------------------------------------------
+// User emails — notifications-and-confirmations spec §4.4
+//
+// A user can log in through TWO addresses: a WORK address (ours, always a
+// login method) and a PERSONAL address (entered by ADMIN at creation, a
+// login method only after the holder accepts an invite — separate task).
+//
+// Why a TABLE and not a second column on `users`. A per-column UNIQUE
+// constraint (like `users.email` above) can only guarantee "work addresses
+// don't repeat" and, separately, "personal addresses don't repeat" — it
+// cannot express "no personal address equals anyone else's work address",
+// because the two values live in two different columns Postgres never
+// compares against each other. That gap is a direct account-takeover path
+// (log in with an address you were only ever handed as someone ELSE's
+// personal contact). A single table with ONE unique index across every row
+// — both kinds, every user — makes that guarantee a property of the schema
+// instead of a property of every caller remembering to check two places.
+//
+// `userId` + `kind` is also unique: exactly one WORK row and at most one
+// PERSONAL row per user, matching the mental model the admin form and the
+// profile page are built around (`UsersService.upsertWorkEmail` relies on
+// this for its find-then-update-or-insert path).
+// ---------------------------------------------------------------------------
+
+export const userEmailKindEnum = pgEnum('user_email_kind', ['WORK', 'PERSONAL'])
+
+export const userEmails = pgTable(
+  'user_emails',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    email: varchar('email', { length: 255 }).notNull(),
+    kind: userEmailKindEnum('kind').notNull(),
+    // NULL = never confirmed. WORK rows are stamped at insert time (mirrors
+    // the trust we already place in `users.email` today); PERSONAL rows stay
+    // NULL until the invite-accept flow (next task) sets it.
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    // Whether THIS address can be used to sign in. WORK defaults true (it is
+    // already how everyone logs in today — the migration backfill mirrors
+    // that). PERSONAL defaults false — "the address exists, mail goes to it,
+    // it does not open the door" (spec §5) — flipped true only once the
+    // invite-accept flow exists.
+    canLogin: boolean('can_login').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // The structural guarantee this whole table exists for — see module
+    // comment above. Global across every user and both kinds.
+    uniqueIndex('idx_user_emails_email').on(t.email),
+    // One WORK + one PERSONAL row per user. Also the index `upsertWorkEmail`'s
+    // find-by-(userId,kind) lookup rides on.
+    uniqueIndex('idx_user_emails_user_kind').on(t.userId, t.kind),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Teams
 // ---------------------------------------------------------------------------
 
