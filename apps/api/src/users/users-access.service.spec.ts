@@ -77,6 +77,10 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).not.toContain('audit')
     expect(p.tabs).toHaveLength(7)
+    // §4.4 (SR-M-4, mutation-gate closure PR #623): personalContact is its
+    // OWN flag, separate from realContacts — ADMIN viewing another user is
+    // one of the two viewers ever allowed to see personalEmail.
+    expect(p.fields.personalContact).toBe(true)
   })
 
   it('ADMIN viewing SENIOR has 8 tabs — contract + resume, interviews moved to header link, no audit', async () => {
@@ -132,6 +136,9 @@ describe('UsersAccessService.getViewPermissions', () => {
     // Contract is surfaced: (a) ADMIN viewing another user, or (b) DROP self-view
     // (UT finding 3a: DROP has a signed employee_contract). SENIOR self = neither case.
     expect(p.tabs).not.toContain('contract')
+    // §4.4 (SR-M-4, mutation-gate closure PR #623): self is the OTHER of the
+    // two viewers ever allowed to see their own personalEmail.
+    expect(p.fields.personalContact).toBe(true)
   })
 
   it('SELF — HR sees own tabs without contract (contract only for ADMIN-viewing-others and DROP self)', async () => {

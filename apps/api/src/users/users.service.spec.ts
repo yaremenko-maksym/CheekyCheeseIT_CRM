@@ -232,6 +232,54 @@ describe('UsersService.findById', () => {
   })
 })
 
+// mutation-gate closure (PR #623, no-coverage bucket): `findLoginableUserByEmail`
+// had ZERO unit coverage — `auth.controller.spec.ts` mocks it outright (see the
+// comment there), and the real implementation was exercised only by
+// `auth.one-tap.integration.spec.ts` / `auth.oauth-callback.integration.spec.ts`
+// (DATABASE_URL-gated, invisible to the mutation gate — see
+// `.claude/rules/common/mutation-gate-integration-specs.md`). This is the login
+// gate itself (SR-H-1) — worth a unit double alongside the integration proof,
+// not just accepting the gap.
+describe('UsersService.findLoginableUserByEmail (§4.4/§5 — login-address resolution)', () => {
+  it('folds the query email to lowercase and gates on canLogin=true (matches the case-folded unique index, SR-H-1)', async () => {
+    const target = makeJunior({ id: 'target-1' })
+    const db = makeDb({ existingUser: target, createdUser: target })
+    const service = makeUsersService(db)
+    ;(db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      userId: target.id,
+      canLogin: true,
+    })
+
+    const result = await service.findLoginableUserByEmail('Target@Example.com')
+
+    const findFirstMock = db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>
+    const whereArg = (findFirstMock.mock.calls[0]?.[0] as { where?: unknown } | undefined)?.where
+    expect(whereArg, 'expected a where clause').toBeDefined()
+    const compiled = new PgDialect().sqlToQuery(whereArg as Parameters<PgDialect['sqlToQuery']>[0])
+    expect(compiled.params).toContain('target@example.com')
+    expect(compiled.params).not.toContain('Target@Example.com')
+    expect(compiled.params).toContain(true)
+
+    expect(result?.id).toBe(target.id)
+  })
+
+  it('returns undefined without resolving a session when no matching row exists (unrecognized and unverified-personal-address look identical)', async () => {
+    const db = makeDb({ existingUser: undefined })
+    const service = makeUsersService(db)
+    // default mock: findFirst resolves undefined
+
+    const result = await service.findLoginableUserByEmail('nobody@example.com')
+
+    expect(result).toBeUndefined()
+    // A mutated `if (!row) return undefined` that always/never short-circuits
+    // would either skip findById's select entirely (fine here, `select` is
+    // never called on the "not found" path — this assertion only strengthens
+    // that) or reach it despite no row — the value assertion above already
+    // catches the latter.
+    expect(db.db.select as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+  })
+})
+
 // ---------------------------------------------------------------------------
 // findAll — legalFullName PII exclusion (security AC, list projection)
 // ---------------------------------------------------------------------------
@@ -1307,20 +1355,20 @@ describe('UsersService.adminUpdateUser', () => {
     // UPDATE-vs-INSERT branch check above already passes under that
     // mutant) — only the PAYLOAD is empty. `.update()` is a single shared
     // mock across BOTH this update (userEmails) and the main user-row
-    // update, and the main update's own `set` object also carries `email`
-    // (it has many more fields besides) — so the 2-key shape is what
-    // distinguishes upsertWorkEmail's own call from the main one, and is
-    // exactly what a `{}` mutant collapses to 0 keys.
+    // update (`updateUserRow`), so a naive "find a 2-key call" check is NOT
+    // enough to isolate upsertWorkEmail's own call: for THIS minimal
+    // payload (`{ email }` only), `updateUserRow`'s own `set` ALSO ends up
+    // exactly `{ email, updatedAt }` — 2 keys, same shape, same values
+    // (confirmed by reading `updateUserRow`: every other field is `if
+    // (data.X !== undefined)`-gated and `data` here carries only `email`).
+    // What's fixed is the ORDER, not the shape: `adminUpdateUser` calls
+    // `updateUserRow` (the main table) BEFORE `upsertWorkEmail` — see the
+    // tx body — so `.set()`'s SECOND call is unambiguously upsertWorkEmail's,
+    // regardless of what the first one happens to look like this run.
     const setMock = (updateMock.mock.results[0]?.value as { set: ReturnType<typeof vi.fn> }).set
-    const workEmailSetCall = setMock.mock.calls.find((c) => {
-      const arg = c[0] as Record<string, unknown>
-      return Object.keys(arg).length === 2 && arg['email'] === 'new@example.com'
-    })
-    expect(
-      workEmailSetCall,
-      'expected a .set({ email, updatedAt }) call (2 keys) — a {} mutant leaves no such call',
-    ).toBeDefined()
-    expect(workEmailSetCall![0]).toHaveProperty('updatedAt')
+    expect(setMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+    const workEmailSetArg = setMock.mock.calls[1]?.[0] as Record<string, unknown>
+    expect(workEmailSetArg).toEqual({ email: 'new@example.com', updatedAt: expect.any(Date) })
   })
 
   // SR-M-3 (security-review PR #623, MED): `assertEmailAvailable`'s

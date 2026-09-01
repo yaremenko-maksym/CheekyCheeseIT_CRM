@@ -704,7 +704,19 @@ export function UserDialog(props: UserDialogProps) {
 
         const payload: CreateUserDto = {
           email: value.email.trim(),
-          // §4.4 — optional, ADMIN-entered at creation only.
+          // §4.4 — optional, ADMIN-entered at creation only. Both `.trim()`
+          // calls are defensive-only for `type="email"`: the HTML value
+          // sanitization algorithm for the email state (WHATWG HTML §4.10.5.1.4)
+          // strips leading/trailing whitespace before `onChange` ever sees the
+          // value — confirmed empirically in jsdom, and it is spec behavior,
+          // not a jsdom quirk, so real browsers behave the same. No typed
+          // input can make `value.personalEmail` differ from its own
+          // `.trim()`, so no interaction test can distinguish either call
+          // being dropped. Kept for the same reason `email.trim()` above is
+          // kept: defense if this value is ever populated from something
+          // other than typing into this input (e.g. a future paste-from-
+          // clipboard-object path, or a programmatic `setFieldValue`).
+          // Stryker disable next-line MethodExpression: see the paragraph above — unreachable via any typed input on a type="email" field
           ...(value.personalEmail.trim() && { personalEmail: value.personalEmail.trim() }),
           displayName: value.displayName.trim(),
           role: value.role,
@@ -1093,12 +1105,27 @@ export function UserDialog(props: UserDialogProps) {
                       // closure, PR #623: three survived mutants at a guard that
                       // provably cannot change behavior for THIS field).
                       onBlur: ({ value, fieldApi }) => {
+                        // `.trim()` here (and on `getFieldValue('email')`
+                        // below) is defensive-only, same reasoning as the
+                        // submit payload builder above: both source inputs
+                        // are `type="email"`, whose HTML value-sanitization
+                        // algorithm already strips leading/trailing
+                        // whitespace before any typed value reaches this
+                        // code — verified empirically in jsdom, and it is
+                        // spec behavior (WHATWG HTML §4.10.5.1.4), not a
+                        // jsdom-only quirk.
+                        // Stryker disable next-line MethodExpression: unreachable via any typed input on a type="email" field — see the paragraph above
                         const trimmed = value.trim()
                         if (!trimmed) return undefined
                         const r = z.string().email('Некорректный email').safeParse(trimmed)
+                        // zod's SafeParseError.error.issues is never empty on a
+                        // failed parse (verified: packages/shared, `zod`'s own
+                        // contract) — `issues[0]` cannot be undefined here.
+                        // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
                         if (!r.success) return r.error.issues[0]?.message
                         if (
                           trimmed.toLowerCase() ===
+                          // Stryker disable next-line MethodExpression: `email` is also type="email" — same unreachable-via-typing reasoning as this validator's own `trimmed` above
                           fieldApi.form.getFieldValue('email').trim().toLowerCase()
                         ) {
                           return 'Личный email должен отличаться от рабочего'

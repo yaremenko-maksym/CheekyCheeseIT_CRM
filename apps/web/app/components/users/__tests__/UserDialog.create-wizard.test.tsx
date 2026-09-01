@@ -673,7 +673,16 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     expect(input.className).not.toContain('border-destructive')
   })
 
-  it('forwards a padded personalEmail to POST /api/users trimmed, with no inline error', async () => {
+  // Note on intent: this types a padded value on purpose, but the padding
+  // itself is NOT what's being pinned — a `type="email"` input's own HTML
+  // value-sanitization strips leading/trailing whitespace before `onChange`
+  // ever sees it (verified in jsdom; WHATWG HTML §4.10.5.1.4, not a jsdom
+  // quirk), so no typed input can exercise the `.trim()` calls in
+  // UserDialog.tsx differently with vs. without them — those are suppressed
+  // at the source with that reasoning. What THIS test still pins for real:
+  // a personalEmail typed alongside real spacebar keystrokes round-trips to
+  // the POST body correctly and raises no false-positive inline error.
+  it('forwards a personalEmail typed with surrounding spaces to POST /api/users, with no inline error', async () => {
     const user = userEvent.setup()
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
 
