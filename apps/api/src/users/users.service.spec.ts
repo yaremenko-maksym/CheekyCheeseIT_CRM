@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException, NotFoundException } from '@nestj
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
+import { userEmails } from '../database/schema'
 import type { AuditLogService } from './audit-log.service'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
@@ -516,6 +517,148 @@ describe('UsersService.createUser — JUNIOR', () => {
 })
 
 // ---------------------------------------------------------------------------
+// createUser — user_emails writes (§4.4, task-user-emails-dual-login)
+//
+// Mutation-gate finding: the earlier tests above only assert insert CALL
+// COUnt, never call CONTENT — a mutant that empties the values object, flips
+// `kind`/`canLogin`, or inverts the `if (data.personalEmail)` guards passed
+// every existing test silently. These assert on the actual payload and on
+// distinguishing behavior between "personalEmail given" / "omitted".
+// ---------------------------------------------------------------------------
+
+describe('UsersService.createUser — user_emails writes (§4.4)', () => {
+  it('inserts a login-enabled WORK row with the correct shape', async () => {
+    const junior = makeJunior({ id: 'junior-1', email: 'junior@example.com' })
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      email: junior.email,
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
+    })
+
+    const insertValuesMock = (db.db.insert as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.values as ReturnType<typeof vi.fn>
+    expect(insertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: junior.id,
+        email: junior.email,
+        kind: 'WORK',
+        canLogin: true,
+      }),
+    )
+  })
+
+  it('omitted personalEmail — exactly one user_emails conflict-check, no PERSONAL insert', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      email: junior.email,
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
+    })
+
+    // Only the work-email pre-check ran — a mutated `if (data.personalEmail)`
+    // that always takes the truthy branch would call this a second time
+    // (querying availability for `undefined`).
+    expect(db.db.query.userEmails.findFirst).toHaveBeenCalledTimes(1)
+
+    const insertValuesMock = (db.db.insert as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.values as ReturnType<typeof vi.fn>
+    expect(insertValuesMock).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'PERSONAL' }))
+  })
+
+  it('provided personalEmail — both pre-checks run, and a PERSONAL row is inserted', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      email: junior.email,
+      personalEmail: 'personal@example.com',
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
+    })
+
+    // work-email check + personal-email check — a mutated guard that skips
+    // either would leave this at 1.
+    expect(db.db.query.userEmails.findFirst).toHaveBeenCalledTimes(2)
+
+    const insertValuesMock = (db.db.insert as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.values as ReturnType<typeof vi.fn>
+    expect(insertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: junior.id,
+        email: 'personal@example.com',
+        kind: 'PERSONAL',
+      }),
+    )
+  })
+
+  it('rejects with ConflictException when the email collides with an existing user_emails row on another user', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+    // §4.4: the row-level check is separate from the users.email check
+    // (`existingUser` above stays undefined) — this simulates a collision
+    // with someone else's PERSONAL address, which users.email alone can
+    // never see. The mock only returns the conflict when a real predicate
+    // was passed (`args?.where`), so a mutant that empties the query's
+    // `where` argument is also caught — with the argument gone the mock
+    // falls back to "not found" and the throw this test expects would not
+    // happen, failing the assertion under that mutant too.
+    ;(db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      (args: { where?: unknown }) =>
+        args?.where
+          ? Promise.resolve({ id: 'row-1', userId: 'someone-else', email: junior.email })
+          : Promise.resolve(undefined),
+    )
+
+    await expect(
+      service.createUser({
+        email: junior.email,
+        displayName: junior.displayName,
+        role: 'JUNIOR',
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
+      }),
+    ).rejects.toThrow('User with this email already exists')
+
+    // No half-created account — the rejection happens before any insert.
+    expect(db.db.insert).not.toHaveBeenCalled()
+
+    // Companion half, same test (Stryker's coverage analysis attributes
+    // this file's assertEmailAvailable mutants to THIS test specifically —
+    // see the comment above `mockImplementationOnce`): a mutated
+    // `if (existing && …)` guard that always throws (`if (true)`) would
+    // reject this SECOND, genuinely-no-conflict call too. The default mock
+    // (configured in makeDb, not overridden here) resolves `undefined`, so
+    // this call must succeed.
+    const other = makeJunior({ id: 'junior-2', email: 'no-conflict@example.com' })
+    const cleanDb = makeDb({ existingUser: undefined, createdUser: other })
+    const cleanService = makeUsersService(cleanDb)
+    await expect(
+      cleanService.createUser({
+        email: other.email,
+        displayName: other.displayName,
+        role: 'JUNIOR',
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
+      }),
+    ).resolves.toMatchObject({ id: other.id })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // createUser — SENIOR auto-creates team
 // ---------------------------------------------------------------------------
 
@@ -1002,6 +1145,90 @@ describe('UsersService.adminUpdateUser', () => {
     const setArg = setCalls[0]?.[0] as Record<string, unknown>
     expect(setArg).not.toHaveProperty('registrationAddress')
   })
+
+  // §4.4 (task-user-emails-dual-login): the WORK row in user_emails must
+  // stay in sync with users.email, or login for that user silently breaks
+  // (findLoginableUserByEmail reads user_emails, not users.email).
+  it('email change triggers the user_emails WORK-row sync', async () => {
+    const existing = makeUser({ id: 'user-1', email: 'old@example.com' })
+    const updated = makeUser({ id: 'user-1', email: 'new@example.com' })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    await service.adminUpdateUser('user-1', { email: 'new@example.com' })
+
+    // 2 calls: assertEmailAvailable's pre-check (before the tx) +
+    // upsertWorkEmail's find-existing-WORK-row lookup (inside the tx). A
+    // mutated `data.email !== existing.email` guard that always skips the
+    // sync would leave this at 1.
+    expect(db.db.query.userEmails.findFirst).toHaveBeenCalledTimes(2)
+
+    // No existing WORK row was found (default mock) → upsertWorkEmail takes
+    // the INSERT branch. Assert its exact shape — a mutant that empties the
+    // values object, or flips kind/canLogin, would leave this looking like
+    // any other insert call.
+    const insertValuesMock = (db.db.insert as ReturnType<typeof vi.fn>).mock.results.at(-1)?.value
+      ?.values as ReturnType<typeof vi.fn>
+    expect(insertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        email: 'new@example.com',
+        kind: 'WORK',
+        canLogin: true,
+      }),
+    )
+  })
+
+  it('does NOT touch user_emails when email is unchanged', async () => {
+    const existing = makeUser({ id: 'user-1', email: 'same@example.com' })
+    const updated = makeUser({ id: 'user-1', email: 'same@example.com' })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    await service.adminUpdateUser('user-1', { displayName: 'Just a name change' })
+
+    expect(db.db.query.userEmails.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('resubmitting the SAME email value (present in the payload, unchanged) does not touch user_emails either', async () => {
+    // Distinct from the test above: here `email` IS present in the payload
+    // (`data.email !== undefined` is true) but equals the current value — a
+    // mutated `data.email !== existing.email` that is forced to always-true
+    // would still fire the sync for this resubmit; the correct code must not.
+    const existing = makeUser({ id: 'user-1', email: 'same@example.com' })
+    const updated = makeUser({ id: 'user-1', email: 'same@example.com' })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    await service.adminUpdateUser('user-1', { email: 'same@example.com', displayName: 'Resave' })
+
+    expect(db.db.query.userEmails.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('email change UPDATES the existing WORK row when one is already on file (not a duplicate insert)', async () => {
+    const existing = makeUser({ id: 'user-1', email: 'old@example.com' })
+    const updated = makeUser({ id: 'user-1', email: 'new@example.com' })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    // upsertWorkEmail's own lookup (the 2nd findFirst call — the 1st is
+    // assertEmailAvailable's pre-check) finds an existing WORK row, so it
+    // must take the UPDATE branch, not INSERT a second one.
+    ;(db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(undefined) // assertEmailAvailable: no conflict
+      .mockResolvedValueOnce({ id: 'row-1', userId: 'user-1', kind: 'WORK' }) // upsertWorkEmail: found
+    const service = makeUsersService(db)
+
+    await service.adminUpdateUser('user-1', { email: 'new@example.com' })
+
+    // A found existing WORK row must route through UPDATE, not INSERT — a
+    // mutated `if (existing)` guard that always takes the else-branch would
+    // insert a duplicate row instead (and never call .update(userEmails)).
+    const updateMock = db.db.update as ReturnType<typeof vi.fn>
+    expect(updateMock).toHaveBeenCalledWith(userEmails)
+
+    const insertMock = db.db.insert as ReturnType<typeof vi.fn>
+    const userEmailsInsertCalls = insertMock.mock.calls.filter((c) => c[0] === userEmails)
+    expect(userEmailsInsertCalls).toHaveLength(0)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1444,10 +1671,18 @@ describe('UsersService.buildProfileView — ForbiddenException on empty tabs', (
 // ---------------------------------------------------------------------------
 
 describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)', () => {
-  /** Reuse the same factory pattern as the legalFullName block above. */
+  /**
+   * Reuse the same factory pattern as the legalFullName block above.
+   * `personalEmailRow` — §4.4: what `db.query.userEmails.findFirst` returns
+   * for the target's PERSONAL row. `undefined` (default) = none on file.
+   * Only returned when a real `where` predicate was passed — a mutant that
+   * empties that argument falls back to "not found" here too, so it cannot
+   * hide behind a mock that ignores its own input.
+   */
   function makeServicePii(
     target: ReturnType<typeof makeUser>,
     permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
+    personalEmailRow?: { email: string },
   ): UsersService {
     const db = {
       db: {
@@ -1458,7 +1693,17 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
         update: vi.fn(),
         delete: vi.fn(),
         // §4.4: buildProfileView's personalEmail lookup.
-        query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
+        query: {
+          userEmails: {
+            findFirst: vi
+              .fn()
+              .mockImplementation((args: { where?: unknown }) =>
+                args?.where && personalEmailRow
+                  ? Promise.resolve(personalEmailRow)
+                  : Promise.resolve(undefined),
+              ),
+          },
+        },
       },
     } as unknown as DrizzleDb
 
@@ -1696,6 +1941,47 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     const result = await service.buildProfileView(viewer as never, 'senior-self')
     expect((result.user as Record<string, unknown>).adminNote).toBeNull()
     expect((result.user as Record<string, unknown>).registrationAddress).toBe('Lviv, Rynok sq 1')
+  })
+
+  // §4.4 (task-user-emails-dual-login): personalEmail follows the SAME
+  // realContacts gate as email/phone/telegram above, but lives in a
+  // separate table — its own dedicated coverage.
+  describe('personalEmail (§4.4)', () => {
+    const fullAccessPermissions = {
+      tabs: ['overview'],
+      actions: [],
+      fields: { realContacts: true },
+    }
+
+    it('returns the PERSONAL row email when the viewer has contact access and one exists', async () => {
+      const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+      const service = makeServicePii(seniorTarget, fullAccessPermissions, {
+        email: 'personal@example.com',
+      })
+      const result = await service.buildProfileView(viewer as never, 'senior-target')
+      expect((result.user as Record<string, unknown>).personalEmail).toBe('personal@example.com')
+    })
+
+    it('is null when no PERSONAL row exists, even with full contact access', async () => {
+      const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+      const service = makeServicePii(seniorTarget, fullAccessPermissions)
+      const result = await service.buildProfileView(viewer as never, 'senior-target')
+      expect((result.user as Record<string, unknown>).personalEmail).toBeNull()
+    })
+
+    it('is null when the viewer lacks contact access, even though a PERSONAL row exists', async () => {
+      const viewer = makeJunior({ id: 'junior-viewer' })
+      const noContactsPermissions = {
+        tabs: ['overview'],
+        actions: [],
+        fields: { realContacts: false },
+      }
+      const service = makeServicePii(seniorTarget, noContactsPermissions, {
+        email: 'personal@example.com',
+      })
+      const result = await service.buildProfileView(viewer as never, 'senior-target')
+      expect((result.user as Record<string, unknown>).personalEmail).toBeNull()
+    })
   })
 })
 

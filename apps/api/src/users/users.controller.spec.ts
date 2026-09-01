@@ -165,3 +165,73 @@ describe('UsersController.getUserTeam — RBAC guard', () => {
     expect(accessService.getViewPermissions).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------------------
+// createUser — personalEmail forwarding (§4.4, task-user-emails-dual-login)
+//
+// Mirrors the SAME HR-narrowing posture already applied to legalFullName /
+// wallet*/bankUah* just above this field in the controller: an HR actor's
+// provisioning surface is deliberately narrow (seniorSharePercent only),
+// so personalEmail — PII the invite flow will email — is forced server-
+// side regardless of what the request body contains.
+// ---------------------------------------------------------------------------
+
+describe('UsersController.createUser — personalEmail (§4.4)', () => {
+  function makeCreateUserController(): {
+    controller: UsersController
+    usersService: { createUser: ReturnType<typeof vi.fn> }
+  } {
+    const usersService = { createUser: vi.fn().mockResolvedValue({ id: 'new-user' }) }
+    const controller = new UsersController(
+      usersService as never,
+      { list: vi.fn() } as never,
+      {} as never,
+      undefined,
+    )
+    return { controller, usersService }
+  }
+
+  const seniorBody = {
+    email: 'senior@test.com',
+    personalEmail: 'personal@test.com',
+    displayName: 'Senior Person',
+    role: 'SENIOR',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0xAbCd1234567890aBcDeF1234567890AbCdEf1234',
+    legalFullName: 'Іваненко Іван Іванович',
+  }
+
+  it('ADMIN actor: personalEmail passes through to UsersService.createUser', async () => {
+    const { controller, usersService } = makeCreateUserController()
+    const admin = makeUser({ id: 'admin-1', role: 'ADMIN' })
+
+    await controller.createUser(session(admin), seniorBody)
+
+    expect(usersService.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ personalEmail: 'personal@test.com' }),
+    )
+  })
+
+  it('HR actor: personalEmail is forced to null regardless of the request body', async () => {
+    const { controller, usersService } = makeCreateUserController()
+    const hr = makeUser({ id: 'hr-1', role: 'HR' })
+
+    await controller.createUser(session(hr), seniorBody)
+
+    expect(usersService.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ personalEmail: null }),
+    )
+  })
+
+  it('ADMIN actor: omitted personalEmail forwards null (not undefined)', async () => {
+    const { controller, usersService } = makeCreateUserController()
+    const admin = makeUser({ id: 'admin-1', role: 'ADMIN' })
+    const { personalEmail: _omit, ...bodyWithoutPersonalEmail } = seniorBody
+
+    await controller.createUser(session(admin), bodyWithoutPersonalEmail)
+
+    expect(usersService.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ personalEmail: null }),
+    )
+  })
+})

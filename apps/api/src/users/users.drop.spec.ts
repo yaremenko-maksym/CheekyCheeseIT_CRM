@@ -312,6 +312,31 @@ describe('UsersService.createDrop — validation/RBAC', () => {
     expect(insertedRow.legalFullName).toBe('Дропенко Дроп Дропович')
     expect(insertedRow).not.toHaveProperty('registrationAddress')
   })
+
+  // §4.4 (task-user-emails-dual-login): the WORK row is what login actually
+  // reads (findLoginableUserByEmail) — without a correctly-shaped insert
+  // here a newly-created drop could never sign in.
+  it('inserts a login-enabled WORK row into user_emails alongside the drop user', async () => {
+    const { service, insertValuesSpy } = makeService()
+    await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        accountantId: 'acc-1',
+      },
+      adminUser,
+    )
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'drop-new', // createdUser.id from the shared fixture in makeService()
+        kind: 'WORK',
+        canLogin: true,
+      }),
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

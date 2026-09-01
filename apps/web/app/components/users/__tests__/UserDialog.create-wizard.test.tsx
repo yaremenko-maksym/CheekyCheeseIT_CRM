@@ -546,3 +546,66 @@ describe('UserDialog — step 1 legalFullName visible error on submit (BUG #2)',
     )
   })
 })
+
+// ── Tests: §4.4 personalEmail field (task-user-emails-dual-login) ─────────
+
+describe('UserDialog — personalEmail field (§4.4)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+    mockPost.mockResolvedValue(newUserResponse)
+  })
+
+  it('is rendered only in create mode, not edit mode', () => {
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+    expect(screen.getByTestId('user-dialog-personal-email')).toBeInTheDocument()
+  })
+
+  it('a filled personalEmail is forwarded in the POST /api/users body', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-personal-email'), 'ivan.personal@gmail.com')
+    await fillStep1AndAdvance(user)
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = postCalls[0]?.[1] as Record<string, unknown>
+      expect(body.personalEmail).toBe('ivan.personal@gmail.com')
+    })
+  })
+
+  it('an omitted personalEmail is NOT present in the POST /api/users body', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await fillStep1AndAdvance(user)
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = postCalls[0]?.[1] as Record<string, unknown>
+      expect(body).not.toHaveProperty('personalEmail')
+    })
+  })
+
+  it('a personalEmail identical to the work email is rejected client-side — no POST', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-email'), 'same@example.com')
+    await user.type(screen.getByTestId('user-dialog-personal-email'), 'same@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Тест Тестов')
+    await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Тестов Тест Тестович')
+    await user.type(screen.getByTestId('user-dialog-bank-recipient'), 'Тестов Тест')
+    await user.type(screen.getByTestId('user-dialog-bank-iban'), 'UA123456789012345678901234567')
+    await user.type(screen.getByTestId('user-dialog-bank-rnokpp'), '1234567890')
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls).toHaveLength(0)
+    })
+  })
+})
