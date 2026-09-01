@@ -646,7 +646,20 @@ jobs:
             # so listing it here now is a no-op today and self-activates the
             # moment #528 merges — no follow-up PR needed, no window where the
             # spec lands on main unsharded.
-            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts
+            #
+            # tests/notifications-popup-overflow.spec.ts (2026-08-30 cascade
+            # session, PR #620): the notifications bell lives in the app
+            # shell's header, same surface as tests/app-shell-responsive.spec.ts
+            # and tests/navigation.spec.ts already here, and it uses the same
+            # mocked-auth pattern (`asSenior` fixture, page.route only — no
+            # live backend). Timing checked, not assumed: across 3 recent main
+            # runs (gh run 33484908253/33337808785/33318723590) auth-nav
+            # already runs ~2:04-2:18, the second-shortest of the 8 shards
+            # (only drop-lifecycle, ~1:30-1:56, is shorter) against misc's
+            # ~5:26-5:53 critical path — one extra single-test, route-mocked
+            # spec here has no realistic way to move that gap, so content fit
+            # won over chasing the marginally shorter shard.
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts
           - name: team-users
             files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/rbac-junior-on-other.spec.ts
           - name: projects

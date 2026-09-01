@@ -179,6 +179,82 @@ Changed lines no test ever reaches. Reported loudly, does **not** fail the build
 a coverage threshold on changed lines is a separate task, and this one refuses to
 smuggle it in. Set `MUTATION_NO_COVERAGE_IS_RED=1` when that task lands.
 
+### `nothing to mutate: N changed line(s) contain no mutable code` (green, not a warning)
+
+**What it means:** the changed lines exist and Stryker instrumented them, but
+found zero mutants there — a diff that only touches class names, comments, or
+other non-mutable text. Printed as its own report section
+(`#### Nothing to mutate`), by package name, and it never affects the exit
+code: a package that lands here already contributed nothing to the totals.
+
+**Why this needed a fix, not just a message:** Stryker itself never writes a
+JSON report for a run that generates zero mutants —
+`MutationTestExecutor.execute()` short-circuits before `reportAll()` runs
+whenever its own initial dry run finds no tests to execute AND `allowEmpty` is
+set (this gate always sets it), and with zero mutants there is, correctly,
+nothing for that dry run to relate tests to. Before this fix, `mutation-gate.mjs`
+read "no report" as one thing only — a tool failure — and failed the build
+(exit 2) with "Stryker produced no report ... nothing was verified", on a diff
+that had no logic in it to verify in the first place.
+
+**Reproduced live, 2026-09-01, PR #620** (a two-line Tailwind-class-only diff to
+`apps/web/app/components/layout/notifications-bell.tsx`):
+
+```
+INFO Instrumenter Instrumented 1 source file(s) with 0 mutant(s)
+INFO DryRunExecutor No tests were found
+INFO MutationTestExecutor Done in 4 seconds.
+
+::error::mutation-gate: Stryker produced no report for @crm/web (exit 0).
+The run did not complete, so nothing was verified. Full output above.
+```
+
+— gate exit 2, on a diff whose only content was `overflow-x-hidden` and
+`wrap-anywhere` class names. After the fix, the identical diff:
+
+```
+mutation-gate: @crm/web — nothing to mutate: Stryker instrumented the
+changed line(s) and generated 0 mutants. [...] This is NOT a tool failure.
+mutation-gate: PASS
+```
+
+**The trap this had to avoid:** the exact same "no report" shape is also what
+the already-documented tool failure above (`mutant NOT VERIFIED`) produces on
+code that DOES have real mutants — Stryker's dry run can fail to find related
+tests regardless of whether there was anything to mutate. "No report + clean
+exit" is therefore not, by itself, proof of a legitimate zero. The fix reads
+one more fact, logged by the instrumenter UNCONDITIONALLY and BEFORE the dry
+run ever runs: its own count of mutants generated
+(`Instrumented %d source file(s) with %d mutant(s)`, `@stryker-mutator/
+instrumenter`). Only an EXACT zero there, together with Stryker's own clean
+exit code, is read as "legitimately nothing to mutate" — a nonzero count, a
+missing line, or a nonzero exit all still fail exactly as before this fix
+(`parseInstrumentedMutantCount()` in `mutation-gate.mjs`).
+
+**Mixed diffs (one file with mutants, one without, same package):** this path
+is never even reached — Stryker's instrumented-count line covers the WHOLE
+package run, not one file at a time, so a diff touching both a CSS-only file
+and a file with real logic reports a nonzero total, a report gets written
+normally, and the CSS-only file simply contributes no entries to it (nothing
+to report for lines with no mutable AST). Verified live, same session: the
+`notifications-bell.tsx` CSS-only change (0 mutants) plus `JobSuggestionDialog
+.tsx`'s defence block (the same 5-mutant scope arm 1 of the vacuum proof
+above uses) in one `MUTATION_ONLY_FILES`-scoped run —
+`Instrumented 2 source file(s) with 5 mutant(s)` (nonzero total), a report was
+written, and it named exactly the ONE real survivor in
+`JobSuggestionDialog.tsx` (`img: () => null` → `() => undefined`, the same
+documented equivalent-mutant case as the module header's `Ignored` example) —
+`notifications-bell.tsx` appears nowhere in the report at all, not even as a
+zero row. The zero-mutant bypass above did not fire, because it does not need
+to: a nonzero total already takes the ordinary path.
+
+**How this is different from `no mutable source lines changed vs the base`**
+(printed earlier, before Stryker even runs): that one means the diff touched
+NO file the gate would mutate at all — nothing to hand Stryker in the first
+place. This one means a file WAS handed to Stryker, and Stryker itself found
+nothing mutable inside the lines it was given. Different fact, deliberately
+different wording.
+
 ### `the test suite itself is red BEFORE any mutation is applied`
 
 Not a survivor. Stryker refuses to start when the unmutated suite fails, so a
