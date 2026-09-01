@@ -177,6 +177,70 @@ describe.skipIf(!hasDatabaseUrl())('ApprovalsService — against real Postgres',
   })
 
   // ---------------------------------------------------------------------------
+  // CR-H-1 (code-review, PR #624) — two approvers rejecting the SAME subject
+  // at the same moment must not deadlock. Before the lock-order fix,
+  // reject() locked its OWN row first and only then cascade-locked every
+  // sibling — two concurrent reject() calls from different approvers of the
+  // same subject acquired those two locks in OPPOSITE order (an ABBA
+  // inversion), which the reviewer reproduced as a real Postgres deadlock
+  // (40P01) against a scratch DB. `lockLiveRows`'s `ORDER BY id FOR UPDATE`
+  // makes both callers acquire locks in the SAME order, so the race now has
+  // a well-defined outcome instead of a coin-flip chance of a raw 500.
+  // ---------------------------------------------------------------------------
+  it('two approvers rejecting the same subject at the same time never deadlocks — one wins, the other finds its row already superseded', async () => {
+    const subjectId = freshSubjectId()
+    await svc.propose({
+      subjectType: SUBJECT_TYPE,
+      subjectId,
+      approverUserIds: [SENIOR_ID, DROP_ID],
+      proposedByUserId: ADMIN_ID,
+    })
+
+    const results = await Promise.allSettled([
+      svc.reject({
+        subjectType: SUBJECT_TYPE,
+        subjectId,
+        approverUserId: SENIOR_ID,
+        reason: 'Senior отказывается',
+      }),
+      svc.reject({
+        subjectType: SUBJECT_TYPE,
+        subjectId,
+        approverUserId: DROP_ID,
+        reason: 'Drop отказывается',
+      }),
+    ])
+
+    // Neither settled outcome may be a raw driver error — a deadlock would
+    // surface as SQLSTATE 40P01, not as either of the service's own
+    // controlled exceptions. Exactly one side commits its rejection; the
+    // other's row was superseded by the first side's cascade before it
+    // acquired the lock, so it sees "already gone" — a legitimate
+    // NotFoundException, not a crash.
+    const fulfilled = results.filter(
+      (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof svc.reject>>> =>
+        r.status === 'fulfilled',
+    )
+    const settledRejections = results.filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected',
+    )
+
+    expect(fulfilled).toHaveLength(1)
+    expect(fulfilled[0]?.value.status).toBe('REJECTED')
+
+    expect(settledRejections).toHaveLength(1)
+    expect(settledRejections[0]?.reason).toBeInstanceOf(NotFoundException)
+    expect((settledRejections[0]?.reason as Error).message).toBe(
+      'Согласование не найдено или уже погашено',
+    )
+
+    // The subject as a whole IS rejected either way (decision #5) — WHICH
+    // approver "won" the race is not observable from outside, only that the
+    // outcome is well-defined and race-free.
+    expect(await svc.getStatus(SUBJECT_TYPE, subjectId)).toBe('REJECTED')
+  })
+
+  // ---------------------------------------------------------------------------
   // Proof 3 — re-proposal never rewrites old rows; both attempts stay visible
   // ---------------------------------------------------------------------------
   it('re-proposing after a rejection supersedes the old generation and keeps its history intact', async () => {

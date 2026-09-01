@@ -64,6 +64,22 @@ function makeSelectForUpdateChain(row: unknown | null) {
 }
 
 /**
+ * `lockLiveRows`'s chain shape (CR-H-1 fix) — `.select().from().where()
+ * .orderBy().for('update')`, resolving to ALL live rows for the subject in
+ * one call, unlike `makeSelectForUpdateChain`'s single-row `.limit(1)`
+ * shape (still used by `loadLiveRowForUpdate`/approve()).
+ */
+function makeSelectAllForUpdateChain(rows: unknown[]) {
+  const chain = {
+    from: vi.fn(() => chain),
+    where: vi.fn(() => chain),
+    orderBy: vi.fn(() => chain),
+    for: vi.fn().mockResolvedValue(rows),
+  }
+  return chain
+}
+
+/**
  * `.where(...)` must be BOTH directly awaitable (the sibling-supersede
  * cascade never calls `.returning()`) AND further chainable to
  * `.returning()` (the row-level update does) — same duality
@@ -185,7 +201,16 @@ describe('ApprovalsService.propose', () => {
       makeRow({ id: 'b1000000-0000-4000-a000-000000000103', approverUserId: DROP_ID }),
     ])
     const { values: valuesFn } = insertChain
-    const txHandle = { update: vi.fn(() => supersedeChain), insert: vi.fn(() => insertChain) }
+    // CR-H-1 (code-review, PR #624): supersedeLiveRows now locks the live
+    // rows (a SELECT … ORDER BY id FOR UPDATE) BEFORE writing to them —
+    // same deterministic-order-first shape reject() uses. No live rows for
+    // this fresh subject, so the lock query resolves empty.
+    const lockChain = makeSelectAllForUpdateChain([])
+    const txHandle = {
+      select: vi.fn(() => lockChain),
+      update: vi.fn(() => supersedeChain),
+      insert: vi.fn(() => insertChain),
+    }
 
     const service = makeService(txHandle)
     const result = await service.propose({
@@ -195,6 +220,9 @@ describe('ApprovalsService.propose', () => {
       proposedByUserId: ADMIN_ID,
     })
 
+    expect(txHandle.select).toHaveBeenCalledTimes(1)
+    expect(lockChain.orderBy).toHaveBeenCalledTimes(1)
+    expect(lockChain.for).toHaveBeenCalledWith('update')
     expect(txHandle.update).toHaveBeenCalledTimes(1)
     // The supersede update must actually SET supersededAt — not a no-op {}
     // (kills the ObjectLiteral→{} mutant on supersedeLiveRows).
@@ -304,8 +332,46 @@ describe('ApprovalsService.approve', () => {
 // ---------------------------------------------------------------------------
 
 describe('ApprovalsService.reject', () => {
+  it('locates the response by approverUserId, not by array position (kills the find(r=>true) mutant)', async () => {
+    // The FIRST locked row deliberately belongs to a DIFFERENT approver
+    // whose row is already decided — if reject() picked "whatever
+    // lockLiveRows returned first" instead of "the live row matching
+    // input.approverUserId", it would run assertRespondable against THAT
+    // row (APPROVED, not PENDING) and throw ConflictException, even though
+    // the caller's OWN row is still PENDING and perfectly respondable.
+    const otherApproverDecided = makeRow({
+      id: 'b1000000-0000-4000-a000-000000000201',
+      approverUserId: DROP_ID,
+      status: 'APPROVED',
+      decidedAt: new Date('2026-09-01T00:30:00Z'),
+    })
+    const ownPendingRow = makeRow({ id: 'b1000000-0000-4000-a000-000000000202' })
+    const rejectedRow = makeRow({
+      id: 'b1000000-0000-4000-a000-000000000202',
+      status: 'REJECTED',
+      rejectionReason: 'Не согласен',
+      decidedAt: new Date('2026-09-01T03:30:00Z'),
+    })
+    const txHandle = {
+      select: vi.fn(() => makeSelectAllForUpdateChain([otherApproverDecided, ownPendingRow])),
+      update: vi.fn(() => makeUpdateChain([rejectedRow])),
+    }
+    const service = makeService(txHandle)
+
+    const result = await service.reject({
+      subjectType: SUBJECT_TYPE,
+      subjectId: SUBJECT_ID,
+      approverUserId: SENIOR_ID,
+      reason: 'Не согласен',
+    })
+    expect(result.status).toBe('REJECTED')
+  })
+
   it('throws NotFoundException with the exact user-facing message when there is no live row', async () => {
-    const selectChain = makeSelectForUpdateChain(null)
+    // CR-H-1 (code-review, PR #624): reject() now locks EVERY live row for
+    // the subject (lockLiveRows), not just the caller's own — no live rows
+    // at all means .find() cannot locate one for SENIOR_ID either.
+    const selectChain = makeSelectAllForUpdateChain([])
     const txHandle = { select: vi.fn(() => selectChain), update: vi.fn() }
     const service = makeService(txHandle)
 
@@ -320,12 +386,16 @@ describe('ApprovalsService.reject', () => {
     expect(err).toBeInstanceOf(NotFoundException)
     expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
     expect(txHandle.update).not.toHaveBeenCalled()
+    expect(selectChain.orderBy).toHaveBeenCalledTimes(1)
     expect(selectChain.for).toHaveBeenCalledWith('update')
   })
 
   it('throws ConflictException with the exact user-facing message when the row already left PENDING', async () => {
     const decidedRow = makeRow({ status: 'REJECTED', decidedAt: new Date(), rejectionReason: 'x' })
-    const txHandle = { select: vi.fn(() => makeSelectForUpdateChain(decidedRow)), update: vi.fn() }
+    const txHandle = {
+      select: vi.fn(() => makeSelectAllForUpdateChain([decidedRow])),
+      update: vi.fn(),
+    }
     const service = makeService(txHandle)
 
     const err = await catchRejection(() =>
@@ -345,7 +415,7 @@ describe('ApprovalsService.reject', () => {
     const pendingRow = makeRow()
     const emptyUpdateChain = makeUpdateChain([]) // .returning() resolves []
     const txHandle = {
-      select: vi.fn(() => makeSelectForUpdateChain(pendingRow)),
+      select: vi.fn(() => makeSelectAllForUpdateChain([pendingRow])),
       update: vi.fn(() => emptyUpdateChain),
     }
     const service = makeService(txHandle)
@@ -371,7 +441,7 @@ describe('ApprovalsService.reject', () => {
     const cascadeChain = makeUpdateChain([])
     const updateCalls: unknown[] = []
     const txHandle = {
-      select: vi.fn(() => makeSelectForUpdateChain(pendingRow)),
+      select: vi.fn(() => makeSelectAllForUpdateChain([pendingRow])),
       update: vi.fn(() => {
         // First call = the row itself (returning()); second = the cascade
         // (awaited directly, no returning()). A fresh chain each time,
