@@ -873,6 +873,17 @@ export function UserDialog(props: UserDialogProps) {
       form.reset({
         email: editingUser.email,
         // §4.4 — create-only field, always blank on re-seed for Edit mode.
+        // This instance is mounted with `mode="edit"` HARDCODED at its call
+        // site (routes/_authenticated/users/index.tsx renders a SEPARATE
+        // `<UserDialog mode="create" .../>` for creation) — `isCreate` is
+        // therefore always false for the lifetime of this component, the
+        // personalEmail `form.Field` above is gated on `isCreate &&` and so
+        // never renders here, and the only reader of `value.personalEmail`
+        // is the CREATE submit handler's payload builder, which this
+        // instance's onSubmit branch never reaches either. The VALUE here
+        // cannot become observable through any path — kept only because
+        // `form.reset()`'s argument is the full form-values shape.
+        // Stryker disable next-line StringLiteral: see the paragraph above — unobservable in this mode-locked instance
         personalEmail: '',
         displayName: editingUser.displayName,
         role,
@@ -1070,8 +1081,18 @@ export function UserDialog(props: UserDialogProps) {
                   <form.Field
                     name="personalEmail"
                     validators={{
+                      // No `!isDirty` early-return here (unlike the `email` /
+                      // `displayName` fields above, which need one — see their
+                      // ut-8 comments): THIS field's defaultValue is always ''
+                      // (create-only, decision 7 — never pre-filled from an
+                      // edit-mode value the way `email` can be), so "untouched"
+                      // and "trimmed value is empty" are the exact same state.
+                      // The `!trimmed` check two lines down already covers it —
+                      // a separate dirty-gate here would be unreachable-distinct
+                      // complexity, not a second real guard (mutation-gate
+                      // closure, PR #623: three survived mutants at a guard that
+                      // provably cannot change behavior for THIS field).
                       onBlur: ({ value, fieldApi }) => {
-                        if (!fieldApi.state.meta.isDirty) return undefined
                         const trimmed = value.trim()
                         if (!trimmed) return undefined
                         const r = z.string().email('Некорректный email').safeParse(trimmed)
@@ -1087,8 +1108,14 @@ export function UserDialog(props: UserDialogProps) {
                     }}
                   >
                     {(field) => {
-                      const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                      const err = showError ? field.state.meta.errors[0] : undefined
+                      // Same reasoning as the validator's dropped isDirty-gate
+                      // above: `errors` only ever populates via the onBlur
+                      // validator, which cannot run before a blur — so
+                      // `isTouched` is already true in every state where
+                      // `errors[0]` is non-empty. Gating render on
+                      // isTouched/isDirty on top of that can't hide anything
+                      // the validator itself doesn't already gate.
+                      const err = field.state.meta.errors[0]
                       return (
                         <Field
                           label="Личный email (необязательно)"

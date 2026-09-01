@@ -417,6 +417,22 @@ describe('createUserSchema — email / personalEmail length cap (security-review
       : undefined
     expect(issue?.message).toBe('Email не длиннее 255 символов')
   })
+
+  // mutation-gate closure (PR #623): `.email('Некорректный email')` on the
+  // WORK `email` field had no test asserting its message text — the
+  // personalEmail test above (line ~369) only covers the message on THAT
+  // field. StringLiteral survivor on schemas/users.ts:174.
+  it('rejects an invalid work email shape with the standard email message', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'not-an-email',
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'email')
+      : undefined
+    expect(issue?.message).toBe('Некорректный email')
+  })
 })
 
 describe('adminUpdateUserSchema.monthlySalary — floor (security-review MED-1)', () => {

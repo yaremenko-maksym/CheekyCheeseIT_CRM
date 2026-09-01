@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import type * as schema from '../database/schema'
 import { userEmails } from '../database/schema'
 import type { AuditLogService } from './audit-log.service'
@@ -656,6 +657,60 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
       }),
     ).resolves.toMatchObject({ id: other.id })
   })
+
+  // mutation-gate closure (PR #623): `assertEmailAvailable` folds the QUERY
+  // value with `.toLowerCase()` to match the DB-side `lower(...)` the
+  // case-folded unique index (SR-H-1) actually applies — a mutant flipping
+  // that to `.toUpperCase()` still compiles and still runs (every createUser
+  // test exercises this line), but binds the WRONG value. Nothing before this
+  // asserted the actual bound param, only that a `where` was present.
+  it('assertEmailAvailable folds the query email to lowercase, not uppercase (matches the case-folded unique index, SR-H-1)', async () => {
+    const junior = makeJunior({ email: 'Junior@Example.com' })
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      email: junior.email,
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
+    })
+
+    const findFirstMock = db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>
+    const whereArg = (findFirstMock.mock.calls[0]?.[0] as { where?: unknown } | undefined)?.where
+    expect(whereArg, 'expected assertEmailAvailable to pass a where clause').toBeDefined()
+    const compiled = new PgDialect().sqlToQuery(whereArg as Parameters<PgDialect['sqlToQuery']>[0])
+    expect(compiled.params).toContain(junior.email.toLowerCase())
+    expect(compiled.params).not.toContain(junior.email.toUpperCase())
+  })
+
+  // mutation-gate closure (PR #623): the transaction's `if (!createdUser)
+  // throw new Error(...)` guard on the insert result had zero test coverage
+  // — every existing test's mock always returns a row. Defensive code, but
+  // real code: a mutant collapsing the condition to `if (false)` survived
+  // because nothing ever drove the "no row back" branch.
+  it('throws when the users insert comes back with no row (defensive guard on an empty .returning())', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    const insertValuesChain = (
+      db.db.insert as unknown as (table: unknown) => { returning: ReturnType<typeof vi.fn> }
+    )(userEmails)
+    insertValuesChain.returning.mockReset()
+    insertValuesChain.returning.mockResolvedValueOnce([])
+
+    await expect(
+      service.createUser({
+        email: junior.email,
+        displayName: junior.displayName,
+        role: 'JUNIOR',
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
+      }),
+    ).rejects.toThrow('Failed to create user')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1161,7 +1216,25 @@ describe('UsersService.adminUpdateUser', () => {
     // upsertWorkEmail's find-existing-WORK-row lookup (inside the tx). A
     // mutated `data.email !== existing.email` guard that always skips the
     // sync would leave this at 1.
-    expect(db.db.query.userEmails.findFirst).toHaveBeenCalledTimes(2)
+    const findFirstMock = db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>
+    expect(findFirstMock).toHaveBeenCalledTimes(2)
+
+    // mutation-gate closure (PR #623): upsertWorkEmail's own lookup (2nd
+    // call) must pass a REAL where clause filtering kind = 'WORK' — a
+    // mutant emptying the whole call to `.findFirst({})` (ObjectLiteral) or
+    // blanking the literal to `''` (StringLiteral) both still resolve via
+    // this mock (which ignores its args), so only inspecting the ACTUAL
+    // compiled where clause catches either.
+    const upsertLookupArgs = findFirstMock.mock.calls[1]?.[0] as { where?: unknown } | undefined
+    expect(
+      upsertLookupArgs?.where,
+      'expected upsertWorkEmail to pass a where clause, not {}',
+    ).toBeDefined()
+    const compiledUpsertWhere = new PgDialect().sqlToQuery(
+      upsertLookupArgs!.where as Parameters<PgDialect['sqlToQuery']>[0],
+    )
+    expect(compiledUpsertWhere.params).toContain('WORK')
+    expect(compiledUpsertWhere.params).toContain('user-1')
 
     // No existing WORK row was found (default mock) → upsertWorkEmail takes
     // the INSERT branch. Assert its exact shape — a mutant that empties the
@@ -1228,6 +1301,26 @@ describe('UsersService.adminUpdateUser', () => {
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
     const userEmailsInsertCalls = insertMock.mock.calls.filter((c) => c[0] === userEmails)
     expect(userEmailsInsertCalls).toHaveLength(0)
+
+    // mutation-gate closure (PR #623): `workRowUpdate = { email, updatedAt:
+    // new Date() }` mutated to `{}` still routes through `.set()` (the
+    // UPDATE-vs-INSERT branch check above already passes under that
+    // mutant) — only the PAYLOAD is empty. `.update()` is a single shared
+    // mock across BOTH this update (userEmails) and the main user-row
+    // update, and the main update's own `set` object also carries `email`
+    // (it has many more fields besides) — so the 2-key shape is what
+    // distinguishes upsertWorkEmail's own call from the main one, and is
+    // exactly what a `{}` mutant collapses to 0 keys.
+    const setMock = (updateMock.mock.results[0]?.value as { set: ReturnType<typeof vi.fn> }).set
+    const workEmailSetCall = setMock.mock.calls.find((c) => {
+      const arg = c[0] as Record<string, unknown>
+      return Object.keys(arg).length === 2 && arg['email'] === 'new@example.com'
+    })
+    expect(
+      workEmailSetCall,
+      'expected a .set({ email, updatedAt }) call (2 keys) — a {} mutant leaves no such call',
+    ).toBeDefined()
+    expect(workEmailSetCall![0]).toHaveProperty('updatedAt')
   })
 
   // SR-M-3 (security-review PR #623, MED): `assertEmailAvailable`'s
