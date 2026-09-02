@@ -2243,6 +2243,59 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
       expect((result.user as Record<string, unknown>).personalEmail).toBeNull()
     })
   })
+
+  // UX-M-1 (design-gate audit, PR #623): before `personalContactVisible`
+  // existed, "no access to this field" and "field is genuinely empty" both
+  // produced the exact same wire value — `personalEmail: null`,
+  // `personalEmailCanLogin: null` — leaving a viewer with real access (e.g.
+  // ADMIN on a user who never got a personal address) indistinguishable,
+  // over the API, from a viewer masked from the field entirely (ACCOUNTANT,
+  // or HR outside their own team). Both branches below are RED against that
+  // older shape (comment out `personalContactVisible` in
+  // `buildProfileView` to reproduce — both assertions on that field fail;
+  // the SIBLING `null` assertions stay green either way, which is exactly
+  // the ambiguity this pins).
+  describe('personalContactVisible (UX-M-1) — "no access" vs "not set" are distinguishable', () => {
+    it('no access: personalContactVisible is false (the ACCOUNTANT/masked case)', async () => {
+      const viewer = makeUser({ id: 'accountant-id', role: 'ACCOUNTANT' })
+      const noContactsPermissions = {
+        tabs: ['overview'],
+        actions: [],
+        fields: { realContacts: true, personalContact: false },
+      }
+      // A PERSONAL row EXISTS on the target — access is what is being denied
+      // here, not absence of data. If the two states collapsed to the same
+      // `null` (the pre-fix bug), this test could not tell that apart from
+      // the "empty" case below even though the underlying situation is the
+      // opposite (data present, viewer blind to it).
+      const service = makeServicePii(seniorTarget, noContactsPermissions, {
+        email: 'personal@example.com',
+      })
+      const result = await service.buildProfileView(viewer as never, 'senior-target')
+      const user = result.user as Record<string, unknown>
+      expect(user.personalContactVisible).toBe(false)
+      expect(user.personalEmail).toBeNull()
+      expect(user.personalEmailCanLogin).toBeNull()
+    })
+
+    it('empty: personalContactVisible is true, personalEmail/personalEmailCanLogin are null because nothing is set', async () => {
+      const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+      const fullAccessPermissions = {
+        tabs: ['overview'],
+        actions: [],
+        fields: { realContacts: true, personalContact: true },
+      }
+      // No third arg — makeServicePii defaults `personalEmailRow` to
+      // undefined (see its own doc), i.e. the target genuinely has no
+      // PERSONAL row on file.
+      const service = makeServicePii(seniorTarget, fullAccessPermissions)
+      const result = await service.buildProfileView(viewer as never, 'senior-target')
+      const user = result.user as Record<string, unknown>
+      expect(user.personalContactVisible).toBe(true)
+      expect(user.personalEmail).toBeNull()
+      expect(user.personalEmailCanLogin).toBeNull()
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------

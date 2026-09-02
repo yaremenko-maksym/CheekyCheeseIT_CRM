@@ -73,11 +73,34 @@ export const userProfileSchema = z.object({
   createdAt: z.coerce.date(),
   /**
    * Personal address on file (§4.4). Set by ADMIN at creation, visible on
-   * the profile. `null` when never set. Masked the same way as `email`
-   * (realContacts permission) — never shown to a viewer without contact
-   * access. NOT a login method by itself — see `user_emails.canLogin`.
+   * the profile. `null` when never set OR when masked from this viewer
+   * (see `personalContactVisible` below — the two collapse to the SAME
+   * `null` here; that ambiguity is intentional for this field specifically,
+   * since a masked viewer must not learn "not set" vs "set but hidden"
+   * either). Masked the same way as `email` (realContacts permission) —
+   * never shown to a viewer without contact access. NOT a login method by
+   * itself — see `user_emails.canLogin`.
    */
   personalEmail: z.string().email().nullable().optional(),
+  /**
+   * task-user-emails-invite (UX-M-1, design-gate audit PR #623): whether
+   * `personalEmail`/`personalEmailCanLogin` came back `null` because this
+   * viewer cannot see the field at all, or because it genuinely has no
+   * value. A consumer MUST check this before treating either sibling
+   * field's `null` as "not set" — see `UsersService.buildProfileView`'s
+   * `personalContactVisible` for the full rationale. `.default(false)` so
+   * an older cached response (before this field existed) fails safe as
+   * "not visible" rather than `undefined` being treated as truthy.
+   */
+  personalContactVisible: z.boolean().default(false),
+  /**
+   * task-user-emails-invite (spec §5): tri-state, gated by
+   * `personalContactVisible` — `null` = no personal address on file, `false`
+   * = address on file but the invite has not been accepted yet, `true` =
+   * accepted, works as a login. `undefined`/omitted only for API responses
+   * that predate this field (older cached data); treat the same as `null`.
+   */
+  personalEmailCanLogin: z.boolean().nullable().optional(),
 })
 
 export const updateProfileSchema = z.object({
