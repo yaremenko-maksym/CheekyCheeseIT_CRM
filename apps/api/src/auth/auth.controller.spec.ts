@@ -14,7 +14,14 @@
  * Pattern follows auth.service.spec.ts: no NestJS testing module overhead,
  * direct class instantiation with typed stubs.
  */
-import { NotFoundException, UnauthorizedException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import type { ConfigService } from '@nestjs/config'
 import { describe, expect, it, vi } from 'vitest'
@@ -538,5 +545,519 @@ describe('AuthController.me — fallback shape when DB row is gone', () => {
     // carried `impersonatorId` as an own key — the schema-shaped response
     // must not.
     expect(result).not.toHaveProperty('impersonatorId')
+  })
+})
+
+/**
+ * task-user-emails-invite: `googleCallback`'s invite branch (task §2 —
+ * "Точка приёма") and `verifyOrBindGoogleIdentity`'s per-row Google-identity
+ * binding — zero prior unit coverage (mutation gate, `--changed`: 13
+ * survived + 35 no-coverage mutants). The 32 real-DB integration tests
+ * (auth.oauth-callback / auth.one-tap / user-email-invites) prove the
+ * REAL behaviour; the gate cannot execute an `*.integration.spec.ts` file
+ * at all (mutation-gate-integration-specs.md), so from the gate's point of
+ * view that coverage does not exist — these unit doubles are what make it
+ * exist.
+ */
+function makeUsersServiceWithEmailRow(
+  foundUser: typeof TEST_USER | null,
+  overrides: Partial<{
+    kind: 'WORK' | 'PERSONAL'
+    /** `user_emails.google_id` (schema.ts) — the PERSONAL-row binding. */
+    emailRowGoogleId: string | null
+    /** `users.google_id` — the WORK/legacy binding `verifyOrBindGoogleIdentity`
+     *  still reads for a WORK row (unchanged from before this task). */
+    userGoogleId: string | null
+  }> = {},
+): UsersService & {
+  acceptPersonalEmailInvite: ReturnType<typeof vi.fn>
+} {
+  const userWithGoogleId = foundUser
+    ? { ...foundUser, googleId: overrides.userGoogleId ?? foundUser.googleId }
+    : foundUser
+  const emailRow = foundUser
+    ? {
+        id: 'email-row-id',
+        userId: foundUser.id,
+        email: foundUser.email,
+        kind: overrides.kind ?? 'WORK',
+        verifiedAt: new Date(),
+        canLogin: true,
+        googleId: overrides.emailRowGoogleId ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+    : undefined
+  return {
+    findLoginableUserByEmail: vi.fn().mockResolvedValue(userWithGoogleId),
+    findLoginableEmailRow: vi.fn().mockResolvedValue(emailRow),
+    findById: vi.fn().mockResolvedValue(userWithGoogleId),
+    updateGoogleId: vi.fn().mockResolvedValue(undefined),
+    updateEmailRowGoogleId: vi.fn().mockResolvedValue(undefined),
+    acceptPersonalEmailInvite: vi.fn().mockResolvedValue(undefined),
+  } as unknown as UsersService & { acceptPersonalEmailInvite: ReturnType<typeof vi.fn> }
+}
+
+function makeInviteRequest(state: string, inviteToken?: string): FastifyRequest {
+  const cookies: Record<string, string> = { '__Host-oauth_state': state }
+  if (inviteToken !== undefined) cookies['__Host-invite_token'] = inviteToken
+  return { cookies } as unknown as FastifyRequest
+}
+
+/** Every URL `reply.redirect(...)` was called with, in order — `makeFullReply`
+ * above (reused, not duplicated) leaves `redirect` a bare mock with no
+ * recorded args; these tests care about WHICH url, so this reads it back
+ * off the mock's own call log instead of adding a second reply stub. */
+function redirectsOf(reply: FastifyReply): string[] {
+  return (reply.redirect as unknown as ReturnType<typeof vi.fn>).mock.calls.map(
+    (c: unknown[]) => c[0] as string,
+  )
+}
+
+function setupGoogleUser(authService: AuthService, email: string, sub: string): void {
+  ;(authService.exchangeGoogleCode as ReturnType<typeof vi.fn>).mockResolvedValue({
+    access_token: 'at',
+    id_token: 'it',
+    expires_in: 3600,
+  })
+  ;(authService.getGoogleUserInfo as ReturnType<typeof vi.fn>).mockResolvedValue({
+    id: sub,
+    email,
+    name: 'X',
+    picture: 'p',
+  })
+}
+
+describe('AuthController.startInviteAccept — GET /auth/invite/:token (task-user-emails-invite, spec §2)', () => {
+  it('well-formed token: sets state + invite cookies and redirects to the Google auth URL', async () => {
+    const authService = makeAuthService()
+    ;(authService.buildGoogleAuthUrl as ReturnType<typeof vi.fn>).mockReturnValue(
+      'https://accounts.google.com/o/oauth2/auth?state=abc',
+    )
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const validToken = 'a'.repeat(64)
+
+    await controller.startInviteAccept(validToken, reply)
+
+    expect(redirectsOf(reply)).toEqual(['https://accounts.google.com/o/oauth2/auth?state=abc'])
+    expect(Object.keys(reply._cookies)).toContain('__Host-oauth_state')
+    expect(reply._cookies['__Host-invite_token']?.value).toBe(validToken)
+    expect(authService.buildGoogleAuthUrl).toHaveBeenCalledWith(
+      reply._cookies['__Host-oauth_state']?.value,
+    )
+  })
+
+  it('malformed token (not 64 hex chars) → redirects to /login?error=invite_invalid, never touches Google', async () => {
+    const authService = makeAuthService()
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    await controller.startInviteAccept('not-a-valid-token', reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_invalid'])
+    expect(authService.buildGoogleAuthUrl).not.toHaveBeenCalled()
+    expect(Object.keys(reply._cookies)).toHaveLength(0)
+  })
+
+  it('64 valid hex chars with extra characters AFTER them → rejected (kills the missing-$-anchor mutant)', async () => {
+    const authService = makeAuthService()
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    await controller.startInviteAccept(`${'a'.repeat(64)}EXTRA`, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_invalid'])
+    expect(authService.buildGoogleAuthUrl).not.toHaveBeenCalled()
+  })
+
+  it('64 valid hex chars with extra characters BEFORE them → rejected (kills the missing-^-anchor mutant)', async () => {
+    const authService = makeAuthService()
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    await controller.startInviteAccept(`EXTRA${'a'.repeat(64)}`, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_invalid'])
+    expect(authService.buildGoogleAuthUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('AuthController.googleCallback — invite-accept branch (task-user-emails-invite, spec §2)', () => {
+  it('invite cookie present + accept succeeds → redirects to /login?invited=1, mints NO session (task §2: "Токен НЕ выдаёт сессию")', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(usersService.acceptPersonalEmailInvite).toHaveBeenCalledWith(
+      'raw-token-abc',
+      TEST_USER.email,
+      'google-sub',
+    )
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?invited=1'])
+    expect(jwtService.sign).not.toHaveBeenCalled()
+    expect(Object.keys(reply._cookies)).not.toContain('__Host-jwt')
+    // Invite cookie is always cleared, whether or not it turns out to be a
+    // real invite round trip.
+    expect(Object.keys(reply._cleared)).toContain('__Host-invite_token')
+  })
+
+  it('invite cookie present but the address does not match → redirects with the mismatch error code, no session', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, 'someone-else@example.com', 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ForbiddenException('Адрес аккаунта Google не совпадает с приглашённым адресом'),
+    )
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_email_mismatch'])
+    expect(jwtService.sign).not.toHaveBeenCalled()
+  })
+
+  it('invite cookie present, token already used → redirects with the invite_used error code', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ConflictException('Приглашение уже использовано'),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_used'])
+  })
+
+  it('invite cookie present, token expired → redirects with the invite_expired error code', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new BadRequestException('Срок действия приглашения истёк'),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_expired'])
+  })
+
+  it('invite cookie present, garbage/unknown token → redirects with the invite_invalid error code', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new NotFoundException('Приглашение недействительно'),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_invalid'])
+  })
+
+  it('no invite cookie → normal login branch runs instead (acceptPersonalEmailInvite never called)', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value') // no invite token
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(usersService.acceptPersonalEmailInvite).not.toHaveBeenCalled()
+    expect(jwtService.sign).toHaveBeenCalled()
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/'])
+  })
+})
+
+describe('AuthController.googleCallback — normal login, no matching row (kills the !emailRow||!user survivors)', () => {
+  it('no loginable row for this email → redirects unauthorized, mints no session', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, 'nobody@example.com', 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(null) // findLoginableEmailRow -> undefined
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=unauthorized'])
+    expect(jwtService.sign).not.toHaveBeenCalled()
+  })
+
+  it('emailRow found but the user row is GONE (race between the two lookups) → still redirects unauthorized (kills the || → && mutant)', async () => {
+    // Deliberately NOT built via makeUsersServiceWithEmailRow — that helper
+    // ties findById's result to the SAME foundUser the emailRow is derived
+    // from, which can never produce "row found, user gone" (the exact case
+    // the `||` in `!emailRow || !user` covers that `&&` would not: under
+    // `&&`, a truthy emailRow with an undefined user would skip the
+    // unauthorized redirect and crash instead on `user.archivedAt`).
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = {
+      findLoginableEmailRow: vi.fn().mockResolvedValue({
+        id: 'email-row-id',
+        userId: TEST_USER.id,
+        email: TEST_USER.email,
+        kind: 'WORK',
+        canLogin: true,
+        googleId: null,
+      }),
+      findById: vi.fn().mockResolvedValue(undefined),
+      updateGoogleId: vi.fn().mockResolvedValue(undefined),
+      updateEmailRowGoogleId: vi.fn().mockResolvedValue(undefined),
+    } as unknown as UsersService
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=unauthorized'])
+    expect(jwtService.sign).not.toHaveBeenCalled()
+  })
+})
+
+describe('verifyOrBindGoogleIdentity (via googleCallback) — WORK branch, byte-for-byte the pre-existing check', () => {
+  it('WORK row, no googleId bound yet → binds via updateGoogleId, mints a session', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub-work')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER, { kind: 'WORK' })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(usersService.updateGoogleId).toHaveBeenCalledWith(TEST_USER.id, 'google-sub-work')
+    expect(usersService.updateEmailRowGoogleId).not.toHaveBeenCalled()
+    expect(jwtService.sign).toHaveBeenCalled()
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/'])
+  })
+
+  it('WORK row, googleId already bound to a DIFFERENT sub → account_mismatch, no session, no rebind, logs the reason', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub-new')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER, {
+      kind: 'WORK',
+      userGoogleId: 'google-sub-old',
+    })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=account_mismatch'])
+    expect(usersService.updateGoogleId).not.toHaveBeenCalled()
+    expect(jwtService.sign).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Google account mismatch (OAuth callback) for user id=${TEST_USER.id}`,
+      ),
+    )
+    warnSpy.mockRestore()
+  })
+
+  it('WORK row, googleId already bound to the SAME sub → mints a session, no rebind write', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub-same')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER, {
+      kind: 'WORK',
+      userGoogleId: 'google-sub-same',
+    })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(usersService.updateGoogleId).not.toHaveBeenCalled()
+    expect(jwtService.sign).toHaveBeenCalled()
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/'])
+  })
+})
+
+describe('verifyOrBindGoogleIdentity (via googleCallback) — PERSONAL branch (task-user-emails-invite)', () => {
+  it('PERSONAL row, no googleId bound yet → binds via updateEmailRowGoogleId (NOT updateGoogleId), mints a session', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub-personal')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER, { kind: 'PERSONAL' })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(usersService.updateEmailRowGoogleId).toHaveBeenCalledWith(
+      'email-row-id',
+      'google-sub-personal',
+    )
+    expect(usersService.updateGoogleId).not.toHaveBeenCalled()
+    expect(jwtService.sign).toHaveBeenCalled()
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/'])
+  })
+
+  it('PERSONAL row, googleId already bound to a DIFFERENT sub → account_mismatch, no session, logs the reason — proves the two kinds bind INDEPENDENTLY (this is not users.googleId)', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub-new-personal')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER, {
+      kind: 'PERSONAL',
+      emailRowGoogleId: 'google-sub-old-personal',
+    })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=account_mismatch'])
+    expect(usersService.updateEmailRowGoogleId).not.toHaveBeenCalled()
+    expect(jwtService.sign).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Google account mismatch (OAuth callback, personal address) for user id=${TEST_USER.id}`,
+      ),
+    )
+    warnSpy.mockRestore()
+  })
+
+  it('PERSONAL row, googleId already bound to the SAME sub → mints a session, no rebind write (distinguishes the real `!==` check from an always-true mutant)', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub-personal-same')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER, {
+      kind: 'PERSONAL',
+      emailRowGoogleId: 'google-sub-personal-same',
+    })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(usersService.updateEmailRowGoogleId).not.toHaveBeenCalled()
+    expect(jwtService.sign).toHaveBeenCalled()
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/'])
   })
 })
