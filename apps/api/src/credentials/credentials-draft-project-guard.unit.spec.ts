@@ -62,7 +62,6 @@ function makeSvc(...limitResolutions: unknown[][]) {
   const limit = vi.fn()
   for (const rows of limitResolutions) limit.mockResolvedValueOnce(rows)
   const chain = {
-    select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     // `list()`'s own credentials query terminates at `.orderBy(...)`
@@ -71,11 +70,15 @@ function makeSvc(...limitResolutions: unknown[][]) {
     orderBy: vi.fn().mockResolvedValue([]),
     limit,
   }
-  const db = { db: { select: vi.fn(() => chain) } }
+  // The TOP-LEVEL `.select(projection)` call — this is what receives the
+  // projection object argument the code passes; `chain` above is only what
+  // `.select(...)` RETURNS (`.from`/`.where`/`.limit` chain further off it).
+  const dbSelect = vi.fn(() => chain)
+  const db = { db: { select: dbSelect } }
   const crypto = {} as CredentialsCryptoService
   const hrAccess = new HrAccessService(db as never)
   const svc = new CredentialsService(db as never, crypto, hrAccess)
-  return { svc, limit }
+  return { svc, limit, dbSelect }
 }
 
 describe('CredentialsService.list — SR-M-1: a non-ACTIVE project is invisible to a JUNIOR member', () => {
@@ -92,6 +95,16 @@ describe('CredentialsService.list — SR-M-1: a non-ACTIVE project is invisible 
       expect(limit).toHaveBeenCalledTimes(1)
     })
   }
+
+  it("assertAccess's own SELECT projects `status` (not a columnless read the gate could not see)", async () => {
+    const { svc, dbSelect } = makeSvc([{ id: PROJECT_ID, seniorId: 'senior-1', status: 'DRAFT' }])
+    await svc.list(JUNIOR, PROJECT_ID).catch(() => undefined)
+
+    expect(dbSelect).toHaveBeenCalledTimes(1)
+    const projection = dbSelect.mock.calls[0]?.[0] as Record<string, unknown> | undefined
+    expect(projection).toBeDefined()
+    expect(Object.keys(projection!).sort()).toEqual(['id', 'seniorId', 'status'])
+  })
 
   it('an ACTIVE project still enforces real JUNIOR membership (the gate did not swallow the RBAC check)', async () => {
     const { svc } = makeSvc(

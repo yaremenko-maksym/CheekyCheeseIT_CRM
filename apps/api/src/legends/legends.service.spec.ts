@@ -636,7 +636,9 @@ describe('LegendsService — SR-M-1: a non-ACTIVE project is invisible via loadP
     it(`JUNIOR active member gets NotFoundException on a ${status} project (getLegend)`, async () => {
       const { service, chain } = buildService()
       chain.limit.mockResolvedValueOnce([{ ...seniorProject, status }]) // project — not ACTIVE
-      await expect(service.getLegend(junior, PROJECT_ID)).rejects.toBeInstanceOf(NotFoundException)
+      const err = await service.getLegend(junior, PROJECT_ID).catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(NotFoundException)
+      expect((err as NotFoundException).message).toBe('Проект не найден')
       // Never reaches juniorCanAccess's own membership select — only ONE
       // .limit() call total for this invocation.
       expect(chain.limit).toHaveBeenCalledTimes(1)
@@ -645,11 +647,24 @@ describe('LegendsService — SR-M-1: a non-ACTIVE project is invisible via loadP
     it(`HR sharing the senior's team gets NotFoundException on a ${status} project (upsertLegend)`, async () => {
       const { service, chain } = buildService()
       chain.limit.mockResolvedValueOnce([{ ...seniorProject, status }])
-      await expect(service.upsertLegend(hr, PROJECT_ID, dto)).rejects.toBeInstanceOf(
-        NotFoundException,
-      )
+      const err = await service.upsertLegend(hr, PROJECT_ID, dto).catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(NotFoundException)
+      expect((err as NotFoundException).message).toBe('Проект не найден')
     })
   }
+
+  it("loadProject's own SELECT projects `status` (not a columnless read the gate could not see)", async () => {
+    const { service, chain, db } = buildService()
+    chain.limit.mockResolvedValueOnce([{ ...seniorProject, status: 'DRAFT' }])
+    await service.getLegend(junior, PROJECT_ID).catch(() => undefined)
+
+    expect(db.select).toHaveBeenCalledTimes(1)
+    const projection = (db.select as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined
+    expect(projection).toBeDefined()
+    expect(Object.keys(projection!).sort()).toEqual(['dropId', 'id', 'seniorId', 'status'])
+  })
 
   it('ADMIN is exempt from the status gate on a DRAFT project (getLegend reaches the legend read)', async () => {
     const { service, chain } = buildService()
