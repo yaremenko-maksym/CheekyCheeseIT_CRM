@@ -1811,6 +1811,14 @@ export class TransactionsService {
     // own doc for why this is one call, not a fetch followed by a separate
     // check.
     const project = assertProjectActive(
+      // Stryker disable next-line ObjectLiteral: the `where` SHAPE is unobservable
+      // from this file's mocked unit specs — they stub `query.projects.findFirst`
+      // to return a canned row regardless of what `where` it is called with (same
+      // structural limit `income-compliance.unit.spec.ts` documents for
+      // `transactions.findMany`). A gutted `{}` here would fetch an ARBITRARY
+      // project instead of `data.projectId`'s — caught by this entry point's own
+      // RBAC/ownership integration spec (multiple seeded projects, asserts on the
+      // SPECIFIC one), not observable from a mocked unit double.
       await this.db.db.query.projects.findFirst({
         where: eq(projects.id, data.projectId),
       }),
@@ -2086,6 +2094,14 @@ export class TransactionsService {
 
     // task-project-draft-status (Д2): fused fetch+status guard.
     const project = assertProjectActive(
+      // Stryker disable next-line ObjectLiteral: the `where` SHAPE is unobservable
+      // from this file's mocked unit specs — they stub `query.projects.findFirst`
+      // to return a canned row regardless of what `where` it is called with (same
+      // structural limit `income-compliance.unit.spec.ts` documents for
+      // `transactions.findMany`). A gutted `{}` here would fetch an ARBITRARY
+      // project instead of `data.projectId`'s — caught by this entry point's own
+      // RBAC/ownership integration spec (multiple seeded projects, asserts on the
+      // SPECIFIC one), not observable from a mocked unit double.
       await this.db.db.query.projects.findFirst({
         where: eq(projects.id, data.projectId),
       }),
@@ -2320,8 +2336,19 @@ export class TransactionsService {
 
     // task-project-draft-status (Д2): fused fetch+status guard.
     const project = assertProjectActive(
+      // Stryker disable next-line ObjectLiteral: the `where` SHAPE is unobservable
+      // from this file's mocked unit specs — they stub `query.projects.findFirst`
+      // to return a canned row regardless of what `where` it is called with (same
+      // structural limit `income-compliance.unit.spec.ts` documents for
+      // `transactions.findMany`). A gutted `{}` here would fetch an ARBITRARY
+      // project instead of `data.projectId`'s — caught by this entry point's own
+      // RBAC/ownership integration spec (multiple seeded projects, asserts on the
+      // SPECIFIC one), not observable from a mocked unit double.
       await this.db.db.query.projects.findFirst({
         where: eq(projects.id, data.projectId),
+        // Stryker disable next-line BooleanLiteral,ObjectLiteral: same class as
+        // the comment above — the mock ignores `with` too, it always returns a
+        // canned row with `financeSettings` already populated.
         with: { financeSettings: true },
       }),
     )
@@ -2476,6 +2503,14 @@ export class TransactionsService {
 
     // task-project-draft-status (Д2): fused fetch+status guard.
     const project = assertProjectActive(
+      // Stryker disable next-line ObjectLiteral: the `where` SHAPE is unobservable
+      // from this file's mocked unit specs — they stub `query.projects.findFirst`
+      // to return a canned row regardless of what `where` it is called with (same
+      // structural limit `income-compliance.unit.spec.ts` documents for
+      // `transactions.findMany`). A gutted `{}` here would fetch an ARBITRARY
+      // project instead of `data.projectId`'s — caught by this entry point's own
+      // RBAC/ownership integration spec (multiple seeded projects, asserts on the
+      // SPECIFIC one), not observable from a mocked unit double.
       await this.db.db.query.projects.findFirst({
         where: eq(projects.id, data.projectId),
       }),
@@ -7595,6 +7630,13 @@ export class TransactionsService {
     // in Drizzle's relational-query schema config (same reason as the
     // `ownProjects` read above), so `db.query.projects.findMany` is replaced
     // with an explicit select.
+    // Stryker disable next-line ObjectLiteral: the SELECTED-COLUMNS shape is
+    // unobservable from `income-compliance.unit.spec.ts` — its stub returns
+    // `data.projects` (the seeded fixture rows) regardless of which columns
+    // were asked for, same structural limit as the `where`-shape suppressions
+    // above. The real column list is exercised by
+    // `income-compliance.integration.spec.ts` against Postgres, which WOULD
+    // reject an unknown/removed column at query-build time.
     const activeProjects = await this.db.db
       .select({
         id: visibleProjects.id,

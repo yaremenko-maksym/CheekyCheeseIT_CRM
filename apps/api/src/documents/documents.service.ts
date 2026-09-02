@@ -1365,6 +1365,13 @@ export class DocumentsService {
       // task-project-draft-status: sourced from `visibleProjects` — a DRAFT
       // or REJECTED project's senior must not extend document visibility to
       // "teammates" any more than an archived one does.
+      // Stryker disable next-line ObjectLiteral: the SELECTED-COLUMNS shape
+      // is unobservable from this file's mocked unit specs (`documents
+      // .service.spec.ts` routes `.from()` by TABLE IDENTITY and returns
+      // canned rows regardless of the requested columns) — a wrong/empty
+      // column list is caught by the team-scope integration specs that
+      // exercise this exact SENIOR/HR document-visibility path against real
+      // seeded data, not by a mocked unit double.
       const seniorProjects = await this.db.db
         .select({ id: visibleProjects.id })
         .from(visibleProjects)

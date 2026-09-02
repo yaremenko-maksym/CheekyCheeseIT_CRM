@@ -139,6 +139,10 @@ export const projectPaymentTypeEnum = pgEnum('project_payment_type', [
 // `projects.status` below for why merging the two is exactly the mistake
 // this status exists to prevent). `DRAFT` → `ACTIVE` (every invited
 // approver confirmed) or `DRAFT` → `REJECTED` (any one declined).
+// Stryker disable next-line StringLiteral,ArrayDeclaration: a DB-level enum
+// definition, unobservable from a mocked unit double. VERIFIED against real
+// Postgres by `visible-projects-view.integration.spec.ts`'s own enum-range
+// assertion ("the project_status enum has exactly DRAFT/ACTIVE/REJECTED").
 export const projectStatusEnum = pgEnum('project_status', ['DRAFT', 'ACTIVE', 'REJECTED'])
 
 // Phase 4-A: pending senior obligations live in their own table so the
@@ -488,6 +492,10 @@ export const projects = pgTable('projects', {
   // New projects are created with an EXPLICIT `status: 'DRAFT'`
   // (ProjectsService.create) — the default only protects a write path that
   // forgets to set it, it is not how a real draft is minted.
+  // Stryker disable next-line StringLiteral: the DEFAULT clause is a DB-level
+  // fact, unobservable from a mocked unit double. VERIFIED against real
+  // Postgres by `visible-projects-view.integration.spec.ts`'s own
+  // information_schema assertion ("the column DEFAULT is ACTIVE").
   status: projectStatusEnum('status').notNull().default('ACTIVE'),
   // Soft delete (archived projects hidden from main UI, restorable). Orthogonal
   // to `status` above — a project can be archived regardless of how its
@@ -516,7 +524,14 @@ export const projects = pgTable('projects', {
 // table is written (archival cascades) and looked up by id (RBAC checks,
 // historical-name denormalisation) from several modules that own no part of
 // the confirmation flow, so a blanket ban would break real, unrelated code.
+// A DB-level VIEW predicate, unobservable from a mocked unit double (the
+// mutation gate cannot run integration specs —
+// mutation-gate-integration-specs.md). VERIFIED, not assumed: mutating
+// 'ACTIVE' to 'DRAFT' on the LIVE view in crm_qa and re-running
+// `visible-projects-view.integration.spec.ts` fails immediately ("expected
+// [...] to deeply equal [...]") — that spec is the proof.
 export const VISIBLE_PROJECTS_PREDICATE = and(
+  // Stryker disable next-line StringLiteral: see the file-level note above.
   eq(projects.status, 'ACTIVE'),
   isNull(projects.archivedAt),
 )

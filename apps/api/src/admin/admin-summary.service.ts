@@ -83,30 +83,24 @@ export class AdminSummaryService {
     // true and `projectsUnpaidThisMonth` counted EVERY active project as
     // unpaid regardless of any matching income.
     //
-    // security-review PR #456 (LOW, round 2 — precise about what each fix
-    // covers, the round-1 comment here overclaimed): TWO INDEPENDENT
-    // mechanisms are at play, not one:
-    //   1. `p.id` — hand-typed literal SQL TEXT in the subquery below — is
-    //      made safe by using an EXPLICIT alias (`const p = alias(projects,
-    //      'p')`): the name "p" is what we typed, so it can never silently
-    //      stop matching the FROM target's name, join or no join.
-    //   2. `${p.archivedAt}` — an INTERPOLATED column reference — is safe for
-    //      a DIFFERENT reason: Drizzle renders it bare ("archived_at", not
-    //      "p"."archived_at") ONLY because this is currently a single-table
-    //      select; empirically verified (`.toSQL()`, drizzle-orm 0.45.2) that
-    //      it automatically becomes fully qualified ("p"."archived_at") the
-    //      moment ANY join is added to this query — i.e. it self-heals, it
-    //      was never "fixed" by the alias the way #1 was.
-    // Both are safe, but for unrelated reasons — worth keeping distinct so a
-    // future reader does not assume `alias(...)` is what protects #2.
-    //
-    // task-project-draft-status: `p` now aliases `visibleProjects` (the VIEW,
-    // already `status = 'ACTIVE' AND archived_at IS NULL`) instead of the raw
-    // `projects` table — the `${p.archivedAt} is null` filter below is
-    // dropped entirely rather than kept redundant: the view's own WHERE
-    // clause is not a condition this query could omit, so there is nothing
-    // left here to forget either.
-    const p = alias(visibleProjects, 'p')
+    // security-review PR #456 (LOW, round 2): the original hand-typed
+    // literal `p.id` inside the subquery below relied on an EXPLICIT
+    // `alias(projects, 'p')` to guarantee the name "p" matched the FROM
+    // target. task-project-draft-status swapped the FROM target to
+    // `visibleProjects` (the VIEW, already `status = 'ACTIVE' AND
+    // archived_at IS NULL` — the old `${p.archivedAt} is null` filter is
+    // dropped entirely, not kept redundant) — and `alias()` on a Drizzle
+    // VIEW does NOT render an `AS <alias>` the way it does for a TABLE
+    // (confirmed against real Postgres: it silently produced `FROM "p"`,
+    // "relation p does not exist" — a real bug caught by
+    // admin-summary.integration.spec.ts, not by the mocked unit spec, which
+    // cannot execute real SQL). Fixed by using `visibleProjects` UNALIASED
+    // and referencing its columns via INTERPOLATION (`${visibleProjects.id}`)
+    // instead of hand-typed text — the same "self-heals via full
+    // qualification" property the round-2 review already documented for
+    // `${p.archivedAt}` now does the job the alias used to do, without an
+    // alias, because the interpolated form was never actually alias-shaped
+    // text to begin with.
     const projQuery = db
       .select({
         activeProjects: sql<number>`count(*)`.mapWith(Number),
@@ -118,13 +112,13 @@ export class AdminSummaryService {
           // `and t.deleted_at is null` line.
           sql<number>`count(*) filter (where not exists (
           select 1 from ${nonDeletedTransactions} t
-          where t.project_id = p.id
+          where t.project_id = ${visibleProjects.id}
             and t.type in ('ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME')
             and t.tx_date >= ${monthStart}
             and t.tx_date < ${nextMonthStart}
         ))`.mapWith(Number),
       })
-      .from(p)
+      .from(visibleProjects)
     const [projRow] = await projQuery
 
     // employees — every user, every role (incl. DROP).

@@ -32,9 +32,11 @@ describe('assertProjectActive', () => {
 
   it('throws NotFoundException (not BadRequestException) when the project is undefined', () => {
     expect(() => assertProjectActive(undefined)).toThrow(NotFoundException)
+    expect(() => assertProjectActive(undefined)).toThrow('Project not found')
   })
 
   it('throws NotFoundException when the project is null', () => {
     expect(() => assertProjectActive(null)).toThrow(NotFoundException)
+    expect(() => assertProjectActive(null)).toThrow('Project not found')
   })
 })

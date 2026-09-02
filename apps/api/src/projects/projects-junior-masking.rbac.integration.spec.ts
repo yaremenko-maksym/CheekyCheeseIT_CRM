@@ -12,6 +12,7 @@ import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { ApprovalsService } from '../approvals/approvals.service'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from './projects.service'
@@ -250,7 +251,15 @@ class TestDatabaseModule {}
     {
       provide: ProjectsService,
       useFactory: (db: DatabaseService, auditLog: ProjectAuditLogService, usersSvc: UsersService) =>
-        new ProjectsService(db, auditLog, usersSvc, new HrAccessService(db)),
+        new ProjectsService(
+          db,
+          auditLog,
+          usersSvc,
+          new HrAccessService(db),
+          // task-project-draft-status: real ApprovalsService against the same
+          // real DB — this is an integration spec, not a mock.
+          new ApprovalsService(db),
+        ),
       inject: [DatabaseService, ProjectAuditLogService, UsersService],
     },
     {
@@ -480,7 +489,12 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(body['companyName']).toBeTruthy()
       expect(body['domain']).toBeTruthy()
       expect(body['startDate']).toBeTruthy()
-      expect(body['status']).toBeUndefined() // not in DTO shape — ok
+      // task-project-draft-status: `status` is now part of the DTO shape and
+      // is NEVER masked (see mapProject's own comment) — a JUNIOR member is
+      // only ever reachable on an already-ACTIVE project (the narrow
+      // admin/approver path never exposes membership on a still-DRAFT one),
+      // so this fixture's `status` is safely 'ACTIVE'.
+      expect(body['status']).toBe('ACTIVE')
       expect(body['techStack'], 'techStack (safe) should be non-null').toBe('TypeScript, React')
       expect(body['createdAt']).toBeTruthy()
     })

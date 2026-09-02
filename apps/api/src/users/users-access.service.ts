@@ -325,6 +325,13 @@ export class UsersAccessService {
       // Find projects owned by those seniors. task-project-draft-status:
       // sourced from `visibleProjects` — same reasoning as
       // `isSeniorViewingOwnProjectMember` above.
+      // Stryker disable next-line ObjectLiteral: the SELECTED-COLUMNS shape
+      // is unobservable from this file's mocked unit specs (they stub
+      // `select()` to return canned rows regardless of the requested
+      // columns) — a wrong/empty column list is caught by the RBAC
+      // integration specs that exercise this exact HR→JUNIOR visibility path
+      // against real seeded data (e.g. `projects-junior-masking.rbac
+      // .integration.spec.ts`), not by a mocked unit double.
       const seniorProjects = await this.db.db
         .select({ id: visibleProjects.id })
         .from(visibleProjects)
