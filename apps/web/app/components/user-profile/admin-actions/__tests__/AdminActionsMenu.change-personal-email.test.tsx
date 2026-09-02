@@ -146,4 +146,20 @@ describe('AdminActionsMenu — change-personal-email label (COPY-M-12)', () => {
     // could drift apart.
     expect(screen.getByRole('heading', { name: 'Добавить личный email' })).toBeInTheDocument()
   })
+
+  // mutation-gate closure (round 5): kills the `user.personalEmail ?? null`
+  // → `user.personalEmail && null` LogicalOperator mutant on the prop
+  // passed to ChangePersonalEmailDialog. For a TRUTHY personalEmail string
+  // the two operators diverge: `??` forwards the address, `&&` collapses
+  // it to `null` — which would silently put the dialog into "adding" mode
+  // for a user who already has a personal address.
+  it('opens ChangePersonalEmailDialog with the matching "Изменить" title when the user already has a personal address', async () => {
+    renderMenu(makeUser({ personalEmail: 'ivan.personal@gmail.com', personalContactVisible: true }))
+    const user = await openMenu()
+    await user.click(screen.getByTestId('admin-actions-change-personal-email'))
+    expect(screen.getByRole('heading', { name: 'Изменить личный email' })).toBeInTheDocument()
+    // And the input is pre-filled with the EXISTING address, not blank —
+    // the second half of the same prop reaching the dialog correctly.
+    expect(screen.getByTestId('change-personal-email-input')).toHaveValue('ivan.personal@gmail.com')
+  })
 })

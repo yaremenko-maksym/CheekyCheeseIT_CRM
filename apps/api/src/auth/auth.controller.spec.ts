@@ -228,6 +228,37 @@ describe('AuthController.devLogin — R1 production guard', () => {
     )
   })
 
+  // mutation-gate closure (round 5): kills the `!emailRow || !user` →
+  // `!emailRow && !user` LogicalOperator mutant. `emailRow` and `user` are
+  // NOT equivalent booleans in general — `emailRow` truthy but `findById`
+  // returning `undefined` is a genuine (if rare) race between the two
+  // reads, and only `||` catches it. Under `&&`, `!emailRow && !user` →
+  // `false && true` → `false` → the guard does not throw, and the next
+  // line reads `user.id` off `undefined` — a raw TypeError instead of the
+  // clean NotFoundException this endpoint is supposed to give.
+  it('R1-b: throws NotFoundException (not a raw TypeError) when the row resolves but the user row is gone (race)', async () => {
+    const usersService = {
+      findLoginableEmailRow: vi.fn().mockResolvedValue({
+        id: 'aaaaaaaa-0000-4000-8000-000000000099',
+        userId: TEST_USER.id,
+        email: TEST_USER.email,
+        kind: 'WORK',
+      }),
+      findById: vi.fn().mockResolvedValue(undefined),
+    } as unknown as UsersService
+    const controller = new AuthController(
+      makeAuthService(),
+      usersService,
+      makeJwtService(),
+      makeConfig('development'),
+    )
+    const reply = makeReply()
+
+    await expect(controller.devLogin({ email: TEST_USER.email }, reply)).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+  })
+
   it('R1-a: also blocks when NODE_ENV=test-production string matches "production"', async () => {
     // Guards against any env string that exactly equals "production"
     const controller = new AuthController(

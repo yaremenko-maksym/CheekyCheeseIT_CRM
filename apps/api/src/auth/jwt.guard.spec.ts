@@ -425,6 +425,71 @@ describe('JwtAuthGuard — SR-H-6: per-row session revocation via userEmailId', 
     expect(mockFindUserEmailById).toHaveBeenCalledTimes(1)
   })
 
+  // mutation-gate closure (round 5): a fresh guard's cache starts EMPTY —
+  // `this.userEmailCache.get(...)` returns `undefined` on the very first
+  // call. Kills the `cachedEmail && cachedEmail.expiresAt > Date.now()` →
+  // `true` ConditionalExpression mutant: under that mutant the `if` branch
+  // is taken unconditionally and reads `.canLogin` off `undefined`, which
+  // throws — turning this `resolves` assertion into a rejection.
+  it('cache: a cold cache (no prior entry at all) still resolves — does not assume a cache entry exists', async () => {
+    const payload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      userEmailId: 'aaaaaaaa-0000-4000-8000-000000000002',
+    }
+    const token = jwtService.sign(payload)
+    const { ctx } = makeCtxWithRequest({ jwt: token })
+    const mockUsersService = baseUsersServiceStub({
+      findUserEmailById: vi
+        .fn()
+        .mockResolvedValue({ id: 'aaaaaaaa-0000-4000-8000-000000000002', canLogin: true }),
+    })
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
+    await expect(guard.canActivate(ctx)).resolves.toBe(true)
+  })
+
+  // mutation-gate closure (round 5): kills the `expiresAt > Date.now()` →
+  // `expiresAt >= Date.now()` EqualityOperator mutant. At the EXACT
+  // instant a cache entry expires, real code (`>`) treats it as expired
+  // and re-fetches; the mutant (`>=`) treats the same instant as still
+  // valid and skips the fetch — same boundary-testing pattern this file
+  // already uses for `acceptPersonalEmailInvite`'s own `<` vs `<=`.
+  it('cache: an entry expiring at the EXACT current instant is treated as expired, not reused (kills the `>` → `>=` mutant)', async () => {
+    const payload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      userEmailId: 'aaaaaaaa-0000-4000-8000-000000000003',
+    }
+    const token = jwtService.sign(payload)
+    const mockFindUserEmailById = vi
+      .fn()
+      .mockResolvedValue({ id: 'aaaaaaaa-0000-4000-8000-000000000003', canLogin: true })
+    const mockUsersService = baseUsersServiceStub({ findUserEmailById: mockFindUserEmailById })
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
+
+    const start = new Date('2026-01-01T00:00:00.000Z')
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(start)
+      const { ctx: ctx1 } = makeCtxWithRequest({ jwt: token })
+      await expect(guard.canActivate(ctx1)).resolves.toBe(true)
+      expect(mockFindUserEmailById).toHaveBeenCalledTimes(1)
+
+      // Advance to the EXACT millisecond the cached entry's expiresAt
+      // (start + 60_000ms — CACHE_TTL_MS) equals `Date.now()`.
+      vi.setSystemTime(new Date(start.getTime() + 60_000))
+      const { ctx: ctx2 } = makeCtxWithRequest({ jwt: token })
+      await expect(guard.canActivate(ctx2)).resolves.toBe(true)
+      // Real code: `expiresAt > now` → `now > now` → false → NOT reused →
+      // second DB call. The `>=` mutant would keep this at 1.
+      expect(mockFindUserEmailById).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('two concurrent sessions for the SAME user through DIFFERENT rows do not share a cache verdict (WORK row valid, PERSONAL row revoked)', async () => {
     // Regression pin for CachedUserEmail's own doc: a userId-keyed cache
     // would let the first (valid) session's cached verdict answer for the
