@@ -40,6 +40,7 @@ assert_red "unaccepted HIGH advisory with an empty exceptions file" \
   --contains "GATED" \
   --contains "evil-pkg" \
   --contains "GHSA-aaaa-bbbb-cccc" \
+  --contains "pnpm-audit-runbook.md" \
   -- node "$GUARD" "$UNACCEPTED_AUDIT" "$EMPTY_EXCEPTIONS"
 
 # ── Same advisory, now properly excepted with a real reason -> GREEN ──────────
