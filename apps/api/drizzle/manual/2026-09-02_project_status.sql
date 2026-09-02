@@ -115,6 +115,16 @@ SELECT * FROM projects WHERE status = 'ACTIVE' AND archived_at IS NULL;
 -- Rollback (feature-level; only if this feature is being reverted entirely —
 -- dropping the column loses no data other than this feature's own field,
 -- since every pre-existing row was 'ACTIVE' before this column existed):
+--
+-- security-review round 3 (SR-L-2): the ORDER below is REQUIRED, not
+-- incidental — do not reorder it. `visible_projects` reads FROM
+-- `projects.status` (step 3 above), so Postgres refuses the column drop
+-- while the view still exists: `ALTER TABLE projects DROP COLUMN status`
+-- run on its own fails with `cannot drop column status of table projects
+-- because other objects depend on it` (verified against a live Postgres —
+-- same property `2026-08-03_non_deleted_transactions_view.sql` records for
+-- `non_deleted_transactions`/`transactions`). The view must be dropped
+-- FIRST, exactly as ordered here.
 --   DROP VIEW IF EXISTS visible_projects;
 --   ALTER TABLE projects DROP COLUMN IF EXISTS status;
 --   DROP TYPE IF EXISTS project_status;

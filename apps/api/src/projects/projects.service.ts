@@ -493,8 +493,10 @@ export class ProjectsService {
     }
 
     const ownProjects = (await this.db.db.query.projects.findMany({
-      // No archivedAt filter: drop sees both active and closed own projects.
-      // status is derived from archivedAt in the mapping below.
+      // No archivedAt filter: drop sees both active and closed own projects
+      // (Д1 — the drop is an invited approver, so a still-DRAFT or REJECTED
+      // project belongs on their own list too). status is derived from
+      // archivedAt + projects.status in the mapping below.
       where: eq(projects.dropId, currentUser.id),
       with: { senior: { columns: { displayName: true } } },
     })) as Array<Project & { senior: { displayName: string } | null }>
@@ -525,7 +527,16 @@ export class ProjectsService {
       companyName: p.companyName,
       seniorDisplayName: p.senior?.displayName ?? '',
       incomesCount: incomesByProject.get(p.id) ?? 0,
-      status: p.archivedAt === null ? ('active' as const) : ('closed' as const),
+      // SR-M-2 (task-project-draft-status, security-review round 3): this DTO
+      // only ever had a 2-value status (active/closed) — before this fix it
+      // derived it from `archivedAt` ALONE, so a DRAFT or REJECTED project
+      // (never archived) showed as 'active', indistinguishable from a
+      // confirmed one, on the drop's own finance-facing list. A DRAFT/
+      // REJECTED project cannot yet accept transactions (Д2) — it belongs on
+      // the SAME "not yet usable" side of this boolean-shaped enum as an
+      // archived one, not on the 'active' side.
+      status:
+        p.archivedAt === null && p.status === 'ACTIVE' ? ('active' as const) : ('closed' as const),
     }))
   }
 

@@ -202,10 +202,11 @@ export default [
     // REJECTED project as though it were confirmed. `visible_projects` (a
     // Postgres VIEW pre-filtered to `status = 'ACTIVE' AND archived_at IS
     // NULL` — see schema.ts's doc on the view) is the fix; this bans the raw
-    // import + both AST-level bypass forms the transactions ban already had
-    // to close (relational `with: { projects: ... }` traversal via
-    // `usersRelations.projects`'s STRING key, and `db.query.projects`
-    // property access) in the files below.
+    // import + the relational `with: { <key>: ... }` traversal (see
+    // `deriveProjectRelationKeys()` above — SR-H-3 caught the FIRST version
+    // of this comment overclaiming "both bypass forms" when it only ever
+    // matched ONE relation key name) + the `db.query.projects` property
+    // access, in the files below.
     //
     // UNLIKE `transactions`, this ban is NOT module-wide — `projects` has
     // real legitimate raw readers well beyond `finance/**`/`invoices/**`
@@ -222,16 +223,31 @@ export default [
     // `transactions` ban. This is the "легитимные исключения — назвать
     // поимённо и обосновать" the task asks for: every module above is named,
     // with the reason it still needs the raw table, rather than the ban
-    // simply not reaching them. Each of THOSE modules' own "which project
-    // counts as active" reads (the ones that previously used
-    // `isNull(projects.archivedAt)` alone) were migrated to
-    // `visible_projects` by hand instead — this ban cannot see that call
-    // shape reappearing there without also breaking their legitimate writes.
+    // simply not reaching them.
     //
-    // The files below have ZERO other legitimate raw need — every one of
-    // their previous `isNull(projects.archivedAt)`-style reads was migrated
-    // to `visible_projects` in the same PR that added this rule, so the ban
-    // closes ALL raw access, not just the one call shape.
+    // security-review round 3 (SR-L-2): the previous version of this
+    // paragraph claimed `users.service.ts` / `teams.service.ts`'s own
+    // "which project counts as active" reads "were migrated to
+    // `visible_projects` by hand instead" — false, and contradicted the
+    // PR's own "Допущения" section two paragraphs up in the same diff.
+    // Those two files' project reads were DELIBERATELY left untouched
+    // (verified byte-for-byte against `origin/main`): an archival-cascade
+    // impact read must see a project regardless of its confirmation status
+    // — a DRAFT project's senior/drop archiving must still cascade-archive
+    // it — so filtering to ACTIVE-only there would be a real regression,
+    // not a fix. That is exactly why they are named above as legitimate
+    // raw readers instead of being swept into this ban.
+    //
+    // The files below have no such reader — every one of their previous
+    // `isNull(projects.archivedAt)`-style reads WAS migrated to
+    // `visible_projects` in the same PR that added this rule, so the ban
+    // closes every access route an AST selector CAN see. It does not (and,
+    // being AST-only, structurally cannot) catch a raw SQL string that
+    // never imports the `projects` symbol at all (`db.execute(sql\`...
+    // FROM projects...\`)`) — the same class of residual gap the
+    // `transactions` ban above accepts for `sql\` templates, nested
+    // relational `with: {...}` reads` (see that block's comment); recorded
+    // here rather than silently absent.
     files: [
       'src/documents/**/*.ts',
       'src/interviews/**/*.ts',

@@ -537,9 +537,20 @@ export const updateProjectSchema = z
  * task-project-draft-status, item 4. `POST /api/projects/:id/reject` body —
  * mirrors `rejectApprovalInputSchema`'s own "Отказ возможен и требует
  * причины" (§3.3) contract: non-blank reason required.
+ *
+ * security-review round 3 (SR-L-1): `.max(500)` — the DB column
+ * (`approvals.rejection_reason`) is `text` (unbounded), so this is the only
+ * backstop against an authenticated invited approver writing an arbitrarily
+ * large blob that then renders on the admin's screen. Mirrors the sibling
+ * precedent `contracts.rejectionReason` (`varchar(500)` /
+ * `z.string().max(500)` in finance.ts) rather than inventing a new bound.
  */
 export const rejectProjectSchema = z.object({
-  reason: z.string().trim().min(1, 'Причина отказа обязательна'),
+  reason: z
+    .string()
+    .trim()
+    .min(1, 'Причина отказа обязательна')
+    .max(500, 'Причина отказа слишком длинная (максимум 500 символов)'),
 })
 export type RejectProjectDto = z.infer<typeof rejectProjectSchema>
 

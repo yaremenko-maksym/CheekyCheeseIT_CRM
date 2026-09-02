@@ -7950,6 +7950,25 @@ export class TransactionsService {
       throw new ForbiddenException()
     }
 
+    // SR-M-3 (security-review round 3, task-project-draft-status):
+    // ACCOUNTANT must not see finance settings for a project
+    // ProjectsService.assertAccess would already 404 them on directly (a
+    // DRAFT/REJECTED project — ACCOUNTANT is neither ADMIN nor an invited
+    // approver, see that method's own existence-oracle comment). ADMIN
+    // always passes here too, mirroring assertAccess's own ADMIN exemption
+    // — an admin legitimately configures finance settings before
+    // confirmation (the SAME seniorSharePercentOverride field `create()`
+    // already accepts on a still-DRAFT project).
+    if (currentUser.role === 'ACCOUNTANT') {
+      const project = await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, projectId),
+        columns: { status: true },
+      })
+      if (!project || project.status !== 'ACTIVE') {
+        throw new NotFoundException('Project not found')
+      }
+    }
+
     const settings = await this.db.db.query.projectFinanceSettings.findFirst({
       where: eq(projectFinanceSettings.projectId, projectId),
     })
@@ -7972,6 +7991,13 @@ export class TransactionsService {
       where: eq(projects.id, projectId),
     })
     if (!project) throw new NotFoundException('Project not found')
+    // SR-M-3 — same ACCOUNTANT-only status gate as getProjectFinanceSettings
+    // above (this method already fetches the full project row for the
+    // existence check, so the extra query the read-only sibling needs is
+    // not needed here).
+    if (currentUser.role === 'ACCOUNTANT' && project.status !== 'ACTIVE') {
+      throw new NotFoundException('Project not found')
+    }
 
     const fsValues = {
       seniorSharePercentOverride: data.seniorSharePercentOverride ?? null,
