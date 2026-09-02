@@ -48,10 +48,13 @@ describe("login route searchSchema — invited param survives the router's JSON-
     'unauthorized',
     'google_error',
     'invalid_state',
-    'invite_invalid',
+    'invite_email_mismatch',
     'invite_expired',
     'invite_used',
-    'invite_email_mismatch',
+    'invite_invalid',
+    'invite_account_taken',
+    'account_mismatch',
+    'account_disabled',
   ] as const
 
   it.each(ERROR_CODES)('accepts the exact error code %s', (code) => {
@@ -72,18 +75,40 @@ describe('login route ERROR_MESSAGES — exact Russian copy per error code', () 
     unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
     google_error: 'Ошибка Google OAuth. Попробуйте снова.',
     invalid_state: 'Сессия истекла. Пожалуйста, попробуйте снова.',
+    // copy-review PR #623 round 4 (COPY-H-3): names the actionable next step
+    // (open the link again, pick a different account) instead of only the
+    // diagnosis — the token is not consumed on a mismatch, so retrying works.
     invite_email_mismatch:
-      'Аккаунт Google не совпадает с адресом из приглашения. Обратитесь к администратору, если это ошибка.',
+      'Вы вошли в другой аккаунт Google. Откройте ссылку из письма ещё раз и выберите аккаунт того адреса, на который оно пришло. Если аккаунта Google на этом адресе нет — войти по нему нельзя, напишите администратору.',
     invite_expired:
       'Срок действия приглашения истёк. Попросите администратора отправить его заново.',
-    invite_used: 'Это приглашение уже использовано.',
-    invite_invalid: 'Ссылка приглашения недействительна.',
+    // COPY-M-2: "already used" always means "already works as a login
+    // method" (usedAt and canLogin flip in the SAME transaction) — the next
+    // action is the ordinary Google button, not a dead end.
+    invite_used:
+      'Приглашение уже использовано — личный адрес подтверждён. Войдите через Google кнопкой ниже.',
+    // COPY-M-3: the common real cause is a resend overwriting the old token.
+    invite_invalid:
+      'Ссылка не работает. Откройте ссылку из последнего письма, а если его нет — попросите администратора прислать приглашение заново.',
+    // LOW-1 (security-review PR #623 round 4): distinct from invite_used.
+    invite_account_taken:
+      'Этот аккаунт Google уже используется для входа с другого адреса. Обратитесь к администратору.',
+    // COPY-M-8: emitted by the ORDINARY (non-invite) login path — previously
+    // had NO text at all, crashing validateSearch on a real redirect.
+    account_mismatch:
+      'Этот адрес уже привязан к другому аккаунту Google. Войдите тем аккаунтом, которым входили раньше, или напишите администратору.',
+    account_disabled: 'Доступ к CRM закрыт. Если это ошибка, напишите администратору.',
   }
 
   it.each(Object.entries(EXPECTED))(
     'ERROR_MESSAGES.%s is the exact approved copy',
     (code, expected) => {
-      expect(ERROR_MESSAGES[code]).toBe(expected)
+      // ERROR_MESSAGES is now `as const satisfies Record<string, string>`
+      // (single source of truth for searchSchema's enum too — see the
+      // module doc) — no index signature, so a plain `string` key needs
+      // this cast. The runtime lookup itself is exactly what the module
+      // does at `ERROR_MESSAGES[error]` in the render path.
+      expect(ERROR_MESSAGES[code as keyof typeof ERROR_MESSAGES]).toBe(expected)
     },
   )
 })
