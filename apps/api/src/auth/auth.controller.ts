@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -8,6 +9,7 @@ import {
   HttpStatus,
   Logger,
   NotFoundException,
+  Param,
   Post,
   Query,
   Req,
@@ -29,11 +31,14 @@ import type { Env } from '../config/env'
 import { AdminWriteThrottle, AuthThrottle, RelaxableThrottle } from '../config/throttle-decorators'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
+import type { User, UserEmail } from '../database/schema'
 import { UsersService } from '../users/users.service'
 import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
 import { Public } from './public.decorator'
 import {
+  INVITE_COOKIE_HARDENED,
+  INVITE_COOKIE_LEGACY,
   JWT_COOKIE_HARDENED,
   JWT_COOKIE_LEGACY,
   STATE_COOKIE_HARDENED,
@@ -93,6 +98,10 @@ export class AuthController {
   private readonly jwtClearCookieOpts: ClearCookieOpts
   private readonly stateSetCookieOpts: SetCookieOpts
   private readonly stateClearCookieOpts: ClearCookieOpts
+  // task-user-emails-invite — see cookie-names.ts's doc on this pair.
+  private readonly inviteCookieName: string
+  private readonly inviteSetCookieOpts: SetCookieOpts
+  private readonly inviteClearCookieOpts: ClearCookieOpts
 
   constructor(
     private authService: AuthService,
@@ -104,6 +113,7 @@ export class AuthController {
     this.isProduction = this.config.get('NODE_ENV', { infer: true }) === 'production'
     this.jwtCookieName = this.isProduction ? JWT_COOKIE_HARDENED : JWT_COOKIE_LEGACY
     this.stateCookieName = this.isProduction ? STATE_COOKIE_HARDENED : STATE_COOKIE_LEGACY
+    this.inviteCookieName = this.isProduction ? INVITE_COOKIE_HARDENED : INVITE_COOKIE_LEGACY
     this.jwtSetCookieOpts = {
       httpOnly: true,
       sameSite: 'lax',
@@ -130,6 +140,9 @@ export class AuthController {
       secure: this.isProduction,
       path: '/',
     }
+    // Same shape as the state cookie — see cookie-names.ts.
+    this.inviteSetCookieOpts = this.stateSetCookieOpts
+    this.inviteClearCookieOpts = this.stateClearCookieOpts
   }
 
   /**
@@ -163,6 +176,39 @@ export class AuthController {
     await reply.redirect(authUrl, 302)
   }
 
+  /**
+   * task-user-emails-invite (spec §2, §5) — the invite email's link points
+   * here directly (see PersonalEmailInviteMailerService), same pattern the
+   * login page's own "Войти с Google" button already uses (a plain link
+   * straight to a backend endpoint that redirects to Google — no frontend
+   * page needed for this step).
+   *
+   * Sets the SAME OAuth-state cookie `initiateGoogleAuth` sets (CSRF
+   * defense, unchanged) PLUS the invite-token cookie — `googleCallback`
+   * below reads that second cookie to know this round trip is an
+   * invite-accept, not a normal login. A malformed token (wrong shape —
+   * `generateInviteToken` always produces 64 hex chars) is rejected here,
+   * before spending a Google round trip on it; a well-formed but
+   * nonexistent/expired/used one is still rejected later, in
+   * `UsersService.acceptPersonalEmailInvite` — this check is cheap hygiene,
+   * not the real validation.
+   */
+  @Get('invite/:token')
+  @Public()
+  @AuthThrottle()
+  async startInviteAccept(@Param('token') token: string, @Res() reply: FastifyReply) {
+    if (!/^[0-9a-f]{64}$/.test(token)) {
+      await reply.redirect(`${this.frontendUrl}/login?error=invite_invalid`, 302)
+      return
+    }
+
+    const state = randomBytes(16).toString('hex')
+    reply.setCookie(this.stateCookieName, state, this.stateSetCookieOpts)
+    reply.setCookie(this.inviteCookieName, token, this.inviteSetCookieOpts)
+    const authUrl = this.authService.buildGoogleAuthUrl(state)
+    await reply.redirect(authUrl, 302)
+  }
+
   @Get('google/callback')
   @Public()
   @AuthThrottle()
@@ -182,6 +228,14 @@ export class AuthController {
     // see `issueJwtCookie` doc for why a `__Host-*` deletion needs `secure`.
     reply.clearCookie(this.stateCookieName, this.stateClearCookieOpts)
 
+    // task-user-emails-invite: read BEFORE the Google exchange (below) so
+    // the branch decision does not depend on anything Google returns —
+    // clear unconditionally, whether or not this turns out to be an
+    // invite round trip, so a stale cookie never lingers into a later,
+    // unrelated login.
+    const inviteToken = request.cookies?.[this.inviteCookieName]
+    reply.clearCookie(this.inviteCookieName, this.inviteClearCookieOpts)
+
     let googleUser: { id: string; email: string; name: string; picture: string }
     try {
       const tokens = await this.authService.exchangeGoogleCode(code)
@@ -192,12 +246,33 @@ export class AuthController {
       return
     }
 
-    // §4.4/§5: lookup goes through user_emails (findLoginableUserByEmail),
+    if (inviteToken) {
+      // Invite-accept branch (task §2 — "Точка приёма"). No session is
+      // minted here — Google has confirmed WHO is in the browser, but that
+      // is all this branch does anything with. The person still has to hit
+      // the ordinary "Войти с Google" button afterwards to actually sign
+      // in, same as anyone else.
+      try {
+        await this.usersService.acceptPersonalEmailInvite(
+          inviteToken,
+          googleUser.email,
+          googleUser.id,
+        )
+      } catch (err) {
+        await reply.redirect(`${this.frontendUrl}/login?error=${mapInviteAcceptError(err)}`, 302)
+        return
+      }
+      await reply.redirect(`${this.frontendUrl}/login?invited=1`, 302)
+      return
+    }
+
+    // §4.4/§5: lookup goes through user_emails (findLoginableEmailRow),
     // NOT users.email directly — a personal address that exists but has not
     // been activated via invite-accept must behave exactly like "not
     // found" here, not like a valid login.
-    const user = await this.usersService.findLoginableUserByEmail(googleUser.email)
-    if (!user) {
+    const emailRow = await this.usersService.findLoginableEmailRow(googleUser.email)
+    const user = emailRow ? await this.usersService.findById(emailRow.userId) : undefined
+    if (!emailRow || !user) {
       await reply.redirect(`${this.frontendUrl}/login?error=unauthorized`, 302)
       return
     }
@@ -211,14 +286,7 @@ export class AuthController {
       return
     }
 
-    if (!user.googleId) {
-      await this.usersService.updateGoogleId(user.id, googleUser.id)
-    } else if (user.googleId !== googleUser.id) {
-      // Audit LOW #3: the email is already bound to a DIFFERENT Google `sub`.
-      // Refuse rather than silently honouring the existing binding — protects
-      // against account-takeover via email reuse / re-issued Google accounts.
-      // MED (security-review): log user.id only — never raw email (PII).
-      this.logger.warn(`Google account mismatch (OAuth callback) for user id=${user.id}`)
+    if (!(await this.verifyOrBindGoogleIdentity(user, emailRow, googleUser.id, 'OAuth callback'))) {
       await reply.redirect(`${this.frontendUrl}/login?error=account_mismatch`, 302)
       return
     }
@@ -231,6 +299,67 @@ export class AuthController {
     this.issueJwtCookie(reply, token)
 
     await reply.redirect(`${this.frontendUrl}/`, 302)
+  }
+
+  /**
+   * task-user-emails-invite: Google-identity binding, scoped to whichever
+   * `user_emails` ROW matched the login (see `findLoginableEmailRow`) —
+   * not to the user as a whole. WORK rows bind/verify against
+   * `users.googleId`, EXACTLY as before this task (three prior security-
+   * review rounds covered that path; this branch is byte-for-byte the same
+   * check, only moved into a shared helper). PERSONAL rows bind/verify
+   * against their OWN `user_emails.google_id` instead — see that column's
+   * comment in schema.ts for why one shared slot cannot serve both a
+   * corporate WORK account and a personal one, which are, by construction,
+   * different Google accounts.
+   *
+   * Threat model preserved 1:1 per row (Audit LOW #3's rationale: refuse
+   * rather than silently honour a changed `sub` for an address that
+   * already has one bound) — this only changes WHERE the previously-bound
+   * `sub` is looked up, never whether a mismatch is rejected.
+   *
+   * Returns `true` on success (already matched, or bound for the first
+   * time); `false` on mismatch — logs the same way the pre-existing WORK
+   * check already did, callers decide how to fail (redirect vs 401).
+   */
+  private async verifyOrBindGoogleIdentity(
+    user: User,
+    emailRow: UserEmail,
+    incomingGoogleId: string,
+    logSuffix: string,
+  ): Promise<boolean> {
+    if (emailRow.kind === 'WORK') {
+      if (!user.googleId) {
+        await this.usersService.updateGoogleId(user.id, incomingGoogleId)
+        return true
+      }
+      if (user.googleId !== incomingGoogleId) {
+        // MED (security-review): log user.id only — never raw email (PII).
+        this.logger.warn(`Google account mismatch (${logSuffix}) for user id=${user.id}`)
+        return false
+      }
+      return true
+    }
+
+    // PERSONAL. Defensive-only null branch: `acceptPersonalEmailInvite` is
+    // the sole writer of a PERSONAL row's `googleId`, and it always sets it
+    // in the SAME transaction that flips `canLogin` to true — a
+    // `canLogin=true` PERSONAL row with no `googleId` is a data
+    // inconsistency this code should never actually reach, not a
+    // legitimate first-time bind. Still bind rather than throw, mirroring
+    // the WORK branch's shape, so a bug here degrades to "logged in" rather
+    // than "locked out".
+    if (!emailRow.googleId) {
+      await this.usersService.updateEmailRowGoogleId(emailRow.id, incomingGoogleId)
+      return true
+    }
+    if (emailRow.googleId !== incomingGoogleId) {
+      this.logger.warn(
+        `Google account mismatch (${logSuffix}, personal address) for user id=${user.id}`,
+      )
+      return false
+    }
+    return true
   }
 
   // `/me` requires auth (no @Public) — caller is the global JwtAuthGuard now.
@@ -407,21 +536,16 @@ export class AuthController {
     }
 
     // §4.4/§5 — same rationale as googleCallback above.
-    const user = await this.usersService.findLoginableUserByEmail(googleUser.email)
-    if (!user) throw new UnauthorizedException('Email not authorized')
+    const emailRow = await this.usersService.findLoginableEmailRow(googleUser.email)
+    const user = emailRow ? await this.usersService.findById(emailRow.userId) : undefined
+    if (!emailRow || !user) throw new UnauthorizedException('Email not authorized')
 
     // LOW (security-audit authz-hardening): mirrors the same check in
     // googleCallback — an archived (fired) user must never receive a
     // session, not even a 401-request's worth of DB re-hydration lag.
     if (user.archivedAt) throw new UnauthorizedException('Account disabled')
 
-    if (!user.googleId) {
-      await this.usersService.updateGoogleId(user.id, googleUser.sub)
-    } else if (user.googleId !== googleUser.sub) {
-      // Audit LOW #3: incoming Google `sub` differs from the one already bound
-      // to this email — reject instead of ignoring the mismatch.
-      // MED (security-review): log user.id only — never raw email (PII).
-      this.logger.warn(`Google account mismatch (one-tap) for user id=${user.id}`)
+    if (!(await this.verifyOrBindGoogleIdentity(user, emailRow, googleUser.sub, 'one-tap'))) {
       throw new UnauthorizedException('Google account mismatch')
     }
 
@@ -487,4 +611,20 @@ export class AuthController {
 
     return { ok: true, user: jwtPayload }
   }
+}
+
+/**
+ * task-user-emails-invite: maps `UsersService.acceptPersonalEmailInvite`'s
+ * exceptions to the `?error=` code `googleCallback`'s invite branch
+ * redirects with — the login page (`login.tsx`) owns the Russian copy
+ * shown for each. Kept as a free function (not a private method) since it
+ * has no dependency on controller state — a pure exception → string map.
+ */
+function mapInviteAcceptError(err: unknown): string {
+  if (err instanceof ForbiddenException) return 'invite_email_mismatch'
+  if (err instanceof ConflictException) return 'invite_used'
+  if (err instanceof BadRequestException) return 'invite_expired'
+  // NotFoundException and anything unexpected — same bucket as "garbage
+  // link": nothing more specific to tell the visitor.
+  return 'invite_invalid'
 }
