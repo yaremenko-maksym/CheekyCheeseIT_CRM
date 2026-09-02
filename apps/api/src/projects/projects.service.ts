@@ -1042,6 +1042,27 @@ export class ProjectsService {
       }
     }
 
+    // security-review round 3 (SR-M-4, task-project-draft-status) — DECLINED,
+    // not fixed. Assigning a NEW drop to an already-ACTIVE project (dropId
+    // null -> uuid) does not touch `status` or create an approval row for
+    // that drop — no re-confirmation, no chance for them to decline. This is
+    // real: the drop becomes a party carrying a share without ever being
+    // asked.
+    //
+    // Not fixed here because it is out of THIS task's scope, not because it
+    // is fine. §9 "Порядок работ" of the design spec (docs/superpowers/specs
+    // /2026-09-01-notifications-and-confirmations-design.md) lists "Ожидающая
+    // доля" (pending-share: a changed share value goes through a pending
+    // slot + re-confirmation before taking effect, §4.3) as position 5 — a
+    // SEPARATE, not-yet-built work item, deliberately sequenced after
+    // position 4 (draft/confirmation status, this task) specifically because
+    // it needs 2-5 to already exist. Assigning a drop where none existed is
+    // arguably a third case neither position covers exactly (a new PARTY,
+    // not a changed VALUE on an existing one) — which is itself a reason
+    // this needs a decision from whoever owns position 5's design, not a
+    // guessed fix bolted onto position 4's gate. Flagged for the owner;
+    // resolve when position 5 is scoped.
+
     // Round-3 implicit-null detection (PR #39 round 2): UI больше не имеет
     // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN/ACCOUNTANT
     // ставит значение === эффективному дефолту синьера, мы интерпретируем
