@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { and, eq, inArray } from 'drizzle-orm'
+import { eq, inArray, or } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -7,7 +7,13 @@ import type { SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { InterviewsService } from './interviews.service'
 import { ProjectsService } from '../projects/projects.service'
-import { interviews, projects, teamMembers, teams, users } from '../database/schema'
+// security-review round 2 (SR-H-6): `createFromInterview` now calls
+// `ApprovalsService.proposeInTx`, whose `approvals` rows FK → `users.id`.
+// This spec's `afterAll` deletes `users` — the `approvals` rows this
+// module's own `svc.move(..., HIRED, ...)` calls create must be cleaned
+// first, or that delete throws a live FK violation.
+import { ApprovalsService } from '../approvals/approvals.service'
+import { approvals, interviews, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
@@ -117,14 +123,29 @@ describe.skipIf(!hasDatabaseUrl())(
         .values([{ teamId: TEAM_ID, userId: SENIOR.id }])
         .onConflictDoNothing()
 
-      // Build the real service (ProjectsService injected with real DB)
+      // Build the real service (ProjectsService injected with real DB).
+      // security-review round 2 (SR-H-6): `approvals` wired to a real
+      // `ApprovalsService` too — `createFromInterview` now calls
+      // `proposeInTx`, which throws on `this.approvals === undefined`.
       const projectsSvc = Object.create(ProjectsService.prototype) as ProjectsService
-      Object.assign(projectsSvc, { db: dbSvc })
+      Object.assign(projectsSvc, { db: dbSvc, approvals: new ApprovalsService(dbSvc) })
       svc = new InterviewsService(dbSvc, projectsSvc)
     }, 30_000)
 
     beforeEach(async () => {
-      // Clean state: remove projects and reset cards to OFFER_RECEIVED
+      // Clean state: remove projects and reset cards to OFFER_RECEIVED.
+      // security-review round 2 (SR-H-6): `approvals` rows (FK →
+      // TEST_USER_IDS) must go BEFORE `projects` too — `approvals` has no FK
+      // to `projects.id`, but leaving stale rows around defeats the point of
+      // "clean state" for the next test's proposal.
+      await dbSvc.db
+        .delete(approvals)
+        .where(
+          or(
+            inArray(approvals.approverUserId, TEST_USER_IDS),
+            inArray(approvals.proposedByUserId, TEST_USER_IDS),
+          ),
+        )
       await dbSvc.db.delete(projects).where(eq(projects.seniorId, SENIOR.id))
       await dbSvc.db
         .insert(interviews)
@@ -154,6 +175,16 @@ describe.skipIf(!hasDatabaseUrl())(
 
     afterAll(async () => {
       try {
+        // security-review round 2 (SR-H-6): BEFORE `users` below — same FK
+        // reason as `beforeEach`'s cleanup above.
+        await dbSvc.db
+          .delete(approvals)
+          .where(
+            or(
+              inArray(approvals.approverUserId, TEST_USER_IDS),
+              inArray(approvals.proposedByUserId, TEST_USER_IDS),
+            ),
+          )
         await dbSvc.db.delete(interviews).where(eq(interviews.seniorId, SENIOR.id))
         await dbSvc.db.delete(projects).where(eq(projects.seniorId, SENIOR.id))
         await dbSvc.db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))

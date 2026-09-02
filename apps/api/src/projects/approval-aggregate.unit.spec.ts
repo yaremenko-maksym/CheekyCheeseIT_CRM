@@ -26,7 +26,7 @@
  * covers that branch fails (not some unrelated test) — see the coder's
  * final report for the transcript.
  */
-import { NotFoundException } from '@nestjs/common'
+import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApprovalGroupStatus, SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -35,6 +35,11 @@ import { ProjectsService } from './projects.service'
 const SENIOR_ID = 'senior-1'
 const DROP_ID = 'drop-1'
 const PROJECT_ID = 'proj-1'
+// SR-H-5 fixtures (security-review round 2) — the REAL admin's own id, never
+// used as `approverUserId`/`proposedByUserId`; it exists only to be distinct
+// from SENIOR_ID/DROP_ID so a test that fails to refuse would show up as a
+// wrong-actor write, not an accidental id collision.
+const REAL_ADMIN_ID = 'admin-real-1'
 
 const CURRENT_SENIOR: SessionUser = {
   id: SENIOR_ID,
@@ -45,6 +50,24 @@ const CURRENT_SENIOR: SessionUser = {
   avatarDocumentId: null,
   seniorSharePercent: 26,
 }
+
+const CURRENT_DROP: SessionUser = {
+  id: DROP_ID,
+  role: 'DROP',
+  displayName: 'Drop',
+  email: 'drop@test.spec',
+  avatarUrl: null,
+  avatarDocumentId: null,
+  seniorSharePercent: 0,
+}
+
+// SR-H-5: an ADMIN who called `POST /auth/impersonate` and is now playing
+// the invited senior/drop — `id`/`role` are the TARGET's (that is the whole
+// point of impersonation: `approveInTx`'s "is this an invited approver?"
+// check cannot otherwise tell the difference), `impersonatorId` is the real
+// admin's own id.
+const IMPERSONATING_AS_SENIOR: SessionUser = { ...CURRENT_SENIOR, impersonatorId: REAL_ADMIN_ID }
+const IMPERSONATING_AS_DROP: SessionUser = { ...CURRENT_DROP, impersonatorId: REAL_ADMIN_ID }
 
 /** A mutable DRAFT project row — `applyApprovalAggregate`'s tx.update writes
  * back into THIS object, so the test can assert the post-call `.status`
@@ -222,5 +245,78 @@ describe('ProjectsService.approveDraft / rejectDraft — applyApprovalAggregate 
     })
     expect(projectRow.status).toBe('REJECTED')
     expect(result.status).toBe('REJECTED')
+  })
+
+  it('CONTROL: the ORDINARY (non-impersonated) drop confirmation still works — not just the senior', async () => {
+    // SR-H-5's fix reads `currentUser.impersonatorId`, present on EVERY
+    // `SessionUser`. This pins that the check does not accidentally also
+    // reject a real, non-impersonated DROP session — the other invited
+    // approver besides the senior (design spec §3 decision 4, "оба").
+    const projectRow = draftProjectRow()
+    const { service, approvals, teamMembersFindMany } = buildService(projectRow, 'APPROVED')
+
+    const result = await service.approveDraft(PROJECT_ID, CURRENT_DROP)
+
+    expect(approvals.approveInTx).toHaveBeenCalledWith(expect.anything(), {
+      subjectType: 'PROJECT',
+      subjectId: PROJECT_ID,
+      approverUserId: DROP_ID,
+    })
+    expect(projectRow.status).toBe('ACTIVE')
+    expect(result.status).toBe('ACTIVE')
+    expect(teamMembersFindMany).toHaveBeenCalled()
+  })
+})
+
+describe('approveDraft / rejectDraft — impersonation refusal (SR-H-5, security-review round 2)', () => {
+  // security-review round 2, SR-H-5: an ADMIN who impersonates the invited
+  // senior/drop and calls either endpoint would otherwise write an
+  // APPROVED/REJECTED row indistinguishable from that person's own consent
+  // — confirmation IS the consent record this task exists to produce, and
+  // `approvals` has no column to attribute it to the real operator instead.
+  // Both methods refuse OUTRIGHT (before the transaction even opens) rather
+  // than record anything.
+
+  it('approveDraft refuses an ADMIN impersonating the invited senior', async () => {
+    const projectRow = draftProjectRow()
+    const { service, approvals } = buildService(projectRow, 'PENDING')
+
+    await expect(service.approveDraft(PROJECT_ID, IMPERSONATING_AS_SENIOR)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+    // The refusal happens BEFORE `approveInTx` — no half-written consent row.
+    expect(approvals.approveInTx).not.toHaveBeenCalled()
+    expect(projectRow.status).toBe('DRAFT')
+  })
+
+  it('rejectDraft refuses the same way — a fabricated rejection reason is the mirror problem', async () => {
+    const projectRow = draftProjectRow()
+    const { service, approvals } = buildService(projectRow, 'PENDING')
+
+    await expect(
+      service.rejectDraft(PROJECT_ID, 'Не согласен', IMPERSONATING_AS_SENIOR),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+    expect(approvals.rejectInTx).not.toHaveBeenCalled()
+    expect(projectRow.status).toBe('DRAFT')
+  })
+
+  it('refuses the identical impersonated call for the invited DROP too, not only the senior', async () => {
+    const projectRow = draftProjectRow()
+    const { service, approvals } = buildService(projectRow, 'PENDING')
+
+    await expect(service.approveDraft(PROJECT_ID, IMPERSONATING_AS_DROP)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+    expect(approvals.approveInTx).not.toHaveBeenCalled()
+    expect(projectRow.status).toBe('DRAFT')
+  })
+
+  it('refusal message names the actual reason (impersonation), not a generic 403', async () => {
+    const projectRow = draftProjectRow()
+    const { service } = buildService(projectRow, 'PENDING')
+
+    await expect(service.approveDraft(PROJECT_ID, IMPERSONATING_AS_SENIOR)).rejects.toThrow(
+      /impersonat/i,
+    )
   })
 })
