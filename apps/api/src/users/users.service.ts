@@ -2366,6 +2366,7 @@ export class UsersService {
     const target = await this.findById(userId)
     if (!target) throw new NotFoundException('Пользователь не найден')
     const row = await this.db.db.query.userEmails.findFirst({
+      // Stryker disable next-line StringLiteral: same class as buildProfileView's identical suppression above — `kind: 'PERSONAL'` inside a Drizzle `where` a plain vi.fn() mock cannot distinguish from `""` (mutation-gate-integration-specs.md); exercised end-to-end against real Postgres by user-email-invites.integration.spec.ts, which seeds a PERSONAL row and resends against it.
       where: and(eq(userEmails.userId, userId), eq(userEmails.kind, 'PERSONAL')),
     })
     if (!row) throw new BadRequestException('У пользователя не задан личный email')

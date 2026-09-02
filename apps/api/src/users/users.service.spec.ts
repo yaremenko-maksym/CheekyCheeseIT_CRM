@@ -1,10 +1,16 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type * as schema from '../database/schema'
 import { userEmails } from '../database/schema'
 import type { AuditLogService } from './audit-log.service'
+import { hashInviteToken } from './invite-token.util'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 
@@ -681,6 +687,81 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
     )
   })
 
+  // task-user-emails-invite: mutation gate found `issuePersonalEmailInviteTx`
+  // (called from THIS branch of createUser) had zero assertions on its own
+  // output — the test above only checks the PERSONAL row's `.values()` call
+  // (the 3rd insert), never the 4th (`userEmailInvites`) that immediately
+  // follows it. `inviteMailer` is exposed here (unlike `makeUsersService`'s
+  // internal stub) specifically so the raw token it receives can be
+  // cross-checked against the HASH written to the DB — proving the two are
+  // the SAME token, not just that "some insert happened" and "some send
+  // happened" independently (which two ordinary mocked calls could satisfy
+  // by coincidence even if the token were wired to the wrong place).
+  it('issues a real invite token for the PERSONAL row: DB gets its hash, the mailer gets the raw value, and they match', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const inviteMailer = { sendInvite: vi.fn().mockResolvedValue(undefined) }
+    const service = new UsersService(
+      db as never,
+      makeAccessService() as never,
+      makeAuditLogService() as never,
+      makeTosService(),
+      makeTeamAuditLogService(),
+      makeProjectAuditLogService(),
+      makeTeamsService(),
+      inviteMailer as never,
+    )
+
+    const before = Date.now()
+    await service.createUser({
+      email: junior.email,
+      personalEmail: 'personal@example.com',
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
+    })
+
+    // 4th insert call = userEmailInvites (1: users, 2: WORK, 3: PERSONAL, 4: invite).
+    const insertMock = db.db.insert as ReturnType<typeof vi.fn>
+    expect(insertMock).toHaveBeenCalledTimes(4)
+    const inviteValuesMock = insertMock.mock.results[3]?.value?.values as ReturnType<typeof vi.fn>
+    // `.values` is a SINGLE shared mock across all 4 inserts (see makeDb's
+    // doc on insertValuesChain) — its call log accumulates every insert in
+    // order, so the invite's own values are call index 3 (0-based), not 0.
+    const inviteValues = inviteValuesMock.mock.calls[3]?.[0] as {
+      userEmailId: string
+      tokenHash: string
+      expiresAt: Date
+    }
+    expect(inviteValues.tokenHash).toMatch(/^[0-9a-f]{64}$/)
+    // 7-day TTL — independent literal bound (not the same `+ INVITE_TOKEN_TTL_MS`
+    // formula the implementation uses), generous slack for test execution time.
+    const expiresMs = inviteValues.expiresAt.getTime() - before
+    expect(expiresMs).toBeGreaterThan(604_800_000 - 5_000)
+    expect(expiresMs).toBeLessThan(604_800_000 + 5_000)
+
+    // The `.onConflictDoUpdate` resend-gating shape carries the SAME
+    // tokenHash/expiresAt just inserted, plus `usedAt: null`.
+    const onConflictMock = insertMock.mock.results[3]?.value?.onConflictDoUpdate as ReturnType<
+      typeof vi.fn
+    >
+    expect(onConflictMock).toHaveBeenCalledTimes(1)
+    const onConflictArg = onConflictMock.mock.calls[0]?.[0] as {
+      set: { tokenHash: string; expiresAt: Date; usedAt: null }
+    }
+    expect(onConflictArg.set.tokenHash).toBe(inviteValues.tokenHash)
+    expect(onConflictArg.set.usedAt).toBeNull()
+
+    // The mailer receives the RAW token — its hash must equal the DB row's
+    // tokenHash. This is the one assertion that would fail if the token
+    // handed to the email were ever swapped for a different/stale one.
+    expect(inviteMailer.sendInvite).toHaveBeenCalledTimes(1)
+    const mailerArg = inviteMailer.sendInvite.mock.calls[0]?.[0] as { rawToken: string }
+    expect(mailerArg.rawToken).toMatch(/^[0-9a-f]{64}$/)
+    expect(hashInviteToken(mailerArg.rawToken)).toBe(inviteValues.tokenHash)
+  })
+
   it('rejects with ConflictException when the email collides with an existing user_emails row on another user', async () => {
     const junior = makeJunior()
     const db = makeDb({ existingUser: undefined, createdUser: junior })
@@ -814,6 +895,287 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
     })
 
     expect(db.db.transaction).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// UsersService.acceptPersonalEmailInvite — task-user-emails-invite (spec §2)
+//
+// The 6 real-DB integration cases (user-email-invites.integration.spec.ts)
+// prove this behaves correctly against real Postgres — but the mutation
+// gate cannot execute an *.integration.spec.ts file at all (structural
+// vitest.config.mts exclude — see mutation-gate-integration-specs.md), so
+// that file's coverage does not exist from the gate's point of view: 50
+// NoCoverage mutants across this exact method were reported until these
+// unit-level doubles were added. Mocked db, not a duplicate of the
+// integration file's assertions — this checks BRANCHING (which exception,
+// which DB calls happen/don't), the integration file checks REALITY
+// (actual Postgres rows, actual unique-index behaviour).
+// ---------------------------------------------------------------------------
+
+describe("UsersService.updateEmailRowGoogleId (per-row Google-identity binding, verifyOrBindGoogleIdentity's PERSONAL branch)", () => {
+  it('updates the userEmails row by id with the given googleId and a fresh updatedAt', async () => {
+    const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+    const updateMock = vi.fn().mockReturnValue({ set: setMock })
+    const db = { db: { update: updateMock } } as unknown as DrizzleDb
+    const service = makeUsersService(db)
+
+    await expect(service.updateEmailRowGoogleId('row-1', 'google-sub-x')).resolves.toBeUndefined()
+
+    expect(updateMock).toHaveBeenCalledTimes(1)
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({ googleId: 'google-sub-x', updatedAt: expect.any(Date) }),
+    )
+  })
+})
+
+describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the integration-only branches)', () => {
+  interface EmailRow {
+    id: string
+    email: string
+    canLogin: boolean
+  }
+
+  function makeResendDb(opts: { target?: { id: string; displayName: string }; row?: EmailRow }) {
+    const selectWhere = vi.fn().mockResolvedValue(opts.target ? [opts.target] : [])
+    const selectChain = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: selectWhere,
+    }
+    const findFirst = vi.fn().mockResolvedValue(opts.row)
+    const insertValuesChain = {
+      values: vi.fn().mockReturnThis(),
+      onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+    }
+    const insertMock = vi.fn().mockReturnValue(insertValuesChain)
+    const dbHandle = {
+      ...selectChain,
+      insert: insertMock,
+      query: { userEmails: { findFirst } },
+    }
+    return { db: { db: dbHandle } as unknown as DrizzleDb, findFirst, insertMock }
+  }
+
+  it('user not found → NotFoundException, no queries against user_emails', async () => {
+    const { db, findFirst } = makeResendDb({ target: undefined })
+    const service = makeUsersService(db)
+    const promise = service.resendPersonalEmailInvite('ghost-id')
+    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
+    await expect(promise).rejects.toThrow('Пользователь не найден')
+    expect(findFirst).not.toHaveBeenCalled()
+  })
+
+  it('no PERSONAL row on file → BadRequestException with the exact copy, no invite issued', async () => {
+    const { db, insertMock, findFirst } = makeResendDb({
+      target: { id: 'u-1', displayName: 'Ivan' },
+      row: undefined,
+    })
+    const service = makeUsersService(db)
+    const promise = service.resendPersonalEmailInvite('u-1')
+    await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+    await expect(promise).rejects.toThrow('У пользователя не задан личный email')
+    expect(insertMock).not.toHaveBeenCalled()
+    // Kills the `findFirst({})` ObjectLiteral mutant (and the `kind: ''`
+    // StringLiteral inside its WHERE) — a query with no WHERE clause, or one
+    // that filters on kind:'' instead of kind:'PERSONAL', would match rows
+    // it should not.
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.anything() }))
+  })
+
+  it('already accepted (canLogin=true) → ConflictException with the exact copy, no invite issued', async () => {
+    const { db, insertMock } = makeResendDb({
+      target: { id: 'u-1', displayName: 'Ivan' },
+      row: { id: 'row-1', email: 'ivan.personal@gmail.com', canLogin: true },
+    })
+    const service = makeUsersService(db)
+    const promise = service.resendPersonalEmailInvite('u-1')
+    await expect(promise).rejects.toBeInstanceOf(ConflictException)
+    await expect(promise).rejects.toThrow(
+      'Личный email уже подтверждён — повторное приглашение не требуется',
+    )
+    expect(insertMock).not.toHaveBeenCalled()
+  })
+
+  it('happy path: issues a fresh token and returns { rawToken, email, displayName } exactly', async () => {
+    const { db, insertMock } = makeResendDb({
+      target: { id: 'u-1', displayName: 'Ivan Petrov' },
+      row: { id: 'row-1', email: 'ivan.personal@gmail.com', canLogin: false },
+    })
+    const service = makeUsersService(db)
+    const result = await service.resendPersonalEmailInvite('u-1')
+
+    expect(result.email).toBe('ivan.personal@gmail.com')
+    expect(result.displayName).toBe('Ivan Petrov')
+    expect(result.rawToken).toMatch(/^[0-9a-f]{64}$/)
+    expect(insertMock).toHaveBeenCalledTimes(1)
+    const values = insertMock.mock.results[0]?.value?.values as ReturnType<typeof vi.fn>
+    const insertedArg = values.mock.calls[0]?.[0] as { userEmailId: string; tokenHash: string }
+    expect(insertedArg.userEmailId).toBe('row-1')
+    expect(insertedArg.tokenHash).toBe(hashInviteToken(result.rawToken))
+  })
+})
+
+describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the integration-only branches)', () => {
+  interface InviteRow {
+    id: string
+    userEmailId: string
+    usedAt: Date | null
+    expiresAt: Date
+  }
+  interface EmailRow {
+    id: string
+    email: string
+  }
+
+  function makeAcceptDb(opts: { invite?: InviteRow; row?: EmailRow }) {
+    const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+    const updateMock = vi.fn().mockReturnValue({ set: setMock })
+    const inviteFindFirst = vi.fn().mockResolvedValue(opts.invite)
+    const emailFindFirst = vi.fn().mockResolvedValue(opts.row)
+    const queryChain = {
+      query: {
+        userEmailInvites: { findFirst: inviteFindFirst },
+        userEmails: { findFirst: emailFindFirst },
+      },
+    }
+    const txHandle = { ...queryChain, update: updateMock }
+    const dbHandle = {
+      ...queryChain,
+      update: updateMock,
+      transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(txHandle)),
+    }
+    return {
+      db: { db: dbHandle } as unknown as DrizzleDb,
+      updateMock,
+      setMock,
+      transactionMock: dbHandle.transaction,
+      inviteFindFirst,
+      emailFindFirst,
+    }
+  }
+
+  const FUTURE = new Date(Date.now() + 1000 * 60 * 60) // 1h from now
+  const PAST = new Date(Date.now() - 1000) // 1s ago
+
+  it('token hash matches no row → NotFoundException with the exact copy, no writes, real WHERE clause built', async () => {
+    const { db, transactionMock, inviteFindFirst } = makeAcceptDb({ invite: undefined })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
+    await expect(promise).rejects.toThrow('Приглашение недействительно')
+    expect(transactionMock).not.toHaveBeenCalled()
+    // Kills the `findFirst({})` ObjectLiteral mutant — a query with no WHERE
+    // clause at all would match ANY row, not "no row for this token".
+    expect(inviteFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.anything() }),
+    )
+  })
+
+  it('invite already used → ConflictException with the exact copy, no writes', async () => {
+    const { db, transactionMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: new Date(), expiresAt: FUTURE },
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(ConflictException)
+    await expect(promise).rejects.toThrow('Приглашение уже использовано')
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('invite expired → BadRequestException with the exact copy, no writes', async () => {
+    const { db, transactionMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: PAST },
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+    await expect(promise).rejects.toThrow('Срок действия приглашения истёк')
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('boundary: an invite expiring at the EXACT current instant is not yet expired (kills the `<` → `<=` mutant)', async () => {
+    const now = new Date('2026-01-01T00:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+    try {
+      const { db } = makeAcceptDb({
+        invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: now },
+        row: { id: 'row-1', email: 'real@example.com' },
+      })
+      const service = makeUsersService(db)
+      // Real code: `expiresAt.getTime() < Date.now()` → `now < now` → false →
+      // NOT expired, proceeds to the happy path. The `<=` mutant would throw
+      // BadRequestException here instead.
+      await expect(
+        service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1'),
+      ).resolves.toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('the user_emails row the invite points at is gone (defensive) → NotFoundException with the exact copy, no writes, real WHERE clause built', async () => {
+    const { db, transactionMock, emailFindFirst } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: undefined,
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
+    await expect(promise).rejects.toThrow('Приглашение недействительно')
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(emailFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.anything() }),
+    )
+  })
+
+  it('Google email does not match the invited address → ForbiddenException with the exact copy, no writes', async () => {
+    const { db, transactionMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com' },
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'wrong@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(promise).rejects.toThrow(
+      'Адрес аккаунта Google не совпадает с приглашённым адресом',
+    )
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('email match is case-insensitive (mirrors the case-folded unique index — SR-H-1 precedent)', async () => {
+    const { db, transactionMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'Real@Example.com' },
+    })
+    const service = makeUsersService(db)
+    await expect(
+      service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1'),
+    ).resolves.toBeUndefined()
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('happy path: one transaction, marks the invite used AND flips canLogin/verifiedAt/googleId on the row', async () => {
+    const { db, transactionMock, updateMock, setMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com' },
+    })
+    const service = makeUsersService(db)
+    await expect(
+      service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-42'),
+    ).resolves.toBeUndefined()
+
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    // Two updates inside the one transaction: the invite row, then the
+    // user_emails row.
+    expect(updateMock).toHaveBeenCalledTimes(2)
+    expect(setMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ usedAt: expect.any(Date) }),
+    )
+    expect(setMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ canLogin: true, googleId: 'sub-42', verifiedAt: expect.any(Date) }),
+    )
   })
 })
 
