@@ -1416,3 +1416,135 @@ describe('verifyOrBindGoogleIdentity (via googleCallback) — PERSONAL branch (t
     expect(redirectsOf(reply)).toEqual(['http://localhost:3000/'])
   })
 })
+
+/**
+ * SR-M-13 (security-review PR #623 round 6) — impersonation round-trip
+ * `userEmailId` binding.
+ *
+ * Unit-level (not just the real-DB `auth.impersonation.integration.spec.ts`)
+ * because the mutation gate only runs the unit suite — see
+ * `mutation-gate-integration-specs.md`: a `NoCoverage` finding here would be
+ * REAL, not a heuristic false-positive, since nothing else exercises the
+ * conditional-spread / field-copy logic added to `impersonate` /
+ * `stopImpersonating` at the unit level.
+ *
+ * Reviewer's controlled reproduction (round 5→6): same admin, same
+ * personal-email revocation, ONE impersonate→stop-impersonating round trip
+ * in between — before this fix, `stopImpersonating` always minted
+ * `userEmailId: undefined` regardless of what the admin's session carried,
+ * so the revocation silently stopped applying to that session forever.
+ */
+describe('AuthController.impersonate / stopImpersonating — SR-M-13 (round-trip userEmailId binding)', () => {
+  const ADMIN_USER = {
+    ...TEST_USER,
+    id: 'aaaaaaaa-0000-4000-8000-0000000000a1',
+    email: 'admin-sr-m-13@test.spec',
+    role: 'ADMIN' as const,
+  }
+  const TARGET_USER = {
+    ...TEST_USER,
+    id: 'aaaaaaaa-0000-4000-8000-0000000000a2',
+    email: 'target-sr-m-13@test.spec',
+    role: 'JUNIOR' as const,
+  }
+  const ADMIN_USER_EMAIL_ID = 'bbbbbbbb-0000-4000-8000-0000000000b1'
+
+  function signedPayload(jwtService: JwtService): Record<string, unknown> {
+    return vi.mocked(jwtService.sign).mock.calls[0]![0] as Record<string, unknown>
+  }
+
+  it("impersonate: admin session WITH userEmailId → carried into impersonatorUserEmailId, NOT into the target token's own userEmailId", async () => {
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(TARGET_USER),
+      jwtService,
+      makeConfig('development'),
+    )
+    const currentUser: JwtPayload = {
+      id: ADMIN_USER.id,
+      email: ADMIN_USER.email,
+      role: 'ADMIN',
+      userEmailId: ADMIN_USER_EMAIL_ID,
+    }
+
+    await controller.impersonate({ userId: TARGET_USER.id }, currentUser, makeReply())
+
+    const payload = signedPayload(jwtService)
+    expect(payload['id']).toBe(TARGET_USER.id)
+    expect(payload['impersonatorId']).toBe(ADMIN_USER.id)
+    expect(payload['impersonatorUserEmailId']).toBe(ADMIN_USER_EMAIL_ID)
+    // The impersonation-target token has no `user_emails` row of its own —
+    // see `jwtPayloadSchema`'s doc, case 1.
+    expect(payload['userEmailId']).toBeUndefined()
+  })
+
+  it('impersonate: admin session WITHOUT userEmailId → impersonatorUserEmailId stays undefined (does not fabricate a binding)', async () => {
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(TARGET_USER),
+      jwtService,
+      makeConfig('development'),
+    )
+    const currentUser: JwtPayload = {
+      id: ADMIN_USER.id,
+      email: ADMIN_USER.email,
+      role: 'ADMIN',
+      // No userEmailId — e.g. a pre-deployment admin session (see
+      // `jwtPayloadSchema`'s doc, case 3).
+    }
+
+    await controller.impersonate({ userId: TARGET_USER.id }, currentUser, makeReply())
+
+    const payload = signedPayload(jwtService)
+    expect(payload['impersonatorUserEmailId']).toBeUndefined()
+  })
+
+  it("stopImpersonating: impersonatorUserEmailId present → restored onto the reinstated admin session's userEmailId", async () => {
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(ADMIN_USER),
+      jwtService,
+      makeConfig('development'),
+    )
+    const currentUser: JwtPayload = {
+      id: TARGET_USER.id,
+      email: TARGET_USER.email,
+      role: TARGET_USER.role,
+      impersonatorId: ADMIN_USER.id,
+      impersonatorUserEmailId: ADMIN_USER_EMAIL_ID,
+    }
+
+    await controller.stopImpersonating(currentUser, makeReply())
+
+    const payload = signedPayload(jwtService)
+    expect(payload['id']).toBe(ADMIN_USER.id)
+    expect(payload['userEmailId']).toBe(ADMIN_USER_EMAIL_ID)
+    expect(payload['impersonatorId']).toBeUndefined()
+  })
+
+  it('stopImpersonating: no impersonatorUserEmailId on the impersonation token → restored session has no userEmailId either', async () => {
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(ADMIN_USER),
+      jwtService,
+      makeConfig('development'),
+    )
+    const currentUser: JwtPayload = {
+      id: TARGET_USER.id,
+      email: TARGET_USER.email,
+      role: TARGET_USER.role,
+      impersonatorId: ADMIN_USER.id,
+      // No impersonatorUserEmailId — the admin's own session had none to
+      // carry (round-trip has nothing to restore, not a regression).
+    }
+
+    await controller.stopImpersonating(currentUser, makeReply())
+
+    const payload = signedPayload(jwtService)
+    expect(payload['userEmailId']).toBeUndefined()
+  })
+})

@@ -1,5 +1,6 @@
 import 'reflect-metadata'
-import { Module } from '@nestjs/common'
+import { Module, UnauthorizedException } from '@nestjs/common'
+import type { ExecutionContext } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { ConfigService } from '@nestjs/config'
 import { JwtModule, JwtService } from '@nestjs/jwt'
@@ -7,12 +8,12 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { User } from '../database/schema'
 import * as schema from '../database/schema'
-import { users } from '../database/schema'
+import { userEmails, users } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
 import { UsersService } from '../users/users.service'
 import { AuthController } from './auth.controller'
@@ -112,10 +113,23 @@ function makeConfig(): ConfigService {
   } as unknown as ConfigService
 }
 
-/** Sign a JWT with impersonatorId for testing I5/I6/I7. */
+/**
+ * Sign a JWT for testing I5/I6/I7 and, since SR-M-13 (round 6),
+ * `userEmailId` / `impersonatorUserEmailId` too — sign() itself does not
+ * validate the shape (that is `jwtPayloadSchema`'s job, on the RECEIVING
+ * end, inside `JwtAuthGuard`/`AuthController`), so this stub can hand it
+ * any superset of fields a real caller might sign.
+ */
 function signImpersonationToken(
   jwtSvc: JwtService,
-  opts: { id: string; email: string; role: string; impersonatorId?: string },
+  opts: {
+    id: string
+    email: string
+    role: string
+    impersonatorId?: string
+    userEmailId?: string
+    impersonatorUserEmailId?: string
+  },
 ): string {
   return jwtSvc.sign(opts)
 }
@@ -421,6 +435,197 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       // 200 means the guard accepted the token — did NOT reject it despite extra impersonatorId field.
       expect(res.statusCode).toBe(200)
+    })
+
+    // ── SR-M-13 (security-review PR #623 round 6): impersonation round trip
+    // preserves the admin's OWN userEmailId binding ──────────────────────
+
+    it('SR-M-13: ADMIN token WITH userEmailId → impersonate → decoded token carries impersonatorUserEmailId, no userEmailId of its own', async () => {
+      // The GLOBAL JwtAuthGuard re-checks a token's `userEmailId` against a
+      // real `user_emails` row BEFORE this request ever reaches the
+      // controller (SR-H-6) — a token carrying a fake id is rejected with
+      // 401 at the guard, never getting far enough to exercise the mint
+      // logic this test is actually about. Seed a real row.
+      const adminEmailRowId = 'a9e10001-0000-4000-8000-0000000000e1'
+      await dbSvc.db
+        .insert(userEmails)
+        .values({
+          id: adminEmailRowId,
+          userId: ADMIN_ID,
+          email: ADMIN_EMAIL,
+          kind: 'WORK',
+          canLogin: true,
+          verifiedAt: new Date(),
+        })
+        .onConflictDoNothing()
+
+      try {
+        const token = signImpersonationToken(jwtSvc, {
+          id: ADMIN_ID,
+          email: ADMIN_EMAIL,
+          role: 'ADMIN',
+          userEmailId: adminEmailRowId,
+        })
+
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/auth/impersonate',
+          headers: { cookie: jwtCookie(token) },
+          payload: { userId: SENIOR_ID },
+        })
+
+        expect(res.statusCode).toBe(200)
+        const cookieHeader = res.headers['set-cookie']
+        const cookieStr = Array.isArray(cookieHeader)
+          ? cookieHeader.join(';')
+          : (cookieHeader ?? '')
+        const rawCookieValue = cookieStr.match(/jwt=([^;]+)/)?.[1]
+        expect(rawCookieValue).toBeTruthy()
+
+        const decoded = jwtSvc.verify<{
+          id: string
+          userEmailId?: string
+          impersonatorUserEmailId?: string
+        }>(rawCookieValue!)
+        expect(decoded.impersonatorUserEmailId).toBe(adminEmailRowId)
+        // The impersonation-target token has no real login row of its own.
+        expect(decoded.userEmailId).toBeUndefined()
+      } finally {
+        await dbSvc.db.delete(userEmails).where(eq(userEmails.id, adminEmailRowId))
+      }
+    })
+
+    it('SR-M-13: impersonation token WITH impersonatorUserEmailId → stop-impersonating → restored admin token carries userEmailId', async () => {
+      const token = signImpersonationToken(jwtSvc, {
+        id: SENIOR_ID,
+        email: SENIOR_EMAIL,
+        role: 'SENIOR',
+        impersonatorId: ADMIN_ID,
+        impersonatorUserEmailId: 'a9e10001-0000-4000-8000-0000000000e1',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/stop-impersonating',
+        headers: { cookie: jwtCookie(token) },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const cookieHeader = res.headers['set-cookie']
+      const cookieStr = Array.isArray(cookieHeader) ? cookieHeader.join(';') : (cookieHeader ?? '')
+      const rawCookieValue = cookieStr.match(/jwt=([^;]+)/)?.[1]
+      expect(rawCookieValue).toBeTruthy()
+
+      const decoded = jwtSvc.verify<{ id: string; userEmailId?: string }>(rawCookieValue!)
+      expect(decoded.id).toBe(ADMIN_ID)
+      expect(decoded.userEmailId).toBe('a9e10001-0000-4000-8000-0000000000e1')
+    })
+
+    // ── SR-M-13, full circuit: the reviewer's own controlled reproduction ───
+    //
+    // Same admin, same real login row, ONE impersonate → stop-impersonating
+    // round trip, THEN a revocation of that exact row (the same mechanism
+    // `changePersonalEmail` uses — flip `canLogin` false). Before this fix,
+    // `stopImpersonating` always minted `userEmailId: undefined`, so this
+    // revocation had no effect on the restored session — it kept working
+    // for the rest of the 7-day cookie. Uses a FRESH `JwtAuthGuard` per
+    // check (cold cache) — same pattern as `user-email-invites.integration
+    // .spec.ts`'s SR-H-6 tests — so a stale cache-HIT from an earlier check
+    // in this test cannot mask the revocation.
+
+    const ADMIN_WORK_EMAIL_ROW_ID = 'a9e10001-0000-4000-8000-0000000000e2'
+
+    function coldGuard(): JwtAuthGuard {
+      const freshUsersService = Object.assign(
+        Object.create(UsersService.prototype) as UsersService,
+        {
+          db: dbSvc,
+        },
+      )
+      const noopReflector = { getAllAndOverride: () => false } as unknown as Reflector
+      return new JwtAuthGuard(jwtSvc, noopReflector, freshUsersService)
+    }
+
+    function coldGuardCtx(token: string): ExecutionContext {
+      const request: Record<string, unknown> = { cookies: { jwt: token } }
+      return {
+        switchToHttp: () => ({ getRequest: () => request }),
+        getHandler: () => ({}),
+        getClass: () => ({}),
+      } as unknown as ExecutionContext
+    }
+
+    it('SR-M-13 full circuit: round trip restores userEmailId, and a subsequent revocation of that row now kills the restored session', async () => {
+      await dbSvc.db
+        .insert(userEmails)
+        .values({
+          id: ADMIN_WORK_EMAIL_ROW_ID,
+          userId: ADMIN_ID,
+          email: ADMIN_EMAIL,
+          kind: 'WORK',
+          canLogin: true,
+          verifiedAt: new Date(),
+        })
+        .onConflictDoNothing()
+
+      try {
+        const adminSessionToken = signImpersonationToken(jwtSvc, {
+          id: ADMIN_ID,
+          email: ADMIN_EMAIL,
+          role: 'ADMIN',
+          userEmailId: ADMIN_WORK_EMAIL_ROW_ID,
+        })
+
+        // Sanity: accepted BEFORE any impersonation or revocation.
+        await expect(coldGuard().canActivate(coldGuardCtx(adminSessionToken))).resolves.toBe(true)
+
+        const impersonateRes = await app.inject({
+          method: 'POST',
+          url: '/api/auth/impersonate',
+          headers: { cookie: jwtCookie(adminSessionToken) },
+          payload: { userId: SENIOR_ID },
+        })
+        expect(impersonateRes.statusCode).toBe(200)
+        const impCookieHeader = impersonateRes.headers['set-cookie']
+        const impCookieStr = Array.isArray(impCookieHeader)
+          ? impCookieHeader.join(';')
+          : (impCookieHeader ?? '')
+        const impersonationToken = impCookieStr.match(/jwt=([^;]+)/)?.[1]
+        expect(impersonationToken).toBeTruthy()
+
+        const stopRes = await app.inject({
+          method: 'POST',
+          url: '/api/auth/stop-impersonating',
+          headers: { cookie: jwtCookie(impersonationToken!) },
+        })
+        expect(stopRes.statusCode).toBe(200)
+        const restoredCookieHeader = stopRes.headers['set-cookie']
+        const restoredCookieStr = Array.isArray(restoredCookieHeader)
+          ? restoredCookieHeader.join(';')
+          : (restoredCookieHeader ?? '')
+        const restoredToken = restoredCookieStr.match(/jwt=([^;]+)/)?.[1]
+        expect(restoredToken).toBeTruthy()
+
+        const decodedRestored = jwtSvc.verify<{ id: string; userEmailId?: string }>(restoredToken!)
+        expect(decodedRestored.userEmailId).toBe(ADMIN_WORK_EMAIL_ROW_ID)
+
+        // Restored session accepted by a COLD guard, before revocation.
+        await expect(coldGuard().canActivate(coldGuardCtx(restoredToken!))).resolves.toBe(true)
+
+        // Revoke — flip canLogin false on the exact row, same as a real
+        // `changePersonalEmail` revocation would.
+        await dbSvc.db
+          .update(userEmails)
+          .set({ canLogin: false })
+          .where(eq(userEmails.id, ADMIN_WORK_EMAIL_ROW_ID))
+
+        // A COLD guard (fresh cache) now rejects the RESTORED session.
+        await expect(coldGuard().canActivate(coldGuardCtx(restoredToken!))).rejects.toBeInstanceOf(
+          UnauthorizedException,
+        )
+      } finally {
+        await dbSvc.db.delete(userEmails).where(eq(userEmails.id, ADMIN_WORK_EMAIL_ROW_ID))
+      }
     })
   },
 )
