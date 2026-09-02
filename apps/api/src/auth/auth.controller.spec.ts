@@ -653,6 +653,29 @@ describe('AuthController.startInviteAccept — GET /auth/invite/:token (task-use
     )
   })
 
+  it('DEV: uses the plain (non-__Host-) cookie names — INVITE_COOKIE_LEGACY / STATE_COOKIE_LEGACY', async () => {
+    const authService = makeAuthService()
+    ;(authService.buildGoogleAuthUrl as ReturnType<typeof vi.fn>).mockReturnValue(
+      'https://accounts.google.com/o/oauth2/auth?state=abc',
+    )
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('development'),
+    )
+    const reply = makeFullReply()
+    const validToken = 'b'.repeat(64)
+
+    await controller.startInviteAccept(validToken, reply)
+
+    expect(Object.keys(reply._cookies)).toEqual(
+      expect.arrayContaining(['oauth_state', 'invite_token']),
+    )
+    expect(reply._cookies['invite_token']?.value).toBe(validToken)
+    expect(Object.keys(reply._cookies)).not.toContain('__Host-invite_token')
+  })
+
   it('malformed token (not 64 hex chars) → redirects to /login?error=invite_invalid, never touches Google', async () => {
     const authService = makeAuthService()
     const controller = new AuthController(
