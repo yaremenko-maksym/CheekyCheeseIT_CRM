@@ -30,12 +30,35 @@ const makeAuditLogService = (): AuditLogService =>
 const makeTosService = () =>
   ({ getLatestAcceptanceForUser: vi.fn().mockResolvedValue(null) }) as never
 
+// task-user-emails-invite: `createUser`'s constructor grew a `PersonalEmailInviteMailerService`
+// dependency (best-effort invite send, AFTER the tx commits — see that
+// method's doc). Stubbed here so the `personalEmail`-carrying tests below
+// (which DO exercise that call) don't crash on `undefined.sendInvite`.
+const makeInviteMailer = () => ({ sendInvite: vi.fn().mockResolvedValue(undefined) }) as never
+// The remaining three constructor args (teamAuditLogService,
+// projectAuditLogService, teamsService) are untouched by any test in this
+// file (no JOIN_DROP_TEAM / createDrop path exercised here — see
+// users.drop.spec.ts for those) — stubbed anyway so a future test that DOES
+// reach them fails on a missing MOCK METHOD, not on `undefined` entirely.
+const makeTeamAuditLogService = () => ({ record: vi.fn().mockResolvedValue(undefined) }) as never
+const makeProjectAuditLogService = () => ({ record: vi.fn().mockResolvedValue(undefined) }) as never
+const makeTeamsService = () =>
+  ({
+    isActiveMemberOfTeam: vi.fn().mockResolvedValue(true),
+    addSeniorToDropTeam: vi.fn().mockResolvedValue(undefined),
+    createDropTeam: vi.fn().mockResolvedValue({ id: 'team-x' }),
+  }) as never
+
 const makeUsersService = (db: DrizzleDb): UsersService =>
   new UsersService(
     db as never,
     makeAccessService() as never,
     makeAuditLogService() as never,
     makeTosService(),
+    makeTeamAuditLogService(),
+    makeProjectAuditLogService(),
+    makeTeamsService(),
+    makeInviteMailer(),
   )
 
 // ---------------------------------------------------------------------------
@@ -135,6 +158,11 @@ function makeDb({
   const insertValuesChain = {
     values: vi.fn().mockReturnThis(),
     returning: vi.fn(),
+    // task-user-emails-invite: `issuePersonalEmailInviteTx`'s
+    // `tx.insert(userEmailInvites).values(...).onConflictDoUpdate(...)` —
+    // a THIRD terminal method on this same shared chain, alongside
+    // `.returning()` above. Resolves like a bare insert with no RETURNING.
+    onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
   }
   insertValuesChain.returning
     // first insert = users table → return createdUser

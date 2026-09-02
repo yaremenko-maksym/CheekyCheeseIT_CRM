@@ -61,16 +61,39 @@ const TEST_USER = {
   updatedAt: new Date(),
 }
 
+/**
+ * task-user-emails-invite: `googleCallback`/`googleOneTap` now look up a
+ * `user_emails` ROW (`findLoginableEmailRow`) instead of the user directly
+ * — see `verifyOrBindGoogleIdentity`'s doc for why (per-row Google-identity
+ * binding). `devLogin` is UNCHANGED (still calls `findLoginableUserByEmail`
+ * directly), so both stubs are provided, backed by the SAME `foundUser`.
+ */
 function makeUsersService(foundUser: typeof TEST_USER | null): UsersService {
+  const emailRow = foundUser
+    ? {
+        id: 'email-row-id',
+        userId: foundUser.id,
+        email: foundUser.email,
+        kind: 'WORK' as const,
+        verifiedAt: new Date(),
+        canLogin: true,
+        googleId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+    : undefined
   return {
-    // §4.4/§5: the controller's 3 login lookups now go through
-    // findLoginableUserByEmail (user_emails, canLogin gate), not
+    // §4.4/§5: the controller's login lookups go through
+    // findLoginableUserByEmail (devLogin) / findLoginableEmailRow
+    // (googleCallback, googleOneTap) — user_emails, canLogin gate — not
     // findByEmail (which still exists on the real service for
     // createUser/adminUpdateUser's users.email conflict check — unrelated
     // to these login-path tests).
     findLoginableUserByEmail: vi.fn().mockResolvedValue(foundUser),
+    findLoginableEmailRow: vi.fn().mockResolvedValue(emailRow),
     findById: vi.fn().mockResolvedValue(foundUser),
     updateGoogleId: vi.fn().mockResolvedValue(undefined),
+    updateEmailRowGoogleId: vi.fn().mockResolvedValue(undefined),
   } as unknown as UsersService
 }
 
