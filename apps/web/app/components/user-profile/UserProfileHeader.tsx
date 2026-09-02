@@ -90,11 +90,29 @@ export function UserProfileHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          {/* ui-ux-designer PR #623 fidelity audit: `email` / `personalEmail`
+              are admin-entered (`.max(255)`, security-review SR-M-1) with no
+              structural word-break requirement — an unbroken run overflows
+              its own box instead of wrapping, same defect class already
+              fixed in notifications-bell.tsx (#620). `wrap-anywhere`
+              (overflow-wrap: anywhere), not `break-words`: the CSS Text spec
+              excludes `break-word` from the flex item's automatic-minimum-size
+              calculation, so an unbreakable run still forces the box wide
+              before break-word gets a chance to wrap — confirmed empirically
+              here the same way #620 confirmed it (measured overflow before
+              the fix). `min-w-0` lets the flex item actually shrink below its
+              max-content size inside this `flex flex-wrap` row so
+              wrap-anywhere has room to act. Verified live at 320/768/1024/1440
+              with a 140-char unbroken personal address: previously bled
+              under the header's action buttons (1440/1024) or was clipped
+              off-screen entirely by `<main overflow-hidden>` (768/320,
+              unreadable and unscrollable either way) — now wraps onto
+              multiple lines within the contact-links row at every width. */}
           <a
             href={`mailto:${user.email}`}
-            className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
+            className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
           >
-            <Mail className="h-4 w-4" />
+            <Mail className="h-4 w-4 shrink-0" />
             {user.email}
           </a>
           {user.personalEmail && (
@@ -103,10 +121,10 @@ export function UserProfileHeader({
             // it reads as contact info rather than a second account.
             <a
               href={`mailto:${user.personalEmail}`}
-              className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
+              className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
               title="Личный email"
             >
-              <MailPlus className="h-4 w-4" />
+              <MailPlus className="h-4 w-4 shrink-0" />
               {user.personalEmail}
             </a>
           )}
