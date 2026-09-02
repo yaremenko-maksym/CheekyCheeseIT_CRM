@@ -204,11 +204,16 @@ export const createUserSchema = z
     // sees a clear field error instead of a raw request failure at all.
     email: z.string().email('Некорректный email').max(255, 'Email не длиннее 255 символов'),
     /**
-     * Personal address (§4.4) — optional, set by ADMIN at creation only.
-     * Not editable later in this PR (the accept-invite flow that would let
-     * it become a login method is a separate task). `null`/omitted = not
-     * set. Kept OUT of `adminUpdateUserSchema` deliberately — see the spec's
-     * decision 7 ("Личный адрес вводит админ при создании").
+     * Personal address (§4.4) — optional, set by ADMIN at creation. `null`/
+     * omitted = not set. Post-creation changes (typo fix, address rotation,
+     * removal) go through the DEDICATED `changePersonalEmailSchema` /
+     * `PATCH /users/:id/personal-email` below, not through
+     * `adminUpdateUserSchema` — see that schema's own comment for why this
+     * stays a separate endpoint rather than folding into the general
+     * profile-edit surface (owner decision, security-review PR #623 round 4:
+     * an admin must be able to fix a mistyped personal address FAST, and the
+     * fix must immediately revoke login on the old address, not just add a
+     * new one alongside it).
      */
     personalEmail: z
       .string()
@@ -474,6 +479,35 @@ export const adminUpdateUserSchema = z
     registrationAddress: z.string().max(500).nullable().optional(),
   })
   .superRefine(refineRequisitePresence)
+
+/**
+ * Dedicated payload for `PATCH /users/:id/personal-email` — security-review
+ * PR #623 round 4, owner decision: "туда будет всегда попадать валидная
+ * почта. В случае чего, мы можем быстро изменить почту, что за собой
+ * изменит и правила для входа и со старой указанной почты уже нельзя будет
+ * войти". Kept OUT of `adminUpdateUserSchema` (not folded into the general
+ * profile PATCH) so this single-purpose, security-sensitive write — it
+ * revokes login on whatever address was there before, unconditionally —
+ * has its own narrow endpoint, its own audit action
+ * (`personal_email_changed`), and cannot be smuggled in as one field among
+ * many in a large edit payload.
+ *
+ * `personalEmail: null` means "remove the personal address" (and revoke its
+ * login, same as any other change — see `UsersService.changePersonalEmail`).
+ * A non-null value means "set/replace it" — covers add (no PERSONAL row
+ * yet), change (typo fix, address rotation) and re-invite-by-replacement
+ * uniformly; the service treats all three as the same operation: delete
+ * whatever PERSONAL row exists, insert the new one if provided.
+ */
+export const changePersonalEmailSchema = z.object({
+  personalEmail: z
+    .string()
+    .email('Некорректный email')
+    .max(255, 'Email не длиннее 255 символов')
+    .nullable(),
+})
+
+export type ChangePersonalEmailDto = z.infer<typeof changePersonalEmailSchema>
 
 // Query params for list endpoints — `?archived=true|false`.
 export const listArchivedQuerySchema = z.object({
