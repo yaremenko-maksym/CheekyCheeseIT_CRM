@@ -107,10 +107,26 @@ export function UserProfileHeader({
               under the header's action buttons (1440/1024) or was clipped
               off-screen entirely by `<main overflow-hidden>` (768/320,
               unreadable and unscrollable either way) — now wraps onto
-              multiple lines within the contact-links row at every width. */}
+              multiple lines within the contact-links row at every width.
+
+              UX-H-2 (this round): `items-center` on a flex row whose text
+              item wraps onto N lines centers the OTHER row items (icon,
+              badge) against the wrapped item's TOTAL height, not its first
+              line — with a short work email (≤2 wrapped lines) the couple
+              of px of drift was invisible, but add the `personalEmailCanLogin
+              === false` badge next to a personal address long enough to wrap
+              3+ lines (measured live: any real address over ~20 chars at
+              320px) and the badge renders stranded mid-address, e.g. between
+              "oleksiy.andriyovyc" and "h.kovalenko1987@gmail.com" — read as
+              attached to neither. `items-start` aligns every row item to the
+              FIRST line of the (possibly wrapped) text instead — icon and
+              badge now read as attached to the start of the entry, and for
+              single-line content (nothing wraps) it is pixel-identical to
+              `items-center` (verified at 1440/1024/768/320, both with and
+              without the badge). */}
           <a
             href={`mailto:${user.email}`}
-            className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
+            className="inline-flex min-w-0 items-start gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
           >
             <Mail className="h-4 w-4 shrink-0" />
             {user.email}
@@ -119,10 +135,10 @@ export function UserProfileHeader({
             // §4.4 — personal address on file. Not (yet) a login method —
             // labelled "личный", not duplicated as a second "email" link, so
             // it reads as contact info rather than a second account.
-            <span className="inline-flex min-w-0 items-center gap-1.5">
+            <span className="inline-flex min-w-0 items-start gap-1.5">
               <a
                 href={`mailto:${user.personalEmail}`}
-                className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
+                className="inline-flex min-w-0 items-start gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
                 title="Личный email"
               >
                 <MailPlus className="h-4 w-4 shrink-0" />

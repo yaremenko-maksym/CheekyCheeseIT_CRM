@@ -11,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useChangePersonalEmail } from '@/hooks/use-user-profile'
 
 /** Mirrors `createUserSchema.personalEmail` (`@crm/shared`) — same bound,
@@ -66,6 +67,18 @@ export function ChangePersonalEmailDialog({
   const trimmed = value.trim()
   const isRemoval = !trimmed && !!currentEmail
   const isNoop = trimmed === (currentEmail ?? '')
+  // ui-ux-designer PR #623 fidelity audit (round 2): per this component's
+  // own doc block, saving revokes the OLD address the instant `currentEmail`
+  // is non-null — true for both `isRemoval` (field cleared) AND an ordinary
+  // change (field holds a different, valid address). Only the FIRST-time
+  // set (`currentEmail === null`, nothing to revoke) is purely additive.
+  // `ArchiveUserDialog`'s submit button uses the same `destructive` variant
+  // for its own irreversible action, and `AdminActionsMenu`'s "Архивировать"
+  // item is styled the same red — this dialog's default (`primary`, same
+  // gold as a no-consequence "Сохранить") didn't visually distinguish a
+  // credential-revoking save from a benign one. Text label is unchanged
+  // here (copy-review PR #623 round 4 owns that wording separately).
+  const revokesExisting = !!currentEmail
 
   function validate(): string | null {
     if (!trimmed) return null // empty = removal, always a valid submission
@@ -112,7 +125,19 @@ export function ChangePersonalEmailDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="change-personal-email-input">Личный email</Label>
+          {/* ui-ux-designer PR #623 fidelity audit (round 2): this field is
+              `UserDialog`'s `personalEmail` field under another name (same
+              validator, same two error strings) — that sibling marks BOTH
+              the label and the input red on error
+              (`border-destructive focus-visible:ring-destructive/30`,
+              `UserDialog.tsx`'s `form.Field` for this exact field). This
+              copy had the red error TEXT but a plain, unchanged border and
+              label — verified live: the input stayed neutral-gray while a
+              red error line sat directly under it. Matched to the sibling's
+              exact classes, not invented fresh. */}
+          <Label htmlFor="change-personal-email-input" className={cn(error && 'text-destructive')}>
+            Личный email
+          </Label>
           <Input
             id="change-personal-email-input"
             type="email"
@@ -131,6 +156,7 @@ export function ChangePersonalEmailDialog({
               if (error) setError(null)
             }}
             onBlur={() => setError(validate())}
+            className={cn(error && 'border-destructive focus-visible:ring-destructive/30')}
             data-testid="change-personal-email-input"
           />
           {error && <p className="text-xs text-destructive">{error}</p>}
@@ -143,6 +169,7 @@ export function ChangePersonalEmailDialog({
             Отмена
           </Button>
           <Button
+            variant={revokesExisting ? 'destructive' : 'default'}
             disabled={mutation.isPending || isNoop}
             onClick={() => void submit()}
             data-testid="change-personal-email-submit"
