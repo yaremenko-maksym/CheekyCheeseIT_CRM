@@ -250,7 +250,22 @@ const PROJECTS_SYNTAX_SELECTORS = [
     // schema.ts itself) instead of a single hand-typed key name — catches
     // `with: { project: ... }`, `with: { dropProjects: ... }`, `with: {
     // target: ... }`, etc., not just `with: { projects: ... }`.
-    selector: `Property[key.name=/^(${PROJECT_RELATION_KEYS.join('|')})$/]`,
+    //
+    // SR-L-8: PROJECT_RELATION_KEYS includes generic names (`project`,
+    // `target`) that also occur as ordinary property names OUTSIDE any
+    // `with: {...}` block — a bare `Property[key.name=...]` selector (the
+    // form this rule shipped with) matched those too, not just a relation
+    // key inside `with:`. Verified live before this fix: a plain
+    // `{ target: 'blank' }` object with no `with:` anywhere in the file
+    // tripped this rule (0 legitimate reason to). Scoped below with a
+    // `Property[key.name='with'] > ObjectExpression >` ancestor chain so the
+    // match requires the flagged property to be a direct child of the
+    // object that is itself the value of a `with:` property — i.e. actually
+    // `with: { <key>: ... }`, not just any `<key>` anywhere in a banned
+    // module. A nested relational read (`with: { a: { with: { target: ...
+    // } } }`) still matches: the inner `target` property is a direct child
+    // of an ObjectExpression whose parent Property is itself named `with`.
+    selector: `Property[key.name='with'] > ObjectExpression > Property[key.name=/^(${PROJECT_RELATION_KEYS.join('|')})$/]`,
     message:
       'A relational `with: { <key>: ... }` include reaches raw, unfiltered project rows ' +
       `(one of: ${PROJECT_RELATION_KEYS.join(', ')} — every key in schema.ts whose relation ` +
