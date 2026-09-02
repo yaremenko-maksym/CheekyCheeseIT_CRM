@@ -73,6 +73,9 @@ function makeProject(overrides: Partial<ProjectDto> = {}): ProjectDto {
     salaryReview: null,
     corpTech: null,
     notesGeneral: null,
+    // task-project-draft-status: required field on ProjectDto. This fixture
+    // exists to test link/interaction behavior, not status — always active.
+    status: 'ACTIVE',
     archivedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',

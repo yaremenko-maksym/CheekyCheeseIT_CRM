@@ -41,6 +41,7 @@ type ProjectRow = {
   id: string
   companyName: string
   archivedAt: Date | null
+  status: 'DRAFT' | 'ACTIVE' | 'REJECTED'
   senior: { displayName: string } | null
 }
 type IncomeRow = { projectId: string | null }
@@ -91,12 +92,14 @@ describe('findDropOwnProjects — mapping', () => {
     id: 'proj-A',
     companyName: 'TechCorp',
     archivedAt: null,
+    status: 'ACTIVE',
     senior: { displayName: 'Oleksiy Kovalenko' },
   }
   const projB: ProjectRow = {
     id: 'proj-B',
     companyName: 'StartupA',
     archivedAt: new Date('2026-01-01'),
+    status: 'ACTIVE',
     senior: { displayName: 'Dmytro Marchenko' },
   }
 
@@ -152,6 +155,7 @@ describe('findDropOwnProjects — mapping', () => {
       id: 'proj-closed',
       companyName: 'ClosedCorp',
       archivedAt: new Date('2026-03-01T00:00:00Z'),
+      status: 'ACTIVE',
       senior: { displayName: 'Ivan Petrenko' },
     }
     const svc = makeSvc([projA, closedProject], [])
@@ -160,5 +164,43 @@ describe('findDropOwnProjects — mapping', () => {
     expect(closed).toBeDefined()
     expect(closed!.status).toBe('closed')
     expect(closed!.companyName).toBe('ClosedCorp')
+  })
+})
+
+// security-review round 3 (SR-M-2): before this fix, status was derived from
+// `archivedAt` ALONE — a DRAFT/REJECTED project (never archived) showed as
+// 'active', indistinguishable from a confirmed one, on the drop's own list.
+describe('findDropOwnProjects — SR-M-2: an unconfirmed project is not shown as active', () => {
+  const draftProject: ProjectRow = {
+    id: 'proj-draft',
+    companyName: 'DraftCorp',
+    archivedAt: null,
+    status: 'DRAFT',
+    senior: { displayName: 'Oleksiy Kovalenko' },
+  }
+  const rejectedProject: ProjectRow = {
+    id: 'proj-rejected',
+    companyName: 'RejectedCorp',
+    archivedAt: null,
+    status: 'REJECTED',
+    senior: { displayName: 'Oleksiy Kovalenko' },
+  }
+
+  it('a DRAFT project (never archived) maps to status=closed, not active', async () => {
+    const svc = makeSvc([draftProject], [])
+    const [row] = await svc.findDropOwnProjects(user('DROP', DROP_ID))
+    expect(row!.status).toBe('closed')
+  })
+
+  it('a REJECTED project (never archived) maps to status=closed, not active', async () => {
+    const svc = makeSvc([rejectedProject], [])
+    const [row] = await svc.findDropOwnProjects(user('DROP', DROP_ID))
+    expect(row!.status).toBe('closed')
+  })
+
+  it('the positive control still reports ACTIVE + non-archived as active', async () => {
+    const svc = makeSvc([{ ...draftProject, status: 'ACTIVE' }], [])
+    const [row] = await svc.findDropOwnProjects(user('DROP', DROP_ID))
+    expect(row!.status).toBe('active')
   })
 })

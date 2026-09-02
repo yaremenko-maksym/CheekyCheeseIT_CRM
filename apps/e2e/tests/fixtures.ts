@@ -1958,6 +1958,69 @@ export async function cleanupDropViaAPI(page: Page, dropId: string): Promise<voi
 // any non-2xx response so tests fail fast.
 
 /**
+ * Confirm a DRAFT project as one of its invited approvers via
+ * POST /api/projects/:id/approve — task-project-draft-status. A fresh
+ * project starts DRAFT and refuses income (400 «Проект ещё не
+ * подтверждён») until EVERY invited approver (the project's senior, and
+ * its drop when it has one) confirms — see `projects.service.ts`'s
+ * `approveDraft`/`applyApprovalAggregate`.
+ *
+ * Switches the page's session to `approverEmail` (dev-login cookie swap,
+ * same mechanism as `loginViaApi`) because only an INVITED approver may
+ * call this — an ADMIN who is not the project's senior/drop gets 404
+ * (`ApprovalsService` treats a non-invited caller as "no such approval
+ * row", the same existence-oracle contract `assertAccess` uses for
+ * visibility). Caller is responsible for restoring whatever session it
+ * needs afterward (mirrors `onboardDropViaAPI`'s own contract).
+ */
+export async function approveProjectViaAPI(
+  page: Page,
+  projectId: string,
+  approverEmail: string,
+): Promise<{ id: string; status: string }> {
+  await loginViaApi(page, approverEmail)
+  const res = await withThrottleRetry(
+    () => page.request.post(`${REAL_API_BASE}/api/projects/${projectId}/approve`),
+    `approveProjectViaAPI(${approverEmail})`,
+  )
+  if (res.status() !== 200 && res.status() !== 201) {
+    throw new Error(
+      `approveProjectViaAPI failed for ${approverEmail}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+  return (await res.json()) as { id: string; status: string }
+}
+
+/**
+ * Decline a DRAFT project as one of its invited approvers via
+ * POST /api/projects/:id/reject — mirror of `approveProjectViaAPI` for the
+ * rejection branch. Voids the WHOLE approval proposal (not just this
+ * approver's own row) and the project becomes `REJECTED` — same
+ * income-refusal gate as DRAFT (`assertProjectActive` refuses both).
+ */
+export async function rejectProjectViaAPI(
+  page: Page,
+  projectId: string,
+  approverEmail: string,
+  reason: string,
+): Promise<{ id: string; status: string }> {
+  await loginViaApi(page, approverEmail)
+  const res = await withThrottleRetry(
+    () =>
+      page.request.post(`${REAL_API_BASE}/api/projects/${projectId}/reject`, {
+        data: { reason },
+      }),
+    `rejectProjectViaAPI(${approverEmail})`,
+  )
+  if (res.status() !== 200 && res.status() !== 201) {
+    throw new Error(
+      `rejectProjectViaAPI failed for ${approverEmail}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+  return (await res.json()) as { id: string; status: string }
+}
+
+/**
  * Create a project via POST /api/projects with an explicit `dropId`.
  *
  * Caller must be ADMIN-authenticated. The senior referenced by
@@ -1971,6 +2034,16 @@ export async function cleanupDropViaAPI(page: Page, dropId: string): Promise<voi
  *   - companyName: 'Drop Phase 2 Co'
  *
  * Returns the created project id + dropId for downstream assertions.
+ *
+ * task-project-draft-status: the created project starts DRAFT and refuses
+ * income (400 «Проект ещё не подтверждён») until both the senior and the
+ * drop confirm it. By default this helper drives it through that real
+ * confirmation flow (POST /api/projects/:id/approve as each approver, via
+ * `approveProjectViaAPI`) before returning, so every EXISTING call site
+ * keeps behaving exactly as it did before this column shipped — the
+ * returned project is immediately usable for income. Pass
+ * `skipApproval: true` when the test itself needs to observe the DRAFT
+ * state (see `project-draft-status.spec.ts`).
  */
 export async function createDropProjectViaAPI(
   page: Page,
@@ -1992,6 +2065,8 @@ export async function createDropProjectViaAPI(
      */
     paymentType?: 'FOP' | 'GIG_CONTRACT' | 'USDT'
     dropSharePercentOverride?: number | null
+    /** task-project-draft-status. Leave the project DRAFT — see doc above. */
+    skipApproval?: boolean
   },
 ): Promise<{ projectId: string; dropId: string; seniorId: string }> {
   const seniorEmail = opts.seniorEmail ?? SEED_EMAILS.seniorA
@@ -2024,6 +2099,16 @@ export async function createDropProjectViaAPI(
   if (!body.dropId) {
     throw new Error(`Created project missing dropId: ${JSON.stringify(body)}`)
   }
+
+  if (!opts.skipApproval) {
+    const dropUser = await getUserViaAPI(page, body.dropId)
+    await approveProjectViaAPI(page, body.id, seniorEmail)
+    await approveProjectViaAPI(page, body.id, dropUser.email)
+    // Restore ADMIN session — every call site logs in as ADMIN right before
+    // calling this helper (same contract `onboardDropViaAPI` uses).
+    await loginViaApi(page, SEED_EMAILS.admin)
+  }
+
   return { projectId: body.id, dropId: body.dropId, seniorId: body.seniorId }
 }
 
@@ -2033,6 +2118,11 @@ export async function createDropProjectViaAPI(
  * Mirror of `createDropProjectViaAPI` but omits `dropId` entirely — the
  * backend treats this as a regression-safe senior-project. Used by the
  * regression spec to assert that NO PAYOUT_DROP rows are produced.
+ *
+ * task-project-draft-status: same DRAFT-then-auto-confirm contract as
+ * `createDropProjectViaAPI` (there being no drop here, only the senior's
+ * own confirmation is needed) — see that function's doc for the full
+ * reasoning and the `skipApproval` escape hatch.
  */
 export async function createSeniorProjectViaAPI(
   page: Page,
@@ -2044,6 +2134,8 @@ export async function createSeniorProjectViaAPI(
     currency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
     domain?: string
     startDate?: string
+    /** task-project-draft-status. Leave the project DRAFT. */
+    skipApproval?: boolean
   } = {},
 ): Promise<{ projectId: string; seniorId: string }> {
   const seniorEmail = opts.seniorEmail ?? SEED_EMAILS.seniorA
@@ -2065,6 +2157,14 @@ export async function createSeniorProjectViaAPI(
     throw new Error(`createSeniorProjectViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
   }
   const body = (await res.json()) as { id: string; seniorId: string }
+
+  if (!opts.skipApproval) {
+    await approveProjectViaAPI(page, body.id, seniorEmail)
+    // Restore ADMIN session — every call site logs in as ADMIN right before
+    // calling this helper (same contract `onboardDropViaAPI` uses).
+    await loginViaApi(page, SEED_EMAILS.admin)
+  }
+
   return { projectId: body.id, seniorId: body.seniorId }
 }
 
@@ -2709,6 +2809,62 @@ export async function onboardDropViaAPI(
   }
 
   // Restore ADMIN session so subsequent calls use ADMIN credentials
+  await loginViaApi(page, SEED_ADMIN_EMAIL)
+}
+
+/**
+ * Sign an ALREADY-READY-TO-SIGN contract for `email` + accept the current
+ * ToS — the tail half of `onboardDropViaAPI` (its steps 3-4), for a user
+ * whose contract is already `READY_TO_SIGN` and must NOT receive the
+ * PATCH-legalFullName / mark-ready steps first.
+ *
+ * Needed for seed users deliberately left at `READY_TO_SIGN` for the
+ * onboarding-wizard specs (`dmytro.marchenko` / `SEED_EMAILS.seniorB` —
+ * apps/api/src/database/seed.ts: "dmytro.marchenko — READY_TO_SIGN (wizard
+ * test)"). `onboardDropViaAPI` cannot be reused on them as-is: its
+ * `POST /contract/ready` step 409s (`Cannot mark ready: contract is
+ * READY_TO_SIGN, expected DRAFT`) because that transition is DRAFT-only —
+ * seniorB is deliberately parked one step past it, forever, for that other
+ * spec's own purposes.
+ *
+ * task-project-draft-status: `POST /api/projects/:id/approve` requires the
+ * caller to have completed onboarding (OnboardingGuard) — so a test that
+ * uses seniorB as an approving senior (e.g. to exercise a specific
+ * `seniorSharePercent` override) needs this BEFORE `createDropProjectViaAPI`
+ * / `createSeniorProjectViaAPI` auto-approves for them.
+ *
+ * `typedName` is ignored server-side (resolved from the user's
+ * `legalFullName` — see `SignedContractsService.sign`'s own `@deprecated`
+ * note), so any non-empty value is fine here.
+ *
+ * Restores ADMIN session on exit, same contract as `onboardDropViaAPI`.
+ */
+export async function signContractAndAcceptTosViaAPI(page: Page, email: string): Promise<void> {
+  await loginViaApi(page, email)
+
+  const signRes = await withThrottleRetry(
+    () =>
+      page.request.post(`${REAL_API_BASE}/api/contracts/sign`, {
+        data: { typedName: 'E2E Contract Sign' },
+      }),
+    `signContractAndAcceptTosViaAPI(${email}): sign`,
+  )
+  if (signRes.status() !== 200 && signRes.status() !== 201) {
+    throw new Error(
+      `signContractAndAcceptTosViaAPI: POST /contracts/sign failed for ${email}: HTTP ${signRes.status()} — ${await signRes.text()}`,
+    )
+  }
+
+  const tosRes = await withThrottleRetry(
+    () => page.request.post(`${REAL_API_BASE}/api/tos/accept`),
+    `signContractAndAcceptTosViaAPI(${email}): tos`,
+  )
+  if (tosRes.status() !== 200 && tosRes.status() !== 201) {
+    throw new Error(
+      `signContractAndAcceptTosViaAPI: POST /tos/accept failed for ${email}: HTTP ${tosRes.status()} — ${await tosRes.text()}`,
+    )
+  }
+
   await loginViaApi(page, SEED_ADMIN_EMAIL)
 }
 

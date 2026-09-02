@@ -174,7 +174,11 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
     return {
       leftAt: null,
       user,
-      project: { id: 'proj-1', financeSettings: null },
+      // SR-H-1 (task-project-draft-status): `resolveJuniorSalaryReceivers`
+      // now also skips a non-ACTIVE project — this file tests the
+      // ARCHIVAL axis specifically, so every fixture here means "a
+      // confirmed, ordinary project" unless a test overrides it.
+      project: { id: 'proj-1', status: 'ACTIVE', financeSettings: null },
     }
   }
 
@@ -242,7 +246,11 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
     // A membership row pointing at a missing user must be skipped quietly — the
     // whole monthly run must not die on one broken row.
     const { svc, insertedValues } = makeCronService([
-      { leftAt: null, user: null, project: { id: 'proj-1', financeSettings: null } },
+      {
+        leftAt: null,
+        user: null,
+        project: { id: 'proj-1', status: 'ACTIVE', financeSettings: null },
+      },
       makeMember(ACTIVE_JUNIOR),
     ])
 
@@ -275,6 +283,7 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
         user: JUNIOR_ON_ARCHIVED_SENIORS_PROJECT,
         project: {
           id: 'proj-of-archived-senior',
+          status: 'ACTIVE',
           // The project itself WAS archived by the SENIOR/DROP cascade —
           // the point of this test is that this field is irrelevant here.
           archivedAt: new Date('2026-08-19T00:00:00.000Z'),

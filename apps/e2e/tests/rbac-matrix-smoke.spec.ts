@@ -89,11 +89,15 @@ async function plantObligationForRbac(
     projectId: string
   },
 ): Promise<{ sourceTxId: string }> {
-  const { dropId, dropEmail, projectId } = opts
+  const { dropEmail, projectId } = opts
 
-  // Onboard DROP (idempotent — safe if already onboarded)
-  await loginViaApi(page, SEED_ADMIN_EMAIL)
-  await onboardDropViaAPI(page, { dropId, dropEmail })
+  // Onboarding happens in the caller now (task-project-draft-status —
+  // createDropProjectViaAPI's auto-approve needs the drop past
+  // OnboardingGuard BEFORE it is even created, earlier than this helper
+  // runs). NOT repeated here: onboardDropViaAPI's own mark-ready step 409s
+  // on an already-SIGNED contract ("Cannot mark ready: contract is SIGNED,
+  // expected DRAFT") — it is idempotent for READ-only rechecks, not for a
+  // second full call.
 
   // Ensure company wallet
   await loginViaApi(page, SEED_ADMIN_EMAIL)
@@ -187,6 +191,13 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
     })
 
     try {
+      // task-project-draft-status: `createDropProjectViaAPI` now
+      // auto-approves the DRAFT project as its invited drop, which needs
+      // this fresh DROP past OnboardingGuard first — onboard here, BEFORE
+      // project creation. `plantObligationForRbac` below does NOT onboard
+      // again (see its own comment for why the call isn't repeated there).
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+
       const { projectId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorA,

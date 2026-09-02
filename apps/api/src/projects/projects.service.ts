@@ -18,6 +18,7 @@ import type {
 } from '@crm/shared'
 import { projectPaymentTypeSchema } from '@crm/shared'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from '../finance/drop-share-resolver'
+import { ApprovalsService } from '../approvals/approvals.service'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -63,7 +64,11 @@ export class ProjectsService {
     @Inject(forwardRef(() => UsersService))
     private usersService: UsersService,
     private readonly hrAccess: HrAccessService,
+    private readonly approvals: ApprovalsService,
   ) {}
+
+  /** task-project-draft-status. `subjectType` this module registers approvals under. */
+  private static readonly APPROVAL_SUBJECT_TYPE = 'PROJECT'
 
   /**
    * task-team-senior-share-override. Pre-computes the active senior-team
@@ -264,6 +269,11 @@ export class ProjectsService {
       corpTech: project.corpTech ?? null,
       // Internal notes masked for JUNIOR.
       notesGeneral: isJuniorViewer ? null : (project.notesGeneral ?? null),
+      // task-project-draft-status: never masked — a DRAFT/REJECTED project is
+      // only ever mapped for a viewer `assertAccess`/`findAll` already
+      // confirmed is ADMIN or an invited approver, so there is nobody left to
+      // mask this field FROM.
+      status: project.status,
       archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
@@ -389,6 +399,21 @@ export class ProjectsService {
 
     let filtered = allProjects as ProjectWithRelations[]
 
+    // task-project-draft-status, item 4 ("узкий путь к черновику") + decision
+    // Д1: a DRAFT/REJECTED project is dropped from the list UNLESS the viewer
+    // is ADMIN or was invited to approve it (senior/drop, current OR any past
+    // generation — see `ApprovalsService.isApprover`'s own doc for why "ever
+    // asked" is correct here). Runs BEFORE the per-role filters below so
+    // ACCOUNTANT — who otherwise sees every ACTIVE project unconditionally —
+    // does not also see drafts it was never asked about.
+    if (currentUser.role !== 'ADMIN') {
+      const invitedProjectIds = await this.approvals.listSubjectIdsForApprover(
+        ProjectsService.APPROVAL_SUBJECT_TYPE,
+        currentUser.id,
+      )
+      filtered = filtered.filter((p) => p.status === 'ACTIVE' || invitedProjectIds.has(p.id))
+    }
+
     if (currentUser.role === 'SENIOR') {
       // SENIOR sees their own senior-projects (legacy) AND drop-projects of
       // their current drop-team (Phase 1 visibility — full drop-project
@@ -468,8 +493,10 @@ export class ProjectsService {
     }
 
     const ownProjects = (await this.db.db.query.projects.findMany({
-      // No archivedAt filter: drop sees both active and closed own projects.
-      // status is derived from archivedAt in the mapping below.
+      // No archivedAt filter: drop sees both active and closed own projects
+      // (Д1 — the drop is an invited approver, so a still-DRAFT or REJECTED
+      // project belongs on their own list too). status is derived from
+      // archivedAt + projects.status in the mapping below.
       where: eq(projects.dropId, currentUser.id),
       with: { senior: { columns: { displayName: true } } },
     })) as Array<Project & { senior: { displayName: string } | null }>
@@ -500,7 +527,16 @@ export class ProjectsService {
       companyName: p.companyName,
       seniorDisplayName: p.senior?.displayName ?? '',
       incomesCount: incomesByProject.get(p.id) ?? 0,
-      status: p.archivedAt === null ? ('active' as const) : ('closed' as const),
+      // SR-M-2 (task-project-draft-status, security-review round 3): this DTO
+      // only ever had a 2-value status (active/closed) — before this fix it
+      // derived it from `archivedAt` ALONE, so a DRAFT or REJECTED project
+      // (never archived) showed as 'active', indistinguishable from a
+      // confirmed one, on the drop's own finance-facing list. A DRAFT/
+      // REJECTED project cannot yet accept transactions (Д2) — it belongs on
+      // the SAME "not yet usable" side of this boolean-shaped enum as an
+      // archived one, not on the 'active' side.
+      status:
+        p.archivedAt === null && p.status === 'ACTIVE' ? ('active' as const) : ('closed' as const),
     }))
   }
 
@@ -739,31 +775,58 @@ export class ProjectsService {
       await this.assertLogoDocument(data.logoDocumentId, null)
     }
 
-    const [project] = await this.db.db
-      .insert(projects)
-      .values({
-        name: data.name,
-        companyName: data.companyName,
-        domain: data.domain,
-        logoDocumentId: data.logoDocumentId ?? null,
-        logoExternalUrl: data.logoExternalUrl ?? null,
-        startDate: new Date(data.startDate),
-        seniorId: data.seniorId,
-        dropId: resolvedDropId,
-        rate: data.rate,
-        currency: data.currency,
-        seniorSharePercentOverride: override,
-        dropSharePercentOverride: dropOverride,
-        techStack: data.techStack ?? null,
-        teamSize: data.teamSize ?? null,
-        benefits: data.benefits ?? null,
-        // Omit when undefined so the NOT NULL column falls back to DEFAULT 'FOP'.
-        ...(validatedPaymentType !== undefined ? { paymentType: validatedPaymentType } : {}),
-        salaryReview: data.salaryReview ?? null,
-        corpTech: data.corpTech ?? null,
-        notesGeneral: data.notesGeneral ?? null,
+    // task-project-draft-status, decision Д1: "Строки согласования создаются
+    // в той же транзакции, что и черновик — поэтому запасного пути не
+    // требуется: черновика без строк согласования не существует." The insert
+    // and the approvals proposal are ONE `db.transaction` — if the proposal
+    // half fails (e.g. a duplicate-approver constraint), the project insert
+    // rolls back too, so a DRAFT can never exist without its approval rows.
+    // Approvers: the senior always; the drop too, when the project has one
+    // (spec §3 decision 4, "Проект подтверждают оба").
+    const approverUserIds = resolvedDropId ? [data.seniorId, resolvedDropId] : [data.seniorId]
+
+    const [project] = await this.db.db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(projects)
+        .values({
+          name: data.name,
+          companyName: data.companyName,
+          domain: data.domain,
+          logoDocumentId: data.logoDocumentId ?? null,
+          logoExternalUrl: data.logoExternalUrl ?? null,
+          startDate: new Date(data.startDate),
+          seniorId: data.seniorId,
+          dropId: resolvedDropId,
+          rate: data.rate,
+          currency: data.currency,
+          seniorSharePercentOverride: override,
+          dropSharePercentOverride: dropOverride,
+          techStack: data.techStack ?? null,
+          teamSize: data.teamSize ?? null,
+          benefits: data.benefits ?? null,
+          // Omit when undefined so the NOT NULL column falls back to DEFAULT 'FOP'.
+          ...(validatedPaymentType !== undefined ? { paymentType: validatedPaymentType } : {}),
+          salaryReview: data.salaryReview ?? null,
+          corpTech: data.corpTech ?? null,
+          notesGeneral: data.notesGeneral ?? null,
+          // task-project-draft-status: every new project starts life
+          // unconfirmed, regardless of who created it (ADMIN or HR) — see
+          // this.approvals below for the mechanism that flips it to ACTIVE.
+          status: 'DRAFT',
+        })
+        .returning()
+      // Stryker disable next-line ConditionalExpression: defensive-only — a single-row `.insert(...).values({...}).returning()` with no `WHERE` cannot return an empty array on a real Postgres (it either inserts the one row or the whole INSERT throws), so no mock or integration fixture can construct the `!inserted` branch without lying about what Postgres does. Same class as the "practically unreachable, kept for type-narrowing" defensive branches already accepted elsewhere in this codebase (e.g. `pending-settlement.service.ts`'s own `if (!source)` comment).
+      if (!inserted) throw new Error('Failed to insert project')
+
+      await this.approvals.proposeInTx(tx, {
+        subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
+        subjectId: inserted.id,
+        approverUserIds,
+        proposedByUserId: currentUser.id,
       })
-      .returning()
+
+      return [inserted]
+    })
 
     // Mirror to project_finance_settings so the existing
     // transactions.service.ts SENIOR_INCOME calc keeps reading the same
@@ -784,6 +847,121 @@ export class ProjectsService {
     // (defense-in-depth: callers of create are ADMIN/HR whose role never triggers
     // the mask, but the contract is explicit and mirrors findOne/findAll).
     return this.mapProject(created, teamOverridesBySeniorId, currentUser.role)
+  }
+
+  /**
+   * task-project-draft-status, item 4. The invited approver (senior or drop
+   * — see `create()`) confirms. `currentUser.id` is what
+   * `ApprovalsService.approveInTx` uses as `approverUserId` — never a
+   * client-supplied id, per that service's own security contract (it trusts
+   * whatever id it is given; deriving it from the session, not the request
+   * body, is THIS caller's responsibility).
+   *
+   * Atomic with the status flip: `approveInTx` + the aggregate re-read +
+   * `projects.status` write are the SAME `db.transaction` — a concurrent
+   * second approver's `approveInTx` cannot observe a project whose approvals
+   * say APPROVED-so-far but whose `status` still reads DRAFT (or vice versa).
+   *
+   * security-review round 2 (SR-H-5): refuses outright under impersonation.
+   * `currentUser.id` above is exactly what makes this endpoint's ONLY guard
+   * (an invited approver's own live `approvals` row — see `approveInTx`)
+   * satisfiable by an ADMIN who impersonated that approver: `POST
+   * /auth/impersonate` swaps `id`/`role` to the TARGET's, so the "invited
+   * caller" check cannot tell the difference. Unlike the other methods in
+   * this file (`archive`/`unarchive`/`update`/`addMember`), which read
+   * `currentUser.impersonatorId ?? currentUser.id` to ATTRIBUTE the write to
+   * the real operator, attribution is not enough here — confirmation IS the
+   * consent record this whole task exists to produce (design spec §3: a
+   * project's money "не вступают в силу, пока он не согласится в CRM"), and
+   * `approvals` has no column for "who actually clicked" to attribute to.
+   * Writing "senior APPROVED" when the senior never opened the app is worse
+   * than writing nothing — it looks like proof of consent that never
+   * happened. So this refuses instead of recording, for both approve and
+   * reject (a fabricated rejection reason would be the mirror of the same
+   * problem).
+   */
+  async approveDraft(id: string, currentUser: SessionUser) {
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException(
+        'Impersonated sessions cannot confirm a project draft — consent must come from the invited approver themselves',
+      )
+    }
+    await this.db.db.transaction(async (tx) => {
+      await this.approvals.approveInTx(tx, {
+        subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
+        subjectId: id,
+        approverUserId: currentUser.id,
+      })
+      await this.applyApprovalAggregate(tx, id)
+    })
+    return this.loadForResponse(id, currentUser)
+  }
+
+  /**
+   * task-project-draft-status, item 4 + design spec §3 decision 3/5:
+   * rejection requires a reason (enforced by `rejectApprovalInputSchema` +
+   * the DB CHECK — this service does not re-validate it, the same "the DB is
+   * the backstop" contract `ApprovalsService` documents for itself) and voids
+   * the WHOLE proposal (decision #5), never just this approver's own row.
+   *
+   * security-review round 2 (SR-H-5): same impersonation refusal as
+   * `approveDraft` above — see that method's comment for the full reasoning.
+   */
+  async rejectDraft(id: string, reason: string, currentUser: SessionUser) {
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException(
+        'Impersonated sessions cannot reject a project draft — the decision must come from the invited approver themselves',
+      )
+    }
+    await this.db.db.transaction(async (tx) => {
+      await this.approvals.rejectInTx(tx, {
+        subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
+        subjectId: id,
+        approverUserId: currentUser.id,
+        reason,
+      })
+      await this.applyApprovalAggregate(tx, id)
+    })
+    return this.loadForResponse(id, currentUser)
+  }
+
+  /**
+   * Reads the subject's post-write aggregate (SAME tx as the approve/reject
+   * that just ran) and writes it back to `projects.status`:
+   *   APPROVED (every invited approver confirmed) → ACTIVE
+   *   REJECTED (any one declined)                 → REJECTED
+   *   PENDING  (partial agreement)                 → no write; stays DRAFT
+   * `NONE` cannot occur here — this only runs right after a row for this
+   * subject was just written.
+   */
+  private async applyApprovalAggregate(tx: DrizzleTx, projectId: string): Promise<void> {
+    const aggregate = await this.approvals.getStatusInTx(
+      tx,
+      ProjectsService.APPROVAL_SUBJECT_TYPE,
+      projectId,
+    )
+    if (aggregate === 'APPROVED' || aggregate === 'REJECTED') {
+      // ApprovalGroupStatus 'APPROVED' maps to ProjectStatus 'ACTIVE' — the
+      // two enums use different vocabulary for the same "everyone confirmed"
+      // fact (Approval is subject-agnostic and never says "ACTIVE"; the
+      // project's own status column speaks project-lifecycle language).
+      const newStatus = aggregate === 'APPROVED' ? ('ACTIVE' as const) : ('REJECTED' as const)
+      await tx
+        .update(projects)
+        .set({ status: newStatus, updatedAt: new Date() })
+        .where(eq(projects.id, projectId))
+    }
+  }
+
+  /** Re-fetches + maps a project for the approve/reject response. */
+  private async loadForResponse(id: string, currentUser: SessionUser) {
+    const project = (await this.db.db.query.projects.findFirst({
+      where: eq(projects.id, id),
+      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
+    })) as ProjectWithRelations | undefined
+    if (!project) throw new NotFoundException('Project not found')
+    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
+    return this.mapProject(project, teamOverridesBySeniorId, currentUser.role)
   }
 
   /**
@@ -894,6 +1072,27 @@ export class ProjectsService {
         resolvedDropId = drop.id
       }
     }
+
+    // security-review round 3 (SR-M-4, task-project-draft-status) — DECLINED,
+    // not fixed. Assigning a NEW drop to an already-ACTIVE project (dropId
+    // null -> uuid) does not touch `status` or create an approval row for
+    // that drop — no re-confirmation, no chance for them to decline. This is
+    // real: the drop becomes a party carrying a share without ever being
+    // asked.
+    //
+    // Not fixed here because it is out of THIS task's scope, not because it
+    // is fine. §9 "Порядок работ" of the design spec (docs/superpowers/specs
+    // /2026-09-01-notifications-and-confirmations-design.md) lists "Ожидающая
+    // доля" (pending-share: a changed share value goes through a pending
+    // slot + re-confirmation before taking effect, §4.3) as position 5 — a
+    // SEPARATE, not-yet-built work item, deliberately sequenced after
+    // position 4 (draft/confirmation status, this task) specifically because
+    // it needs 2-5 to already exist. Assigning a drop where none existed is
+    // arguably a third case neither position covers exactly (a new PARTY,
+    // not a changed VALUE on an existing one) — which is itself a reason
+    // this needs a decision from whoever owns position 5's design, not a
+    // guessed fix bolted onto position 4's gate. Flagged for the owner;
+    // resolve when position 5 is scoped.
 
     // Round-3 implicit-null detection (PR #39 round 2): UI больше не имеет
     // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN/ACCOUNTANT
@@ -1351,10 +1550,24 @@ export class ProjectsService {
    * senior has LEFT from contributing staff at all, the other keeps a
    * teammate who left THAT team from being seated even while the team is
    * still active for the senior.
+   *
+   * security-review round 2 (SR-H-6): this is the SECOND door into
+   * `insert(projects)` — `create()` above is the first — and round 1 missed
+   * it entirely: no explicit `status: 'DRAFT'` and no approval proposal, so a
+   * project hired straight out of an interview shipped fully `ACTIVE` (the
+   * column DEFAULT) with zero rows in `approvals`, unconfirmable by
+   * construction (`approveDraft` 404s everyone — there is no live row to
+   * confirm). BIZ-07 reaches this from `PATCH /api/interviews/:id/move`,
+   * which HR and SENIOR can call too, not just ADMIN. Same gate, same
+   * reason as `create()`: the senior whose money this project will move
+   * should agree to it in CRM before it starts, regardless of which door
+   * created the row. Interview-sourced projects never carry a `dropId` (no
+   * such field exists on `Interview`), so the senior is the sole invited
+   * approver here — no `[seniorId, dropId]` branch to mirror from `create()`.
    */
   async createFromInterview(
     interview: Interview & { senior: User | null },
-    _currentUser: SessionUser,
+    currentUser: SessionUser,
     tx?: DrizzleTx,
   ) {
     const conn = tx ?? this.db.db
@@ -1382,10 +1595,30 @@ export class ProjectsService {
         salaryReview: interview.notesSalaryReview ?? null,
         corpTech: interview.notesCorpTech ?? null,
         notesGeneral: interview.notesGeneral ?? null,
+        // security-review round 2 (SR-H-6). See the method doc above — this
+        // is the door round 1 left open.
+        status: 'DRAFT',
       })
       .returning()
 
     if (!project) return project
+
+    // security-review round 2 (SR-H-6). Open the approval proposal in the
+    // SAME connection as the insert above — when the caller passed a `tx`
+    // (the only real caller, `InterviewsService.move`, always does), this is
+    // the SAME transaction, so a DRAFT project without its approval row
+    // stays impossible here too (decision Д1's own invariant, see `create()`
+    // above). `conn` is `DrizzleTx | NodePgDatabase` depending on whether a
+    // `tx` was passed; `proposeInTx` only ever calls query-builder methods
+    // both share, so the cast is the same shape already used elsewhere in
+    // this codebase for the identical mismatch (e.g.
+    // `transactions.service.ts`'s `this.db.db as unknown as DrizzleTx`).
+    await this.approvals.proposeInTx(conn as unknown as DrizzleTx, {
+      subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
+      subjectId: project.id,
+      approverUserIds: [interview.seniorId],
+      proposedByUserId: currentUser.id,
+    })
 
     // Find all teams where this senior is CURRENTLY a member. Backlog #136:
     // this query used to ignore `leftAt`, so a team the senior had already
@@ -1531,6 +1764,28 @@ export class ProjectsService {
   }
 
   private async assertAccess(project: ProjectWithRelations, currentUser: SessionUser) {
+    // task-project-draft-status, item 4 ("узкий путь к черновику") + decision
+    // Д1: a DRAFT or REJECTED project exists, for access purposes, ONLY for
+    // ADMIN and the invited approvers (senior + drop, per the `approvals`
+    // rows this.approvals.propose created in the SAME transaction as the
+    // insert — see `create()`). Every other role — INCLUDING ACCOUNTANT,
+    // whose branch below grants unconditional access to an ACTIVE project —
+    // gets 404, not 403: a 403 would let a caller distinguish "not mine" from
+    // "doesn't exist" from "not yet confirmed" by probing a known id
+    // (existence-oracle, same reasoning `transaction-visibility.util.ts`'s
+    // `assertTransactionVisible` documents for the identical choice).
+    // MUST run BEFORE the ADMIN/ACCOUNTANT early-return below, since that
+    // return is unconditional and would otherwise leak drafts to ACCOUNTANT.
+    if (project.status !== 'ACTIVE') {
+      if (currentUser.role === 'ADMIN') return
+      const invited = await this.approvals.isApprover(
+        ProjectsService.APPROVAL_SUBJECT_TYPE,
+        project.id,
+        currentUser.id,
+      )
+      if (invited) return
+      throw new NotFoundException('Project not found')
+    }
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
     if (currentUser.role === 'SENIOR' && project.seniorId === currentUser.id) return
     if (currentUser.role === 'HR') {

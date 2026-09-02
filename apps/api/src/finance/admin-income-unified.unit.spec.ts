@@ -56,6 +56,10 @@ function makeProjectRow(overrides: Record<string, unknown> = {}) {
     seniorId: ADMIN.id,
     companyName: 'Test Co',
     paymentType: 'FOP',
+    // task-project-draft-status: required by `assertProjectActive`'s fused
+    // fetch+status guard (Д2) — this suite tests receiver resolution, not
+    // project confirmation, so every row here is already confirmed.
+    status: 'ACTIVE',
     ...overrides,
   }
 }

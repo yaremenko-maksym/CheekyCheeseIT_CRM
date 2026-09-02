@@ -14,6 +14,7 @@ import {
 import {
   addProjectMemberSchema,
   createProjectSchema,
+  rejectProjectSchema,
   type SessionUser,
   updateProjectSchema,
 } from '@crm/shared'
@@ -75,6 +76,34 @@ export class ProjectsController {
   ) {
     const data = updateProjectSchema.parse(body)
     return this.projectsService.update(id, data, user)
+  }
+
+  /**
+   * task-project-draft-status, item 4. The invited approver (senior or
+   * drop) confirms a still-DRAFT project. No `@Roles(...)` — any
+   * authenticated role may call this; `ProjectsService.approveDraft` /
+   * `ApprovalsService.approveInTx` reject a non-invited caller with 404
+   * (no live approval row for them), same as `assertAccess`'s own
+   * existence-oracle reasoning.
+   */
+  @Post(':id/approve')
+  approveDraft(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.projectsService.approveDraft(id, user)
+  }
+
+  /**
+   * task-project-draft-status, item 4 + design spec §3 decision 3.
+   * Rejection requires a reason — Zod-validated here, DB-enforced in
+   * `approvals` (the CHECK constraint is the backstop, this is shift-left).
+   */
+  @Post(':id/reject')
+  rejectDraft(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { reason } = rejectProjectSchema.parse(body)
+    return this.projectsService.rejectDraft(id, reason, user)
   }
 
   @Delete(':id')

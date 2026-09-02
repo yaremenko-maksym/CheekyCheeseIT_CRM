@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common'
-import { desc, eq, inArray, sql } from 'drizzle-orm'
+import { desc, eq, gte, inArray, lt, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { SessionUser, AdminSummary } from '@crm/shared'
 import { adminSummarySchema } from '@crm/shared'
@@ -9,7 +9,26 @@ import { DatabaseService } from '../database/database.service'
 // ESLint no-restricted-imports rule bans the raw import here. See schema.ts's
 // doc on the view for why (eliminate the class, don't rely on a scanner to
 // catch a caller who forgot the filter).
-import { interviews, nonDeletedTransactions, projects, users } from '../database/schema'
+// task-project-draft-status: `visibleProjects` (VIEW), never the raw
+// `projects` table — this module is banned from the raw import (ESLint
+// no-restricted-imports) for the same "eliminate, don't detect" reason as
+// `nonDeletedTransactions` above: a DRAFT/REJECTED project must never count
+// toward an "active projects" KPI, and there is no WHERE clause here to
+// forget.
+//
+// security-review round 2 (SPEC-M-1): `confirmedProjects` (VIEW) — used
+// ONLY for the activeTransactions feed's `projectName` display join below,
+// NOT for the KPI counters above. Narrower filter than `visibleProjects`
+// (`status = 'ACTIVE'` alone, no `archived_at` check) — see that view's own
+// comment in schema.ts for why the KPI join and the display join need
+// different predicates.
+import {
+  confirmedProjects,
+  interviews,
+  nonDeletedTransactions,
+  users,
+  visibleProjects,
+} from '../database/schema'
 
 /**
  * The three actionable in-flight statuses surfaced in the «Активные транзакции»
@@ -77,43 +96,54 @@ export class AdminSummaryService {
     // true and `projectsUnpaidThisMonth` counted EVERY active project as
     // unpaid regardless of any matching income.
     //
-    // security-review PR #456 (LOW, round 2 — precise about what each fix
-    // covers, the round-1 comment here overclaimed): TWO INDEPENDENT
-    // mechanisms are at play, not one:
-    //   1. `p.id` — hand-typed literal SQL TEXT in the subquery below — is
-    //      made safe by using an EXPLICIT alias (`const p = alias(projects,
-    //      'p')`): the name "p" is what we typed, so it can never silently
-    //      stop matching the FROM target's name, join or no join.
-    //   2. `${p.archivedAt}` — an INTERPOLATED column reference — is safe for
-    //      a DIFFERENT reason: Drizzle renders it bare ("archived_at", not
-    //      "p"."archived_at") ONLY because this is currently a single-table
-    //      select; empirically verified (`.toSQL()`, drizzle-orm 0.45.2) that
-    //      it automatically becomes fully qualified ("p"."archived_at") the
-    //      moment ANY join is added to this query — i.e. it self-heals, it
-    //      was never "fixed" by the alias the way #1 was.
-    // Both are safe, but for unrelated reasons — worth keeping distinct so a
-    // future reader does not assume `alias(...)` is what protects #2.
-    const p = alias(projects, 'p')
+    // security-review PR #456 (LOW, round 2): the original hand-typed
+    // literal `p.id` inside the subquery below relied on an EXPLICIT
+    // `alias(projects, 'p')` to guarantee the name "p" matched the FROM
+    // target.
+    //
+    // security-review round 3 (SR-H-2, task-project-draft-status): the
+    // "self-heals via full qualification" claim this comment used to make
+    // about bare `${visibleProjects.id}` interpolation was WRONG. A Column
+    // interpolated BARE inside a hand-written `sql` template de-qualifies to
+    // just its own name (`"id"`) whenever that column's table is also the
+    // OUTER query's `.from(...)` target — which it is here
+    // (`.from(visibleProjects)`). Drizzle assumes "this is my own FROM
+    // table, no ambiguity" and drops the table prefix — but this reference
+    // sits inside a NESTED correlated subquery, where Postgres resolves the
+    // bare `"id"` against the SUBQUERY's own FROM instead of the intended
+    // outer row. Verified by compiling `.toSQL()` on the real query builder:
+    // bare interpolation rendered `t.project_id = "id"` — always false — so
+    // `projectsUnpaidThisMonth` counted EVERY visible project as unpaid
+    // regardless of any matching income. Caught by
+    // `transaction-soft-delete-balance-regression.integration.spec.ts`, not
+    // by any unit spec — no unit double executes real SQL.
+    //
+    // Fix: route every predicate through drizzle's comparison helpers
+    // (`eq`/`inArray`/`gte`/`lt`) instead of hand-typed `t.`-prefixed SQL
+    // text. A Column wrapped by a helper is ALWAYS rendered fully qualified
+    // with its real table name (verified by the same `.toSQL()` probe:
+    // `"non_deleted_transactions"."project_id" = "visible_projects"."id"`) —
+    // the de-qualification shortcut above only fires for a column
+    // interpolated bare. This also drops the hand-typed subquery alias (`t`)
+    // entirely, so there is no second name for Postgres to resolve a stray
+    // bare reference against even by accident.
     const projQuery = db
       .select({
-        activeProjects: sql<number>`count(*) filter (where ${p.archivedAt} is null)`.mapWith(
-          Number,
-        ),
+        activeProjects: sql<number>`count(*)`.mapWith(Number),
         projectsUnpaidThisMonth:
           // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW) —
           // a deleted income cannot satisfy this NOT EXISTS check no matter
           // what, there is no `deleted_at is null` clause to omit (see
-          // schema.ts's doc on the view). Replaces the round-1 hand-written
-          // `and t.deleted_at is null` line.
-          sql<number>`count(*) filter (where ${p.archivedAt} is null and not exists (
-          select 1 from ${nonDeletedTransactions} t
-          where t.project_id = p.id
-            and t.type in ('ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME')
-            and t.tx_date >= ${monthStart}
-            and t.tx_date < ${nextMonthStart}
+          // schema.ts's doc on the view).
+          sql<number>`count(*) filter (where not exists (
+          select 1 from ${nonDeletedTransactions}
+          where ${eq(nonDeletedTransactions.projectId, visibleProjects.id)}
+            and ${inArray(nonDeletedTransactions.type, ['ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME'])}
+            and ${gte(nonDeletedTransactions.txDate, monthStart)}
+            and ${lt(nonDeletedTransactions.txDate, nextMonthStart)}
         ))`.mapWith(Number),
       })
-      .from(p)
+      .from(visibleProjects)
     const [projRow] = await projQuery
 
     // employees — every user, every role (incl. DROP).
@@ -154,7 +184,20 @@ export class AdminSummaryService {
         receiverLabel: nonDeletedTransactions.receiverLabel,
         receiverDisplayName: receiver.displayName,
         projectId: nonDeletedTransactions.projectId,
-        projectName: projects.name,
+        // task-project-draft-status, fixed in security-review round 2
+        // (SPEC-M-1): joined against `confirmedProjects`, not the raw table
+        // — and NOT against `visibleProjects` either. A transaction can only
+        // ever have been created against an `ACTIVE` project (Д2 refuses
+        // transaction creation on a DRAFT/REJECTED one, and no code path
+        // ever moves `status` back off `ACTIVE`), so this join could never
+        // have been hiding a DRAFT/REJECTED leak. `visibleProjects`'s EXTRA
+        // `archived_at IS NULL` filter is what was hiding something real
+        // here: an ARCHIVED project's name — a legitimate historical fact
+        // this widget should keep showing (round-1 regression, caught by
+        // this file's own archived-project fixture). `confirmedProjects`
+        // keeps the DRAFT/REJECTED filter while dropping the archived one —
+        // see that view's comment in schema.ts.
+        projectName: confirmedProjects.name,
         amount: nonDeletedTransactions.amount,
         currency: nonDeletedTransactions.currency,
         txDate: nonDeletedTransactions.txDate,
@@ -164,7 +207,7 @@ export class AdminSummaryService {
       .from(nonDeletedTransactions)
       .leftJoin(sender, eq(sender.id, nonDeletedTransactions.senderId))
       .leftJoin(receiver, eq(receiver.id, nonDeletedTransactions.receiverId))
-      .leftJoin(projects, eq(projects.id, nonDeletedTransactions.projectId))
+      .leftJoin(confirmedProjects, eq(confirmedProjects.id, nonDeletedTransactions.projectId))
       .where(inArray(nonDeletedTransactions.status, [...ACTIVE_TX_STATUSES]))
       .orderBy(
         desc(sql`coalesce(${nonDeletedTransactions.txDate}, ${nonDeletedTransactions.createdAt})`),

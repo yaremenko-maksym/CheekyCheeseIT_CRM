@@ -53,7 +53,15 @@ import { ProjectsService } from '../projects/projects.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { TeamsService } from '../teams/teams.service'
+// security-review round 2 (SR-H-6): `createFromInterview` now opens a real
+// approval proposal, so `ProjectsService` needs a real `ApprovalsService`
+// wired below — and the `approvals` rows it inserts (approverUserId /
+// proposedByUserId FK → users.id) must be cleaned in `wipe()` BEFORE the
+// `users` delete, or that delete throws a live FK violation on the very
+// next `beforeEach`.
+import { ApprovalsService } from '../approvals/approvals.service'
 import {
+  approvals,
   projectAuditLog,
   projectMembers,
   projects,
@@ -144,6 +152,13 @@ async function wipe(): Promise<void> {
   await db.delete(projectMembers).where(inArray(projectMembers.userId, [...ALL_USER_IDS]))
   await db.delete(projectMembers).where(inArray(projectMembers.projectId, projectIds))
   await db.delete(projectAuditLog).where(inArray(projectAuditLog.targetId, projectIds))
+  // security-review round 2 (SR-H-6): `createFromInterview` now calls
+  // `ApprovalsService.proposeInTx`, which inserts `approvals` rows whose
+  // `approverUserId`/`proposedByUserId` FK → `users.id` (NOT NULL, no
+  // cascade). Must be deleted BEFORE `users` below, or that delete throws a
+  // live FK violation the moment this file's MED-3 `createFromInterview`
+  // tests have run once.
+  await db.delete(approvals).where(inArray(approvals.subjectId, projectIds))
   await db.delete(projects).where(inArray(projects.id, projectIds))
   await db.delete(teamMembers).where(inArray(teamMembers.userId, [...ALL_USER_IDS]))
   await db.delete(teams).where(eq(teams.id, TEAM_ID))
@@ -186,6 +201,11 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
       projectAuditLogService,
       usersService,
       {} as never, // HrAccessService — only consulted for HR callers; every call here is ADMIN
+      // security-review round 2 (SR-H-6): real `ApprovalsService`, not a
+      // mock — `createFromInterview` now proposes an approval, and this is a
+      // real-DB spec; the double would just hide whether the real write
+      // actually lands.
+      new ApprovalsService(dbSvc),
     )
   })
 

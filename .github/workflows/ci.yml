@@ -715,7 +715,31 @@ jobs:
             # leg (`drop-lifecycle`, see below) instead of stacking onto an
             # already-heavy one — neither new number approaches `misc`, so
             # this split adds test coverage without moving the critical path.
-            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts tests/drop-confirm-payout-edges.spec.ts tests/drop-confirm-payout.spec.ts tests/drop-confirm-payout-rbac.spec.ts tests/drop-junior-unlock.spec.ts tests/drop-distribution.spec.ts tests/drop-distribution-edge.spec.ts
+            #
+            # tests/project-draft-status.spec.ts (task-project-draft-status,
+            # 2026-09-02): the DRAFT/REJECTED confirmation gate on
+            # POST /api/projects/:id/approve, proven by asserting that income
+            # creation (createDropIncomeViaAPI / createSeniorIncomeViaAPI) is
+            # refused with 400 until every invited approver confirms — same
+            # direct-API, real-backend fixture family already dominant in
+            # this shard (loginViaApi + createDropViaAPI + the two
+            # create*ProjectViaAPI / *IncomeViaAPI helpers, used by 10+ of
+            # the specs already listed here) rather than the mocked
+            # page.route pattern in `projects`/`finance`. Money-path by what
+            # it exercises, not by filename, which is why it landed here and
+            # not in `projects` despite touching project status too — the
+            # thing under test is the income gate, not the project CRUD.
+            # KNOWN_UNSHARDED was not used: that list is for debt, and this
+            # is a live-money-path spec — leaving it unsharded would mean it
+            # never actually runs in CI, same reasoning as the two comments
+            # above for why this shard exists in the first place. Duration
+            # checked, not assumed: across 3 recent main runs (gh run
+            # 33669410562/33603935529/33601839447) drop-finance already runs
+            # ~166-208s against misc's ~334-413s critical path (matrix runs
+            # in parallel, so overall E2E wall time = slowest shard) — two
+            # more direct-API tests (a handful of REST calls each, no UI)
+            # have no realistic way to close a ~150-200s gap.
+            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts tests/drop-confirm-payout-edges.spec.ts tests/drop-confirm-payout.spec.ts tests/drop-confirm-payout-rbac.spec.ts tests/drop-junior-unlock.spec.ts tests/drop-distribution.spec.ts tests/drop-distribution-edge.spec.ts tests/project-draft-status.spec.ts
           - name: drop-lifecycle
             # New shard, 2026-08-18 (PR #573, backlog item 139) — the
             # team-lifecycle half of the same 12-file KNOWN_UNSHARDED sweep

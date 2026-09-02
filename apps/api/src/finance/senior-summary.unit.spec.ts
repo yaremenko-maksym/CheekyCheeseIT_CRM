@@ -25,6 +25,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { CRON_ELIGIBLE_SALARY_ROLES } from './transactions.service'
+import { visibleProjects } from '../database/schema'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -59,7 +60,6 @@ function makeService(data: StubData = {}): TransactionsService {
   const dbStub = {
     db: {
       query: {
-        projects: { findMany: () => Promise.resolve(data.projects ?? []) },
         users: { findFirst: () => Promise.resolve(data.selfUser) },
         transactions: {
           findMany: () => Promise.resolve(data.paidIncome ?? []),
@@ -71,12 +71,25 @@ function makeService(data: StubData = {}): TransactionsService {
       // getOwnSalaryStatus, which reads the `nonDeletedTransactions` VIEW via
       // `.select().from(...).where(...).limit(1)` — not the relational-query
       // `transactions.findFirst` this stub used to provide.
+      //
+      // task-project-draft-status: `getSeniorSummary`'s own "active own
+      // projects" read now goes through `visibleProjects` (VIEW, not the
+      // relational-query API — see that read's own comment for why) via
+      // `.select().from(visibleProjects).where(...).orderBy(...)`. Routed by
+      // TABLE IDENTITY (mirrors documents.service.spec.ts's own fix for the
+      // same class of change) so the salary-status chain (ends in `.limit()`)
+      // and the projects chain (ends in `.orderBy()`) don't collide.
       select: () => ({
-        from: () => ({
-          where: () => ({
-            limit: () => Promise.resolve(data.salaryRow ? [data.salaryRow] : []),
-          }),
-        }),
+        from: (table: unknown) => {
+          if (table === visibleProjects) {
+            return { where: () => ({ orderBy: () => Promise.resolve(data.projects ?? []) }) }
+          }
+          return {
+            where: () => ({
+              limit: () => Promise.resolve(data.salaryRow ? [data.salaryRow] : []),
+            }),
+          }
+        },
       }),
     },
   }

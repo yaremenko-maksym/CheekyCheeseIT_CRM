@@ -203,7 +203,13 @@ function juniorMember(
   user: AnyRow,
   project: AnyRow = { id: 'proj-1', name: 'Proj One', financeSettings: null },
 ): AnyRow {
-  return { leftAt: null, user, project }
+  // SR-H-1 (task-project-draft-status): `resolveJuniorSalaryReceivers` now
+  // skips a membership whose project is not ACTIVE. Every fixture in this
+  // file predates that check and means "a confirmed, ordinary project" —
+  // defaulting `status` here (merged so an explicit caller override, e.g. a
+  // future DRAFT/REJECTED-specific test, still wins) keeps all of them
+  // meaning what they already say instead of editing 9 call sites.
+  return { leftAt: null, user, project: { status: 'ACTIVE', ...project } }
 }
 
 const MONTH = '2099-12'
