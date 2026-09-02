@@ -2467,6 +2467,7 @@ export class UsersService {
     if (!target) throw new NotFoundException('Пользователь не найден')
 
     const existingRow = await this.db.db.query.userEmails.findFirst({
+      // Stryker disable next-line StringLiteral: same class as resendPersonalEmailInvite's identical suppression above — `kind: 'PERSONAL'` inside a Drizzle `where` a plain vi.fn() mock cannot distinguish from `""` (mutation-gate-integration-specs.md); exercised end-to-end against real Postgres by user-email-invites.integration.spec.ts.
       where: and(eq(userEmails.userId, userId), eq(userEmails.kind, 'PERSONAL')),
     })
 

@@ -9,7 +9,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type * as schema from '../database/schema'
 import { userEmails } from '../database/schema'
-import type { AuditLogService } from './audit-log.service'
+import { REDACTED_TOKEN, type AuditLogService } from './audit-log.service'
 import { hashInviteToken } from './invite-token.util'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
@@ -484,6 +484,54 @@ describe('UsersService list projection — sensitive fields excluded', () => {
 })
 
 // ---------------------------------------------------------------------------
+// writeUserEmailOrConflict (SR-M-2) — exercised directly, not just through
+// its callers. Every caller (createUser's two inserts, changePersonalEmail's
+// one) always passes a write that succeeds in every OTHER test in this file
+// — the catch branch itself (a real 23505 → ConflictException, anything
+// else → rethrown as-is) had never actually run.
+// ---------------------------------------------------------------------------
+
+describe('UsersService.writeUserEmailOrConflict (SR-M-2, private helper exercised directly)', () => {
+  function accessPrivateHelper(service: UsersService) {
+    return service as unknown as {
+      writeUserEmailOrConflict: <T>(write: () => Promise<T>) => Promise<T>
+    }
+  }
+
+  it('a real Postgres unique-violation (23505) becomes a clean ConflictException', async () => {
+    const db = makeDb({ existingUser: undefined, createdUser: makeJunior() })
+    const service = accessPrivateHelper(makeUsersService(db))
+    const violation = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+    })
+
+    await expect(
+      service.writeUserEmailOrConflict(() => Promise.reject(violation)),
+    ).rejects.toBeInstanceOf(ConflictException)
+    await expect(service.writeUserEmailOrConflict(() => Promise.reject(violation))).rejects.toThrow(
+      'User with this email already exists',
+    )
+  })
+
+  it('a non-unique-violation error is rethrown unchanged, not swallowed into a 409', async () => {
+    const db = makeDb({ existingUser: undefined, createdUser: makeJunior() })
+    const service = accessPrivateHelper(makeUsersService(db))
+    const otherError = new Error('connection reset by peer')
+
+    await expect(service.writeUserEmailOrConflict(() => Promise.reject(otherError))).rejects.toBe(
+      otherError,
+    )
+  })
+
+  it('a successful write passes its result straight through', async () => {
+    const db = makeDb({ existingUser: undefined, createdUser: makeJunior() })
+    const service = accessPrivateHelper(makeUsersService(db))
+
+    await expect(service.writeUserEmailOrConflict(() => Promise.resolve('ok'))).resolves.toBe('ok')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // createUser — base cases
 // ---------------------------------------------------------------------------
 
@@ -873,6 +921,52 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
     ).rejects.toThrow('Failed to create user')
   })
 
+  // mutation-gate closure (PR #623 round 4): mirrors the test above, one
+  // insert later — the PERSONAL row's OWN `.returning()` coming back empty
+  // (defensive `if (personalRow)` guard, line ~583) had zero coverage,
+  // because every other test's shared mock always returns a truthy row here
+  // too. Also the ONLY test that drives `data.personalEmail && personalInviteToken`
+  // (the post-transaction invite-send guard) with the token half FALSE while
+  // personalEmail is TRUE — the one combination that can actually occur in
+  // this control flow and the one that distinguishes `&&` from `||` from an
+  // always-true condition on that guard.
+  it('personal-row insert returns no row (defensive guard on an empty .returning()) — user is still created, no invite is issued', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const inviteMailer = { sendInvite: vi.fn().mockResolvedValue(undefined) }
+    const service = new UsersService(
+      db as never,
+      makeAccessService() as never,
+      makeAuditLogService() as never,
+      makeTosService(),
+      makeTeamAuditLogService(),
+      makeProjectAuditLogService(),
+      makeTeamsService(),
+      inviteMailer as never,
+    )
+
+    // 1st `.returning()` call (inside makeDb) already resolves [createdUser]
+    // for the `users` insert — this queues the NEXT one, consumed by the
+    // PERSONAL row insert that immediately follows it.
+    const insertValuesChain = (
+      db.db.insert as unknown as (table: unknown) => { returning: ReturnType<typeof vi.fn> }
+    )(userEmails)
+    insertValuesChain.returning.mockResolvedValueOnce([])
+
+    await expect(
+      service.createUser({
+        email: junior.email,
+        personalEmail: 'personal@example.com',
+        displayName: junior.displayName,
+        role: 'JUNIOR',
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
+      }),
+    ).resolves.toMatchObject({ id: junior.id })
+
+    expect(inviteMailer.sendInvite).not.toHaveBeenCalled()
+  })
+
   // SR-M-8 (security-review PR #623 round 2, MED): the transaction wrapper
   // ITSELF — the SR-M-1 fix — had zero coverage. The reviewer reproduced this
   // by reverting `createUser` to three bare sequential statements (the
@@ -1039,6 +1133,11 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
         actorId: 'admin-7',
         targetId: 'u-1',
         action: 'personal_email_invite_resend',
+        // mutation-gate closure (PR #623 round 4): the previous assertion
+        // only checked WHO/WHAT-target/WHICH-action — an audit record with
+        // `changes: {}` (a raw token literally left in the record, or the
+        // record shape silently emptied) would have passed it unnoticed.
+        changes: { personalEmailInvite: { before: REDACTED_TOKEN, after: REDACTED_TOKEN } },
       }),
     )
   })
@@ -1130,6 +1229,23 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
     expect(auditLogService.record).not.toHaveBeenCalled()
   })
 
+  // mutation-gate closure (PR #623 round 4): the existing-row lookup
+  // (`db.db.query.userEmails.findFirst({ where: and(eq(userId), eq(kind,
+  // 'PERSONAL')) })`) had no assertion on its call shape anywhere in this
+  // describe block — a mutant emptying the WHERE entirely (`findFirst({})`)
+  // would match ANY row for ANY user, not specifically this user's PERSONAL
+  // row, and every existing test's mock is call-order-based, not
+  // WHERE-based, so none of them would have noticed.
+  it('the existing-row lookup is called with a real WHERE clause (kills the findFirst({}) ObjectLiteral mutant)', async () => {
+    const { db, findFirst } = makeChangeDb({
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      existingRow: { id: 'row-1', email: 'personal@example.com' },
+    })
+    const service = makeUsersService(db)
+    await service.changePersonalEmail('u-1', 'personal@example.com', 'admin-1')
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.anything() }))
+  })
+
   it('no-op: no existing row and newEmail=null (nothing to remove) → returns null, no transaction', async () => {
     const { db, transactionMock } = makeChangeDb({
       target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
@@ -1184,6 +1300,9 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
         actorId: 'admin-1',
         targetId: 'u-1',
         action: 'personal_email_changed',
+        // mutation-gate closure (PR #623 round 4): kills the `changes: {}`
+        // / `changes: { personalEmail: {} }` ObjectLiteral mutants.
+        changes: { personalEmail: { before: REDACTED_TOKEN, after: REDACTED_TOKEN } },
       }),
     )
   })
@@ -1201,9 +1320,36 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
     // Two inserts inside the transaction: the PERSONAL row, then its invite token.
     expect(insertMock).toHaveBeenCalledTimes(2)
     expect(newRowReturning).toHaveBeenCalledTimes(1)
+    // mutation-gate closure (PR #623 round 4): the actual VALUES the row was
+    // inserted with had no assertion — unlike the `findFirst` WHERE lookups
+    // above, `.values({...})` receives a plain object straight from a mocked
+    // vi.fn(), so this DOES distinguish a real value from an emptied/wrong one.
+    const insertValuesMock = insertMock.mock.results[0]?.value?.values as ReturnType<typeof vi.fn>
+    expect(insertValuesMock).toHaveBeenCalledWith({
+      userId: 'u-1',
+      email: 'new@example.com',
+      kind: 'PERSONAL',
+    })
     expect(result?.email).toBe('new@example.com')
     expect(result?.displayName).toBe('Ivan')
     expect(result?.rawToken).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  // mutation-gate closure (PR #623 round 4): mirrors createUser's identical
+  // defensive-guard gap — the new PERSONAL row's OWN `.returning()` coming
+  // back empty had zero coverage (`if (row)` at the insert site, and the
+  // post-transaction `if (newEmail && personalInviteToken)` gate one step
+  // later) — every other test's mock always returns a row here.
+  it('new-row insert returns no row (defensive guard) → no invite token issued, method returns null despite newEmail being set', async () => {
+    const { db, newRowReturning } = makeChangeDb({
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      existingRow: undefined,
+    })
+    newRowReturning.mockResolvedValueOnce([])
+    const service = makeUsersService(db)
+    await expect(
+      service.changePersonalEmail('u-1', 'new@example.com', 'admin-1'),
+    ).resolves.toBeNull()
   })
 
   it('change (existing row present, DIFFERENT newEmail) → deletes the OLD row AND inserts a fresh one — revocation is unconditional', async () => {
@@ -1459,6 +1605,26 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
       invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
       row: { id: 'row-1', email: 'real@example.com', userId: 'owner-1' },
       owner: { archivedAt: null },
+    })
+    const service = makeUsersService(db)
+    await expect(
+      service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1'),
+    ).resolves.toBeUndefined()
+  })
+
+  // mutation-gate closure (PR #623 round 4): kills the `owner?.archivedAt`
+  // → `owner.archivedAt` OptionalChaining mutant. `owner: null` here makes
+  // `findById(row.userId)` resolve `undefined` (the owning user row is gone
+  // — a real, if rare, race between the emailRow lookup and this one).
+  // Under the correct optional-chaining code, `undefined?.archivedAt` is
+  // `undefined` (falsy) and the flow proceeds normally; the mutant reads
+  // `undefined.archivedAt` directly and throws a TypeError, which would turn
+  // this `resolves` assertion into a rejection.
+  it('owning user row is GONE (race with the emailRow lookup) → does not crash, proceeds normally', async () => {
+    const { db } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com', userId: 'owner-1' },
+      owner: null,
     })
     const service = makeUsersService(db)
     await expect(
@@ -2983,6 +3149,26 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
       expect(user.personalContactVisible).toBe(true)
       expect(user.personalEmail).toBeNull()
       expect(user.personalEmailCanLogin).toBeNull()
+    })
+
+    // mutation-gate closure (PR #623 round 4): `?? false` on this line is a
+    // safe-by-default fallback for a permissions object that omits the key
+    // entirely — every OTHER test here always sets `personalContact`
+    // explicitly (true or false), so the fallback itself was never driven.
+    // `?? true` would LEAK visibility by default instead of denying it —
+    // the two are not an "unreachable defensive branch", they are opposite
+    // security postures.
+    it('permissions object omits personalContact entirely → personalContactVisible defaults to false (deny, not leak)', async () => {
+      const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+      const missingKeyPermissions = {
+        tabs: ['overview'],
+        actions: [],
+        fields: { realContacts: true },
+      }
+      const service = makeServicePii(seniorTarget, missingKeyPermissions)
+      const result = await service.buildProfileView(viewer as never, 'senior-target')
+      const user = result.user as Record<string, unknown>
+      expect(user.personalContactVisible).toBe(false)
     })
   })
 })
