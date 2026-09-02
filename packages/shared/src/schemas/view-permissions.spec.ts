@@ -17,6 +17,7 @@ describe('actionKeySchema — every member is a real, distinct literal', () => {
     'set-note',
     'archive',
     'resend-personal-invite',
+    'change-personal-email',
   ] as const
 
   it.each(MEMBERS)('accepts %s', (member) => {
