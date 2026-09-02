@@ -1977,7 +1977,7 @@ export async function approveProjectViaAPI(
   page: Page,
   projectId: string,
   approverEmail: string,
-): Promise<void> {
+): Promise<{ id: string; status: string }> {
   await loginViaApi(page, approverEmail)
   const res = await withThrottleRetry(
     () => page.request.post(`${REAL_API_BASE}/api/projects/${projectId}/approve`),
@@ -1988,6 +1988,7 @@ export async function approveProjectViaAPI(
       `approveProjectViaAPI failed for ${approverEmail}: HTTP ${res.status()} — ${await res.text()}`,
     )
   }
+  return (await res.json()) as { id: string; status: string }
 }
 
 /**
@@ -2002,7 +2003,7 @@ export async function rejectProjectViaAPI(
   projectId: string,
   approverEmail: string,
   reason: string,
-): Promise<void> {
+): Promise<{ id: string; status: string }> {
   await loginViaApi(page, approverEmail)
   const res = await withThrottleRetry(
     () =>
@@ -2016,6 +2017,7 @@ export async function rejectProjectViaAPI(
       `rejectProjectViaAPI failed for ${approverEmail}: HTTP ${res.status()} — ${await res.text()}`,
     )
   }
+  return (await res.json()) as { id: string; status: string }
 }
 
 /**
