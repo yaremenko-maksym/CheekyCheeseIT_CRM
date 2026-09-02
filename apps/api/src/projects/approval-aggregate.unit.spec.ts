@@ -26,6 +26,7 @@
  * covers that branch fails (not some unrelated test) — see the coder's
  * final report for the transcript.
  */
+import { NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApprovalGroupStatus, SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -106,21 +107,34 @@ function draftProjectRow() {
  * mock resolved.
  */
 function buildService(
-  projectRow: ReturnType<typeof draftProjectRow>,
+  projectRow: ReturnType<typeof draftProjectRow> | undefined,
   aggregate: ApprovalGroupStatus,
 ) {
+  // Exposed (not inline) so the mutation-gate coverage below can assert the
+  // call actually happened — `loadTeamOverridesBySenior` short-circuits
+  // (`if (seniorIds.length === 0) return map`) BEFORE ever calling this when
+  // handed an EMPTY project list, so "was this called at all" is what tells
+  // `loadForResponse([project])` apart from a mutant that silently narrowed
+  // it to `[]`.
+  const teamMembersFindMany = vi.fn(async () => [])
   const db = {
     db: {
       query: {
+        // `undefined` (the race-safety test below) simulates the project
+        // row having vanished between the transaction and this re-fetch —
+        // `loadForResponse` is the ONLY caller of `query.projects.findFirst`
+        // reachable from `approveDraft`/`rejectDraft` (the transaction only
+        // WRITES via `tx.update`), so this mock's single behaviour models
+        // that one call site exactly.
         projects: { findFirst: async () => projectRow },
-        teamMembers: { findFirst: async () => null, findMany: async () => [] },
+        teamMembers: { findFirst: async () => null, findMany: teamMembersFindMany },
       },
       transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
         const tx = {
           update: (_table: unknown) => ({
             set: (values: Record<string, unknown>) => ({
               where: (_expr: unknown) => {
-                Object.assign(projectRow, values)
+                if (projectRow) Object.assign(projectRow, values)
                 return Promise.resolve()
               },
             }),
@@ -145,7 +159,7 @@ function buildService(
     hrAccess,
     approvals as never,
   )
-  return { service, approvals }
+  return { service, approvals, teamMembersFindMany }
 }
 
 describe('ProjectsService.approveDraft / rejectDraft — applyApprovalAggregate (SPEC-H-1)', () => {
@@ -166,12 +180,32 @@ describe('ProjectsService.approveDraft / rejectDraft — applyApprovalAggregate 
 
   it('APPROVED aggregate (every invited approver confirmed) flips the project to ACTIVE', async () => {
     const projectRow = draftProjectRow()
-    const { service } = buildService(projectRow, 'APPROVED')
+    const { service, teamMembersFindMany } = buildService(projectRow, 'APPROVED')
 
     const result = await service.approveDraft(PROJECT_ID, CURRENT_SENIOR)
 
     expect(projectRow.status).toBe('ACTIVE')
     expect(result.status).toBe('ACTIVE')
+    // loadForResponse's re-fetched project (not an empty list) is what
+    // feeds loadTeamOverridesBySenior — proves the response actually
+    // resolves override data for THIS project's senior, not for nobody.
+    expect(teamMembersFindMany).toHaveBeenCalled()
+  })
+
+  it('loadForResponse refuses to answer for a project that vanished between the transaction and the re-fetch', async () => {
+    // Race safety, not a hypothetical: the transaction that flips DRAFT ->
+    // ACTIVE and the SELECT that builds the response are two separate round
+    // trips (`loadForResponse` re-reads by id after the transaction
+    // commits) — a concurrent hard-delete landing in that window must not
+    // surface as a crash or a stale/empty response.
+    const { service } = buildService(undefined, 'APPROVED')
+
+    await expect(service.approveDraft(PROJECT_ID, CURRENT_SENIOR)).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    await expect(service.approveDraft(PROJECT_ID, CURRENT_SENIOR)).rejects.toThrow(
+      'Project not found',
+    )
   })
 
   it('REJECTED aggregate (any one approver declined) flips the project to REJECTED', async () => {
