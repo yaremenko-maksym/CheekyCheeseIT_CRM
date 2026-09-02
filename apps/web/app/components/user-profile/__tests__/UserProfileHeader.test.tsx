@@ -106,3 +106,40 @@ describe('UserProfileHeader — personalEmail (§4.4)', () => {
     expect(workLink).toHaveAttribute('href', 'mailto:ivan@work.com')
   })
 })
+
+// task-user-emails-invite (spec §5): the "не подтверждён" status badge next
+// to the personal address — zero prior coverage for this render path.
+describe('UserProfileHeader — personal-email invite status badge', () => {
+  it('shows "не подтверждён" when personalEmailCanLogin is false', () => {
+    render(
+      <UserProfileHeader
+        user={makeUser({
+          personalEmail: 'ivan.personal@gmail.com',
+          personalContactVisible: true,
+          personalEmailCanLogin: false,
+        })}
+      />,
+    )
+    expect(screen.getByTestId('personal-email-not-confirmed-badge')).toHaveTextContent(
+      'не подтверждён',
+    )
+  })
+
+  it('hides the badge once personalEmailCanLogin is true (invite accepted)', () => {
+    render(
+      <UserProfileHeader
+        user={makeUser({
+          personalEmail: 'ivan.personal@gmail.com',
+          personalContactVisible: true,
+          personalEmailCanLogin: true,
+        })}
+      />,
+    )
+    expect(screen.queryByTestId('personal-email-not-confirmed-badge')).not.toBeInTheDocument()
+  })
+
+  it('hides the badge when there is no personal address at all', () => {
+    render(<UserProfileHeader user={makeUser({ personalEmail: null })} />)
+    expect(screen.queryByTestId('personal-email-not-confirmed-badge')).not.toBeInTheDocument()
+  })
+})

@@ -1,5 +1,13 @@
 import { Fragment, useState } from 'react'
-import { Zap, ChevronDown, Pencil, StickyNote, Archive, ArchiveRestore } from 'lucide-react'
+import {
+  Zap,
+  ChevronDown,
+  Pencil,
+  StickyNote,
+  Archive,
+  ArchiveRestore,
+  MailPlus,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -9,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { ActionKey, UserProfileDto } from '@crm/shared'
-import { useUnarchiveUser } from '@/hooks/use-user-profile'
+import { useResendPersonalEmailInvite, useUnarchiveUser } from '@/hooks/use-user-profile'
 import { UserDialog } from '@/components/users/UserDialog'
 import { AdminNoteDialog } from './AdminNoteDialog'
 import { ArchiveUserDialog } from './ArchiveUserDialog'
@@ -40,19 +48,44 @@ export function AdminActionsMenu({
   const close = () => setOpen(null)
   const isArchived = !!user.archivedAt
   const unarchiveMutation = useUnarchiveUser(userId, { isSenior: user.role === 'SENIOR' })
+  const resendInviteMutation = useResendPersonalEmailInvite(userId)
 
   // Show «Редактировать» if the user has any of the edit-related action keys.
   const canEdit = EDIT_ACTION_KEYS.some((k) => actions.includes(k))
   const canSetNote = actions.includes('set-note')
   const canArchive = actions.includes('archive')
+  // task-user-emails-invite (spec §5): the action key alone only says the
+  // VIEWER is allowed to resend — the button itself is further gated on
+  // there actually being something to resend. `personalContactVisible`
+  // (UX-M-1) must be checked FIRST: without it, `personalEmailCanLogin ===
+  // false` cannot be told apart from "this viewer cannot see the field at
+  // all" (which is also `null`, not `false` — see that field's own doc —
+  // so `=== false` alone already excludes the masked case, this check is
+  // belt-and-suspenders against a future loosening of that contract).
+  const canResendInvite =
+    actions.includes('resend-personal-invite') &&
+    user.personalContactVisible === true &&
+    !!user.personalEmail &&
+    user.personalEmailCanLogin === false
 
-  type MenuItem = { key: 'edit' | 'set-note' | 'archive'; icon: React.ReactNode; label: string }
+  type MenuItem = {
+    key: 'edit' | 'set-note' | 'archive' | 'resend-invite'
+    icon: React.ReactNode
+    label: string
+  }
   const menuItems: MenuItem[] = []
   if (canEdit) {
     menuItems.push({
       key: 'edit',
       icon: <Pencil className="mr-2 h-4 w-4" />,
       label: 'Редактировать',
+    })
+  }
+  if (canResendInvite) {
+    menuItems.push({
+      key: 'resend-invite',
+      icon: <MailPlus className="mr-2 h-4 w-4" />,
+      label: 'Отправить приглашение повторно',
     })
   }
   if (canSetNote) {
@@ -89,7 +122,13 @@ export function AdminActionsMenu({
                 <DropdownMenuSeparator />
               )}
               <DropdownMenuItem
-                onClick={() => setOpen(item.key)}
+                data-testid={
+                  item.key === 'resend-invite' ? 'admin-actions-resend-invite' : undefined
+                }
+                disabled={item.key === 'resend-invite' && resendInviteMutation.isPending}
+                onClick={() =>
+                  item.key === 'resend-invite' ? resendInviteMutation.mutate() : setOpen(item.key)
+                }
                 className={item.key === 'archive' ? 'text-destructive focus:text-destructive' : ''}
               >
                 {item.icon}

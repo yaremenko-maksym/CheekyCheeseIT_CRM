@@ -83,6 +83,27 @@ export function useArchiveUser(userId: string) {
   })
 }
 
+/**
+ * task-user-emails-invite (spec §5 — "Админ должен уметь выслать
+ * приглашение заново"). Mirrors `useAdminSetNote`'s shape — invalidates the
+ * profile query so `personalEmailCanLogin`/`personalContactVisible` (unlikely
+ * to change here, but the row's `updatedAt` does) stay fresh, no optimistic
+ * update (the action has no visible field to flip locally — a toast is the
+ * whole UI signal).
+ */
+export function useResendPersonalEmailInvite(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      api.post(`/users/${userId}/personal-email/resend-invite`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      toast.success('Приглашение отправлено повторно')
+    },
+    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+  })
+}
+
 export function useUnarchiveUser(userId: string, opts?: { isSenior?: boolean }) {
   const qc = useQueryClient()
   return useMutation({

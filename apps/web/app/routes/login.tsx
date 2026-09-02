@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { AuthProvider, useAuth } from '@/context/auth'
@@ -10,7 +10,27 @@ import { Button } from '@/components/ui/button'
 import { BrandMark } from '@/components/brand-mark'
 
 const searchSchema = z.object({
-  error: z.enum(['unauthorized', 'google_error', 'invalid_state']).optional(),
+  error: z
+    .enum([
+      'unauthorized',
+      'google_error',
+      'invalid_state',
+      // task-user-emails-invite (spec §2, §3): the invite-accept branch of
+      // GET /auth/google/callback (AuthController) redirects here with one
+      // of these on failure — see `mapInviteAcceptError` in that file for
+      // the exception → code mapping, and this file's ERROR_MESSAGES below
+      // for the Russian copy shown for each.
+      'invite_invalid',
+      'invite_expired',
+      'invite_used',
+      'invite_email_mismatch',
+    ])
+    .optional(),
+  // Set on success by the SAME redirect — see AuthController.googleCallback's
+  // invite branch. Deliberately NOT an error: task §2 — "Токен НЕ выдаёт
+  // сессию", so the person still has to click "Войти с Google" below to
+  // actually sign in; this banner just confirms the accept step worked.
+  invited: z.enum(['1']).optional(),
 })
 
 export const Route = createFileRoute('/login')({
@@ -47,6 +67,18 @@ const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
   google_error: 'Ошибка Google OAuth. Попробуйте снова.',
   invalid_state: 'Сессия истекла. Пожалуйста, попробуйте снова.',
+  // task-user-emails-invite (spec §2, §3): "Не совпал — внятный отказ, а не
+  // тихое ничего" — covers both a genuinely wrong Google account AND the
+  // "личный адрес не является Google-аккаунтом" case (task §3): Google's
+  // own account chooser cannot offer an account that does not exist, so
+  // whichever account the person picks there will not match the invited
+  // address either way — same message, same actionable next step (contact
+  // the admin who set the address).
+  invite_email_mismatch:
+    'Аккаунт Google не совпадает с адресом из приглашения. Обратитесь к администратору, если это ошибка.',
+  invite_expired: 'Срок действия приглашения истёк. Попросите администратора отправить его заново.',
+  invite_used: 'Это приглашение уже использовано.',
+  invite_invalid: 'Ссылка приглашения недействительна.',
 }
 
 // Dot access — hotfix (task-telemetry-env-gate): bracket access to
@@ -156,7 +188,7 @@ function DevLoginSection({
 function LoginPage() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
-  const { error } = Route.useSearch()
+  const { error, invited } = Route.useSearch()
   const [devLoading, setDevLoading] = useState<string | null>(null)
 
   // Redirect if already authenticated. `replace: true` prevents the browser
@@ -212,6 +244,21 @@ function LoginPage() {
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{ERROR_MESSAGES[error]}</span>
+          </motion.div>
+        )}
+
+        {/* task-user-emails-invite (spec §2): invite accepted, but "Токен НЕ
+            выдаёт сессию" — this confirms the accept step worked, the person
+            still clicks the Google button below to actually sign in. */}
+        {invited === '1' && !error && (
+          <motion.div
+            className="mb-4 flex items-start gap-2.5 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary"
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            data-testid="login-invite-accepted-message"
+          >
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>Личный адрес подтверждён. Теперь вы можете войти им через кнопку ниже.</span>
           </motion.div>
         )}
 

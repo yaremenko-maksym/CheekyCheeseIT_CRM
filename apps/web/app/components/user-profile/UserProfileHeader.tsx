@@ -119,14 +119,31 @@ export function UserProfileHeader({
             // §4.4 — personal address on file. Not (yet) a login method —
             // labelled "личный", not duplicated as a second "email" link, so
             // it reads as contact info rather than a second account.
-            <a
-              href={`mailto:${user.personalEmail}`}
-              className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
-              title="Личный email"
-            >
-              <MailPlus className="h-4 w-4 shrink-0" />
-              {user.personalEmail}
-            </a>
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <a
+                href={`mailto:${user.personalEmail}`}
+                className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
+                title="Личный email"
+              >
+                <MailPlus className="h-4 w-4 shrink-0" />
+                {user.personalEmail}
+              </a>
+              {/* task-user-emails-invite: `personalEmailCanLogin === false`
+                  is unambiguous ONLY because `user.personalEmail` above is
+                  already truthy — a masked viewer never gets a truthy
+                  personalEmail in the first place (UX-M-1's
+                  personalContactVisible gate), so this render path cannot be
+                  reached by "no access", only by "set, not yet accepted". */}
+              {user.personalEmailCanLogin === false && (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 text-xs"
+                  data-testid="personal-email-not-confirmed-badge"
+                >
+                  не подтверждён
+                </Badge>
+              )}
+            </span>
           )}
           {hasRealPhone(user.phone) && (
             <a
