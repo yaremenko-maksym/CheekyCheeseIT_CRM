@@ -305,6 +305,166 @@ describe('JwtAuthGuard — AC2: DB role re-hydration + archived user rejection',
   })
 })
 
+// ── SR-H-6 (security-review PR #623 round 5): per-row session revocation ──
+// A session opened through a PERSONAL `user_emails` row must stop working
+// the moment that row is revoked (changePersonalEmail deletes it, or a
+// future writer flips canLogin false) — not merely stop new logins. See
+// `JwtPayload.userEmailId`'s own doc (`@crm/shared`) for the full mechanism.
+
+describe('JwtAuthGuard — SR-H-6: per-row session revocation via userEmailId', () => {
+  const jwtService = new JwtService({ secret: TEST_SECRET })
+
+  function makeCtxWithRequest(cookies: Record<string, string>): {
+    ctx: ExecutionContext
+    request: Record<string, unknown>
+  } {
+    const request: Record<string, unknown> = { cookies }
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => request }),
+      getHandler: () => ({}),
+      getClass: () => ({}),
+    } as unknown as ExecutionContext
+    return { ctx, request }
+  }
+
+  function baseUsersServiceStub(overrides: Partial<UsersService> = {}): UsersService {
+    return {
+      findById: vi.fn().mockResolvedValue({
+        id: '00000000-0000-0000-0000-00000000000a',
+        role: 'JUNIOR',
+        archivedAt: null,
+      }),
+      findUserEmailById: vi
+        .fn()
+        .mockResolvedValue({ id: 'aaaaaaaa-0000-4000-8000-000000000001', canLogin: true }),
+      ...overrides,
+    } as unknown as UsersService
+  }
+
+  it('accepts a session whose userEmailId row still allows login', async () => {
+    const payload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      userEmailId: 'aaaaaaaa-0000-4000-8000-000000000001',
+    }
+    const token = jwtService.sign(payload)
+    const { ctx } = makeCtxWithRequest({ jwt: token })
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), baseUsersServiceStub())
+    await expect(guard.canActivate(ctx)).resolves.toBe(true)
+  })
+
+  it('rejects a session whose userEmailId row was revoked (canLogin: false) — the row still exists', async () => {
+    const payload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      userEmailId: 'aaaaaaaa-0000-4000-8000-000000000001',
+    }
+    const token = jwtService.sign(payload)
+    const { ctx } = makeCtxWithRequest({ jwt: token })
+    const mockUsersService = baseUsersServiceStub({
+      findUserEmailById: vi
+        .fn()
+        .mockResolvedValue({ id: 'aaaaaaaa-0000-4000-8000-000000000001', canLogin: false }),
+    })
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
+    await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException)
+  })
+
+  it('rejects a session whose userEmailId row no longer exists at all (changePersonalEmail DELETEs the row, not just flips a flag)', async () => {
+    const payload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      userEmailId: 'aaaaaaaa-0000-4000-8000-000000000001',
+    }
+    const token = jwtService.sign(payload)
+    const { ctx } = makeCtxWithRequest({ jwt: token })
+    const mockUsersService = baseUsersServiceStub({
+      findUserEmailById: vi.fn().mockResolvedValue(undefined),
+    })
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
+    await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException)
+  })
+
+  it('skips the check entirely when userEmailId is absent (impersonate / stop-impersonating — no user_emails lookup at all)', async () => {
+    const payload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      // No userEmailId.
+    }
+    const token = jwtService.sign(payload)
+    const { ctx } = makeCtxWithRequest({ jwt: token })
+    const mockFindUserEmailById = vi.fn()
+    const mockUsersService = baseUsersServiceStub({ findUserEmailById: mockFindUserEmailById })
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
+    await expect(guard.canActivate(ctx)).resolves.toBe(true)
+    expect(mockFindUserEmailById).not.toHaveBeenCalled()
+  })
+
+  it('cache: does not call findUserEmailById twice within TTL for the same userEmailId', async () => {
+    const payload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      userEmailId: 'aaaaaaaa-0000-4000-8000-000000000001',
+    }
+    const token = jwtService.sign(payload)
+    const mockFindUserEmailById = vi
+      .fn()
+      .mockResolvedValue({ id: 'aaaaaaaa-0000-4000-8000-000000000001', canLogin: true })
+    const mockUsersService = baseUsersServiceStub({ findUserEmailById: mockFindUserEmailById })
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
+
+    for (let i = 0; i < 2; i++) {
+      const { ctx } = makeCtxWithRequest({ jwt: token })
+      await expect(guard.canActivate(ctx)).resolves.toBe(true)
+    }
+    expect(mockFindUserEmailById).toHaveBeenCalledTimes(1)
+  })
+
+  it('two concurrent sessions for the SAME user through DIFFERENT rows do not share a cache verdict (WORK row valid, PERSONAL row revoked)', async () => {
+    // Regression pin for CachedUserEmail's own doc: a userId-keyed cache
+    // would let the first (valid) session's cached verdict answer for the
+    // second (revoked) session too. Keying by userEmailId instead prevents
+    // that — this test fails loudly if that keying regresses.
+    const workPayload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      userEmailId: 'aaaaaaaa-0000-4000-8000-0000000000aa',
+    }
+    const personalPayload = {
+      id: '00000000-0000-0000-0000-00000000000a',
+      email: 'a@b.com',
+      role: 'JUNIOR',
+      userEmailId: 'aaaaaaaa-0000-4000-8000-0000000000bb',
+    }
+    const workToken = jwtService.sign(workPayload)
+    const personalToken = jwtService.sign(personalPayload)
+
+    const mockFindUserEmailById = vi
+      .fn()
+      .mockImplementation((id: string) =>
+        Promise.resolve(
+          id === 'aaaaaaaa-0000-4000-8000-0000000000aa'
+            ? { id, canLogin: true }
+            : { id, canLogin: false },
+        ),
+      )
+    const mockUsersService = baseUsersServiceStub({ findUserEmailById: mockFindUserEmailById })
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
+
+    const { ctx: workCtx } = makeCtxWithRequest({ jwt: workToken })
+    await expect(guard.canActivate(workCtx)).resolves.toBe(true)
+
+    const { ctx: personalCtx } = makeCtxWithRequest({ jwt: personalToken })
+    await expect(guard.canActivate(personalCtx)).rejects.toThrow(UnauthorizedException)
+  })
+})
+
 // ── MED-1 (security-review round 2): bounded legacy-cookie fallback ───────
 //
 // The `__Host-jwt` / `jwt` fallback read is a session-fixation surface for

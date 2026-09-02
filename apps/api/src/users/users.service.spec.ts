@@ -841,7 +841,10 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
         actorRole: 'ADMIN',
         actorId: 'actor-test-id',
       }),
-    ).rejects.toThrow('User with this email already exists')
+      // COPY-H-5 (security-review PR #623 round 5): assertEmailAvailable's
+      // message is Russian now — this is the SAME shared function
+      // changePersonalEmail calls, translated once for every caller.
+    ).rejects.toThrow('Этот адрес уже занят другим пользователем.')
 
     // No half-created account — the rejection happens before any insert.
     expect(db.db.insert).not.toHaveBeenCalled()
@@ -1387,10 +1390,21 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
    * #623 round 4) — defaults to an ACTIVE (non-archived) user so every
    * pre-existing test in this block reaches the transaction unchanged;
    * pass `{ archivedAt: new Date() }` to exercise the archived branch.
-   * `googleIdConflict: true` makes the SECOND `.update(userEmails)...where()`
-   * (LOW-1) reject with a fake Postgres unique-violation on
-   * `idx_user_emails_google_id`, mirroring what `uniqueViolationConstraint`
-   * actually walks (`.code`/`.constraint`, real driver shape).
+   *
+   * SR-H-5 (security-review PR #623 round 5): the transaction now writes
+   * `user_emails` FIRST, `user_email_invites` SECOND (reversed from before
+   * — see `acceptPersonalEmailInvite`'s own comment for the deadlock this
+   * removes) — so `googleIdConflict: true` makes the FIRST
+   * `.update(userEmails)...where()` (LOW-1, the only one that can hit
+   * `idx_user_emails_google_id`) reject with a fake Postgres
+   * unique-violation, mirroring what `uniqueViolationConstraint` actually
+   * walks (`.code`/`.constraint`, real driver shape).
+   *
+   * `.where()` now also returns `.returning()` (SR-L-3, round 5) — both
+   * updates use it to detect a raced zero-row UPDATE. `emailReturningRows`/
+   * `inviteReturningRows` default to one row (the ordinary case); pass `[]`
+   * to simulate the row having vanished between the pre-transaction read
+   * and this UPDATE.
    */
   function makeAcceptDb(opts: {
     invite?: InviteRow
@@ -1400,6 +1414,13 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     /** Same shape as googleIdConflict but an UNRECOGNISED constraint name —
      * exercises the "rethrow, do not mislabel" branch (pg-errors.ts's doc). */
     unrecognizedConflict?: boolean
+    /** SR-L-3: defaults to `[{ id: 'row-1' }]` — pass `[]` to simulate the
+     * `user_emails` row having been deleted by a concurrent revoke. */
+    emailReturningRows?: Array<{ id: string }>
+    /** SR-L-3: defaults to `[{ id: 'inv-1' }]` — pass `[]` for the
+     * defense-in-depth branch (see that check's own comment for why it is
+     * not reachable via any real path once the lock-order fix is in place). */
+    inviteReturningRows?: Array<{ id: string }>
   }) {
     let setCallCount = 0
     const conflictConstraint = opts.googleIdConflict
@@ -1407,19 +1428,30 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
       : opts.unrecognizedConflict
         ? 'some_other_index'
         : null
+    const emailReturningRows = opts.emailReturningRows ?? [{ id: 'row-1' }]
+    const inviteReturningRows = opts.inviteReturningRows ?? [{ id: 'inv-1' }]
     const setMock = vi.fn().mockImplementation(() => {
       setCallCount++
-      const isSecondCall = setCallCount === 2
+      // SR-H-5: call 1 = user_emails (canLogin/googleId/verifiedAt), call 2
+      // = user_email_invites (usedAt) — reversed from before this fix.
+      const isFirstCall = setCallCount === 1
+      if (isFirstCall && conflictConstraint) {
+        return {
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockRejectedValue(
+              Object.assign(new Error('duplicate key value violates unique constraint'), {
+                code: '23505',
+                constraint: conflictConstraint,
+              }),
+            ),
+          }),
+        }
+      }
+      const returningRows = isFirstCall ? emailReturningRows : inviteReturningRows
       return {
-        where:
-          isSecondCall && conflictConstraint
-            ? vi.fn().mockRejectedValue(
-                Object.assign(new Error('duplicate key value violates unique constraint'), {
-                  code: '23505',
-                  constraint: conflictConstraint,
-                }),
-              )
-            : vi.fn().mockResolvedValue(undefined),
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue(returningRows),
+        }),
       }
     })
     const updateMock = vi.fn().mockReturnValue({ set: setMock })
@@ -1571,15 +1603,58 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     ).resolves.toBeUndefined()
 
     expect(transactionMock).toHaveBeenCalledTimes(1)
-    // Two updates inside the one transaction: the invite row, then the
-    // user_emails row.
+    // Two updates inside the one transaction — SR-H-5 (security-review PR
+    // #623 round 5): the user_emails row FIRST, the invite row SECOND
+    // (reversed from before this fix — see the method's own comment for
+    // the deadlock this ordering removes).
     expect(updateMock).toHaveBeenCalledTimes(2)
     expect(setMock.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ usedAt: expect.any(Date) }),
-    )
-    expect(setMock.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({ canLogin: true, googleId: 'sub-42', verifiedAt: expect.any(Date) }),
     )
+    expect(setMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ usedAt: expect.any(Date) }),
+    )
+  })
+
+  // SR-L-3 (security-review PR #623 round 5): a concurrent
+  // `changePersonalEmail` can delete the `user_emails` row (and cascade the
+  // invite with it) in the gap between the pre-transaction reads and this
+  // transaction's own UPDATE — an UPDATE matching zero rows is not a
+  // Postgres error, so without the `.returning()` check this would commit
+  // having changed nothing and report success to the caller.
+  it('SR-L-3: user_emails row vanished between read and write (raced revoke) → NotFoundException, invite never touched', async () => {
+    const { db, transactionMock, updateMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com' },
+      emailReturningRows: [],
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
+    await expect(promise).rejects.toThrow('Приглашение недействительно')
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    // Reported as "invalid" BEFORE the invite update ever runs — the
+    // user_emails UPDATE (call 1) matched zero rows, so the transaction
+    // throws without reaching the invite UPDATE (call 2) at all.
+    expect(updateMock).toHaveBeenCalledTimes(1)
+  })
+
+  // SR-L-3, defense-in-depth half: the lock-order fix means a real path
+  // never reaches this (the cascade removes both rows together, so the
+  // user_emails check above already catches it) — this pins the check
+  // exists independently, for a hypothetical future writer of
+  // `user_email_invites` alone.
+  it('SR-L-3: invite row vanished between read and write, user_emails write DID succeed → NotFoundException', async () => {
+    const { db, transactionMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com' },
+      inviteReturningRows: [],
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
+    await expect(promise).rejects.toThrow('Приглашение недействительно')
+    expect(transactionMock).toHaveBeenCalledTimes(1)
   })
 
   // LOW-2 (security-review PR #623 round 4): the invited row's OWNING user

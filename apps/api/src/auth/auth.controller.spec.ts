@@ -73,16 +73,19 @@ const TEST_USER = {
 }
 
 /**
- * task-user-emails-invite: `googleCallback`/`googleOneTap` now look up a
+ * task-user-emails-invite: `googleCallback`/`googleOneTap` look up a
  * `user_emails` ROW (`findLoginableEmailRow`) instead of the user directly
  * — see `verifyOrBindGoogleIdentity`'s doc for why (per-row Google-identity
- * binding). `devLogin` is UNCHANGED (still calls `findLoginableUserByEmail`
- * directly), so both stubs are provided, backed by the SAME `foundUser`.
+ * binding). SR-H-6 (security-review PR #623 round 5): `devLogin` now ALSO
+ * calls `findLoginableEmailRow` (not `findLoginableUserByEmail`, whose stub
+ * stays here only because `UsersService`'s real shape still has the method)
+ * — the JWT it mints needs `emailRow.id` for `userEmailId`, same as the
+ * other two login paths. Both stubs are backed by the SAME `foundUser`.
  */
 function makeUsersService(foundUser: typeof TEST_USER | null): UsersService {
   const emailRow = foundUser
     ? {
-        id: 'email-row-id',
+        id: 'aaaaaaaa-0000-4000-8000-000000000001',
         userId: foundUser.id,
         email: foundUser.email,
         kind: 'WORK' as const,
@@ -603,7 +606,7 @@ function makeUsersServiceWithEmailRow(
     : foundUser
   const emailRow = foundUser
     ? {
-        id: 'email-row-id',
+        id: 'aaaaaaaa-0000-4000-8000-000000000001',
         userId: foundUser.id,
         email: foundUser.email,
         kind: overrides.kind ?? 'WORK',
@@ -1050,7 +1053,7 @@ describe('AuthController.googleCallback — normal login, no matching row (kills
     setupGoogleUser(authService, TEST_USER.email, 'google-sub')
     const usersService = {
       findLoginableEmailRow: vi.fn().mockResolvedValue({
-        id: 'email-row-id',
+        id: 'aaaaaaaa-0000-4000-8000-000000000001',
         userId: TEST_USER.id,
         email: TEST_USER.email,
         kind: 'WORK',
@@ -1319,7 +1322,7 @@ describe('verifyOrBindGoogleIdentity (via googleCallback) — PERSONAL branch (t
     await controller.googleCallback('code', 'state-value', request, reply)
 
     expect(usersService.updateEmailRowGoogleId).toHaveBeenCalledWith(
-      'email-row-id',
+      'aaaaaaaa-0000-4000-8000-000000000001',
       'google-sub-personal',
     )
     expect(usersService.updateGoogleId).not.toHaveBeenCalled()
