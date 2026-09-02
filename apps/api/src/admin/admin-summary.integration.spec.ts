@@ -103,6 +103,11 @@ const DROP: SessionUser = {
 
 const PROJ_ACTIVE = 'ad111111-0000-4000-8b00-000000000001'
 const PROJ_ARCHIVED = 'ad111111-0000-4000-8b00-000000000002'
+// SPEC-M-1 (security-review round 2, task-project-draft-status) — DRAFT,
+// never archived. Exists so the projectName test below has a NEGATIVE
+// control: the fix must not accidentally widen the join back to raw
+// `projects` and start showing DRAFT project names too.
+const PROJ_DRAFT = 'ad111111-0000-4000-8b00-000000000003'
 
 // Spec-namespaced transaction IDs so cleanup is surgical.
 const TX_PENDING = 'ad111111-0000-4000-8c00-000000000001' // SENIOR_INCOME PENDING (USDT) → active
@@ -119,13 +124,22 @@ const TX_PENDING_UAH = 'ad111111-0000-4000-8c00-000000000008' // SENIOR_INCOME P
 // → proves the new senderId/receiverId/projectId + resolved names are surfaced
 // so the shared `FromTo` can render the participant instead of «—».
 const TX_DROP_INCOME = 'ad111111-0000-4000-8c00-000000000009'
+// SPEC-M-1 (security-review round 2): PENDING rows against PROJ_ARCHIVED and
+// PROJ_DRAFT — neither could exist through the real API (Д2 refuses
+// transaction creation on a non-ACTIVE project, and an archived project
+// cannot receive NEW transactions either), so both are seeded directly, the
+// same way this file already seeds every other fixture. That is legitimate
+// here: this test proves the VIEW's own filter, not the app-level guard
+// (SR-H-4 already proves THAT, end-to-end, in apps/e2e).
+const TX_ON_ARCHIVED_PROJECT = 'ad111111-0000-4000-8c00-00000000000a'
+const TX_ON_DRAFT_PROJECT = 'ad111111-0000-4000-8c00-00000000000b'
 
 // Interview IDs.
 const INT_ACTIVE = 'ad111111-0000-4000-8d00-000000000001' // TECH_INTERVIEW → active
 const INT_HIRED = 'ad111111-0000-4000-8d00-000000000002' // HIRED → terminal, excluded
 
 const TEST_USER_IDS = [ADMIN.id, SENIOR.id, HR.id, ACCOUNTANT.id, JUNIOR.id, DROP.id]
-const TEST_PROJ_IDS = [PROJ_ACTIVE, PROJ_ARCHIVED]
+const TEST_PROJ_IDS = [PROJ_ACTIVE, PROJ_ARCHIVED, PROJ_DRAFT]
 const TEST_TX_IDS = [
   TX_PENDING,
   TX_PENDING_PAYMENT,
@@ -136,6 +150,8 @@ const TEST_TX_IDS = [
   TX_PENDING_EUR,
   TX_PENDING_UAH,
   TX_DROP_INCOME,
+  TX_ON_ARCHIVED_PROJECT,
+  TX_ON_DRAFT_PROJECT,
 ]
 const TEST_INT_IDS = [INT_ACTIVE, INT_HIRED]
 
@@ -274,7 +290,7 @@ describe.skipIf(!hasDatabaseUrl())(
         )
         .onConflictDoNothing()
 
-      // ── Seed projects (one active, one archived) ──────────────────────────────
+      // ── Seed projects (one active, one archived, one draft) ────────────────────
       await db
         .insert(projects)
         .values([
@@ -298,6 +314,18 @@ describe.skipIf(!hasDatabaseUrl())(
             currency: 'USDT',
             rate: 1000,
             archivedAt: new Date('2025-02-01'),
+          },
+          {
+            // SPEC-M-1 (security-review round 2): still-DRAFT, never archived.
+            id: PROJ_DRAFT,
+            name: 'Admin Sum Draft Project',
+            companyName: 'AdminSum Corp',
+            domain: 'ai',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR.id,
+            currency: 'USDT',
+            rate: 1000,
+            status: 'DRAFT',
           },
         ])
         .onConflictDoNothing()
@@ -444,6 +472,37 @@ describe.skipIf(!hasDatabaseUrl())(
           txDate: thisMonth,
           createdAt: thisMonth,
           createdBy: DROP.id,
+        },
+        // SPEC-M-1 (security-review round 2): a historical PENDING row on the
+        // ARCHIVED project — legitimate (the engagement finished, the row is
+        // still owed/actionable) and its name must keep showing.
+        {
+          id: TX_ON_ARCHIVED_PROJECT,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: '400',
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          projectId: PROJ_ARCHIVED,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR.id,
+        },
+        // SPEC-M-1: the negative control — same shape, DRAFT project. Could
+        // not exist through the real API (Д2), seeded directly so the VIEW's
+        // own `status = 'ACTIVE'` filter is what is under test here, not the
+        // app-level guard (that is SR-H-4, proven end-to-end in apps/e2e).
+        {
+          id: TX_ON_DRAFT_PROJECT,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: '300',
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          projectId: PROJ_DRAFT,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR.id,
         },
       ])
     }, 30_000)
@@ -623,6 +682,34 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(dropIncome?.receiverId).toBe(DROP.id)
       expect(dropIncome?.receiverName).toBe(DROP.displayName)
       expect(dropIncome?.projectId).toBe(PROJ_ACTIVE)
+    })
+
+    // SPEC-M-1 (security-review round 2, task-project-draft-status): the
+    // round-1 fix joined `projectName` against `visibleProjects` (`status =
+    // 'ACTIVE' AND archived_at IS NULL`) — correct for the DRAFT/REJECTED
+    // leak this task exists to close, but it ALSO started hiding an
+    // ARCHIVED project's name, which `visibleProjects` had never been asked
+    // to do and which the widget showed before this task shipped at all.
+    // `confirmedProjects` (`status = 'ACTIVE'` alone) is the fix. Both
+    // halves in ONE test, on purpose: an assertion that only checked the
+    // archived half could pass by widening the join back to raw `projects`
+    // (which would also fix the archived case — by reopening the leak).
+    it('shows the project name for a transaction on an ARCHIVED project, but NOT on a DRAFT one', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      const body = adminSummarySchema.parse(res.json())
+      const byId = (id: string) => body.activeTransactions.find((t) => t.id === id)
+
+      const onArchived = byId(TX_ON_ARCHIVED_PROJECT)
+      expect(onArchived?.projectId).toBe(PROJ_ARCHIVED)
+      expect(onArchived?.projectName).toBe('Admin Sum Archived Project')
+
+      const onDraft = byId(TX_ON_DRAFT_PROJECT)
+      expect(onDraft?.projectId).toBe(PROJ_DRAFT)
+      expect(onDraft?.projectName).toBeNull()
     })
 
     // ── KPI correctness (AC1) ──────────────────────────────────────────────────
