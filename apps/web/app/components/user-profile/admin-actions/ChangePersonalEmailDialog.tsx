@@ -34,6 +34,18 @@ const personalEmailValidator = z
  * reusing `UserDialog`'s multi-step wizard — this is a single-purpose,
  * security-sensitive write with its own endpoint and its own audit action,
  * and stays isolated from that much larger component.
+ *
+ * copy-review PR #623 round 5 (COPY-H-4/M-10/M-11/M-12): title, description
+ * and the submit button label all now depend on TWO states this dialog can
+ * be in, and the copy must not lie about either:
+ *   - `currentEmail === null` — there is nothing to change or revoke yet
+ *     (see `AdminActionsMenu`'s `canChangePersonalEmail`, which shows this
+ *     entry point even when no personal address exists at all). The
+ *     "closes login on the old address" warning would be a claim about an
+ *     address that does not exist — so this state gets its own, true copy.
+ *   - `currentEmail` set — the ordinary change/remove case; wording taken
+ *     verbatim from the round-5 copy review (measured against this
+ *     dialog's real content width, 272px).
  */
 export function ChangePersonalEmailDialog({
   userId,
@@ -50,6 +62,7 @@ export function ChangePersonalEmailDialog({
   const [value, setValue] = useState(currentEmail ?? '')
   const [error, setError] = useState<string | null>(null)
 
+  const isAdding = currentEmail === null
   const trimmed = value.trim()
   const isRemoval = !trimmed && !!currentEmail
   const isNoop = trimmed === (currentEmail ?? '')
@@ -74,15 +87,29 @@ export function ChangePersonalEmailDialog({
     onClose()
   }
 
+  // copy-review PR #623 round 5 (COPY-H-4/M-11/M-12) — the description is an
+  // action verb ("Сохраните — и …"), not a field label, and names the
+  // consequence truthfully for whichever of the three states the dialog is
+  // actually in: adding a first address (nothing to revoke yet — COPY-M-12),
+  // removing the only address (no new address to mention — COPY-M-11), or
+  // changing an existing one (both halves apply — COPY-H-4). Wording taken
+  // verbatim from the round-5 copy review, measured against this dialog's
+  // real content width (272px).
+  const description = isAdding
+    ? 'На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес.'
+    : isRemoval
+      ? 'Сохраните — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.'
+      : 'Сохраните — и вход по нынешнему адресу закроется сразу, даже если сотрудник уже подтвердил его. На новый адрес уйдёт приглашение.'
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>Личный email</DialogTitle>
-          <DialogDescription>
-            Смена или удаление немедленно закроют вход со старого адреса — даже если сотрудник уже
-            подтвердил его. Новый адрес пройдёт то же приглашение по почте.
-          </DialogDescription>
+          {/* COPY-M-10: title names the ACTION (matches ArchiveUserDialog's
+              own house style), not the field — the field already has its
+              own <Label> 40px below, and repeating it there was the finding. */}
+          <DialogTitle>{isAdding ? 'Добавить личный email' : 'Изменить личный email'}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <Label htmlFor="change-personal-email-input">Личный email</Label>
@@ -107,11 +134,9 @@ export function ChangePersonalEmailDialog({
             data-testid="change-personal-email-input"
           />
           {error && <p className="text-xs text-destructive">{error}</p>}
-          {!error && isRemoval && (
-            <p className="text-xs text-muted-foreground">
-              Поле пустое — сохранение удалит личный адрес и закроет вход по нему.
-            </p>
-          )}
+          {/* COPY-M-11: the standalone hint that used to live here repeated
+              what the description above already says once the description
+              itself names the removal consequence — removed, not softened. */}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
@@ -122,7 +147,11 @@ export function ChangePersonalEmailDialog({
             onClick={() => void submit()}
             data-testid="change-personal-email-submit"
           >
-            Сохранить
+            {/* COPY-M-11: the button names the actual destructive action
+                instead of the neutral "Сохранить" — the last word the admin
+                reads before an irreversible revoke must not be the softest
+                one in the dialog (ArchiveUserDialog's own precedent). */}
+            {isRemoval ? 'Удалить адрес' : 'Сохранить'}
           </Button>
         </DialogFooter>
       </DialogContent>

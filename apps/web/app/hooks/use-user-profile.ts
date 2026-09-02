@@ -134,9 +134,13 @@ export function useChangePersonalEmail(userId: string) {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       if (data.delivered === null) {
-        // Removal, or a no-op resubmit of the same value — nothing was
-        // mailed, nothing to report as sent/failed.
-        toast.success('Сохранено')
+        // COPY-M-13 (copy-review PR #623 round 5): this branch's own comment
+        // already says a no-op resubmit can't reach here — the submit button
+        // is disabled on `isNoop` (`ChangePersonalEmailDialog`) — so in
+        // practice this IS the removal branch, and the generic "Сохранено"
+        // (the same word an admin-note edit gets) said nothing about the
+        // access that was just revoked.
+        toast.success('Личный адрес удалён — вход по нему больше не работает.')
       } else if (data.delivered) {
         toast.success('Письмо отправлено на личный адрес')
       } else {

@@ -75,6 +75,14 @@ export function AdminActionsMenu({
   // whenever it is discovered). Still requires `personalContactVisible`
   // (the same PII-visibility gate every other personalEmail-touching
   // action in this menu already respects).
+  //
+  // COPY-M-12 (copy-review PR #623 round 5): also deliberately NOT gated on
+  // `user.personalEmail` being set — this is the ONLY entry point that can
+  // ADD a first personal address, not merely change or remove an existing
+  // one (`UsersService.changePersonalEmail`'s own doc: "Replaces whatever
+  // PERSONAL row the user currently has (if any)"). Restricting visibility
+  // to "has one already" would remove that capability. The label below
+  // reflects which of the two the admin is actually about to do instead.
   const canChangePersonalEmail =
     actions.includes('change-personal-email') && user.personalContactVisible === true
 
@@ -106,7 +114,13 @@ export function AdminActionsMenu({
     menuItems.push({
       key: 'change-personal-email',
       icon: <Mail className="mr-2 h-4 w-4" />,
-      label: 'Изменить личный email',
+      // COPY-M-12 (copy-review PR #623 round 5): this item shows even when
+      // `user.personalEmail` is null (see `canChangePersonalEmail`'s own
+      // comment for why the check is deliberately NOT further gated on
+      // that) — "Изменить" is a false claim when there is nothing yet to
+      // change. `ChangePersonalEmailDialog` itself branches its own title/
+      // description on the SAME condition — keep both in sync.
+      label: user.personalEmail ? 'Изменить личный email' : 'Добавить личный email',
     })
   }
   if (canSetNote) {

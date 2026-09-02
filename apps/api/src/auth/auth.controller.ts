@@ -330,7 +330,15 @@ export class AuthController {
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
     // Full SessionUser (incl. legalFullName) is re-hydrated via GET /me.
-    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    // SR-H-6 (security-review PR #623 round 5): `userEmailId` — the row
+    // that actually unlocked this login, WORK or PERSONAL — see
+    // `jwtPayloadSchema`'s own doc for why JwtAuthGuard needs it.
+    const jwtPayload = jwtPayloadSchema.parse({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      userEmailId: emailRow.id,
+    })
     const token = this.jwtService.sign(jwtPayload)
 
     this.issueJwtCookie(reply, token)
@@ -587,7 +595,14 @@ export class AuthController {
     }
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
-    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    // SR-H-6 (security-review PR #623 round 5) — see googleCallback's
+    // identical comment above.
+    const jwtPayload = jwtPayloadSchema.parse({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      userEmailId: emailRow.id,
+    })
     const token = this.jwtService.sign(jwtPayload)
 
     this.issueJwtCookie(reply, token)
@@ -635,11 +650,25 @@ export class AuthController {
     // for real OAuth login, so it must respect the same canLogin gate (an
     // E2E/dev script exercising "personal email cannot log in yet" needs
     // this path to behave identically to the real one).
-    const user = await this.usersService.findLoginableUserByEmail(body.email)
-    if (!user) throw new NotFoundException(`User ${body.email} not found in DB`)
+    //
+    // SR-H-6 (security-review PR #623 round 5): resolves the ROW
+    // (`findLoginableEmailRow`), not just the user (`findLoginableUserByEmail`,
+    // still used elsewhere), because the JWT below needs `emailRow.id` —
+    // dev-login is how E2E/dev scripts simulate a PERSONAL-address login
+    // (real Google OAuth is not available in that environment), so it must
+    // carry the same `userEmailId` a real login would, or the SR-H-6
+    // revocation check could never be exercised outside production.
+    const emailRow = await this.usersService.findLoginableEmailRow(body.email)
+    const user = emailRow ? await this.usersService.findById(emailRow.userId) : undefined
+    if (!emailRow || !user) throw new NotFoundException(`User ${body.email} not found in DB`)
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
-    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    const jwtPayload = jwtPayloadSchema.parse({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      userEmailId: emailRow.id,
+    })
     const token = this.jwtService.sign(jwtPayload)
     // devLogin can only reach this line when `this.isProduction === false`
     // (checked above), so `issueJwtCookie`'s `secure: this.isProduction`
