@@ -122,7 +122,8 @@ export class PersonalEmailInviteMailerService {
     // full name in a Russian-language email reads as a mail-merge. First
     // whitespace-separated token only; falls back to the whole string for a
     // single-word name (never empty — `displayName` is required at creation).
-    const firstName = escapeHtml(input.displayName.trim().split(/\s+/)[0] ?? input.displayName)
+    const rawFirstName = input.displayName.trim().split(/\s+/)[0] ?? input.displayName
+    const firstName = escapeHtml(rawFirstName)
 
     // Spec §11 rules, verbatim: one button, no thank-you/pleasantries, last
     // line is a protective disclaimer (not politeness) — see the module doc
@@ -178,7 +179,7 @@ export class PersonalEmailInviteMailerService {
 </html>`
 
     const text = [
-      `${input.displayName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
+      `${rawFirstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
       '',
       'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
       'Пока не подтвердите, вход работает только по рабочему.',

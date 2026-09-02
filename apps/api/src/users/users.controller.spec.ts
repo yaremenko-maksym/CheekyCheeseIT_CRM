@@ -246,6 +246,8 @@ describe('UsersController.createUser — personalEmail (§4.4)', () => {
 // ---------------------------------------------------------------------------
 
 describe('UsersController.resendPersonalEmailInvite', () => {
+  const admin = session(makeUser({ id: 'admin-id-1', role: 'ADMIN' }))
+
   function makeResendController(): {
     controller: UsersController
     usersService: { resendPersonalEmailInvite: ReturnType<typeof vi.fn> }
@@ -258,7 +260,9 @@ describe('UsersController.resendPersonalEmailInvite', () => {
         displayName: 'Ivan Petrov',
       }),
     }
-    const inviteMailer = { sendInvite: vi.fn().mockResolvedValue(undefined) }
+    // copy-review PR #623 (COPY-M-1): the mailer now reports whether
+    // delivery actually succeeded — the mock reflects that shape.
+    const inviteMailer = { sendInvite: vi.fn().mockResolvedValue(true) }
     const controller = new UsersController(
       usersService as never,
       { list: vi.fn() } as never,
@@ -269,27 +273,113 @@ describe('UsersController.resendPersonalEmailInvite', () => {
     return { controller, usersService, inviteMailer }
   }
 
-  it('regenerates the token via UsersService then hands it straight to the mailer', async () => {
+  it('regenerates the token via UsersService (attributed to the caller) then hands it straight to the mailer', async () => {
     const { controller, usersService, inviteMailer } = makeResendController()
 
-    const result = await controller.resendPersonalEmailInvite('user-id-1')
+    const result = await controller.resendPersonalEmailInvite(admin, 'user-id-1')
 
-    expect(usersService.resendPersonalEmailInvite).toHaveBeenCalledWith('user-id-1')
+    // SR-M-12 (security-review PR #623 round 4): the actor id is threaded
+    // through so UsersService can write its own audit record.
+    expect(usersService.resendPersonalEmailInvite).toHaveBeenCalledWith('user-id-1', 'admin-id-1')
     expect(inviteMailer.sendInvite).toHaveBeenCalledWith({
       to: 'ivan.personal@gmail.com',
       displayName: 'Ivan Petrov',
       rawToken: 'raw-token-value',
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, delivered: true })
+  })
+
+  it('reports delivered:false when the mailer could not actually send it', async () => {
+    const { controller, inviteMailer } = makeResendController()
+    inviteMailer.sendInvite.mockResolvedValue(false)
+
+    const result = await controller.resendPersonalEmailInvite(admin, 'user-id-1')
+
+    expect(result).toEqual({ ok: true, delivered: false })
   })
 
   it('propagates UsersService.resendPersonalEmailInvite rejections without calling the mailer', async () => {
     const { controller, usersService, inviteMailer } = makeResendController()
     usersService.resendPersonalEmailInvite.mockRejectedValue(new ForbiddenException('nope'))
 
-    await expect(controller.resendPersonalEmailInvite('user-id-1')).rejects.toThrow(
+    await expect(controller.resendPersonalEmailInvite(admin, 'user-id-1')).rejects.toThrow(
       ForbiddenException,
     )
+    expect(inviteMailer.sendInvite).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-user-emails-invite (security-review PR #623 round 4, owner decision):
+// PATCH /users/:id/personal-email
+// ---------------------------------------------------------------------------
+
+describe('UsersController.changePersonalEmail', () => {
+  const admin = session(makeUser({ id: 'admin-id-1', role: 'ADMIN' }))
+
+  function makeChangeController(): {
+    controller: UsersController
+    usersService: { changePersonalEmail: ReturnType<typeof vi.fn> }
+    inviteMailer: { sendInvite: ReturnType<typeof vi.fn> }
+  } {
+    const usersService = {
+      changePersonalEmail: vi.fn().mockResolvedValue({
+        rawToken: 'raw-token-value',
+        email: 'new.personal@gmail.com',
+        displayName: 'Ivan Petrov',
+      }),
+    }
+    const inviteMailer = { sendInvite: vi.fn().mockResolvedValue(true) }
+    const controller = new UsersController(
+      usersService as never,
+      { list: vi.fn() } as never,
+      {} as never,
+      inviteMailer as never,
+      undefined,
+    )
+    return { controller, usersService, inviteMailer }
+  }
+
+  it('parses the body, calls the service with the actor id, and mails the new invite', async () => {
+    const { controller, usersService, inviteMailer } = makeChangeController()
+
+    const result = await controller.changePersonalEmail(admin, 'user-id-1', {
+      personalEmail: 'new.personal@gmail.com',
+    })
+
+    expect(usersService.changePersonalEmail).toHaveBeenCalledWith(
+      'user-id-1',
+      'new.personal@gmail.com',
+      'admin-id-1',
+    )
+    expect(inviteMailer.sendInvite).toHaveBeenCalledWith({
+      to: 'new.personal@gmail.com',
+      displayName: 'Ivan Petrov',
+      rawToken: 'raw-token-value',
+    })
+    expect(result).toEqual({ ok: true, delivered: true })
+  })
+
+  it('removal (personalEmail: null) — no mailer call, delivered:null', async () => {
+    const { controller, usersService, inviteMailer } = makeChangeController()
+    usersService.changePersonalEmail.mockResolvedValue(null)
+
+    const result = await controller.changePersonalEmail(admin, 'user-id-1', {
+      personalEmail: null,
+    })
+
+    expect(usersService.changePersonalEmail).toHaveBeenCalledWith('user-id-1', null, 'admin-id-1')
+    expect(inviteMailer.sendInvite).not.toHaveBeenCalled()
+    expect(result).toEqual({ ok: true, delivered: null })
+  })
+
+  it('rejects a malformed body before touching the service', async () => {
+    const { controller, usersService, inviteMailer } = makeChangeController()
+
+    await expect(
+      controller.changePersonalEmail(admin, 'user-id-1', { personalEmail: 'not-an-email' }),
+    ).rejects.toThrow()
+    expect(usersService.changePersonalEmail).not.toHaveBeenCalled()
     expect(inviteMailer.sendInvite).not.toHaveBeenCalled()
   })
 })

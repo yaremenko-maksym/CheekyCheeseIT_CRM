@@ -161,7 +161,7 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).not.toContain('audit')
   })
 
-  it('ADMIN has all 7 actions on others (manage-team / reassign-project removed; task-user-emails-invite adds resend-personal-invite)', async () => {
+  it('ADMIN has all 8 actions on others (manage-team / reassign-project removed; task-user-emails-invite adds resend-personal-invite + change-personal-email)', async () => {
     const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
     const p = await service.getViewPermissions(admin, target)
@@ -174,11 +174,12 @@ describe('UsersAccessService.getViewPermissions', () => {
         'set-note',
         'archive',
         'resend-personal-invite',
+        'change-personal-email',
       ]),
     )
     expect(p.actions).not.toContain('manage-team')
     expect(p.actions).not.toContain('reassign-project')
-    expect(p.actions).toHaveLength(7)
+    expect(p.actions).toHaveLength(8)
   })
 
   it('ADMIN cannot archive themselves', async () => {

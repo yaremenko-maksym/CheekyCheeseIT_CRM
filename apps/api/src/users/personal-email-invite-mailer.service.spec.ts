@@ -99,7 +99,9 @@ describe('PersonalEmailInviteMailerService — constructor reads config with the
 describe('PersonalEmailInviteMailerService.sendInvite — RESEND_API_KEY not configured', () => {
   it('does not call mailer.send, records a telemetry error, does not throw', async () => {
     const { svc, mailer, telemetry } = makeHarness({ isConfigured: false })
-    await expect(svc.sendInvite(INPUT)).resolves.toBeUndefined()
+    // copy-review PR #623 (COPY-M-1): sendInvite now reports delivery outcome —
+    // "not configured" is a delivery failure, same as an exhausted retry.
+    await expect(svc.sendInvite(INPUT)).resolves.toBe(false)
     expect(mailer.send).not.toHaveBeenCalled()
     expect(telemetry.recordError).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -174,17 +176,23 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(call.text.toLowerCase()).not.toContain('спасибо')
   })
 
-  it('the plain-text body is the exact 6-line structure — greeting, blank, instruction, link, blank, disclaimer', async () => {
+  it('the plain-text body is the exact 8-line structure — greeting, blank, promise, cost-of-inaction, blank, link, blank, disclaimer', async () => {
     const { svc, mailer } = makeHarness()
     await svc.sendInvite(INPUT)
     const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as SendEmailInput
     const link = call.html.match(/href="([^"]+)"/)?.[1]
     expect(link).toBeTruthy()
+    // copy-review PR #623 (COPY-H-1/M-4/L-2): rewritten body — button/copy
+    // name the actual outcome, state the cost of doing nothing, greet by
+    // FIRST name only (INPUT.displayName is two words — 'Иван Петров').
+    const firstName = INPUT.displayName.split(' ')[0]
     expect(call.text).toBe(
       [
-        `${INPUT.displayName}, этот адрес указан как ваш личный email в CRM CheekyCheeseIT.`,
+        `${firstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
         '',
-        'Перейдите по ссылке и войдите через Google, чтобы использовать этот адрес для входа:',
+        'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
+        'Пока не подтвердите, вход работает только по рабочему.',
+        '',
         link,
         '',
         'Если письмо пришло по ошибке, не переходите по ссылке.',
@@ -205,7 +213,7 @@ describe('PersonalEmailInviteMailerService.sendInvite — retry policy (2 attemp
         return undefined
       },
     })
-    await expect(svc.sendInvite(INPUT)).resolves.toBeUndefined()
+    await expect(svc.sendInvite(INPUT)).resolves.toBe(true)
     expect(mailer.send).toHaveBeenCalledTimes(2)
     // Kills: sleep()'s body emptied (BlockStatement, line ~49 — setTimeout
     // never invoked at all) AND every `if (attempt < MAX_SEND_ATTEMPTS)`
@@ -229,19 +237,23 @@ describe('PersonalEmailInviteMailerService.sendInvite — retry policy (2 attemp
         throw new Error('Resend API HTTP 500: rate limited')
       },
     })
-    await expect(svc.sendInvite(INPUT)).resolves.toBeUndefined()
+    await expect(svc.sendInvite(INPUT)).resolves.toBe(false)
     expect(mailer.send).toHaveBeenCalledTimes(2)
     // Kills the `if (true)` / `attempt <= MAX_SEND_ATTEMPTS` mutants, which
     // would sleep after BOTH failures (count 2) instead of only between
     // them (count 1) — the second sleep would be pure waste, delaying an
     // already-decided failure.
     expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
+    // LOW-3 (security-review PR #623 round 4): meta.reason is the extracted
+    // `HTTP <status>` prefix ONLY, never the raw error message — Resend's
+    // response body (the ": rate limited" suffix here) is provider text
+    // that sometimes echoes back the rejected recipient address.
     expect(telemetry.recordError).toHaveBeenCalledWith(
       expect.objectContaining({
         source: 'API',
         message: 'Personal-email invite delivery failed after retries',
         route: '/api/users',
-        meta: { reason: 'Resend API HTTP 500: rate limited' },
+        meta: { reason: 'Resend API HTTP 500' },
       }),
     )
     // PII note (module doc): the recipient address must never appear in the
