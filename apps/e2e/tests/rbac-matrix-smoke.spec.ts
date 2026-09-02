@@ -193,11 +193,9 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
     try {
       // task-project-draft-status: `createDropProjectViaAPI` now
       // auto-approves the DRAFT project as its invited drop, which needs
-      // this fresh DROP past OnboardingGuard first — `plantObligationForRbac`
-      // below onboards too, but only AFTER project creation, too late for
-      // the approve call this fixture now makes at creation time. Its own
-      // second call stays a harmless no-op (idempotent on an
-      // already-onboarded user).
+      // this fresh DROP past OnboardingGuard first — onboard here, BEFORE
+      // project creation. `plantObligationForRbac` below does NOT onboard
+      // again (see its own comment for why the call isn't repeated there).
       await onboardDropViaAPI(page, { dropId, dropEmail })
 
       const { projectId } = await createDropProjectViaAPI(page, {
