@@ -24,12 +24,15 @@ import {
   teams,
   transactions,
   userAuditLog,
+  userEmailInvites,
   userEmails,
   users,
   type User,
+  type UserEmail,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { isUniqueViolation } from '../database/pg-errors'
+import { generateInviteToken, hashInviteToken, INVITE_TOKEN_TTL_MS } from './invite-token.util'
 import {
   ARCHIVED_ENTITLEMENT_MESSAGE,
   changedEntitlementFields,
@@ -41,6 +44,7 @@ import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
 import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
+import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 
 export type AppRole = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
 
@@ -129,6 +133,7 @@ export class UsersService {
     private projectAuditLogService: ProjectAuditLogService,
     @Inject(forwardRef(() => TeamsService))
     private teamsService: TeamsService,
+    private inviteMailer: PersonalEmailInviteMailerService,
   ) {}
 
   findByEmail(email: string): Promise<User | undefined> {
@@ -153,14 +158,27 @@ export class UsersService {
    * the session's identity, only the key that unlocked it.
    */
   async findLoginableUserByEmail(email: string): Promise<User | undefined> {
-    const row = await this.db.db.query.userEmails.findFirst({
+    const row = await this.findLoginableEmailRow(email)
+    if (!row) return undefined
+    return this.findById(row.userId)
+  }
+
+  /**
+   * Same WHERE clause `findLoginableUserByEmail` above already used
+   * (extracted, not duplicated — that method now calls this one) — but
+   * returns the matched `user_emails` ROW, not just the user. AuthController
+   * needs the row's `kind` (WORK vs PERSONAL) to know which Google-identity
+   * binding to check: WORK continues to use `users.googleId` (unchanged);
+   * PERSONAL uses its OWN `googleId` column (see schema.ts's comment on
+   * that column for why one shared slot cannot serve both addresses).
+   */
+  async findLoginableEmailRow(email: string): Promise<UserEmail | undefined> {
+    return this.db.db.query.userEmails.findFirst({
       where: and(
         eq(lowerEmail(userEmails.email), email.toLowerCase()),
         eq(userEmails.canLogin, true),
       ),
     })
-    if (!row) return undefined
-    return this.findById(row.userId)
   }
 
   /**
@@ -502,6 +520,13 @@ export class UsersService {
     // create-only). Wrapping in one transaction makes any write failure —
     // this one, a 23505 from `writeUserEmailOrConflict`, anything else —
     // roll back the whole creation instead of leaving a partial row.
+    // task-user-emails-invite: set inside the transaction below when
+    // `data.personalEmail` is present — read afterwards to send the invite
+    // email OUTSIDE the transaction (a network call has no business holding
+    // a DB transaction open, same reasoning `ContactService`'s send-after-
+    // validate ordering already follows).
+    let personalInviteToken: string | undefined
+
     const rows = await this.db.db.transaction(async (tx) => {
       const insertedRows = await tx.insert(users).values(insertValues).returning()
       const createdUser = insertedRows[0]
@@ -522,12 +547,19 @@ export class UsersService {
       )
       if (data.personalEmail) {
         // canLogin defaults false (column default) — a personal address is
-        // NOT a login method until the invite-accept flow (separate task).
-        await this.writeUserEmailOrConflict(() =>
+        // NOT a login method until the invite-accept flow below issues a
+        // token AND the holder actually accepts it
+        // (UsersService.acceptPersonalEmailInvite).
+        const personalRows = await this.writeUserEmailOrConflict(() =>
           tx
             .insert(userEmails)
-            .values({ userId: createdUser.id, email: data.personalEmail!, kind: 'PERSONAL' }),
+            .values({ userId: createdUser.id, email: data.personalEmail!, kind: 'PERSONAL' })
+            .returning(),
         )
+        const personalRow = personalRows[0]
+        if (personalRow) {
+          personalInviteToken = await this.issuePersonalEmailInviteTx(tx, personalRow.id)
+        }
       }
       return insertedRows
     })
@@ -545,6 +577,18 @@ export class UsersService {
         role: { before: null, after: created.role },
       },
     })
+
+    // task-user-emails-invite: best-effort, AFTER the transaction has
+    // committed — see PersonalEmailInviteMailerService's doc for why a
+    // delivery failure here must never fail user creation (the row + token
+    // already exist; "resend invite" is the recovery path).
+    if (data.personalEmail && personalInviteToken) {
+      await this.inviteMailer.sendInvite({
+        to: data.personalEmail,
+        displayName: data.displayName,
+        rawToken: personalInviteToken,
+      })
+    }
 
     if (data.role === 'SENIOR') {
       if (data.teamMode === 'JOIN_DROP_TEAM' && data.dropTeamId) {
@@ -2078,6 +2122,7 @@ export class UsersService {
     type FilteredUser = Omit<User, 'email' | 'googleId'> & {
       email: string | null
       personalEmail: string | null
+      personalEmailCanLogin: boolean | null
     }
     const filteredUser: FilteredUser = {
       // Always-safe identity fields (persona display, never masked)
@@ -2097,6 +2142,15 @@ export class UsersService {
       // §4.4 — same realContacts gate as email/phone/telegram above.
       // SR-M-4 — same `personalContact` gate as the fetch above.
       personalEmail: permissions.fields.personalContact ? (personalEmailRow?.email ?? null) : null,
+      // task-user-emails-invite: lets the frontend tell "no personal address
+      // set" (null) apart from "set, invite not yet accepted" (false) apart
+      // from "accepted, works as a login" (true) — drives the ADMIN-only
+      // "resend invite" action (AdminActionsMenu) and the profile-header
+      // status badge. Same gate as personalEmail itself — never surfaced to
+      // a viewer who cannot see the address in the first place.
+      personalEmailCanLogin: permissions.fields.personalContact
+        ? (personalEmailRow?.canLogin ?? null)
+        : null,
 
       // Admin-only internal note (never visible to subject or non-ADMIN)
       adminNote: permissions.fields.adminNote ? (target.adminNote ?? null) : null,
@@ -2217,6 +2271,166 @@ export class UsersService {
       .set({ googleId, updatedAt: new Date() })
       .where(eq(users.id, id))
       .then(() => undefined)
+  }
+
+  /**
+   * PERSONAL-row counterpart of `updateGoogleId` above — see
+   * `userEmails.googleId`'s doc (schema.ts) for why WORK and PERSONAL
+   * identity binding live on separate columns instead of sharing one slot.
+   */
+  updateEmailRowGoogleId(emailRowId: string, googleId: string): Promise<void> {
+    return this.db.db
+      .update(userEmails)
+      .set({ googleId, updatedAt: new Date() })
+      .where(eq(userEmails.id, emailRowId))
+      .then(() => undefined)
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // task-user-emails-invite (spec §5, §9 position 2, continued): invite
+  // tokens for a PERSONAL user_emails row.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Generates a fresh invite token for a PERSONAL `user_emails` row and
+   * writes ONLY its hash (`invite-token.util.ts`'s `hashInviteToken`) —
+   * called from `createUser` (inside its existing transaction, right after
+   * the PERSONAL row insert) and from `resendPersonalEmailInvite` below.
+   * One row per `userEmailId` (schema.ts's unique index) —
+   * `onConflictDoUpdate` overwrites in place, which is what makes a resend
+   * gate the OLD token (task §5: "новый токен гасит старый"): the old hash
+   * stops existing in the DB the instant this runs, not merely
+   * "eventually, once it expires".
+   *
+   * Returns the RAW token — the only moment it ever exists outside this
+   * function's stack frame. The caller puts it straight into the invite
+   * email link and nowhere else (never logged, never returned over HTTP as
+   * JSON — see the two callers).
+   */
+  private async issuePersonalEmailInviteTx(
+    tx: DatabaseService['db'] | DrizzleTx,
+    userEmailId: string,
+  ): Promise<string> {
+    const rawToken = generateInviteToken()
+    const tokenHash = hashInviteToken(rawToken)
+    const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
+    await tx
+      .insert(userEmailInvites)
+      .values({ userEmailId, tokenHash, expiresAt })
+      .onConflictDoUpdate({
+        target: userEmailInvites.userEmailId,
+        set: { tokenHash, expiresAt, usedAt: null, updatedAt: new Date() },
+      })
+    return rawToken
+  }
+
+  /**
+   * ADMIN action (task §5 — "Админ должен уметь выслать приглашение
+   * заново"). Regenerates the token for the user's EXISTING PERSONAL row
+   * — it does NOT create one; `personalEmail` is create-only (see
+   * `createUserSchema`'s doc) and this method is not the place to
+   * relitigate that decision. Returns the raw token + enough identity for
+   * the caller (`UsersController`) to hand off to the mailer.
+   *
+   * Throws:
+   *   - BadRequestException — the user has no PERSONAL row at all (nothing
+   *     to resend; the UI only offers this action when one exists, but the
+   *     endpoint does not trust that).
+   *   - ConflictException — the row already has `canLogin=true`. Resending
+   *     an invite for an address that already works as a login method is
+   *     not a real action — `acceptPersonalEmailInvite` would happily
+   *     overwrite `canLogin=true` with `canLogin=true` again, so this
+   *     guard is not a safety net against a broken accept flow, only
+   *     against generating a token that has no reason to ever be used and
+   *     would confuse an audit trail.
+   */
+  async resendPersonalEmailInvite(
+    userId: string,
+  ): Promise<{ rawToken: string; email: string; displayName: string }> {
+    const target = await this.findById(userId)
+    if (!target) throw new NotFoundException('Пользователь не найден')
+    const row = await this.db.db.query.userEmails.findFirst({
+      where: and(eq(userEmails.userId, userId), eq(userEmails.kind, 'PERSONAL')),
+    })
+    if (!row) throw new BadRequestException('У пользователя не задан личный email')
+    if (row.canLogin) {
+      throw new ConflictException('Личный email уже подтверждён — повторное приглашение не требуется')
+    }
+    const rawToken = await this.issuePersonalEmailInviteTx(this.db.db, row.id)
+    return { rawToken, email: row.email, displayName: target.displayName }
+  }
+
+  /**
+   * The accept half of the invite flow (task §2 — "Точка приёма"). Called
+   * from `AuthController.googleCallback`'s invite branch AFTER Google has
+   * already confirmed `googleEmail`/`googleId` for whoever is currently in
+   * the browser — this method's only job is to check that ALREADY-
+   * CONFIRMED identity against the token; it never talks to Google itself
+   * and never mints a session (task §2: "Токен НЕ выдаёт сессию").
+   *
+   * Throws — `AuthController` maps each to a distinct `?error=` redirect:
+   *   - NotFoundException — token hash matches no row (garbage link, or a
+   *     token that was superseded by a resend — the OLD hash is gone from
+   *     the DB the moment `issuePersonalEmailInviteTx` overwrites it, so
+   *     this is indistinguishable from "never existed", which is correct:
+   *     an old, superseded link should behave exactly like a bad one).
+   *   - BadRequestException — token expired.
+   *   - ConflictException — token already used (task: "Токен использован
+   *     дважды — второй раз отказ").
+   *   - ForbiddenException — Google confirmed a DIFFERENT address than the
+   *     one this token was issued for (task §2: "Не совпал — внятный
+   *     отказ, а не тихое ничего"). `canLogin` is left untouched — an
+   *     opportunistic wrong-Google-account attempt against a stolen or
+   *     guessed link gets no second, better-informed try.
+   *
+   * On success: ONE transaction marks the invite used AND flips
+   * `canLogin`/`verifiedAt`/`googleId` on the `user_emails` row — either
+   * both happen or neither does. A token that shows as "used" but never
+   * actually opened the door (or the reverse) is a locked-out user with no
+   * way to self-recover short of an admin resend.
+   */
+  async acceptPersonalEmailInvite(
+    rawToken: string,
+    googleEmail: string,
+    googleId: string,
+  ): Promise<void> {
+    const tokenHash = hashInviteToken(rawToken)
+    const invite = await this.db.db.query.userEmailInvites.findFirst({
+      where: eq(userEmailInvites.tokenHash, tokenHash),
+    })
+    if (!invite) throw new NotFoundException('Приглашение недействительно')
+    if (invite.usedAt) throw new ConflictException('Приглашение уже использовано')
+    if (invite.expiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('Срок действия приглашения истёк')
+    }
+    const row = await this.db.db.query.userEmails.findFirst({
+      where: eq(userEmails.id, invite.userEmailId),
+    })
+    // Defensive only — `ON DELETE CASCADE` (schema.ts) means an invite row
+    // cannot outlive the user_emails row it points at; unreachable via any
+    // real flow.
+    if (!row) throw new NotFoundException('Приглашение недействительно')
+    if (row.email.toLowerCase() !== googleEmail.toLowerCase()) {
+      throw new ForbiddenException('Адрес аккаунта Google не совпадает с приглашённым адресом')
+    }
+
+    await this.db.db.transaction(async (tx) => {
+      await tx
+        .update(userEmailInvites)
+        .set({ usedAt: new Date(), updatedAt: new Date() })
+        .where(eq(userEmailInvites.id, invite.id))
+      // writeUserEmailOrConflict: the same Google account could in theory
+      // already be bound to a DIFFERENT row (idx_user_emails_google_id,
+      // schema.ts) — turn that 23505 into the same clean 409 every other
+      // user_emails writer in this file already produces, instead of a raw
+      // 500.
+      await this.writeUserEmailOrConflict(() =>
+        tx
+          .update(userEmails)
+          .set({ canLogin: true, verifiedAt: new Date(), googleId, updatedAt: new Date() })
+          .where(eq(userEmails.id, row.id)),
+      )
+    })
   }
 
   // ──────────────────────────────────────────────────────────────────────────
