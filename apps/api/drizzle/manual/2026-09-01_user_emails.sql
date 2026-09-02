@@ -20,9 +20,10 @@
 -- in application code — matching the Drizzle-documented pattern for a
 -- case-insensitive unique email column. The column keeps whatever case the
 -- admin/OAuth provider typed (unchanged for display); only the uniqueness
--- constraint and every lookup fold it away. See `UsersService.lowerEmail`
--- usage in `assertEmailAvailable` / `findLoginableUserByEmail` for the
--- application-side half — an index alone does not make
+-- constraint and every lookup fold it away. See `lowerEmail` (exported
+-- from `database/schema.ts`, used in `UsersService.assertEmailAvailable` /
+-- `findLoginableUserByEmail`) for the application-side half — an index
+-- alone does not make
 -- `.where(eq(userEmails.email, rawEmail))` case-insensitive; every query
 -- MUST go through the same fold.
 --
@@ -73,7 +74,8 @@
 --
 -- How to apply
 -- ------------
---   docker compose -f docker-compose.prod.yml exec -T postgres psql \
+--   docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml \
+--     --env-file .env.production exec -T postgres psql \
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
 --     < apps/api/drizzle/manual/2026-09-01_user_emails.sql
 --
@@ -171,9 +173,11 @@ ON CONFLICT DO NOTHING;
 -- fact. An email address is PII the same way that report's project/drop
 -- names were client-identifying data; there is no reason to reintroduce
 -- the same class of leak here. An admin who needs the actual list runs the
--- VERIFY query below BY HAND, over the same SSH-less docker-exec psql
--- session used for every other prod DB operation (see project-state.md) —
--- never auto-printed anywhere.
+-- VERIFY query below BY HAND, over the same docker-exec psql session
+-- documented for every other prod DB operation in
+-- docs/runbooks/deployment.md §6 (Bootstrap) — reached by SSHing to the
+-- VPS first, same as every other manual step in that runbook. Never
+-- auto-printed anywhere.
 DO $$
 DECLARE
   v_count integer;
