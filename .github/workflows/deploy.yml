@@ -2039,8 +2039,8 @@ jobs:
           source: 'apps/api/drizzle/manual/2026-09-01_user_emails.sql'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target:
-          # apps/api/drizzle/manual/2026-09-01_approvals.sql
-          #   → /opt/crm/apps/api/drizzle/manual/2026-09-01_approvals.sql
+          # apps/api/drizzle/manual/2026-09-01_user_emails.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-09-01_user_emails.sql
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
