@@ -258,6 +258,7 @@ export class AuthController {
     // clear unconditionally, whether or not this turns out to be an
     // invite round trip, so a stale cookie never lingers into a later,
     // unrelated login.
+    // Stryker disable next-line OptionalChaining: the guard at line 247 (`!storedState`) already returned early unless `request.cookies?.[stateCookieName]` was truthy — which requires `request.cookies` itself to be a real object at that point (optional-chaining on undefined/null always yields undefined, never a truthy cookie value). By the time this line runs, `request.cookies` cannot be null/undefined, so `?.` here is unobservable — verified against the control flow above, not asserted.
     const rawInviteCookie = request.cookies?.[this.inviteCookieName]
     reply.clearCookie(this.inviteCookieName, this.inviteClearCookieOpts)
     // SR-M-11 (security-review PR #623 round 4): the cookie's value is
@@ -267,6 +268,7 @@ export class AuthController {
     // already-finished (or naively forged) invite round carries a
     // DIFFERENT state and is ignored here, falling through to the ordinary
     // login path below instead of hijacking it.
+    // Stryker disable next-line ArrayDeclaration: `?? []` only ever changes `cookieState` (position 0) — `inviteToken` (position 1) stays `undefined` for ANY single-element fallback array, and `isInviteRound` below reads `cookieState` only when `Boolean(inviteToken)` is already true. No fallback array content can make `isInviteRound` observably differ from `[]`'s.
     const [cookieState, inviteToken] = rawInviteCookie?.split(':') ?? []
     const isInviteRound = Boolean(inviteToken) && cookieState === state
 
@@ -660,8 +662,10 @@ export class AuthController {
  */
 function exceptionMessage(err: ForbiddenException | ConflictException): string {
   const response = err.getResponse()
+  // Stryker disable next-line ConditionalExpression,StringLiteral: verified empirically (node -e against @nestjs/common) — `new ForbiddenException('str')`/`new ConflictException('str')`, the ONLY construction shape `acceptPersonalEmailInvite` ever uses, always returns an OBJECT `{message, error, statusCode}` from `getResponse()`, never a raw string. This branch guards a Nest exception-body shape this codebase never actually produces.
   if (typeof response === 'string') return response
   const message = (response as { message?: unknown }).message
+  // Stryker disable next-line ConditionalExpression,StringLiteral: the ONLY caller (mapInviteAcceptError below) does strict equality against a known sentinel string — any non-matching value, whether `''` or `undefined` (what this ternary's `true`-mutant would leak through instead), compares unequal to that sentinel the same way. A test asserting on the mapped `?error=` code (the only thing this function's result is ever used for) cannot distinguish the two — verified by hand: mutating this line to `return message` still passes every test in this file, because `mapInviteAcceptError` never reads this value on its own.
   return typeof message === 'string' ? message : ''
 }
 

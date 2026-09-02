@@ -122,6 +122,7 @@ export class PersonalEmailInviteMailerService {
     // full name in a Russian-language email reads as a mail-merge. First
     // whitespace-separated token only; falls back to the whole string for a
     // single-word name (never empty — `displayName` is required at creation).
+    // Stryker disable next-line Regex: only `[0]` (everything BEFORE the first whitespace match) is ever read — `/\s+/` vs `/\s/` locate the identical first-match position for any input, so no test could ever distinguish them; verified by hand against "Oleksiy   Kovalenko" (multiple internal spaces) — both regexes give `[0] === "Oleksiy"`.
     const rawFirstName = input.displayName.trim().split(/\s+/)[0] ?? input.displayName
     const firstName = escapeHtml(rawFirstName)
 

@@ -893,6 +893,35 @@ describe('AuthController.googleCallback — invite-accept branch (task-user-emai
     expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=account_disabled'])
   })
 
+  // exceptionMessage's defensive fallback (`typeof message === 'string' ?
+  // message : ''`) had zero coverage — every OTHER test in this file
+  // constructs exceptions with a plain string body, whose getResponse()
+  // ALWAYS carries a string .message (verified empirically against
+  // @nestjs/common). A non-standard object body is the one shape that
+  // reaches the `''` fallback — the resulting empty string does not match
+  // either sentinel, so this degrades to the generic mismatch code rather
+  // than crashing or mis-mapping.
+  it('a ForbiddenException with a non-standard body (no string .message) degrades to invite_email_mismatch, not a crash', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ForbiddenException({ weird: 'shape' }),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_email_mismatch'])
+  })
+
   it('invite cookie present, token expired → redirects with the invite_expired error code', async () => {
     const authService = makeAuthService()
     setupGoogleUser(authService, TEST_USER.email, 'google-sub')
@@ -1046,6 +1075,150 @@ describe('AuthController.googleCallback — normal login, no matching row (kills
 
     expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=unauthorized'])
     expect(jwtService.sign).not.toHaveBeenCalled()
+  })
+})
+
+// Mutation gate (PR #623 round 4): this whole describe block had ZERO prior
+// coverage — only the success path (`PROD: googleOneTap sets __Host-jwt…`)
+// was ever tested. Mirrors the equivalent `googleCallback` describe above.
+describe('AuthController.googleOneTap — failure paths (no prior test coverage)', () => {
+  function makeOneTapUsersService(opts: {
+    emailRow?: { id: string; userId: string; canLogin: boolean; googleId: string | null }
+    user?: {
+      id: string
+      email: string
+      role: string
+      archivedAt: Date | null
+      googleId: string | null
+    }
+  }): UsersService {
+    return {
+      findLoginableEmailRow: vi.fn().mockResolvedValue(opts.emailRow),
+      findById: vi.fn().mockResolvedValue(opts.user),
+      updateGoogleId: vi.fn().mockResolvedValue(undefined),
+      updateEmailRowGoogleId: vi.fn().mockResolvedValue(undefined),
+    } as unknown as UsersService
+  }
+
+  it('no loginable row for this email → UnauthorizedException("Email not authorized"), no session', async () => {
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: 'nobody@example.com',
+      name: 'X',
+      picture: 'p',
+    })
+    const usersService = makeOneTapUsersService({ emailRow: undefined, user: undefined })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    const promise = controller.googleOneTap({ credential: 'cred' }, reply)
+    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException)
+    await expect(promise).rejects.toThrow('Email not authorized')
+    expect(jwtService.sign).not.toHaveBeenCalled()
+  })
+
+  it('emailRow found but the user row is GONE → still UnauthorizedException (kills the || → && mutant)', async () => {
+    // Same reasoning as the parallel googleCallback test above: under `&&`
+    // a truthy emailRow with an undefined user would skip straight to
+    // `user.archivedAt` and crash instead of rejecting cleanly.
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const usersService = makeOneTapUsersService({
+      emailRow: { id: 'row-1', userId: TEST_USER.id, canLogin: true, googleId: null },
+      user: undefined,
+    })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    const promise = controller.googleOneTap({ credential: 'cred' }, reply)
+    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException)
+    await expect(promise).rejects.toThrow('Email not authorized')
+    expect(jwtService.sign).not.toHaveBeenCalled()
+  })
+
+  it('archived (fired) user → UnauthorizedException("Account disabled"), no session', async () => {
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const usersService = makeOneTapUsersService({
+      emailRow: { id: 'row-1', userId: TEST_USER.id, canLogin: true, googleId: null },
+      user: { ...TEST_USER, archivedAt: new Date(), googleId: null },
+    })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    const promise = controller.googleOneTap({ credential: 'cred' }, reply)
+    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException)
+    await expect(promise).rejects.toThrow('Account disabled')
+    expect(jwtService.sign).not.toHaveBeenCalled()
+  })
+
+  it('googleId already bound to a DIFFERENT sub → Google account mismatch, no session, logs the "one-tap" reason (kills the verifyOrBindGoogleIdentity ConditionalExpression + StringLiteral mutants on this call)', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub-new',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    // `makeOneTapUsersService`'s emailRow has no `kind` field, so
+    // `verifyOrBindGoogleIdentity` falls into its PERSONAL branch (`kind ===
+    // 'WORK'` is false) — the mismatch is on `emailRow.googleId`, not
+    // `user.googleId`, and the logged reason gains the `, personal address`
+    // suffix that branch always appends.
+    const usersService = makeOneTapUsersService({
+      emailRow: { id: 'row-1', userId: TEST_USER.id, canLogin: true, googleId: 'google-sub-old' },
+      user: { ...TEST_USER, archivedAt: null, googleId: null },
+    })
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    const promise = controller.googleOneTap({ credential: 'cred' }, reply)
+    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException)
+    await expect(promise).rejects.toThrow('Google account mismatch')
+    expect(jwtService.sign).not.toHaveBeenCalled()
+    expect(usersService.updateEmailRowGoogleId).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Google account mismatch (one-tap, personal address) for user id=${TEST_USER.id}`,
+      ),
+    )
+    warnSpy.mockRestore()
   })
 })
 

@@ -4,6 +4,7 @@ import {
   adminUpdateUserSchema,
   createUserSchema,
   createDropSchema,
+  changePersonalEmailSchema,
 } from './users'
 import { MIN_SALARY_AMOUNT } from './money'
 
@@ -450,5 +451,49 @@ describe('adminUpdateUserSchema.monthlySalary — floor (security-review MED-1)'
   it('still accepts 0 and omitted (unchanged behaviour)', () => {
     expect(adminUpdateUserSchema.safeParse({ monthlySalary: 0 }).success).toBe(true)
     expect(adminUpdateUserSchema.safeParse({}).success).toBe(true)
+  })
+})
+
+// security-review PR #623 round 4, owner decision — mutation gate (`--changed`)
+// caught this with ZERO prior coverage: an `ObjectLiteral` mutant emptying
+// the whole schema to `z.object({})` survived every existing test, because
+// nothing anywhere had ever parsed a single payload through it.
+describe('changePersonalEmailSchema (security-review PR #623 round 4, owner decision)', () => {
+  it('accepts a valid email', () => {
+    const result = changePersonalEmailSchema.safeParse({ personalEmail: 'ivan.personal@gmail.com' })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.personalEmail).toBe('ivan.personal@gmail.com')
+  })
+
+  it('accepts null (removal)', () => {
+    const result = changePersonalEmailSchema.safeParse({ personalEmail: null })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.personalEmail).toBeNull()
+  })
+
+  it('requires the field — omitting it fails (unlike createUserSchema.personalEmail, this is not .optional())', () => {
+    expect(changePersonalEmailSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('rejects an invalid email shape with the exact message', () => {
+    const result = changePersonalEmailSchema.safeParse({ personalEmail: 'not-an-email' })
+    expect(result.success).toBe(false)
+    const message = !result.success ? result.error.issues[0]?.message : undefined
+    expect(message).toBe('Некорректный email')
+  })
+
+  it("rejects an email over the 255-char cap with the exact message (mirrors createUserSchema.personalEmail's bound)", () => {
+    const email256 = `${'a'.repeat(247)}@example.com` // 260 chars, well over 255
+    const result = changePersonalEmailSchema.safeParse({ personalEmail: email256 })
+    expect(result.success).toBe(false)
+    const message = !result.success ? result.error.issues[0]?.message : undefined
+    expect(message).toBe('Email не длиннее 255 символов')
+  })
+
+  it('accepts exactly 255 characters (boundary — kills an off-by-one on the cap)', () => {
+    // 'a'.repeat(243) + '@example.com' (12 chars) = 255 exactly.
+    const email255 = `${'a'.repeat(243)}@example.com`
+    expect(email255).toHaveLength(255)
+    expect(changePersonalEmailSchema.safeParse({ personalEmail: email255 }).success).toBe(true)
   })
 })

@@ -160,6 +160,22 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     }
   })
 
+  // COPY-L-2 (copy-review PR #623 round 4): greets by the FIRST word only,
+  // TRIMMED — a `MethodExpression` mutant collapsing the whole
+  // `.trim().split(/\s+/)[0]` chain down to the bare `input.displayName`
+  // survived every other test in this file, because none of them use a
+  // displayName with LEADING whitespace (the one shape that makes the
+  // trimmed and untrimmed results actually differ).
+  it('greets by the first word only, trimmed — not the full display name', async () => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite({ ...INPUT, displayName: '  Oleksiy Kovalenko  ' })
+    const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as SendEmailInput
+    expect(call.text.startsWith('Oleksiy,')).toBe(true)
+    expect(call.text).not.toContain('Kovalenko')
+    expect(call.html).toContain('Oleksiy,')
+    expect(call.html).not.toContain('Kovalenko')
+  })
+
   it('spec §11: exactly one button (one <a href> in the HTML body)', async () => {
     const { svc, mailer } = makeHarness()
     await svc.sendInvite(INPUT)
@@ -262,5 +278,51 @@ describe('PersonalEmailInviteMailerService.sendInvite — retry policy (2 attemp
       Record<string, unknown>,
     ]
     expect(JSON.stringify(telemetryCall)).not.toContain(INPUT.to)
+  })
+
+  // LOW-3 follow-up: `safeErrorReason`'s two OTHER branches — an Error whose
+  // message does NOT look like "Resend API HTTP …" (falls back to the
+  // constructor name), and a THROWN VALUE that isn't an Error at all (e.g. a
+  // network layer throwing a plain string) — had zero coverage; only the
+  // "matches the HTTP-status shape" branch was ever exercised.
+  it('a non-HTTP-shaped Error falls back to its constructor name (not the raw message)', async () => {
+    const { svc, telemetry } = makeHarness({
+      sendImpl: async () => {
+        throw new TypeError('fetch failed: getaddrinfo ENOTFOUND api.resend.com')
+      },
+    })
+    await expect(svc.sendInvite(INPUT)).resolves.toBe(false)
+    expect(telemetry.recordError).toHaveBeenCalledWith(
+      expect.objectContaining({ meta: { reason: 'TypeError' } }),
+    )
+  })
+
+  // The `^` anchor matters: an error whose message merely CONTAINS "Resend
+  // API HTTP …" partway through (not at the very start) must NOT be
+  // reported as that status — an unanchored match would wrongly extract a
+  // status code from text that only happens to quote the phrase.
+  it('a message that only CONTAINS the HTTP-status phrase (not at the start) falls back to the constructor name', async () => {
+    const { svc, telemetry } = makeHarness({
+      sendImpl: async () => {
+        throw new Error('wrapped: Resend API HTTP 500')
+      },
+    })
+    await expect(svc.sendInvite(INPUT)).resolves.toBe(false)
+    expect(telemetry.recordError).toHaveBeenCalledWith(
+      expect.objectContaining({ meta: { reason: 'Error' } }),
+    )
+  })
+
+  it('a non-Error thrown value resolves to false with reason "unknown" (does not crash)', async () => {
+    const { svc, telemetry } = makeHarness({
+      // Deliberately non-Error — mirrors a raw string a lower layer could throw.
+      sendImpl: async () => {
+        throw 'connection reset'
+      },
+    })
+    await expect(svc.sendInvite(INPUT)).resolves.toBe(false)
+    expect(telemetry.recordError).toHaveBeenCalledWith(
+      expect.objectContaining({ meta: { reason: 'unknown' } }),
+    )
   })
 })
