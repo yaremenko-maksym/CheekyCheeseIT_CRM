@@ -289,6 +289,21 @@ export class ApprovalsService {
     return rows.length > 0
   }
 
+  /**
+   * Bulk form of `isApprover` — every subject id (of `subjectType`) `userId`
+   * was EVER asked to approve, in one query. Used when a subject module
+   * filters a LIST of its own rows for visibility (e.g.
+   * `ProjectsService.findAll`) — one round-trip instead of one `isApprover`
+   * call per row.
+   */
+  async listSubjectIdsForApprover(subjectType: string, userId: string): Promise<Set<string>> {
+    const rows = await this.db.db
+      .selectDistinct({ subjectId: approvals.subjectId })
+      .from(approvals)
+      .where(and(eq(approvals.subjectType, subjectType), eq(approvals.approverUserId, userId)))
+    return new Set(rows.map((r) => r.subjectId))
+  }
+
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------

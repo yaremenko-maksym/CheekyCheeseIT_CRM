@@ -533,6 +533,16 @@ export const updateProjectSchema = z
   })
   .superRefine(refineLogoXor)
 
+/**
+ * task-project-draft-status, item 4. `POST /api/projects/:id/reject` body —
+ * mirrors `rejectApprovalInputSchema`'s own "Отказ возможен и требует
+ * причины" (§3.3) contract: non-blank reason required.
+ */
+export const rejectProjectSchema = z.object({
+  reason: z.string().trim().min(1, 'Причина отказа обязательна'),
+})
+export type RejectProjectDto = z.infer<typeof rejectProjectSchema>
+
 export const addProjectMemberSchema = z.object({
   userId: z.string().uuid(),
 })

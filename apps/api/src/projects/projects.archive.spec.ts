@@ -274,11 +274,20 @@ function buildService(
     unarchivePairTx: vi.fn(opts.usersServiceUnarchive ?? (async () => undefined)),
   }
   const db = makeDb(store)
+  // task-project-draft-status: every fixture project in this file is
+  // already-confirmed (archive/unarchive is a DIFFERENT axis from draft
+  // confirmation), so `listSubjectIdsForApprover`/`isApprover` never need to
+  // return anything truthy for these tests — only need to exist and resolve.
+  const approvals = {
+    isApprover: vi.fn(async () => false),
+    listSubjectIdsForApprover: vi.fn(async () => new Set<string>()),
+  }
   const service = new ProjectsService(
     db as never,
     projectAuditLogService as never,
     usersService as never,
     new HrAccessService(db as never),
+    approvals as never,
   )
   // Stub findOne so we don't reconstruct the full mapProject chain after archive.
   vi.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
@@ -588,11 +597,16 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
     }
     const usersService = { unarchive: vi.fn() }
     const db = makeDb(store)
+    const approvals = {
+      isApprover: vi.fn(async () => false),
+      listSubjectIdsForApprover: vi.fn(async () => new Set<string>()),
+    }
     const service = new ProjectsService(
       db as never,
       projectAuditLogService as never,
       usersService as never,
       new HrAccessService(db as never),
+      approvals as never,
     )
 
     const result = await service.findOne('proj-1', adminUser)
@@ -682,6 +696,10 @@ describe('ProjectsService.findAll — RBAC matrix', () => {
     const baseProj = {
       companyName: 'C',
       domain: 'Other',
+      // task-project-draft-status: this describe block tests the archive/
+      // active axis, not the confirmation axis — every fixture project here
+      // is already confirmed.
+      status: 'ACTIVE' as const,
       startDate: new Date('2026-01-01'),
       currency: 'USDT',
       rate: 100,

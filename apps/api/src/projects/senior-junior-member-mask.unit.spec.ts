@@ -174,6 +174,10 @@ function makeProjectWithMembers() {
     salaryReview: null,
     corpTech: null,
     notesGeneral: null,
+    // task-project-draft-status: this file tests member-identity masking, an
+    // orthogonal concern to confirmation status — the fixture project is
+    // already confirmed.
+    status: 'ACTIVE' as const,
     archivedAt: null,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
@@ -269,6 +273,15 @@ function buildHarness(project: ReturnType<typeof makeProjectWithMembers>) {
   }
   const usersSvc = { unarchive: vi.fn(), unarchivePairTx: vi.fn() }
   const hrAccess = new HrAccessService(db as never)
+  // task-project-draft-status: the fixture project is already ACTIVE, so
+  // `assertAccess`'s draft-status gate never reaches `isApprover` — but
+  // `findAll`'s pre-filter calls `listSubjectIdsForApprover` unconditionally
+  // for every non-ADMIN viewer (LIST-MASK-* uses the SENIOR viewer), so this
+  // still needs to exist and resolve.
+  const approvals = {
+    isApprover: vi.fn(async () => false),
+    listSubjectIdsForApprover: vi.fn(async () => new Set<string>()),
+  }
 
   // security-review PR #541 follow-up (optional note 1): no `vi.spyOn` on
   // `assertAccess` / `loadTeamOverridesBySenior` — both run for REAL. The
@@ -279,7 +292,13 @@ function buildHarness(project: ReturnType<typeof makeProjectWithMembers>) {
   // stubbing them means these tests exercise the REAL RBAC gate end-to-end
   // instead of assuming it — and they no longer know the names of two
   // private methods that have nothing to do with member masking.
-  const service = new ProjectsService(db as never, auditLog as never, usersSvc as never, hrAccess)
+  const service = new ProjectsService(
+    db as never,
+    auditLog as never,
+    usersSvc as never,
+    hrAccess,
+    approvals as never,
+  )
 
   return { service }
 }
