@@ -107,6 +107,28 @@ bash_case block "$MINE" "find $OTHER -type f -exec rm {} ;"                 'CR-
 bash_case block "$MINE" "sudo pkill -f node"                                'CR-M-1: pkill behind sudo'
 bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
+# ── the target is not a literal, so ownership cannot be established ───────────
+# 2026-09-02: the orchestrator removed two live reviewer checkouts with the loop
+# below. The literal form of the SAME command was refused; the variable form was
+# not merely missed — the relative-looking token "$w" was joined onto cwd and
+# thereby classified as MINE. "Could not check" was collapsed into "checked,
+# clean". These cases pin the third outcome.
+bash_case block "$MINE" 'git worktree remove --force "$W"'                                    'target via variable — ownership unknowable'
+bash_case block "$MINE" 'for w in $(git worktree list --porcelain | awk "/^worktree /{print \$2}"); do git worktree remove --force "$w"; done' \
+                                                                            "the cleanup loop that cost two reviewers their trees (2026-09-02)"
+bash_case block "$MINE" 'git worktree remove --force "$(cat /tmp/victims)"' 'target via command substitution'
+bash_case block "$MINE" 'git worktree remove --force .claude/worktrees/agent-*' 'target via glob — matches trees I cannot enumerate'
+bash_case block "$MINE" 'git worktree $SUB --force /some/path'              'the SUBCOMMAND itself is not a literal'
+bash_case block "$MINE" 'git worktree remove --force ~/orphaned-wt'         'tilde resolves to a real path outside my tree'
+
+# ── a leading shell keyword hid the command from EVERY predicate ──────────────
+# Found by writing the loop case above: the body of a loop splits as `do <cmd>`,
+# so the first token was `do` and nothing matched — pkill included, which had
+# been assumed immune because it is decided on the command NAME.
+bash_case block "$MINE" 'while read p; do pkill -f "$p"; done < /tmp/list'  'pkill hidden behind the `do` of a loop body'
+bash_case block "$MINE" 'if [ -f /tmp/x ]; then pkill -f node; fi'         'pkill hidden behind `then`'
+bash_case block "$MINE" 'for x in 1; do sudo killall node; done'           'killall behind `do` AND a wrapper'
+
 echo "== pre:bash:cross-agent-blast — MUST STAY SILENT =="
 bash_case allow "$MINE" 'kill 12345'                                        'kill <PID> — the prescribed replacement (AC11)'
 bash_case allow "$MINE" 'kill -TERM 12345'                                  'kill -TERM <PID> (AC11)'
@@ -125,6 +147,16 @@ bash_case allow "$MINE" "grep -rl TODO $OTHER | xargs wc -l"                'rea
 bash_case allow "$MINE" "find $OTHER -name '*.ts' -exec grep -l foo {} ;"   'find -exec with a read-only payload stays silent'
 bash_case allow "$MINE" "find . -name '*.log' | xargs rm"                   'xargs rm inside MY OWN tree stays silent'
 bash_case allow "$MINE" "find $MINE/dist -type f -delete"                   'find -delete inside MY OWN worktree stays silent'
+
+# ── the non-literal refusal is scoped to `git worktree remove`, deliberately ──
+# It is NOT extended to ordinary mutators: `rm "$x"` has an overwhelming benign
+# majority (own tree, own scratchpad) and no cheap remedy to offer, so refusing
+# it would be the trust-burning false positive this hook's own header warns
+# about. These cases pin that scope — if a later "hardening" widens the rule,
+# they go red.
+bash_case allow "$MINE" 'rm -rf "$TMPDIR/worktree-cache"'                   'ordinary mutator with a variable target stays silent'
+bash_case allow "$MINE" 'git worktree add --detach "$SCRATCH/checkout" abc123' 'creating MY OWN checkout by variable stays silent'
+bash_case allow "$MINE" 'git worktree list --porcelain'                     'read-only worktree subcommand stays silent'
 
 echo "== pre:agent:dispatch-isolation — MUST BLOCK =="
 agent_case block '{"subagent_type":"coder","prompt":"fix it"}'                          'coder without isolation (PR #497, backlog 36)'

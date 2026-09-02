@@ -15,6 +15,13 @@
 #   #551 (2026-08-17, backlog 100) — code-reviewer ran a redness check inside
 #     ANOTHER agent's live worktree, reverting a file there to see the test go
 #     red. Timing luck only.
+#   2026-09-02, twice in one session — the ORCHESTRATOR removed two live
+#     reviewer checkouts with
+#       for w in $(git worktree list | ...); do git worktree remove --force "$w"; done
+#     This hook was already installed and said nothing. Two blindnesses stacked:
+#     the target was a variable it cannot expand, and the loop body puts `do` in
+#     command position so no predicate even looked. Both are fixed below; the
+#     lesson that outlives the fix is in "WHAT SILENCE MEANS".
 #
 # Why a hook and not a rule: in all three the agent behaved reasonably given
 # what it could see. It cannot see the other agents. No amount of "be careful"
@@ -55,14 +62,39 @@
 # and newlines, and each predicate looks at the FIRST TOKEN of a segment —
 # never at a substring of the raw line. Leading `VAR=value` assignments and
 # command wrappers (`xargs`, `sudo`, `env`, `nice`, `nohup`, `command`,
-# `stdbuf`, `timeout`) are unwrapped first, so the effective command is what
-# gets judged.
+# `stdbuf`, `timeout`) plus leading shell keywords (`do`, `then`, `if`, ...) are
+# unwrapped first, so the effective command is what gets judged.
+#
+# WHAT SILENCE MEANS — the distinction this hook got wrong until 2026-09-02.
+# A predicate that RESOLVES something and then concludes must be able to say
+# "I could not resolve it". A predicate that merely SEARCHES for a known marker
+# claims nothing by not finding it. Which one each predicate is:
+#
+#   BROADCAST-KILL   decides on the command NAME. A name is always a literal,
+#                    so `pkill -f "$PAT"` is caught exactly like `pkill -f lit`.
+#                    Silence means "no kill-by-pattern in command position".
+#   WORKTREE-PRUNE   decides on the SUBCOMMAND token; `prune` takes no path, so
+#                    there is nothing to resolve. A non-literal subcommand
+#                    (`git worktree $SUB`) is reported as WORKTREE-OPAQUE.
+#   WORKTREE-REMOVE  RESOLVES each target and concludes own/foreign — the one
+#                    predicate that can be wrong in the dangerous direction, and
+#                    was: `"$w"` looks relative, got joined onto cwd, landed
+#                    inside my own worktree, and was recorded as MINE. "Could
+#                    not check" became "checked, clean". A third outcome now
+#                    exists (WORKTREE-OPAQUE) and it refuses.
+#   FOREIGN-WORKTREE searches the raw text for a `.claude/worktrees/<seg>`
+#   SHARED-CHECKOUT  marker. Not finding one is not a safety claim — it is the
+#                    same silence as for `ls`. Deliberately NOT extended to
+#                    non-literals: see gap 1.
 #
 # CAUGHT (each verified by a case in tests/cross-agent-hooks-smoke.sh):
 #   pkill / killall in command position, incl. behind a wrapper (`sudo pkill`)
 #   git worktree remove <path that is not mine> / git worktree prune
 #   rm|mv|cp|tee|truncate|dd|chmod|chown|ln|install|patch|touch|mkdir|rsync
 #     and `sed -i` naming a path inside another agent worktree
+#   git worktree remove <target that is not a literal> -> WORKTREE-OPAQUE, and
+#     `git worktree $SUB` likewise: refusing to guess, not pretending to know
+#   any of the above with a shell keyword in front (`; do pkill ...; done`)
 #   the same behind a wrapper: `find <other> -type f | xargs rm`
 #   `find <other> -delete` and `find <other> -exec rm {} \;`
 #   `cd <other worktree> && <mutating command>`
@@ -71,8 +103,17 @@
 #     another worktree
 #
 # DELIBERATELY NOT CAUGHT — accepted gaps, not oversights:
-#   1. Indirection through a variable: `D=<other worktree>; rm -rf "$D"`.
-#      The hook matches literal paths; it does not evaluate the shell.
+#   1. Indirection through a variable in an ORDINARY mutator:
+#      `D=<other worktree>; rm -rf "$D"`. Still open, now on purpose rather than
+#      by omission. `git worktree remove` refuses an unresolvable target because
+#      every invocation of it destroys a workspace — there is no benign majority
+#      to protect, and the remedy is one command (`echo "$w"`, then pass the
+#      literal). `rm "$x"` is the opposite on both counts: the overwhelming
+#      majority is an agent's own tree or scratchpad, and there is no cheap
+#      remedy to offer for a loop over two hundred files. Refusing it would buy
+#      one class of miss at the price of the false positive this hook's own
+#      budget below forbids. Pinned by a silence case in the smoke test, so
+#      widening the rule is a deliberate act and not a drift.
 #   2. Indirection through an interpreter: `eval "$CMD"`, `bash -c '...'`,
 #      `./cleanup.sh`, a python/node one-liner that unlinks files. The inner
 #      program is not parsed.
@@ -109,7 +150,9 @@
 #   - `pgrep -f '<pattern>' | xargs kill -9` — the owner's documented sweep
 #     (light-track.md "Zombie-профилактика"). It is deliberate and targeted by
 #     the human, not a blind broadcast from inside a task.
-#   - Removing / pruning YOUR OWN worktree.
+#   - Removing YOUR OWN worktree — by an EXPLICIT path. A path the hook cannot
+#     expand is a path it cannot attribute, so "it was mine" has to be shown,
+#     not asserted. Cost: one `echo` before the command.
 #   - READING another worktree (cat/grep/ls/git log). Only mutation is gated;
 #     see the rule file for why reading a live tree is still a bad idea.
 
@@ -190,6 +233,13 @@ WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeo
 # Wrapper flags that consume the NEXT token as their value.
 VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
 
+# Shell keywords that sit in command position without BEING the command. The
+# body of a loop splits as `do <cmd>`, so without stripping these the first
+# token is `do` and EVERY predicate below misses — verified 2026-09-02 for
+# pkill, killall and git worktree remove alike. The 2026-09-02 incident was
+# written exactly this way: `for w in $(...); do git worktree remove "$w"; done`.
+KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "!", "time"}
+
 
 def first_token(seg):
     seg = seg.strip()
@@ -202,8 +252,10 @@ def first_token(seg):
         parts = seg.split()
 
     for _ in range(4):  # bounded: `sudo env xargs rm` and the like
-        # drop leading env assignments: FOO=bar cmd ...
-        while parts and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", parts[0]):
+        # drop leading env assignments (FOO=bar cmd) and shell keywords (do cmd)
+        while parts and (
+            re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", parts[0]) or parts[0] in KEYWORDS
+        ):
             parts.pop(0)
         if not parts or os.path.basename(parts[0]) not in WRAPPERS:
             break
@@ -222,6 +274,23 @@ def first_token(seg):
 
 
 toks = [first_token(s) for s in segments]
+
+
+# ---- literal or not? ---------------------------------------------------------
+# A token the shell will expand is a token whose value this hook cannot know:
+# resolving it would mean RUNNING it. That is a hard limit, not a bug to fix.
+# What IS a bug is pretending the limit does not exist — see WORKTREE-OPAQUE.
+# `~` is the exception: expanduser is deterministic and runs as the same user,
+# so a tilde path can be resolved honestly instead of being called opaque.
+NONLITERAL = re.compile(r"[$`*?\[]")
+
+
+def resolve(tok):
+    """Absolute path for a LITERAL token. Caller must reject non-literals first."""
+    t = os.path.expanduser(tok)
+    if not t.startswith("/"):
+        t = os.path.join(cwd, t)
+    return os.path.normpath(t).rstrip("/")
 
 # ---- predicate 1: broadcast process kill (backlog 72 / PR #547) -------------
 for name, args in toks:
@@ -242,6 +311,13 @@ for name, args in toks:
         if not a.startswith("-"):
             sub = a
             break
+    if sub and NONLITERAL.search(sub):
+        reasons.append(
+            "WORKTREE-OPAQUE|`git worktree %s` — подкоманда задана НЕ литералом, "
+            "поэтому я не знаю, читающая она (`list`) или разрушающая "
+            "(`remove`/`prune`). Напиши подкоманду явно." % sub
+        )
+        break
     if sub == "prune":
         reasons.append(
             "WORKTREE-PRUNE|`git worktree prune` снимает регистрацию ВСЕХ "
@@ -254,8 +330,24 @@ for name, args in toks:
         targets = [a for a in args[args.index("worktree") + 1:]
                    if not a.startswith("-") and a != "remove"]
         for t in targets:
-            t_abs = t if t.startswith("/") else os.path.normpath(os.path.join(cwd, t))
-            t_abs = t_abs.rstrip("/")
+            # Third outcome: OWN / FOREIGN / UNKNOWN. Before this existed the
+            # token "$w" was joined onto cwd, landed inside own_wt, and hit the
+            # `continue` below — so "I could not check" was recorded as "I
+            # checked, it is yours". That is how the 2026-09-02 cleanup loop
+            # removed two live reviewer checkouts while the LITERAL form of the
+            # same command was refused.
+            if NONLITERAL.search(t):
+                reasons.append(
+                    "WORKTREE-OPAQUE|`git worktree remove %s` — путь задан НЕ "
+                    "литералом (переменная / подстановка / glob). Развернуть его "
+                    "я не могу: для этого пришлось бы его выполнить. Значит я не "
+                    "знаю, ЧЕЙ это каталог, и промолчать не имею права — молчание "
+                    "здесь неотличимо от «проверил, всё чисто». Разверни путь сам "
+                    "и передай явным литералом (`echo %s`): свой я пропущу, чужой "
+                    "назову. Убираешь пачкой — по одному." % (t, t)
+                )
+                continue
+            t_abs = resolve(t)
             if own_wt and (t_abs == own_wt or t_abs.startswith(own_wt + "/")):
                 continue  # removing my own worktree is fine
             reasons.append(
@@ -342,6 +434,15 @@ for r in reasons:
 
 [ -z "$REASONS" ] && exit 0
 
+# NOTE: this heredoc-less `python3 -c "..."` is DOUBLE-quoted, so the shell
+# still expands `$` and BACKTICKS inside it. A backtick here is command
+# substitution, not markdown: until 2026-09-02 the line naming the forbidden
+# commands contained bare `pkill -f` / `killall`, and the shell RAN both on
+# every single refusal — harmless only because each demands an argument and
+# refuses without one. Their empty stdout replaced the words, so the message
+# lost exactly the two names it exists to say. Escape every backtick (\`) and
+# every literal `$` here. Pinned by the message case in
+# scripts/devops/tests/test-pre-bash-cross-agent-blast.sh.
 python3 -c "
 import json, sys
 
@@ -365,8 +466,12 @@ msg = f'''🚫 CROSS-AGENT BLAST: команда выходит за преде�
   • процессы  — найди СВОИ PID и убей их поимённо:
         lsof -ti tcp:<твой порт>            # порт, который поднимал ТЫ
         kill <PID>        (или kill -TERM <PID>)
-    `pkill -f` / `killall` не различают твои процессы и чужие.
-  • worktree  — удаляй только СВОЙ. Чужой стух? Не трогай: сообщи оркестратору,
+    \`pkill -f\` / \`killall\` не различают твои процессы и чужие.
+  • worktree  — удаляй только СВОЙ и ТОЛЬКО явным путём. Путь в переменной я
+    развернуть не могу, а значит и не могу сказать, чей он:
+        echo \\\"\$w\\\"                       # что там на самом деле
+        git worktree remove --force /развёрнутый/путь
+    Чужой стух? Не трогай: сообщи оркестратору,
     он видит всех агентов, а ты — нет. Массовую уборку делает владелец
     (см. docs/architecture/2026-08-17-agent-collision-mechanics.md §AC14).
   • чужое дерево — не мутируй его вообще. Нужна проверка красноты? Сделай
