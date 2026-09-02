@@ -426,6 +426,21 @@ export const userEmails = pgTable(
     // it does not open the door" (spec §5) — flipped true only once the
     // invite-accept flow exists.
     canLogin: boolean('can_login').notNull().default(false),
+    // task-user-emails-invite (position 2, continued): the Google `sub` that
+    // proved ownership of THIS row's address. WORK rows never use this
+    // column — WORK identity binding continues to use `users.googleId`
+    // unchanged (three security-review rounds already covered that path;
+    // touching it would re-litigate already-approved code for no reason).
+    // PERSONAL rows use it INSTEAD of `users.googleId`, because a personal
+    // address is, by construction, a DIFFERENT Google account than the
+    // corporate WORK one — reusing a single `users.googleId` for both would
+    // permanently lock out whichever address logs in second (its `sub`
+    // would never match the first-bound one). Set exactly once, at
+    // invite-accept time (UsersService.acceptPersonalEmailInvite), in the
+    // SAME transaction that flips `canLogin` — see that method. Nullable:
+    // every WORK row and every not-yet-accepted PERSONAL row has no `sub`
+    // to record yet.
+    googleId: varchar('google_id', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -442,6 +457,57 @@ export const userEmails = pgTable(
     // One WORK + one PERSONAL row per user. Also the index `upsertWorkEmail`'s
     // find-by-(userId,kind) lookup rides on.
     uniqueIndex('idx_user_emails_user_kind').on(t.userId, t.kind),
+    // A given Google account may bind to at most one row, same anti-
+    // takeover invariant `users.googleId`'s own unique constraint already
+    // enforces for WORK — see the column comment above. Postgres treats
+    // every NULL as distinct, so this never conflicts across the many rows
+    // that have not bound a Google identity yet.
+    uniqueIndex('idx_user_emails_google_id').on(t.googleId),
+  ],
+)
+
+/**
+ * task-user-emails-invite (position 2, continued): one-time invite token for
+ * a PERSONAL `user_emails` row — see spec §5 ("Приглашение вместо экрана
+ * верификации"). Only a PERSONAL row ever gets one (WORK is already a login
+ * method, unconditionally, from the moment it is created).
+ *
+ * Stores a HASH of the token, never the token itself (mirrors
+ * `invoice-pdf.utils.ts` / `resume-typst.service.ts`'s existing
+ * `createHash('sha256')` convention in this codebase) — a DB read (backup,
+ * replica, compromised credential) must not be enough to mint a working
+ * invite link on its own.
+ *
+ * One row per `user_email_id` (unique index below): resending an invite
+ * OVERWRITES `tokenHash`/`expiresAt`/`usedAt` in place rather than
+ * appending a new row — "новый токен гасит старый" (task spec) means the
+ * OLD raw token, wherever it is (an old email, a browser tab left open),
+ * can never match anything in the DB again the instant a new one is
+ * issued, not just "eventually, once it expires".
+ */
+export const userEmailInvites = pgTable(
+  'user_email_invites',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userEmailId: uuid('user_email_id')
+      .notNull()
+      .references(() => userEmails.id, { onDelete: 'cascade' }),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    // NULL = not yet accepted. Set once, at accept time — a used token is
+    // never valid again (checked BEFORE this is set, in the same
+    // transaction that sets it — see acceptPersonalEmailInvite).
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // One active invite per address row — see module comment above.
+    uniqueIndex('idx_user_email_invites_user_email').on(t.userEmailId),
+    // The accept-flow lookup key. A hash collision here would let one
+    // token accept a DIFFERENT invite — sha256 (64 hex chars, matching the
+    // column width) makes that cryptographically unreachable.
+    uniqueIndex('idx_user_email_invites_token_hash').on(t.tokenHash),
   ],
 )
 
@@ -3032,6 +3098,10 @@ export const tosAcceptancesRelations = relations(tosAcceptances, ({ one }) => ({
 
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
+export type UserEmail = typeof userEmails.$inferSelect
+export type NewUserEmail = typeof userEmails.$inferInsert
+export type UserEmailInvite = typeof userEmailInvites.$inferSelect
+export type NewUserEmailInvite = typeof userEmailInvites.$inferInsert
 export type Team = typeof teams.$inferSelect
 export type NewTeam = typeof teams.$inferInsert
 export type TeamMember = typeof teamMembers.$inferSelect
