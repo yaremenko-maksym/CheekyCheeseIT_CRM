@@ -804,6 +804,7 @@ export class ProjectsService {
           status: 'DRAFT',
         })
         .returning()
+      // Stryker disable next-line ConditionalExpression: defensive-only — a single-row `.insert(...).values({...}).returning()` with no `WHERE` cannot return an empty array on a real Postgres (it either inserts the one row or the whole INSERT throws), so no mock or integration fixture can construct the `!inserted` branch without lying about what Postgres does. Same class as the "practically unreachable, kept for type-narrowing" defensive branches already accepted elsewhere in this codebase (e.g. `pending-settlement.service.ts`'s own `if (!source)` comment).
       if (!inserted) throw new Error('Failed to insert project')
 
       await this.approvals.proposeInTx(tx, {

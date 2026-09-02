@@ -2346,9 +2346,7 @@ export class TransactionsService {
       // SPECIFIC one), not observable from a mocked unit double.
       await this.db.db.query.projects.findFirst({
         where: eq(projects.id, data.projectId),
-        // Stryker disable next-line BooleanLiteral,ObjectLiteral: same class as
-        // the comment above — the mock ignores `with` too, it always returns a
-        // canned row with `financeSettings` already populated.
+        // Stryker disable next-line BooleanLiteral,ObjectLiteral: unobservable from a mocked unit double — this file's mocked specs stub `query.projects.findFirst` to return a canned row with `financeSettings` already populated, regardless of what `with` shape is requested; caught by this entry point's own RBAC/ownership integration spec against real Postgres, same reasoning as the `where`-shape suppression on the line above.
         with: { financeSettings: true },
       }),
     )
@@ -7630,13 +7628,6 @@ export class TransactionsService {
     // in Drizzle's relational-query schema config (same reason as the
     // `ownProjects` read above), so `db.query.projects.findMany` is replaced
     // with an explicit select.
-    // Stryker disable next-line ObjectLiteral: the SELECTED-COLUMNS shape is
-    // unobservable from `income-compliance.unit.spec.ts` — its stub returns
-    // `data.projects` (the seeded fixture rows) regardless of which columns
-    // were asked for, same structural limit as the `where`-shape suppressions
-    // above. The real column list is exercised by
-    // `income-compliance.integration.spec.ts` against Postgres, which WOULD
-    // reject an unknown/removed column at query-build time.
     const activeProjects = await this.db.db
       .select({
         id: visibleProjects.id,

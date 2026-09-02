@@ -88,7 +88,7 @@ function buildHarness() {
     hrAccess,
     approvals as never,
   )
-  return { service, getCapturedValues: () => capturedValues }
+  return { service, approvals, getCapturedValues: () => capturedValues }
 }
 
 describe('ProjectsService.create — optional field mapping (pre-existing, relocated by Д1)', () => {
@@ -142,5 +142,14 @@ describe('ProjectsService.create — optional field mapping (pre-existing, reloc
     const { service, getCapturedValues } = buildHarness()
     await service.create(MINIMAL_DTO, ADMIN)
     expect(getCapturedValues()!['status']).toBe('DRAFT')
+  })
+
+  it('Д1: the approval is proposed to exactly [seniorId] when there is no drop', async () => {
+    const { service, approvals } = buildHarness()
+    await service.create(MINIMAL_DTO, ADMIN)
+    expect(approvals.proposeInTx).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ approverUserIds: [SENIOR_ID] }),
+    )
   })
 })

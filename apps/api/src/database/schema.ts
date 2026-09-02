@@ -536,6 +536,7 @@ export const VISIBLE_PROJECTS_PREDICATE = and(
   isNull(projects.archivedAt),
 )
 
+// Stryker disable next-line StringLiteral: the VIEW NAME is a DB-level fact, unobservable from a mocked unit double (a mock keyed by `visibleProjects`'s JS object identity does not care what name that object carries). VERIFIED against real Postgres: `visible-projects-view.integration.spec.ts`'s own beforeAll asserts `information_schema.views` carries a row named exactly 'visible_projects', and every query in that file would fail with "relation does not exist" if this name diverged from the migration's `CREATE VIEW visible_projects`.
 export const visibleProjects = pgView('visible_projects').as((qb) =>
   qb.select().from(projects).where(VISIBLE_PROJECTS_PREDICATE),
 )

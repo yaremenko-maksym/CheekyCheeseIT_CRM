@@ -60,10 +60,19 @@ interface StubData {
 // `.select({...}).from(visibleProjects)` — no `.where()`/`.orderBy()` chained
 // after it, unlike the senior-summary read, so the stub only needs to resolve
 // the array directly.
+// task-project-draft-status: the LAST columns argument passed to
+// `select(...)` whose `.from()` resolved to `visibleProjects` — lets a test
+// pin the SELECTED-COLUMNS shape directly; `selectStub` otherwise ignores it
+// entirely (ANY shape resolves to the same canned `data.projects` array).
+let capturedProjectsSelectArg: unknown
+
 function selectStub(data: StubData) {
-  return () => ({
+  return (arg?: unknown) => ({
     from: (table: unknown) => {
-      if (table === visibleProjects) return Promise.resolve(data.projects ?? [])
+      if (table === visibleProjects) {
+        capturedProjectsSelectArg = arg
+        return Promise.resolve(data.projects ?? [])
+      }
       return Promise.resolve([])
     },
   })
@@ -159,6 +168,16 @@ describe('getIncomeComplianceOverview — RBAC guard (AC4)', () => {
   it('resolves for ADMIN', async () => {
     const svc = makeService()
     await expect(svc.getIncomeComplianceOverview(user('ADMIN'))).resolves.toBeDefined()
+    // task-project-draft-status: pins the SELECTED-COLUMNS shape of the
+    // `visibleProjects` read — `selectStub` otherwise resolves the SAME
+    // canned array for any shape, including a gutted `{}`.
+    expect(capturedProjectsSelectArg).toEqual({
+      id: expect.anything(),
+      name: expect.anything(),
+      companyName: expect.anything(),
+      seniorId: expect.anything(),
+      dropId: expect.anything(),
+    })
   })
 
   it('resolves for ACCOUNTANT', async () => {
