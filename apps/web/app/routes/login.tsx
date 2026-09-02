@@ -9,7 +9,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BrandMark } from '@/components/brand-mark'
 
-const searchSchema = z.object({
+// Exported for `__tests__/login.search-schema.spec.ts` — TanStack Router's
+// default search-param parser treats a numeric-looking query string
+// (`?invited=1`) as the JSON number `1`, not the string `'1'`, before this
+// schema ever sees it (confirmed live: `z.enum(['1'])` threw `SearchParamError`
+// and crashed the route on a real `?invited=1` redirect — no test caught it
+// because nothing exercised the schema against the router's actual parsed
+// shape). `z.coerce.boolean()` is the same fix already used for `archived` in
+// `_authenticated/users/index.tsx` for the identical reason.
+export const searchSchema = z.object({
   error: z
     .enum([
       'unauthorized',
@@ -30,7 +38,10 @@ const searchSchema = z.object({
   // invite branch. Deliberately NOT an error: task §2 — "Токен НЕ выдаёт
   // сессию", so the person still has to click "Войти с Google" below to
   // actually sign in; this banner just confirms the accept step worked.
-  invited: z.enum(['1']).optional(),
+  // `z.coerce.boolean()`, not `z.enum(['1'])`: the router's default search
+  // parser turns `?invited=1` into the NUMBER 1 before this schema runs
+  // (see the module doc comment above and `login.search-schema.spec.ts`).
+  invited: z.coerce.boolean().optional(),
 })
 
 export const Route = createFileRoute('/login')({
@@ -63,7 +74,12 @@ const SHOW_DEV_LOGIN = !import.meta.env.PROD
 // SHOW_DEV_LOGIN = !import.meta.env.PROD is statically false in prod builds,
 // making all references inside DevLoginSection unreachable dead code.
 
-const ERROR_MESSAGES: Record<string, string> = {
+// Exported for `__tests__/login.search-schema.spec.ts` — see that file for
+// why (mutation-gate: every enum value / message string here was a
+// `[Survived] StringLiteral` mutant, since only Playwright E2E specs (which
+// Stryker cannot execute) previously asserted this text end-to-end; see
+// `.claude/rules/common/mutation-gate-integration-specs.md`).
+export const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
   google_error: 'Ошибка Google OAuth. Попробуйте снова.',
   invalid_state: 'Сессия истекла. Пожалуйста, попробуйте снова.',
@@ -250,7 +266,7 @@ function LoginPage() {
         {/* task-user-emails-invite (spec §2): invite accepted, but "Токен НЕ
             выдаёт сессию" — this confirms the accept step worked, the person
             still clicks the Google button below to actually sign in. */}
-        {invited === '1' && !error && (
+        {invited && !error && (
           <motion.div
             className="mb-4 flex items-start gap-2.5 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary"
             initial={{ opacity: 0, scale: 0.97 }}
