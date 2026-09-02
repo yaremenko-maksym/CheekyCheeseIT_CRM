@@ -570,6 +570,14 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBe(false)
     expect(p.fields.adminNote).toBe(false)
     expect(p.fields.realContacts).toBe(true)
+    // SR-M-7 (security-review PR #623 round 2, MED): personalContact (SR-M-4)
+    // only had its POSITIVE berth fixed — ADMIN / self returning true. Nothing
+    // pinned the negative one, so a future `fields.personalContact = true`
+    // slipped into this branch (the exact regression SR-M-4 exists to
+    // prevent) would pass the whole suite silently. ACCOUNTANT is never one
+    // of the two allowed viewers (ADMIN, self) — see the isAccountant branch
+    // in users-access.service.ts, which never touches this flag.
+    expect(p.fields.personalContact).toBeFalsy()
   })
 
   // ── Pre-deploy MEDIUM: ACCOUNTANT must not see another ADMIN's payout wallet ──
@@ -601,6 +609,11 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBe(false)
     expect(p.fields.adminNote).toBe(false)
     expect(p.fields.realContacts).toBe(true)
+    // SR-M-7 — see the ACCOUNTANT test above for the full reasoning. HR is
+    // deliberately barred from ever SETTING personalEmail (UsersController.
+    // createUser forces it null for an HR actor); nothing enforced the READ
+    // side until now.
+    expect(p.fields.personalContact).toBeFalsy()
   })
 
   // ── task-junior-ut-round2 §6 — projectCredentials / editCredentials flags ──
@@ -762,6 +775,10 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.realContacts).toBe(true)
     expect(p.fields.techStack).toBe(true)
     expect(p.fields.registrationDate).toBe(true)
+    // SR-M-7 — realContacts and personalContact are deliberately SEPARATE
+    // gates (SR-M-4): a teammate's ordinary email is visible, their personal
+    // address is not.
+    expect(p.fields.personalContact).toBeFalsy()
     // HR has no mutating actions on anyone
     expect(p.actions).toEqual([])
   })
@@ -778,6 +795,8 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBeFalsy()
     expect(p.fields.legalName).toBeFalsy()
     expect(p.fields.realContacts).toBe(true)
+    // SR-M-7 — same separate-gate reasoning as the ACCOUNTANT-teammate case above.
+    expect(p.fields.personalContact).toBeFalsy()
   })
 
   // Out-of-team: helper returns false → HR gets zero tabs → 403 at route level.

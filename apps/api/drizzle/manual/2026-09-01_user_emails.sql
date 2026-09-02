@@ -61,20 +61,21 @@
 -- find a WORK row for someone who could log in yesterday, UNLESS that
 -- person's existing `users.email` already collided (case-insensitively)
 -- with another existing user's `users.email` before this migration ever
--- ran — a pre-existing data-quality problem this migration cannot silently
--- resolve on someone's behalf (see below).
+-- ran — a pre-existing data-quality problem this migration cannot resolve
+-- on someone's behalf, and (security-review PR #623 round 2, SR-M-6, MED)
+-- no longer resolves SILENTLY either: the verify block right after the
+-- backfill INSERT raises and stops the deploy job before the container
+-- swap happens (that swap is ~100 lines further down deploy.yml, in the
+-- SAME job) — the OLD container, still reading `users.email` directly, is
+-- what keeps serving every login while the job is red, so a failure HERE
+-- changes nobody's ability to log in. Silence was the unsafe choice, not
+-- the loud failure.
 --
 -- How to apply
 -- ------------
 --   docker compose -f docker-compose.prod.yml exec -T postgres psql \
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
 --     < apps/api/drizzle/manual/2026-09-01_user_emails.sql
---
--- DEPENDENCY (DevOps zone, NOT wired by this PR): add this file's path to
--- deploy.yml's manual-migration SOURCE list (same pattern as every other
--- file in this directory) and to the apply-order block. No ordering
--- dependency on any other pending manual migration. See the PR discussion
--- (SR-H-2) for the exact lines to add.
 --
 -- Idempotent: `CREATE TYPE` / `CREATE TABLE` / `CREATE INDEX` all use
 -- IF NOT EXISTS (or are wrapped so a second run no-ops instead of erroring
@@ -83,7 +84,10 @@
 -- uses a BARE `ON CONFLICT DO NOTHING` (no target list) — safe to re-run on
 -- every deploy, forever: it now catches a conflict on EITHER unique index
 -- on this table (`(user_id, kind)` for a genuine re-run, `lower(email)` for
--- a case collision — see below), not just the first one.
+-- a case collision — see below), not just the first one. The verify block
+-- below the backfill is itself a read-only SELECT wrapped in a DO block —
+-- re-running it is always safe, and it stays silent once the underlying
+-- data problem is actually fixed.
 --
 -- Case collisions in existing data
 -- ---------------------------------
@@ -93,17 +97,20 @@
 -- migration does not have — that two EXISTING users already have
 -- `users.email` values that only differ by case. Backfilling BOTH verbatim
 -- would violate the new `idx_user_emails_email_lower` index. Rather than
--- fail the whole migration (bricking every OTHER user's login) or silently
--- decide a winner, this file:
+-- fail the whole migration (bricking every OTHER user's login — see the
+-- ordering argument above for why that fear does not actually hold) or
+-- silently decide a winner, this file:
 --   1. Orders the backfill deterministically (`created_at, id`) so a repeat
 --      apply always resolves a collision the SAME way.
 --   2. Lets the bare `ON CONFLICT DO NOTHING` skip the LATER-ordered user
---      in any such pair — they get NO WORK row, and (until manually fixed)
---      cannot log in through the new path.
---   3. Ships a VERIFY query below that lists exactly who was skipped, so
---      the owner can resolve the two real underlying addresses (rename one)
---      before it is ever a live incident, rather than discovering it from a
---      support ticket.
+--      in any such pair — Postgres, not this file, decides who "wins";
+--      the loser gets no WORK row from this INSERT.
+--   3. Immediately after, a verify block RAISES an exception naming every
+--      user still missing a WORK row (SR-M-6) — a deploy failure the owner
+--      cannot miss, instead of a support ticket days later. The VERIFY
+--      section further down remains useful for manually re-checking status
+--      or re-deriving who collided with whom once the job output has
+--      scrolled away.
 -- =============================================================================
 
 DO $$
@@ -145,8 +152,37 @@ FROM users
 ORDER BY created_at, id
 ON CONFLICT DO NOTHING;
 
+-- security-review PR #623 round 2 (SR-M-6, MED): the bare ON CONFLICT DO
+-- NOTHING above silently swallows a real case-collision — `psql -v
+-- ON_ERROR_STOP=1` still exits 0, deploy.yml prints "applied successfully",
+-- and the skipped user only finds out from a failed login. Fail loud
+-- instead: this is safe (see "Ordering / zero-downtime" above for why a
+-- failure here does not change anyone's ability to log in) and it is the
+-- ONLY thing standing between a silent lockout and a red, actionable
+-- deploy job. Read-only until the IF fires — always safe to re-run.
+DO $$
+DECLARE
+  v_count integer;
+  v_emails text;
+BEGIN
+  SELECT count(*), string_agg(u.email, ', ' ORDER BY u.email)
+    INTO v_count, v_emails
+  FROM users u
+  WHERE NOT EXISTS (
+    SELECT 1 FROM user_emails ue WHERE ue.user_id = u.id AND ue.kind = 'WORK'
+  );
+
+  IF v_count > 0 THEN
+    RAISE EXCEPTION 'user_emails backfill: % user(s) still have no WORK row after backfill (email case-collision with another existing user? see "Case collisions in existing data" in this file''s header) — affected emails: %',
+      v_count, v_emails;
+  END IF;
+END $$;
+
 -- =============================================================================
--- VERIFY (after applying):
+-- VERIFY (manual re-check — the DO block above already raises automatically
+-- when the counts below would not match; use this section to re-derive the
+-- detail after the fact, e.g. once the deploy job's console output has
+-- scrolled away, or to confirm a fix before re-running this file):
 --   SELECT typname FROM pg_type WHERE typname = 'user_email_kind';
 --
 --   SELECT count(*) FROM user_emails WHERE kind = 'WORK';
@@ -167,6 +203,7 @@ ON CONFLICT DO NOTHING;
 --   -- with `SELECT email FROM users WHERE lower(email) = lower('<that
 --   -- user's email>')` to find who they collided with, then resolve by
 --   -- correcting whichever of the two addresses is the actual typo/dupe.
+--   -- Once resolved, re-apply this file (idempotent) to clear the failure.
 --
 --   SELECT count(*) FROM user_emails WHERE kind = 'WORK' AND can_login = false;
 --   -- must be 0 — every backfilled WORK row can log in.

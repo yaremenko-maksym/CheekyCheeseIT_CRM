@@ -759,6 +759,34 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
       }),
     ).rejects.toThrow('Failed to create user')
   })
+
+  // SR-M-8 (security-review PR #623 round 2, MED): the transaction wrapper
+  // ITSELF — the SR-M-1 fix — had zero coverage. The reviewer reproduced this
+  // by reverting `createUser` to three bare sequential statements (the
+  // pre-SR-M-1 state, no `this.db.db.transaction(...)`) and re-running: 312
+  // unit + 9 integration tests all stayed green. Nothing noticed, because
+  // `makeDb()`'s mock `tx` shares its `insert`/`query` spies with `db.db`
+  // (see the comment on `txHandle` above) — every OTHER test in this file
+  // asserts on insert VALUES, which look identical whether they went through
+  // `tx.insert(...)` or `this.db.db.insert(...)` directly. `db.db.transaction`
+  // itself is the one call site that CANNOT be reached any other way — if the
+  // wrapper is removed, this specific mock is simply never invoked.
+  it('SR-M-8: createUser wraps its writes in db.transaction (removing it — the pre-SR-M-1 state — is invisible to every OTHER test here)', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      email: junior.email,
+      personalEmail: 'personal@example.com',
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
+    })
+
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+  })
 })
 
 // ---------------------------------------------------------------------------
