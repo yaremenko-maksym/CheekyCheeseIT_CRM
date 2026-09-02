@@ -192,9 +192,19 @@ export class ApprovalsService {
    * The current generation's rows for a subject — a quenched (superseded)
    * row never appears here, whatever its `status` says (§4.1: "погашенная
    * строка не участвует в подсчёте"). Ordered by proposal order.
+   *
+   * task-project-draft-status: `db` defaults to the plain pool handle but
+   * accepts a caller-supplied `tx` — this is what lets `getStatusInTx` (and
+   * therefore a subject module writing its own denormalised status) read the
+   * POST-write aggregate inside the SAME transaction as the row change,
+   * without duplicating this query.
    */
-  async listLive(subjectType: string, subjectId: string): Promise<Approval[]> {
-    const rows = await this.db.db
+  async listLive(
+    subjectType: string,
+    subjectId: string,
+    db: DatabaseService['db'] | DrizzleTx = this.db.db,
+  ): Promise<Approval[]> {
+    const rows = await db
       .select()
       .from(approvals)
       .where(
@@ -214,35 +224,21 @@ export class ApprovalsService {
    * four values and what each means.
    */
   async getStatus(subjectType: string, subjectId: string): Promise<ApprovalGroupStatus> {
-    return this.getStatusInTx(this.db.db, subjectType, subjectId)
+    const live = await this.listLive(subjectType, subjectId)
+    return aggregateStatus(live)
   }
 
   /**
-   * task-project-draft-status. Same aggregate as `getStatus()`, readable
-   * through a caller-supplied `tx` (or the plain pool handle) so a subject
-   * module can read the POST-approve/reject aggregate in the SAME
-   * transaction as the row write, before deciding what to write back to its
-   * own denormalised status column.
+   * task-project-draft-status. Same aggregate as `getStatus()`, reading
+   * through a caller-supplied `tx` — see `listLive`'s doc for why.
    */
   async getStatusInTx(
-    db: DatabaseService['db'] | DrizzleTx,
+    tx: DrizzleTx,
     subjectType: string,
     subjectId: string,
   ): Promise<ApprovalGroupStatus> {
-    const rows = await db
-      .select({ status: approvals.status })
-      .from(approvals)
-      .where(
-        and(
-          eq(approvals.subjectType, subjectType),
-          eq(approvals.subjectId, subjectId),
-          isNull(approvals.supersededAt),
-        ),
-      )
-    if (rows.length === 0) return 'NONE'
-    if (rows.some((row) => row.status === 'REJECTED')) return 'REJECTED'
-    if (rows.every((row) => row.status === 'APPROVED')) return 'APPROVED'
-    return 'PENDING'
+    const live = await this.listLive(subjectType, subjectId, tx)
+    return aggregateStatus(live)
   }
 
   /**
@@ -391,6 +387,14 @@ export class ApprovalsService {
     if (!row) throw new NotFoundException('Согласование не найдено или уже погашено')
     if (row.status !== 'PENDING') throw new ConflictException('Согласование уже получило ответ')
   }
+}
+
+/** Pure aggregation over a subject's live rows — shared by getStatus/getStatusInTx. */
+function aggregateStatus(live: Approval[]): ApprovalGroupStatus {
+  if (live.length === 0) return 'NONE'
+  if (live.some((row) => row.status === 'REJECTED')) return 'REJECTED'
+  if (live.every((row) => row.status === 'APPROVED')) return 'APPROVED'
+  return 'PENDING'
 }
 
 function toApproval(row: ApprovalRow): Approval {
