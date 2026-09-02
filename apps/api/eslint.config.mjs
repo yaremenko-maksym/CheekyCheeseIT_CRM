@@ -136,6 +136,107 @@ export default [
     },
   },
   {
+    // task-project-draft-status. By the SAME "eliminate, don't detect" shape
+    // as the `transactions` ban above — see that block's own comment for the
+    // review history this pattern comes from — a raw read of the `projects`
+    // table that forgets the new `status` column would show a DRAFT or
+    // REJECTED project as though it were confirmed. `visible_projects` (a
+    // Postgres VIEW pre-filtered to `status = 'ACTIVE' AND archived_at IS
+    // NULL` — see schema.ts's doc on the view) is the fix; this bans the raw
+    // import + both AST-level bypass forms the transactions ban already had
+    // to close (relational `with: { projects: ... }` traversal via
+    // `usersRelations.projects`'s STRING key, and `db.query.projects`
+    // property access) in the files below.
+    //
+    // UNLIKE `transactions`, this ban is NOT module-wide — `projects` has
+    // real legitimate raw readers well beyond `finance/**`/`invoices/**`
+    // (which the transactions ban already exempted): it is written by
+    // archival cascades (`teams.service.ts`, `users.service.ts`,
+    // `transactions.service.ts`) and looked up by id for RBAC or historical-
+    // name denormalisation (`transactions.service.ts`, `pending-settlement
+    // .service.ts`, `credentials.service.ts`, `legends.service.ts`,
+    // `invoices.service.ts`, `job-sourcing.service.ts`) from modules that own
+    // no part of the confirmation flow — banning the import there would break
+    // real, unrelated code, not close a gap. `projects/**` (the home module —
+    // it owns the narrow admin/approver path to a still-DRAFT row) is
+    // exempt for the same reason `finance/**` is exempt from the
+    // `transactions` ban. This is the "легитимные исключения — назвать
+    // поимённо и обосновать" the task asks for: every module above is named,
+    // with the reason it still needs the raw table, rather than the ban
+    // simply not reaching them. Each of THOSE modules' own "which project
+    // counts as active" reads (the ones that previously used
+    // `isNull(projects.archivedAt)` alone) were migrated to
+    // `visible_projects` by hand instead — this ban cannot see that call
+    // shape reappearing there without also breaking their legitimate writes.
+    //
+    // The files below have ZERO other legitimate raw need — every one of
+    // their previous `isNull(projects.archivedAt)`-style reads was migrated
+    // to `visible_projects` in the same PR that added this rule, so the ban
+    // closes ALL raw access, not just the one call shape.
+    files: ['src/documents/**/*.ts', 'src/interviews/**/*.ts', 'src/users/users-access.service.ts'],
+    ignores: ['**/*.spec.ts'],
+    plugins: {
+      '@typescript-eslint': tseslint,
+    },
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/database/schema'],
+              importNames: ['projects'],
+              message:
+                'Raw `projects` table access is banned in this module (task-project-draft-status) ' +
+                '— a DRAFT or REJECTED project must never leak through a forgotten status filter. ' +
+                'Import `visibleProjects` (the VIEW) for list/aggregate/join reads instead — see ' +
+                'schema.ts for why. If this read genuinely needs to see every status (narrow ' +
+                'admin/approver path, or a write), it belongs in apps/api/src/projects/** — see ' +
+                'this rule\'s own comment in eslint.config.mjs for the full exception list.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "Property[key.name='projects']",
+          message:
+            'A relational `with: { projects: ... }` include reaches raw, unfiltered project rows ' +
+            "(via usersRelations.projects's string key) without importing the `projects` symbol — " +
+            'the import-ban above cannot see it. Use `visibleProjects` via an explicit query-builder ' +
+            'select/join instead of a relational traversal into this table.',
+        },
+        {
+          // Scoped to `<x>.query.projects` specifically (object.property.name
+          // === 'query'), NOT a bare `.projects` anywhere — unlike
+          // `transactions`, `.projects` collides with a real, unrelated
+          // identifier in this codebase: `InterviewsService` (one of the
+          // files this very rule applies to) injects `ProjectsService` as
+          // `private projects: ProjectsService` and calls
+          // `this.projects.createFromInterview(...)` — a bare
+          // `MemberExpression[property.name='projects']` selector flagged
+          // that constructor-injected service call as though it were
+          // `db.query.projects`, a false positive found by running this rule
+          // for real (not by inspection) before it shipped.
+          selector: "MemberExpression[property.name='projects'][object.property.name='query']",
+          message:
+            'A `.projects` property access (e.g. `db.query.projects.findMany(...)`) reaches raw, ' +
+            'unfiltered project rows without importing the `projects` symbol at all — the import-ban ' +
+            'above cannot see it. Use `visibleProjects` via an explicit query-builder select/join ' +
+            'instead of the relational query API for this table.',
+        },
+      ],
+    },
+  },
+  {
     // SEC-1 (mega-audit wave 2, round 4, optional hardening) — makes the
     // "unify the two readers" mistake IMPOSSIBLE at the AST level, not just
     // noticed later by a reviewer. `computeCompanyAccountBalanceForDisplay`

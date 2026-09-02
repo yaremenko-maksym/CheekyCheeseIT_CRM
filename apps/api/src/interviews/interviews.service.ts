@@ -11,7 +11,13 @@ import type {
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
-import { interviews, projects, teamMembers, type Interview, type User } from '../database/schema'
+import {
+  interviews,
+  teamMembers,
+  visibleProjects,
+  type Interview,
+  type User,
+} from '../database/schema'
 
 type InterviewWithRelations = Interview & {
   senior: User | null
@@ -376,8 +382,11 @@ export class InterviewsService {
     // Team-scope predicate. HR → only its accessible seniors' boards; ADMIN →
     // all boards (no scope filter). An HR with no accessible seniors gets 0 for
     // all KPI without issuing an empty `IN ()` predicate.
+    // task-project-draft-status: sourced from `visibleProjects` — a DRAFT or
+    // REJECTED project must not count toward the "active projects" HR/ADMIN
+    // KPI, exactly like an archived one already doesn't.
     let scope: SQL = sql`true`
-    let projectScope: SQL | undefined = isNull(projects.archivedAt)
+    let projectScope: SQL | undefined = undefined
 
     if (currentUser.role === 'HR') {
       const accessibleSeniorIds = [...(await this.getAccessibleSeniorIds(currentUser))]
@@ -385,10 +394,7 @@ export class InterviewsService {
         return { openInterviews: 0, hiredThisMonth: 0, activeProjects: 0 }
       }
       scope = inArray(interviews.seniorId, accessibleSeniorIds)
-      projectScope = and(
-        isNull(projects.archivedAt),
-        inArray(projects.seniorId, accessibleSeniorIds),
-      )!
+      projectScope = inArray(visibleProjects.seniorId, accessibleSeniorIds)
     }
 
     // Single aggregating pass — conditional COUNT via FILTER (WHERE ...).
@@ -403,10 +409,12 @@ export class InterviewsService {
       .from(interviews)
       .where(scope)
 
-    // Active projects count — non-archived, HR-scoped (seniorId ∈ accessible seniors).
+    // Active projects count — status='ACTIVE' + non-archived (via
+    // `visibleProjects`), HR-scoped (seniorId ∈ accessible seniors);
+    // undefined `projectScope` (ADMIN) means no additional filter.
     const [projectRow] = await this.db.db
       .select({ cnt: count() })
-      .from(projects)
+      .from(visibleProjects)
       .where(projectScope)
 
     return {

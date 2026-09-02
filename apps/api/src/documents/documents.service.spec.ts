@@ -28,7 +28,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { DocumentsService } from './documents.service'
-import { documentAccessLog, projectMembers, projects, teamMembers } from '../database/schema'
+import { documentAccessLog, projectMembers, teamMembers, visibleProjects } from '../database/schema'
 import type { HrAccessService } from '../common/hr-access.service'
 
 // -----------------------------------------------------------------------------
@@ -191,8 +191,11 @@ function makeHarness(opts: HarnessOptions = {}) {
           // reference `getTeammateIds`/`getHrSeniorIds` pass to `.from()`,
           // so `===` reliably distinguishes them) instead of the previous
           // single-bucket heuristic that couldn't tell `projects` /
-          // `projectMembers` / `teamMembers` apart.
-          if (_table === projects) {
+          // `projectMembers` / `teamMembers` apart. task-project-draft-status:
+          // production code now reads via the `visibleProjects` VIEW, not the
+          // raw `projects` table (ESLint bans the raw import in this module) —
+          // route on that identity instead.
+          if (_table === visibleProjects) {
             return {
               where: async (_pred: unknown) => opts.seniorProjects ?? [],
             }
