@@ -2812,6 +2812,62 @@ export async function onboardDropViaAPI(
   await loginViaApi(page, SEED_ADMIN_EMAIL)
 }
 
+/**
+ * Sign an ALREADY-READY-TO-SIGN contract for `email` + accept the current
+ * ToS — the tail half of `onboardDropViaAPI` (its steps 3-4), for a user
+ * whose contract is already `READY_TO_SIGN` and must NOT receive the
+ * PATCH-legalFullName / mark-ready steps first.
+ *
+ * Needed for seed users deliberately left at `READY_TO_SIGN` for the
+ * onboarding-wizard specs (`dmytro.marchenko` / `SEED_EMAILS.seniorB` —
+ * apps/api/src/database/seed.ts: "dmytro.marchenko — READY_TO_SIGN (wizard
+ * test)"). `onboardDropViaAPI` cannot be reused on them as-is: its
+ * `POST /contract/ready` step 409s (`Cannot mark ready: contract is
+ * READY_TO_SIGN, expected DRAFT`) because that transition is DRAFT-only —
+ * seniorB is deliberately parked one step past it, forever, for that other
+ * spec's own purposes.
+ *
+ * task-project-draft-status: `POST /api/projects/:id/approve` requires the
+ * caller to have completed onboarding (OnboardingGuard) — so a test that
+ * uses seniorB as an approving senior (e.g. to exercise a specific
+ * `seniorSharePercent` override) needs this BEFORE `createDropProjectViaAPI`
+ * / `createSeniorProjectViaAPI` auto-approves for them.
+ *
+ * `typedName` is ignored server-side (resolved from the user's
+ * `legalFullName` — see `SignedContractsService.sign`'s own `@deprecated`
+ * note), so any non-empty value is fine here.
+ *
+ * Restores ADMIN session on exit, same contract as `onboardDropViaAPI`.
+ */
+export async function signContractAndAcceptTosViaAPI(page: Page, email: string): Promise<void> {
+  await loginViaApi(page, email)
+
+  const signRes = await withThrottleRetry(
+    () =>
+      page.request.post(`${REAL_API_BASE}/api/contracts/sign`, {
+        data: { typedName: 'E2E Contract Sign' },
+      }),
+    `signContractAndAcceptTosViaAPI(${email}): sign`,
+  )
+  if (signRes.status() !== 200 && signRes.status() !== 201) {
+    throw new Error(
+      `signContractAndAcceptTosViaAPI: POST /contracts/sign failed for ${email}: HTTP ${signRes.status()} — ${await signRes.text()}`,
+    )
+  }
+
+  const tosRes = await withThrottleRetry(
+    () => page.request.post(`${REAL_API_BASE}/api/tos/accept`),
+    `signContractAndAcceptTosViaAPI(${email}): tos`,
+  )
+  if (tosRes.status() !== 200 && tosRes.status() !== 201) {
+    throw new Error(
+      `signContractAndAcceptTosViaAPI: POST /tos/accept failed for ${email}: HTTP ${tosRes.status()} — ${await tosRes.text()}`,
+    )
+  }
+
+  await loginViaApi(page, SEED_ADMIN_EMAIL)
+}
+
 // ---------------------------------------------------------------------------
 // task-drop-share-e2e — admin-USDT income declaration + obligation settle
 // ---------------------------------------------------------------------------
