@@ -1,14 +1,14 @@
 lockfileVersion: 5.4
 
 overrides:
-  fastify: ^5.12.0
+  fastify: ^5.12.1
   find-my-way: '>=9.7.0 <10.0.0'
-  fast-uri: '>=3.1.5 <4.0.0'
+  fast-uri: '>=3.1.6 <4.0.0'
   ws: '>=8.20.1'
   brace-expansion: '>=5.0.9'
   '@babel/core': '>=7.29.6 <8.0.0'
   js-yaml: '>=4.3.1 <5.0.0'
-  qs: '>=6.15.2 <7.0.0'
+  qs: '>=6.16.0 <7.0.0'
   tsx>esbuild: '>=0.28.1 <1.0.0'
   '@esbuild-kit/core-utils>esbuild': '>=0.28.1 <1.0.0'
   browserslist: '>=4.28.7 <5.0.0'
@@ -65,7 +65,7 @@ importers:
       drizzle-kit: ^0.31.10
       drizzle-orm: ^0.45.0
       eslint: ^10.3.0
-      fastify: ^5.12.0
+      fastify: ^5.12.1
       google-auth-library: ^10.4.0
       heic-convert: ^2.1.0
       mammoth: ^1.12.0
@@ -99,7 +99,7 @@ importers:
       '@nestjs/throttler': 6.5.0_ecus4kcm2p2tec633nstnazpxq
       '@pdf-lib/fontkit': 1.1.1
       drizzle-orm: 0.45.2_@types+pg@8.20.0+pg@8.20.0
-      fastify: 5.12.0
+      fastify: 5.12.1
       google-auth-library: 10.9.0
       heic-convert: 2.1.0
       mammoth: 1.12.0
@@ -2829,7 +2829,7 @@ packages:
     dependencies:
       ajv: 8.20.0
       ajv-formats: 3.0.1
-      fast-uri: 3.1.5
+      fast-uri: 3.1.7
     dev: false
 
   /@fastify/busboy/3.2.0:
@@ -3914,7 +3914,7 @@ packages:
       '@nestjs/common': 11.1.19_k4742egitefyufnv2ehz5inl5y
       '@nestjs/core': 11.1.19_o6i7bjygkbna3yoaavgumh7dlu
       fast-querystring: 1.1.2
-      fastify: 5.12.0
+      fastify: 5.12.1
       fastify-plugin: 6.0.0
       find-my-way: 9.8.0
       light-my-request: 6.6.0
@@ -6657,7 +6657,7 @@ packages:
     resolution: {integrity: sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A==}
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.5
+      fast-uri: 3.1.7
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
     dev: true
@@ -6666,7 +6666,7 @@ packages:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.5
+      fast-uri: 3.1.7
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -8179,7 +8179,7 @@ packages:
       '@fastify/merge-json-schemas': 0.2.1
       ajv: 8.20.0
       ajv-formats: 3.0.1
-      fast-uri: 3.1.5
+      fast-uri: 3.1.7
       json-schema-ref-resolver: 3.0.0
       rfdc: 1.4.1
     dev: false
@@ -8190,7 +8190,7 @@ packages:
       '@fastify/merge-json-schemas': 0.2.1
       ajv: 8.20.0
       ajv-formats: 3.0.1
-      fast-uri: 3.1.5
+      fast-uri: 3.1.7
       json-schema-ref-resolver: 3.0.0
       rfdc: 1.4.1
     dev: false
@@ -8218,8 +8218,8 @@ packages:
       fast-string-truncated-width: 3.0.3
     dev: true
 
-  /fast-uri/3.1.5:
-    resolution: {integrity: sha512-gHwA1O9LDIcKunMKhObS/HimwtehO1nPUECKAu5TpKgaO19fcWEl4bliWe1jWxVFvIXztJjjQ4L8XQ1EU9f7Jw==}
+  /fast-uri/3.1.7:
+    resolution: {integrity: sha512-dOvZVzjdZdz7phd9v6jCbwxrBW3fK6n8Rc0CtdmM4bumzMnxywBYhuph6J819RRw/ku+rLbelwfMunktuzVVHg==}
 
   /fast-wrap-ansi/0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
@@ -8252,8 +8252,8 @@ packages:
     resolution: {integrity: sha512-fZOty7z3O7vOliF6d8bHE3wiEh1KcNnKEQensSgTk9C1DvN6nRLS++XVd86v33Hw/8u9Un8A1zDrQ8ujcQDHEg==}
     dev: false
 
-  /fastify/5.12.0:
-    resolution: {integrity: sha512-A3RNEaDIHWaxFW8n8rNJaW1wQ+XAXuoU71llfUQJjuh5WaYLmKfRhhanaJBOx8m2EBPQkR6sDBovYdHNe9F6rA==}
+  /fastify/5.12.1:
+    resolution: {integrity: sha512-FWi+tQvwxR/PeRX7Z2mhfEF5ozJ3jn9asiiclzKXNSzJRHAYcU924aIOKAdHFJ+YIKieh3cqr1IwCOvTr41B3Q==}
     dependencies:
       '@fastify/ajv-compiler': 4.0.5
       '@fastify/error': 4.2.0
@@ -11014,8 +11014,8 @@ packages:
       yargs: 15.4.1
     dev: false
 
-  /qs/6.15.3:
-    resolution: {integrity: sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==}
+  /qs/6.16.0:
+    resolution: {integrity: sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==}
     engines: {node: '>=0.6'}
     dependencies:
       es-define-property: 1.0.1
@@ -12404,7 +12404,7 @@ packages:
     dependencies:
       des.js: 1.1.0
       js-md4: 0.3.2
-      qs: 6.15.3
+      qs: 6.16.0
       tunnel: 0.0.6
       underscore: 1.13.8
     dev: true
