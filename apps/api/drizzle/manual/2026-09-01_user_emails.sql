@@ -105,12 +105,12 @@
 --   2. Lets the bare `ON CONFLICT DO NOTHING` skip the LATER-ordered user
 --      in any such pair — Postgres, not this file, decides who "wins";
 --      the loser gets no WORK row from this INSERT.
---   3. Immediately after, a verify block RAISES an exception naming every
---      user still missing a WORK row (SR-M-6) — a deploy failure the owner
---      cannot miss, instead of a support ticket days later. The VERIFY
---      section further down remains useful for manually re-checking status
---      or re-deriving who collided with whom once the job output has
---      scrolled away.
+--   3. Immediately after, a verify block RAISES an exception with the COUNT
+--      of users still missing a WORK row (SR-M-6) — a deploy failure the
+--      owner cannot miss, instead of a support ticket days later. It never
+--      prints WHICH users — this file's output is a public deploy log (see
+--      the AGGREGATE-ONLY note on that block for why). The VERIFY section
+--      further down is how an owner finds out who, by hand.
 -- =============================================================================
 
 DO $$
@@ -160,21 +160,34 @@ ON CONFLICT DO NOTHING;
 -- failure here does not change anyone's ability to log in) and it is the
 -- ONLY thing standing between a silent lockout and a red, actionable
 -- deploy job. Read-only until the IF fires — always safe to re-run.
+--
+-- AGGREGATE-ONLY — this file's output goes into a PUBLIC deploy log (this
+-- repository is public and its GitHub Actions logs are public with it).
+-- The message below carries a COUNT, never the affected email addresses:
+-- this repo already has the row-level version of this exact mistake on
+-- record — `2026-08-12_admin_income_drop_backfill_report.sql` (security-
+-- review round 2, PR #517, HIGH-3) printed per-row financial detail into
+-- this same public log and had to be narrowed to counts-only after the
+-- fact. An email address is PII the same way that report's project/drop
+-- names were client-identifying data; there is no reason to reintroduce
+-- the same class of leak here. An admin who needs the actual list runs the
+-- VERIFY query below BY HAND, over the same SSH-less docker-exec psql
+-- session used for every other prod DB operation (see project-state.md) —
+-- never auto-printed anywhere.
 DO $$
 DECLARE
   v_count integer;
-  v_emails text;
 BEGIN
-  SELECT count(*), string_agg(u.email, ', ' ORDER BY u.email)
-    INTO v_count, v_emails
+  SELECT count(*)
+    INTO v_count
   FROM users u
   WHERE NOT EXISTS (
     SELECT 1 FROM user_emails ue WHERE ue.user_id = u.id AND ue.kind = 'WORK'
   );
 
   IF v_count > 0 THEN
-    RAISE EXCEPTION 'user_emails backfill: % user(s) still have no WORK row after backfill (email case-collision with another existing user? see "Case collisions in existing data" in this file''s header) — affected emails: %',
-      v_count, v_emails;
+    RAISE EXCEPTION 'user_emails backfill: % user(s) still have no WORK row after backfill (email case-collision with another existing user? see "Case collisions in existing data" in this file''s header). Affected emails are deliberately NOT listed here — this output is a public deploy log; run the VERIFY query further down this file BY HAND to see who.',
+      v_count;
   END IF;
 END $$;
 

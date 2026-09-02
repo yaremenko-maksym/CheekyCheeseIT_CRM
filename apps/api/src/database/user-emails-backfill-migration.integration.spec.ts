@@ -198,10 +198,12 @@ describe.skipIf(!hasDatabaseUrl())(
     // later-ordered user of a case-collision pair — that half of SR-H-1's
     // fix is unchanged. What changed: the migration no longer reports
     // success while doing that. A verify block right after the backfill now
-    // RAISES, naming every user still missing a WORK row, and `psql -v
-    // ON_ERROR_STOP=1` (deploy.yml) turns that into a red, actionable
-    // deploy-job failure instead of a silent lockout discovered from a
-    // support ticket.
+    // RAISES with a COUNT of users still missing a WORK row (never their
+    // addresses — this file's console output is a PUBLIC deploy log; see
+    // the migration file's own AGGREGATE-ONLY comment on that block), and
+    // `psql -v ON_ERROR_STOP=1` (deploy.yml) turns that into a red,
+    // actionable deploy-job failure instead of a silent lockout discovered
+    // from a support ticket.
 
     describe('a pre-existing case collision (LEGACY_USER_C vs LEGACY_USER_A)', () => {
       it('makes the migration FAIL LOUD instead of silently leaving the loser without a WORK row', async () => {
@@ -238,14 +240,41 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(rowA?.canLogin).toBe(true)
       })
 
-      it('names the affected email in the raised error (SR-M-6 — the owner should not have to go spelunking for who is locked out)', async () => {
+      it('keeps the affected email OUT of the raised error — this file is applied via a step whose console output is a PUBLIC GitHub Actions log, and this repo already has the row-level version of this exact leak on record (2026-08-12_admin_income_drop_backfill_report.sql, PR #517 HIGH-3)', async () => {
         // C is still present from the previous test in this block (not
         // cleaned up mid-describe — afterAll handles it). Re-running the
-        // migration hits the exact same collision again and must still
-        // name it.
-        await expect(pool.query(migrationSql)).rejects.toThrow(
-          new RegExp(LEGACY_USER_C_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        // migration hits the exact same collision again — the error carries
+        // a COUNT, never the address.
+        let caught: unknown
+        try {
+          await pool.query(migrationSql)
+        } catch (err) {
+          caught = err
+        }
+        expect(caught, 'expected the same collision to raise again').toBeInstanceOf(Error)
+        const message = (caught as Error).message
+        expect(message).toMatch(/user_emails backfill: 1 user\(s\) still have no WORK row/)
+        expect(
+          message,
+          'the raised message must not leak the colliding email address into a public deploy log',
+        ).not.toContain(LEGACY_USER_C_EMAIL)
+      })
+
+      it('the affected email IS still discoverable — by running the VERIFY query below the fail-loud block BY HAND (never auto-printed)', async () => {
+        // This is the operator's actual recovery path: the raised error
+        // (previous test) only ever says "1 user(s)". This query — the exact
+        // one documented in the migration file's own VERIFY section — is how
+        // an owner turns that count into a name, on their own terminal.
+        const skipped = await pool.query<{ id: string; email: string }>(
+          `SELECT u.id, u.email FROM users u
+           WHERE u.id = ANY($1)
+             AND NOT EXISTS (
+               SELECT 1 FROM user_emails ue WHERE ue.user_id = u.id AND ue.kind = 'WORK'
+             )`,
+          [[LEGACY_USER_A_ID, LEGACY_USER_C_ID]],
         )
+        expect(skipped.rows).toHaveLength(1)
+        expect(skipped.rows[0]?.email).toBe(LEGACY_USER_C_EMAIL)
       })
 
       it('re-applying after the collision is resolved by hand succeeds cleanly — fail-loud is not sticky', async () => {
