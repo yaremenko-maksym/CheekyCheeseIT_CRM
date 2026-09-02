@@ -567,6 +567,15 @@ export const visibleProjects = pgView('visible_projects').as((qb) =>
 // a legitimate historical record; this view lets its name keep showing
 // without reopening the DRAFT/REJECTED leak `visible_projects` exists to
 // close (`archived_at` plays no part in that leak at all).
+// Stryker disable next-line StringLiteral: mutating 'ACTIVE' here can only be
+// observed through the real VIEW this predicate feeds (`confirmedProjects`
+// below) — a mocked unit double never runs Postgres's `WHERE` clause, so no
+// unit test can distinguish this from an empty string. VERIFIED against real
+// Postgres, same as `VISIBLE_PROJECTS_PREDICATE` above (see that constant's
+// own suppression comment): `admin-summary.integration.spec.ts`'s "shows the
+// project name for a transaction on an ARCHIVED project, but NOT on a DRAFT
+// one" test fails immediately if this predicate stops filtering on status —
+// the DRAFT-project transaction's `projectName` would stop being `null`.
 export const CONFIRMED_PROJECTS_PREDICATE = eq(projects.status, 'ACTIVE')
 
 // Stryker disable next-line StringLiteral: the VIEW NAME is a DB-level fact, unobservable from a mocked unit double — same reasoning as `visibleProjects` above. VERIFIED against real Postgres by `admin-summary.integration.spec.ts`'s archived-project projectName assertion (fails if this name diverges from the migration's `CREATE VIEW confirmed_projects`).

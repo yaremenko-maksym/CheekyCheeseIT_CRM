@@ -319,4 +319,13 @@ describe('approveDraft / rejectDraft — impersonation refusal (SR-H-5, security
       /impersonat/i,
     )
   })
+
+  it('rejectDraft refusal message also names impersonation, not a generic 403', async () => {
+    const projectRow = draftProjectRow()
+    const { service } = buildService(projectRow, 'PENDING')
+
+    await expect(
+      service.rejectDraft(PROJECT_ID, 'Не согласен', IMPERSONATING_AS_SENIOR),
+    ).rejects.toThrow(/impersonat/i)
+  })
 })

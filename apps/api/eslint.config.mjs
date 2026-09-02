@@ -295,7 +295,7 @@ const PROJECTS_SYNTAX_SELECTORS = [
       "MemberExpression[computed=true][property.value='projects'][object.property.name='query']",
     message:
       'A computed `db.query["projects"]` property access reaches raw, unfiltered project ' +
-      "rows the same way `db.query.projects` does (security-review round 2, SR-L-3) — the " +
+      'rows the same way `db.query.projects` does (security-review round 2, SR-L-3) — the ' +
       'identifier-only selector above cannot see the bracket form. Use `visibleProjects` via ' +
       'an explicit query-builder select/join instead of the relational query API for this table.',
   },
