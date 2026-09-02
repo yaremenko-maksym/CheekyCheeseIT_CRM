@@ -1,4 +1,4 @@
-import { isNull, relations, sql } from 'drizzle-orm'
+import { and, eq, isNull, relations, sql } from 'drizzle-orm'
 import {
   bigserial,
   boolean,
@@ -133,6 +133,13 @@ export const projectPaymentTypeEnum = pgEnum('project_payment_type', [
   'GIG_CONTRACT',
   'USDT',
 ])
+
+// task-project-draft-status. A project's CONFIRMATION lifecycle — a
+// deliberately separate axis from `archivedAt` (see the comment on
+// `projects.status` below for why merging the two is exactly the mistake
+// this status exists to prevent). `DRAFT` → `ACTIVE` (every invited
+// approver confirmed) or `DRAFT` → `REJECTED` (any one declined).
+export const projectStatusEnum = pgEnum('project_status', ['DRAFT', 'ACTIVE', 'REJECTED'])
 
 // Phase 4-A: pending senior obligations live in their own table so the
 // lifecycle is explicit (PENDING → PAID / CANCELLED) and balance queries
@@ -464,13 +471,59 @@ export const projects = pgTable('projects', {
   // snapshotted onto DROP_INCOME / obligation rows. Mirror column below in
   // project_finance_settings for symmetry with the senior override.
   dropSharePercentOverride: integer('drop_share_percent_override'),
-  // Soft delete (archived projects hidden from main UI, restorable). The
-  // project lifecycle is binary: ACTIVE (archivedAt = null) vs ARCHIVED
-  // (archivedAt = timestamp of when the project ended).
+  // task-project-draft-status. CONFIRMATION lifecycle — deliberately a
+  // SEPARATE axis from `archivedAt` below, never merged into it.
+  // `archivedAt` answers "is this project still being worked" (a project
+  // that finished normally); `status` answers "has responsibility for this
+  // project's money been accepted by the people it touches" (a project that
+  // never started, or was refused). Collapsing "not confirmed" and "finished"
+  // into one field is exactly the bug this column exists to prevent: a
+  // rejected proposal and a completed engagement are different facts, and a
+  // migration that could not tell them apart would either resurrect refused
+  // proposals as "active" or bury finished projects as "still pending".
+  // DEFAULT 'ACTIVE' (not 'DRAFT'): every project that already exists before
+  // this column ships was, by definition, never subject to this gate — the
+  // column default backfills every existing row to 'ACTIVE' in the same DDL
+  // statement that adds it (see drizzle/manual/2026-09-02_project_status.sql).
+  // New projects are created with an EXPLICIT `status: 'DRAFT'`
+  // (ProjectsService.create) — the default only protects a write path that
+  // forgets to set it, it is not how a real draft is minted.
+  status: projectStatusEnum('status').notNull().default('ACTIVE'),
+  // Soft delete (archived projects hidden from main UI, restorable). Orthogonal
+  // to `status` above — a project can be archived regardless of how its
+  // confirmation resolved (an ADMIN can archive a stale DRAFT or REJECTED row
+  // exactly like an ACTIVE one; nothing here special-cases that).
   archivedAt: timestamp('archived_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+// ---------------------------------------------------------------------------
+// visible_projects — the ONLY project rows most of the codebase may ever
+// read. task-project-draft-status, same "eliminate, don't detect" shape as
+// `non_deleted_transactions` above (see that view's own comment for the full
+// review history this pattern comes from): `SELECT * FROM visible_projects`
+// cannot return a DRAFT, a REJECTED, or an archived project — there is no
+// WHERE clause a caller could omit, because the filter is the view's FROM
+// target, not a condition applied after the fact.
+//
+// `apps/api/eslint.config.mjs` bans importing the raw `projects` table (plus
+// the `with: { projects: ... }` relational traversal and the
+// `db.query.projects` property-access forms) from the modules that have zero
+// legitimate need for a row this view would hide — see that file's own
+// comment for the full list of exceptions and why each one is named instead
+// of the ban simply not applying there: unlike `transactions`, the `projects`
+// table is written (archival cascades) and looked up by id (RBAC checks,
+// historical-name denormalisation) from several modules that own no part of
+// the confirmation flow, so a blanket ban would break real, unrelated code.
+export const VISIBLE_PROJECTS_PREDICATE = and(
+  eq(projects.status, 'ACTIVE'),
+  isNull(projects.archivedAt),
+)
+
+export const visibleProjects = pgView('visible_projects').as((qb) =>
+  qb.select().from(projects).where(VISIBLE_PROJECTS_PREDICATE),
+)
 
 // Per-project finance overrides (ADMIN/ACCOUNTANT only)
 export const projectFinanceSettings = pgTable('project_finance_settings', {
