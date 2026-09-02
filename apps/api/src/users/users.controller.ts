@@ -39,6 +39,7 @@ import { AuditLog } from '../common/decorators/audit-log.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { AuditLogService } from './audit-log.service'
+import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 import { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { TransactionsService } from '../finance/transactions.service'
@@ -53,6 +54,7 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly auditLogService: AuditLogService,
     private readonly accessService: UsersAccessService,
+    private readonly inviteMailer: PersonalEmailInviteMailerService,
     @Optional() private readonly transactionsService?: TransactionsService,
   ) {}
 
@@ -389,6 +391,31 @@ export class UsersController {
   async setNote(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
     const dto = setNoteSchema.parse(body)
     return this.usersService.setAdminNote(id, dto.note)
+  }
+
+  /**
+   * task-user-emails-invite (spec §5 — "Админ должен уметь выслать
+   * приглашение заново"). Regenerates the invite token for the user's
+   * EXISTING PERSONAL row and re-sends the email — the recovery path for a
+   * typo'd address, a lost email, or a delivery failure logged by
+   * `PersonalEmailInviteMailerService`. `UsersService.
+   * resendPersonalEmailInvite` throws `BadRequestException` (no PERSONAL row
+   * at all) or `ConflictException` (already accepted) — both surface as
+   * their standard HTTP status via NestJS's exception filter, no special
+   * handling needed here.
+   *
+   * `@AdminWriteThrottle` — same rate-limit posture as every other admin
+   * write on this controller (createUser, setNote, archiveUser, …); this
+   * one ALSO triggers a real outbound email per call, which is reason
+   * enough on its own even before considering it as a write.
+   */
+  @Post(':id/personal-email/resend-invite')
+  @Roles('ADMIN')
+  @AdminWriteThrottle()
+  async resendPersonalEmailInvite(@Param('id', ParseUUIDPipe) id: string) {
+    const { rawToken, email, displayName } = await this.usersService.resendPersonalEmailInvite(id)
+    await this.inviteMailer.sendInvite({ to: email, displayName, rawToken })
+    return { ok: true }
   }
 
   @Delete(':id')

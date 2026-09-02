@@ -66,6 +66,10 @@ describe('UsersController.getUserTeam — RBAC guard', () => {
       usersService as never,
       { list: vi.fn() } as never,
       accessService as never,
+      // task-user-emails-invite: inviteMailer is the 4th constructor
+      // param now (transactionsService — @Optional() — moved to 5th).
+      // Not exercised by any test in this describe block.
+      undefined,
       undefined,
     )
   })
@@ -187,6 +191,7 @@ describe('UsersController.createUser — personalEmail (§4.4)', () => {
       { list: vi.fn() } as never,
       {} as never,
       undefined,
+      undefined,
     )
     return { controller, usersService }
   }
@@ -233,5 +238,58 @@ describe('UsersController.createUser — personalEmail (§4.4)', () => {
     expect(usersService.createUser).toHaveBeenCalledWith(
       expect.objectContaining({ personalEmail: null }),
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-user-emails-invite (spec §5): POST /users/:id/personal-email/resend-invite
+// ---------------------------------------------------------------------------
+
+describe('UsersController.resendPersonalEmailInvite', () => {
+  function makeResendController(): {
+    controller: UsersController
+    usersService: { resendPersonalEmailInvite: ReturnType<typeof vi.fn> }
+    inviteMailer: { sendInvite: ReturnType<typeof vi.fn> }
+  } {
+    const usersService = {
+      resendPersonalEmailInvite: vi.fn().mockResolvedValue({
+        rawToken: 'raw-token-value',
+        email: 'ivan.personal@gmail.com',
+        displayName: 'Ivan Petrov',
+      }),
+    }
+    const inviteMailer = { sendInvite: vi.fn().mockResolvedValue(undefined) }
+    const controller = new UsersController(
+      usersService as never,
+      { list: vi.fn() } as never,
+      {} as never,
+      inviteMailer as never,
+      undefined,
+    )
+    return { controller, usersService, inviteMailer }
+  }
+
+  it('regenerates the token via UsersService then hands it straight to the mailer', async () => {
+    const { controller, usersService, inviteMailer } = makeResendController()
+
+    const result = await controller.resendPersonalEmailInvite('user-id-1')
+
+    expect(usersService.resendPersonalEmailInvite).toHaveBeenCalledWith('user-id-1')
+    expect(inviteMailer.sendInvite).toHaveBeenCalledWith({
+      to: 'ivan.personal@gmail.com',
+      displayName: 'Ivan Petrov',
+      rawToken: 'raw-token-value',
+    })
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('propagates UsersService.resendPersonalEmailInvite rejections without calling the mailer', async () => {
+    const { controller, usersService, inviteMailer } = makeResendController()
+    usersService.resendPersonalEmailInvite.mockRejectedValue(new ForbiddenException('nope'))
+
+    await expect(controller.resendPersonalEmailInvite('user-id-1')).rejects.toThrow(
+      ForbiddenException,
+    )
+    expect(inviteMailer.sendInvite).not.toHaveBeenCalled()
   })
 })

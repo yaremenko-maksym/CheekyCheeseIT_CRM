@@ -22,6 +22,12 @@ export const actionKeySchema = z.enum([
   'change-requisites',
   'set-note',
   'archive',
+  // task-user-emails-invite: ADMIN-only "resend invite" action
+  // (AdminActionsMenu) — the frontend additionally gates its render on
+  // `user.personalEmail && user.personalEmailCanLogin === false`
+  // (UsersService.buildProfileView), so this key alone does not mean the
+  // button is always visible, only that the viewer is ALLOWED to use it.
+  'resend-personal-invite',
 ])
 
 export const viewPermissionsSchema = z.object({

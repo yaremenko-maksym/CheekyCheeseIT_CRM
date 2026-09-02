@@ -88,11 +88,19 @@ export const userProfileSchema = z.object({
    * viewer cannot see the field at all, or because it genuinely has no
    * value. A consumer MUST check this before treating either sibling
    * field's `null` as "not set" — see `UsersService.buildProfileView`'s
-   * `personalContactVisible` for the full rationale. `.default(false)` so
-   * an older cached response (before this field existed) fails safe as
-   * "not visible" rather than `undefined` being treated as truthy.
+   * `personalContactVisible` for the full rationale. `.optional()` (not
+   * `.default()`) deliberately — a `.default()` here makes the field
+   * REQUIRED in the inferred `UserProfileDto` type, breaking every existing
+   * fixture across the frontend that types itself as `UserProfileDto`
+   * without it (found via `pnpm --filter @crm/web typecheck` — a wide,
+   * mechanical blast radius for a field most fixtures have no reason to
+   * care about). `undefined` is treated as falsy at every call site
+   * (`user.personalContactVisible === true`, never `!== false`), so an
+   * omitted field fails safe as "not visible" exactly like `.default(false)`
+   * would have — without forcing every unrelated fixture to know this field
+   * exists.
    */
-  personalContactVisible: z.boolean().default(false),
+  personalContactVisible: z.boolean().optional(),
   /**
    * task-user-emails-invite (spec §5): tri-state, gated by
    * `personalContactVisible` — `null` = no personal address on file, `false`
