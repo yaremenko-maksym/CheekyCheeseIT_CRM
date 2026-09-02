@@ -89,11 +89,15 @@ async function plantObligationForRbac(
     projectId: string
   },
 ): Promise<{ sourceTxId: string }> {
-  const { dropId, dropEmail, projectId } = opts
+  const { dropEmail, projectId } = opts
 
-  // Onboard DROP (idempotent — safe if already onboarded)
-  await loginViaApi(page, SEED_ADMIN_EMAIL)
-  await onboardDropViaAPI(page, { dropId, dropEmail })
+  // Onboarding happens in the caller now (task-project-draft-status —
+  // createDropProjectViaAPI's auto-approve needs the drop past
+  // OnboardingGuard BEFORE it is even created, earlier than this helper
+  // runs). NOT repeated here: onboardDropViaAPI's own mark-ready step 409s
+  // on an already-SIGNED contract ("Cannot mark ready: contract is SIGNED,
+  // expected DRAFT") — it is idempotent for READ-only rechecks, not for a
+  // second full call.
 
   // Ensure company wallet
   await loginViaApi(page, SEED_ADMIN_EMAIL)
