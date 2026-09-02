@@ -440,6 +440,17 @@ export class UsersController {
    * the same reason `resendPersonalEmailInvite` does: the automatic
    * before/after diff `AuditInterceptor` performs compares the `users`
    * TABLE row, which never changes here (only `user_emails` does).
+   *
+   * SR-L-2 (security-review PR #623 round 5): `@AdminWriteThrottle()`
+   * (5/min) was flagged as possibly too tight for this specific endpoint —
+   * this is the emergency-revocation path, and if a raced accept forced the
+   * admin to retry, the 5/min budget could be exhausted mid-incident.
+   * Left unchanged: that concern was downstream of SR-H-5 (`UsersService.
+   * acceptPersonalEmailInvite`'s own doc), which removed the race that
+   * would have forced a retry in the first place — a correctly-ordered
+   * `changePersonalEmail` call now either succeeds outright or blocks
+   * briefly on a row lock, never fails and needs re-issuing. 5/min remains
+   * generous for a single deliberate admin action.
    */
   @Patch(':id/personal-email')
   @Roles('ADMIN')
