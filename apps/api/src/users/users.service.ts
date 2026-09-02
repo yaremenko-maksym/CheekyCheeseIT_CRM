@@ -2354,7 +2354,9 @@ export class UsersService {
     })
     if (!row) throw new BadRequestException('У пользователя не задан личный email')
     if (row.canLogin) {
-      throw new ConflictException('Личный email уже подтверждён — повторное приглашение не требуется')
+      throw new ConflictException(
+        'Личный email уже подтверждён — повторное приглашение не требуется',
+      )
     }
     const rawToken = await this.issuePersonalEmailInviteTx(this.db.db, row.id)
     return { rawToken, email: row.email, displayName: target.displayName }
