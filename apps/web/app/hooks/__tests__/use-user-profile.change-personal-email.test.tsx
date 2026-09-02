@@ -26,16 +26,20 @@ import { api } from '@/lib/axios'
 import { toast } from 'sonner'
 import { useChangePersonalEmail, useResendPersonalEmailInvite } from '../use-user-profile'
 
-/** Fires the given mutation once on mount and exposes nothing else — the
+/** Fires the given mutation once on click and exposes nothing else — the
  * hooks under test are pure side-effect (toast) machines, so a tiny probe
  * component is enough; no need for `renderHook` + manual `act()` wrangling
- * across an async mutation. */
-function MutationProbe({
+ * across an async mutation. Generic over the mutation's own variables type
+ * (`string | null` for `useChangePersonalEmail`, `void` for
+ * `useResendPersonalEmailInvite`) — `react-query`'s `UseMutateFunction` is
+ * contravariant in its parameter, so a widened `unknown` signature here is
+ * not assignable to it; matching the real type is required, not cosmetic. */
+function MutationProbe<TVariables>({
   hook,
   arg,
 }: {
-  hook: () => { mutate: (arg?: unknown) => void }
-  arg?: unknown
+  hook: () => { mutate: (variables: TVariables) => void }
+  arg: TVariables
 }) {
   const mutation = hook()
   return (
@@ -45,8 +49,13 @@ function MutationProbe({
   )
 }
 
-function renderProbe(hook: () => { mutate: (arg?: unknown) => void }, arg?: unknown) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+function renderProbe<TVariables>(
+  hook: () => { mutate: (variables: TVariables) => void },
+  arg: TVariables,
+) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
   render(
     <QueryClientProvider client={qc}>
       <MutationProbe hook={hook} arg={arg} />
@@ -129,7 +138,7 @@ describe('useResendPersonalEmailInvite — onSuccess toast branches', () => {
     ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { ok: true, delivered: true },
     })
-    renderProbe(() => useResendPersonalEmailInvite('u-1'))
+    renderProbe(() => useResendPersonalEmailInvite('u-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith('Письмо отправлено на личный адрес'),
@@ -140,7 +149,7 @@ describe('useResendPersonalEmailInvite — onSuccess toast branches', () => {
     ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { ok: true, delivered: false },
     })
-    renderProbe(() => useResendPersonalEmailInvite('u-1'))
+    renderProbe(() => useResendPersonalEmailInvite('u-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
@@ -154,7 +163,7 @@ describe('useResendPersonalEmailInvite — onSuccess toast branches', () => {
     ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { ok: true, delivered: true },
     })
-    renderProbe(() => useResendPersonalEmailInvite('u-7'))
+    renderProbe(() => useResendPersonalEmailInvite('u-7'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/users/u-7/personal-email/resend-invite'),
