@@ -47,6 +47,18 @@ import { JWT_COOKIE_HARDENED, JWT_COOKIE_LEGACY } from './cookie-names'
  *     guard-instance (singleton in NestJS DI), so it is shared across all
  *     requests in the same process.
  *
+ * SR-H-6 (security-review PR #623 round 5) — per-row revocation via
+ * `JwtPayload.userEmailId`:
+ *   • AC2 above re-hydrates the USER's role/archived status, but never
+ *     re-checked the specific `user_emails` row (WORK or PERSONAL) that
+ *     unlocked the login — an already-open session survived a
+ *     `changePersonalEmail` revocation of that exact row untouched, for
+ *     the rest of its 7-day cookie.
+ *   • `resolveCurrentUser` now also re-checks that row (when the token
+ *     carries one — see `JwtPayload.userEmailId`'s own doc) in a SEPARATE
+ *     `userEmailCache`, same `CACHE_TTL_MS` bound as AC2's role/archived
+ *     cache.
+ *
  * Trade-offs (AC2):
  *   • Revocation lag = CACHE_TTL_MS (60 s). An admin who demotes or archives
  *     a user will see the enforcement kick in within 60 s — intentional design
@@ -150,10 +162,27 @@ interface CachedUser {
   expiresAt: number
 }
 
+/**
+ * SR-H-6 (security-review PR #623 round 5): cached verdict for a SPECIFIC
+ * `user_emails` row (`JwtPayload.userEmailId` — see that field's own doc
+ * for the full rationale). Kept in its OWN map, keyed by `userEmailId`
+ * (globally unique) rather than folded into `CachedUser` above (keyed by
+ * `userId`) — one user can hold concurrent sessions opened through
+ * DIFFERENT rows (WORK on one device, a just-accepted PERSONAL on
+ * another), and a `userId`-keyed cache would let one session's
+ * freshly-fetched verdict silently answer for the other's.
+ */
+interface CachedUserEmail {
+  canLogin: boolean
+  expiresAt: number
+}
+
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   /** Short-lived in-memory cache: userId → { role, archivedAt, expiresAt } */
   private readonly userCache = new Map<string, CachedUser>()
+  /** SR-H-6: short-lived in-memory cache: userEmailId → { canLogin, expiresAt } */
+  private readonly userEmailCache = new Map<string, CachedUserEmail>()
 
   constructor(
     private jwt: JwtService,
@@ -245,6 +274,32 @@ export class JwtAuthGuard implements CanActivate {
       // Direct-construction path only — see the doc block above. Not a
       // production code path; the bootstrap assertion guarantees that.
       return jwtUser
+    }
+
+    // SR-H-6 (security-review PR #623 round 5): re-check the SPECIFIC
+    // `user_emails` row this session was opened through — see
+    // `JwtPayload.userEmailId`'s own doc (`@crm/shared`) for the full
+    // rationale and `CachedUserEmail`'s doc above for why this is a
+    // SEPARATE cache from `userCache` below. `undefined` here means an
+    // admin-minted session (impersonate / stop-impersonating) that never
+    // went through a `user_emails` lookup at all — skips this check
+    // entirely, governed by the archived-check below alone, unchanged.
+    if (jwtUser.userEmailId) {
+      const cachedEmail = this.userEmailCache.get(jwtUser.userEmailId)
+      let canLogin: boolean
+      if (cachedEmail && cachedEmail.expiresAt > Date.now()) {
+        canLogin = cachedEmail.canLogin
+      } else {
+        const emailRow = await this.usersService.findUserEmailById(jwtUser.userEmailId)
+        canLogin = emailRow?.canLogin === true
+        this.userEmailCache.set(jwtUser.userEmailId, {
+          canLogin,
+          expiresAt: Date.now() + CACHE_TTL_MS,
+        })
+      }
+      if (!canLogin) {
+        throw new UnauthorizedException()
+      }
     }
 
     // Check in-memory cache first.

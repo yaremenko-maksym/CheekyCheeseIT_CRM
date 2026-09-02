@@ -89,6 +89,28 @@ export const sessionUserSchema = z.object({
  * and by service methods that read it off `SessionUser` (mirrored onto
  * `sessionUserSchema` below — see that field's doc for the exact scope of
  * which audit writers do/don't correct for impersonation).
+ *
+ * `userEmailId` — SR-H-6 (security-review PR #623 round 5). Before this
+ * field existed, a session's ONLY link to `user_emails` was resolved once,
+ * at login, and never re-checked: `JwtAuthGuard.resolveCurrentUser`
+ * re-hydrated `role`/`archivedAt` from `users` on every cache miss, but
+ * nothing re-checked the SPECIFIC row (WORK or PERSONAL) that unlocked the
+ * login in the first place. `changePersonalEmail` (`UsersService`) DELETES
+ * a PERSONAL row outright the instant an admin replaces or removes it — an
+ * already-open session minted through that row survived unaffected for the
+ * rest of its 7-day cookie lifetime, which is exactly backwards from the
+ * owner's stated reason for the feature ("we can quickly change the email
+ * ... and it will no longer be possible to log in from the old one" — a
+ * promise about someone who is ALREADY inside, not merely about future
+ * logins). Set by every login path that resolves a `user_emails` row
+ * (`AuthController.googleCallback`'s ordinary branch, `googleOneTap`,
+ * `devLogin`) to that row's id; left `undefined` by the two paths that
+ * mint a session WITHOUT going through `user_emails` at all
+ * (`impersonate` / `stop-impersonating` — see their own docs). The guard
+ * re-checks the row on every DB re-hydration (same `CACHE_TTL_MS` cache
+ * and the same accepted ≤60s revocation lag already documented for
+ * `archivedAt` there) and rejects the session the moment `canLogin` on
+ * that exact row goes false or the row stops existing.
  */
 export const jwtPayloadSchema = z.object({
   id: z
@@ -101,6 +123,8 @@ export const jwtPayloadSchema = z.object({
    * so the return-to-self endpoint can restore the admin session.
    */
   impersonatorId: z.string().uuid().optional(),
+  /** SR-H-6 — see this schema's own doc above for the full rationale. */
+  userEmailId: z.string().uuid().optional(),
 })
 
 /**

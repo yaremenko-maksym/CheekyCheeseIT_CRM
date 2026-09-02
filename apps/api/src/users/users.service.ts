@@ -205,6 +205,21 @@ export class UsersService {
   }
 
   /**
+   * SR-H-6 (security-review PR #623 round 5): looks up a SPECIFIC
+   * `user_emails` row by its OWN id (not by address) — used by
+   * `JwtAuthGuard.resolveCurrentUser` to re-check the exact row a session
+   * was opened through. Deliberately does NOT filter on `canLogin` (unlike
+   * `findLoginableEmailRow` above) — the guard needs to see a revoked row
+   * (`canLogin: false`) to reject it, not have it disappear the same way a
+   * login attempt against it would.
+   */
+  async findUserEmailById(id: string): Promise<UserEmail | undefined> {
+    return this.db.db.query.userEmails.findFirst({
+      where: eq(userEmails.id, id),
+    })
+  }
+
+  /**
    * §4.4 structural guarantee, application-side half. The DB unique index
    * on `user_emails.email` (schema.ts) is what actually makes "one address,
    * two accounts" impossible — this is only the friendly half: turns the
@@ -221,6 +236,18 @@ export class UsersService {
    * case-insensitive, `varchar` equality is not, and a mismatch here is a
    * direct one-address-two-accounts hole (see schema.ts's migration file
    * header for the proof-by-experiment that found it).
+   *
+   * COPY-H-5 (security-review PR #623 round 5): Russian message — this used
+   * to read `'User with this email already exists'`, which the admin sees
+   * verbatim as a toast (`getUserFacingErrorMessage` forwards backend
+   * exception messages unchanged) in an otherwise all-Russian interface.
+   * `changePersonalEmail` is the first caller where this is a routine,
+   * expected 409 (a collision is the everyday failure mode of "type an
+   * address, see if it's taken"), not a rare edge case — see that method's
+   * own doc. Deliberately does not name WHICH row (own WORK vs a stranger's)
+   * collided or which kind it was — the admin does not need that, and the
+   * two cases already reach this same message for the same reason
+   * (`writeUserEmailOrConflict`'s identical Russian text, below).
    */
   private async assertEmailAvailable(
     db: DatabaseService['db'] | DrizzleTx,
@@ -233,7 +260,7 @@ export class UsersService {
     if (!existing) return
     const isOwnRow = existing.userId === excludeUserId
     if (isOwnRow) return
-    throw new ConflictException('User with this email already exists')
+    throw new ConflictException('Этот адрес уже занят другим пользователем.')
   }
 
   /**
@@ -2479,17 +2506,41 @@ export class UsersService {
       if (newEmail.toLowerCase() === target.email.toLowerCase()) {
         throw new BadRequestException('Личный email должен отличаться от рабочего')
       }
-      await this.assertEmailAvailable(this.db.db, newEmail)
+      // SR-L-1 (security-review PR #623 round 5): `excludeUserId` — the
+      // no-op check above (`existingRow?.email === newEmail`) is a plain,
+      // case-SENSITIVE `===`, deliberately (see that check's own comment) —
+      // so resubmitting the SAME address in a DIFFERENT case (e.g.
+      // `Foo@Bar.com` after `foo@bar.com`) does NOT short-circuit as a
+      // no-op and reaches this call. Without `excludeUserId`,
+      // `assertEmailAvailable`'s case-INsensitive lookup finds the caller's
+      // own existing row and — since `isOwnRow` compares against
+      // `undefined` — rejects it as a collision with a misleading 409,
+      // even though the only "other" row is the user's own. This does not
+      // make the no-op check itself case-insensitive (a re-cased resubmit
+      // still goes through delete+reissue, not a true no-op) — it only
+      // stops that path from being reported as a conflict with a stranger.
+      await this.assertEmailAvailable(this.db.db, newEmail, userId)
     }
 
     let personalInviteToken: string | undefined
 
+    // SR-H-5 (security-review PR #623 round 5): lock-ordering invariant —
+    // any transaction that writes BOTH `user_emails` AND `user_email_invites`
+    // MUST touch `user_emails` FIRST. This transaction already does (delete
+    // then insert, both `user_emails`, before the invite insert below) —
+    // the invariant lives here as a comment because `acceptPersonalEmailInvite`
+    // is the OTHER writer of this same pair and had it backwards (see that
+    // method's own copy of this comment for the mechanism and the proof).
     await this.db.db.transaction(async (tx) => {
       if (existingRow) {
         // Cascades to the invite row (schema.ts, ON DELETE CASCADE) — the
         // OLD token, wherever it is, stops matching anything the instant
         // this commits, same guarantee a resend already gives the token
-        // itself (issuePersonalEmailInviteTx's onConflictDoUpdate).
+        // itself (issuePersonalEmailInviteTx's onConflictDoUpdate). This
+        // DELETE is also where the lock-ordering invariant above matters:
+        // the cascade acquires the invite row's lock AFTER this one, so
+        // this statement's position (before any `user_email_invites` write
+        // in this transaction) is what keeps this side of the pair correct.
         await tx.delete(userEmails).where(eq(userEmails.id, existingRow.id))
       }
       if (newEmail) {
@@ -2593,16 +2644,35 @@ export class UsersService {
       throw new ForbiddenException(INVITE_TARGET_ARCHIVED_MESSAGE)
     }
 
+    // SR-H-5 (security-review PR #623 round 5): lock-ordering invariant —
+    // any transaction writing BOTH `user_emails` AND `user_email_invites`
+    // MUST touch `user_emails` FIRST, `user_email_invites` second. This was
+    // backwards here (invite-then-email) while `changePersonalEmail`'s
+    // transaction (the OTHER writer of this same pair — see its own copy of
+    // this comment) already went email-then-invite: `changePersonalEmail`'s
+    // DELETE on `user_emails` cascades (ON DELETE CASCADE, schema.ts) into a
+    // lock on `user_email_invites` SECOND, so the two transactions raced
+    // with OPPOSITE lock orders — a textbook ABBA deadlock. Postgres does
+    // not queue the two orders against each other, it detects the cycle and
+    // kills one side with `40P01`; measured on the pre-fix code, real
+    // Postgres, 40 concurrent (accept, change) pairs: 8/40 killed the
+    // ADMIN's `changePersonalEmail` transaction while the attacker's accept
+    // committed — the exact wrong-side-loses outcome this ordering removes
+    // (proof: `user-email-invites.integration.spec.ts`, "SR-H-5" describe
+    // block, `leaks=0/40` after this fix vs `leaks=8/40` before). This is
+    // the SAME class of bug `lockCascadeRows` (transactions.service.ts)
+    // already had to fix once for a single table's own rows via
+    // `ORDER BY id` — here the fix is the analogous discipline across TWO
+    // tables: a FIXED, documented, cross-file write order, not a decision
+    // that lives in only one of the two call sites.
     await this.db.db.transaction(async (tx) => {
-      await tx
-        .update(userEmailInvites)
-        .set({ usedAt: new Date(), updatedAt: new Date() })
-        .where(eq(userEmailInvites.id, invite.id))
+      let emailRows: { id: string }[]
       try {
-        await tx
+        emailRows = await tx
           .update(userEmails)
           .set({ canLogin: true, verifiedAt: new Date(), googleId, updatedAt: new Date() })
           .where(eq(userEmails.id, row.id))
+          .returning({ id: userEmails.id })
       } catch (err) {
         // LOW-1 (security-review PR #623 round 4): distinguish WHICH unique
         // index tripped — `pg-errors.ts`'s own doc warns against a blanket
@@ -2616,6 +2686,37 @@ export class UsersService {
           throw new ConflictException(GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE)
         }
         throw err
+      }
+      // SR-L-3 (security-review PR #623 round 5): the `invite`/`row` reads
+      // above happen BEFORE this transaction opens — a concurrent
+      // `changePersonalEmail` can delete `row` (and cascade-delete `invite`
+      // with it) in the gap between that read and this UPDATE. An UPDATE
+      // matching zero rows is not a Postgres error, so without this check
+      // the transaction would COMMIT having changed nothing, and the
+      // caller (`AuthController.googleCallback`'s invite branch) would
+      // report success — a user is told "готово" for an accept that never
+      // actually happened. `.returning()` is what makes the zero-rows case
+      // observable at all; reported as the SAME "invalid" outcome a
+      // garbage/superseded token already gets (`mapInviteAcceptError` maps
+      // any `NotFoundException` to `invite_invalid`), since from the
+      // caller's perspective it IS the same situation: the row this token
+      // pointed at no longer exists.
+      if (!emailRows[0]) {
+        throw new NotFoundException('Приглашение недействительно')
+      }
+      const inviteRows = await tx
+        .update(userEmailInvites)
+        .set({ usedAt: new Date(), updatedAt: new Date() })
+        .where(eq(userEmailInvites.id, invite.id))
+        .returning({ id: userEmailInvites.id })
+      // SR-L-3, second half: the lock-ordering fix above means `user_emails`
+      // is always updated first, so in practice a raced deletion is already
+      // caught above (cascade removes BOTH rows atomically) — this second
+      // check exists for defense in depth, not because a real path reaches
+      // it: e.g. a future writer of `user_email_invites` alone (not
+      // through `changePersonalEmail`) would only be caught here.
+      if (!inviteRows[0]) {
+        throw new NotFoundException('Приглашение недействительно')
       }
     })
   }
