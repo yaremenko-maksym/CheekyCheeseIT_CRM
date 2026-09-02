@@ -1,5 +1,5 @@
 -- =============================================================================
--- projects.status + visible_projects VIEW — prod DDL (manual apply)
+-- projects.status + visible_projects/confirmed_projects VIEWs — prod DDL (manual apply)
 -- =============================================================================
 --
 -- Context
@@ -11,7 +11,8 @@
 -- it. Today a project is fully active the instant an ADMIN/HR creates it; the
 -- employee whose share it affects finds out after the fact.
 --
--- Two changes, shipped together because the second depends on the first:
+-- Three changes, shipped together because the second and third depend on
+-- the first:
 --   1. `projects.status` — a THIRD, explicit lifecycle enum column. NOT a
 --      replacement for `archived_at` — the two are deliberately separate
 --      axes (see schema.ts's own comment on this column for the full
@@ -22,6 +23,11 @@
 --      `non_deleted_transactions` (2026-08-03_non_deleted_transactions_view.sql)
 --      — see that migration's own header for the review history this
 --      pattern comes from.
+--   3. `confirmed_projects` — SPEC-M-1 fix-round addition (security-review
+--      round 2). A VIEW exposing `status = 'ACTIVE'` rows WITHOUT the
+--      `archived_at IS NULL` half — display-only, see schema.ts's own
+--      comment on `confirmedProjects` for why a narrower filter than
+--      `visible_projects` is correct for that one specific read.
 --
 -- Existing projects
 -- -----------------
@@ -84,6 +90,19 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS status project_status NOT NULL DEF
 CREATE OR REPLACE VIEW visible_projects AS
 SELECT * FROM projects WHERE status = 'ACTIVE' AND archived_at IS NULL;
 
+-- -----------------------------------------------------------------------------
+-- 4. confirmed_projects — SPEC-M-1 fix-round addition (security-review round
+--    2). DISPLAY-ONLY surface, `status = 'ACTIVE'` alone — deliberately NOT
+--    `archived_at IS NULL` too. See schema.ts's own comment on
+--    `confirmedProjects` for the full reasoning: a transaction's `projectId`
+--    can only ever reference a project that was ACTIVE when the transaction
+--    was created, so this view cannot reopen the DRAFT/REJECTED leak
+--    `visible_projects` exists to close — it only stops hiding an ARCHIVED
+--    project's name, which is a legitimate historical fact.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW confirmed_projects AS
+SELECT * FROM projects WHERE status = 'ACTIVE';
+
 -- =============================================================================
 -- VERIFY (after applying) — fail loudly, not "applied successfully" on a
 -- silently wrong result (lesson from PR #623, two review rounds):
@@ -99,11 +118,13 @@ SELECT * FROM projects WHERE status = 'ACTIVE' AND archived_at IS NULL;
 --   --    treating the migration as successful:
 --   SELECT status, count(*) FROM projects GROUP BY status;
 --
---   -- 3. The view exists and its row count matches the ACTIVE+non-archived
---   --    count computed independently (two different queries must agree):
---   SELECT viewname FROM pg_views WHERE viewname = 'visible_projects';
+--   -- 3. The views exist and their row counts match the counts computed
+--   --    independently (two different queries must agree each):
+--   SELECT viewname FROM pg_views WHERE viewname IN ('visible_projects', 'confirmed_projects');
 --   SELECT count(*) FROM visible_projects;
 --   SELECT count(*) FROM projects WHERE status = 'ACTIVE' AND archived_at IS NULL;
+--   SELECT count(*) FROM confirmed_projects;
+--   SELECT count(*) FROM projects WHERE status = 'ACTIVE';
 --
 --   -- 4. VERIFY-only, NOT for the deploy log (no personal data in CI output):
 --   --    run this BY HAND if step 2 above shows anything unexpected, to see
@@ -117,14 +138,16 @@ SELECT * FROM projects WHERE status = 'ACTIVE' AND archived_at IS NULL;
 -- since every pre-existing row was 'ACTIVE' before this column existed):
 --
 -- security-review round 3 (SR-L-2): the ORDER below is REQUIRED, not
--- incidental — do not reorder it. `visible_projects` reads FROM
--- `projects.status` (step 3 above), so Postgres refuses the column drop
--- while the view still exists: `ALTER TABLE projects DROP COLUMN status`
--- run on its own fails with `cannot drop column status of table projects
--- because other objects depend on it` (verified against a live Postgres —
--- same property `2026-08-03_non_deleted_transactions_view.sql` records for
--- `non_deleted_transactions`/`transactions`). The view must be dropped
+-- incidental — do not reorder it. `visible_projects` AND `confirmed_projects`
+-- (SPEC-M-1, round 2 fix) both read FROM `projects.status` (steps 3/4
+-- above), so Postgres refuses the column drop while EITHER view still
+-- exists: `ALTER TABLE projects DROP COLUMN status` run on its own fails
+-- with `cannot drop column status of table projects because other objects
+-- depend on it` (verified against a live Postgres — same property
+-- `2026-08-03_non_deleted_transactions_view.sql` records for
+-- `non_deleted_transactions`/`transactions`). Both views must be dropped
 -- FIRST, exactly as ordered here.
+--   DROP VIEW IF EXISTS confirmed_projects;
 --   DROP VIEW IF EXISTS visible_projects;
 --   ALTER TABLE projects DROP COLUMN IF EXISTS status;
 --   DROP TYPE IF EXISTS project_status;

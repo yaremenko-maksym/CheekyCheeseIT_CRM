@@ -861,8 +861,31 @@ export class ProjectsService {
    * `projects.status` write are the SAME `db.transaction` — a concurrent
    * second approver's `approveInTx` cannot observe a project whose approvals
    * say APPROVED-so-far but whose `status` still reads DRAFT (or vice versa).
+   *
+   * security-review round 2 (SR-H-5): refuses outright under impersonation.
+   * `currentUser.id` above is exactly what makes this endpoint's ONLY guard
+   * (an invited approver's own live `approvals` row — see `approveInTx`)
+   * satisfiable by an ADMIN who impersonated that approver: `POST
+   * /auth/impersonate` swaps `id`/`role` to the TARGET's, so the "invited
+   * caller" check cannot tell the difference. Unlike the other methods in
+   * this file (`archive`/`unarchive`/`update`/`addMember`), which read
+   * `currentUser.impersonatorId ?? currentUser.id` to ATTRIBUTE the write to
+   * the real operator, attribution is not enough here — confirmation IS the
+   * consent record this whole task exists to produce (design spec §3: a
+   * project's money "не вступают в силу, пока он не согласится в CRM"), and
+   * `approvals` has no column for "who actually clicked" to attribute to.
+   * Writing "senior APPROVED" when the senior never opened the app is worse
+   * than writing nothing — it looks like proof of consent that never
+   * happened. So this refuses instead of recording, for both approve and
+   * reject (a fabricated rejection reason would be the mirror of the same
+   * problem).
    */
   async approveDraft(id: string, currentUser: SessionUser) {
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException(
+        'Impersonated sessions cannot confirm a project draft — consent must come from the invited approver themselves',
+      )
+    }
     await this.db.db.transaction(async (tx) => {
       await this.approvals.approveInTx(tx, {
         subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
@@ -880,8 +903,16 @@ export class ProjectsService {
    * the DB CHECK — this service does not re-validate it, the same "the DB is
    * the backstop" contract `ApprovalsService` documents for itself) and voids
    * the WHOLE proposal (decision #5), never just this approver's own row.
+   *
+   * security-review round 2 (SR-H-5): same impersonation refusal as
+   * `approveDraft` above — see that method's comment for the full reasoning.
    */
   async rejectDraft(id: string, reason: string, currentUser: SessionUser) {
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException(
+        'Impersonated sessions cannot reject a project draft — the decision must come from the invited approver themselves',
+      )
+    }
     await this.db.db.transaction(async (tx) => {
       await this.approvals.rejectInTx(tx, {
         subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
@@ -1519,10 +1550,24 @@ export class ProjectsService {
    * senior has LEFT from contributing staff at all, the other keeps a
    * teammate who left THAT team from being seated even while the team is
    * still active for the senior.
+   *
+   * security-review round 2 (SR-H-6): this is the SECOND door into
+   * `insert(projects)` — `create()` above is the first — and round 1 missed
+   * it entirely: no explicit `status: 'DRAFT'` and no approval proposal, so a
+   * project hired straight out of an interview shipped fully `ACTIVE` (the
+   * column DEFAULT) with zero rows in `approvals`, unconfirmable by
+   * construction (`approveDraft` 404s everyone — there is no live row to
+   * confirm). BIZ-07 reaches this from `PATCH /api/interviews/:id/move`,
+   * which HR and SENIOR can call too, not just ADMIN. Same gate, same
+   * reason as `create()`: the senior whose money this project will move
+   * should agree to it in CRM before it starts, regardless of which door
+   * created the row. Interview-sourced projects never carry a `dropId` (no
+   * such field exists on `Interview`), so the senior is the sole invited
+   * approver here — no `[seniorId, dropId]` branch to mirror from `create()`.
    */
   async createFromInterview(
     interview: Interview & { senior: User | null },
-    _currentUser: SessionUser,
+    currentUser: SessionUser,
     tx?: DrizzleTx,
   ) {
     const conn = tx ?? this.db.db
@@ -1550,10 +1595,30 @@ export class ProjectsService {
         salaryReview: interview.notesSalaryReview ?? null,
         corpTech: interview.notesCorpTech ?? null,
         notesGeneral: interview.notesGeneral ?? null,
+        // security-review round 2 (SR-H-6). See the method doc above — this
+        // is the door round 1 left open.
+        status: 'DRAFT',
       })
       .returning()
 
     if (!project) return project
+
+    // security-review round 2 (SR-H-6). Open the approval proposal in the
+    // SAME connection as the insert above — when the caller passed a `tx`
+    // (the only real caller, `InterviewsService.move`, always does), this is
+    // the SAME transaction, so a DRAFT project without its approval row
+    // stays impossible here too (decision Д1's own invariant, see `create()`
+    // above). `conn` is `DrizzleTx | NodePgDatabase` depending on whether a
+    // `tx` was passed; `proposeInTx` only ever calls query-builder methods
+    // both share, so the cast is the same shape already used elsewhere in
+    // this codebase for the identical mismatch (e.g.
+    // `transactions.service.ts`'s `this.db.db as unknown as DrizzleTx`).
+    await this.approvals.proposeInTx(conn as unknown as DrizzleTx, {
+      subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
+      subjectId: project.id,
+      approverUserIds: [interview.seniorId],
+      proposedByUserId: currentUser.id,
+    })
 
     // Find all teams where this senior is CURRENTLY a member. Backlog #136:
     // this query used to ignore `leftAt`, so a team the senior had already

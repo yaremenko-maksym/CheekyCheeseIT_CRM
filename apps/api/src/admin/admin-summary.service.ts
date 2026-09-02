@@ -15,7 +15,20 @@ import { DatabaseService } from '../database/database.service'
 // `nonDeletedTransactions` above: a DRAFT/REJECTED project must never count
 // toward an "active projects" KPI, and there is no WHERE clause here to
 // forget.
-import { interviews, nonDeletedTransactions, users, visibleProjects } from '../database/schema'
+//
+// security-review round 2 (SPEC-M-1): `confirmedProjects` (VIEW) — used
+// ONLY for the activeTransactions feed's `projectName` display join below,
+// NOT for the KPI counters above. Narrower filter than `visibleProjects`
+// (`status = 'ACTIVE'` alone, no `archived_at` check) — see that view's own
+// comment in schema.ts for why the KPI join and the display join need
+// different predicates.
+import {
+  confirmedProjects,
+  interviews,
+  nonDeletedTransactions,
+  users,
+  visibleProjects,
+} from '../database/schema'
 
 /**
  * The three actionable in-flight statuses surfaced in the «Активные транзакции»
@@ -171,13 +184,20 @@ export class AdminSummaryService {
         receiverLabel: nonDeletedTransactions.receiverLabel,
         receiverDisplayName: receiver.displayName,
         projectId: nonDeletedTransactions.projectId,
-        // task-project-draft-status: joined against `visibleProjects`, not
-        // the raw table. A transaction can only ever have been created
-        // against an `ACTIVE` project (Д2 refuses transaction creation on a
-        // DRAFT/REJECTED one), so this only changes the display for a
-        // project archived AFTER the fact — the same row this dashboard
-        // already treats as an edge case, not the common path.
-        projectName: visibleProjects.name,
+        // task-project-draft-status, fixed in security-review round 2
+        // (SPEC-M-1): joined against `confirmedProjects`, not the raw table
+        // — and NOT against `visibleProjects` either. A transaction can only
+        // ever have been created against an `ACTIVE` project (Д2 refuses
+        // transaction creation on a DRAFT/REJECTED one, and no code path
+        // ever moves `status` back off `ACTIVE`), so this join could never
+        // have been hiding a DRAFT/REJECTED leak. `visibleProjects`'s EXTRA
+        // `archived_at IS NULL` filter is what was hiding something real
+        // here: an ARCHIVED project's name — a legitimate historical fact
+        // this widget should keep showing (round-1 regression, caught by
+        // this file's own archived-project fixture). `confirmedProjects`
+        // keeps the DRAFT/REJECTED filter while dropping the archived one —
+        // see that view's comment in schema.ts.
+        projectName: confirmedProjects.name,
         amount: nonDeletedTransactions.amount,
         currency: nonDeletedTransactions.currency,
         txDate: nonDeletedTransactions.txDate,
@@ -187,7 +207,7 @@ export class AdminSummaryService {
       .from(nonDeletedTransactions)
       .leftJoin(sender, eq(sender.id, nonDeletedTransactions.senderId))
       .leftJoin(receiver, eq(receiver.id, nonDeletedTransactions.receiverId))
-      .leftJoin(visibleProjects, eq(visibleProjects.id, nonDeletedTransactions.projectId))
+      .leftJoin(confirmedProjects, eq(confirmedProjects.id, nonDeletedTransactions.projectId))
       .where(inArray(nonDeletedTransactions.status, [...ACTIVE_TX_STATUSES]))
       .orderBy(
         desc(sql`coalesce(${nonDeletedTransactions.txDate}, ${nonDeletedTransactions.createdAt})`),
