@@ -199,6 +199,12 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   // ---- finance/ConfirmPayoutDialog.tsx ----
   'testid:confirm-payout-tx-hash': 'WALLET_HASH',
 
+  // ---- user-profile/admin-actions/ChangePersonalEmailDialog.tsx ----
+  // security-review PR #623 round 4, owner decision — admin editing/
+  // removing ANOTHER person's personal address. Same category and
+  // rationale as UserDialog's own email fields below.
+  'testid:change-personal-email-input': 'EMAIL_NO_AUTOFILL',
+
   // ---- users/UserDialog.tsx (admin creating/editing ANOTHER person's record) ----
   'testid:user-dialog-email': 'EMAIL_NO_AUTOFILL',
   // §4.4 — personal address, create-only. Same category as the work email

@@ -92,6 +92,11 @@ export function ChangePersonalEmailDialog({
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
+            // EMAIL_NO_AUTOFILL (mobile-keyboard-registry.ts) — someone
+            // ELSE's email, entered by an admin: the admin's own saved
+            // address must never autofill into another person's record,
+            // same posture as UserDialog's email/personalEmail fields.
+            autoComplete="off"
             placeholder="ivan.petrov@gmail.com"
             value={value}
             onChange={(e) => {
