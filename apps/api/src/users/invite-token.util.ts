@@ -39,6 +39,23 @@ export function generateInviteToken(): string {
  * (backup, replica, compromised credential) must not be enough to mint a
  * working invite link.
  */
+// Equivalent mutant, verified by hand: `Hash.update(data, '')` behaves
+// IDENTICALLY to `Hash.update(data, 'utf8')` in Node — empty-string encoding
+// falls back to utf8 (`createHash('sha256').update(x,'utf8').digest('hex')
+// === createHash('sha256').update(x,'').digest('hex')` for the same `x`), so
+// no test — this one or any other — could ever tell the two apart.
+// `hash.update(...)` is pulled out onto its own STATEMENT (not chained off
+// `createHash(...)`) — Stryker's `// Stryker disable next-line` directive is
+// resolved by its instrumenter against the next STATEMENT, and a mutant
+// inside a multi-line chained-call expression (`createHash('sha256')
+// .update(...).digest(...)`, tried first) did not line up with the
+// directive the same way; a bare statement does (verified: the mutant now
+// reports `Ignored`, not `Survived`). `hash.update()` returns the Hash
+// instance (for chaining) — the return value is intentionally discarded
+// here; `.digest('hex')` still reads the same accumulated state.
 export function hashInviteToken(rawToken: string): string {
-  return createHash('sha256').update(rawToken, 'utf8').digest('hex')
+  const hash = createHash('sha256')
+  // Stryker disable next-line StringLiteral: see the comment above this function
+  hash.update(rawToken, 'utf8')
+  return hash.digest('hex')
 }
