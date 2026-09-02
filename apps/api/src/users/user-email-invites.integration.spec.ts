@@ -23,6 +23,12 @@
  *     an address that WORKED as a login method a moment ago stops working
  *     immediately after an admin changes OR removes it (the single most
  *     important pair of cases in this file — see their own comments)
+ *   - SR-H-5 (round 5): accept vs. change raced concurrently, many times —
+ *     zero raw Postgres deadlocks, the old address never ends up logged in
+ *     regardless of which side wins the race
+ *   - SR-H-6 (round 5): a session minted the way a real login would (real
+ *     `JwtAuthGuard`, real `UsersService`, cold cache) dies the moment the
+ *     PERSONAL row that opened it is revoked — not merely future logins
  *
  * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
  * unset (reports SKIPPED, not silently-passed-with-no-assertions).
@@ -35,14 +41,20 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common'
+import type { ExecutionContext } from '@nestjs/common'
+import type { Reflector } from '@nestjs/core'
+import { JwtService } from '@nestjs/jwt'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { jwtPayloadSchema } from '@crm/shared'
 import * as schema from '../database/schema'
 import { userEmailInvites, userEmails, users } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
+import { JwtAuthGuard } from '../auth/jwt.guard'
 import { UsersService } from './users.service'
 import { hashInviteToken } from './invite-token.util'
 import { hasDatabaseUrl } from '../test/require-real-db'
@@ -401,6 +413,179 @@ describe.skipIf(!hasDatabaseUrl())(
           canLogin: false,
         })
         .onConflictDoNothing()
+    })
+
+    // SR-L-1 (security-review PR #623 round 5): resubmitting one's OWN
+    // current PERSONAL address in a DIFFERENT case must not be reported as
+    // a collision with a stranger. The no-op check
+    // (`existingRow?.email === newEmail`) is a plain case-SENSITIVE `===`
+    // on purpose (see that check's own comment), so a re-cased resubmit is
+    // NOT a no-op and reaches `assertEmailAvailable` — which, before this
+    // fix, looked up the SAME row case-insensitively and rejected it
+    // because `excludeUserId` was never passed.
+    it('changePersonalEmail: resubmitting the SAME address in a different case is not reported as a stranger collision', async () => {
+      await resetPersonalRow(USER_A_ID)
+      const upperCased = USER_A_PERSONAL_EMAIL.toUpperCase()
+      const result = await usersService.changePersonalEmail(USER_A_ID, upperCased, ACTOR_ID)
+      // Not a no-op (case differs) — goes through delete+reissue and
+      // returns a fresh invite, but crucially does NOT throw.
+      expect(result?.email).toBe(upperCased)
+      const rowAfter = await personalRow(USER_A_ID)
+      expect(rowAfter.email).toBe(upperCased)
+
+      // Restore the fixture's exact casing for any test elsewhere in this
+      // file that compares against the literal `USER_A_PERSONAL_EMAIL`.
+      await dbSvc.db
+        .update(userEmails)
+        .set({ email: USER_A_PERSONAL_EMAIL, canLogin: false, verifiedAt: null, googleId: null })
+        .where(and(eq(userEmails.userId, USER_A_ID), eq(userEmails.kind, 'PERSONAL')))
+    })
+
+    // SR-H-5 (security-review PR #623 round 5): `changePersonalEmail` and
+    // `acceptPersonalEmailInvite` used to lock `user_emails` /
+    // `user_email_invites` in OPPOSITE orders — a textbook ABBA deadlock.
+    // The reviewer measured 8/40 raw Postgres deadlocks (40P01) on the
+    // pre-fix code, with the admin's OWN revoke losing every time. This is
+    // the same race, run against the FIXED code: the strong invariant it
+    // checks is not merely "no deadlock" but "the old address is NEVER
+    // left logged in", which also catches the SR-L-3 silent-no-op failure
+    // mode a naive retry-on-40P01 fix would have left open.
+    async function resetPersonalRowTo(userId: string, email: string): Promise<void> {
+      await dbSvc.db
+        .delete(userEmails)
+        .where(and(eq(userEmails.userId, userId), eq(userEmails.kind, 'PERSONAL')))
+      await dbSvc.db.insert(userEmails).values({ userId, email, kind: 'PERSONAL', canLogin: false })
+    }
+
+    it('SR-H-5: accept vs. change raced 40 times — zero raw Postgres deadlocks, old address NEVER ends up logged in', async () => {
+      const RACE_ITERATIONS = 40
+      let deadlocks = 0
+      let oldAddressStillLoginable = 0
+
+      for (let i = 0; i < RACE_ITERATIONS; i++) {
+        await resetPersonalRowTo(USER_A_ID, USER_A_PERSONAL_EMAIL)
+        const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID)
+        const newEmail = `sr-h-5-race-new-${i}@test.spec`
+
+        const [changeResult, acceptResult] = await Promise.allSettled([
+          usersService.changePersonalEmail(USER_A_ID, newEmail, ACTOR_ID),
+          usersService.acceptPersonalEmailInvite(rawToken, USER_A_PERSONAL_EMAIL, `race-sub-${i}`),
+        ])
+
+        const is40P01 = (r: PromiseSettledResult<unknown>): boolean =>
+          r.status === 'rejected' && (r.reason as { code?: string })?.code === '40P01'
+        if (is40P01(changeResult) || is40P01(acceptResult)) deadlocks++
+
+        // The invariant that actually matters: whichever side won the
+        // race, the OLD address must not be a working login method once
+        // both promises have settled.
+        const oldRow = await usersService.findLoginableEmailRow(USER_A_PERSONAL_EMAIL)
+        if (oldRow) oldAddressStillLoginable++
+      }
+
+      expect(deadlocks).toBe(0)
+      expect(oldAddressStillLoginable).toBe(0)
+
+      // Restore the fixture for any test ordering assumption elsewhere in
+      // this file — mirrors the removal test's own restore step above.
+      await resetPersonalRowTo(USER_A_ID, USER_A_PERSONAL_EMAIL)
+    }, 60_000)
+
+    // SR-H-6 (security-review PR #623 round 5): a session minted the way a
+    // REAL login would (real JwtAuthGuard, real UsersService, cold cache —
+    // no mock stands in for either) must die the moment the PERSONAL row
+    // that opened it is revoked. Mirrors the reviewer's own reproduction
+    // exactly: mint the token, prove it valid, revoke, prove a FRESH guard
+    // instance (cold cache — the bound this fix accepts, same CACHE_TTL_MS
+    // as the pre-existing archived-check) now rejects the SAME token.
+    function makeGuardCtx(token: string): ExecutionContext {
+      const request: Record<string, unknown> = { cookies: { jwt: token } }
+      return {
+        switchToHttp: () => ({ getRequest: () => request }),
+        getHandler: () => ({}),
+        getClass: () => ({}),
+      } as unknown as ExecutionContext
+    }
+    const guardJwtService = new JwtService({ secret: 'sr-h-6-test-secret-32-chars-minimum' })
+    const noopReflector = {
+      getAllAndOverride: () => false,
+    } as unknown as Reflector
+
+    it('SR-H-6: changing the personal address kills a session already minted through it (cold-cache re-check)', async () => {
+      await resetPersonalRowTo(USER_A_ID, USER_A_PERSONAL_EMAIL)
+      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID)
+      await usersService.acceptPersonalEmailInvite(rawToken, USER_A_PERSONAL_EMAIL, 'sr-h-6-sub-1')
+      const rowBefore = await personalRow(USER_A_ID)
+
+      // The exact JWT shape AuthController.googleCallback mints for a
+      // PERSONAL-row login (userEmailId set — see that controller's own
+      // comment).
+      const payload = jwtPayloadSchema.parse({
+        id: USER_A_ID,
+        email: USER_A_WORK_EMAIL,
+        role: 'JUNIOR',
+        userEmailId: rowBefore.id,
+      })
+      const token = guardJwtService.sign(payload)
+
+      const guardBefore = new JwtAuthGuard(guardJwtService, noopReflector, usersService)
+      await expect(guardBefore.canActivate(makeGuardCtx(token))).resolves.toBe(true)
+
+      await usersService.changePersonalEmail(USER_A_ID, 'sr-h-6-new-1@test.spec', ACTOR_ID)
+
+      // Cold cache — a FRESH guard instance, same as the reviewer's own
+      // reproduction ("страж собран по-настоящему, кэш холодный").
+      const guardAfter = new JwtAuthGuard(guardJwtService, noopReflector, usersService)
+      await expect(guardAfter.canActivate(makeGuardCtx(token))).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      )
+
+      await resetPersonalRowTo(USER_A_ID, USER_A_PERSONAL_EMAIL)
+    })
+
+    it('SR-H-6: removing the personal address (null) ALSO kills a session already minted through it', async () => {
+      await resetPersonalRowTo(USER_B_ID, USER_B_PERSONAL_EMAIL)
+      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_B_ID, ACTOR_ID)
+      await usersService.acceptPersonalEmailInvite(rawToken, USER_B_PERSONAL_EMAIL, 'sr-h-6-sub-2')
+      const rowBefore = await personalRow(USER_B_ID)
+
+      const payload = jwtPayloadSchema.parse({
+        id: USER_B_ID,
+        email: USER_B_WORK_EMAIL,
+        role: 'JUNIOR',
+        userEmailId: rowBefore.id,
+      })
+      const token = guardJwtService.sign(payload)
+
+      const guardBefore = new JwtAuthGuard(guardJwtService, noopReflector, usersService)
+      await expect(guardBefore.canActivate(makeGuardCtx(token))).resolves.toBe(true)
+
+      await usersService.changePersonalEmail(USER_B_ID, null, ACTOR_ID)
+
+      const guardAfter = new JwtAuthGuard(guardJwtService, noopReflector, usersService)
+      await expect(guardAfter.canActivate(makeGuardCtx(token))).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      )
+
+      await resetPersonalRowTo(USER_B_ID, USER_B_PERSONAL_EMAIL)
+    })
+
+    // SR-H-6 regression pin: a session opened through the WORK row (no
+    // `userEmailId`, or one that still resolves to a live row) is NOT
+    // affected by a DIFFERENT user's PERSONAL-row revocation — the guard's
+    // per-row cache is keyed by `userEmailId`, not `userId` (see
+    // `CachedUserEmail`'s own doc, jwt.guard.ts).
+    it('SR-H-6: a WORK-row session (no revocation in play) keeps working across an unrelated PERSONAL-row revocation', async () => {
+      const payload = jwtPayloadSchema.parse({
+        id: USER_A_ID,
+        email: USER_A_WORK_EMAIL,
+        role: 'JUNIOR',
+        // No userEmailId — mirrors an admin-minted (impersonate) session,
+        // or simply a login that never resolved a PERSONAL row.
+      })
+      const token = guardJwtService.sign(payload)
+      const guard = new JwtAuthGuard(guardJwtService, noopReflector, usersService)
+      await expect(guard.canActivate(makeGuardCtx(token))).resolves.toBe(true)
     })
   },
 )
