@@ -29,6 +29,8 @@
  *   - SR-H-6 (round 5): a session minted the way a real login would (real
  *     `JwtAuthGuard`, real `UsersService`, cold cache) dies the moment the
  *     PERSONAL row that opened it is revoked — not merely future logins
+ *   - SR-L-1 (round 5): resubmitting one's own current PERSONAL address in
+ *     a different case is not reported as a collision with a stranger
  *
  * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
  * unset (reports SKIPPED, not silently-passed-with-no-assertions).
