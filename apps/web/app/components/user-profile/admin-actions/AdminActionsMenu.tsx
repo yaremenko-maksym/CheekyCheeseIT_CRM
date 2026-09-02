@@ -7,6 +7,7 @@ import {
   Archive,
   ArchiveRestore,
   MailPlus,
+  Mail,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +22,7 @@ import { useResendPersonalEmailInvite, useUnarchiveUser } from '@/hooks/use-user
 import { UserDialog } from '@/components/users/UserDialog'
 import { AdminNoteDialog } from './AdminNoteDialog'
 import { ArchiveUserDialog } from './ArchiveUserDialog'
+import { ChangePersonalEmailDialog } from './ChangePersonalEmailDialog'
 
 /** Edit-related ActionKeys that collectively gate the «Редактировать» button. */
 const EDIT_ACTION_KEYS: ActionKey[] = [
@@ -33,7 +35,7 @@ const EDIT_ACTION_KEYS: ActionKey[] = [
 /** Actions that get a separator rendered above them. */
 const SEPARATOR_BEFORE: Array<'set-note' | 'archive'> = ['set-note', 'archive']
 
-type OpenDialog = 'edit' | 'set-note' | 'archive' | null
+type OpenDialog = 'edit' | 'set-note' | 'archive' | 'change-personal-email' | null
 
 export function AdminActionsMenu({
   userId,
@@ -67,9 +69,17 @@ export function AdminActionsMenu({
     user.personalContactVisible === true &&
     !!user.personalEmail &&
     user.personalEmailCanLogin === false
+  // security-review PR #623 round 4, owner decision: unlike resend-invite
+  // above, NOT further gated on personalEmailCanLogin — must stay usable
+  // both before AND after an invite is accepted (fast fix for a typo,
+  // whenever it is discovered). Still requires `personalContactVisible`
+  // (the same PII-visibility gate every other personalEmail-touching
+  // action in this menu already respects).
+  const canChangePersonalEmail =
+    actions.includes('change-personal-email') && user.personalContactVisible === true
 
   type MenuItem = {
-    key: 'edit' | 'set-note' | 'archive' | 'resend-invite'
+    key: 'edit' | 'set-note' | 'archive' | 'resend-invite' | 'change-personal-email'
     icon: React.ReactNode
     label: string
   }
@@ -85,7 +95,18 @@ export function AdminActionsMenu({
     menuItems.push({
       key: 'resend-invite',
       icon: <MailPlus className="mr-2 h-4 w-4" />,
-      label: 'Отправить приглашение повторно',
+      // COPY-L-1 (copy-review PR #623 round 4): was the longest item in
+      // this menu by a wide margin (237px vs 103/97px for the neighbours) —
+      // the item only ever shows when an invite has already been sent
+      // (canResendInvite below), so "повторно/снова" carries little.
+      label: 'Отправить приглашение снова',
+    })
+  }
+  if (canChangePersonalEmail) {
+    menuItems.push({
+      key: 'change-personal-email',
+      icon: <Mail className="mr-2 h-4 w-4" />,
+      label: 'Изменить личный email',
     })
   }
   if (canSetNote) {
@@ -123,7 +144,11 @@ export function AdminActionsMenu({
               )}
               <DropdownMenuItem
                 data-testid={
-                  item.key === 'resend-invite' ? 'admin-actions-resend-invite' : undefined
+                  item.key === 'resend-invite'
+                    ? 'admin-actions-resend-invite'
+                    : item.key === 'change-personal-email'
+                      ? 'admin-actions-change-personal-email'
+                      : undefined
                 }
                 disabled={item.key === 'resend-invite' && resendInviteMutation.isPending}
                 onClick={() =>
@@ -158,6 +183,14 @@ export function AdminActionsMenu({
         <AdminNoteDialog userId={userId} currentNote={user.adminNote} onClose={close} />
       )}
       {open === 'archive' && <ArchiveUserDialog user={user} onClose={close} />}
+      {open === 'change-personal-email' && (
+        <ChangePersonalEmailDialog
+          userId={userId}
+          currentEmail={user.personalEmail ?? null}
+          workEmail={user.email}
+          onClose={close}
+        />
+      )}
     </>
   )
 }

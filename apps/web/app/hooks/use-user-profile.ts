@@ -95,10 +95,53 @@ export function useResendPersonalEmailInvite(userId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () =>
-      api.post(`/users/${userId}/personal-email/resend-invite`).then((r) => r.data),
-    onSuccess: () => {
+      api
+        .post<{ ok: true; delivered: boolean }>(`/users/${userId}/personal-email/resend-invite`)
+        .then((r) => r.data),
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      toast.success('Приглашение отправлено повторно')
+      // COPY-M-1 (copy-review PR #623 round 4): the API now reports whether
+      // the mail actually left the process — `sendInvite` swallows delivery
+      // failures (no API key, exhausted retries) and used to unconditionally
+      // return `{ ok: true }`, so this toast claimed «отправлено повторно»
+      // even when nothing was sent.
+      if (data.delivered) {
+        toast.success('Письмо отправлено на личный адрес')
+      } else {
+        toast.error('Письмо не ушло — почтовый сервис не ответил. Попробуйте ещё раз через пару минут.')
+      }
+    },
+    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+  })
+}
+
+/**
+ * ADMIN action (security-review PR #623 round 4, owner decision — see
+ * `changePersonalEmailSchema`'s doc, `@crm/shared`). Changes or removes a
+ * user's personal address; the backend revokes login on whatever address
+ * was there before, unconditionally — see `UsersService.changePersonalEmail`.
+ * `personalEmail: null` removes it.
+ */
+export function useChangePersonalEmail(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (personalEmail: string | null) =>
+      api
+        .patch<{ ok: true; delivered: boolean | null }>(`/users/${userId}/personal-email`, {
+          personalEmail,
+        })
+        .then((r) => r.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      if (data.delivered === null) {
+        // Removal, or a no-op resubmit of the same value — nothing was
+        // mailed, nothing to report as sent/failed.
+        toast.success('Сохранено')
+      } else if (data.delivered) {
+        toast.success('Письмо отправлено на личный адрес')
+      } else {
+        toast.error('Письмо не ушло — почтовый сервис не ответил. Попробуйте ещё раз через пару минут.')
+      }
     },
     onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
   })

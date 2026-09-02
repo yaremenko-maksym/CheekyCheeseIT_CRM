@@ -55,11 +55,15 @@ const makeTeamsService = () =>
     createDropTeam: vi.fn().mockResolvedValue({ id: 'team-x' }),
   }) as never
 
-const makeUsersService = (db: DrizzleDb): UsersService =>
+// `auditLogService` is injectable (defaults to a fresh stub) — SR-M-12 /
+// personal_email_changed tests below need to assert ON that specific call,
+// which a freshly-constructed internal stub they cannot reach would not let
+// them do; every pre-existing call site keeps passing a single `db` arg.
+const makeUsersService = (db: DrizzleDb, auditLogService?: AuditLogService): UsersService =>
   new UsersService(
     db as never,
     makeAccessService() as never,
-    makeAuditLogService() as never,
+    (auditLogService ?? makeAuditLogService()) as never,
     makeTosService(),
     makeTeamAuditLogService(),
     makeProjectAuditLogService(),
@@ -960,7 +964,7 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
   it('user not found → NotFoundException, no queries against user_emails', async () => {
     const { db, findFirst } = makeResendDb({ target: undefined })
     const service = makeUsersService(db)
-    const promise = service.resendPersonalEmailInvite('ghost-id')
+    const promise = service.resendPersonalEmailInvite('ghost-id', 'actor-1')
     await expect(promise).rejects.toBeInstanceOf(NotFoundException)
     await expect(promise).rejects.toThrow('Пользователь не найден')
     expect(findFirst).not.toHaveBeenCalled()
@@ -972,7 +976,7 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
       row: undefined,
     })
     const service = makeUsersService(db)
-    const promise = service.resendPersonalEmailInvite('u-1')
+    const promise = service.resendPersonalEmailInvite('u-1', 'actor-1')
     await expect(promise).rejects.toBeInstanceOf(BadRequestException)
     await expect(promise).rejects.toThrow('У пользователя не задан личный email')
     expect(insertMock).not.toHaveBeenCalled()
@@ -989,7 +993,7 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
       row: { id: 'row-1', email: 'ivan.personal@gmail.com', canLogin: true },
     })
     const service = makeUsersService(db)
-    const promise = service.resendPersonalEmailInvite('u-1')
+    const promise = service.resendPersonalEmailInvite('u-1', 'actor-1')
     await expect(promise).rejects.toBeInstanceOf(ConflictException)
     await expect(promise).rejects.toThrow(
       'Личный email уже подтверждён — повторное приглашение не требуется',
@@ -1003,7 +1007,7 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
       row: { id: 'row-1', email: 'ivan.personal@gmail.com', canLogin: false },
     })
     const service = makeUsersService(db)
-    const result = await service.resendPersonalEmailInvite('u-1')
+    const result = await service.resendPersonalEmailInvite('u-1', 'actor-1')
 
     expect(result.email).toBe('ivan.personal@gmail.com')
     expect(result.displayName).toBe('Ivan Petrov')
@@ -1013,6 +1017,209 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     const insertedArg = values.mock.calls[0]?.[0] as { userEmailId: string; tokenHash: string }
     expect(insertedArg.userEmailId).toBe('row-1')
     expect(insertedArg.tokenHash).toBe(hashInviteToken(result.rawToken))
+  })
+
+  // SR-M-12 (security-review PR #623 round 4): the resend endpoint was the
+  // ONLY write on UsersController with no audit trail. Written directly via
+  // AuditLogService.record() — NOT the @AuditLog decorator, whose automatic
+  // before/after diff only ever looks at the `users` TABLE row, which this
+  // write never touches (only `user_email_invites` does) — see the method's
+  // own doc for why that decorator would have recorded nothing.
+  it('writes its own audit record (actorId threaded through, no @AuditLog decorator to rely on)', async () => {
+    const { db } = makeResendDb({
+      target: { id: 'u-1', displayName: 'Ivan Petrov' },
+      row: { id: 'row-1', email: 'ivan.personal@gmail.com', canLogin: false },
+    })
+    const auditLogService = makeAuditLogService()
+    const service = makeUsersService(db, auditLogService)
+    await service.resendPersonalEmailInvite('u-1', 'admin-7')
+
+    expect(auditLogService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: 'admin-7',
+        targetId: 'u-1',
+        action: 'personal_email_invite_resend',
+      }),
+    )
+  })
+})
+
+describe('UsersService.changePersonalEmail (security-review PR #623 round 4, owner decision)', () => {
+  interface ExistingRow {
+    id: string
+    email: string
+  }
+
+  function makeChangeDb(opts: {
+    target?: { id: string; email: string; displayName: string }
+    existingRow?: ExistingRow
+    assertConflict?: boolean
+  }) {
+    const selectWhere = vi.fn().mockResolvedValue(opts.target ? [opts.target] : [])
+    const selectChain = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: selectWhere,
+    }
+
+    // Two DIFFERENT db.query.userEmails.findFirst call sites are exercised
+    // in sequence by the real method: (1) the existing-PERSONAL-row lookup,
+    // (2) assertEmailAvailable's own lookup (only reached when a real
+    // change is being made to a non-colliding address) — same underlying
+    // mock function, call-count-ordered, mirrors `makeDb`'s own
+    // selectCallCount convention elsewhere in this file.
+    let findFirstCalls = 0
+    const findFirst = vi.fn().mockImplementation(() => {
+      findFirstCalls++
+      if (findFirstCalls === 1) return Promise.resolve(opts.existingRow)
+      return Promise.resolve(
+        opts.assertConflict ? { userId: 'someone-else', email: 'conflict@example.com' } : undefined,
+      )
+    })
+
+    const deleteWhere = vi.fn().mockResolvedValue(undefined)
+    const deleteMock = vi.fn().mockReturnValue({ where: deleteWhere })
+
+    const newRowReturning = vi.fn().mockResolvedValue([{ id: 'new-row-id' }])
+    const insertValuesChain = {
+      values: vi.fn().mockReturnThis(),
+      returning: newRowReturning,
+      onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+    }
+    const insertMock = vi.fn().mockReturnValue(insertValuesChain)
+
+    const queryChain = { query: { userEmails: { findFirst } } }
+    const txHandle = { ...queryChain, delete: deleteMock, insert: insertMock }
+    const dbHandle = {
+      ...selectChain,
+      ...queryChain,
+      delete: deleteMock,
+      insert: insertMock,
+      transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(txHandle)),
+    }
+    return {
+      db: { db: dbHandle } as unknown as DrizzleDb,
+      deleteMock,
+      deleteWhere,
+      insertMock,
+      newRowReturning,
+      findFirst,
+      transactionMock: dbHandle.transaction,
+    }
+  }
+
+  it('user not found → NotFoundException, nothing touched', async () => {
+    const { db, transactionMock } = makeChangeDb({ target: undefined })
+    const service = makeUsersService(db)
+    const promise = service.changePersonalEmail('ghost-id', 'x@example.com', 'admin-1')
+    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
+    await expect(promise).rejects.toThrow('Пользователь не найден')
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('no-op: resubmitting the SAME address as the existing row → returns null, no transaction, no audit', async () => {
+    const { db, transactionMock } = makeChangeDb({
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      existingRow: { id: 'row-1', email: 'personal@example.com' },
+    })
+    const auditLogService = makeAuditLogService()
+    const service = makeUsersService(db, auditLogService)
+    const result = await service.changePersonalEmail('u-1', 'personal@example.com', 'admin-1')
+    expect(result).toBeNull()
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(auditLogService.record).not.toHaveBeenCalled()
+  })
+
+  it('no-op: no existing row and newEmail=null (nothing to remove) → returns null, no transaction', async () => {
+    const { db, transactionMock } = makeChangeDb({
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      existingRow: undefined,
+    })
+    const service = makeUsersService(db)
+    const result = await service.changePersonalEmail('u-1', null, 'admin-1')
+    expect(result).toBeNull()
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('newEmail equal to the WORK address (case-insensitive) → BadRequestException, no transaction', async () => {
+    const { db, transactionMock } = makeChangeDb({
+      target: { id: 'u-1', email: 'Work@Example.com', displayName: 'Ivan' },
+      existingRow: { id: 'row-1', email: 'personal@example.com' },
+    })
+    const service = makeUsersService(db)
+    const promise = service.changePersonalEmail('u-1', 'work@example.com', 'admin-1')
+    await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+    await expect(promise).rejects.toThrow('Личный email должен отличаться от рабочего')
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('newEmail already in use by another row → ConflictException, no transaction', async () => {
+    const { db, transactionMock } = makeChangeDb({
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      existingRow: { id: 'row-1', email: 'personal@example.com' },
+      assertConflict: true,
+    })
+    const service = makeUsersService(db)
+    const promise = service.changePersonalEmail('u-1', 'taken@example.com', 'admin-1')
+    await expect(promise).rejects.toBeInstanceOf(ConflictException)
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('removal (newEmail=null, existing row present) → deletes the row, does NOT insert, returns null, writes audit', async () => {
+    const { db, transactionMock, deleteMock, insertMock } = makeChangeDb({
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      existingRow: { id: 'row-1', email: 'personal@example.com' },
+    })
+    const auditLogService = makeAuditLogService()
+    const service = makeUsersService(db, auditLogService)
+    const result = await service.changePersonalEmail('u-1', null, 'admin-1')
+
+    expect(result).toBeNull()
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    // Revocation: the OLD row is DELETED — not updated, not left in place.
+    expect(deleteMock).toHaveBeenCalledTimes(1)
+    expect(insertMock).not.toHaveBeenCalled()
+    expect(auditLogService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: 'admin-1',
+        targetId: 'u-1',
+        action: 'personal_email_changed',
+      }),
+    )
+  })
+
+  it('add (no existing row, newEmail provided) → no delete, inserts the new row + issues an invite token', async () => {
+    const { db, transactionMock, deleteMock, insertMock, newRowReturning } = makeChangeDb({
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      existingRow: undefined,
+    })
+    const service = makeUsersService(db)
+    const result = await service.changePersonalEmail('u-1', 'new@example.com', 'admin-1')
+
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    expect(deleteMock).not.toHaveBeenCalled()
+    // Two inserts inside the transaction: the PERSONAL row, then its invite token.
+    expect(insertMock).toHaveBeenCalledTimes(2)
+    expect(newRowReturning).toHaveBeenCalledTimes(1)
+    expect(result?.email).toBe('new@example.com')
+    expect(result?.displayName).toBe('Ivan')
+    expect(result?.rawToken).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('change (existing row present, DIFFERENT newEmail) → deletes the OLD row AND inserts a fresh one — revocation is unconditional', async () => {
+    const { db, transactionMock, deleteMock, insertMock } = makeChangeDb({
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      existingRow: { id: 'old-row-id', email: 'old-personal@example.com' },
+    })
+    const auditLogService = makeAuditLogService()
+    const service = makeUsersService(db, auditLogService)
+    const result = await service.changePersonalEmail('u-1', 'new-personal@example.com', 'admin-1')
+
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    expect(deleteMock).toHaveBeenCalledTimes(1)
+    expect(insertMock).toHaveBeenCalledTimes(2)
+    expect(result?.email).toBe('new-personal@example.com')
+    expect(auditLogService.record).toHaveBeenCalledTimes(1)
   })
 })
 

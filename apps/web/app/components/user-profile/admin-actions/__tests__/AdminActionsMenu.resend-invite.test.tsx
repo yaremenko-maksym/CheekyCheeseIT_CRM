@@ -100,7 +100,7 @@ describe('AdminActionsMenu — resend-invite visibility', () => {
     )
     await openMenu()
     expect(screen.getByTestId('admin-actions-resend-invite')).toHaveTextContent(
-      'Отправить приглашение повторно',
+      'Отправить приглашение снова',
     )
   })
 

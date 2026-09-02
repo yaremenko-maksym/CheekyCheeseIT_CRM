@@ -15,7 +15,14 @@
  *   - Google account email does not match the invited address — rejected
  *     (ForbiddenException), canLogin stays false
  *   - a token issued for one account does not open login for another
+ *     (CR-M-1, code-review round 4: the redirect attempt is made while the
+ *     token is still UNUSED — see that test's own comment for why the
+ *     original ordering passed for the wrong reason)
  *   - resending gates the OLD token (overwritten hash — NotFoundException)
+ *   - changePersonalEmail: security-review PR #623 round 4, owner decision —
+ *     an address that WORKED as a login method a moment ago stops working
+ *     immediately after an admin changes OR removes it (the single most
+ *     important pair of cases in this file — see their own comments)
  *
  * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
  * unset (reports SKIPPED, not silently-passed-with-no-assertions).
@@ -48,6 +55,8 @@ const USER_B_ID = 'a17a0004-0000-0000-0000-000000000002'
 const USER_B_WORK_EMAIL = 'invite-user-b-work@test.spec'
 const USER_B_PERSONAL_EMAIL = 'invite-user-b-personal@test.spec'
 
+const ACTOR_ID = 'a17a0004-0000-0000-0000-00000000000a'
+
 describe.skipIf(!hasDatabaseUrl())(
   'personal-email invite tokens (spec §2, §5) — real DB integration',
   () => {
@@ -73,12 +82,14 @@ describe.skipIf(!hasDatabaseUrl())(
         db,
       })
 
-      // resendPersonalEmailInvite / acceptPersonalEmailInvite only touch
-      // `this.db` — no audit log, no team/project services, no mailer (the
-      // controller sends the email, not the service — see
-      // UsersController.resendPersonalEmailInvite).
+      // resendPersonalEmailInvite / acceptPersonalEmailInvite / changePersonalEmail
+      // touch `this.db` and (security-review PR #623 round 4, SR-M-12 /
+      // personal_email_changed) `this.auditLogService.record(...)` — no
+      // team/project services, no mailer (the controller sends the email,
+      // not the service — see UsersController.resendPersonalEmailInvite).
       usersService = Object.assign(Object.create(UsersService.prototype) as UsersService, {
         db: dbSvc,
+        auditLogService: { record: async () => undefined },
       })
 
       await db
@@ -136,7 +147,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('token used twice — the second accept is rejected (ConflictException)', async () => {
       await resetPersonalRow(USER_A_ID)
-      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID)
+      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID)
 
       await usersService.acceptPersonalEmailInvite(
         rawToken,
@@ -188,7 +199,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('Google account email does not match the invited address — rejected (ForbiddenException), canLogin stays false', async () => {
       await resetPersonalRow(USER_A_ID)
-      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID)
+      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID)
 
       await expect(
         usersService.acceptPersonalEmailInvite(
@@ -206,8 +217,27 @@ describe.skipIf(!hasDatabaseUrl())(
     it('a token issued for one account does not open login for another', async () => {
       await resetPersonalRow(USER_A_ID)
       await resetPersonalRow(USER_B_ID)
-      const { rawToken: tokenA } = await usersService.resendPersonalEmailInvite(USER_A_ID)
-      const { rawToken: tokenB } = await usersService.resendPersonalEmailInvite(USER_B_ID)
+      const { rawToken: tokenA } = await usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID)
+      const { rawToken: tokenB } = await usersService.resendPersonalEmailInvite(USER_B_ID, ACTOR_ID)
+
+      // CR-M-1 (code-review PR #623 round 4): this redirect attempt is made
+      // FIRST, while tokenA is still UNUSED — proven by mutation (disabling
+      // the email-match check in acceptPersonalEmailInvite) that the
+      // ORIGINAL ordering here (redirect-attempt AFTER A's own accept) let
+      // this exact assertion pass for the WRONG reason: tokenA was already
+      // "used" by then, so it threw ConflictException regardless of whether
+      // the email-match check existed at all. With tokenA still live, the
+      // ONLY thing that can reject this is the address check itself — the
+      // row a token resolves to is fixed at issue time (FK on
+      // user_email_id), not something the caller can redirect by supplying
+      // a DIFFERENT invited address.
+      await expect(
+        usersService.acceptPersonalEmailInvite(tokenA, USER_B_PERSONAL_EMAIL, 'google-sub-b-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+      // Rejected on the address mismatch specifically — A's row is
+      // untouched, not consumed by the failed redirect attempt.
+      const rowAAfterRedirectAttempt = await personalRow(USER_A_ID)
+      expect(rowAAfterRedirectAttempt.canLogin).toBe(false)
 
       // Accepting A's token with A's OWN address succeeds and touches ONLY A.
       await usersService.acceptPersonalEmailInvite(tokenA, USER_A_PERSONAL_EMAIL, 'google-sub-a-3')
@@ -225,18 +255,25 @@ describe.skipIf(!hasDatabaseUrl())(
       const rowBAfter = await personalRow(USER_B_ID)
       expect(rowBAfter.canLogin).toBe(true)
 
-      // And A's token cannot be reused to open B's row via a mismatched
-      // address — the row a token resolves to is fixed at issue time
-      // (FK on user_email_id), not something the caller can redirect.
+      // NOW tokenA is genuinely used — reusing it (even with A's own
+      // correct address) is rejected as "already used", a DIFFERENT and
+      // already-covered situation (see the "token used twice" case above)
+      // — not the mismatch this test exists to prove.
       await expect(
         usersService.acceptPersonalEmailInvite(tokenA, USER_B_PERSONAL_EMAIL, 'google-sub-b-1'),
-      ).rejects.toBeInstanceOf(ConflictException) // already used (by A's own accept above)
+      ).rejects.toBeInstanceOf(ConflictException)
     })
 
     it('resending gates the OLD token — old raw token rejected (NotFoundException), new one works', async () => {
       await resetPersonalRow(USER_A_ID)
-      const { rawToken: firstToken } = await usersService.resendPersonalEmailInvite(USER_A_ID)
-      const { rawToken: secondToken } = await usersService.resendPersonalEmailInvite(USER_A_ID)
+      const { rawToken: firstToken } = await usersService.resendPersonalEmailInvite(
+        USER_A_ID,
+        ACTOR_ID,
+      )
+      const { rawToken: secondToken } = await usersService.resendPersonalEmailInvite(
+        USER_A_ID,
+        ACTOR_ID,
+      )
       expect(secondToken).not.toBe(firstToken)
 
       // The OLD token's hash no longer exists in the DB at all — this is
@@ -259,16 +296,111 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('resendPersonalEmailInvite refuses once the address is already confirmed (ConflictException)', async () => {
       await resetPersonalRow(USER_A_ID)
-      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID)
+      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID)
       await usersService.acceptPersonalEmailInvite(
         rawToken,
         USER_A_PERSONAL_EMAIL,
         'google-sub-a-5',
       )
 
-      await expect(usersService.resendPersonalEmailInvite(USER_A_ID)).rejects.toBeInstanceOf(
-        ConflictException,
+      await expect(
+        usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID),
+      ).rejects.toBeInstanceOf(ConflictException)
+    })
+
+    // security-review PR #623 round 4 — owner decision, the single most
+    // important test of this round: "туда будет всегда попадать валидная
+    // почта. В случае чего, мы можем быстро изменить почту, что за собой
+    // изменит и правила для входа и со старой указанной почты уже нельзя
+    // будет войти". This test is that promise, proven against real
+    // Postgres: an address that WORKED as a login method a moment ago must
+    // NOT work after an admin replaces it — unconditionally, not merely
+    // "pending re-verification".
+    it('changePersonalEmail: the OLD address stops logging in immediately after a change — even though it worked before', async () => {
+      await resetPersonalRow(USER_A_ID)
+      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID)
+      await usersService.acceptPersonalEmailInvite(
+        rawToken,
+        USER_A_PERSONAL_EMAIL,
+        'google-sub-revocation-1',
       )
+
+      // Before the change: genuinely a working login method, verified
+      // through the SAME lookup the real OAuth callback uses.
+      const beforeChange = await usersService.findLoginableEmailRow(USER_A_PERSONAL_EMAIL)
+      expect(beforeChange).not.toBeUndefined()
+      expect(beforeChange?.canLogin).toBe(true)
+
+      const NEW_PERSONAL_EMAIL = 'invite-user-a-personal-changed@test.spec'
+      const result = await usersService.changePersonalEmail(USER_A_ID, NEW_PERSONAL_EMAIL, ACTOR_ID)
+      expect(result?.email).toBe(NEW_PERSONAL_EMAIL)
+
+      // The OLD address cannot log in any more — the row that carried
+      // `canLogin=true` for it does not exist any more (deleted, not
+      // merely flipped back to false — see the method's own doc for why
+      // that distinction is the whole point).
+      const afterChangeOld = await usersService.findLoginableEmailRow(USER_A_PERSONAL_EMAIL)
+      expect(afterChangeOld).toBeUndefined()
+
+      // The NEW address exists but is NOT yet a login method — same
+      // invite-required posture as any other personal address.
+      const newRow = await personalRow(USER_A_ID)
+      expect(newRow.email).toBe(NEW_PERSONAL_EMAIL)
+      expect(newRow.canLogin).toBe(false)
+      expect(newRow.googleId).toBeNull()
+      expect(newRow.verifiedAt).toBeNull()
+
+      // The OLD row's Google-identity binding is gone WITH it — accepting a
+      // FRESH invite on the NEW address with the SAME Google account that
+      // used to own the old one works cleanly (no stale
+      // idx_user_emails_google_id collision left behind by the deleted row).
+      const newInvite = await usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID)
+      await usersService.acceptPersonalEmailInvite(
+        newInvite.rawToken,
+        NEW_PERSONAL_EMAIL,
+        'google-sub-revocation-1', // same sub as before the change
+      )
+      const finalRow = await personalRow(USER_A_ID)
+      expect(finalRow.canLogin).toBe(true)
+      expect(finalRow.googleId).toBe('google-sub-revocation-1')
+
+      // And the OLD address is STILL not a login method, whatever happened
+      // to the new one — this is not "swapped which one is active", the
+      // old row simply does not exist.
+      const oldAfterAll = await usersService.findLoginableEmailRow(USER_A_PERSONAL_EMAIL)
+      expect(oldAfterAll).toBeUndefined()
+    })
+
+    it('changePersonalEmail: removal (personalEmail: null) also revokes an already-working address', async () => {
+      await resetPersonalRow(USER_B_ID)
+      const { rawToken } = await usersService.resendPersonalEmailInvite(USER_B_ID, ACTOR_ID)
+      await usersService.acceptPersonalEmailInvite(
+        rawToken,
+        USER_B_PERSONAL_EMAIL,
+        'google-sub-removal-1',
+      )
+      expect((await usersService.findLoginableEmailRow(USER_B_PERSONAL_EMAIL))?.canLogin).toBe(true)
+
+      const result = await usersService.changePersonalEmail(USER_B_ID, null, ACTOR_ID)
+      expect(result).toBeNull()
+
+      expect(await usersService.findLoginableEmailRow(USER_B_PERSONAL_EMAIL)).toBeUndefined()
+      const rowAfter = await dbSvc.db.query.userEmails.findFirst({
+        where: and(eq(userEmails.userId, USER_B_ID), eq(userEmails.kind, 'PERSONAL')),
+      })
+      expect(rowAfter).toBeUndefined()
+
+      // Restore the fixture for any test ordering assumption elsewhere in
+      // this file (personalRow() throws if the row is missing).
+      await dbSvc.db
+        .insert(userEmails)
+        .values({
+          userId: USER_B_ID,
+          email: USER_B_PERSONAL_EMAIL,
+          kind: 'PERSONAL',
+          canLogin: false,
+        })
+        .onConflictDoNothing()
     })
   },
 )

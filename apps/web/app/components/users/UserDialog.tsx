@@ -1147,7 +1147,14 @@ export function UserDialog(props: UserDialogProps) {
                         <Field
                           label="Личный email (необязательно)"
                           error={err}
-                          hint="Не даёт входа сам по себе — станет способом входа только после приглашения"
+                          // COPY-M-6 (copy-review PR #623 round 4): the OLD
+                          // hint repeated "входа" twice and, more
+                          // importantly, didn't say the one thing the admin
+                          // needs to know BEFORE clicking «Создать» — the
+                          // invite email goes out immediately on save
+                          // (UsersService.createUser calls sendInvite in the
+                          // same request).
+                          hint="На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес."
                         >
                           <Input
                             type="email"
