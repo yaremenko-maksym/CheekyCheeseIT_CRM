@@ -8568,6 +8568,22 @@ export class TransactionsService {
    *
    * Not fixed here (deliberately, different zone + PR #541, since merged): the
    * re-attach itself in `ProjectsService.addMember`. Tracked separately.
+   *
+   * security-review round 3 (SR-H-1, task-project-draft-status): same shape
+   * of gap, one door over. `ProjectsService.addMember` does not gate on
+   * `project.status` either — a JUNIOR can be seated on a DRAFT (or
+   * REJECTED) project, and until this check existed this resolver minted
+   * them a fresh PENDING salary every month regardless, bypassing
+   * `assertProjectActive` entirely (that guard only sits on the 4
+   * income-CREATION entry points in this file — the salary cron is a 5th
+   * door with no fetch+check call site to fuse it into). Per the SAME
+   * precedent as the archival check three paragraphs up: the fix belongs in
+   * THIS resolver's loop, not in `addMember` — Drizzle's relational API
+   * cannot filter `project_members` parent rows by the related `project`'s
+   * `status` column either, so the check joins its sibling `user.archivedAt`
+   * check below rather than living in the query. `project.status` is read
+   * off the SAME already-fetched `with: { project }` relation this resolver
+   * already loads — no extra query.
    */
   private async resolveJuniorSalaryReceivers(): Promise<
     Array<{
@@ -8624,6 +8640,12 @@ export class TransactionsService {
       // `user.archivedAt` — see the method comment: a dismissed junior whose
       // membership was re-opened must not be accrued a new salary.
       if (!user || user.role !== 'JUNIOR' || user.archivedAt || !project) continue
+      // SR-H-1 — see the method comment: a DRAFT (never agreed) or REJECTED
+      // (explicitly declined) project must not mint money, same Д2 rule
+      // `assertProjectActive` enforces on the 4 income-creation entry
+      // points. `project.status` comes off the relation already loaded
+      // above — no extra fetch.
+      if (project.status !== 'ACTIVE') continue
       if (seenReceiverIds.has(user.id)) continue
 
       // Resolve salary: project override → user default

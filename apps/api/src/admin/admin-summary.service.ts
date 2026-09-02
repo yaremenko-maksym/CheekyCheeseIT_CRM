@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common'
-import { desc, eq, inArray, sql } from 'drizzle-orm'
+import { desc, eq, gte, inArray, lt, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { SessionUser, AdminSummary } from '@crm/shared'
 import { adminSummarySchema } from '@crm/shared'
@@ -86,21 +86,34 @@ export class AdminSummaryService {
     // security-review PR #456 (LOW, round 2): the original hand-typed
     // literal `p.id` inside the subquery below relied on an EXPLICIT
     // `alias(projects, 'p')` to guarantee the name "p" matched the FROM
-    // target. task-project-draft-status swapped the FROM target to
-    // `visibleProjects` (the VIEW, already `status = 'ACTIVE' AND
-    // archived_at IS NULL` — the old `${p.archivedAt} is null` filter is
-    // dropped entirely, not kept redundant) — and `alias()` on a Drizzle
-    // VIEW does NOT render an `AS <alias>` the way it does for a TABLE
-    // (confirmed against real Postgres: it silently produced `FROM "p"`,
-    // "relation p does not exist" — a real bug caught by
-    // admin-summary.integration.spec.ts, not by the mocked unit spec, which
-    // cannot execute real SQL). Fixed by using `visibleProjects` UNALIASED
-    // and referencing its columns via INTERPOLATION (`${visibleProjects.id}`)
-    // instead of hand-typed text — the same "self-heals via full
-    // qualification" property the round-2 review already documented for
-    // `${p.archivedAt}` now does the job the alias used to do, without an
-    // alias, because the interpolated form was never actually alias-shaped
-    // text to begin with.
+    // target.
+    //
+    // security-review round 3 (SR-H-2, task-project-draft-status): the
+    // "self-heals via full qualification" claim this comment used to make
+    // about bare `${visibleProjects.id}` interpolation was WRONG. A Column
+    // interpolated BARE inside a hand-written `sql` template de-qualifies to
+    // just its own name (`"id"`) whenever that column's table is also the
+    // OUTER query's `.from(...)` target — which it is here
+    // (`.from(visibleProjects)`). Drizzle assumes "this is my own FROM
+    // table, no ambiguity" and drops the table prefix — but this reference
+    // sits inside a NESTED correlated subquery, where Postgres resolves the
+    // bare `"id"` against the SUBQUERY's own FROM instead of the intended
+    // outer row. Verified by compiling `.toSQL()` on the real query builder:
+    // bare interpolation rendered `t.project_id = "id"` — always false — so
+    // `projectsUnpaidThisMonth` counted EVERY visible project as unpaid
+    // regardless of any matching income. Caught by
+    // `transaction-soft-delete-balance-regression.integration.spec.ts`, not
+    // by any unit spec — no unit double executes real SQL.
+    //
+    // Fix: route every predicate through drizzle's comparison helpers
+    // (`eq`/`inArray`/`gte`/`lt`) instead of hand-typed `t.`-prefixed SQL
+    // text. A Column wrapped by a helper is ALWAYS rendered fully qualified
+    // with its real table name (verified by the same `.toSQL()` probe:
+    // `"non_deleted_transactions"."project_id" = "visible_projects"."id"`) —
+    // the de-qualification shortcut above only fires for a column
+    // interpolated bare. This also drops the hand-typed subquery alias (`t`)
+    // entirely, so there is no second name for Postgres to resolve a stray
+    // bare reference against even by accident.
     const projQuery = db
       .select({
         activeProjects: sql<number>`count(*)`.mapWith(Number),
@@ -108,14 +121,13 @@ export class AdminSummaryService {
           // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW) —
           // a deleted income cannot satisfy this NOT EXISTS check no matter
           // what, there is no `deleted_at is null` clause to omit (see
-          // schema.ts's doc on the view). Replaces the round-1 hand-written
-          // `and t.deleted_at is null` line.
+          // schema.ts's doc on the view).
           sql<number>`count(*) filter (where not exists (
-          select 1 from ${nonDeletedTransactions} t
-          where t.project_id = ${visibleProjects.id}
-            and t.type in ('ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME')
-            and t.tx_date >= ${monthStart}
-            and t.tx_date < ${nextMonthStart}
+          select 1 from ${nonDeletedTransactions}
+          where ${eq(nonDeletedTransactions.projectId, visibleProjects.id)}
+            and ${inArray(nonDeletedTransactions.type, ['ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME'])}
+            and ${gte(nonDeletedTransactions.txDate, monthStart)}
+            and ${lt(nonDeletedTransactions.txDate, nextMonthStart)}
         ))`.mapWith(Number),
       })
       .from(visibleProjects)
