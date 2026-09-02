@@ -1,8 +1,67 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import tseslint from '@typescript-eslint/eslint-plugin'
 import tsparser from '@typescript-eslint/parser'
 import vitest from '@vitest/eslint-plugin'
 
 import { vitestTestQualityRules } from '../../eslint.test-rules.mjs'
+
+/**
+ * task-project-draft-status security-review round 3 (SR-H-3): the ORIGINAL
+ * version of the `with: { <key>: ... }` ban below hand-enumerated a SINGLE
+ * relation key name (`projects`) — but Drizzle relation keys are arbitrary
+ * strings chosen per-table in schema.ts (`dropProjects: many(projects, ...)`,
+ * `project: one(projects, ...)` (six different source tables), `target:
+ * one(projects, ...)`), and a hand-typed single-key list silently misses
+ * every other one. Proven live before this fix: `db.query.projectMembers
+ * .findMany({ with: { project: true } })` passed this rule with ZERO
+ * errors — one of THOSE 11 real `with: { project: ... }` call sites in this
+ * codebase is exactly the mechanism behind SR-H-1 (the salary cron minting
+ * money against a DRAFT/REJECTED project).
+ *
+ * Fix: derive the banned key list MECHANICALLY from schema.ts itself
+ * instead of enumerating it by hand — scan for every
+ * `<key>: (one|many)(projects, ...)` relation definition and ban whatever
+ * key names come back. A NEW relation added to `projects` under a new key
+ * name is caught automatically the next time ESLint runs, with no human
+ * required to remember to widen this file — the same 'eliminate, don't
+ * detect' shape the rest of this ban already follows, applied to the ban's
+ * OWN maintenance instead of just the code it scans.
+ */
+function deriveProjectRelationKeys() {
+  const schemaPath = path.resolve(
+    fileURLToPath(new URL('.', import.meta.url)),
+    'src/database/schema.ts',
+  )
+  const src = readFileSync(schemaPath, 'utf8')
+  const keys = new Set()
+  // `<identifier>: one(projects` / `<identifier>: many(projects` — the exact
+  // call shape Drizzle relation definitions use to point AT this table (see
+  // `projectsRelations` and its callers in schema.ts). Deliberately does NOT
+  // require the enclosing `relations(...)` block's own table name — the call
+  // shape itself (`one`/`many` applied directly to the `projects` table
+  // symbol) is specific enough not to false-match anything else in the file.
+  const RELATION_TO_PROJECTS = /(\w+):\s*(?:one|many)\(\s*projects\b/g
+  let match
+  while ((match = RELATION_TO_PROJECTS.exec(src)) !== null) {
+    keys.add(match[1])
+  }
+  if (keys.size === 0) {
+    // Fail LOUD, not silently permissive: an empty derived list would widen
+    // to a selector matching nothing at all, and the ban would go dark
+    // without any error signal — worse than the hand-typed list it replaces.
+    throw new Error(
+      'eslint.config.mjs: derived ZERO relation keys pointing at `projects` from ' +
+        'schema.ts — the scan regex or schema.ts itself changed shape. Fix the ' +
+        'regex in deriveProjectRelationKeys() before this ban can run.',
+    )
+  }
+  return [...keys]
+}
+
+const PROJECT_RELATION_KEYS = deriveProjectRelationKeys()
 
 export default [
   {
@@ -204,7 +263,7 @@ export default [
                 'Import `visibleProjects` (the VIEW) for list/aggregate/join reads instead — see ' +
                 'schema.ts for why. If this read genuinely needs to see every status (narrow ' +
                 'admin/approver path, or a write), it belongs in apps/api/src/projects/** — see ' +
-                'this rule\'s own comment in eslint.config.mjs for the full exception list.',
+                "this rule's own comment in eslint.config.mjs for the full exception list.",
             },
           ],
         },
@@ -212,12 +271,18 @@ export default [
       'no-restricted-syntax': [
         'error',
         {
-          selector: "Property[key.name='projects']",
+          // SR-H-3: selector built from PROJECT_RELATION_KEYS (derived above
+          // from schema.ts itself) instead of a single hand-typed key name —
+          // catches `with: { project: ... }`, `with: { dropProjects: ... }`,
+          // `with: { target: ... }`, etc., not just `with: { projects: ... }`.
+          selector: `Property[key.name=/^(${PROJECT_RELATION_KEYS.join('|')})$/]`,
           message:
-            'A relational `with: { projects: ... }` include reaches raw, unfiltered project rows ' +
-            "(via usersRelations.projects's string key) without importing the `projects` symbol — " +
-            'the import-ban above cannot see it. Use `visibleProjects` via an explicit query-builder ' +
-            'select/join instead of a relational traversal into this table.',
+            'A relational `with: { <key>: ... }` include reaches raw, unfiltered project rows ' +
+            `(one of: ${PROJECT_RELATION_KEYS.join(', ')} — every key in schema.ts whose relation ` +
+            "points at the `projects` table, see this rule's own comment in eslint.config.mjs) " +
+            'without importing the `projects` symbol — the import-ban above cannot see it. Use ' +
+            '`visibleProjects` via an explicit query-builder select/join instead of a relational ' +
+            'traversal into this table.',
         },
         {
           // Scoped to `<x>.query.projects` specifically (object.property.name
