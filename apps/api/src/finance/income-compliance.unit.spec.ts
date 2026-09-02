@@ -26,6 +26,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { collectParamValues } from './__test-helpers__/drizzle-where-introspection'
+import { visibleProjects } from '../database/schema'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -52,14 +53,30 @@ interface StubData {
  * getIncomeComplianceOverview: projects.findMany (active projects),
  * users.findMany (owners), transactions.findMany (income rows for the month).
  */
+// task-project-draft-status: `getIncomeComplianceOverview`'s "active
+// projects" read now goes through `visibleProjects` (VIEW, not the
+// relational-query API — views aren't registered there, see that read's own
+// comment in transactions.service.ts) via a plain
+// `.select({...}).from(visibleProjects)` — no `.where()`/`.orderBy()` chained
+// after it, unlike the senior-summary read, so the stub only needs to resolve
+// the array directly.
+function selectStub(data: StubData) {
+  return () => ({
+    from: (table: unknown) => {
+      if (table === visibleProjects) return Promise.resolve(data.projects ?? [])
+      return Promise.resolve([])
+    },
+  })
+}
+
 function makeService(data: StubData = {}): TransactionsService {
   const dbStub = {
     db: {
       query: {
-        projects: { findMany: () => Promise.resolve(data.projects ?? []) },
         users: { findMany: () => Promise.resolve(data.users ?? []) },
         transactions: { findMany: () => Promise.resolve(data.transactions ?? []) },
       },
+      select: selectStub(data),
     },
   }
   return makeTransactionsService({ db: dbStub as never })
@@ -92,7 +109,6 @@ function makeServiceCapturingTransactionsWhere(data: StubData = {}): {
   const dbStub = {
     db: {
       query: {
-        projects: { findMany: () => Promise.resolve(data.projects ?? []) },
         users: { findMany: () => Promise.resolve(data.users ?? []) },
         transactions: {
           findMany: (args?: { where?: unknown; columns?: Record<string, boolean> }) => {
@@ -102,6 +118,7 @@ function makeServiceCapturingTransactionsWhere(data: StubData = {}): {
           },
         },
       },
+      select: selectStub(data),
     },
   }
   return {

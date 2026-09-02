@@ -66,8 +66,10 @@ import {
   transactions,
   transactionAuditLog,
   users,
+  visibleProjects,
   type Transaction,
 } from '../database/schema'
+import { assertProjectActive } from '../projects/project-status.util'
 import type { DrizzleTx } from '../database/types'
 import { isUniqueViolation, uniqueViolationConstraint } from '../database/pg-errors'
 import {
@@ -1804,10 +1806,15 @@ export class TransactionsService {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
       throw new ForbiddenException()
 
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, data.projectId),
-    })
-    if (!project) throw new NotFoundException('Project not found')
+    // task-project-draft-status (Д2): fused fetch+status guard — a DRAFT or
+    // REJECTED project must never accrue income. See project-status.util.ts's
+    // own doc for why this is one call, not a fetch followed by a separate
+    // check.
+    const project = assertProjectActive(
+      await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, data.projectId),
+      }),
+    )
 
     let projectOwnerId: string
     if (currentUser.role === 'ADMIN') {
@@ -2077,10 +2084,12 @@ export class TransactionsService {
     )
     if (receiptErr) throw new BadRequestException(receiptErr)
 
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, data.projectId),
-    })
-    if (!project) throw new NotFoundException('Project not found')
+    // task-project-draft-status (Д2): fused fetch+status guard.
+    const project = assertProjectActive(
+      await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, data.projectId),
+      }),
+    )
     // Gate: this flow is ONLY for USDT-payment projects (D2). FOP/GIG income is
     // declared by the SENIOR/DROP themselves via createSeniorIncome/DropIncome.
     if (project.paymentType !== 'USDT') {
@@ -2309,11 +2318,13 @@ export class TransactionsService {
     })
     if (seniorIncomeReplay) return this.findOne(seniorIncomeReplay.id, currentUser)
 
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, data.projectId),
-      with: { financeSettings: true },
-    })
-    if (!project) throw new NotFoundException('Project not found')
+    // task-project-draft-status (Д2): fused fetch+status guard.
+    const project = assertProjectActive(
+      await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, data.projectId),
+        with: { financeSettings: true },
+      }),
+    )
     if (project.seniorId !== currentUser.id) {
       throw new ForbiddenException('You can only add income for your own projects')
     }
@@ -2463,10 +2474,12 @@ export class TransactionsService {
     })
     if (dropIncomeReplay) return this.findOne(dropIncomeReplay.id, currentUser)
 
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, data.projectId),
-    })
-    if (!project) throw new NotFoundException('Project not found')
+    // task-project-draft-status (Д2): fused fetch+status guard.
+    const project = assertProjectActive(
+      await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, data.projectId),
+      }),
+    )
     // The drop can only declare income on a drop-project routed through them.
     if (project.dropId !== currentUser.id) {
       throw new ForbiddenException('Это не drop-проект под вами')
@@ -7309,10 +7322,18 @@ export class TransactionsService {
     // ── 1. Active own senior-projects + effective share % ──────────────────────
     // Self-scope at the DB level: only projects where seniorId === self AND not
     // archived. No other senior's project can ever surface here.
-    const ownProjects = await this.db.db.query.projects.findMany({
-      where: and(eq(projects.seniorId, selfId), isNull(projects.archivedAt)),
-      orderBy: (table, { desc: d }) => [d(table.createdAt)],
-    })
+    // task-project-draft-status: sourced from `visibleProjects` — a DRAFT or
+    // REJECTED project of the senior's own must not show as "active" here
+    // either (it never accrued income and never will until confirmed).
+    // Views are not registered in Drizzle's relational-query schema config
+    // (same reason `nonDeletedTransactions` reads use explicit
+    // select/join elsewhere in this file), so `db.query.projects.findMany`
+    // is replaced with an explicit select + orderBy.
+    const ownProjects = await this.db.db
+      .select()
+      .from(visibleProjects)
+      .where(eq(visibleProjects.seniorId, selfId))
+      .orderBy(desc(visibleProjects.createdAt))
 
     // Effective share resolution reuses the canonical resolver
     // (project override → single active team override → user default). One
@@ -7567,10 +7588,22 @@ export class TransactionsService {
     // One pass: a project contributes to its SENIOR owner (always) AND to its
     // DROP owner (when dropId is set). The owner's role decides the income type
     // we look for (SENIOR_INCOME vs ADMIN_INCOME vs DROP_INCOME).
-    const activeProjects = await this.db.db.query.projects.findMany({
-      where: isNull(projects.archivedAt),
-      columns: { id: true, name: true, companyName: true, seniorId: true, dropId: true },
-    })
+    // task-project-draft-status: sourced from `visibleProjects` — a DRAFT or
+    // REJECTED project cannot have declared income yet (Д2 refuses
+    // transaction creation on either), so including it here would only ever
+    // show a false "hasn't submitted income" flag. Views are not registered
+    // in Drizzle's relational-query schema config (same reason as the
+    // `ownProjects` read above), so `db.query.projects.findMany` is replaced
+    // with an explicit select.
+    const activeProjects = await this.db.db
+      .select({
+        id: visibleProjects.id,
+        name: visibleProjects.name,
+        companyName: visibleProjects.companyName,
+        seniorId: visibleProjects.seniorId,
+        dropId: visibleProjects.dropId,
+      })
+      .from(visibleProjects)
 
     if (activeProjects.length === 0) {
       return {
