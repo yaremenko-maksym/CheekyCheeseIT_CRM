@@ -68,6 +68,10 @@ export class UsersAccessService {
           // rely on the UI + the service's own state checks, not on
           // narrowing THIS list per-target).
           'resend-personal-invite',
+          // security-review PR #623 round 4, owner decision: unlike the
+          // action above, NOT further gated on canLogin state — must stay
+          // usable both before and after an invite is accepted.
+          'change-personal-email',
         )
       }
       // ADMIN viewing self: hide own salary/share/payment-method/registration-date KPIs (own

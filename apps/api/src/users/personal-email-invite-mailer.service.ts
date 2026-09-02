@@ -26,6 +26,15 @@
  * documents: this service logs + telemetry-records and returns, it does not
  * throw and does not block user creation. The invite row still exists, so an
  * admin can resend once a key is provisioned.
+ *
+ * copy-review PR #623 (COPY-M-1): `sendInvite` RETURNS whether delivery
+ * actually succeeded (`false` on any exhausted-retry failure or missing API
+ * key) instead of always resolving — a caller whose only user-visible signal
+ * IS the send outcome (the resend-invite/change-personal-email toasts) must
+ * not report "отправлено" when nothing left this process. `createUser`
+ * deliberately still ignores the return value (see the comment above): user
+ * creation itself must not fail on a mail-provider hiccup, and its own
+ * response has no dedicated "was the invite email delivered" UI slot today.
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -86,7 +95,13 @@ export class PersonalEmailInviteMailerService {
     this.replyTo = config.get('CONTACT_PUBLIC_EMAIL', { infer: true })
   }
 
-  async sendInvite(input: SendInviteInput): Promise<void> {
+  /**
+   * Returns `true` when the mail was actually handed off to Resend
+   * successfully, `false` on every other outcome (no API key configured, or
+   * every retry attempt failed) — see the module doc (COPY-M-1) for why the
+   * caller needs this instead of a bare `Promise<void>`.
+   */
+  async sendInvite(input: SendInviteInput): Promise<boolean> {
     if (!this.mailer.isConfigured) {
       this.logger.warn(
         `sendInvite(): RESEND_API_KEY not configured — invite token was created but no email was sent (use "resend invite" once a key is provisioned)`,
@@ -97,41 +112,61 @@ export class PersonalEmailInviteMailerService {
         route: '/api/users',
         meta: {},
       })
-      return
+      return false
     }
 
     const link = `${this.apiUrl}/auth/invite/${input.rawToken}`
     const subject = 'Доступ к CRM CheekyCheeseIT'
-    const displayName = escapeHtml(input.displayName)
+    // copy-review PR #623 (COPY-L-2): the DB carries the full legal display
+    // name (often Latin-script, e.g. "Oleksiy Kovalenko") — greeting by the
+    // full name in a Russian-language email reads as a mail-merge. First
+    // whitespace-separated token only; falls back to the whole string for a
+    // single-word name (never empty — `displayName` is required at creation).
+    const firstName = escapeHtml(input.displayName.trim().split(/\s+/)[0] ?? input.displayName)
 
     // Spec §11 rules, verbatim: one button, no thank-you/pleasantries, last
     // line is a protective disclaimer (not politeness) — see the module doc
     // and the task file's own quote of the owner-approved copy. Table-based
     // layout + inline styles — spec §12: "Почтовые клиенты — не браузеры".
+    // copy-review PR #623 (COPY-H-1/M-4/M-5/M-9): button names the actual
+    // outcome ("Подтвердить адрес", not "Войти в CRM" — the link does not
+    // mint a session, see AuthController.googleCallback's invite branch);
+    // body states the cost of doing nothing (COPY-M-4); the disclaimer is
+    // full body weight + bold, not the smallest/palest text on the page
+    // (COPY-M-5); outer table is `width="100%" max-width:480px` with a
+    // viewport meta tag so a mobile client scales it instead of forcing a
+    // horizontal scrollbar (COPY-M-9, measured at 320px).
     const html = `<!DOCTYPE html>
 <html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
 <body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:32px 0;">
     <tr>
       <td align="center">
-        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
             <td style="padding:32px 32px 24px 32px;">
               <p style="margin:0 0 16px 0;font-size:16px;line-height:24px;color:#18181b;">
-                ${displayName}, этот адрес указан как ваш личный email в CRM CheekyCheeseIT.
+                ${firstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.
+              </p>
+              <p style="margin:0 0 4px 0;font-size:16px;line-height:24px;color:#18181b;">
+                Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.
               </p>
               <p style="margin:0 0 24px 0;font-size:16px;line-height:24px;color:#18181b;">
-                Перейдите по ссылке и войдите через Google, чтобы использовать этот адрес для входа.
+                Пока не подтвердите, вход работает только по рабочему.
               </p>
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="border-radius:6px;background-color:#18181b;">
-                    <a href="${link}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:bold;">Войти в CRM</a>
+                    <a href="${link}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:bold;">Подтвердить адрес</a>
                   </td>
                 </tr>
               </table>
-              <p style="margin:24px 0 0 0;font-size:13px;line-height:20px;color:#71717a;">
-                Если письмо пришло по ошибке, не переходите по ссылке.
+              <p style="margin:24px 0 0 0;font-size:16px;line-height:24px;color:#18181b;">
+                Если письмо пришло по ошибке, <strong>не переходите по ссылке</strong>.
               </p>
             </td>
           </tr>
@@ -143,15 +178,17 @@ export class PersonalEmailInviteMailerService {
 </html>`
 
     const text = [
-      `${input.displayName}, этот адрес указан как ваш личный email в CRM CheekyCheeseIT.`,
+      `${input.displayName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
       '',
-      'Перейдите по ссылке и войдите через Google, чтобы использовать этот адрес для входа:',
+      'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
+      'Пока не подтвердите, вход работает только по рабочему.',
+      '',
       link,
       '',
       'Если письмо пришло по ошибке, не переходите по ссылке.',
     ].join('\n')
 
-    await this.sendWithRetry({ to: [input.to], subject, text, html, replyTo: this.replyTo })
+    return this.sendWithRetry({ to: [input.to], subject, text, html, replyTo: this.replyTo })
   }
 
   private async sendWithRetry(input: {
@@ -160,18 +197,21 @@ export class PersonalEmailInviteMailerService {
     text: string
     html: string
     replyTo: string
-  }): Promise<void> {
+  }): Promise<boolean> {
     let lastError: unknown
     for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
       try {
         await this.mailer.send(input)
-        return
+        return true
       } catch (err) {
         lastError = err
+        // LOW-3 (security-review PR #623 round 4): `err.message` can echo
+        // back Resend's own response body, which sometimes quotes the
+        // rejected recipient address — see `safeErrorReason`'s doc below.
+        // The per-attempt WARN line is exactly the same leak channel as the
+        // telemetry record two catches down, just to a different sink.
         this.logger.warn(
-          `sendInvite(): Resend send attempt ${attempt}/${MAX_SEND_ATTEMPTS} failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
+          `sendInvite(): Resend send attempt ${attempt}/${MAX_SEND_ATTEMPTS} failed: ${safeErrorReason(err)}`,
         )
         if (attempt < MAX_SEND_ATTEMPTS) {
           await sleep(RETRY_BACKOFF_MS)
@@ -179,14 +219,41 @@ export class PersonalEmailInviteMailerService {
       }
     }
 
-    // PII note: never log the recipient address — only the failure reason
-    // and the fixed route string, mirroring ContactService.sendWithRetry.
+    // PII note (LOW-3, security-review PR #623 round 4): `lastError.message`
+    // can echo back the value Resend rejected — e.g. its own validation
+    // error quotes the malformed recipient address, which is exactly the
+    // PII this file otherwise never logs (ContactService.sendWithRetry's own
+    // rule, mirrored here). Record a fixed, non-quoting reason instead of
+    // the raw message — the failure is still visible in the digest an
+    // assistant reads, just without echoing anything the provider sent back.
     await this.telemetry.recordError({
       source: 'API',
       message: 'Personal-email invite delivery failed after retries',
       route: '/api/users',
-      meta: { reason: lastError instanceof Error ? lastError.message : String(lastError) },
+      meta: { reason: safeErrorReason(lastError) },
     })
     // Deliberately swallowed — see module doc for why this must not throw.
+    return false
   }
+}
+
+/**
+ * LOW-3 (security-review PR #623 round 4): `ResendMailerService.send`
+ * throws a plain `Error` whose `.message` is `Resend API HTTP <status>: <body
+ * snippet>` (`resend-mailer.service.ts`) — the body snippet is Resend's OWN
+ * error text, which for a malformed/rejected recipient sometimes quotes that
+ * address back. Neither log sink in this file is allowed to carry PII
+ * (module doc, mirroring `ContactService`), so this extracts ONLY the
+ * `HTTP <status>` prefix when the message has that shape — useful enough to
+ * tell "bad request" from "provider down" apart in the digest — and falls
+ * back to the error's constructor name (e.g. `TypeError` for a network
+ * failure) otherwise. Never returns anything from `.message` itself.
+ */
+function safeErrorReason(err: unknown): string {
+  if (err instanceof Error) {
+    const statusMatch = /^Resend API HTTP (\d+)/.exec(err.message)
+    if (statusMatch) return `Resend API HTTP ${statusMatch[1]}`
+    return err.constructor.name
+  }
+  return 'unknown'
 }

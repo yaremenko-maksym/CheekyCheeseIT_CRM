@@ -21,6 +21,7 @@ function compact<T>(obj: T): T {
 }
 import {
   adminUpdateUserSchema,
+  changePersonalEmailSchema,
   changeRequisitesSchema,
   changeRoleSchema,
   changeSalarySchema,
@@ -412,10 +413,55 @@ export class UsersController {
   @Post(':id/personal-email/resend-invite')
   @Roles('ADMIN')
   @AdminWriteThrottle()
-  async resendPersonalEmailInvite(@Param('id', ParseUUIDPipe) id: string) {
-    const { rawToken, email, displayName } = await this.usersService.resendPersonalEmailInvite(id)
-    await this.inviteMailer.sendInvite({ to: email, displayName, rawToken })
-    return { ok: true }
+  async resendPersonalEmailInvite(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const { rawToken, email, displayName } = await this.usersService.resendPersonalEmailInvite(
+      id,
+      currentUser.id,
+    )
+    // copy-review PR #623 (COPY-M-1): report whether the mail actually left
+    // this process — the frontend toast must not claim "отправлено" when
+    // sendInvite silently no-op'd (missing API key) or exhausted its retries.
+    const delivered = await this.inviteMailer.sendInvite({ to: email, displayName, rawToken })
+    return { ok: true, delivered }
+  }
+
+  /**
+   * PATCH /api/users/:id/personal-email — security-review PR #623 round 4,
+   * owner decision (see `changePersonalEmailSchema`'s doc, `@crm/shared`):
+   * fast, unconditional fix for a mistyped personal address. Deliberately a
+   * SEPARATE endpoint from `PATCH /:id` (`updateUser` above) — see that
+   * schema's own comment for why this stays out of `adminUpdateUserSchema`.
+   *
+   * `@AuditLog` is NOT used here — `UsersService.changePersonalEmail`
+   * records its own audit entry directly (`personal_email_changed`), for
+   * the same reason `resendPersonalEmailInvite` does: the automatic
+   * before/after diff `AuditInterceptor` performs compares the `users`
+   * TABLE row, which never changes here (only `user_emails` does).
+   */
+  @Patch(':id/personal-email')
+  @Roles('ADMIN')
+  @AdminWriteThrottle()
+  async changePersonalEmail(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+  ) {
+    const dto = changePersonalEmailSchema.parse(body)
+    const result = await this.usersService.changePersonalEmail(
+      id,
+      dto.personalEmail,
+      currentUser.id,
+    )
+    if (!result) return { ok: true, delivered: null }
+    const delivered = await this.inviteMailer.sendInvite({
+      to: result.email,
+      displayName: result.displayName,
+      rawToken: result.rawToken,
+    })
+    return { ok: true, delivered }
   }
 
   @Delete(':id')

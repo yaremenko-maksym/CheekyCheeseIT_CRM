@@ -2343,10 +2343,14 @@ export class UsersService {
   /**
    * ADMIN action (task §5 — "Админ должен уметь выслать приглашение
    * заново"). Regenerates the token for the user's EXISTING PERSONAL row
-   * — it does NOT create one; `personalEmail` is create-only (see
-   * `createUserSchema`'s doc) and this method is not the place to
-   * relitigate that decision. Returns the raw token + enough identity for
-   * the caller (`UsersController`) to hand off to the mailer.
+   * — it does NOT create one. Post-creation, a PERSONAL row can also be
+   * REPLACED wholesale (typo fix, address rotation, removal) — see
+   * `changePersonalEmail` below, added in security-review PR #623 round 4;
+   * this method stays narrowly "reissue the token for the SAME row", not
+   * "change the address".
+   *
+   * Returns the raw token + enough identity for the caller (`UsersController`)
+   * to hand off to the mailer.
    *
    * Throws:
    *   - BadRequestException — the user has no PERSONAL row at all (nothing
@@ -2362,6 +2366,7 @@ export class UsersService {
    */
   async resendPersonalEmailInvite(
     userId: string,
+    actorId: string,
   ): Promise<{ rawToken: string; email: string; displayName: string }> {
     const target = await this.findById(userId)
     if (!target) throw new NotFoundException('Пользователь не найден')
@@ -2376,7 +2381,117 @@ export class UsersService {
       )
     }
     const rawToken = await this.issuePersonalEmailInviteTx(this.db.db, row.id)
+    // security-review PR #623 round 4 (SR-M-12): this was the only write
+    // endpoint on UsersController with no audit trail — reissues a
+    // credential AND sends mail, both auditable elsewhere in this file.
+    // Written directly (not via the `@AuditLog` decorator): the decorator's
+    // automatic before/after diff (`AuditInterceptor`) compares the `users`
+    // TABLE row — a resend touches `user_email_invites` only, which the
+    // diff never sees, so decorating the controller method alone would
+    // silently record nothing.
+    await this.auditLogService.record({
+      actorId,
+      targetId: userId,
+      action: 'personal_email_invite_resend',
+      changes: { personalEmailInvite: { before: REDACTED_TOKEN, after: REDACTED_TOKEN } },
+    })
     return { rawToken, email: row.email, displayName: target.displayName }
+  }
+
+  /**
+   * ADMIN action (security-review PR #623 round 4, owner decision — see
+   * `changePersonalEmailSchema`'s doc, `@crm/shared`). Replaces whatever
+   * PERSONAL row the user currently has (if any) with a fresh one, or
+   * removes it entirely when `newEmail` is `null`.
+   *
+   * This is NOT an update-in-place: the OLD row is DELETED, not edited —
+   * `ON DELETE CASCADE` (schema.ts, `userEmailInvites`) means its invite row
+   * goes with it, and a brand-new row starts at the column defaults
+   * (`canLogin=false`, `verifiedAt=null`, `googleId=null`). That is what
+   * makes the revocation unconditional and immediate: there is no code path
+   * that could leave a `canLogin=true` copy of the OLD address behind — the
+   * row that carried that flag no longer exists the instant this
+   * transaction commits, regardless of what state it was in a moment
+   * before (never invited, invited-not-accepted, or already accepted and
+   * logging in daily all take the exact same path here).
+   *
+   * A resubmit of the SAME address (byte-identical to the current PERSONAL
+   * row, including "still unset") is a no-op — it does not delete-then-
+   * reissue, so it cannot needlessly revoke a working login or burn an
+   * unopened invite the admin never meant to touch.
+   *
+   * Returns the same shape `resendPersonalEmailInvite` does when a new
+   * address was set (so the controller can reuse the identical "send the
+   * invite mail" call) — `null` when the call was a pure removal
+   * (`newEmail === null`) or a no-op, neither of which has anything to email.
+   *
+   * Throws:
+   *   - NotFoundException — no such user.
+   *   - BadRequestException — `newEmail` collides with the user's OWN work
+   *     address (case-insensitive) — same rule `createUserSchema.superRefine`
+   *     enforces at creation time; this endpoint has no sibling `email`
+   *     field in its payload to check against, so the check lives here.
+   *   - ConflictException — `newEmail` is already in use by ANY OTHER row
+   *     in `user_emails` (`assertEmailAvailable`) — the same §4.4
+   *     structural guarantee every other writer of this table honours.
+   */
+  async changePersonalEmail(
+    userId: string,
+    newEmail: string | null,
+    actorId: string,
+  ): Promise<{ rawToken: string; email: string; displayName: string } | null> {
+    const target = await this.findById(userId)
+    if (!target) throw new NotFoundException('Пользователь не найден')
+
+    const existingRow = await this.db.db.query.userEmails.findFirst({
+      where: and(eq(userEmails.userId, userId), eq(userEmails.kind, 'PERSONAL')),
+    })
+
+    // No-op: resubmitting the exact current value (incl. "still unset") —
+    // see the method doc for why this must NOT go through delete+reissue.
+    if ((existingRow?.email ?? null) === newEmail) return null
+
+    if (newEmail) {
+      if (newEmail.toLowerCase() === target.email.toLowerCase()) {
+        throw new BadRequestException('Личный email должен отличаться от рабочего')
+      }
+      await this.assertEmailAvailable(this.db.db, newEmail)
+    }
+
+    let personalInviteToken: string | undefined
+
+    await this.db.db.transaction(async (tx) => {
+      if (existingRow) {
+        // Cascades to the invite row (schema.ts, ON DELETE CASCADE) — the
+        // OLD token, wherever it is, stops matching anything the instant
+        // this commits, same guarantee a resend already gives the token
+        // itself (issuePersonalEmailInviteTx's onConflictDoUpdate).
+        await tx.delete(userEmails).where(eq(userEmails.id, existingRow.id))
+      }
+      if (newEmail) {
+        const rows = await this.writeUserEmailOrConflict(() =>
+          tx.insert(userEmails).values({ userId, email: newEmail, kind: 'PERSONAL' }).returning(),
+        )
+        const row = rows[0]
+        if (row) {
+          personalInviteToken = await this.issuePersonalEmailInviteTx(tx, row.id)
+        }
+      }
+    })
+
+    // PII-redacted, mirrors AuditLogService.diff()'s SENSITIVE_FIELDS
+    // treatment of `email`: record THAT the address changed, never to what.
+    await this.auditLogService.record({
+      actorId,
+      targetId: userId,
+      action: 'personal_email_changed',
+      changes: { personalEmail: { before: REDACTED_TOKEN, after: REDACTED_TOKEN } },
+    })
+
+    if (newEmail && personalInviteToken) {
+      return { rawToken: personalInviteToken, email: newEmail, displayName: target.displayName }
+    }
+    return null
   }
 
   /**
