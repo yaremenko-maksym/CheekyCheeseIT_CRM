@@ -89,7 +89,33 @@ CPU-timeout под нагрузкой. Пустой `DATABASE_URL` -> integratio
 
 ## Conventional commits scopes (для проекта)
 
-Стандартные: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`. Project-scopes: `(api)`, `(web)`, `(shared)`, `(coder)`, `(architect)`, `(pm)`, `(devops)`, `(autotest)`, `(legal)`, `(reviewer)`. Commit message body — на английском (Conventional Commits standard). User-facing assistant ответы — на русском (см. `.claude/rules/common/russian-language.md`).
+**Тип** — из набора Conventional Commits (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`,
+`perf`, `ci`, `style`, `build`) плюс два наших: `wip` (см. раздел выше — маркер незавершённости,
+освобождающий от `ac_verified:`) и `infra` (изменения окружения и обвязки, не попадающие в
+продукт).
+
+**Scope** — область, которую трогает коммит: пакет (`api`, `web`, `shared`, `e2e`, `landing`),
+предметная область (`finance`, `documents`, `auth`, `projects`, `teams`, `contracts`) либо
+инфраструктурная зона (`infra`, `deploy`, `ci`, `hooks`, `agents`). Список **не закрытый** —
+берётся то, что точнее описывает область.
+
+Commit message body — на английском (Conventional Commits standard). User-facing assistant
+ответы — на русском (см. `.claude/rules/common/russian-language.md`).
+
+> **Почему перечисление снято (2026-09-02).** Здесь стоял закрытый список из восьми типов и
+> десяти scope'ов. Перепись истории показала, что он описывал не эту кодовую базу:
+> `(reviewer)` не был использован **ни разу**, `(legal)` — один раз, а четыре самых частых
+> scope'а (`finance` 277, `landing` 155, `infra` 139, `e2e` 119) в списке отсутствовали. Из
+> типов не были перечислены `wip` — при том, что соседний раздел этого же файла его требует —
+> а также `infra` (15) и `style` (16).
+>
+> Список никто не энфорсил (ни `commitlint`, ни `commit-msg`-хука в репозитории нет), поэтому
+> расхождение росло молча полтора года и всплыло только при ревью PR #623, где DevOps заметил,
+> что `infra(deploy):` формально «вне списка», имея десять прецедентов начиная с PR #51.
+>
+> Урок тот же, что этот файл уже усвоил на pre-push гейте абзацем выше: **перечисление ломается
+> тихо**. Правило, которое перечисляет разрешённое, устаревает при каждом новом случае и не
+> сообщает об этом; правило, которое называет признак, — нет.
 
 ## Связанные правила
 
