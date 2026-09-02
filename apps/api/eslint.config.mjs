@@ -173,7 +173,12 @@ export default [
     // their previous `isNull(projects.archivedAt)`-style reads was migrated
     // to `visible_projects` in the same PR that added this rule, so the ban
     // closes ALL raw access, not just the one call shape.
-    files: ['src/documents/**/*.ts', 'src/interviews/**/*.ts', 'src/users/users-access.service.ts'],
+    files: [
+      'src/documents/**/*.ts',
+      'src/interviews/**/*.ts',
+      'src/admin/**/*.ts',
+      'src/users/users-access.service.ts',
+    ],
     ignores: ['**/*.spec.ts'],
     plugins: {
       '@typescript-eslint': tseslint,

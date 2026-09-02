@@ -9,7 +9,13 @@ import { DatabaseService } from '../database/database.service'
 // ESLint no-restricted-imports rule bans the raw import here. See schema.ts's
 // doc on the view for why (eliminate the class, don't rely on a scanner to
 // catch a caller who forgot the filter).
-import { interviews, nonDeletedTransactions, projects, users } from '../database/schema'
+// task-project-draft-status: `visibleProjects` (VIEW), never the raw
+// `projects` table — this module is banned from the raw import (ESLint
+// no-restricted-imports) for the same "eliminate, don't detect" reason as
+// `nonDeletedTransactions` above: a DRAFT/REJECTED project must never count
+// toward an "active projects" KPI, and there is no WHERE clause here to
+// forget.
+import { interviews, nonDeletedTransactions, users, visibleProjects } from '../database/schema'
 
 /**
  * The three actionable in-flight statuses surfaced in the «Активные транзакции»
@@ -93,19 +99,24 @@ export class AdminSummaryService {
     //      was never "fixed" by the alias the way #1 was.
     // Both are safe, but for unrelated reasons — worth keeping distinct so a
     // future reader does not assume `alias(...)` is what protects #2.
-    const p = alias(projects, 'p')
+    //
+    // task-project-draft-status: `p` now aliases `visibleProjects` (the VIEW,
+    // already `status = 'ACTIVE' AND archived_at IS NULL`) instead of the raw
+    // `projects` table — the `${p.archivedAt} is null` filter below is
+    // dropped entirely rather than kept redundant: the view's own WHERE
+    // clause is not a condition this query could omit, so there is nothing
+    // left here to forget either.
+    const p = alias(visibleProjects, 'p')
     const projQuery = db
       .select({
-        activeProjects: sql<number>`count(*) filter (where ${p.archivedAt} is null)`.mapWith(
-          Number,
-        ),
+        activeProjects: sql<number>`count(*)`.mapWith(Number),
         projectsUnpaidThisMonth:
           // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW) —
           // a deleted income cannot satisfy this NOT EXISTS check no matter
           // what, there is no `deleted_at is null` clause to omit (see
           // schema.ts's doc on the view). Replaces the round-1 hand-written
           // `and t.deleted_at is null` line.
-          sql<number>`count(*) filter (where ${p.archivedAt} is null and not exists (
+          sql<number>`count(*) filter (where not exists (
           select 1 from ${nonDeletedTransactions} t
           where t.project_id = p.id
             and t.type in ('ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME')
@@ -154,7 +165,13 @@ export class AdminSummaryService {
         receiverLabel: nonDeletedTransactions.receiverLabel,
         receiverDisplayName: receiver.displayName,
         projectId: nonDeletedTransactions.projectId,
-        projectName: projects.name,
+        // task-project-draft-status: joined against `visibleProjects`, not
+        // the raw table. A transaction can only ever have been created
+        // against an `ACTIVE` project (Д2 refuses transaction creation on a
+        // DRAFT/REJECTED one), so this only changes the display for a
+        // project archived AFTER the fact — the same row this dashboard
+        // already treats as an edge case, not the common path.
+        projectName: visibleProjects.name,
         amount: nonDeletedTransactions.amount,
         currency: nonDeletedTransactions.currency,
         txDate: nonDeletedTransactions.txDate,
@@ -164,7 +181,7 @@ export class AdminSummaryService {
       .from(nonDeletedTransactions)
       .leftJoin(sender, eq(sender.id, nonDeletedTransactions.senderId))
       .leftJoin(receiver, eq(receiver.id, nonDeletedTransactions.receiverId))
-      .leftJoin(projects, eq(projects.id, nonDeletedTransactions.projectId))
+      .leftJoin(visibleProjects, eq(visibleProjects.id, nonDeletedTransactions.projectId))
       .where(inArray(nonDeletedTransactions.status, [...ACTIVE_TX_STATUSES]))
       .orderBy(
         desc(sql`coalesce(${nonDeletedTransactions.txDate}, ${nonDeletedTransactions.createdAt})`),
