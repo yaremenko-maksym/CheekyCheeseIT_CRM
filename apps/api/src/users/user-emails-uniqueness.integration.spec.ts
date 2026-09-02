@@ -74,10 +74,16 @@ describe.skipIf(!hasDatabaseUrl())(
       // remaining constructor deps (access/tos/team-audit/project-audit/
       // teams) are never reached for a JUNIOR with no project, so a stub is
       // sufficient (same minimal-construction pattern as the auth
-      // integration specs' UsersService instance).
+      // integration specs' UsersService instance). `inviteMailer` — added
+      // task-user-emails-invite: `createUser` now calls
+      // `this.inviteMailer.sendInvite(...)` (best-effort, after the tx
+      // commits) whenever `data.personalEmail` is set, which several cases
+      // below exercise — stubbed so that call is a no-op rather than a
+      // `Cannot read properties of undefined` crash.
       usersService = Object.assign(Object.create(UsersService.prototype) as UsersService, {
         db: dbSvc,
         auditLogService: { record: vi.fn().mockResolvedValue(undefined) },
+        inviteMailer: { sendInvite: vi.fn().mockResolvedValue(undefined) },
       })
 
       // ── Seed: one existing user with BOTH a work and a personal address ──
