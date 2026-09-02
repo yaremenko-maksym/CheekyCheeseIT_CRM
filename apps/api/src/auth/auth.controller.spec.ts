@@ -28,7 +28,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { JwtPayload } from '@crm/shared'
 import type { Env } from '../config/env'
-import type { UsersService } from '../users/users.service'
+import {
+  GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE,
+  INVITE_TARGET_ARCHIVED_MESSAGE,
+  type UsersService,
+} from '../users/users.service'
 import { AuthController } from './auth.controller'
 import { AuthService } from './auth.service'
 
@@ -294,6 +298,28 @@ describe('AuthController — cookie hardening (__Host- prefix, prod only)', () =
     expect(reply._cookies['oauth_state']).toBeDefined()
     expect(reply._cookies['oauth_state']!.opts['secure']).toBe(false)
     expect(reply._cookies['__Host-oauth_state']).toBeUndefined()
+  })
+
+  // SR-M-11 (security-review PR #623 round 4): belt-and-suspenders — a
+  // stale invite cookie from an earlier round trip must not survive into an
+  // ordinary login. The state-binding in googleCallback is the primary
+  // defense (own regression test above); this is the second layer.
+  it('initiateGoogleAuth clears a leftover invite cookie', async () => {
+    const authService = makeAuthService()
+    ;(authService.buildGoogleAuthUrl as ReturnType<typeof vi.fn>).mockReturnValue(
+      'https://accounts.google.com/o/oauth2/auth?...',
+    )
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    await controller.initiateGoogleAuth(reply)
+
+    expect(Object.keys(reply._cleared)).toContain('__Host-invite_token')
   })
 
   it('PROD: googleOneTap sets __Host-jwt (Secure) instead of jwt', async () => {
@@ -598,9 +624,19 @@ function makeUsersServiceWithEmailRow(
   } as unknown as UsersService & { acceptPersonalEmailInvite: ReturnType<typeof vi.fn> }
 }
 
-function makeInviteRequest(state: string, inviteToken?: string): FastifyRequest {
+// SR-M-11 (security-review PR #623 round 4): the invite cookie's value is
+// `${state}:${token}`, not the bare token — googleCallback only honours it
+// when the embedded state matches the SAME round's `state` query param.
+// This helper defaults to embedding the SAME `state` passed in (the
+// overwhelming majority of call sites test the matching-state path); pass
+// `cookieState` explicitly to construct a MISMATCHED cookie.
+function makeInviteRequest(
+  state: string,
+  inviteToken?: string,
+  cookieState: string = state,
+): FastifyRequest {
   const cookies: Record<string, string> = { '__Host-oauth_state': state }
-  if (inviteToken !== undefined) cookies['__Host-invite_token'] = inviteToken
+  if (inviteToken !== undefined) cookies['__Host-invite_token'] = `${cookieState}:${inviteToken}`
   return { cookies } as unknown as FastifyRequest
 }
 
@@ -647,10 +683,16 @@ describe('AuthController.startInviteAccept — GET /auth/invite/:token (task-use
 
     expect(redirectsOf(reply)).toEqual(['https://accounts.google.com/o/oauth2/auth?state=abc'])
     expect(Object.keys(reply._cookies)).toContain('__Host-oauth_state')
-    expect(reply._cookies['__Host-invite_token']?.value).toBe(validToken)
-    expect(authService.buildGoogleAuthUrl).toHaveBeenCalledWith(
-      reply._cookies['__Host-oauth_state']?.value,
-    )
+    // SR-M-11 (security-review PR #623 round 4): the cookie carries
+    // `${state}:${token}`, not the bare token — googleCallback binds the
+    // invite branch to THIS round's state (see that test suite below).
+    const stateValue = reply._cookies['__Host-oauth_state']?.value
+    expect(reply._cookies['__Host-invite_token']?.value).toBe(`${stateValue}:${validToken}`)
+    // COPY-H-3 (copy-review PR #623 round 4): forces Google's account
+    // chooser on the invite round trip specifically.
+    expect(authService.buildGoogleAuthUrl).toHaveBeenCalledWith(stateValue, {
+      promptSelectAccount: true,
+    })
   })
 
   it('DEV: uses the plain (non-__Host-) cookie names — INVITE_COOKIE_LEGACY / STATE_COOKIE_LEGACY', async () => {
@@ -672,7 +714,8 @@ describe('AuthController.startInviteAccept — GET /auth/invite/:token (task-use
     expect(Object.keys(reply._cookies)).toEqual(
       expect.arrayContaining(['oauth_state', 'invite_token']),
     )
-    expect(reply._cookies['invite_token']?.value).toBe(validToken)
+    const stateValue = reply._cookies['oauth_state']?.value
+    expect(reply._cookies['invite_token']?.value).toBe(`${stateValue}:${validToken}`)
     expect(Object.keys(reply._cookies)).not.toContain('__Host-invite_token')
   })
 
@@ -800,6 +843,56 @@ describe('AuthController.googleCallback — invite-accept branch (task-user-emai
     expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_used'])
   })
 
+  // LOW-1 (security-review PR #623 round 4): a ConflictException with the
+  // DISTINCT google_id-collision message must map to a DIFFERENT ?error=
+  // code than "already used" (invite_used above) — same exception TYPE,
+  // different situation.
+  it('invite cookie present, Google account already bound elsewhere → redirects with invite_account_taken (NOT invite_used)', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ConflictException(GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_account_taken'])
+  })
+
+  // LOW-2 (security-review PR #623 round 4): a ForbiddenException with the
+  // DISTINCT archived-target message must map to account_disabled — the
+  // SAME code the ordinary login path uses for a fired user, not the
+  // generic mismatch message.
+  it('invite cookie present, target account archived → redirects with account_disabled (NOT invite_email_mismatch)', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ForbiddenException(INVITE_TARGET_ARCHIVED_MESSAGE),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=account_disabled'])
+  })
+
   it('invite cookie present, token expired → redirects with the invite_expired error code', async () => {
     const authService = makeAuthService()
     setupGoogleUser(authService, TEST_USER.email, 'google-sub')
@@ -861,6 +954,38 @@ describe('AuthController.googleCallback — invite-accept branch (task-user-emai
     expect(usersService.acceptPersonalEmailInvite).not.toHaveBeenCalled()
     expect(jwtService.sign).toHaveBeenCalled()
     expect(redirectsOf(reply)).toEqual(['http://localhost:3000/'])
+  })
+
+  // SR-M-11 (security-review PR #623 round 4): a cookie left over from an
+  // EARLIER invite round (or one naively forged against a guessed token —
+  // startInviteAccept never checked the token existed) must NOT hijack a
+  // LATER, unrelated login. The cookie's embedded state ('old-state-value')
+  // does not match THIS callback's state ('state-value') — proven by
+  // falling through to the ordinary login path, exactly like "no invite
+  // cookie" above, not by an invite-flavoured error.
+  it('invite cookie present but its embedded state does NOT match this round — falls through to normal login, not the invite branch', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      authService,
+      usersService,
+      jwtService,
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    // cookieState ('old-state-value') deliberately differs from the
+    // callback's own state ('state-value') — see makeInviteRequest's doc.
+    const request = makeInviteRequest('state-value', 'raw-token-abc', 'old-state-value')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(usersService.acceptPersonalEmailInvite).not.toHaveBeenCalled()
+    expect(jwtService.sign).toHaveBeenCalled()
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/'])
+    // Still cleared unconditionally, same as every other case.
+    expect(Object.keys(reply._cleared)).toContain('__Host-invite_token')
   })
 })
 

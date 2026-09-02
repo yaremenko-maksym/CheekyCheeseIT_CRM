@@ -50,7 +50,19 @@ export class AuthService {
     this.oauthClient = new OAuth2Client(this.config.get('GOOGLE_CLIENT_ID', { infer: true })!)
   }
 
-  buildGoogleAuthUrl(state: string): string {
+  /**
+   * copy-review PR #623 round 4 (COPY-H-3): `promptSelectAccount` adds
+   * `prompt=select_account`, forcing Google's account chooser to show even
+   * when the browser already has exactly one active Google session — used
+   * ONLY by the invite-accept round trip (`AuthController.startInviteAccept`).
+   * Without it, a person with a single active session is silently signed
+   * back into the SAME (wrong) account on a mismatch retry — the login
+   * page's advice "choose a different account" would be a step the browser
+   * makes impossible to take. The ordinary login button deliberately does
+   * NOT set this: reusing the last session there is the expected UX, not a
+   * bug to route around.
+   */
+  buildGoogleAuthUrl(state: string, opts: { promptSelectAccount?: boolean } = {}): string {
     const params = new URLSearchParams({
       client_id: this.config.get('GOOGLE_CLIENT_ID', { infer: true })!,
       redirect_uri: this.config.get('GOOGLE_CALLBACK_URL', { infer: true })!,
@@ -59,6 +71,7 @@ export class AuthService {
       access_type: 'online',
       state,
     })
+    if (opts.promptSelectAccount) params.set('prompt', 'select_account')
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
   }
 

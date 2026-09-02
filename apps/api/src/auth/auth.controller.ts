@@ -32,7 +32,11 @@ import { AdminWriteThrottle, AuthThrottle, RelaxableThrottle } from '../config/t
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import type { User, UserEmail } from '../database/schema'
-import { UsersService } from '../users/users.service'
+import {
+  GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE,
+  INVITE_TARGET_ARCHIVED_MESSAGE,
+  UsersService,
+} from '../users/users.service'
 import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
 import { Public } from './public.decorator'
@@ -173,6 +177,13 @@ export class AuthController {
     const authUrl = this.authService.buildGoogleAuthUrl(state)
 
     reply.setCookie(this.stateCookieName, state, this.stateSetCookieOpts)
+    // SR-M-11 (security-review PR #623 round 4): an invite-accept round trip
+    // (below) may have left this cookie behind (its own 10-minute maxAge) —
+    // clear it so an ordinary login click can never be misrouted into
+    // `googleCallback`'s invite branch. The state-binding in that branch is
+    // the primary defense (a normal round's `state` never matches an old
+    // invite cookie's embedded state either); this is belt-and-suspenders.
+    reply.clearCookie(this.inviteCookieName, this.inviteClearCookieOpts)
     await reply.redirect(authUrl, 302)
   }
 
@@ -192,6 +203,17 @@ export class AuthController {
    * nonexistent/expired/used one is still rejected later, in
    * `UsersService.acceptPersonalEmailInvite` — this check is cheap hygiene,
    * not the real validation.
+   *
+   * SR-M-11 (security-review PR #623 round 4): the invite cookie's VALUE is
+   * `${state}:${token}`, not the bare token — `googleCallback` only honours
+   * it when the embedded `state` matches THIS callback's `state` query
+   * param. Before this, the cookie was keyed on nothing but its own
+   * presence: `googleCallback` treated ANY request carrying it as an
+   * invite-accept, and this endpoint set it for any syntactically valid
+   * 64-hex string without checking it existed — so a link to
+   * `/api/auth/invite/<any 64 hex>`, opened once, made the visitor's NEXT
+   * ordinary login (within the 10-minute cookie lifetime) silently fail
+   * with an invite-flavoured error instead of signing them in.
    */
   @Get('invite/:token')
   @Public()
@@ -204,8 +226,11 @@ export class AuthController {
 
     const state = randomBytes(16).toString('hex')
     reply.setCookie(this.stateCookieName, state, this.stateSetCookieOpts)
-    reply.setCookie(this.inviteCookieName, token, this.inviteSetCookieOpts)
-    const authUrl = this.authService.buildGoogleAuthUrl(state)
+    reply.setCookie(this.inviteCookieName, `${state}:${token}`, this.inviteSetCookieOpts)
+    // COPY-H-3 (copy-review PR #623 round 4): force Google's account
+    // chooser — see AuthService.buildGoogleAuthUrl's doc for why this is
+    // invite-only.
+    const authUrl = this.authService.buildGoogleAuthUrl(state, { promptSelectAccount: true })
     await reply.redirect(authUrl, 302)
   }
 
@@ -233,8 +258,17 @@ export class AuthController {
     // clear unconditionally, whether or not this turns out to be an
     // invite round trip, so a stale cookie never lingers into a later,
     // unrelated login.
-    const inviteToken = request.cookies?.[this.inviteCookieName]
+    const rawInviteCookie = request.cookies?.[this.inviteCookieName]
     reply.clearCookie(this.inviteCookieName, this.inviteClearCookieOpts)
+    // SR-M-11 (security-review PR #623 round 4): the cookie's value is
+    // `${state}:${token}` (see startInviteAccept's doc) — only treat this
+    // as an invite-accept round trip when the embedded state matches THIS
+    // callback's `state` query param. A cookie left over from an earlier,
+    // already-finished (or naively forged) invite round carries a
+    // DIFFERENT state and is ignored here, falling through to the ordinary
+    // login path below instead of hijacking it.
+    const [cookieState, inviteToken] = rawInviteCookie?.split(':') ?? []
+    const isInviteRound = Boolean(inviteToken) && cookieState === state
 
     let googleUser: { id: string; email: string; name: string; picture: string }
     try {
@@ -246,7 +280,7 @@ export class AuthController {
       return
     }
 
-    if (inviteToken) {
+    if (isInviteRound) {
       // Invite-accept branch (task §2 — "Точка приёма"). No session is
       // minted here — Google has confirmed WHO is in the browser, but that
       // is all this branch does anything with. The person still has to hit
@@ -254,7 +288,8 @@ export class AuthController {
       // in, same as anyone else.
       try {
         await this.usersService.acceptPersonalEmailInvite(
-          inviteToken,
+          // Non-null: `isInviteRound` already asserted `Boolean(inviteToken)`.
+          inviteToken!,
           googleUser.email,
           googleUser.id,
         )
@@ -614,6 +649,23 @@ export class AuthController {
 }
 
 /**
+ * LOW-1/LOW-2 (security-review PR #623 round 4): `acceptPersonalEmailInvite`
+ * throws two DIFFERENT situations under the SAME exception type
+ * (`ForbiddenException` for "wrong Google account" vs "target archived";
+ * `ConflictException` for "token already used" vs "Google account bound
+ * elsewhere") — `instanceof` alone cannot tell them apart, only the
+ * message can. Extracts the plain string from the `{ statusCode, message,
+ * error }` shape every `new XException('msg')` call in this codebase
+ * produces.
+ */
+function exceptionMessage(err: ForbiddenException | ConflictException): string {
+  const response = err.getResponse()
+  if (typeof response === 'string') return response
+  const message = (response as { message?: unknown }).message
+  return typeof message === 'string' ? message : ''
+}
+
+/**
  * task-user-emails-invite: maps `UsersService.acceptPersonalEmailInvite`'s
  * exceptions to the `?error=` code `googleCallback`'s invite branch
  * redirects with — the login page (`login.tsx`) owns the Russian copy
@@ -621,8 +673,22 @@ export class AuthController {
  * has no dependency on controller state — a pure exception → string map.
  */
 function mapInviteAcceptError(err: unknown): string {
-  if (err instanceof ForbiddenException) return 'invite_email_mismatch'
-  if (err instanceof ConflictException) return 'invite_used'
+  if (err instanceof ForbiddenException) {
+    // LOW-2: target account was archived (fired) after the invite was
+    // issued — reuse the SAME code the ordinary login path already emits
+    // for a fired user, rather than the generic mismatch message.
+    return exceptionMessage(err) === INVITE_TARGET_ARCHIVED_MESSAGE
+      ? 'account_disabled'
+      : 'invite_email_mismatch'
+  }
+  if (err instanceof ConflictException) {
+    // LOW-1: the confirming Google account is already bound to a DIFFERENT
+    // user_emails row — this token was NOT used (used_at stays NULL, the
+    // whole transaction rolled back), so calling it "used" would be false.
+    return exceptionMessage(err) === GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE
+      ? 'invite_account_taken'
+      : 'invite_used'
+  }
   if (err instanceof BadRequestException) return 'invite_expired'
   // NotFoundException and anything unexpected — same bucket as "garbage
   // link": nothing more specific to tell the visitor.

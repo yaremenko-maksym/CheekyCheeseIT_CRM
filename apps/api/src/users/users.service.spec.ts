@@ -1026,10 +1026,49 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
   interface EmailRow {
     id: string
     email: string
+    userId?: string
   }
 
-  function makeAcceptDb(opts: { invite?: InviteRow; row?: EmailRow }) {
-    const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+  /**
+   * `owner` backs `this.findById(row.userId)` (LOW-2, security-review PR
+   * #623 round 4) — defaults to an ACTIVE (non-archived) user so every
+   * pre-existing test in this block reaches the transaction unchanged;
+   * pass `{ archivedAt: new Date() }` to exercise the archived branch.
+   * `googleIdConflict: true` makes the SECOND `.update(userEmails)...where()`
+   * (LOW-1) reject with a fake Postgres unique-violation on
+   * `idx_user_emails_google_id`, mirroring what `uniqueViolationConstraint`
+   * actually walks (`.code`/`.constraint`, real driver shape).
+   */
+  function makeAcceptDb(opts: {
+    invite?: InviteRow
+    row?: EmailRow
+    owner?: { archivedAt: Date | null } | null
+    googleIdConflict?: boolean
+    /** Same shape as googleIdConflict but an UNRECOGNISED constraint name —
+     * exercises the "rethrow, do not mislabel" branch (pg-errors.ts's doc). */
+    unrecognizedConflict?: boolean
+  }) {
+    let setCallCount = 0
+    const conflictConstraint = opts.googleIdConflict
+      ? 'idx_user_emails_google_id'
+      : opts.unrecognizedConflict
+        ? 'some_other_index'
+        : null
+    const setMock = vi.fn().mockImplementation(() => {
+      setCallCount++
+      const isSecondCall = setCallCount === 2
+      return {
+        where:
+          isSecondCall && conflictConstraint
+            ? vi.fn().mockRejectedValue(
+                Object.assign(new Error('duplicate key value violates unique constraint'), {
+                  code: '23505',
+                  constraint: conflictConstraint,
+                }),
+              )
+            : vi.fn().mockResolvedValue(undefined),
+      }
+    })
     const updateMock = vi.fn().mockReturnValue({ set: setMock })
     const inviteFindFirst = vi.fn().mockResolvedValue(opts.invite)
     const emailFindFirst = vi.fn().mockResolvedValue(opts.row)
@@ -1039,10 +1078,21 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
         userEmails: { findFirst: emailFindFirst },
       },
     }
+    // findById's `.select().from(users).where(...)` chain — `owner` is
+    // `undefined` by default meaning "active user" (matches every
+    // pre-existing test, none of which set it), `null` explicitly means
+    // "no row found" (defensive/unreachable in practice).
+    const ownerRow = opts.owner === null ? undefined : (opts.owner ?? { archivedAt: null })
+    const selectMock = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(ownerRow ? [ownerRow] : []),
+      }),
+    })
     const txHandle = { ...queryChain, update: updateMock }
     const dbHandle = {
       ...queryChain,
       update: updateMock,
+      select: selectMock,
       transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(txHandle)),
     }
     return {
@@ -1052,6 +1102,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
       transactionMock: dbHandle.transaction,
       inviteFindFirst,
       emailFindFirst,
+      selectMock,
     }
   }
 
@@ -1175,6 +1226,75 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     )
     expect(setMock.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({ canLogin: true, googleId: 'sub-42', verifiedAt: expect.any(Date) }),
+    )
+  })
+
+  // LOW-2 (security-review PR #623 round 4): the invited row's OWNING user
+  // was archived (fired) after the invite was issued.
+  it('owning user is archived → ForbiddenException with the archived-specific message, no writes', async () => {
+    const { db, transactionMock, selectMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com', userId: 'owner-1' },
+      owner: { archivedAt: new Date() },
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(promise).rejects.toThrow('Учётная запись уволена — приглашение недействительно')
+    expect(transactionMock).not.toHaveBeenCalled()
+    // Kills the `findById({})` ObjectLiteral mutant — a query with no real
+    // WHERE clause would match ANY user, not specifically the row's owner.
+    expect(selectMock).toHaveBeenCalled()
+  })
+
+  it("an ACTIVE owning user (archivedAt: null) is not blocked — mutation coverage for the archived guard's condition", async () => {
+    const { db } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com', userId: 'owner-1' },
+      owner: { archivedAt: null },
+    })
+    const service = makeUsersService(db)
+    await expect(
+      service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1'),
+    ).resolves.toBeUndefined()
+  })
+
+  // LOW-1 (security-review PR #623 round 4): the confirming Google account
+  // is already bound to a DIFFERENT user_emails row — a REAL Postgres
+  // unique-constraint violation on idx_user_emails_google_id, not "already
+  // used" (this token's own usedAt is never set: the whole transaction
+  // that would have set it also rolls back).
+  it('Google account already bound to a different row → ConflictException with the DISTINCT message (not "already used")', async () => {
+    const { db, transactionMock } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com', userId: 'owner-1' },
+      googleIdConflict: true,
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
+    await expect(promise).rejects.toBeInstanceOf(ConflictException)
+    await expect(promise).rejects.toThrow(
+      'Этот Google-аккаунт уже привязан к другому адресу в системе',
+    )
+    // Distinct from "already used" — same exception TYPE, different message.
+    await expect(promise).rejects.not.toThrow('Приглашение уже использовано')
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('an UNRECOGNISED unique-violation constraint is rethrown as-is, not mislabelled', async () => {
+    // pg-errors.ts's own doc: an unanticipated collision must surface as a
+    // real error, not get silently relabelled as the google_id case.
+    const { db } = makeAcceptDb({
+      invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
+      row: { id: 'row-1', email: 'real@example.com', userId: 'owner-1' },
+      unrecognizedConflict: true,
+    })
+    const service = makeUsersService(db)
+    const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
+    await expect(promise).rejects.toThrow('duplicate key value violates unique constraint')
+    // NOT relabelled as the google_id-specific message.
+    await expect(promise).rejects.not.toThrow(
+      'Этот Google-аккаунт уже привязан к другому адресу в системе',
     )
   })
 })

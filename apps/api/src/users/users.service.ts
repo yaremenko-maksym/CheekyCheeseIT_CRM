@@ -31,7 +31,7 @@ import {
   type UserEmail,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
-import { isUniqueViolation } from '../database/pg-errors'
+import { isUniqueViolation, uniqueViolationConstraint } from '../database/pg-errors'
 import { generateInviteToken, hashInviteToken, INVITE_TOKEN_TTL_MS } from './invite-token.util'
 import {
   ARCHIVED_ENTITLEMENT_MESSAGE,
@@ -119,6 +119,29 @@ const USER_LIST_PROJECTION = {
   // wallet*, paymentMethod, monthlySalary, registrationAddress,
   // adminNote, legalFullName. Available via GET /api/users/:id only.
 } as const
+
+/**
+ * LOW-1 (security-review PR #623 round 4): sentinel `ConflictException`
+ * message `acceptPersonalEmailInvite` throws when the CONFIRMING Google
+ * account is already bound to a DIFFERENT `user_emails` row
+ * (`idx_user_emails_google_id`) — distinct from "this token was already
+ * used" (which throws the SAME exception TYPE with a different message).
+ * Exported so `AuthController.mapInviteAcceptError` can tell them apart by
+ * message rather than guessing from the exception class alone.
+ */
+export const GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE =
+  'Этот Google-аккаунт уже привязан к другому адресу в системе'
+
+/**
+ * LOW-2 (security-review PR #623 round 4): sentinel `ForbiddenException`
+ * message `acceptPersonalEmailInvite` throws when the invited address's
+ * OWNING user was archived (fired) after the invite was issued — distinct
+ * from "wrong Google account" (same exception TYPE, different message).
+ * `AuthController.mapInviteAcceptError` maps this to `account_disabled`,
+ * the SAME `?error=` code the ordinary login path already uses for a fired
+ * user (`login.tsx`'s `ERROR_MESSAGES`).
+ */
+export const INVITE_TARGET_ARCHIVED_MESSAGE = 'Учётная запись уволена — приглашение недействительно'
 
 @Injectable()
 export class UsersService {
@@ -2502,20 +2525,33 @@ export class UsersService {
    * CONFIRMED identity against the token; it never talks to Google itself
    * and never mints a session (task §2: "Токен НЕ выдаёт сессию").
    *
-   * Throws — `AuthController` maps each to a distinct `?error=` redirect:
+   * Throws — `AuthController.mapInviteAcceptError` maps each to a distinct
+   * `?error=` redirect:
    *   - NotFoundException — token hash matches no row (garbage link, or a
    *     token that was superseded by a resend — the OLD hash is gone from
    *     the DB the moment `issuePersonalEmailInviteTx` overwrites it, so
    *     this is indistinguishable from "never existed", which is correct:
    *     an old, superseded link should behave exactly like a bad one).
    *   - BadRequestException — token expired.
-   *   - ConflictException — token already used (task: "Токен использован
-   *     дважды — второй раз отказ").
-   *   - ForbiddenException — Google confirmed a DIFFERENT address than the
-   *     one this token was issued for (task §2: "Не совпал — внятный
-   *     отказ, а не тихое ничего"). `canLogin` is left untouched — an
-   *     opportunistic wrong-Google-account attempt against a stolen or
-   *     guessed link gets no second, better-informed try.
+   *   - ConflictException — either the token was already used (task:
+   *     "Токен использован дважды — второй раз отказ"), OR (LOW-1,
+   *     security-review PR #623 round 4) the confirming Google account is
+   *     already bound to a DIFFERENT `user_emails` row
+   *     (`idx_user_emails_google_id`) — these are DIFFERENT situations
+   *     (the second one leaves `used_at` NULL, since the whole transaction
+   *     below rolls back) and get DIFFERENT messages via the exported
+   *     `GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE` sentinel —
+   *     `mapInviteAcceptError` inspects it to pick `invite_account_taken`
+   *     instead of `invite_used`.
+   *   - ForbiddenException — either Google confirmed a DIFFERENT address
+   *     than the one this token was issued for (task §2: "Не совпал —
+   *     внятный отказ, а не тихое ничего"; `canLogin` is left untouched —
+   *     an opportunistic wrong-Google-account attempt against a stolen or
+   *     guessed link gets no second, better-informed try), OR (LOW-2,
+   *     security-review PR #623 round 4) the target account was archived
+   *     (fired) after the invite was issued — `INVITE_TARGET_ARCHIVED_MESSAGE`
+   *     sentinel, mapped to `account_disabled` (the SAME code the ordinary
+   *     login path already uses for a fired user).
    *
    * On success: ONE transaction marks the invite used AND flips
    * `canLogin`/`verifiedAt`/`googleId` on the `user_emails` row — either
@@ -2547,23 +2583,39 @@ export class UsersService {
     if (row.email.toLowerCase() !== googleEmail.toLowerCase()) {
       throw new ForbiddenException('Адрес аккаунта Google не совпадает с приглашённым адресом')
     }
+    // LOW-2 (security-review PR #623 round 4): checked AFTER the address
+    // match above, deliberately — only someone who already controls the
+    // invited mailbox (proven by the check above) learns that the target
+    // account is archived; a mismatched-account prober does not.
+    const owner = await this.findById(row.userId)
+    if (owner?.archivedAt) {
+      throw new ForbiddenException(INVITE_TARGET_ARCHIVED_MESSAGE)
+    }
 
     await this.db.db.transaction(async (tx) => {
       await tx
         .update(userEmailInvites)
         .set({ usedAt: new Date(), updatedAt: new Date() })
         .where(eq(userEmailInvites.id, invite.id))
-      // writeUserEmailOrConflict: the same Google account could in theory
-      // already be bound to a DIFFERENT row (idx_user_emails_google_id,
-      // schema.ts) — turn that 23505 into the same clean 409 every other
-      // user_emails writer in this file already produces, instead of a raw
-      // 500.
-      await this.writeUserEmailOrConflict(() =>
-        tx
+      try {
+        await tx
           .update(userEmails)
           .set({ canLogin: true, verifiedAt: new Date(), googleId, updatedAt: new Date() })
-          .where(eq(userEmails.id, row.id)),
-      )
+          .where(eq(userEmails.id, row.id))
+      } catch (err) {
+        // LOW-1 (security-review PR #623 round 4): distinguish WHICH unique
+        // index tripped — `pg-errors.ts`'s own doc warns against a blanket
+        // catch reporting a message unrelated to what actually collided.
+        // The only unique index this UPDATE can hit is
+        // `idx_user_emails_google_id` (it never touches `email`), so a
+        // constraint name we do not recognise is a genuine surprise and
+        // rethrown as-is rather than mislabelled.
+        const constraint = uniqueViolationConstraint(err)
+        if (constraint === 'idx_user_emails_google_id') {
+          throw new ConflictException(GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE)
+        }
+        throw err
+      }
     })
   }
 
