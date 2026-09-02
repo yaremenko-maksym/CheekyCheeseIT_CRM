@@ -477,6 +477,14 @@ export class AuthController {
    * minimal (interceptor-level only, not threaded into every service-layer
    * audit writer) per the same owner decision against heavier machinery.
    * list excludes admins — enforced here; frontend filters UI list accordingly.
+   *
+   * SR-M-13 (security-review PR #623 round 6): the minted token carries the
+   * calling admin's OWN `userEmailId` (if their session had one) forward
+   * under `impersonatorUserEmailId` — NOT under `userEmailId` itself; this
+   * token has no `user_emails` row of its own (see `jwtPayloadSchema`'s doc,
+   * case 1). `stopImpersonating` reads it back to restore the admin's row
+   * binding on the way out — see that field's own doc for the full
+   * rationale and the reproduction it closes.
    */
   @Post('impersonate')
   @UseGuards(RolesGuard)
@@ -514,6 +522,14 @@ export class AuthController {
       email: target.email,
       role: target.role,
       impersonatorId: currentUser.id,
+      // SR-M-13 — see this method's own doc above + the field's own doc
+      // (`jwtPayloadSchema`, `@crm/shared`) for the full rationale.
+      // `currentUser.userEmailId` is itself optional (the admin's own
+      // session may be in one of the documented no-row cases), so this may
+      // legitimately carry `undefined` through — `stopImpersonating`
+      // handles that the same way a pre-existing userEmailId-less session
+      // already does.
+      impersonatorUserEmailId: currentUser.userEmailId,
     })
     const token = this.jwtService.sign(jwtPayload)
 
@@ -534,6 +550,13 @@ export class AuthController {
    *
    * Security invariant: restores ONLY the admin whose id is in `impersonatorId`
    * of the caller's token — never an arbitrary user.
+   *
+   * SR-M-13 (security-review PR #623 round 6): restores `userEmailId` from
+   * `currentUser.impersonatorUserEmailId` — the admin's own row binding,
+   * relayed across the round trip by `impersonate` above — instead of
+   * always minting a userEmailId-less session. See `impersonatorUserEmailId`'s
+   * own doc (`jwtPayloadSchema`, `@crm/shared`) for the reproduction this
+   * closes.
    */
   @Post('stop-impersonating')
   @RelaxableThrottle(20)
@@ -557,6 +580,9 @@ export class AuthController {
       email: admin.email,
       role: admin.role,
       // No impersonatorId — restoring clean admin session.
+      // SR-M-13: restore the admin's own row binding, if the token being
+      // stopped was carrying one — see this method's own doc above.
+      userEmailId: currentUser.impersonatorUserEmailId,
     })
     const token = this.jwtService.sign(jwtPayload)
 

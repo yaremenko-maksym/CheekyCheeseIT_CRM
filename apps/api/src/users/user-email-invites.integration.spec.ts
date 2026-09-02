@@ -31,6 +31,15 @@
  *     PERSONAL row that opened it is revoked — not merely future logins
  *   - SR-L-1 (round 5): resubmitting one's own current PERSONAL address in
  *     a different case is not reported as a collision with a stranger
+ *   - SR-M-14 (round 6): the SR-H-5 deadlock counter above now walks the
+ *     `.cause` chain (`isDeadlock`, `database/pg-errors.ts`) instead of
+ *     reading `.code` off the top-level rejection — the original shallow
+ *     check could never observe a real `40P01` and always reported 0
+ *     regardless of whether the code under test actually deadlocked
+ *   - SR-L-4 (round 6): the SR-H-6 "WORK-row, no userEmailId" pin was
+ *     renamed and its comment corrected — that shape never occurs in
+ *     production (every real login sets `userEmailId`); the token it
+ *     actually exercises is the impersonation-target shape
  *
  * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
  * unset (reports SKIPPED, not silently-passed-with-no-assertions).
@@ -56,6 +65,7 @@ import { jwtPayloadSchema } from '@crm/shared'
 import * as schema from '../database/schema'
 import { userEmailInvites, userEmails, users } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
+import { isDeadlock } from '../database/pg-errors'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { UsersService } from './users.service'
 import { hashInviteToken } from './invite-token.util'
@@ -474,8 +484,15 @@ describe.skipIf(!hasDatabaseUrl())(
           usersService.acceptPersonalEmailInvite(rawToken, USER_A_PERSONAL_EMAIL, `race-sub-${i}`),
         ])
 
+        // SR-M-14 (security-review PR #623 round 6): `isDeadlock` walks the
+        // `.cause` chain — a raw top-level `r.reason.code` check (the
+        // ORIGINAL version of this line) can never be `40P01`, because
+        // drizzle-orm wraps every query failure in a `DrizzleQueryError`
+        // whose own `.code` is `undefined`; the real pg error lives on
+        // `.cause`. See `isDeadlock`'s own doc (`database/pg-errors.ts`)
+        // for the proof this was actually broken, not merely theoretically.
         const is40P01 = (r: PromiseSettledResult<unknown>): boolean =>
-          r.status === 'rejected' && (r.reason as { code?: string })?.code === '40P01'
+          r.status === 'rejected' && isDeadlock(r.reason)
         if (is40P01(changeResult) || is40P01(acceptResult)) deadlocks++
 
         // The invariant that actually matters: whichever side won the
@@ -572,18 +589,28 @@ describe.skipIf(!hasDatabaseUrl())(
       await resetPersonalRowTo(USER_B_ID, USER_B_PERSONAL_EMAIL)
     })
 
-    // SR-H-6 regression pin: a session opened through the WORK row (no
-    // `userEmailId`, or one that still resolves to a live row) is NOT
-    // affected by a DIFFERENT user's PERSONAL-row revocation — the guard's
-    // per-row cache is keyed by `userEmailId`, not `userId` (see
-    // `CachedUserEmail`'s own doc, jwt.guard.ts).
-    it('SR-H-6: a WORK-row session (no revocation in play) keeps working across an unrelated PERSONAL-row revocation', async () => {
+    // SR-L-4 (security-review PR #623 round 6): this test's ORIGINAL name
+    // and comment claimed the token below represented "a WORK-row session
+    // (no userEmailId)" — that shape does not occur in production. EVERY
+    // real login (`AuthController.googleCallback`'s ordinary branch,
+    // `googleOneTap`, `devLogin`) resolves a `user_emails` row and sets
+    // `userEmailId` to that row's id REGARDLESS of whether the row is WORK
+    // or PERSONAL — verified live against the running API. The token shape
+    // actually pinned here — no `userEmailId` at all — is the shape a
+    // genuine impersonation-target token has (`jwtPayloadSchema`'s own doc,
+    // `@crm/shared`, enumerates all three producers after SR-M-15's fix to
+    // that same enumeration). `JwtAuthGuard` itself does not condition the
+    // skip on `impersonatorId` — it only checks `jwtUser.userEmailId`
+    // (jwt.guard.ts) — so this still correctly pins the guard's behavior
+    // for a userEmailId-less token, regardless of which producer minted it.
+    it('SR-H-6/SR-L-4: a userEmailId-less (impersonation-shaped) session is unaffected by an unrelated PERSONAL-row revocation', async () => {
       const payload = jwtPayloadSchema.parse({
         id: USER_A_ID,
         email: USER_A_WORK_EMAIL,
         role: 'JUNIOR',
-        // No userEmailId — mirrors an admin-minted (impersonate) session,
-        // or simply a login that never resolved a PERSONAL row.
+        // No userEmailId — the shape a genuine impersonation-target token
+        // has (see this test's own doc above for why "WORK-row login
+        // without userEmailId" was a mischaracterization).
       })
       const token = guardJwtService.sign(payload)
       const guard = new JwtAuthGuard(guardJwtService, noopReflector, usersService)

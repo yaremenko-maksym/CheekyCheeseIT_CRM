@@ -280,10 +280,15 @@ export class JwtAuthGuard implements CanActivate {
     // `user_emails` row this session was opened through — see
     // `JwtPayload.userEmailId`'s own doc (`@crm/shared`) for the full
     // rationale and `CachedUserEmail`'s doc above for why this is a
-    // SEPARATE cache from `userCache` below. `undefined` here means an
-    // admin-minted session (impersonate / stop-impersonating) that never
-    // went through a `user_emails` lookup at all — skips this check
-    // entirely, governed by the archived-check below alone, unchanged.
+    // SEPARATE cache from `userCache` below. `undefined` here skips this
+    // check entirely (governed by the archived-check below alone,
+    // unchanged) — see that same doc for the exact, EXHAUSTIVE enumeration
+    // of the three cases this covers (SR-M-15, round 6: an earlier version
+    // of this comment named only "admin-minted (impersonate /
+    // stop-impersonating)", which undercounted — a pre-deployment token
+    // also lands here, and is closed by its OWN `exp` claim, not by this
+    // guard). Do not re-add a two-case summary here; it drifts from the
+    // schema doc exactly the way this one did.
     if (jwtUser.userEmailId) {
       const cachedEmail = this.userEmailCache.get(jwtUser.userEmailId)
       let canLogin: boolean
