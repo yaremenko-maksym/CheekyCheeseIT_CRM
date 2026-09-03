@@ -311,6 +311,26 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
     expect(h.getFinanceUpdateCount()).toBe(0)
   })
 
+  // task-pending-share follow-up (AC9 mutation-gate gap-fill, 2026-09-03):
+  // an ADMIN/ACCOUNTANT PATCH that OMITS seniorSharePercentOverride entirely
+  // must not propose ANYTHING — distinct from the HR test above, which never
+  // reaches this branch at all (HR is rejected earlier, by RBAC, before
+  // `overrideEffective` is even consulted). A mutant that forces just the
+  // `overrideEffective !== undefined` guard to `true` (leaving the second
+  // `!==` comparison untouched) survived every OTHER test in this describe
+  // block, because `undefined !== (anything that isn't itself undefined)` is
+  // ALWAYS true — the second comparison can never save you once the first
+  // one stops gating out "field not sent at all". Also guards against a
+  // real bug the same mutant would cause: proposing with `undefined` as the
+  // value.
+  it('allows ADMIN PATCH that OMITS seniorSharePercentOverride entirely — does not touch an existing pending proposal', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 77 })
+    await h.service.update('proj-1', { rate: 6000 }, adminUser)
+    expect(h.projectRow.rate).toBe(6000)
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBe(77)
+  })
+
   // task-pending-share (position 5): a requested change to
   // seniorSharePercentOverride now OPENS A PROPOSAL instead of applying
   // immediately — the four tests below were rewritten from asserting an

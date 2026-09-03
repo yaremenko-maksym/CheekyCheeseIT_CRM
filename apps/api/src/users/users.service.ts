@@ -199,7 +199,7 @@ export class UsersService {
   // body) would still catch. The directive on the line directly below MUST
   // stay the line immediately above the method — see
   // projects.service.ts's identical comment for why.
-  // Stryker disable next-line BlockStatement
+  // Stryker disable next-line BlockStatement: see the doc comment above.
   private notifyPendingSeniorShareProposed(input: NotifyPendingShareInput): void {
     // Intentionally empty — see doc comment above.
     void input
