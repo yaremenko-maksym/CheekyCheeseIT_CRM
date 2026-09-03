@@ -773,3 +773,34 @@ def test_no_flags_dispatches_to_daemon(config, monkeypatch):
     assert code == 0
     assert called["config"] is config
     assert called["run"] is run
+
+
+# ---------------------------------------------------------------------------
+# CR-M-2 (PR #650 code review, id 5105099737) -- cli.main() (the real,
+# env-reading entrypoint used by both the `signal-plus` console script and
+# `python -m signal_plus`) called Config.from_env() BEFORE parsing argv, so
+# `signal-plus --help` crashed with ConfigError instead of printing usage --
+# reproduced by the reviewer running the installed script with an empty env.
+# ---------------------------------------------------------------------------
+
+
+def test_main_help_works_without_any_env_configured(monkeypatch):
+    for name in ("SIGNAL_ACCOUNT", "SIGNAL_GROUP_ID", "SIGNAL_CLI_BIN", "STATE_FILE"):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["--help"])
+    assert exc_info.value.code == 0
+
+
+def test_main_still_requires_config_for_a_real_mode(monkeypatch):
+    # Regression guard: the fix must not turn OFF config validation for
+    # modes that actually need it -- only --help (and -h) should short-
+    # circuit before Config.from_env() runs.
+    for name in ("SIGNAL_ACCOUNT", "SIGNAL_GROUP_ID", "SIGNAL_CLI_BIN", "STATE_FILE"):
+        monkeypatch.delenv(name, raising=False)
+
+    from signal_plus.config import ConfigError
+
+    with pytest.raises(ConfigError):
+        cli.main(["--groups"])

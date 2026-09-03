@@ -338,7 +338,21 @@ def main_with_config(config: Config, argv: list[str] | None = None, *, run=subpr
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:  # pragma: no cover - thin env-reading entrypoint
+def main(argv: list[str] | None = None) -> int:
+    """Real, env-reading entrypoint (the ``signal-plus`` console script and
+    ``python -m signal_plus`` both call this).
+
+    CR-M-2 (PR #650 code review, id 5105099737): argv is parsed FIRST, before
+    ``Config.from_env()`` runs -- ``--help``/``-h`` must work without a
+    configured ``.env`` (argparse's own help handling calls ``sys.exit(0)``
+    synchronously inside ``parse_args()``, before this function does
+    anything else). The result is discarded and ``main_with_config`` parses
+    argv again internally; redundant for every other mode, but keeps this
+    fix to a single added line rather than changing ``main_with_config``'s
+    signature (and the many tests that call it directly with a pre-built
+    ``Config`` and raw ``argv``).
+    """
+    build_arg_parser().parse_args(argv)
     config = Config.from_env()
     return main_with_config(config, argv)
 

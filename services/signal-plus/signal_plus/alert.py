@@ -57,6 +57,15 @@ def send_personal_alert(config: Config, message: str, *, run=subprocess.run) -> 
     return result.ok
 
 
+# SR-L-5 (PR #650 security review, id 5105061153): the SUBPROCESS env for
+# post-merge-alert.sh is an explicit allow-list, not the whole process
+# environment -- this container's own env carries secrets
+# (RESEND_API_KEY, SIGNAL_ACCOUNT, ...) the alert script never asked for
+# and has no use for. Only what the script's own header doc actually needs
+# to locate/execute itself and the `gh` binary it calls.
+_SUBPROCESS_ENV_PASSTHROUGH = ("PATH", "HOME")
+
+
 def send_github_issue_alert(
     extra_env: dict[str, str],
     *,
@@ -70,7 +79,9 @@ def send_github_issue_alert(
     ``"signal-plus"`` so a caller cannot accidentally alert under a
     different KIND's issue thread.
     """
-    call_env = {**os.environ, **extra_env, "KIND": "signal-plus"}
+    call_env = {name: os.environ[name] for name in _SUBPROCESS_ENV_PASSTHROUGH if name in os.environ}
+    call_env.update(extra_env)
+    call_env["KIND"] = "signal-plus"
     try:
         completed = run([str(script_path)], env=call_env, capture_output=True, text=True, timeout=30)
     except OSError as exc:

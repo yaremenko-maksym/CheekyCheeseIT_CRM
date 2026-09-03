@@ -87,6 +87,33 @@ jobs:
           cache-from: type=gha,scope=signal-plus
           cache-to: type=gha,mode=max,scope=signal-plus
 
+      # CR-M-1 (PR #650 code review, id 5105099737): nothing in this
+      # workflow previously verified the built binary actually RUNS.
+      # signal-cli's Linux-native asset is a real x86_64 GraalVM
+      # native-image binary -- it cannot be smoke-tested locally on Apple
+      # Silicon (`--platform linux/amd64` under QEMU user-mode emulation
+      # fails an internal CPU-ISA-level check the binary does at startup,
+      # see the Dockerfile's own comment on that), which is exactly why it
+      # needs to happen HERE, on ubuntu-latest's real amd64 hardware, where
+      # that emulation gap does not apply. `--entrypoint` bypasses
+      # docker-entrypoint.sh's volume-seeding logic (irrelevant to "does the
+      # baked-in binary execute at all", and there is no real
+      # SIGNAL_DATA_DIR volume in this job to seed from anyway) and runs the
+      # pinned copy directly -- the exact bytes signal-cli-fetch verified
+      # and the runtime image will fall back to on first boot.
+      - name: Smoke-test the built image (signal-cli --version)
+        run: |
+          VERSION_OUTPUT="$(docker run --rm --entrypoint /opt/signal-cli-pinned/signal-cli \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" --version)"
+          echo "signal-cli --version: $VERSION_OUTPUT"
+          case "$VERSION_OUTPUT" in
+            *0.14.7*) ;;
+            *)
+              echo "::error::expected signal-cli 0.14.7, got: $VERSION_OUTPUT"
+              exit 1
+              ;;
+          esac
+
       # Single secret blob (task: "один секрет-блоб") — unlike CRM's
       # .env.production (composed from ~25 individual secrets field-by-field,
       # see deploy.yml's "Write .env.production on VPS" job), this service's
@@ -176,6 +203,12 @@ jobs:
 
             echo "==> Logging in to GHCR"
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+            # SR-L-2 (security review 5105061153): logout on ANY exit (trap,
+            # not a final happy-path-only step) so a mid-script failure
+            # (pull/up -d) does not leave the credential still stored on the
+            # VPS just because the script aborted (set -e) before reaching a
+            # plain end-of-script logout line.
+            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
             echo "==> Pulling signal-plus image"
             docker compose -p signal-plus pull

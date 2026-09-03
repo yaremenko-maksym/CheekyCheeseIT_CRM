@@ -167,6 +167,31 @@ def test_send_github_issue_alert_false_when_script_missing(tmp_path):
     assert send_github_issue_alert({}, script_path=missing_script, run=raising_run) is False
 
 
+def test_send_github_issue_alert_does_not_leak_the_whole_process_environment(tmp_path, monkeypatch):
+    # SR-L-5 (security review 5105061153): call_env was previously
+    # `{**os.environ, **extra_env, "KIND": ...}` -- this container's own
+    # environment carries secrets (RESEND_API_KEY, SIGNAL_ACCOUNT, ...) the
+    # alert script has no use for and never asked for. Only an explicit
+    # allow-list (PATH -- needed to exec `gh`/anything the script calls) is
+    # passed through from this process's own environment.
+    monkeypatch.setenv("RESEND_API_KEY", "re_should_not_leak_12345")
+    monkeypatch.setenv("SIGNAL_ACCOUNT", "+380501234567")
+
+    script = tmp_path / "post-merge-alert.sh"
+    captured_env = {}
+
+    def fake_run(argv, **kwargs):
+        captured_env.update(kwargs.get("env") or {})
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    send_github_issue_alert({"RESULT": "failure"}, script_path=script, run=fake_run)
+
+    assert "RESEND_API_KEY" not in captured_env
+    assert "SIGNAL_ACCOUNT" not in captured_env
+    assert captured_env["RESULT"] == "failure"
+    assert captured_env["KIND"] == "signal-plus"
+
+
 # ---------------------------------------------------------------------------
 # raise_alert — all three layers fire independently
 # ---------------------------------------------------------------------------

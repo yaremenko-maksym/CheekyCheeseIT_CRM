@@ -2,7 +2,12 @@
 name = "signal-plus"
 version = "0.1.0"
 description = "Daily morning Signal '+' roll-call to the owner's group via signal-cli"
-requires-python = ">=3.11"
+# CR-L-1 (PR #650 code review, id 5105099737): signal_plus/updater.py's
+# install_release() uses tarfile.extractall(filter="data"), which requires
+# Python >=3.11.4 (or >=3.12) -- ">=3.11" alone would allow an interpreter
+# where that call raises. The runtime image is python:3.12-slim (unaffected);
+# this is about what a local `pip install -e .` could otherwise accept.
+requires-python = ">=3.11.4"
 dependencies = []
 
 [project.optional-dependencies]
