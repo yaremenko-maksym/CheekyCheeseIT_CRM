@@ -1073,8 +1073,8 @@ export class UsersService {
     // way — so `requestedSeniorSharePercent` ends up `undefined` regardless
     // of which path this condition takes. No test, however written, can
     // observe a difference (verified by hand, both branches derived above).
-    // Stryker disable next-line ConditionalExpression
     const requestedSeniorSharePercent: number | undefined =
+      // Stryker disable next-line ConditionalExpression: see the comment above this statement.
       data.seniorSharePercent !== undefined && effectiveRole === 'SENIOR'
         ? data.seniorSharePercent
         : undefined
