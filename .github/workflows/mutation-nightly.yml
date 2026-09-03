@@ -231,6 +231,8 @@ jobs:
           ALERT_REPO: ${{ steps.channel.outputs.repo }}
           RESULT: ${{ steps.tally.outputs.result }}
           FAILED_LEGS: ${{ steps.tally.outputs.detail }}
+          MUTATION_REASON: ${{ steps.tally.outputs.reason }}
+          MUTATION_MISSING_PACKAGES: ${{ steps.tally.outputs.missing_packages }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
           COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

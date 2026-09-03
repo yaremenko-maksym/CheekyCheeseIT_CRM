@@ -48,6 +48,81 @@
  * you changed"), and it is also a real limit: the enclosing block's own mutants
  * are only ever reached by the nightly full run.
  *
+ * PR GATE vs NIGHTLY — ignoreStatic (owner decision, 2026-09-03)
+ * ----------------------------------------------------------------
+ * `--changed` runs with Stryker's `ignoreStatic: true`; `--full` does not (see
+ * writeConfig() below). A static mutant is one whose ONLY coverage is at
+ * module load time — a constant, a Zod schema default — never inside a
+ * per-test run, so killing it costs the FULL suite per mutant regardless of
+ * which one test would matter. Measured on PR #623 (61 static mutants): 11%
+ * of the mutant count, 84% of the wall time. That is the single biggest time
+ * lever this gate has, and the PR gate takes it — at a real, accepted cost:
+ * a broken module-level constant or schema default is UNVERIFIED by the PR
+ * that broke it. The nightly `--full` sweep (`ignoreStatic` off) is where
+ * that gap is meant to close — "meant to" because, as of this decision, it
+ * had not: every nightly run since the workflow's first-ever trigger
+ * (2026-08-12, 23/23 through 2026-09-03) failed before completing a full
+ * sweep, for two SEPARATE causes neither of which is a timing threshold in
+ * the self-check itself, despite that being the first hypothesis:
+ *
+ *   - `web` leg: `Gate self-check` (mutation-gate-vacuum-proof.sh) crashed in
+ *     arm 4 with `Cannot read properties of undefined (reading 'map')`, then
+ *     (after that crash) with a vi.mock() completeness error — the frozen
+ *     fixture (2026-08-07-JobSuggestionDialog.vacuum.tsx.txt) predates BOTH
+ *     `matchScore`/`matchedKeywords` on `JobSuggestionDto` and the
+ *     `SourceBudgetPanel`/`useJobSources` it now also renders (PR #515,
+ *     2026-08-12), and its mock never got either; nothing type-checks a
+ *     `.txt` fixture before it is copied over the real test file and run.
+ *     BOTH crashes are fixed in the same change that added this section —
+ *     the fixture's mock now satisfies the current module surface, with
+ *     historically-accurate inert values (see the fixture's own comments).
+ *     Fixing the crash uncovered a SEPARATE, more serious finding, below.
+ *   - `api` leg: Stryker's initial (unmutated) dry run is red before
+ *     mutation ever starts, because of an existing, unrelated test —
+ *     `resume-text-extraction.service.spec.ts`, "PDF content-stream guard
+ *     (HIGH-2) … without stalling" — asserting a 250ms stall ceiling that a
+ *     shared CI runner does not reliably meet (observed: ~1.6s). That
+ *     assertion is real and intentional (the guard's whole point is DEFEATING
+ *     A STALL, not merely rejecting the file — see the test's own comment:
+ *     "30 pages, 24 KB file -> accepted, 23267 ms stall" was the pre-fix
+ *     bug), so the fix is a more generous ceiling with a written reason, not
+ *     its removal — NOT fixed here: the file is a `*.spec.ts`, AutoTest's
+ *     zone under `.claude/rules/common/zone-of-write.md`, not DevOps's.
+ *
+ * WHAT FIXING THE WEB-LEG CRASH UNCOVERED — read this before touching
+ * ignoreStatic again. With both fixture crashes fixed, `mutation-gate-
+ * vacuum-proof.sh` runs its intended 5 mutants — and with `ignoreStatic: true`
+ * now genuinely active (as `--changed` really runs), FOUR of those FIVE
+ * XSS-defence mutants come back `Ignored` (static), leaving only ONE
+ * (the `MARKDOWN_URL_TRANSFORM` fallback string) actually exercised. Verified
+ * by running the script itself, unmodified, 2026-09-03: arm 1 — which has
+ * asserted "the real test kills the defence mutants (>= 4)" since this file
+ * was written — now gets 1. `MARKDOWN_URL_TRANSFORM` and `MARKDOWN_COMPONENTS`
+ * in JobSuggestionDialog.tsx are BOTH module-level `export const`s — exactly
+ * the shape `ignoreStatic` is built to skip — and this is the SAME defence
+ * this whole gate was built to protect after the 2026-08-07 incident.
+ * `mutation-gate-vacuum-proof.sh`'s own assertions are LEFT UNCHANGED here on
+ * purpose: weakening arm 1 to "at least 1" to make the self-check green again
+ * would be exactly the disease this file exists to treat — a check quietly
+ * taught to stop noticing what it was built to notice. The self-check
+ * therefore still (correctly) fails after this change, for a real reason, and
+ * that failure is the finding: enabling `ignoreStatic` on `--changed` as
+ * currently scoped measurably reopens the class of gap task-mutation-gate was
+ * created to close, for any module-level security-relevant object — not a
+ * hypothetical, demonstrated on the exact component that motivated this gate.
+ * Resolving this (narrower `ignoreStatic` scope, an explicit per-file opt-out,
+ * or knowingly accepting the gap with the self-check updated to say so
+ * explicitly) is a decision this file does not make for you.
+ *
+ * Net effect while both legs were down: static mutants were verified nowhere
+ * for `@crm/api` and `@crm/web` (the `@crm/shared` leg has passed every
+ * night since 2026-08-12 and its statics WERE covered throughout). Whoever
+ * next asks "why did nobody notice a broken constant" for those two packages
+ * in this window — this is why: the check meant to catch it was not running,
+ * and the fact that it was not running was not itself visible (see
+ * mutation-gate-runbook.md "PR gate vs nightly" for the alert-template defect
+ * that hid this, and the backlog entry cross-referenced there for the fix).
+ *
  * VERDICT RULES
  * -------------
  *   Survived      → RED, UNLESS Stryker's own report says zero tests ran for
@@ -57,15 +132,27 @@
  *                   not a percentage: the eight findings above were single
  *                   mutants each, and any percentage threshold would have
  *                   passed them.
- *   Ignored       → allowed ONLY with a reason (`// Stryker disable next-line
- *                   <mutator>: <why>`). The reason is read back out of Stryker's
- *                   own report, so a suppression without one is red HERE too, not
- *                   only in check-mutation-suppressions.mjs. Equivalent mutants
- *                   are real (this repo has one — `img: () => null` mutated to
- *                   `() => undefined` renders identically), so a suppression
- *                   mechanism is not optional: without one, the gate gets
- *                   switched off wholesale. A suppression with no stated reason,
- *                   though, is a silent bypass — the same disease one level up.
+ *   Ignored       → TWO different things share this one Stryker status, told
+ *                   apart by `statusReason` (see STRYKER_IGNORE_STATIC_REASON
+ *                   / STRYKER_DEFAULT_IGNORE_REASON below) and NEVER red for
+ *                   the same reason:
+ *                     (a) a `// Stryker disable next-line <mutator>: <why>`
+ *                         comment an author wrote — allowed ONLY with a
+ *                         reason, read back out of Stryker's own report, so a
+ *                         suppression without one is red HERE too, not only
+ *                         in check-mutation-suppressions.mjs. Equivalent
+ *                         mutants are real (this repo has one — `img: () =>
+ *                         null` mutated to `() => undefined` renders
+ *                         identically), so a suppression mechanism is not
+ *                         optional: without one, the gate gets switched off
+ *                         wholesale. A suppression with no stated reason,
+ *                         though, is a silent bypass — the same disease one
+ *                         level up.
+ *                     (b) a load-time (static) mutant `ignoreStatic` skipped
+ *                         on the PR gate — nobody wrote a directive, a config
+ *                         flag decided it, and it is never red: see "PR GATE
+ *                         vs NIGHTLY" below for the tradeoff this buys and
+ *                         where it gets closed.
  *   NoCoverage    → WARNING, not red, and printed loudly. "Changed lines must be
  *                   covered" is a coverage threshold, which task-mutation-gate
  *                   explicitly leaves to a separate task. Flip with
@@ -549,7 +636,7 @@ function planFull() {
 
 // ── running Stryker ───────────────────────────────────────────────────────────
 
-function writeConfig(pkg, patterns, reportPath, concurrency) {
+function writeConfig(pkg, patterns, reportPath, concurrency, mode) {
   const cfg = {
     testRunner: 'vitest',
     // Absolute path rather than the bare name: Stryker resolves bare plugin
@@ -557,7 +644,34 @@ function writeConfig(pkg, patterns, reportPath, concurrency) {
     // (pnpm workspace, no hoisting) has no @stryker-mutator/* of its own.
     plugins: [VITEST_RUNNER_PLUGIN],
     coverageAnalysis: 'perTest',
-    reporters: ['json', 'clear-text'],
+    // Static mutants (load-time — a module-level constant, a Zod schema
+    // default — never a per-test one) are skipped ONLY on the PR gate
+    // (`--changed`), never on the nightly `--full` run. Owner decision,
+    // 2026-09-03: Stryker's own summary on this repo (PR #623, 61 static
+    // mutants) showed them at 11% of the mutant count and 84% of the wall
+    // time — the single biggest time lever there is, at a real cost: a
+    // broken module-level constant or schema default goes UNVERIFIED on the
+    // PR that broke it. `readReport()` below relies on Stryker's own
+    // `statusReason` for a skipped static mutant (`'Static mutant (and
+    // "ignoreStatic" was enabled)'`, @stryker-mutator/core's
+    // mutant-test-planner.ts `planMutant()`) to keep these out of the
+    // suppression-directive counts — see STRYKER_IGNORE_STATIC_REASON. The
+    // nightly run is where the gap this opens gets closed; see "PR gate vs
+    // nightly" in mutation-gate-runbook.md. Branched on the MODE variable,
+    // not an env var — an env var is something a future run can simply
+    // forget to set, and the two modes would silently converge.
+    ignoreStatic: mode === 'changed',
+    reporters: ['json', 'clear-text', 'progress-append-only'],
+    // progress-append-only (packages/core/src/reporters/progress-append-only-reporter.ts
+    // in @stryker-mutator/core, matches the pin in package.json) writes one
+    // plain, ANSI-free line to stdout every 10s instead of redrawing a bar in
+    // place — the bar (reporter 'progress') uses cursor control that either
+    // does not render or prints garbage in a non-TTY CI log. runStryker()
+    // below forwards the child's stdout to ours as each chunk arrives, so
+    // these lines show up live in the Actions log instead of going silent
+    // until the run ends. Reporters run independently of each other
+    // (broadcast-reporter.ts calls each in its own try/catch), so this does
+    // not touch the JSON report the gate's own verdict is read from.
     jsonReporter: { fileName: reportPath },
     concurrency,
     // Our own verdict is computed from the JSON report (Stryker's break
@@ -682,6 +796,36 @@ const MIN_REASON_LENGTH = 12
  */
 const STRYKER_DEFAULT_IGNORE_REASON = 'Ignored using a comment'
 
+/**
+ * The OTHER shape an `Ignored` mutant's `statusReason` comes in — not a human
+ * `// Stryker disable` comment at all, but Stryker's own `ignoreStatic`
+ * skipping a load-time mutant on the PR gate (see writeConfig() above for why
+ * that is on only for `--changed`). Read verbatim out of
+ * @stryker-mutator/core's mutant-test-planner.ts, `planMutant()`:
+ *
+ *   } else if (this.options.ignoreStatic) {
+ *     // Static (w/o perTest coverage) and ignoreStatic is on -> Ignore.
+ *     return this.createMutantEarlyResultPlan(mutant, {
+ *       status: 'Ignored',
+ *       statusReason: 'Static mutant (and "ignoreStatic" was enabled)',
+ *       ...
+ *
+ * Before this constant existed these mutants fell into the SAME `suppressed`
+ * bucket as an author's own `// Stryker disable next-line <mutator>: <why>` —
+ * which is wrong on its face (nobody wrote a directive; a config flag skipped
+ * it) and wrong in effect: `groupSuppressions()` would print each one as its
+ * own "suppression directive", inflating that section by exactly the static-
+ * mutant count on any diff that has some (61 on PR #623) and occasionally
+ * tripping the "COVERS MORE THAN ONE MUTANT, verify each is intended" warning
+ * for a case no human ever decided. It happened to never turn the build RED
+ * only by accident: this exact string is not `STRYKER_DEFAULT_IGNORE_REASON`
+ * and is comfortably over `MIN_REASON_LENGTH`, so it passed the `written`
+ * check that exists to catch a REASONLESS comment. Passing a check by
+ * accident is not the same as being classified correctly — see
+ * `ignoredStatic` below.
+ */
+const STRYKER_IGNORE_STATIC_REASON = 'Static mutant (and "ignoreStatic" was enabled)'
+
 function readReport(reportPath, pkg) {
   if (!existsSync(reportPath)) return null
   const report = JSON.parse(readFileSync(reportPath, 'utf8'))
@@ -723,7 +867,18 @@ function readReport(reportPath, pkg) {
   // task-mutation-gate-mechanical needs: the actual per-directive COUNT, read
   // back out of Stryker's own report rather than reasoned about from the diff.
   // See groupSuppressions() below for why "line × mutator" is the right key.
+  // Never contains an ignoreStatic skip — see STRYKER_IGNORE_STATIC_REASON
+  // above and the branch below; those go to `ignoredStatic` instead, because
+  // they are not a directive anyone wrote.
   const suppressed = []
+  // Static mutants Stryker itself skipped under `ignoreStatic` (PR gate only —
+  // see writeConfig()). Counted separately from `suppressed`/`badSuppressions`
+  // on purpose: this is an EXPECTED, POLICY-level gap in the PR gate's
+  // coverage, not something an author suppressed line-by-line, and printing
+  // it as a "suppression directive" would both mislabel it and make the
+  // suppression section's counts meaningless on any diff that touches a
+  // module-level constant or a schema default.
+  const ignoredStatic = []
 
   for (const [file, entry] of Object.entries(report.files ?? {})) {
     for (const mutant of entry.mutants ?? []) {
@@ -751,15 +906,31 @@ function readReport(reportPath, pkg) {
         uncovered.push({ where, mutator: mutant.mutatorName })
       } else if (mutant.status === 'Ignored') {
         const reason = (mutant.statusReason ?? '').trim()
-        const written =
-          reason !== STRYKER_DEFAULT_IGNORE_REASON &&
-          reason.replace(/[^\p{L}\p{N}]/gu, '').length >= MIN_REASON_LENGTH
-        suppressed.push({ where, mutator: mutant.mutatorName, reason })
-        if (!written) badSuppressions.push({ where, mutator: mutant.mutatorName, reason })
+        if (reason === STRYKER_IGNORE_STATIC_REASON) {
+          // Policy skip, not a directive — see STRYKER_IGNORE_STATIC_REASON's
+          // own comment for why this is a THIRD case, not folded into either
+          // of the two below.
+          ignoredStatic.push({ where, mutator: mutant.mutatorName })
+        } else {
+          const written =
+            reason !== STRYKER_DEFAULT_IGNORE_REASON &&
+            reason.replace(/[^\p{L}\p{N}]/gu, '').length >= MIN_REASON_LENGTH
+          suppressed.push({ where, mutator: mutant.mutatorName, reason })
+          if (!written) badSuppressions.push({ where, mutator: mutant.mutatorName, reason })
+        }
       }
     }
   }
-  return { counts, survivors, toolFailures, timeouts, uncovered, badSuppressions, suppressed }
+  return {
+    counts,
+    survivors,
+    toolFailures,
+    timeouts,
+    uncovered,
+    badSuppressions,
+    suppressed,
+    ignoredStatic,
+  }
 }
 
 /**
@@ -965,6 +1136,7 @@ async function main() {
   const allUncovered = []
   const allBadSuppressions = []
   const allSuppressed = []
+  const allIgnoredStatic = []
   const perPackage = []
   // Packages where Stryker instrumented the changed lines and found ZERO
   // mutants — task-mutation-gate-zero-mutants. Tracked separately from
@@ -986,7 +1158,7 @@ async function main() {
     if (mode === 'changed') for (const p of patterns) console.log(`    mutate ${p}`)
 
     const reportPath = path.join(REPORT_DIR, `${pkg.name.replace(/[^a-z0-9]+/gi, '-')}.report.json`)
-    const configFile = writeConfig(pkg, patterns, reportPath, concurrency)
+    const configFile = writeConfig(pkg, patterns, reportPath, concurrency, mode)
     const pkgStarted = Date.now()
     const res = await runStryker(pkg, configFile, remainingMs)
     const pkgSeconds = ((Date.now() - pkgStarted) / 1000).toFixed(1)
@@ -1047,6 +1219,7 @@ async function main() {
     allUncovered.push(...parsed.uncovered)
     allBadSuppressions.push(...parsed.badSuppressions)
     allSuppressed.push(...parsed.suppressed)
+    allIgnoredStatic.push(...parsed.ignoredStatic)
     perPackage.push({ name: pkg.name, seconds: pkgSeconds, counts: parsed.counts, scope })
   }
 
@@ -1231,6 +1404,38 @@ async function main() {
       console.log(`::error file=${s.where.split(':')[0]},line=${s.where.split(':')[1]}::${msg}`)
       lines.push(`- \`${s.where}\` — ${s.mutator}: "${s.reason}"`)
     }
+  }
+
+  // ── static mutants skipped (ignoreStatic, PR gate only) ─────────────────────
+  //
+  // NOT a suppression directive — see STRYKER_IGNORE_STATIC_REASON's own
+  // comment for the mechanism and why these are counted apart from
+  // `suppressed`/`badSuppressions`. Purely informational: `ignoreStatic` is
+  // only ever true in `--changed` mode (writeConfig() above), so this section
+  // can only appear on the PR gate, never on the nightly `--full` sweep — a
+  // `--full` report with a nonzero count here would itself be a bug in
+  // writeConfig(). Owner decision, 2026-09-03: the PR gate does not verify
+  // that tests notice a broken module-level constant or schema default; the
+  // nightly full sweep (ignoreStatic OFF) is where that gap is closed. See
+  // "PR gate vs nightly" in mutation-gate-runbook.md.
+  if (allIgnoredStatic.length > 0) {
+    lines.push(
+      '',
+      `#### ${allIgnoredStatic.length} static mutant(s) skipped (ignoreStatic, PR gate only)`,
+    )
+    lines.push(
+      '',
+      `Load-time mutants (a module-level constant, a schema default) are not run on the PR ` +
+        `gate — this is a POLICY skip, not a suppression anyone wrote, and it does NOT affect ` +
+        `the verdict above. The nightly full sweep runs with \`ignoreStatic\` off and DOES test ` +
+        `these; see \`scripts/devops/mutation-gate-runbook.md\` "PR gate vs nightly" for the ` +
+        `tradeoff and why it is scoped to \`--changed\` only.`,
+    )
+    console.log(
+      `::notice::${allIgnoredStatic.length} static mutant(s) skipped on the PR gate ` +
+        `(ignoreStatic) — not a suppression, not counted against the verdict; verified nightly ` +
+        `instead (mutation-gate-runbook.md "PR gate vs nightly").`,
+    )
   }
 
   // ── suppression counts (task-mutation-gate-mechanical AC2) ─────────────────

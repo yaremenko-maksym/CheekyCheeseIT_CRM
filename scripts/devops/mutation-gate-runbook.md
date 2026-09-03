@@ -458,7 +458,57 @@ be one more check that cannot fail.
 A tally of "all legs green, zero reports produced" is **red**, not green — see
 the header of `check-mutation-tally.mjs`.
 
-## Tuning
+**The alert text depends on WHETHER the sweep ran, not only on WHAT it found**
+(task-mutation-gate nightly-alert-fidelity, 2026-09-03). Before this, every
+`KIND=mutation` failure — a leg crashing before Stryker even started, a
+corrupt report, zero reports produced, OR real survivors — produced the SAME
+issue body ("выжившие мутанты — вот что делать"). The nightly was red on
+every single scheduled run from its first trigger (2026-08-12) through at
+least 2026-09-03, and for most of that window the cause was a leg failing
+before any mutant ran — yet the open issue read, every night, as ordinary
+accumulated mutant debt to work through later. `check-mutation-tally.mjs` now
+also prints `reason=incomplete|survivors|cancelled|clean` and
+`missing_packages=<comma list>`; `post-merge-alert.sh` uses `reason` to pick
+between two genuinely different bodies (see its own header comment on
+`MUTATION_REASON` for the exact split) — the `incomplete` one names which
+package(s) produced no report, says explicitly that static mutants were not
+checked that night, and points at fixing the RUN, not at closing mutants.
+Verify both bodies with `DRY_RUN=1 ... MUTATION_REASON=incomplete|survivors
+./scripts/devops/post-merge-alert.sh` per §4.1 above.
+
+## PR gate vs nightly (`ignoreStatic`)
+
+**Status, 2026-09-03 — read `mutation-gate.mjs`'s own header section "PR GATE
+vs NIGHTLY" first; this is the runbook-side pointer, not a duplicate.** Short
+version: `--changed` runs with Stryker's `ignoreStatic: true` (owner decision,
+2026-09-03 — 61 static mutants were 11% of the count and 84% of the wall time
+on PR #623), `--full` does not, and the nightly is where that gap is supposed
+to close. As of this decision it had not, ever, closed:
+
+- `@crm/shared` has completed a full sweep every night since 2026-08-12 —
+  its statics WERE covered throughout.
+- `@crm/api` and `@crm/web` had not completed one at all, for two unrelated
+  causes: `web` crashed in `mutation-gate-vacuum-proof.sh` on a frozen fixture
+  that predated two later features on `JobSuggestionDialog.tsx`, now fixed;
+  `api` fails Stryker's initial dry run on a pre-existing, unrelated test —
+  `resume-text-extraction.service.spec.ts`'s HIGH-2 PDF content-stream guard
+  asserts a stall ceiling of 250ms that a shared runner does not reliably
+  meet (observed ~1.6s) — NOT fixed here (`*.spec.ts` is AutoTest's zone).
+
+**Fixing the `web` crash surfaced something more serious than a crash.** With
+the fixture crash gone, `mutation-gate-vacuum-proof.sh` runs its 5 intended
+mutants — and with `ignoreStatic` genuinely on (as `--changed` really runs),
+4 of those 5 XSS-defence mutants in `MARKDOWN_URL_TRANSFORM`/
+`MARKDOWN_COMPONENTS` come back `Ignored` (static), leaving only 1 actually
+exercised. Both are module-level `export const`s — exactly `ignoreStatic`'s
+target shape — and this is the SAME defence this whole gate exists to
+protect, after the 2026-08-07 incident that motivated it. The self-check's
+assertions were deliberately left unchanged rather than weakened to match:
+it still (correctly) fails, and that failure IS the finding, not a bug to
+paper over. Do not "fix" `mutation-gate-vacuum-proof.sh` to pass under
+`ignoreStatic` without first re-reading `mutation-gate.mjs`'s own header on
+this — silencing that failure would hide the exact class of regression this
+gate was built to catch.
 
 Everything lives in `scripts/devops/mutation-gate.mjs`:
 

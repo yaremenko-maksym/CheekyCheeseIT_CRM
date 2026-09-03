@@ -52,7 +52,29 @@
 #   FAILED_LEGS    human list of failed jobs, e.g. "quality, e2e" or "deploy";
 #                   for KIND=backup, the one-line freshness-check detail
 #                   (scripts/devops/check-backup-freshness.sh's `detail` output);
-#                   for KIND=mutation, the one-line survivor tally
+#                   for KIND=mutation, the one-line detail from
+#                   check-mutation-tally.mjs — a survivor tally OR a reason the
+#                   sweep produced no evidence at all, see MUTATION_REASON
+#   MUTATION_REASON KIND=mutation only. check-mutation-tally.mjs's `reason`
+#                   output: `survivors` (the sweep completed and found some —
+#                   today's body/title) or `incomplete` (a leg failed, a
+#                   report could not be parsed, or no reports were produced —
+#                   nothing was verified, and the alert says so instead of
+#                   reading like accumulated mutant debt). Unset/unrecognised
+#                   → `survivors`, so a caller that predates this var (or a
+#                   manual DRY_RUN) keeps today's text rather than silently
+#                   losing its body. task-mutation-gate nightly-alert-fidelity,
+#                   2026-09-03 — see mutation-gate-runbook.md "PR gate vs
+#                   nightly" for why this distinction exists at all: the
+#                   nightly was red for 20+ consecutive nights and every one
+#                   of them read as "mutants survived", not "the check is down".
+#   MUTATION_MISSING_PACKAGES  KIND=mutation + MUTATION_REASON=incomplete only.
+#                   Comma-joined package names (check-mutation-tally.mjs's
+#                   `missing_packages` output) that produced NO report at all —
+#                   named in the body so "which leg" does not require opening
+#                   the run first. May be empty (e.g. reports parsed but were
+#                   corrupt, or the whole matrix job errored before any leg
+#                   started) — the body handles that case too.
 #   COMMIT_SUBJECT commit subject line (untrusted input — never eval'd)
 #   LABEL          issue label (default: ci-main-broken for KIND=ci,
 #                   deploy-broken for KIND=deploy, backup-stale for KIND=backup,
@@ -78,6 +100,15 @@ esac
 DRY_RUN="${DRY_RUN:-0}"
 FAILED_LEGS="${FAILED_LEGS:-unknown}"
 COMMIT_SUBJECT="${COMMIT_SUBJECT:-}"
+# Default `survivors`, not `incomplete`: an unset/unrecognised value must keep
+# TODAY's body (see the env-doc comment above), not switch to the new one —
+# the new text names a specific reason the run failed, which would be a lie
+# for a caller that never told us one.
+case "${MUTATION_REASON:-survivors}" in
+  incomplete) MUTATION_REASON=incomplete ;;
+  *) MUTATION_REASON=survivors ;;
+esac
+MUTATION_MISSING_PACKAGES="${MUTATION_MISSING_PACKAGES:-}"
 
 for var in ALERT_REPO RESULT COMMIT_SHA RUN_URL; do
   if [ -z "${!var:-}" ]; then
@@ -229,6 +260,37 @@ if [ "$RESULT" = "failure" ]; then
       printf '3. Issue закроется автоматически, когда следующая проверка после `Deploy` найдёт\n'
       printf '   свежую резервную копию.\n'
     )
+  elif [ "$KIND" = "mutation" ] && [ "$MUTATION_REASON" = "incomplete" ]; then
+    # task-mutation-gate nightly-alert-fidelity, 2026-09-03: a SEPARATE title
+    # and body from the survivors case below — see MUTATION_REASON's env-doc
+    # comment for why this split exists. Nothing here talks about closing
+    # mutants; there is nothing to close, because nothing ran.
+    BODY=$(
+      printf '## Ночной мутационный прогон НЕ выполнился\n\n'
+      printf '**Commit:** `%s`\n' "$COMMIT_SHA"
+      [ -n "$SUBJECT_LINE" ] && printf '%s\n' "$SUBJECT_LINE"
+      printf '**Что обнаружено:** %s\n' "$FAILED_LEGS"
+      if [ -n "$MUTATION_MISSING_PACKAGES" ]; then
+        printf '**Пакеты без отчёта:** %s\n' "$MUTATION_MISSING_PACKAGES"
+      fi
+      printf '**Run:** %s\n\n' "$RUN_URL"
+      printf 'Сбор не дошёл до конца — упал раньше (проверка/тест/бюджет), поэтому список\n'
+      printf 'выживших ниже НЕ появится: смотреть в этом run нечего, кроме упавшего шага.\n\n'
+      printf '> Статические мутанты в эту ночь не проверялись — ни для одного из пакетов\n'
+      printf '> выше. PR-гейт их и так не смотрит (`ignoreStatic`, см.\n'
+      printf '> `mutation-gate.mjs` "PR GATE vs NIGHTLY"), а ночной, единственный, кто\n'
+      printf '> должен был, не доехал.\n\n'
+      printf '## Что делать\n\n'
+      printf '1. Открыть run выше → job `Sweep` (пакет из строки «Пакеты без отчёта») → найти\n'
+      printf '   первый красный шаг (обычно `Gate self-check` или `Full mutation sweep`).\n'
+      printf '2. Починить ЭТОТ шаг — это задача о самом прогоне, не о мутантах.\n'
+      printf '3. Перезапустить вручную (`gh workflow run mutation-nightly.yml --ref main`) и\n'
+      printf '   убедиться, что все три ноги дошли до отчёта.\n'
+      printf '4. Issue закроется автоматически, когда прогон завершится и не найдёт выживших\n'
+      printf '   (сам факт завершения — success; список выживших, если он появится, — уже\n'
+      printf '   отдельный алерт с другим текстом).\n\n'
+      printf 'Подробности — `scripts/devops/mutation-gate-runbook.md` "PR gate vs nightly".\n'
+    )
   elif [ "$KIND" = "mutation" ]; then
     BODY=$(
       printf '## Ночной мутационный прогон нашёл тесты, которые не умеют падать\n\n'
@@ -275,12 +337,16 @@ if [ "$RESULT" = "failure" ]; then
     )
   fi
 
-  case "$KIND" in
-    deploy) TITLE="🚨 Деплой упал на прод ($SHORT_SHA)" ;;
-    backup) TITLE="🚨 Нет свежего бэкапа БД ($SHORT_SHA)" ;;
-    mutation) TITLE="🧬 Выжившие мутанты на main ($SHORT_SHA)" ;;
-    *) TITLE="🚨 CI красный на main ($SHORT_SHA)" ;;
-  esac
+  if [ "$KIND" = "mutation" ] && [ "$MUTATION_REASON" = "incomplete" ]; then
+    TITLE="🧬 Ночной мутационный прогон не выполнился ($SHORT_SHA)"
+  else
+    case "$KIND" in
+      deploy) TITLE="🚨 Деплой упал на прод ($SHORT_SHA)" ;;
+      backup) TITLE="🚨 Нет свежего бэкапа БД ($SHORT_SHA)" ;;
+      mutation) TITLE="🧬 Выжившие мутанты на main ($SHORT_SHA)" ;;
+      *) TITLE="🚨 CI красный на main ($SHORT_SHA)" ;;
+    esac
+  fi
 
   if [ -z "$OPEN" ]; then
     run_gh issue create --repo "$ALERT_REPO" \
