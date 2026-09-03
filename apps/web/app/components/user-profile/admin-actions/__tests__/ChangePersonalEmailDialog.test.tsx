@@ -140,11 +140,11 @@ describe('ChangePersonalEmailDialog — removal state (field cleared, currentEma
     return user
   }
 
-  it('description names ONLY the current address, no mention of a new one (COPY-M-11)', async () => {
+  it('description names ONLY the current address, no mention of a new one (COPY-M-11), and matches the "Удалить" button verb (COPY-M-14)', async () => {
     await typeEmptyAfterClearing()
     expect(
       screen.getByText(
-        'Сохраните — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.',
+        'Удалите — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/На новый адрес уйдёт приглашение/)).not.toBeInTheDocument()

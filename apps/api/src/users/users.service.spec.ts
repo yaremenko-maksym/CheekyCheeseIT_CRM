@@ -509,7 +509,7 @@ describe('UsersService.writeUserEmailOrConflict (SR-M-2, private helper exercise
       service.writeUserEmailOrConflict(() => Promise.reject(violation)),
     ).rejects.toBeInstanceOf(ConflictException)
     await expect(service.writeUserEmailOrConflict(() => Promise.reject(violation))).rejects.toThrow(
-      'User with this email already exists',
+      'Этот адрес уже используется — введите другой.',
     )
   })
 

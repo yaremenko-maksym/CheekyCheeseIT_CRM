@@ -245,9 +245,19 @@ export class UsersService {
    * expected 409 (a collision is the everyday failure mode of "type an
    * address, see if it's taken"), not a rare edge case — see that method's
    * own doc. Deliberately does not name WHICH row (own WORK vs a stranger's)
-   * collided or which kind it was — the admin does not need that, and the
-   * two cases already reach this same message for the same reason
-   * (`writeUserEmailOrConflict`'s identical Russian text, below).
+   * collided or which kind it was — the admin does not need that.
+   *
+   * COPY-H-6 (security-review PR #623 closing round): the previous version
+   * of this paragraph claimed `writeUserEmailOrConflict`'s catch-branch
+   * message (below) was "identical Russian text" to this one — it was not:
+   * that message was STILL the raw English string this fix replaced here.
+   * The two messages are deliberately DIFFERENT wording, not a copy-paste
+   * omission: "занят другим пользователем" is only true for THIS function's
+   * collision (a stranger's row) — `writeUserEmailOrConflict`'s catch fires
+   * on the SAME-user, different-`kind` collision this function's own
+   * `isOwnRow` branch above lets through (own WORK address set equal to
+   * own PERSONAL address) — see its own doc for the reachable path. Naming
+   * a caller as "другой пользователь" there would be factually wrong.
    */
   private async assertEmailAvailable(
     db: DatabaseService['db'] | DrizzleTx,
@@ -278,13 +288,30 @@ export class UsersService {
    * does. Every caller that writes to `user_emails` (insert or update)
    * MUST go through this, or a legitimate same-user-two-kinds collision
    * surfaces as an unhandled crash instead of a 409.
+   *
+   * COPY-H-6 (security-review PR #623 closing round): this message was
+   * still raw English (`'User with this email already exists'`) — the
+   * admin sees it verbatim as a toast (`getUserFacingErrorMessage` forwards
+   * backend exception messages unchanged) in an otherwise all-Russian
+   * interface, same class of bug COPY-H-5 already fixed on
+   * `assertEmailAvailable` above. A concrete, deterministic path that
+   * reaches THIS catch branch specifically (not `assertEmailAvailable`'s):
+   * an admin edits a user's WORK email (`adminUpdateUser`) to the address
+   * that SAME user already has as their PERSONAL address —
+   * `assertEmailAvailable(db, data.email, id)` sees only its own
+   * `excludeUserId` row and lets it through (`isOwnRow`), so the write
+   * proceeds and the DB's unique index (global across `kind`) is what
+   * actually rejects it, landing here. Does NOT reuse
+   * `assertEmailAvailable`'s "занят другим пользователем" wording — that
+   * would misname the caller: this is a collision with the SAME user's own
+   * other row, not a stranger's.
    */
   private async writeUserEmailOrConflict<T>(write: () => Promise<T>): Promise<T> {
     try {
       return await write()
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictException('User with this email already exists')
+        throw new ConflictException('Этот адрес уже используется — введите другой.')
       }
       throw err
     }

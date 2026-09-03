@@ -78,6 +78,23 @@ export function ChangePersonalEmailDialog({
   // gold as a no-consequence "Сохранить") didn't visually distinguish a
   // credential-revoking save from a benign one. Text label is unchanged
   // here (copy-review PR #623 round 4 owns that wording separately).
+  //
+  // COPY-L-3 (security-review PR #623 closing round) — revisited, kept as
+  // is: `ArchiveUserDialog`'s own destructive button DOES name the action
+  // ("Архивировать", not "Сохранить"), which is the stronger precedent and
+  // an argument for renaming this one too. Not doing it: (1) "Сохранить" is
+  // still the grammatically correct verb for what this click actually does
+  // in the CHANGE case — persist a new value — unlike an archive/delete
+  // action that has no less-severe reading; (2) the consequence is already
+  // spelled out in PROSE immediately above the button (`description`
+  // below), so the admin is not relying on the button label alone the way
+  // `ArchiveUserDialog`'s confirmation (typed name, no body text) does; (3)
+  // an existing regression test
+  // (`ChangePersonalEmailDialog.test.tsx`, "submit button is the
+  // destructive variant … even though the label stays 'Сохранить'") already
+  // pins this as the round-4 reviewer's deliberate call, not an oversight —
+  // reversing a settled, tested decision on a LOW finding in the closing
+  // round needs a real defect, not a stylistic preference either way.
   const revokesExisting = !!currentEmail
 
   function validate(): string | null {
@@ -101,17 +118,24 @@ export function ChangePersonalEmailDialog({
   }
 
   // copy-review PR #623 round 5 (COPY-H-4/M-11/M-12) — the description is an
-  // action verb ("Сохраните — и …"), not a field label, and names the
-  // consequence truthfully for whichever of the three states the dialog is
-  // actually in: adding a first address (nothing to revoke yet — COPY-M-12),
-  // removing the only address (no new address to mention — COPY-M-11), or
-  // changing an existing one (both halves apply — COPY-H-4). Wording taken
-  // verbatim from the round-5 copy review, measured against this dialog's
-  // real content width (272px).
+  // action verb ("Сохраните — и …" / "Удалите — и …"), not a field label,
+  // and names the consequence truthfully for whichever of the three states
+  // the dialog is actually in: adding a first address (nothing to revoke
+  // yet — COPY-M-12), removing the only address (no new address to
+  // mention — COPY-M-11), or changing an existing one (both halves apply —
+  // COPY-H-4). Wording taken verbatim from the round-5 copy review, measured
+  // against this dialog's real content width (272px).
+  //
+  // COPY-M-14 (security-review PR #623 closing round): the removal branch
+  // used to open with "Сохраните" while the submit button below reads
+  // "Удалить адрес" — the description commanded a DIFFERENT verb than the
+  // one action actually available in this state. Swapped to "Удалите",
+  // matching the button; the rest of the sentence is unchanged (round-5
+  // copy review's own wording, still true for the removal case).
   const description = isAdding
     ? 'На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес.'
     : isRemoval
-      ? 'Сохраните — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.'
+      ? 'Удалите — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.'
       : 'Сохраните — и вход по нынешнему адресу закроется сразу, даже если сотрудник уже подтвердил его. На новый адрес уйдёт приглашение.'
 
   return (
