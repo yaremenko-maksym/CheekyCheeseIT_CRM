@@ -297,82 +297,12 @@ jobs:
           GUARD_TEST_HOOKS_TOUCHED: ${{ steps.scope.outputs.hooks == 'true' && '1' || '0' }}
         run: bash scripts/devops/tests/run-guard-tests.sh
 
-      # ── Mutation gate (task-mutation-gate, 2026-08-11) ────────────────────
-      #
-      # Whole-repo, sub-second, no diff dependency: every `// Stryker disable`
-      # comment must say WHY it is there. Kept separate from — and ahead of —
-      # the gate below, because the gate only ever sees mutants generated inside
-      # the CHANGED lines of this PR, so a suppression that drifts into untouched
-      # code would otherwise never be looked at again.
-      - name: Mutation suppressions must state a reason
-        if: steps.scope.outputs.code == 'true'
-        run: node scripts/devops/check-mutation-suppressions.mjs
-
-      # The gate itself. PR-only on purpose: it mutates the lines this branch
-      # CHANGED, which is a question only a PR has an answer to. On a push to
-      # main the equivalent question is "what survives across the whole
-      # repository", and that is the nightly's job
-      # (.github/workflows/mutation-nightly.yml) — running `--changed` here would
-      # diff main against itself and report a confident, meaningless green.
-      #
-      # No MUTATION_BASE_SHA is passed. The script resolves the base from the
-      # checkout itself: on a `pull_request` event GitHub checks out the MERGE
-      # commit, so HEAD^1 is the exact base tree this PR was merged against —
-      # more trustworthy than `pull_request.base.sha`, which is a snapshot of the
-      # branch tip at event time and can name a different commit than the merge
-      # actually used. `fetch-depth: 2` above is what makes HEAD^1 available (the
-      # same thing dorny/paths-filter relies on). If the base cannot be resolved
-      # the script exits 2 rather than reporting "nothing changed".
-      #
-      # Budget: 1 hour (recalibrated 2026-08-30 — see below; was 900s/15min).
-      #
-      # The old 900s figure was measured against a BROKEN `apps/web` gate: a
-      # fixed repo-root walk-up in the vitest configs landed on the wrong
-      # directory once Stryker reloaded the config from its sandbox two levels
-      # deeper, so `@crm/web` mutants ran ZERO tests each and the whole run
-      # finished in seconds no matter the diff size (fixed same day, commit
-      # dd1e7528, "the gate's blindness was our arithmetic, not an upstream
-      # bug" — .claude/tasks/BACKLOG-followups.md #121). 900s was therefore
-      # calibrated against a gate that was not doing any real work.
-      #
-      # With the fix in, real numbers on PR #613 (237 changed `apps/api`
-      # lines + 543 changed `apps/web` lines):
-      #   - CI: apps/api finished in 33.5s; apps/web did NOT finish inside
-      #     900s and was killed — the CI runner could not even complete what
-      #     900s was supposed to cover.
-      #   - Same diff, local quiet host: whole run (190 mutants) 312s, PASS.
-      #   - Same diff, local host under load (~10 concurrent agent worktrees):
-      #     841s — a 2.7x spread from host contention alone, on the SAME
-      #     hardware. GitHub's hosted runners have fewer cores than the
-      #     machine that produced the 312s number, which is consistent with
-      #     CI needing MORE than 900s where the quiet local host needed only
-      #     312s (a >=2.9x gap, and an unknown amount worse since the CI run
-      #     never got to report its own completion time).
-      #
-      # 3600s is chosen with that spread in mind: comfortably above the
-      # worst MEASURED number (841s, local-under-load) with margin to spare
-      # for a CI runner that is already shown to be slower still, while
-      # staying a bounded, reasoned figure rather than "large enough it can
-      # never fire" — a budget that cannot go red is as useless as one that
-      # goes red for no reason. It also stays well under the nightly
-      # `--full` sweep's 18000s (5h) per-package budget in
-      # mutation-nightly.yml, keeping the PR gate materially cheaper than the
-      # nightly. Exceeding it is still RED with an explicit message, never a
-      # silent skip — see the script's TIME BUDGET section.
-      - name: Mutation gate (changed code only)
-        if: steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
-        env:
-          MUTATION_BUDGET_SECONDS: '3600'
-        run: node scripts/devops/mutation-gate.mjs --changed
-
-      - name: Upload mutation report
-        if: always() && steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: mutation-report-pr-${{ github.event.pull_request.number }}
-          path: reports/mutation/
-          retention-days: 7
-          if-no-files-found: ignore
+      # Mutation gate moved out of this job into its own parallel job
+      # (task-infra-split-mutation-gate, 2026-09-03) — see the `mutation` job
+      # below for the full history and the timing numbers that motivated the
+      # split. `check-mutation-suppressions.mjs` and `mutation-gate.mjs` did
+      # not move on disk, only the CI step that calls them; this job no
+      # longer waits on either.
 
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
@@ -588,6 +518,237 @@ jobs:
         run: echo "Docs-only PR — skipping integration tests, satisfying required status."
 
       - name: Label PR on integration failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh label create "ci-failed" --repo "$REPO" \
+            --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
+          gh pr edit "$PR_NUMBER" --add-label "ci-failed"
+
+  # ── Mutation gate — own job, parallel to `quality`/`integration`/`e2e` ────
+  # (task-infra-split-mutation-gate, 2026-09-03; the gate itself dates to
+  # task-mutation-gate, 2026-08-11 — see mutation-gate.mjs's own header for
+  # WHY it exists at all).
+  #
+  # WHY ITS OWN JOB, NOT A STEP IN `quality`: the gate re-runs the real test
+  # suite once per mutant, so it dwarfs everything else `quality` does on
+  # anything but a tiny diff. Measured on PR #623, run 33714748851 (34 changed
+  # files, merged with another branch): `quality`'s own typecheck+lint+unit+
+  # guards finished in ~8 minutes total (typecheck 0:33, lint 0:19, unit
+  # tests ~4:00, guards ~2:00) while the mutation gate — running as the LAST
+  # step of that same job, serially after all of the above — was still
+  # running past 24 minutes when it was checked. Splitting it into its own
+  # job makes the two run IN PARALLEL: PR wall time becomes max(quality,
+  # mutation) instead of quality + mutation, the same trade that already
+  # justified giving E2E its own sharded matrix instead of bolting shards
+  # onto `quality` as steps.
+  #
+  # WHY NOT A NEW REQUIRED CHECK YET: branch protection names required
+  # contexts by their job `name:`, and `GITHUB_TOKEN` has no `administration`
+  # scope to read or write that list (see `check-required-checks-complete.sh`'s
+  # own header for the wall this repo has already hit on that). This job's
+  # `name:` below — "Mutation Gate" — is the exact string the owner adds to
+  # branch protection by hand after this PR merges. Until then it runs and
+  # reports on every PR, but a red result does not by itself block a merge —
+  # only `Typecheck · Lint · Unit Tests`, `E2E Tests` and `Integration Tests
+  # (Postgres)` do, and NEITHER of those two names changes here: renaming a
+  # required job's `name:` breaks merges for every open PR (this repo has
+  # scar tissue on exactly that, which is why this split moves the mutation
+  # steps into a NEW job instead of renaming `quality`).
+  #
+  # SETUP IS DUPLICATED FROM `quality` ON PURPOSE, not shared: GitHub Actions
+  # jobs do not share a filesystem, so every job that runs `pnpm build` pays
+  # its own checkout + install + build cost regardless. `apps/web`'s vitest
+  # config has no TanStack Router plugin of its own (confirmed against
+  # apps/web/vitest.config.ts — only `react()` + `tsconfigPaths()`), so
+  # `app/routeTree.gen.ts` — gitignored, imported by the app's own route
+  # setup — exists only after `pnpm build` runs; the mutation gate replays
+  # `apps/web`'s real vitest suite per mutant, so it needs the same build
+  # `quality` needs before ITS unit-test step, for the same reason. Same for
+  # the Typst binary: `apps/api`'s résumé specs
+  # (resume-typst.service.spec.ts, resume-render-responsiveness.spec.ts) are
+  # UNIT specs that assert loudly rather than skip when Typst is missing
+  # (apps/api/src/test/typst-availability.ts) — the gate runs those too, so
+  # it needs the exact install `quality` already does (version + checksum
+  # parsed from apps/api/Dockerfile, never duplicated as a second hardcoded
+  # pin — see that step's comment in `quality` for the full rationale). The
+  # nightly full sweep (.github/workflows/mutation-nightly.yml) independently
+  # arrived at the identical Typst-then-build sequence for the identical
+  # reason — see that workflow's own comments on its `sweep` job.
+  mutation:
+    name: Mutation Gate
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    env:
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 2
+
+      # Same always-run skeleton as `quality`/`integration` above — PR-only
+      # filter, explicit non-PR scope so a push/dispatch run never silently
+      # short-circuits. See the `quality` job's matching pair of steps for
+      # the full rationale; not repeated here.
+      - name: Detect non-docs changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**.md'
+              - '!.github/CODEOWNERS'
+
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Run scope: event=$EVENT code=$CODE"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - uses: actions/cache@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      # Same Typst install as `quality` — see this job's header comment above
+      # for why the gate needs it too.
+      - uses: actions/cache@v4
+        id: typst-cache
+        if: steps.scope.outputs.code == 'true'
+        with:
+          path: ~/.cache/crm-typst-bin
+          key: typst-${{ runner.os }}-${{ hashFiles('apps/api/Dockerfile') }}
+
+      - name: Install Typst (version + checksum parsed from apps/api/Dockerfile)
+        if: steps.scope.outputs.code == 'true' && steps.typst-cache.outputs.cache-hit != 'true'
+        run: scripts/devops/install-typst-from-dockerfile.sh "$HOME/.cache/crm-typst-bin"
+
+      - name: Add Typst to PATH
+        if: steps.scope.outputs.code == 'true'
+        run: echo "$HOME/.cache/crm-typst-bin" >> "$GITHUB_PATH"
+
+      - if: steps.scope.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Full build needed so vite generates routeTree.gen.ts before the
+      # gate's per-mutant vitest runs import it — see this job's header
+      # comment above for why.
+      - if: steps.scope.outputs.code == 'true'
+        run: pnpm build
+
+      # ── Mutation gate (moved from `quality`, task-infra-split-mutation-gate,
+      # 2026-09-03 — original comments below are unchanged from `quality`) ──
+      #
+      # Whole-repo, sub-second, no diff dependency: every `// Stryker disable`
+      # comment must say WHY it is there. Kept separate from — and ahead of —
+      # the gate below, because the gate only ever sees mutants generated inside
+      # the CHANGED lines of this PR, so a suppression that drifts into untouched
+      # code would otherwise never be looked at again.
+      - name: Mutation suppressions must state a reason
+        if: steps.scope.outputs.code == 'true'
+        run: node scripts/devops/check-mutation-suppressions.mjs
+
+      # The gate itself. PR-only on purpose: it mutates the lines this branch
+      # CHANGED, which is a question only a PR has an answer to. On a push to
+      # main the equivalent question is "what survives across the whole
+      # repository", and that is the nightly's job
+      # (.github/workflows/mutation-nightly.yml) — running `--changed` here would
+      # diff main against itself and report a confident, meaningless green.
+      #
+      # No MUTATION_BASE_SHA is passed. The script resolves the base from the
+      # checkout itself: on a `pull_request` event GitHub checks out the MERGE
+      # commit, so HEAD^1 is the exact base tree this PR was merged against —
+      # more trustworthy than `pull_request.base.sha`, which is a snapshot of the
+      # branch tip at event time and can name a different commit than the merge
+      # actually used. `fetch-depth: 2` above is what makes HEAD^1 available (the
+      # same thing dorny/paths-filter relies on). If the base cannot be resolved
+      # the script exits 2 rather than reporting "nothing changed".
+      #
+      # Budget: 1 hour (recalibrated 2026-08-30 — see below; was 900s/15min).
+      #
+      # The old 900s figure was measured against a BROKEN `apps/web` gate: a
+      # fixed repo-root walk-up in the vitest configs landed on the wrong
+      # directory once Stryker reloaded the config from its sandbox two levels
+      # deeper, so `@crm/web` mutants ran ZERO tests each and the whole run
+      # finished in seconds no matter the diff size (fixed same day, commit
+      # dd1e7528, "the gate's blindness was our arithmetic, not an upstream
+      # bug" — .claude/tasks/BACKLOG-followups.md #121). 900s was therefore
+      # calibrated against a gate that was not doing any real work.
+      #
+      # With the fix in, real numbers on PR #613 (237 changed `apps/api`
+      # lines + 543 changed `apps/web` lines):
+      #   - CI: apps/api finished in 33.5s; apps/web did NOT finish inside
+      #     900s and was killed — the CI runner could not even complete what
+      #     900s was supposed to cover.
+      #   - Same diff, local quiet host: whole run (190 mutants) 312s, PASS.
+      #   - Same diff, local host under load (~10 concurrent agent worktrees):
+      #     841s — a 2.7x spread from host contention alone, on the SAME
+      #     hardware. GitHub's hosted runners have fewer cores than the
+      #     machine that produced the 312s number, which is consistent with
+      #     CI needing MORE than 900s where the quiet local host needed only
+      #     312s (a >=2.9x gap, and an unknown amount worse since the CI run
+      #     never got to report its own completion time).
+      #
+      # 3600s is chosen with that spread in mind: comfortably above the
+      # worst MEASURED number (841s, local-under-load) with margin to spare
+      # for a CI runner that is already shown to be slower still, while
+      # staying a bounded, reasoned figure rather than "large enough it can
+      # never fire" — a budget that cannot go red is as useless as one that
+      # goes red for no reason. It also stays well under the nightly
+      # `--full` sweep's 18000s (5h) per-package budget in
+      # mutation-nightly.yml, keeping the PR gate materially cheaper than the
+      # nightly. Exceeding it is still RED with an explicit message, never a
+      # silent skip — see the script's TIME BUDGET section.
+      - name: Mutation gate (changed code only)
+        if: steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
+        env:
+          MUTATION_BUDGET_SECONDS: '3600'
+        run: node scripts/devops/mutation-gate.mjs --changed
+
+      - name: Upload mutation report
+        if: always() && steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report-pr-${{ github.event.pull_request.number }}
+          path: reports/mutation/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Docs-only short-circuit
+        if: steps.scope.outputs.code != 'true'
+        run: echo "Docs-only PR — skipping mutation gate, satisfying required status."
+
+      - name: Label PR on mutation gate failure
         if: failure() && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1117,9 +1278,20 @@ jobs:
   #
   # `notify_e2e` above covers ONE leg (E2E) with the agent-facing `e2e-broken`
   # "team on hold" protocol. This job covers the WHOLE post-merge run —
-  # typecheck/lint/unit, integration and E2E — and routes to the channel the
-  # assistant actually watches (issues in the private telemetry repo), so a red
-  # main cannot sit unnoticed until the next PR trips over it.
+  # typecheck/lint/unit, integration, mutation and E2E — and routes to the
+  # channel the assistant actually watches (issues in the private telemetry
+  # repo), so a red main cannot sit unnoticed until the next PR trips over it.
+  #
+  # `mutation` added to `needs` (task-infra-split-mutation-gate, 2026-09-03):
+  # before that split, `check-mutation-suppressions.mjs` ran as a step INSIDE
+  # `quality` even on push events (whole-repo scan, not diff-based — see that
+  # step's own comment), so a post-merge suppression failure showed up as
+  # `quality` failing and this job caught it. Splitting the step into its own
+  # job without adding it here would have silently dropped that one failure
+  # mode from post-merge alerting — the job still runs unconditionally (same
+  # `code`-scope pattern as `quality`/`integration`, no job-level `if:`
+  # restricting it to `pull_request`), so `needs.mutation.result` is a real
+  # success/failure on every push, not a `skipped`.
   #
   # Deliberately NOT a merge gate: prod deploys in parallel with this run (see
   # deploy.yml), so by the time an alert fires the bad state is usually already
@@ -1128,7 +1300,7 @@ jobs:
   post_merge_alert:
     name: Post-merge Alert
     runs-on: ubuntu-latest
-    needs: [quality, integration, e2e_summary]
+    needs: [quality, integration, e2e_summary, mutation]
     # `always()` so the job still runs when a leg failed. Guarded to main +
     # non-PR so PR runs and feature-branch dispatches never open alerts.
     #
@@ -1160,7 +1332,7 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      # Roll the three required legs into one verdict.
+      # Roll the four required legs into one verdict.
       #   any failure            → failure (alert)
       #   all success            → success (close any open alert)
       #   anything else          → neither; a run cancelled by the next merge's
@@ -1171,16 +1343,18 @@ jobs:
           QUALITY: ${{ needs.quality.result }}
           INTEGRATION: ${{ needs.integration.result }}
           E2E: ${{ needs.e2e_summary.result }}
+          MUTATION: ${{ needs.mutation.result }}
         run: |
           FAILED=""
           [ "$QUALITY" = "failure" ] && FAILED="$FAILED quality"
           [ "$INTEGRATION" = "failure" ] && FAILED="$FAILED integration"
           [ "$E2E" = "failure" ] && FAILED="$FAILED e2e"
+          [ "$MUTATION" = "failure" ] && FAILED="$FAILED mutation"
           FAILED="${FAILED# }"
 
           if [ -n "$FAILED" ]; then
             RESULT=failure
-          elif [ "$QUALITY" = "success" ] && [ "$INTEGRATION" = "success" ] && [ "$E2E" = "success" ]; then
+          elif [ "$QUALITY" = "success" ] && [ "$INTEGRATION" = "success" ] && [ "$E2E" = "success" ] && [ "$MUTATION" = "success" ]; then
             RESULT=success
           else
             RESULT=inconclusive
@@ -1191,7 +1365,7 @@ jobs:
             # containers` (был реальный прецедент). В этом случае main остался
             # НЕ провалидированным, и issue не откроется — поэтому хотя бы
             # ::warning, чтобы состояние не выглядело как «всё хорошо».
-            echo "::warning::Post-merge run inconclusive (quality=$QUALITY integration=$INTEGRATION e2e=$E2E) — main НЕ провалидирован. Если это не отмена по cancel-in-progress (следующий мерж), перезапустить: gh workflow run ci.yml --ref main"
+            echo "::warning::Post-merge run inconclusive (quality=$QUALITY integration=$INTEGRATION e2e=$E2E mutation=$MUTATION) — main НЕ провалидирован. Если это не отмена по cancel-in-progress (следующий мерж), перезапустить: gh workflow run ci.yml --ref main"
           fi
 
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
@@ -1204,6 +1378,7 @@ jobs:
             echo "| quality | \`$QUALITY\` |"
             echo "| integration | \`$INTEGRATION\` |"
             echo "| e2e | \`$E2E\` |"
+            echo "| mutation | \`$MUTATION\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Commit subject read from git rather than `github.event.head_commit.*`:
