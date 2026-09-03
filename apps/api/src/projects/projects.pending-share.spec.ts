@@ -147,12 +147,28 @@ function buildHarness(overrides: Partial<ProjectRow> = {}) {
     }),
   })
 
+  // task-pending-share follow-up (AC9 gap-fill): records the mode string
+  // passed to `.for(...)` on the row-lock select inside approve/reject, so a
+  // test can assert it is really `'update'` (a mutant that swaps it for `""`
+  // is otherwise unobservable — the mock chain doesn't care what string it's
+  // handed).
+  const selectForCalls: unknown[] = []
+  // `undefined` = default behavior (return the live projectRow); an explicit
+  // array (incl. `[]`) overrides it — lets a test simulate "row vanished
+  // between the approval check and the lock" without a second harness shape.
+  let selectForUpdateOverride: ProjectRow[] | undefined
+
   const txHandle = {
     ...makeUpdateChain(txUpdateCalls, true),
     select: () => ({
       from: () => ({
         where: () => ({
-          for: () => ({ limit: async () => [{ ...projectRow }] }),
+          for: (mode: unknown) => {
+            selectForCalls.push(mode)
+            return {
+              limit: async () => (selectForUpdateOverride ?? [projectRow]).map((r) => ({ ...r })),
+            }
+          },
         }),
       }),
     }),
@@ -169,6 +185,14 @@ function buildHarness(overrides: Partial<ProjectRow> = {}) {
         projects: { findFirst: async () => ({ ...projectRow }) },
         projectFinanceSettings: {
           findFirst: async () => (financeRows[0] ? { ...financeRows[0] } : null),
+        },
+        // `findOne`'s `computeEffectiveTeam` reads this directly (no
+        // try/catch there, unlike `loadTeamOverridesBySenior`'s
+        // `teamMembers.findMany`) — "senior has no team" is both the safe
+        // default and the common case for these fixtures.
+        teamMembers: {
+          findFirst: async () => undefined,
+          findMany: async () => [],
         },
       },
       ...makeUpdateChain([], false),
@@ -205,6 +229,10 @@ function buildHarness(overrides: Partial<ProjectRow> = {}) {
     txUpdateCalls,
     topLevelUpdateCalls,
     txHandle,
+    selectForCalls,
+    setSelectForUpdateRows: (rows: ProjectRow[]) => {
+      selectForUpdateOverride = rows
+    },
   }
 }
 
@@ -391,5 +419,161 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
     )
     await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
     expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('previousPercent is the prior TRUTHY override, not null (?? vs && boundary, distinct from the audit-log one)', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 25,
+      pendingSeniorSharePercentOverride: null,
+    })
+    const spy = vi.spyOn(
+      h.service as unknown as { notifyPendingSeniorShareProposed: (i: unknown) => void },
+      'notifyPendingSeniorShareProposed',
+    )
+    await h.service.update('proj-1', { seniorSharePercentOverride: 40 }, adminUser)
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ proposedPercent: 40, previousPercent: 25 }),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-pending-share follow-up (AC9 mutation-gate gap-fill, 2026-09-03): the
+// four describe blocks below close survivors the mutation gate found on the
+// FULL diff that the blocks above did not reach — `findOne`'s JUNIOR-skip
+// optimization, `loadPendingSeniorShare`'s own defensive branches, the
+// impersonation/not-found guards on approve+reject, and the exact shape of
+// the row-lock + audit-log calls approve makes.
+// ---------------------------------------------------------------------------
+
+describe('ProjectsService.findOne — pendingSeniorShare (JUNIOR skip-the-lookup)', () => {
+  it('is populated for a non-JUNIOR viewer when a proposal is PENDING', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: null,
+      pendingSeniorSharePercentOverride: 40,
+    })
+    const result = await h.service.findOne('proj-1', adminUser)
+    expect(result.pendingSeniorShare).toEqual({
+      percent: 40,
+      approverId: 'senior-1',
+      approverName: 'Senior One',
+    })
+  })
+
+  it('skips the approvals.getStatus lookup entirely for a JUNIOR viewer (never just masks after the fact)', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: null,
+      pendingSeniorSharePercentOverride: 40,
+      members: [{ userId: 'junior-1', leftAt: null }],
+    })
+    const juniorUser: SessionUser = {
+      id: 'junior-1',
+      role: 'JUNIOR',
+      displayName: 'Junior One',
+      email: 'j@x.com',
+      avatarUrl: null,
+      avatarDocumentId: null,
+      seniorSharePercent: null,
+    }
+    const result = await h.service.findOne('proj-1', juniorUser)
+    expect(result.pendingSeniorShare).toBeNull()
+    // The optimization itself (not just its visible effect): a mutant that
+    // makes the JUNIOR branch fall through to the real lookup anyway would
+    // still produce `null` here (mapProject's OWN masking catches it too),
+    // so the round-trip-avoidance can only be proven by call count.
+    expect(h.approvals.getStatus).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectsService — loadPendingSeniorShare defensive branches', () => {
+  it('returns null when the project has no senior at all, even with getStatus mocked PENDING', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: null,
+      pendingSeniorSharePercentOverride: 40,
+      seniorId: undefined as unknown as string,
+      senior: null,
+    })
+    const result = await h.service.findOne('proj-1', adminUser)
+    expect(result.pendingSeniorShare).toBeNull()
+  })
+
+  it('returns null when a senior exists but the live status is not PENDING (e.g. NONE)', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: null,
+      pendingSeniorSharePercentOverride: 40,
+    })
+    h.approvals.getStatus.mockResolvedValueOnce('NONE')
+    const result = await h.service.findOne('proj-1', adminUser)
+    expect(result.pendingSeniorShare).toBeNull()
+  })
+})
+
+describe('ProjectsService.approveSeniorShareChange — guards + exact call shapes', () => {
+  it('refuses an impersonated session with the exact consent message', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.approveSeniorShareChange('proj-1', { ...seniorUser, impersonatorId: 'admin-1' }),
+    ).rejects.toThrow(
+      'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
+    )
+    expect(h.approvals.approveInTx).not.toHaveBeenCalled()
+  })
+
+  it('throws NotFoundException when the row-lock select finds nothing (row vanished)', async () => {
+    const h = buildHarness()
+    h.setSelectForUpdateRows([])
+    await expect(h.service.approveSeniorShareChange('proj-1', seniorUser)).rejects.toThrow(
+      'Project not found',
+    )
+  })
+
+  it('locks the row FOR UPDATE (not a plain select) before reading the pending value', async () => {
+    const h = buildHarness()
+    await h.service.approveSeniorShareChange('proj-1', seniorUser)
+    expect(h.selectForCalls).toContain('update')
+  })
+
+  it('calls approveInTx with the exact subject shape', async () => {
+    const h = buildHarness()
+    await h.service.approveSeniorShareChange('proj-1', seniorUser)
+    expect(h.approvals.approveInTx).toHaveBeenCalledWith(h.txHandle, {
+      subjectType: 'PROJECT_SENIOR_SHARE',
+      subjectId: 'proj-1',
+      approverUserId: 'senior-1',
+    })
+  })
+
+  it('audit-logs the real before/after — "before" is the prior TRUTHY override, not null (?? vs && boundary)', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 25,
+      pendingSeniorSharePercentOverride: 40,
+    })
+    await h.service.approveSeniorShareChange('proj-1', seniorUser)
+    expect(h.auditRecord).toHaveBeenCalledWith(
+      {
+        actorId: 'senior-1',
+        targetId: 'proj-1',
+        action: 'project_edited',
+        changes: {
+          seniorSharePercentOverride: { before: 25, after: 40 },
+        },
+      },
+      h.txHandle,
+    )
+  })
+})
+
+describe('ProjectsService.rejectSeniorShareChange — impersonation guard', () => {
+  it('refuses an impersonated session with the exact consent message', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.rejectSeniorShareChange('proj-1', 'причина', {
+        ...seniorUser,
+        impersonatorId: 'admin-1',
+      }),
+    ).rejects.toThrow(
+      'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
+    )
+    expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })
 })

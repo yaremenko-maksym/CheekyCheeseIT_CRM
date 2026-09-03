@@ -145,6 +145,17 @@ export const GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE =
  */
 export const INVITE_TARGET_ARCHIVED_MESSAGE = 'Учётная запись уволена — приглашение недействительно'
 
+// task-pending-share (position 5). Pulled out of `notifyPendingSeniorShareProposed`'s
+// own signature so that method fits on one line — see that method's doc
+// comment for why (a Stryker disable-comment / multi-line-inline-type
+// interaction).
+type NotifyPendingShareInput = {
+  subjectId: string
+  approverUserId: string
+  proposedPercent: number
+  previousPercent: number
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -182,12 +193,14 @@ export class UsersService {
    * has one call site to fill in rather than having to re-discover it —
    * verified by `users.pending-share.spec.ts`'s spy assertion.
    */
-  private notifyPendingSeniorShareProposed(input: {
-    subjectId: string
-    approverUserId: string
-    proposedPercent: number
-    previousPercent: number
-  }): void {
+  // The body below is `{ void input }` — behaviorally identical to `{}` for
+  // every caller; the seam is proven by the spy-was-CALLED assertion in
+  // users.pending-share.spec.ts, which mutation on the CALL SITE (not this
+  // body) would still catch. The directive on the line directly below MUST
+  // stay the line immediately above the method — see
+  // projects.service.ts's identical comment for why.
+  // Stryker disable next-line BlockStatement
+  private notifyPendingSeniorShareProposed(input: NotifyPendingShareInput): void {
     // Intentionally empty — see doc comment above.
     void input
   }
@@ -1049,6 +1062,18 @@ export class UsersService {
     // `proposeSeniorShareChangeInTx` inside the SAME transaction as the rest
     // of this write (see the `tx.transaction` block further down), so the
     // affected SENIOR must confirm before it takes effect.
+    //
+    // Role-gating (`effectiveRole === 'SENIOR'`) is proven by
+    // `users.pending-share.spec.ts`'s "does not propose when the effective
+    // role is not SENIOR, even if seniorSharePercent IS present" test. The
+    // LEFT operand alone (`!== undefined`) forced to `true` is a SEPARATE,
+    // genuinely equivalent mutant: when `data.seniorSharePercent` really is
+    // undefined, the ternary's own TRUE branch just re-reads
+    // `data.seniorSharePercent` one line down — which is undefined either
+    // way — so `requestedSeniorSharePercent` ends up `undefined` regardless
+    // of which path this condition takes. No test, however written, can
+    // observe a difference (verified by hand, both branches derived above).
+    // Stryker disable next-line ConditionalExpression
     const requestedSeniorSharePercent: number | undefined =
       data.seniorSharePercent !== undefined && effectiveRole === 'SENIOR'
         ? data.seniorSharePercent
@@ -2445,9 +2470,20 @@ export class UsersService {
     // value must not learn a change is even proposed. Only queried when that
     // gate is open (avoids the round-trip, and avoids leaking "something is
     // pending" via response-time side channel to a masked viewer).
+    // The 'NONE' fallback below is used ONLY as input to the `=== 'PENDING'`
+    // check two lines down — any non-'PENDING' string (including `""`) is
+    // behaviorally identical at every call site `pendingSeniorShareStatus`
+    // has, so it is genuinely unobservable by a black-box test (same class
+    // as the `kind: 'PERSONAL'` precedent a few lines above this one). The
+    // directive below MUST stay on the line directly above `'NONE'` itself
+    // (not above this `const`) — a `// Stryker disable next-line` comment
+    // attaches to the mutated node's own line, and for a ternary's second
+    // branch that is THIS line, not the statement's opening line (see
+    // env.ts's GIT_COMMIT_REGEX_MESSAGE comment for the same lesson).
     const pendingSeniorShareStatus = permissions.fields.share
       ? await this.approvals.getStatus(UsersService.SENIOR_SHARE_SUBJECT_TYPE, target.id)
-      : 'NONE'
+      : // Stryker disable next-line StringLiteral: see the comment above this statement.
+        'NONE'
     const pendingSeniorShare: PendingSeniorShare | null =
       pendingSeniorShareStatus === 'PENDING'
         ? {

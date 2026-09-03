@@ -14,6 +14,7 @@
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { ARCHIVED_ENTITLEMENT_MESSAGE } from './archived-entitlement'
 import { UsersService } from './users.service'
 import { users } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
@@ -57,30 +58,59 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
   const txUpdateCalls: Array<{ table: unknown; values: Record<string, unknown> }> = []
   const topLevelUpdateCalls: Array<{ table: unknown }> = []
 
+  // task-pending-share follow-up (AC9 gap-fill): lets a test simulate "the
+  // UPDATE matched zero rows" (row vanished / archived between the approval
+  // check and the write) — the reject path's own not-found guard reads this,
+  // distinct from `selectForUpdateOverride` below (a DIFFERENT statement,
+  // approve's row-LOCK select, not reject's UPDATE...RETURNING).
+  let forceEmptyReturning = false
+
+  // `.where(...)` must support BOTH real Drizzle usages: awaited directly
+  // (`proposeSeniorShareChangeInTx`'s write — no `.returning()`) and chained
+  // with `.returning()` (`updateUserRow`, `rejectSeniorShareChange`'s write).
+  // Real Drizzle's update builder is thenable either way; `then` below is
+  // what makes `await tx.update(...).where(...)` (no `.returning()`) run the
+  // SAME side effect instead of silently no-op'ing on an unawaited chain.
   const makeUpdateChain = (
     log: Array<{ table: unknown; values: Record<string, unknown> }>,
     isTx: boolean,
   ) => ({
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
-        where: () => ({
-          returning: async () => {
+        where: () => {
+          const run = () => {
             log.push({ table, values })
+            if (forceEmptyReturning) return []
             if (table === users) Object.assign(userRow, values)
             if (!isTx) topLevelUpdateCalls.push({ table })
             return [{ ...userRow }]
-          },
-        }),
+          }
+          return {
+            returning: async () => run(),
+            then: (resolve: (v: unknown[]) => void) => resolve(run()),
+          }
+        },
       }),
     }),
   })
+
+  // task-pending-share follow-up (AC9 gap-fill): same for-update capture +
+  // override as projects.pending-share.spec.ts's harness — see that file's
+  // comment for why both exist.
+  const selectForCalls: unknown[] = []
+  let selectForUpdateOverride: UserRow[] | undefined
 
   const txHandle = {
     ...makeUpdateChain(txUpdateCalls, true),
     select: () => ({
       from: () => ({
         where: () => ({
-          for: () => ({ limit: async () => [{ ...userRow }] }),
+          for: (mode: unknown) => {
+            selectForCalls.push(mode)
+            return {
+              limit: async () => (selectForUpdateOverride ?? [userRow]).map((r) => ({ ...r })),
+            }
+          },
         }),
       }),
     }),
@@ -116,7 +146,21 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
     approvals as never,
   )
 
-  return { service, userRow, approvals, txUpdateCalls, topLevelUpdateCalls, txHandle }
+  return {
+    service,
+    userRow,
+    approvals,
+    txUpdateCalls,
+    topLevelUpdateCalls,
+    txHandle,
+    selectForCalls,
+    setSelectForUpdateRows: (rows: UserRow[]) => {
+      selectForUpdateOverride = rows
+    },
+    setEmptyReturning: () => {
+      forceEmptyReturning = true
+    },
+  }
 }
 
 describe('UsersService — pending base share AC2 (resolver returns previous value while pending)', () => {
@@ -143,7 +187,13 @@ describe('UsersService.approveSeniorShareChange — AC3 (one atomic swap)', () =
     // through `db.db` directly.
     expect(h.txUpdateCalls.map((c) => c.table)).toEqual([users])
     expect(h.topLevelUpdateCalls).toEqual([])
-    expect(h.approvals.approveInTx).toHaveBeenCalledWith(h.txHandle, expect.anything())
+    expect(h.approvals.approveInTx).toHaveBeenCalledWith(h.txHandle, {
+      subjectType: 'USER_SENIOR_SHARE',
+      subjectId: 'senior-1',
+      approverUserId: 'senior-1',
+    })
+    // Locked FOR UPDATE (not a plain select) before reading the pending value.
+    expect(h.selectForCalls).toContain('update')
   })
 
   it('refuses impersonated sessions (consent must come from the approver themselves)', async () => {
@@ -221,5 +271,146 @@ describe('UsersService — notification seam (position 6 hand-off)', () => {
     )
     await h.service.adminUpdateUser('senior-1', { seniorSharePercent: 26 }, 'admin-1')
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-pending-share follow-up (AC9 mutation-gate gap-fill, 2026-09-03): the
+// blocks below close survivors the mutation gate found on the FULL diff that
+// the blocks above did not reach — exact NotFoundException/impersonation
+// messages, the archived-senior refusal, role-gating on the propose
+// intercept, the missing-actorId guard (both callers), and the stale-
+// response fix's own return-value contract (`proposeSeniorShareChangeInTx`'s
+// true/false).
+// ---------------------------------------------------------------------------
+
+describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — exact messages + not-found', () => {
+  it('approve: exact impersonation message', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.approveSeniorShareChange('senior-1', impersonatedSenior),
+    ).rejects.toThrow(
+      'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
+    )
+  })
+
+  it('approve: throws NotFoundException when the row-lock select finds nothing', async () => {
+    const h = buildHarness()
+    h.setSelectForUpdateRows([])
+    await expect(h.service.approveSeniorShareChange('senior-1', seniorUser)).rejects.toThrow(
+      'User not found',
+    )
+  })
+
+  it('reject: exact impersonation message', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.rejectSeniorShareChange('senior-1', 'причина', impersonatedSenior),
+    ).rejects.toThrow(
+      'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
+    )
+    expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
+  })
+
+  it('reject: throws NotFoundException when the UPDATE...RETURNING matches zero rows', async () => {
+    const h = buildHarness()
+    h.setEmptyReturning()
+    await expect(
+      h.service.rejectSeniorShareChange('senior-1', 'причина', seniorUser),
+    ).rejects.toThrow('User not found')
+  })
+})
+
+describe('UsersService.adminUpdateUser — proposeSeniorShareChangeInTx branches', () => {
+  it('no-ops: proposeInTx NOT called and the response pendingSeniorSharePercent stays at its PRIOR value (not patched)', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
+    const updated = await h.service.adminUpdateUser(
+      'senior-1',
+      { seniorSharePercent: 26 },
+      'admin-1',
+    )
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    expect(updated.pendingSeniorSharePercent).toBeNull()
+    expect(h.userRow.pendingSeniorSharePercent).toBeNull()
+  })
+
+  it('proposes: response pendingSeniorSharePercent is patched to the NEW value (not the stale pre-write snapshot)', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
+    const updated = await h.service.adminUpdateUser(
+      'senior-1',
+      { seniorSharePercent: 80 },
+      'admin-1',
+    )
+    expect(updated.pendingSeniorSharePercent).toBe(80)
+    expect(h.userRow.pendingSeniorSharePercent).toBe(80)
+    // AC2 precondition: the ACTIVE column has not moved yet.
+    expect(h.userRow.seniorSharePercent).toBe(26)
+  })
+
+  it('refuses to open a proposal for an archived senior', async () => {
+    const h = buildHarness({
+      seniorSharePercent: 26,
+      pendingSeniorSharePercent: null,
+      archivedAt: new Date('2026-01-01'),
+    })
+    await expect(
+      h.service.adminUpdateUser('senior-1', { seniorSharePercent: 80 }, 'admin-1'),
+    ).rejects.toThrow(ARCHIVED_ENTITLEMENT_MESSAGE)
+  })
+
+  it('does not propose when the effective role is not SENIOR, even if seniorSharePercent is present in the payload', async () => {
+    const h = buildHarness({
+      role: 'JUNIOR',
+      seniorSharePercent: 26,
+      pendingSeniorSharePercent: null,
+    })
+    const updated = await h.service.adminUpdateUser(
+      'senior-1',
+      { seniorSharePercent: 80 },
+      'admin-1',
+    )
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    expect(updated.pendingSeniorSharePercent).toBeNull()
+  })
+
+  it('throws BadRequestException when seniorSharePercent changes but no actorId is supplied', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
+    await expect(h.service.adminUpdateUser('senior-1', { seniorSharePercent: 80 })).rejects.toThrow(
+      'Смена доли требует определённого инициатора запроса',
+    )
+  })
+})
+
+describe('UsersService.changeSalary — proposeSeniorShareChangeInTx branch', () => {
+  it('proposes (not applies) when seniorSharePercent is included, given an actorId', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
+    const updated = await h.service.changeSalary('senior-1', { seniorSharePercent: 80 }, 'admin-1')
+    expect(h.userRow.seniorSharePercent).toBe(26)
+    expect(h.userRow.pendingSeniorSharePercent).toBe(80)
+    expect(updated.pendingSeniorSharePercent).toBe(80)
+    expect(h.approvals.proposeInTx).toHaveBeenCalledWith(
+      h.txHandle,
+      expect.objectContaining({
+        subjectType: 'USER_SENIOR_SHARE',
+        subjectId: 'senior-1',
+        approverUserIds: ['senior-1'],
+        proposedByUserId: 'admin-1',
+      }),
+    )
+  })
+
+  it('throws BadRequestException when seniorSharePercent changes but no actorId is supplied', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
+    await expect(h.service.changeSalary('senior-1', { seniorSharePercent: 80 })).rejects.toThrow(
+      'Смена доли требует определённого инициатора запроса',
+    )
+  })
+
+  it('no-ops: response pendingSeniorSharePercent is NOT patched when the requested value equals the current one', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
+    const updated = await h.service.changeSalary('senior-1', { seniorSharePercent: 26 }, 'admin-1')
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    expect(updated.pendingSeniorSharePercent).toBeNull()
+    expect(h.userRow.pendingSeniorSharePercent).toBeNull()
   })
 })

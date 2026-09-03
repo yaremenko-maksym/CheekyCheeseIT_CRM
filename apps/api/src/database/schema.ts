@@ -369,6 +369,14 @@ export const users = pgTable('users', {
   // proposal carries a concrete percent). "Is something pending" is decided
   // by `ApprovalsService.getStatus()`, never by this column's null-ness
   // alone (see that service's own subject-agnostic status contract).
+  // Stryker disable next-line StringLiteral: the SQL column name is a
+  // DB-level fact, unobservable from a mocked unit double — a `vi.fn()`
+  // select/update chain does not care what string a real Postgres column is
+  // named. Any query that selects the whole `users` row against a REAL
+  // database would fail loudly ("column does not exist") if this diverged
+  // from the migration, which is exactly what
+  // `salary-meta.realdb.integration.spec.ts` and
+  // `archived-entitlement.realdb.integration.spec.ts` do on every run.
   pendingSeniorSharePercent: integer('pending_senior_share_percent'),
   // For DROP: percentage the drop keeps from project income (0-100, default 5).
   // Nullable for non-DROP roles. Drop role - phase 1.
@@ -642,6 +650,12 @@ export const projects = pgTable('projects', {
   // swaps it into `seniorSharePercentOverride` (and mirrors into
   // `project_finance_settings`) in one transaction; `rejectSeniorShareChange`
   // clears it, leaving the active column untouched.
+  // Stryker disable next-line StringLiteral: the SQL column name is a
+  // DB-level fact, unobservable from a mocked unit double — same reasoning
+  // as `users.pendingSeniorSharePercent` above. Any query that selects the
+  // whole `projects` row against a REAL database would fail loudly if this
+  // diverged from the migration, which `admin-as-senior.rbac.integration.
+  // spec.ts` and `senior-drop-mask.rbac.integration.spec.ts` do on every run.
   pendingSeniorSharePercentOverride: integer('pending_senior_share_percent_override'),
   // task-drop-share-override-and-receiver (Part A). Per-project override for the
   // DROP's share percent (0-100). NULL = use users.dropSharePercent (→ 5).

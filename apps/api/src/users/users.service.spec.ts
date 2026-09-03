@@ -2633,55 +2633,70 @@ describe('UsersService.getProfile', () => {
 // buildProfileView — legalFullName PII masking (security AC1)
 // ---------------------------------------------------------------------------
 
+/**
+ * Builds a minimal UsersService whose findById returns `target` and whose
+ * accessService.getViewPermissions returns the given permissions object.
+ *
+ * Module-scoped (not local to the `legalFullName masking` describe below) —
+ * task-pending-share's `buildProfileView — pendingSeniorShare` describe,
+ * further down this file, needs the SAME harness shape.
+ */
+function makeServiceForProfileView(
+  target: ReturnType<typeof makeUser>,
+  permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
+): UsersService {
+  return makeServiceForProfileViewWithAudit(target, permissions).service
+}
+
+// Variant that also returns the audit-log spy so read-audit tests can assert
+// on `auditLogService.record(...)`.
+function makeServiceForProfileViewWithAudit(
+  target: ReturnType<typeof makeUser>,
+  permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
+  // task-pending-share (position 5): optional override so tests below that
+  // need `fields.share = true` can control (and assert on)
+  // `approvals.getStatus` — every pre-existing call site here leaves it
+  // unset and gets the safe 'NONE' default, same as `makeUsersService`'s
+  // own optional `approvalsService` param.
+  approvalsService?: unknown,
+): { service: UsersService; auditRecord: ReturnType<typeof vi.fn> } {
+  const db = {
+    db: {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockResolvedValue([target]),
+      insert: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      // §4.4: buildProfileView's personalEmail lookup — no PERSONAL row by
+      // default (most of these tests don't care about it either way).
+      query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
+    },
+  } as unknown as DrizzleDb
+
+  const accessService = {
+    getViewPermissions: vi.fn().mockResolvedValue(permissions),
+  } as unknown as import('./users-access.service').UsersAccessService
+
+  const auditRecord = vi.fn().mockResolvedValue(undefined)
+  const auditService = { record: auditRecord } as unknown as AuditLogService
+  const tosService = makeTosService()
+
+  const service = new UsersService(
+    db as never,
+    accessService as never,
+    auditService as never,
+    tosService,
+    undefined as never,
+    undefined as never,
+    undefined as never,
+    undefined as never,
+    (approvalsService ?? makeApprovalsService()) as never,
+  )
+  return { service, auditRecord }
+}
+
 describe('UsersService.buildProfileView — legalFullName masking', () => {
-  /**
-   * Builds a minimal UsersService whose findById returns `target` and whose
-   * accessService.getViewPermissions returns the given permissions object.
-   */
-  function makeServiceForProfileView(
-    target: ReturnType<typeof makeUser>,
-    permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
-  ): UsersService {
-    return makeServiceForProfileViewWithAudit(target, permissions).service
-  }
-
-  // Variant that also returns the audit-log spy so read-audit tests can assert
-  // on `auditLogService.record(...)`.
-  function makeServiceForProfileViewWithAudit(
-    target: ReturnType<typeof makeUser>,
-    permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
-  ): { service: UsersService; auditRecord: ReturnType<typeof vi.fn> } {
-    const db = {
-      db: {
-        select: vi.fn().mockReturnThis(),
-        from: vi.fn().mockReturnThis(),
-        where: vi.fn().mockResolvedValue([target]),
-        insert: vi.fn(),
-        update: vi.fn(),
-        delete: vi.fn(),
-        // §4.4: buildProfileView's personalEmail lookup — no PERSONAL row by
-        // default (most of these tests don't care about it either way).
-        query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
-      },
-    } as unknown as DrizzleDb
-
-    const accessService = {
-      getViewPermissions: vi.fn().mockResolvedValue(permissions),
-    } as unknown as import('./users-access.service').UsersAccessService
-
-    const auditRecord = vi.fn().mockResolvedValue(undefined)
-    const auditService = { record: auditRecord } as unknown as AuditLogService
-    const tosService = makeTosService()
-
-    const service = new UsersService(
-      db as never,
-      accessService as never,
-      auditService as never,
-      tosService,
-    )
-    return { service, auditRecord }
-  }
-
   const targetWithLegalName = makeUser({
     id: 'target-id',
     role: 'SENIOR',
@@ -2876,6 +2891,56 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
     const { service, auditRecord } = makeServiceForProfileViewWithAudit(seniorTarget, permissions)
     await service.buildProfileView(viewer as never, 'target-id')
     expect(auditRecord).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildProfileView — pendingSeniorShare (task-pending-share, position 5)
+// ---------------------------------------------------------------------------
+
+describe('UsersService.buildProfileView — pendingSeniorShare', () => {
+  const seniorTarget = makeSenior({ id: 'target-id', pendingSeniorSharePercent: 55 })
+  const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+  const permissions = {
+    tabs: ['overview', 'finance'],
+    actions: [],
+    fields: { share: true },
+  }
+
+  it('is populated (percent/approverId/approverName) when approvals.getStatus reports PENDING', async () => {
+    const approvals = makeApprovalsService() as { getStatus: ReturnType<typeof vi.fn> }
+    approvals.getStatus.mockResolvedValue('PENDING')
+    const { service } = makeServiceForProfileViewWithAudit(seniorTarget, permissions, approvals)
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    expect((result.user as Record<string, unknown>).pendingSeniorShare).toEqual({
+      percent: 55,
+      approverId: 'target-id',
+      approverName: 'Senior Dev',
+    })
+  })
+
+  it.each(['NONE', 'APPROVED', 'REJECTED'] as const)(
+    'is null when approvals.getStatus reports %s (only PENDING surfaces a proposal)',
+    async (status) => {
+      const approvals = makeApprovalsService() as { getStatus: ReturnType<typeof vi.fn> }
+      approvals.getStatus.mockResolvedValue(status)
+      const { service } = makeServiceForProfileViewWithAudit(seniorTarget, permissions, approvals)
+      const result = await service.buildProfileView(viewer as never, 'target-id')
+      expect((result.user as Record<string, unknown>).pendingSeniorShare).toBeNull()
+    },
+  )
+
+  it('does not call approvals.getStatus at all when fields.share is false (masked viewer)', async () => {
+    const approvals = makeApprovalsService() as { getStatus: ReturnType<typeof vi.fn> }
+    const maskedPermissions = { tabs: ['overview'], actions: [], fields: { share: false } }
+    const { service } = makeServiceForProfileViewWithAudit(
+      seniorTarget,
+      maskedPermissions,
+      approvals,
+    )
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    expect(approvals.getStatus).not.toHaveBeenCalled()
+    expect((result.user as Record<string, unknown>).pendingSeniorShare).toBeNull()
   })
 })
 

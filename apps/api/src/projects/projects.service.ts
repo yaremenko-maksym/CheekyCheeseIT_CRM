@@ -57,6 +57,17 @@ type ProjectWithRelations = Project & {
   legend?: Legend | null
 }
 
+// task-pending-share (position 5). Pulled out of `notifyPendingSeniorShareProposed`'s
+// own signature so that method fits on one line — see that method's doc
+// comment for why (a Stryker disable-comment / multi-line-inline-type
+// interaction).
+type NotifyPendingShareInput = {
+  subjectId: string
+  approverUserId: string
+  proposedPercent: number | null
+  previousPercent: number | null
+}
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -1052,13 +1063,19 @@ export class ProjectsService {
    * opened proposal (see `proposeSeniorShareChange` below) so position 6 has
    * one call site to fill in rather than having to re-discover it — verified
    * by `projects.pending-share.spec.ts`'s spy assertion.
+   *
+   * Body is `{ void input }` — behaviorally identical to `{}` for every
+   * caller, unobservable by any black-box test. Suppressed below rather than
+   * left to survive as a false gap. The param type is pulled out to its own
+   * declaration (not inlined) SPECIFICALLY so the method signature is one
+   * line and the disable-comment sits immediately above the ACTUAL mutated
+   * block — with a multi-line inline object type, the comment and the
+   * block's own `loc.start` do not land on adjacent lines and the
+   * suppression silently does nothing (same lesson `env.ts`'s
+   * `GIT_COMMIT_REGEX_MESSAGE` comment documents for a StringLiteral).
    */
-  private notifyPendingSeniorShareProposed(input: {
-    subjectId: string
-    approverUserId: string
-    proposedPercent: number | null
-    previousPercent: number | null
-  }): void {
+  // Stryker disable next-line BlockStatement: see the doc comment above.
+  private notifyPendingSeniorShareProposed(input: NotifyPendingShareInput): void {
     // Intentionally empty — see doc comment above.
     void input
   }
