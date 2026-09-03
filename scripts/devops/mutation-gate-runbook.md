@@ -509,7 +509,10 @@ mutant count and 84% of the wall time — and that cost is unresolved, not
 eliminated by rejecting it.** Until the `api` leg is file-sharded
 (`.claude/tasks/BACKLOG-followups.md` #135, promoted to priority the same
 day — the only remaining lever after this rejection), a heavy diff on
-`--changed` runs 36-47 minutes. Knowingly accepted: the measured price of
+`--changed` runs 25-47 minutes — the same 8-CI-run measurement
+`BACKLOG-followups.md` #135 itself cites (`shared` ~10s, `web` ~230s, `api`
+typically 250s, max 2489s), not re-measured after the revert since
+`ignoreStatic` never actually shipped. Knowingly accepted: the measured price of
 keeping the gate honest instead of fast.
 
 **What the prototype broke, verified by running `mutation-gate-vacuum-proof.sh`

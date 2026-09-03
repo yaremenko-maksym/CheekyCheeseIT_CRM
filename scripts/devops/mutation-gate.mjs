@@ -64,7 +64,12 @@
  * would matter, and that is the single biggest time lever this gate has.
  * Until the `api` leg is file-sharded (`.claude/tasks/BACKLOG-followups.md`
  * #135, promoted to priority the day this was rejected — the only remaining
- * lever), a heavy diff on `--changed` runs 36-47 minutes. That is knowingly
+ * lever), a heavy diff on `--changed` runs 25-47 minutes — same figure and
+ * same source as `mutation-gate-runbook.md`'s "Measured cost" section (8
+ * successful CI runs, before this decision: `shared` ~10s, `web` ~230s,
+ * `api` typically 250s, max 2489s). Not re-measured after the revert:
+ * `ignoreStatic` never shipped, so nothing about rejecting it changes what
+ * the mutation gate itself costs. That is knowingly
  * accepted: the direct, measured price of keeping this gate honest instead
  * of fast.
  *
