@@ -223,9 +223,12 @@ describe('AuthController.devLogin — R1 production guard', () => {
     )
     const reply = makeReply()
 
-    await expect(controller.devLogin({ email: 'unknown@example.com' }, reply)).rejects.toThrow(
-      NotFoundException,
-    )
+    const promise = controller.devLogin({ email: 'unknown@example.com' }, reply)
+    await expect(promise).rejects.toThrow(NotFoundException)
+    // mutation-gate closure: kills the StringLiteral mutant that empties the
+    // template literal (`` `` ``) — the message must actually NAME the
+    // email that was not found, not just be "an error occurred".
+    await expect(promise).rejects.toThrow('User unknown@example.com not found in DB')
   })
 
   // mutation-gate closure (round 5): kills the `!emailRow || !user` →

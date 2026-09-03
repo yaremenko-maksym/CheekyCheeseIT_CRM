@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type * as schema from '../database/schema'
-import { userEmails } from '../database/schema'
+import { userEmails, userEmailInvites } from '../database/schema'
 import { REDACTED_TOKEN, type AuditLogService } from './audit-log.service'
 import { hashInviteToken } from './invite-token.util'
 import type { UsersAccessService } from './users-access.service'
@@ -1430,28 +1430,35 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
         : null
     const emailReturningRows = opts.emailReturningRows ?? [{ id: 'row-1' }]
     const inviteReturningRows = opts.inviteReturningRows ?? [{ id: 'inv-1' }]
+    // Captured in call order (1st = user_emails, 2nd = user_email_invites)
+    // so a test can inspect what COLUMNS each `.returning(...)` call asked
+    // for, not just what rows it resolved to — the mock itself ignores its
+    // argument (same call-order convention as `makeDb`'s own `findFirst`
+    // elsewhere in this file), so only reading the ACTUAL argument catches
+    // a mutant that empties it (`.returning({ id: ... })` → `.returning({})`).
+    const returningMocks: ReturnType<typeof vi.fn>[] = []
     const setMock = vi.fn().mockImplementation(() => {
       setCallCount++
       // SR-H-5: call 1 = user_emails (canLogin/googleId/verifiedAt), call 2
       // = user_email_invites (usedAt) — reversed from before this fix.
       const isFirstCall = setCallCount === 1
       if (isFirstCall && conflictConstraint) {
-        return {
-          where: vi.fn().mockReturnValue({
-            returning: vi.fn().mockRejectedValue(
-              Object.assign(new Error('duplicate key value violates unique constraint'), {
-                code: '23505',
-                constraint: conflictConstraint,
-              }),
-            ),
+        const returningMock = vi.fn().mockRejectedValue(
+          Object.assign(new Error('duplicate key value violates unique constraint'), {
+            code: '23505',
+            constraint: conflictConstraint,
           }),
+        )
+        returningMocks.push(returningMock)
+        return {
+          where: vi.fn().mockReturnValue({ returning: returningMock }),
         }
       }
       const returningRows = isFirstCall ? emailReturningRows : inviteReturningRows
+      const returningMock = vi.fn().mockResolvedValue(returningRows)
+      returningMocks.push(returningMock)
       return {
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue(returningRows),
-        }),
+        where: vi.fn().mockReturnValue({ returning: returningMock }),
       }
     })
     const updateMock = vi.fn().mockReturnValue({ set: setMock })
@@ -1488,6 +1495,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
       inviteFindFirst,
       emailFindFirst,
       selectMock,
+      returningMocks,
     }
   }
 
@@ -1593,7 +1601,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
   })
 
   it('happy path: one transaction, marks the invite used AND flips canLogin/verifiedAt/googleId on the row', async () => {
-    const { db, transactionMock, updateMock, setMock } = makeAcceptDb({
+    const { db, transactionMock, updateMock, setMock, returningMocks } = makeAcceptDb({
       invite: { id: 'inv-1', userEmailId: 'row-1', usedAt: null, expiresAt: FUTURE },
       row: { id: 'row-1', email: 'real@example.com' },
     })
@@ -1614,6 +1622,15 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     expect(setMock.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({ usedAt: expect.any(Date) }),
     )
+    // mutation-gate closure: `.returning({ id: userEmails.id })` /
+    // `.returning({ id: userEmailInvites.id })` mutated to `.returning({})`
+    // — the SR-L-3 zero-rows check (`!emailRows[0]`/`!inviteRows[0]`) only
+    // looks at array length, which this mock's resolved VALUE does not
+    // depend on, so nothing above would notice. Only inspecting the actual
+    // argument each call was made WITH catches it.
+    expect(returningMocks).toHaveLength(2)
+    expect(returningMocks[0]).toHaveBeenCalledWith({ id: userEmails.id })
+    expect(returningMocks[1]).toHaveBeenCalledWith({ id: userEmailInvites.id })
   })
 
   // SR-L-3 (security-review PR #623 round 5): a concurrent

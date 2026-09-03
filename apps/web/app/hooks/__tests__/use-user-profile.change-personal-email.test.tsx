@@ -61,6 +61,7 @@ function renderProbe<TVariables>(
       <MutationProbe hook={hook} arg={arg} />
     </QueryClientProvider>,
   )
+  return { qc }
 }
 
 beforeEach(() => {
@@ -131,6 +132,24 @@ describe('useChangePersonalEmail — onSuccess toast branches', () => {
       }),
     )
   })
+
+  // mutation-gate closure (CI full-diff round): `qc.invalidateQueries({
+  // queryKey: ['user-profile', userId] })` mutated three ways (empty object,
+  // empty array, wrong string) and nothing here noticed — every other test
+  // in this block only watches the TOAST, never the cache invalidation. A
+  // mutant that stops (or misdirects) the invalidation would leave the
+  // profile showing the pre-change value until an unrelated refetch.
+  it('invalidates exactly the ["user-profile", userId] query on success', async () => {
+    ;(api.patch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { ok: true, delivered: true },
+    })
+    const { qc } = renderProbe(() => useChangePersonalEmail('u-77'), 'x@example.com')
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'u-77'] }),
+    )
+  })
 })
 
 describe('useResendPersonalEmailInvite — onSuccess toast branches', () => {
@@ -167,6 +186,35 @@ describe('useResendPersonalEmailInvite — onSuccess toast branches', () => {
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/users/u-7/personal-email/resend-invite'),
+    )
+  })
+
+  // mutation-gate closure (CI full-diff round): same class as
+  // useChangePersonalEmail's own closure above — `qc.invalidateQueries({
+  // queryKey: ['user-profile', userId] })` mutated three ways, unnoticed by
+  // the toast-only tests above.
+  it('invalidates exactly the ["user-profile", userId] query on success', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { ok: true, delivered: true },
+    })
+    const { qc } = renderProbe(() => useResendPersonalEmailInvite('u-9'), undefined)
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'u-9'] }),
+    )
+  })
+
+  // mutation-gate closure: `onError: (e: Error) => toast.error(...)` mutated
+  // to `() => undefined` — every test above only exercises the SUCCESS
+  // path, so a mutant that silently drops the error toast entirely went
+  // unnoticed.
+  it('a rejected request shows the backend error message, not silence', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Приглашение недействительно'))
+    renderProbe(() => useResendPersonalEmailInvite('u-1'), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Ошибка: Приглашение недействительно'),
     )
   })
 })

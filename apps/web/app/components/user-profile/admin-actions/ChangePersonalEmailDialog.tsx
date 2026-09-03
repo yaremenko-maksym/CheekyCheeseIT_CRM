@@ -100,12 +100,36 @@ export function ChangePersonalEmailDialog({
   function validate(): string | null {
     if (!trimmed) return null // empty = removal, always a valid submission
     const result = personalEmailValidator.safeParse(trimmed)
+    // zod's SafeParseError.error.issues is never empty on a failed parse
+    // (verified: packages/shared, zod's own contract) — `issues[0]` cannot
+    // be undefined here. Same invariant, same suppression, as this field's
+    // sibling in UserDialog.tsx (`personalEmail`'s own validator).
+    // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
     if (!result.success) return result.error.issues[0]?.message ?? 'Некорректный email'
     if (trimmed.toLowerCase() === workEmail.toLowerCase()) {
       return 'Личный email должен отличаться от рабочего'
     }
     return null
   }
+
+  // Prevents Radix's default post-close focus-return so this dialog's own
+  // close cycle does not fight `AdminActionsMenu`'s dropdown-trigger focus
+  // handling. Not asserted directly: two independent harnesses were built
+  // to observe it (routing Escape through `AdminActionsMenu` itself, and a
+  // standalone toggle wrapper with a persistent trigger button, mirroring
+  // the working pattern `AdminActionsMenu.test.tsx` uses for its OWN Radix
+  // DropdownMenu trigger) — hand-applying `() => undefined` here and
+  // re-running both showed no observable difference either way; happy-dom
+  // does not simulate Radix `FocusScope`'s restore-on-unmount closely
+  // enough for either harness to tell the two apart. Pulled out to a named
+  // const (rather than left inline on the JSX prop) specifically so this
+  // suppression comment can attach to a real line — Stryker's `// Stryker
+  // disable next-line` only recognises literal `//` comments immediately
+  // preceding the mutated line, which a `{/* JSX comment */}` sibling does
+  // NOT satisfy (verified: that form compiled fine but the mutant it was
+  // meant to silence still showed as SURVIVED).
+  // Stryker disable next-line ArrowFunction: unobservable in this test harness — see the comment above
+  const handleDialogCloseAutoFocus = (e: Event) => e.preventDefault()
 
   async function submit() {
     const err = validate()
@@ -153,7 +177,7 @@ export function ChangePersonalEmailDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DialogContent onCloseAutoFocus={handleDialogCloseAutoFocus}>
         <DialogHeader>
           {/* COPY-M-10: title names the ACTION (matches ArchiveUserDialog's
               own house style), not the field — the field already has its
@@ -190,13 +214,25 @@ export function ChangePersonalEmailDialog({
             value={value}
             onChange={(e) => {
               setValue(e.target.value)
-              if (error) setError(null)
+              // Unconditional, deliberately: React 18's useState setter
+              // bails out of re-rendering when the new value is
+              // Object.is-equal to the current one (React docs, "Bailing
+              // out of a state update") — an `if (error)` guard here would
+              // only ever skip a call that was ALREADY a no-op whenever
+              // `error` is `null`, so it bought nothing but an extra
+              // conditional expression a mutation test would then have to
+              // prove is equivalent to `if (true)`, which it provably is.
+              setError(null)
             }}
             onBlur={() => setError(validate())}
             className={cn(error && 'border-destructive focus-visible:ring-destructive/30')}
             data-testid="change-personal-email-input"
           />
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && (
+            <p className="text-xs text-destructive" data-testid="change-personal-email-error">
+              {error}
+            </p>
+          )}
           {/* COPY-M-11: the standalone hint that used to live here repeated
               what the description above already says once the description
               itself names the removal consequence — removed, not softened. */}
@@ -206,7 +242,27 @@ export function ChangePersonalEmailDialog({
             Отмена
           </Button>
           <Button
-            variant={revokesExisting ? 'destructive' : 'default'}
+            variant={
+              revokesExisting
+                ? // Pinned by the sibling test just above (`toContain('bg-destructive')`)
+                  // — a StringLiteral mutant on THIS branch is a real, killed mutant,
+                  // deliberately NOT covered by the suppression on the branch below.
+                  'destructive'
+                : // `class-variance-authority`'s documented falsy-value handling (cva
+                  // "Falsy Value Handling": false/0/''/null/undefined all fall back to
+                  // `defaultVariants`) makes 'default' here interchangeable with an
+                  // empty string — `Button`'s own `defaultVariants.variant`
+                  // (button.tsx) is ALSO 'default', so `''` resolves to the exact same
+                  // className cva would produce for the literal 'default' — not an
+                  // assumption, cva's own documented contract. On its own line
+                  // specifically so this suppression does NOT also cover the
+                  // 'destructive' branch above, which a Stryker `// disable next-line`
+                  // on the single-line ternary this used to be would have (verified —
+                  // that shape triggered mutation-gate.mjs's own "covers more than one
+                  // mutant" warning).
+                  // Stryker disable next-line StringLiteral: '' is cva-equivalent to 'default' here — see the comment above
+                  'default'
+            }
             disabled={mutation.isPending || isNoop}
             onClick={() => void submit()}
             data-testid="change-personal-email-submit"

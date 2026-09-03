@@ -36,7 +36,7 @@ import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 
 import * as schema from './schema'
-import { userEmails, lowerEmail } from './schema'
+import { userEmails, userEmailInvites, lowerEmail } from './schema'
 
 describe('user_emails — schema.ts column/index shape (mutation-gate closure)', () => {
   it("lowerEmail() compiles to a real 'lower(...)' SQL fragment, not empty (kills the sql``->sql`` mutant)", () => {
@@ -77,9 +77,63 @@ describe('user_emails — schema.ts column/index shape (mutation-gate closure)',
     expect(col!.getSQLType()).toBe('timestamp with time zone')
   })
 
+  // CI round (2026-09-03): CI's full-diff `pnpm mutation:changed` flagged a
+  // 4th survivor this file's original 3 index/array assertions did not
+  // cover — `idx_user_emails_google_id`'s NAME string mutated to `''`. The
+  // ArrayDeclaration/ArrowFunction tests above already prove the WHOLE
+  // index list survives; this one names THIS specific index the same way
+  // its two siblings above already do.
+  it("the Google-identity unique index idx_user_emails_google_id exists (kills its own StringLiteral->'' mutant)", () => {
+    const { indexes } = getTableConfig(userEmails)
+    const idx = indexes.find((i) => i.config.name === 'idx_user_emails_google_id')
+    expect(
+      idx,
+      `expected an index literally named 'idx_user_emails_google_id' — got names: ${indexes
+        .map((i) => i.config.name)
+        .join(', ')}`,
+    ).not.toBeUndefined()
+    expect(idx!.config.unique).toBe(true)
+  })
+
   it('sanity: the compiled table + Pool never actually connect (pure introspection, no live DB required)', () => {
     const pool = new Pool({ connectionString: 'postgresql://unused:unused@127.0.0.1:1/unused' })
     const db = drizzle(pool, { schema })
     expect(db).toBeDefined()
+  })
+})
+
+// CI round (2026-09-03): CI's full-diff `pnpm mutation:changed` flagged 4
+// SURVIVED mutants on `userEmailInvites`'s own index-list — the sibling
+// table to `userEmails` above, same structural gap, never previously
+// covered by a dedicated schema spec:
+//   1. The whole index-list callback `(t) => [...]` mutated to `() =>
+//      undefined` — no test noticed BOTH unique indexes would vanish.
+//   2. The same callback mutated to `(t) => []` — same consequence, a
+//      different survivor.
+//   3. `idx_user_email_invites_user_email`'s NAME string mutated to `''`.
+//   4. `idx_user_email_invites_token_hash`'s NAME string mutated to `''`.
+describe('user_email_invites — schema.ts index shape (mutation-gate closure)', () => {
+  it('the one-active-invite-per-row unique index idx_user_email_invites_user_email exists (kills the ArrayDeclaration->[] AND ArrowFunction->undefined mutants, which drop it along with its sibling)', () => {
+    const { indexes } = getTableConfig(userEmailInvites)
+    const idx = indexes.find((i) => i.config.name === 'idx_user_email_invites_user_email')
+    expect(
+      idx,
+      `expected an index literally named 'idx_user_email_invites_user_email' — got names: ${indexes
+        .map((i) => i.config.name)
+        .join(', ')}`,
+    ).not.toBeUndefined()
+    expect(idx!.config.unique).toBe(true)
+  })
+
+  it("the accept-flow lookup index idx_user_email_invites_token_hash exists (kills the same ArrayDeclaration/ArrowFunction mutants from the other side, plus its own StringLiteral->'' mutant)", () => {
+    const { indexes } = getTableConfig(userEmailInvites)
+    const idx = indexes.find((i) => i.config.name === 'idx_user_email_invites_token_hash')
+    expect(
+      idx,
+      `expected an index literally named 'idx_user_email_invites_token_hash' — got names: ${indexes
+        .map((i) => i.config.name)
+        .join(', ')}`,
+    ).not.toBeUndefined()
+    expect(idx!.config.unique).toBe(true)
   })
 })

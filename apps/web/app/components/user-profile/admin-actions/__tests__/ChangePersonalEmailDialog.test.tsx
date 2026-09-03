@@ -7,6 +7,7 @@
  * description, and the submit button's variant/label/disabled state — this
  * file closes that gap directly.
  */
+import { useState } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
@@ -178,6 +179,45 @@ describe('ChangePersonalEmailDialog — removal state (field cleared, currentEma
     await typeEmptyAfterClearing()
     expect(screen.queryByText(/сохранение удалит личный адрес/i)).not.toBeInTheDocument()
   })
+
+  // mutation-gate closure: `const trimmed = value.trim()` mutated to `const
+  // trimmed = value` — every OTHER test in this file that "clears" the
+  // field does so via `userEvent.clear()`/`userEvent.type()`, which drive a
+  // real `<input type="email">` through the DOM's OWN value-sanitization
+  // (strips leading/trailing whitespace before React's onChange ever sees
+  // it), so `value` never actually CONTAINS whitespace to trim in the first
+  // place — confirmed by hand-applying this exact mutant and re-running the
+  // whole file: all 23 pre-existing tests still passed. `fireEvent.change`
+  // sets the DOM value directly and bypasses that sanitization, so a
+  // whitespace-only value genuinely reaches `value` un-trimmed — only THIS
+  // reaches the `.trim()` call in an observable way.
+  // mutation-gate closure: `const trimmed = value.trim()` mutated to `const
+  // trimmed = value`. Every OTHER test in this file drives the field via
+  // `userEvent`/`fireEvent.change` on a real `<input type="email">` — and
+  // that element's OWN value-sanitization algorithm (WHATWG HTML §
+  // "value sanitization algorithm" for `type=email`) strips leading/
+  // trailing whitespace on assignment, in happy-dom the same as a real
+  // browser: confirmed by hand-applying this exact mutant and re-running
+  // the whole file (all 23 pre-existing tests still passed), and by
+  // instrumenting `fireEvent.change(input(), { target: { value: '   ' } })`
+  // directly — `input().value` reads back `''`, not `'   '`. Whitespace
+  // typed OR pasted into this field can never reach `value` state at all,
+  // so `.trim()` is unobservable through THAT path in any browser, not
+  // just in this test.
+  //
+  // It IS observable through the OTHER source of `value`: `useState(
+  // currentEmail ?? '')`'s initial value, which is never routed through the
+  // DOM's sanitizing setter — if the STORED address itself carries
+  // whitespace (a dirty write from before this trim existed, or a future
+  // caller), `value` starts out un-sanitized.
+  it('a currentEmail prop carrying whitespace is trimmed before the noop check (kills the value.trim()->value mutant)', () => {
+    renderDialog({ currentEmail: '  padded@example.com  ' })
+    // Real code: trimmed = '  padded@example.com  '.trim() =
+    // 'padded@example.com', which does NOT equal the untrimmed
+    // currentEmail — isNoop is false, submit stays enabled. The mutant
+    // keeps trimmed identical to currentEmail — isNoop true, disabled.
+    expect(submitButton()).not.toBeDisabled()
+  })
 })
 
 describe('ChangePersonalEmailDialog — validate() on blur', () => {
@@ -229,6 +269,42 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
   })
 })
 
+describe('ChangePersonalEmailDialog — error-state styling (mutation-gate closure)', () => {
+  function label() {
+    return screen.getByText('Личный email')
+  }
+
+  it('the field never renders empty (spellcheck stays off, per EMAIL_NO_AUTOFILL posture)', () => {
+    renderDialog({ currentEmail: null })
+    expect(input()).toHaveAttribute('spellcheck', 'false')
+  })
+
+  it('no error paragraph exists in the DOM at all when there is no error (not just an empty one)', () => {
+    renderDialog({ currentEmail: null })
+    // Real code: `error && <p>...</p>` — `error` is `null` initially, so
+    // the whole expression is `null`, nothing renders. The `||` mutant
+    // would instead render `<p data-testid="change-personal-email-error"
+    // className="text-xs text-destructive">{null}</p>` — an EMPTY
+    // paragraph, present but textless — which `queryByText` alone cannot
+    // distinguish from "does not exist"; `queryByTestId` can.
+    expect(screen.queryByTestId('change-personal-email-error')).not.toBeInTheDocument()
+    // Label mirrors the same guard — `error && 'text-destructive'` — and
+    // must not carry the destructive class before any error exists either.
+    expect(label().className).not.toContain('text-destructive')
+  })
+
+  it('once an error exists, BOTH the label and a real (non-empty) error paragraph turn destructive', async () => {
+    renderDialog({ currentEmail: null })
+    const user = userEvent.setup()
+    await user.type(input(), 'not-an-email')
+    await user.tab()
+    const errorParagraph = await screen.findByTestId('change-personal-email-error')
+    expect(errorParagraph).toHaveTextContent('Некорректный email')
+    expect(errorParagraph.className).toContain('text-destructive')
+    expect(label().className).toContain('text-destructive')
+  })
+})
+
 describe('ChangePersonalEmailDialog — submit', () => {
   it('a validation failure on submit blocks the request entirely (no PATCH call)', async () => {
     renderDialog({ currentEmail: null })
@@ -267,5 +343,63 @@ describe('ChangePersonalEmailDialog — submit', () => {
     await user.click(screen.getByText('Отмена'))
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(api.patch).not.toHaveBeenCalled()
+  })
+
+  // mutation-gate closure: `onOpenChange={(o) => !o && onClose()}` mutated
+  // to `() => undefined` — `open` is a hardcoded `true` prop, never wired
+  // to any state in THIS isolated render, so a REAL Escape/outside-click
+  // close cannot be observed as an unmount here either way (Radix's
+  // controlled-`open` semantics keep it rendered regardless of what its
+  // internal close intent does) — only the CALLBACK firing is observable
+  // via THIS helper.
+  it('pressing Escape fires onClose via onOpenChange (kills the onOpenChange ArrowFunction->undefined mutant)', async () => {
+    const { onClose } = renderDialog({ currentEmail: CURRENT_PERSONAL })
+    const user = userEvent.setup()
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+// `renderDialog` above hardcodes `open` to `true` with no parent reacting to
+// `onClose` — the dialog never actually unmounts there. This harness wires a
+// real `open` boolean around the dialog instead, so `onClose` genuinely
+// tears it down — used below to pin that the full open/Escape/close cycle
+// works through a real parent, not just through the mocked callback.
+function TogglingDialog() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button data-testid="persistent-trigger" onClick={() => setOpen(true)}>
+        open
+      </button>
+      {open && (
+        <ChangePersonalEmailDialog
+          userId="u-1"
+          currentEmail={CURRENT_PERSONAL}
+          workEmail={WORK_EMAIL}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
+describe('ChangePersonalEmailDialog — closes end-to-end through a real toggle (not the hardcoded-open harness above)', () => {
+  it('Escape closes the dialog when a real parent unmounts it on onClose (unlike renderDialog above, which cannot)', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TogglingDialog />
+      </QueryClientProvider>,
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('persistent-trigger'))
+    expect(screen.getByRole('heading', { name: 'Изменить личный email' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('heading', { name: 'Изменить личный email' }),
+      ).not.toBeInTheDocument(),
+    )
   })
 })

@@ -3,7 +3,7 @@
  * spec §5). Zero prior coverage for this menu (mirrors the gap
  * ArchiveUserDialog.test.tsx's own doc comment describes for its directory).
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -150,6 +150,24 @@ describe('AdminActionsMenu — resend-invite visibility', () => {
     await openMenu()
     expect(screen.queryByTestId('admin-actions-resend-invite')).not.toBeInTheDocument()
   })
+
+  // mutation-gate closure (CI full-diff round): `user.personalContactVisible
+  // === true` mutated to `true` — the test above uses personalEmailCanLogin:
+  // null, which the LAST clause (`=== false`) already fails on its own, so
+  // it does not isolate THIS check. Here every OTHER clause is satisfied
+  // (personalEmailCanLogin genuinely false) — only personalContactVisible
+  // being falsy hides the item; the mutant would show it.
+  it('hides the item when masked even though personalEmailCanLogin is genuinely false (isolates the personalContactVisible check)', async () => {
+    renderMenu(
+      makeUser({
+        personalEmail: 'ivan.personal@gmail.com',
+        personalContactVisible: false,
+        personalEmailCanLogin: false,
+      }),
+    )
+    await openMenu()
+    expect(screen.queryByTestId('admin-actions-resend-invite')).not.toBeInTheDocument()
+  })
 })
 
 describe('AdminActionsMenu — resend-invite click', () => {
@@ -165,5 +183,86 @@ describe('AdminActionsMenu — resend-invite click', () => {
     await user.click(screen.getByTestId('admin-actions-resend-invite'))
 
     expect(api.post).toHaveBeenCalledWith('/users/u-1/personal-email/resend-invite')
+  })
+})
+
+// mutation-gate closure (CI full-diff round): `disabled={item.key ===
+// 'resend-invite' && resendInviteMutation.isPending}` had SIX surviving
+// mutants — nothing in this file ever inspected the DISABLED state of any
+// menu item. Three scenarios below, together, distinguish every one of
+// them: (1) resend-invite item while pending → disabled (kills the
+// always-false mutants), (2) resend-invite item while NOT pending → enabled
+// (kills the always-true mutants), (3) a DIFFERENT item while resend-invite
+// IS pending → still enabled (kills the `&&`→`||` and the `item.key ===
+// 'resend-invite'`→`true` mutants, both of which would make EVERY item
+// react to resendInviteMutation.isPending, not just its own).
+describe('AdminActionsMenu — resend-invite disabled state (mutation-gate closure)', () => {
+  // Radix closes the dropdown on select regardless of the item's own
+  // `onClick` — clicking resend-invite starts the mutation AND closes the
+  // menu in the same tick, so the disabled attribute cannot be observed on
+  // the element that was just clicked. It CAN be observed by re-opening the
+  // menu while the mutation promise is still unresolved — the exact case
+  // `disabled` exists to guard (an admin who clicks the trigger again
+  // before a slow response comes back must not be able to fire a second
+  // resend).
+  it('the resend-invite item is disabled if the menu is re-opened while its own mutation is pending', async () => {
+    let resolvePost: (() => void) | undefined
+    ;(api.post as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((resolve) => {
+        resolvePost = () => resolve({ data: { ok: true, delivered: true } })
+      }),
+    )
+    renderMenu(
+      makeUser({
+        personalEmail: 'ivan.personal@gmail.com',
+        personalContactVisible: true,
+        personalEmailCanLogin: false,
+      }),
+    )
+    const user = await openMenu()
+    await user.click(screen.getByTestId('admin-actions-resend-invite'))
+    await user.click(screen.getByTestId('admin-actions-trigger'))
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-actions-resend-invite')).toHaveAttribute('data-disabled'),
+    )
+    resolvePost?.()
+  })
+
+  it('the resend-invite item is NOT disabled before it has been clicked (isPending starts false)', async () => {
+    renderMenu(
+      makeUser({
+        personalEmail: 'ivan.personal@gmail.com',
+        personalContactVisible: true,
+        personalEmailCanLogin: false,
+      }),
+    )
+    await openMenu()
+    expect(screen.getByTestId('admin-actions-resend-invite')).not.toHaveAttribute('data-disabled')
+  })
+
+  it('a DIFFERENT item ("Редактировать") stays enabled if the menu is re-opened while the resend-invite mutation is pending', async () => {
+    let resolvePost: (() => void) | undefined
+    ;(api.post as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((resolve) => {
+        resolvePost = () => resolve({ data: { ok: true, delivered: true } })
+      }),
+    )
+    renderMenu(
+      makeUser({
+        personalEmail: 'ivan.personal@gmail.com',
+        personalContactVisible: true,
+        personalEmailCanLogin: false,
+      }),
+    )
+    const user = await openMenu()
+    await user.click(screen.getByTestId('admin-actions-resend-invite'))
+    await user.click(screen.getByTestId('admin-actions-trigger'))
+    await waitFor(() =>
+      expect(screen.getByTestId('admin-actions-resend-invite')).toHaveAttribute('data-disabled'),
+    )
+    expect(screen.getByRole('menuitem', { name: /Редактировать/ })).not.toHaveAttribute(
+      'data-disabled',
+    )
+    resolvePost?.()
   })
 })
