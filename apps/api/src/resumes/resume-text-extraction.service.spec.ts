@@ -1219,7 +1219,7 @@ describe('PDF content-stream guard (HIGH-2)', () => {
    * laptop — and the ceiling tripped there at ~1.6 s on code that does
    * exactly what it always did (found 2026-09-03: blocked the nightly
    * `@crm/api` mutation sweep from its first run on 2026-08-12 onward —
-   * `scripts/devops/mutation-gate-runbook.md` "PR gate vs nightly"). Sampling
+   * `scripts/devops/mutation-gate-runbook.md` "The three halves"). Sampling
    * event-loop lag with a 10 ms interval timer is itself a macrotask a loaded
    * host can delay — the meter can report a stall that never happened in the
    * code under test, only in the scheduler measuring it.
@@ -1300,8 +1300,8 @@ describe('PDF content-stream guard (HIGH-2)', () => {
         ResumeFileUnreadableError,
       )
       const { worstStall } = meter.stop()
-      // Measured on a quiet machine: 5 ms wall, 0 ms stall — two orders of
-      // magnitude below the historical 6 109 ms this guard exists to prevent.
+      // Measured on a quiet machine: 5 ms wall, 0 ms stall — roughly 1 200x
+      // below the historical 6 109 ms this guard exists to prevent.
       expect(worstStall).toBeLessThan(250)
     },
     120_000,
