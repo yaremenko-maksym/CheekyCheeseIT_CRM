@@ -19,12 +19,57 @@ explicit argv list, never ``shell=True``.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
 
-from signal_plus.config import Config
+from signal_plus.config import Config, mask_secret
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
+
+# E.164-shaped phone number: '+' followed by 7-15 digits (ITU E.164's max is
+# 15 digits after the leading '+'). Used by _sanitize_cli_text below to
+# scrub numbers OTHER than the configured account too (e.g. a message
+# sender's number surfaced in a `receive` error), not just the one exact
+# substitution.
+_PHONE_PATTERN = re.compile(r"\+\d{7,15}")
+
+
+def _sanitize_cli_text(raw: str, *, account: str) -> str:
+    """SR-H-1 (PR #650 security review, id 5105061153): signal-cli v0.14.7
+    embeds the configured account verbatim in several of its own error
+    messages (``AsamK/signal-cli`` tag ``v0.14.7``,
+    ``src/main/java/org/asamk/signal/App.java`` lines 343/346/348/352 —
+    ``"User " + account + " is not registered."``,
+    ``"Error while checking account " + account + ": " + ...``,
+    ``"Error loading state file for user " + account + ": " + ...``).
+
+    This is the SINGLE choke point every consumer of :class:`SignalResult`
+    goes through — ``cli.py``'s logs and ``state.last_error``, and
+    (downstream of those) ``alert.py``'s handover email and GitHub-issue
+    ``FAILED_LEGS`` — so sanitizing here, once, is what keeps the guarantee
+    from silently regressing when a new caller reads ``result.output``
+    instead of re-doing this substitution at each of those call sites.
+
+    Two techniques, both from the security review's fix instruction:
+      - truncate to the first line: signal-cli's own error messages are a
+        single log line (verified: every fixture in this suite and in
+        ``updater.py``'s module docstring citation is single-line), while
+        ``receive``'s dump of incoming envelopes can spread real message
+        bodies and OTHER people's numbers across many lines that have no
+        business leaving this module at all;
+      - mask the configured account via the same :func:`mask_secret` used
+        elsewhere (not just delete it — requirement 1 says "маскировать",
+        so a human reading a log can still recognise *which* account), then
+        scrub any remaining E.164-shaped number as a second pass, in case
+        some other phone number is present.
+    """
+    if not raw:
+        return raw
+    first_line = raw.splitlines()[0]
+    if account:
+        first_line = first_line.replace(account, mask_secret(account))
+    return _PHONE_PATTERN.sub("<phone-redacted>", first_line)
 
 
 @dataclass(frozen=True)
@@ -53,8 +98,8 @@ def _run_signal_cli(
     return SignalResult(
         ok=completed.returncode == 0,
         returncode=completed.returncode,
-        stdout=completed.stdout or "",
-        stderr=completed.stderr or "",
+        stdout=_sanitize_cli_text(completed.stdout or "", account=config.signal_account),
+        stderr=_sanitize_cli_text(completed.stderr or "", account=config.signal_account),
     )
 
 

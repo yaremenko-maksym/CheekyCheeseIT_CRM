@@ -54,17 +54,29 @@ def _default_tmp_dir(config: Config) -> Path:
     return Path(tempfile.gettempdir()) / "signal-plus"
 
 
-def _issue_alert_env(reason: str) -> dict[str, str]:
+def _issue_alert_env(failed_leg: str) -> dict[str, str]:
     """Best-effort env for post-merge-alert.sh (see signal_plus/alert.py's
     module docstring — full wiring is step 4/DevOps). ALERT_REPO/GH_TOKEN are
     picked up from this service's own environment if step 4 sets them there;
     the rest are clearly-marked placeholders a scheduled roll-call has no
-    real analog for."""
+    real analog for.
+
+    ``failed_leg`` (SR-H-1, security review 5105061153): a short FIXED label
+    naming which leg failed — the same convention post-merge-alert.sh's other
+    callers use (``FAILED_LEGS: 'build/push/SSH-deploy'`` in
+    deploy-signal-plus.yml, ``'quality, e2e'`` etc. for ci.yml). Callers must
+    NEVER pass the dynamic error text itself (``state.last_error`` or
+    similar): this issue can fall back to the PUBLIC repo when the private
+    telemetry PAT is unavailable/expired (see post-merge-alert.sh's own
+    "ГРАНИЦА КАНАЛА" comment — body is metadata-only, never log/error
+    content), and signal-cli's own errors can carry the account number even
+    after the log/state/email masking in signal_plus/signal.py.
+    """
     env = {
         "RESULT": "failure",
         "COMMIT_SHA": "0" * 40,
         "RUN_URL": "n/a (scheduled signal-plus roll-call, not a CI run)",
-        "FAILED_LEGS": reason,
+        "FAILED_LEGS": failed_leg,
         "LABEL": "signal-plus-broken",
     }
     for name in ("ALERT_REPO", "GH_TOKEN"):
@@ -208,7 +220,10 @@ def run_cycle(
                 config,
                 f"ERROR: today's + was not sent by the {config.handover_time.strftime('%H:%M')} Kyiv handover cutoff",
                 reason,
-                issue_extra_env=_issue_alert_env(reason),
+                # SR-H-1: FAILED_LEGS is a fixed label, never `reason` --
+                # `reason` (state.last_error) is exactly what the log/email
+                # channels show and can still carry signal-cli-shaped text.
+                issue_extra_env=_issue_alert_env("handover-cutoff-reached"),
                 script_path=alert_script_path,
                 run=run,
                 http_post=http_post,
@@ -237,7 +252,7 @@ def run_cycle(
         alert.raise_alert(
             config,
             f"ERROR: {reason}",
-            issue_extra_env=_issue_alert_env(reason),
+            issue_extra_env=_issue_alert_env("send-retries-exhausted"),
             script_path=alert_script_path,
             run=run,
         )

@@ -178,28 +178,136 @@ image's pinned binary is now behind, not as an incident.
 
 ## Step 4 (DevOps) — what's still needed for the GitHub-issue alert layer
 
-`post-merge-alert.sh` currently only recognizes `KIND=ci|deploy|backup|mutation`
-and errors on anything else — deliberately not touched here (zone-of-write).
-For the third alert layer to actually create/update/close an issue, step 4
-needs to:
+**Done, in step 2 (this PR's own workflow-failure alert needed the same
+switch anyway):** `post-merge-alert.sh` now recognizes `KIND=signal-plus`
+(title/body text + default `LABEL=signal-plus-deploy-broken`), same
+per-KIND pattern as `ci`/`deploy`/`backup`/`mutation`. Verified with
+`DRY_RUN=1` for both the create and the recovery-close path.
 
-1. Add a `signal-plus` case to the script's `KIND` switch (title/body text +
-   default `LABEL`), matching the existing per-KIND pattern.
-2. Decide how the signal-plus container reaches the script at all (bind
+**Still open** — this `KIND` addition only makes the SCRIPT accept the
+value; it does nothing yet for THIS project's own layer 3 (the IN-CONTAINER
+call `signal_plus.alert.send_github_issue_alert` makes at 08:00/on
+retry-exhaustion), which is a separate concern from step 2's own deploy
+workflow alerting (`.github/workflows/deploy-signal-plus.yml`'s own
+"Alert on deploy failure" steps, which run on the GHA runner with the full
+repo checked out and need none of this). For the in-container layer to
+actually create/update/close an issue, a later step still needs to:
+
+1. Decide how the signal-plus container reaches the script at all (bind
    mount the CRM checkout's `scripts/devops/`, copy the one file in, or
    something else) and set `signal_plus.alert.DEFAULT_POST_MERGE_ALERT_SCRIPT`
    (or override it at the `cli.run_cycle(..., alert_script_path=...)` call
-   site) to wherever it actually ends up.
-3. Provide `ALERT_REPO` and `GH_TOKEN` in the container's environment —
+   site) to wherever it actually ends up. Its default,
+   `/opt/crm/scripts/devops/post-merge-alert.sh`, already matches the CRM
+   compose project's real on-server path — bind-mounting that exact file
+   read-only into the signal-plus container needs no code change at all.
+2. Provide `ALERT_REPO` and `GH_TOKEN` in the container's environment —
    `signal_plus.cli._issue_alert_env` already reads them opportunistically
    from `os.environ` if present.
-4. Decide what `COMMIT_SHA`/`RUN_URL` should reasonably be for a scheduled
+3. Decide what `COMMIT_SHA`/`RUN_URL` should reasonably be for a scheduled
    roll-call with no CI run behind it (this service currently sends
    clearly-marked placeholders — `"0" * 40"` / `"n/a (scheduled signal-plus
 roll-call, not a CI run)"` — since there is no natural analog and
    fabricating a real-looking value seemed worse than an honest placeholder).
 
-Until step 4, layers 1 and 2 (log + personal DM) work as designed; layer 3
-will fail closed (script exits non-zero on the unrecognized `KIND`, or
-`ALERT_REPO`/`GH_TOKEN` missing) without blocking the other two —
-`signal_plus.alert.raise_alert` treats every layer as independent.
+Until that lands, layers 1 and 2 (log + personal DM) work as designed;
+layer 3 fails closed — not because of an unrecognized `KIND` anymore (fixed
+above), but because the script isn't reachable from inside the container yet
+and `ALERT_REPO`/`GH_TOKEN` aren't set there either — without blocking the
+other two: `signal_plus.alert.raise_alert` treats every layer as
+independent.
+
+## Деплой и линковка
+
+**Step 2** (`Dockerfile`, `docker-compose.yml`,
+`.github/workflows/deploy-signal-plus.yml`) builds the image, pushes it to
+GHCR, writes `/opt/signal-plus/.env` from the `SIGNAL_PLUS_ENV` secret, and
+runs `docker compose -p signal-plus up -d` on the VPS — on every push to
+`main` that touches `services/signal-plus/**`, or on
+`gh workflow run deploy-signal-plus.yml --ref main`. It does **not** link
+the account: linking needs an interactive QR scan on the owner's phone,
+which no CI job can do. Everything below is **step 3**, run by the owner
+directly on the VPS after step 2 has deployed at least once.
+
+### Линковка (один раз)
+
+```bash
+cd /opt/signal-plus
+docker compose -p signal-plus run --rm -it signal-plus signal-cli link -n "server-plus" | tee /tmp/link.txt
+```
+
+В другом окне, **пока `link` ждёт** (команда выше не завершится, пока
+устройство не будет отсканировано или не истечёт таймаут):
+
+```bash
+docker compose -p signal-plus run --rm signal-plus sh -c 'qrencode -t ansiutf8 "$(grep -o "sgnl://[^ ]*" /tmp/link.txt)"'
+```
+
+Сканировать QR: **Signal на телефоне → Настройки → Связанные устройства →
+«+» → навести камеру на код в терминале.**
+
+Один пайп `signal-cli link -n server-plus | qrencode -t ansiutf8` вместо
+двух команд выше, как изначально предлагалось, — по факту скорее всего
+**не покажет QR вовремя**: `qrencode`, как большинство утилит, читающих
+stdin без явного построчного режима, ждёт EOF (конец потока), а `link` не
+закрывает свой stdout, пока сам не завершится (успехом или таймаутом) — то
+есть код появился бы только ПОСЛЕ того, как сканировать уже поздно.
+Двухоконный вариант с `tee` в файл этой проблемы не имеет: `grep`/`qrencode`
+во второй команде читают уже дописанный на диск файл, а не живой поток.
+(Не проверено вживую с реальным аккаунтом — команда `link` не выполнялась
+в рамках шага 2, см. стоп-линию задания; рассуждение — из общего поведения
+`qrencode`, не из наблюдения за `signal-cli` конкретно.)
+
+`docker compose run` наследует `read_only: true` + том `signal_data` из
+`docker-compose.yml` — сама привязанная идентичность (ключи, сессии) пишется
+на том (`XDG_DATA_HOME=/data`, см. Dockerfile), не в слой контейнера, и
+переживёт `docker compose up -d` после линковки.
+
+### Выбор группы и первый тест
+
+```bash
+docker compose -p signal-plus run --rm signal-plus signal-cli --groups
+```
+
+(режим `--groups` — см. `build_arg_parser()` в `signal_plus/cli.py`; печатает
+список групп с id, ничего не отправляет). Найти **пустую тестовую группу**
+в выводе, скопировать её id.
+
+```bash
+vi /opt/signal-plus/.env   # SIGNAL_GROUP_ID=<id пустой группы>
+```
+
+Отправить один `+` немедленно (идемпотентность всё равно уважается —
+`--now` не даст второй `+`, если сегодняшний уже ушёл):
+
+```bash
+docker compose -p signal-plus run --rm signal-plus signal-plus --now
+```
+
+Проверить, что `+` пришёл в выбранную группу. Затем — обычный демон:
+
+```bash
+docker compose -p signal-plus up -d
+```
+
+### Отзыв (revoke)
+
+Отвязать сервер от аккаунта **с телефона** (не с сервера — signal-cli не
+умеет отзывать сам себя):
+
+**Signal на телефоне → Настройки → Связанные устройства → найти
+«server-plus» → смахнуть/удалить.**
+
+После этого стереть на сервере том с привязанной идентичностью (иначе
+контейнер продолжит пытаться работать со связью, которой Signal-сервер уже
+не признаёт):
+
+```bash
+cd /opt/signal-plus
+docker compose -p signal-plus down
+docker volume rm signal-plus_signal_data
+```
+
+Следующий `docker compose -p signal-plus up -d` начнёт с чистого тома —
+`ensure_seed_binary` пересеет пиненный бинарь из образа, но аккаунт нужно
+будет линковать заново (раздел «Линковка» выше).

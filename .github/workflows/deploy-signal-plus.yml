@@ -1,0 +1,254 @@
+name: Deploy Signal Plus
+
+# task-signal-plus-step2-deploy — step 2 of the "утренняя перекличка" plan
+# (.claude/tasks/task-signal-plus-service.md). Builds+pushes the
+# services/signal-plus/ image and deploys it as its OWN compose project
+# (`signal-plus`, /opt/signal-plus) on the same VPS the CRM stack (`crm`,
+# /opt/crm) already runs on — see docker-compose.yml's header comment for
+# why this MUST be a separate compose project (CRM's own `deploy.yml` runs
+# `up -d --remove-orphans` against /opt/crm on every deploy, which would
+# otherwise treat a signal-plus container as an orphan and kill it).
+#
+# Deliberately its own workflow file, not a job added to deploy.yml: same
+# reasoning as deploy-alert.yml already documents for the CRM stack — this
+# service has its own trigger (a different `paths:` filter), its own image,
+# its own VPS directory, and touching deploy.yml's already very large file
+# for an unrelated service is not worth the risk.
+#
+# STOP LINE (task-signal-plus-step2-deploy.md): this workflow builds, pushes,
+# writes the VPS's .env, and runs `docker compose up -d` — it does NOT link
+# the Signal account (step 3, `signal-cli link`, run manually by the owner
+# per README.md "Деплой и линковка"). Do not dispatch this workflow against
+# the real VPS until SIGNAL_PLUS_ENV/VPS_* secrets exist and the owner says
+# to.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/signal-plus/**'
+  workflow_dispatch:
+
+concurrency:
+  # One deploy at a time, same shape as deploy.yml's `deploy-production` —
+  # a superseded run should not race the one that replaced it.
+  group: deploy-signal-plus
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # `cheekycheeseit-crm-<component>` — same family as the CRM stack's own
+  # images (see docker-compose.ghcr.yml: cheekycheeseit-crm-api,
+  # cheekycheeseit-crm-nginx), not a separate `cheekycheeseit-signal-plus`
+  # name: this is still one owner/one GHCR namespace, and keeping the prefix
+  # shared makes `cheekycheeseit-crm-*` list every image this project
+  # publishes in one grep/one `gh api .../packages` call.
+  IMAGE_NAME: yaremenko-maksym/cheekycheeseit-crm-signal-plus
+
+jobs:
+  deploy:
+    name: Build, push, and deploy signal-plus
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+      # For the alert step's `gh issue` calls when TELEMETRY_ISSUES_PAT is
+      # absent/expired and resolve-alert-channel.sh falls back to this repo.
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Tags: sha (immutable, matches this run's commit — usable for a
+      # manual rollback via `docker compose ... pull` after editing .env's
+      # IMAGE_TAG by hand) + latest (what docker-compose.yml's
+      # `${IMAGE_TAG:-latest}` default resolves to when IMAGE_TAG is unset).
+      # No third `:main` "rolling" tag — task-signal-plus-step2-deploy.md
+      # says "тег sha + latest", not the 3-tag scheme deploy.yml uses for
+      # the CRM images.
+      - name: Build & push signal-plus image
+        uses: docker/build-push-action@v6
+        with:
+          context: services/signal-plus
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha,scope=signal-plus
+          cache-to: type=gha,mode=max,scope=signal-plus
+
+      # Single secret blob (task: "один секрет-блоб") — unlike CRM's
+      # .env.production (composed from ~25 individual secrets field-by-field,
+      # see deploy.yml's "Write .env.production on VPS" job), this service's
+      # whole .env fits in one KEY=VALUE-per-line secret, same shape as
+      # services/signal-plus/.env.example. Simpler is correct here: one
+      # owner-maintained value instead of a secret per env var for a service
+      # this small.
+      #
+      # `umask 077` (task-signal-plus-step2-deploy.md, explicit ask — CRM's
+      # own .env.production write does NOT do this, only `chmod 600`
+      # afterward, which leaves a brief window where the file exists at the
+      # shell's default mode before the chmod runs): scoped to a subshell so
+      # it cannot leak into any later command in this same script.
+      - name: Write .env on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          # Travels over the encrypted SSH channel as an env var, never
+          # substituted into the YAML string — same reasoning as deploy.yml's
+          # "No ${{ secrets.* }} interpolation happens here" comment on its
+          # own .env write step.
+          SIGNAL_PLUS_ENV: ${{ secrets.SIGNAL_PLUS_ENV }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: SIGNAL_PLUS_ENV,IMAGE_TAG
+          script: |
+            set -euo pipefail
+
+            if [ -z "$SIGNAL_PLUS_ENV" ]; then
+              echo "::error::SIGNAL_PLUS_ENV secret is empty/unset — cannot write /opt/signal-plus/.env. Create it first (see this PR's body for the exact format)."
+              exit 1
+            fi
+
+            mkdir -p /opt/signal-plus
+            (
+              umask 077
+              printf '%s\n' "$SIGNAL_PLUS_ENV" > /opt/signal-plus/.env
+              # IMAGE_TAG is consumed TWICE from the same file: by
+              # docker-compose.yml's own `${IMAGE_TAG:-latest}` substitution
+              # (Compose auto-loads .env from the project directory) AND,
+              # harmlessly, injected into the container's runtime env via
+              # this same file's `env_file:` — signal_plus.config.Config
+              # only ever reads its own named vars, so the extra unused var
+              # is ignored there. Same pattern as CRM's own
+              # .env.production, which appends IMAGE_TAG the same way.
+              printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG" >> /opt/signal-plus/.env
+            )
+            chmod 600 /opt/signal-plus/.env
+            echo "==> /opt/signal-plus/.env written (mode 600)"
+
+      - name: Copy docker-compose.yml to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'services/signal-plus/docker-compose.yml'
+          target: '/opt/signal-plus'
+          # scp-action otherwise preserves the source path's directory tree
+          # under target (confirmed against its documented behavior: CRM's
+          # own copy-compose job relies on the SAME preservation, copying
+          # root-level files like docker-compose.prod.yml with no leading
+          # directory, so nothing there needed stripping). This source has
+          # TWO leading path elements (services/, signal-plus/) before the
+          # filename — stripping both lands the file directly at
+          # /opt/signal-plus/docker-compose.yml instead of nested three
+          # directories deeper.
+          strip_components: 2
+
+      - name: Pull and start signal-plus (docker compose -p signal-plus up -d)
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: GHCR_TOKEN,GH_ACTOR
+          script: |
+            set -euo pipefail
+
+            mkdir -p /opt/signal-plus
+            cd /opt/signal-plus
+
+            echo "==> Logging in to GHCR"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+
+            echo "==> Pulling signal-plus image"
+            docker compose -p signal-plus pull
+
+            echo "==> Starting signal-plus (does NOT touch /opt/crm — separate compose project)"
+            docker compose -p signal-plus up -d
+
+            echo "==> docker compose -p signal-plus ps"
+            docker compose -p signal-plus ps
+
+      # ── Alert on failure — steps in THIS job, not a second job/workflow ──
+      # deploy-alert.yml needs its own separate workflow file only because
+      # `workflow_run` can react to nothing but a workflow it names — not
+      # applicable here, this job already owns every step it would need to
+      # know about. `if: always()` + `${{ job.status }}` (documented GitHub
+      # Actions behavior: reflects the status of every step that has run so
+      # far in this job) gives the same alert with zero extra jobs — see the
+      # devops agent's golden rule against adding jobs where a step will do.
+      #
+      # Text is honest about what actually happened (task:
+      # "текст — правдивый: не «прод задеплоен»", citing PR #644's
+      # resume-perf-guard fix for the same "alert text must not overclaim"
+      # principle): KIND=signal-plus's own body in post-merge-alert.sh
+      # (added by this PR) describes a build/push/SSH-deploy failure for
+      # THIS workflow specifically, not a claim about the CRM stack or about
+      # signal-plus having actually sent a "+" — this workflow has no way to
+      # know that; it only knows whether ITS OWN steps succeeded.
+      #
+      # Read/resolve/alert split into three steps, each copied verbatim from
+      # ci.yml's `post_merge_alert` job (same repo, same script, same
+      # channel-resolution probe) rather than reinvented inline — see that
+      # job's own comments for why each individual choice (random heredoc
+      # delimiter, env: not string-interpolation, PAT-actually-works probe)
+      # is made this way.
+      - name: Read deployed commit
+        if: always()
+        id: commit
+        run: |
+          DELIM="COMMIT_SUBJECT_EOF_$(openssl rand -hex 8)"
+          {
+            echo "subject<<$DELIM"
+            git log -1 --pretty=%s
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve alert channel
+        if: always()
+        id: channel
+        env:
+          PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
+          PUBLIC_REPO: ${{ github.repository }}
+        run: ./scripts/devops/resolve-alert-channel.sh
+
+      - name: Open / update / close the alert issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.channel.outputs.use_pat == 'true' && secrets.TELEMETRY_ISSUES_PAT || github.token }}
+          ALERT_REPO: ${{ steps.channel.outputs.repo }}
+          RESULT: ${{ job.status }}
+          FAILED_LEGS: 'build/push/SSH-deploy'
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          KIND: signal-plus
+        run: ./scripts/devops/post-merge-alert.sh
+
+      # No separate "fail the job when red" step here, unlike ci.yml's
+      # post_merge_alert / deploy-alert.yml: those exist because THAT job's
+      # own steps never fail by themselves (aggregation/alerting only, on
+      # results computed from a SEPARATE job/run) — without an explicit
+      # `exit 1` they would show green in the Actions UI even when the thing
+      # they are reporting on is red. Here the deploy steps that can
+      # actually fail (build/push/write-env/copy-compose/pull+up) live in
+      # THIS SAME job, so a failure among them already makes this job's own
+      # conclusion `failure` — the alert steps above run anyway (`if:
+      # always()`) but do not and cannot un-fail it.

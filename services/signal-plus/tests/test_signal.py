@@ -14,6 +14,18 @@ from pathlib import Path
 import pytest
 
 from signal_plus.config import Config
+from signal_plus.updater import OUTDATED_CLIENT_MESSAGE  # module-level: see
+# test_outdated_client_message_survives_sanitization -- importing this at
+# call-time instead of collection-time makes `updater`'s `import
+# urllib.request` (-> ssl) the FIRST import of `ssl` in this file's own test
+# process, which lands AFTER conftest.py's autouse `block_real_sockets`
+# fixture has already monkeypatched `socket.socket` -- `ssl.py`'s own
+# `class SSLSocket(socket):` then subclasses the monkeypatched function
+# instead of the real class and crashes with an unrelated TypeError. Only
+# reproduces when this file runs in isolation (in the full suite,
+# test_alert.py's module-level `signal_plus.alert` import already pulls in
+# `ssl` during collection, before any fixture runs) -- not a bug in the code
+# under test, so it is worked around here rather than "fixed" anywhere real.
 from signal_plus.signal import (
     SignalResult,
     list_groups,
@@ -121,3 +133,87 @@ def test_timeout_is_passed_through_to_run(config):
 
     receive(config, run=fake_run, timeout=5)
     assert captured["timeout"] == 5
+
+
+# ---------------------------------------------------------------------------
+# SR-H-1 (PR #650 security review, id 5105061153) -- signal-cli v0.14.7
+# embeds the configured account verbatim in several of its own error
+# messages (App.java: "User <account> is not registered.", "Error while
+# checking account <account>: ...", "Error loading state file for user
+# <account>: ..."). This is the single choke point every consumer of
+# SignalResult goes through (cli.py's logs/state, alert.py's email/DM/issue)
+# -- see signal_plus/signal.py's _sanitize_cli_text for the fix.
+# ---------------------------------------------------------------------------
+
+
+def test_receive_output_never_contains_the_raw_account_number(config):
+    fake = RecordingRun(
+        returncode=1,
+        stdout="",
+        stderr=f"Error loading state file for user {config.signal_account}: boom (IOException)",
+    )
+    result = receive(config, run=fake)
+    assert config.signal_account not in result.stdout
+    assert config.signal_account not in result.stderr
+    assert config.signal_account not in result.output
+
+
+def test_send_output_never_contains_the_raw_account_number(config):
+    fake = RecordingRun(
+        returncode=1,
+        stdout="",
+        stderr=f"User {config.signal_account} is not registered.",
+    )
+    result = send_group_message(config, "+", run=fake)
+    assert config.signal_account not in result.output
+
+
+def test_sanitized_output_still_keeps_a_recognisable_masked_form(config):
+    # Not just deleted -- masked, per requirement 1 ("маскировать", not
+    # "убрать"): a human reading the log can still tell which account this
+    # was, via the same first/last-char mask config.mask_secret() uses
+    # elsewhere.
+    fake = RecordingRun(
+        returncode=1, stdout="", stderr=f"User {config.signal_account} is not registered."
+    )
+    result = receive(config, run=fake)
+    assert "***" in result.output
+
+
+def test_other_peoples_e164_numbers_are_also_scrubbed_from_output(config):
+    # SR-H-1 fix instruction: "вычистка E.164-шаблона" -- not just OUR
+    # configured account, e.g. a message sender surfaced by `receive`.
+    other_number = "+15551234999"
+    fake = RecordingRun(returncode=0, stdout=f"Envelope from: {other_number}", stderr="")
+    result = receive(config, run=fake)
+    assert other_number not in result.output
+
+
+def test_multiline_output_is_not_leaked_past_the_first_line(config):
+    # `receive` can dump multiple incoming envelopes (message bodies +
+    # sender numbers) across several lines -- none of that has any business
+    # leaving this module, only the first line (where signal-cli's own
+    # single-line error messages live) does.
+    fake = RecordingRun(
+        returncode=0,
+        stdout="first line is safe\nsecond line: +15551234999 leaked body text",
+        stderr="",
+    )
+    result = receive(config, run=fake)
+    assert "leaked body text" not in result.output
+    assert "+15551234999" not in result.output
+
+
+def test_outdated_client_message_survives_sanitization(config):
+    # The sanitizer must not collide with the ONE other place that reads
+    # raw signal-cli output for meaning (updater.is_outdated_client_error) --
+    # regression guard for the fix, not a duplicate of test_updater.py's
+    # own coverage of that function.
+    fake = RecordingRun(
+        returncode=1,
+        stdout="",
+        stderr=f"Error loading state file for user {config.signal_account}: {OUTDATED_CLIENT_MESSAGE} (IOException)",
+    )
+    result = receive(config, run=fake)
+    assert OUTDATED_CLIENT_MESSAGE in result.output
+    assert config.signal_account not in result.output

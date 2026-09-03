@@ -14,7 +14,13 @@
 # .github/workflows/mutation-nightly.yml (KIND=mutation, task-mutation-gate
 # 2026-08-11 — the PR gate only ever sees CHANGED lines, so everything that
 # accumulated before it existed is invisible to it; the nightly full sweep is
-# what surfaces that, and it needs a channel someone actually reads). Same
+# what surfaces that, and it needs a channel someone actually reads), AND by
+# the `deploy` job in .github/workflows/deploy-signal-plus.yml (KIND=signal-plus,
+# task-signal-plus-step2-deploy 2026-09-03 — a separate compose project/VPS
+# directory from the CRM stack, deployed by its own workflow; this only
+# alerts on THAT WORKFLOW'S OWN build/push/SSH-deploy failure, not on whether
+# the running signal-plus daemon actually sent a "+" — see that workflow's
+# own comments for why the text must not overclaim either direction). Same
 # channel, same open/comment/close mechanic, same script — only the issue
 # title/body text and the dedup LABEL differ per KIND, kept as an explicit
 # switch below rather than as separate copy-pasted scripts, so the alert paths
@@ -47,15 +53,16 @@
 #   COMMIT_SHA   the main commit that was validated / deployed
 #   RUN_URL      link to the Actions run
 # Optional env:
-#   KIND           ci (default) | deploy | backup | mutation | resume-perf —
-#                   selects title/body
-#                   text below
+#   KIND           ci (default) | deploy | backup | mutation | resume-perf |
+#                   signal-plus — selects title/body text below
 #   FAILED_LEGS    human list of failed jobs, e.g. "quality, e2e" or "deploy";
 #                   for KIND=backup, the one-line freshness-check detail
 #                   (scripts/devops/check-backup-freshness.sh's `detail` output);
 #                   for KIND=mutation, the one-line detail from
 #                   check-mutation-tally.mjs — a survivor tally OR a reason the
-#                   sweep produced no evidence at all, see MUTATION_REASON
+#                   sweep produced no evidence at all, see MUTATION_REASON;
+#                   for KIND=signal-plus, always "build/push/SSH-deploy" (that
+#                   workflow is one job, not several named legs)
 #   MUTATION_REASON KIND=mutation only. check-mutation-tally.mjs's `reason`
 #                   output: `survivors` (the sweep completed and found some —
 #                   today's body/title) or `incomplete` (a leg failed, a
@@ -79,15 +86,16 @@
 #   COMMIT_SUBJECT commit subject line (untrusted input — never eval'd)
 #   LABEL          issue label (default: ci-main-broken for KIND=ci,
 #                   deploy-broken for KIND=deploy, backup-stale for KIND=backup,
-#                   mutants-surviving for KIND=mutation)
+#                   mutants-surviving for KIND=mutation, signal-plus-deploy-broken
+#                   for KIND=signal-plus)
 #   DRY_RUN        1 → print the gh commands instead of running them
 set -euo pipefail
 
 KIND="${KIND:-ci}"
 case "$KIND" in
-  ci | deploy | backup | mutation | resume-perf) ;;
+  ci | deploy | backup | mutation | resume-perf | signal-plus) ;;
   *)
-    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup|mutation|resume-perf) — refusing to guess which alert text to use" >&2
+    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup|mutation|resume-perf|signal-plus) — refusing to guess which alert text to use" >&2
     exit 2
     ;;
 esac
@@ -97,6 +105,7 @@ case "$KIND" in
   backup) LABEL="${LABEL:-backup-stale}" ;;
   mutation) LABEL="${LABEL:-mutants-surviving}" ;;
   resume-perf) LABEL="${LABEL:-resume-perf-broken}" ;;
+  signal-plus) LABEL="${LABEL:-signal-plus-deploy-broken}" ;;
   *) LABEL="${LABEL:-ci-main-broken}" ;;
 esac
 DRY_RUN="${DRY_RUN:-0}"
@@ -148,6 +157,7 @@ case "$KIND" in
   backup) LABEL_DESC="Prod DB backup missing or stale (> threshold) after a Deploy run" ;;
   mutation) LABEL_DESC="Nightly mutation sweep found tests that cannot fail" ;;
   resume-perf) LABEL_DESC="Resume-extraction PDF content-stream guard timed out outside Stryker instrumentation" ;;
+  signal-plus) LABEL_DESC="Deploy Signal Plus workflow red (build/push/SSH-deploy)" ;;
   *) LABEL_DESC="CI red on main after merge" ;;
 esac
 run_gh label create "$LABEL" --repo "$ALERT_REPO" \
@@ -347,6 +357,37 @@ if [ "$RESULT" = "failure" ]; then
       printf '(DOCX-пропорциональность) по собственному докстрингу «it is not a gate»\n'
       printf 'и в этот job намеренно не входит (`-t`-фильтр).\n'
     )
+  elif [ "$KIND" = "signal-plus" ]; then
+    # Honest about what this workflow does and does NOT know (task
+    # requirement: "текст — правдивый: не «прод задеплоен»"). It knows
+    # whether ITS OWN build/push/write-env/copy-compose/pull+up steps
+    # succeeded — it does not know whether a signal-plus container was
+    # already running before this run (so it cannot claim "prod keeps
+    # running on the old image" the way KIND=deploy's body does for the
+    # CRM stack, which IS always already live), and it does not know
+    # whether the daemon inside actually sent today's "+" (a separate
+    # concern entirely, currently only visible via the container's own
+    # logs/personal-DM alert layer — see services/signal-plus/README.md).
+    BODY=$(
+      printf '## Деплой signal-plus упал (`Deploy Signal Plus` workflow)\n\n'
+      printf '**Commit:** `%s`\n' "$COMMIT_SHA"
+      [ -n "$SUBJECT_LINE" ] && printf '%s\n' "$SUBJECT_LINE"
+      printf '**Упавший этап:** %s\n' "$FAILED_LEGS"
+      printf '**Run:** %s\n\n' "$RUN_URL"
+      printf '`Deploy Signal Plus` завершился с `failure` — сборка/публикация образа\n'
+      printf 'или деплой на VPS не прошли. Отдельный workflow, отдельный compose-проект\n'
+      printf '(`signal-plus`, `/opt/signal-plus`) — CRM (`crm`, `/opt/crm`) этот сбой\n'
+      printf 'не затрагивает.\n\n'
+      printf '> ⚠️ Если контейнер signal-plus уже был запущен раньше — он продолжает\n'
+      printf '> работать на прежнем образе, пока это не починят. Если это первый\n'
+      printf '> деплой (контейнер ещё не создан) — утренний «+» сегодня не уйдёт.\n\n'
+      printf '## Что делать\n\n'
+      printf '1. Открыть run выше, найти упавший шаг.\n'
+      printf '2. Починить и перезапустить (`gh workflow run deploy-signal-plus.yml --ref main`),\n'
+      printf '   либо хотфикс-PR.\n'
+      printf '3. Issue закроется автоматически, когда следующий `Deploy Signal Plus`\n'
+      printf '   прогон станет зелёным.\n'
+    )
   else
     BODY=$(
       printf '## CI упал на `main` после мержа\n\n'
@@ -379,6 +420,7 @@ if [ "$RESULT" = "failure" ]; then
       backup) TITLE="🚨 Нет свежего бэкапа БД ($SHORT_SHA)" ;;
       mutation) TITLE="🧬 Выжившие мутанты на main ($SHORT_SHA)" ;;
       resume-perf) TITLE="🐌 Resume-extraction perf guard упал ($SHORT_SHA)" ;;
+      signal-plus) TITLE="🚨 Деплой signal-plus упал ($SHORT_SHA)" ;;
       *) TITLE="🚨 CI красный на main ($SHORT_SHA)" ;;
     esac
   fi
@@ -403,6 +445,7 @@ if [ -n "$OPEN" ]; then
     backup) RECOVERY_COMMENT="✅ В бакете \`crm-backups\` снова есть свежая резервная копия (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     mutation) RECOVERY_COMMENT="✅ Ночной мутационный прогон не нашёл выживших мутантов (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     resume-perf) RECOVERY_COMMENT="✅ Resume-extraction perf guard снова зелёный без Stryker (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
+    signal-plus) RECOVERY_COMMENT="✅ Деплой signal-plus снова прошёл успешно (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     *) RECOVERY_COMMENT="✅ post-merge CI на \`main\` снова зелёный (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
   esac
   run_gh issue close "$OPEN" --repo "$ALERT_REPO" --comment "$RECOVERY_COMMENT"

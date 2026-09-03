@@ -341,6 +341,91 @@ def test_handover_email_reason_carries_the_last_recorded_error(config, tmp_path)
     assert "connection refused: host unreachable" in payload["text"]
 
 
+def test_issue_alert_failed_legs_is_a_constant_never_the_raw_last_error(config, tmp_path):
+    # SR-H-1 (security review 5105061153) fix instruction: "в _issue_alert_env
+    # не передавать reason в FAILED_LEGS вообще -- константа, как в workflow"
+    # -- post-merge-alert.sh's other callers (ci/deploy/backup/mutation) all
+    # pass a short FIXED string here (e.g. 'build/push/SSH-deploy'), never a
+    # dynamic error message; this issue only fails open to the PUBLIC repo
+    # (see that script's own "ГРАНИЦА КАНАЛА" comment), so FAILED_LEGS must
+    # never carry log/error content, masked or not.
+    save_state(config.state_file, State(last_error=f"boom near {config.signal_account}"))
+    clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))
+    script = tmp_path / "post-merge-alert.sh"
+    captured_envs = []
+
+    def fake_run(argv, **kwargs):
+        if str(script) in argv:
+            captured_envs.append(kwargs.get("env") or {})
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    cli.run_cycle(
+        _with_email(config),
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=ZERO_RNG,
+        run=fake_run,
+        http_post=lambda *a, **k: (200, b"{}"),
+        alert_script_path=script,
+    )
+
+    assert len(captured_envs) == 1
+    failed_legs = captured_envs[0].get("FAILED_LEGS")
+    assert failed_legs is not None
+    assert config.signal_account not in failed_legs
+    assert "boom" not in failed_legs  # never echoes the dynamic reason text at all
+
+
+def test_issue_alert_failed_legs_is_a_constant_on_retry_exhaustion_too(config, tmp_path):
+    # Pinning test, not a red/green leak fix like the sibling test above --
+    # this call site was never actually reachable by dynamic text (`reason`
+    # here has always been the hardcoded literal "all retry attempts
+    # failed", independent of what the retries' own stderr said). It stays
+    # green before AND after the _issue_alert_env refactor; it exists to
+    # catch a FUTURE regression if this call site is ever changed to thread
+    # a dynamic reason through, the way the cutoff call site used to.
+    clock = FakeClock(_kyiv(2026, 9, 3, 7, 0))
+    script = tmp_path / "post-merge-alert.sh"
+    captured_envs = []
+
+    results = []
+    for _ in range(cli.DEFAULT_RETRY_ATTEMPTS):
+        results += [_ok(), _fail(f"refused by {config.signal_account}")]
+
+    def fake_run(argv, **kwargs):
+        if str(script) in argv:
+            captured_envs.append(kwargs.get("env") or {})
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        returncode, stdout, stderr = results.pop(0)
+        return subprocess.CompletedProcess(argv, returncode, stdout, stderr)
+
+    # Stop run_cycle's outer while-loop after the first post-exhaustion
+    # alert instead of letting it retry forever in simulated time.
+    class _StopAfterAlert(Exception):
+        pass
+
+    def sleep_fn(seconds: float) -> None:
+        if seconds == cli.DEFAULT_SLEEP_CHUNK_SECONDS and captured_envs:
+            raise _StopAfterAlert()
+        clock.sleep_fn(seconds)
+
+    with pytest.raises(_StopAfterAlert):
+        cli.run_cycle(
+            config,
+            now_fn=clock.now_fn,
+            sleep_fn=sleep_fn,
+            rng=ZERO_RNG,
+            run=fake_run,
+            alert_script_path=script,
+        )
+
+    assert len(captured_envs) == 1
+    failed_legs = captured_envs[0].get("FAILED_LEGS")
+    assert failed_legs is not None
+    assert config.signal_account not in failed_legs
+    assert "refused by" not in failed_legs
+
+
 def test_after_cutoff_second_run_same_day_noops(config, tmp_path):
     save_state(config.state_file, State(handover_date=date(2026, 9, 3)))
     clock = FakeClock(_kyiv(2026, 9, 3, 8, 30))
