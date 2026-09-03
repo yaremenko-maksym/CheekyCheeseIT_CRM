@@ -136,4 +136,18 @@ describe('user_email_invites — schema.ts index shape (mutation-gate closure)',
     ).not.toBeUndefined()
     expect(idx!.config.unique).toBe(true)
   })
+
+  // CI round (2026-09-03, second pass): CI's full-diff run on this file's
+  // OWN previous round (the two index tests above) flagged ONE further
+  // survivor neither of them exercises — `userEmailInvites.updatedAt`'s
+  // `withTimezone: true` mutated to `false`. Exact sibling of the
+  // `userEmails.updatedAt` test above; that one only ever asserted on
+  // `userEmails`' own column, never on this table's identically-shaped one.
+  it('updatedAt really carries withTimezone: true (kills the withTimezone:true->false mutant)', () => {
+    const { columns } = getTableConfig(userEmailInvites)
+    const col = columns.find((c) => c.name === 'updated_at')
+    expect(col, 'expected a column named updated_at').not.toBeUndefined()
+    expect((col as { withTimezone?: boolean }).withTimezone).toBe(true)
+    expect(col!.getSQLType()).toBe('timestamp with time zone')
+  })
 })
