@@ -13,6 +13,7 @@ import type {
   CreateProjectDto,
   DropProjectDto,
   EffectiveTeam,
+  PendingSeniorShare,
   SessionUser,
   UpdateProjectDto,
 } from '@crm/shared'
@@ -69,6 +70,17 @@ export class ProjectsService {
 
   /** task-project-draft-status. `subjectType` this module registers approvals under. */
   private static readonly APPROVAL_SUBJECT_TYPE = 'PROJECT'
+
+  /**
+   * task-pending-share (position 5). `subjectType` for a PROJECT-level
+   * senior-share-override change — distinct from `APPROVAL_SUBJECT_TYPE`
+   * above ('PROJECT', the draft-confirmation subject): the same project id
+   * can carry a live draft-confirmation proposal AND a live share-change
+   * proposal at once (different subject TYPES on the same subject id never
+   * collide — `uq_approvals_live_subject_approver` is keyed on
+   * (subjectType, subjectId, approverUserId)).
+   */
+  private static readonly SENIOR_SHARE_SUBJECT_TYPE = 'PROJECT_SENIOR_SHARE'
 
   /**
    * task-team-senior-share-override. Pre-computes the active senior-team
@@ -130,6 +142,16 @@ export class ProjectsService {
       | Map<string, { id: string; seniorSharePercentOverride: number | null }[]>
       | undefined,
     viewerRole: SessionUser['role'],
+    /**
+     * task-pending-share (position 5). Pre-resolved by the CALLER (this
+     * method itself stays synchronous — `ApprovalsService.getStatus` is
+     * async) and only on the single-project read paths that need it
+     * (findOne / update / loadForResponse). `undefined` on the list
+     * endpoint (findAll) and on `create` (a brand-new project cannot yet
+     * have a pending share proposal) — both render the DTO field as `null`,
+     * same as an explicit "nothing pending" would.
+     */
+    pendingSeniorShare?: PendingSeniorShare | null,
   ) {
     // task-team-senior-share-override. Compute effective share + source for
     // the UI. The resolver mirrors the snapshot logic in
@@ -259,6 +281,11 @@ export class ProjectsService {
       // the project's senior. Masked for JUNIOR.
       effectiveSeniorSharePercent: isJuniorViewer ? null : effectiveSeniorSharePercent,
       effectiveSeniorShareSource: isJuniorViewer ? null : effectiveSeniorShareSource,
+      // task-pending-share (position 5). Masked for JUNIOR exactly like
+      // `seniorSharePercentOverride` itself (same allowlist). `undefined`
+      // (list endpoint / create) collapses to `null` here too — the field
+      // is simply absent on those responses.
+      pendingSeniorShare: isJuniorViewer ? null : (pendingSeniorShare ?? null),
       techStack: project.techStack ?? null,
       teamSize: project.teamSize ?? null,
       benefits: project.benefits ?? null,
@@ -298,6 +325,33 @@ export class ProjectsService {
               leftAt: m.leftAt ? m.leftAt.toISOString() : null,
             }
           }),
+    }
+  }
+
+  /**
+   * task-pending-share (position 5). Resolves the `pendingSeniorShare` DTO
+   * field for a single project — the async counterpart to the (synchronous)
+   * masking `mapProject` applies. `null` whenever there is no live PENDING
+   * proposal, determined by `ApprovalsService.getStatus` — NEVER by
+   * `pendingSeniorSharePercentOverride`'s own null-ness (that column can
+   * legitimately hold `null` WHILE pending — see the column's own schema.ts
+   * comment).
+   */
+  private async loadPendingSeniorShare(
+    projectId: string,
+    senior: { id: string; displayName: string } | null | undefined,
+    pendingValue: number | null | undefined,
+  ): Promise<PendingSeniorShare | null> {
+    if (!senior) return null
+    const status = await this.approvals.getStatus(
+      ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
+      projectId,
+    )
+    if (status !== 'PENDING') return null
+    return {
+      percent: pendingValue ?? null,
+      approverId: senior.id,
+      approverName: senior.displayName,
     }
   }
 
@@ -557,7 +611,21 @@ export class ProjectsService {
       currentUser.role === 'JUNIOR'
         ? undefined
         : await this.computeEffectiveTeam(project, currentUser.role)
-    return { ...this.mapProject(project, teamOverridesBySeniorId, currentUser.role), effectiveTeam }
+    // task-pending-share: skip the lookup for JUNIOR (masked anyway by
+    // mapProject, same "don't pay for a value nobody sees" reasoning as
+    // effectiveTeam immediately above).
+    const pendingSeniorShare =
+      currentUser.role === 'JUNIOR'
+        ? null
+        : await this.loadPendingSeniorShare(
+            project.id,
+            project.senior,
+            project.pendingSeniorSharePercentOverride,
+          )
+    return {
+      ...this.mapProject(project, teamOverridesBySeniorId, currentUser.role, pendingSeniorShare),
+      effectiveTeam,
+    }
   }
 
   /**
@@ -961,24 +1029,192 @@ export class ProjectsService {
     })) as ProjectWithRelations | undefined
     if (!project) throw new NotFoundException('Project not found')
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    return this.mapProject(project, teamOverridesBySeniorId, currentUser.role)
+    // task-pending-share: this response path is shared by approveDraft /
+    // rejectDraft / approveSeniorShareChange / rejectSeniorShareChange — the
+    // caller may just have resolved a share proposal (or a draft proposal
+    // while a share proposal ALSO happens to be live), so it always resolves
+    // this rather than trusting which action got it here.
+    const pendingSeniorShare = await this.loadPendingSeniorShare(
+      project.id,
+      project.senior,
+      project.pendingSeniorSharePercentOverride,
+    )
+    return this.mapProject(project, teamOverridesBySeniorId, currentUser.role, pendingSeniorShare)
+  }
+
+  /**
+   * Seam for position 6 of docs/superpowers/specs/2026-09-01-notifications-
+   * and-confirmations-design.md ("Типы уведомлений и их производители") — the
+   * "подтвердить новую долю" notification (§7.2) is created here once that
+   * position wires a real NotificationsService in. Deliberately a no-op
+   * today: the notification TYPE this call would use does not exist yet
+   * (owned by position 6, out of this task's scope). Called exactly once per
+   * opened proposal (see `proposeSeniorShareChange` below) so position 6 has
+   * one call site to fill in rather than having to re-discover it — verified
+   * by `projects.pending-share.spec.ts`'s spy assertion.
+   */
+  private notifyPendingSeniorShareProposed(input: {
+    subjectId: string
+    approverUserId: string
+    proposedPercent: number | null
+    previousPercent: number | null
+  }): void {
+    // Intentionally empty — see doc comment above.
+    void input
+  }
+
+  /**
+   * task-pending-share (position 5, design spec §4.3). Opens (or re-opens —
+   * `ApprovalsService.proposeInTx` supersedes the previous generation on its
+   * own) a proposal for a NEW `seniorSharePercentOverride` value. Writes
+   * ONLY `pendingSeniorSharePercentOverride` — `update()` never writes the
+   * active column directly any more; `approveSeniorShareChange` is what
+   * swaps them. `proposedValue` may legitimately be `null` — "propose
+   * clearing the override back to the team/user default" is a real proposal
+   * (see the column's own schema.ts comment).
+   */
+  private async proposeSeniorShareChange(
+    projectId: string,
+    approverUserId: string,
+    proposedValue: number | null,
+    actorId: string,
+    // Caller (`update()`) already has this on hand from the row it read
+    // before deciding to propose — no need for a second SELECT here.
+    previousValue: number | null,
+  ): Promise<void> {
+    await this.db.db.transaction(async (tx) => {
+      await this.approvals.proposeInTx(tx, {
+        subjectType: ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
+        subjectId: projectId,
+        approverUserIds: [approverUserId],
+        proposedByUserId: actorId,
+      })
+      await tx
+        .update(projects)
+        .set({ pendingSeniorSharePercentOverride: proposedValue, updatedAt: new Date() })
+        .where(eq(projects.id, projectId))
+    })
+    this.notifyPendingSeniorShareProposed({
+      subjectId: projectId,
+      approverUserId,
+      proposedPercent: proposedValue,
+      previousPercent: previousValue,
+    })
+  }
+
+  /**
+   * task-pending-share, AC3: the pending → active swap (AND the
+   * project_finance_settings mirror sync) happens as ONE operation —
+   * `approveInTx` and both writes below run in the SAME transaction, so no
+   * caller can ever observe a state where the approval is APPROVED but the
+   * active percent (or its mirror) has not moved yet. `impersonatorId` guard
+   * mirrors `approveDraft` exactly — consent must come from the invited
+   * approver's own session, not an admin impersonating them.
+   */
+  async approveSeniorShareChange(id: string, currentUser: SessionUser) {
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException(
+        'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
+      )
+    }
+    await this.db.db.transaction(async (tx) => {
+      await this.approvals.approveInTx(tx, {
+        subjectType: ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
+        subjectId: id,
+        approverUserId: currentUser.id,
+      })
+      const [row] = await tx
+        .select()
+        .from(projects)
+        .where(eq(projects.id, id))
+        .for('update')
+        .limit(1)
+      if (!row) throw new NotFoundException('Project not found')
+      // `row.pendingSeniorSharePercentOverride` is read as-is (including
+      // `null`, a legitimate "clear the override" outcome) — safe to trust
+      // here because `approveInTx` above already threw for "no live PENDING
+      // row for this subject/approver", so reaching this line means a real
+      // proposal existed.
+      const newOverride = row.pendingSeniorSharePercentOverride
+      await tx
+        .update(projects)
+        .set({
+          seniorSharePercentOverride: newOverride,
+          pendingSeniorSharePercentOverride: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(projects.id, id))
+      await this.syncFinanceSettingsOverride(id, newOverride, currentUser.id, tx)
+      await this.projectAuditLogService.record(
+        {
+          actorId: currentUser.id,
+          targetId: id,
+          action: 'project_edited',
+          changes: {
+            seniorSharePercentOverride: {
+              before: row.seniorSharePercentOverride ?? null,
+              after: newOverride,
+            },
+          },
+        },
+        tx,
+      )
+    })
+    return this.loadForResponse(id, currentUser)
+  }
+
+  /**
+   * task-pending-share, design spec §3 decision 3: rejection requires a
+   * reason (Zod-validated at the controller boundary, DB-enforced as the
+   * backstop by `approvals`'s own CHECK constraint) and discards the pending
+   * value — the active `seniorSharePercentOverride` is untouched, exactly
+   * "При отказе ожидающее отбрасывается, действующее не трогается" (task
+   * file, "Что сделать" §1).
+   */
+  async rejectSeniorShareChange(id: string, reason: string, currentUser: SessionUser) {
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException(
+        'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
+      )
+    }
+    await this.db.db.transaction(async (tx) => {
+      await this.approvals.rejectInTx(tx, {
+        subjectType: ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
+        subjectId: id,
+        approverUserId: currentUser.id,
+        reason,
+      })
+      await tx
+        .update(projects)
+        .set({ pendingSeniorSharePercentOverride: null, updatedAt: new Date() })
+        .where(eq(projects.id, id))
+    })
+    return this.loadForResponse(id, currentUser)
   }
 
   /**
    * Upsert the projects.senior_share_percent_override mirror into
    * project_finance_settings. Keeps the existing finance path (which reads
    * from financeSettings only) in sync with the new direct column.
+   *
+   * task-pending-share (position 5): now also called from
+   * `approveSeniorShareChange`, which must swap the live column AND this
+   * mirror atomically (task AC3 — "одной операцией") — hence the optional
+   * `db` parameter (defaults to the plain pool handle, same
+   * `DatabaseService['db'] | DrizzleTx` pattern `UsersService.updateUserRow`
+   * already uses) so a caller inside a transaction can pass its own `tx`.
    */
   private async syncFinanceSettingsOverride(
     projectId: string,
     override: number | null,
     actorId: string,
+    db: DatabaseService['db'] | DrizzleTx = this.db.db,
   ) {
-    const existing = await this.db.db.query.projectFinanceSettings.findFirst({
+    const existing = await db.query.projectFinanceSettings.findFirst({
       where: eq(projectFinanceSettings.projectId, projectId),
     })
     if (existing) {
-      await this.db.db
+      await db
         .update(projectFinanceSettings)
         .set({
           seniorSharePercentOverride: override,
@@ -987,7 +1223,7 @@ export class ProjectsService {
         })
         .where(eq(projectFinanceSettings.projectId, projectId))
     } else {
-      await this.db.db.insert(projectFinanceSettings).values({
+      await db.insert(projectFinanceSettings).values({
         projectId,
         seniorSharePercentOverride: override,
         juniorSalaryOverride: null,
@@ -1150,9 +1386,12 @@ export class ProjectsService {
     }
     if (data.rate !== undefined) updateData.rate = data.rate
     if (data.currency !== undefined) updateData.currency = data.currency
-    if (overrideEffective !== undefined) {
-      updateData.seniorSharePercentOverride = overrideEffective
-    }
+    // task-pending-share (position 5): `seniorSharePercentOverride` is
+    // DELIBERATELY excluded from `updateData` — the live column is no
+    // longer written here. `overrideEffective` (computed above, implicit-
+    // null-at-default transform unchanged) is routed through
+    // `proposeSeniorShareChange` further down instead, which requires the
+    // project's SENIOR to confirm before it takes effect.
     // task-drop-share-override-and-receiver (D6). Write the drop override column
     // when the caller included it (undefined = unchanged; null / default-equal
     // → null via implicit reset above).
@@ -1180,28 +1419,26 @@ export class ProjectsService {
 
     await this.db.db.update(projects).set(updateData).where(eq(projects.id, id))
 
-    // Mirror override into project_finance_settings so existing finance
-    // snapshot logic continues to pick up the new value for SENIOR_INCOME.
-    // Audit log пишет diff с уже-resolved значением (implicit null применился).
-    if (overrideEffective !== undefined) {
-      await this.syncFinanceSettingsOverride(id, overrideEffective, currentUser.id)
-
-      // Record the change in audit log so admin diffs include the override.
-      if (project.seniorSharePercentOverride !== overrideEffective) {
-        // security-review round 2 (authz-hardening): attribute to the real
-        // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
-        await this.projectAuditLogService.record({
-          actorId: currentUser.impersonatorId ?? currentUser.id,
-          targetId: id,
-          action: 'project_edited',
-          changes: {
-            seniorSharePercentOverride: {
-              before: project.seniorSharePercentOverride ?? null,
-              after: overrideEffective,
-            },
-          },
-        })
-      }
+    // task-pending-share (position 5): a REQUESTED change to the SENIOR
+    // share override opens a proposal instead of applying immediately — no
+    // proposal (and no audit log entry; the audit log records what actually
+    // CHANGED, and nothing has, yet — see `approveSeniorShareChange`, which
+    // logs the real before/after once the swap happens) when the requested
+    // value equals what is already active, mirroring the exact
+    // "actual-change, not mere presence" gate `updateUserRow` applies to
+    // every other entitlement column (no proposal spam on a routine resubmit
+    // of an unchanged form).
+    if (
+      overrideEffective !== undefined &&
+      overrideEffective !== (project.seniorSharePercentOverride ?? null)
+    ) {
+      await this.proposeSeniorShareChange(
+        id,
+        project.seniorId,
+        overrideEffective,
+        currentUser.id,
+        project.seniorSharePercentOverride ?? null,
+      )
     }
 
     // task-drop-share-override-and-receiver (D6). Audit the drop override change
@@ -1232,10 +1469,17 @@ export class ProjectsService {
     })) as ProjectWithRelations
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([updated])
+    // task-pending-share: resolve so the admin sees "proposal opened"
+    // immediately in this PATCH's own response, no extra round-trip needed.
+    const pendingSeniorShare = await this.loadPendingSeniorShare(
+      updated.id,
+      updated.senior,
+      updated.pendingSeniorSharePercentOverride,
+    )
     // Pass currentUser.role so mapProject can apply SENIOR dropName masking
     // (defense-in-depth: callers of update are ADMIN/HR/ACCOUNTANT whose role
     // never triggers the mask, but the contract is explicit and mirrors findOne/findAll).
-    return this.mapProject(updated, teamOverridesBySeniorId, currentUser.role)
+    return this.mapProject(updated, teamOverridesBySeniorId, currentUser.role, pendingSeniorShare)
   }
 
   /**

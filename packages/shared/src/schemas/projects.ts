@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { pendingSeniorShareSchema } from './finance'
+import { pendingSeniorShareSchema } from './pending-share'
 
 export const IT_DOMAINS = [
   'AI / ML',

@@ -3,7 +3,7 @@ import type { Role } from '../types/roles'
 import { currencyEnumSchema, paymentMethodSchema } from './payment-requisites'
 import { tabKeySchema, actionKeySchema } from './view-permissions'
 import { withSalaryFloor } from './money'
-import { pendingSeniorShareSchema } from './finance'
+import { pendingSeniorShareSchema } from './pending-share'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 

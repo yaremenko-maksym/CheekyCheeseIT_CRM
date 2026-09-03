@@ -55,11 +55,28 @@ const makeTeamsService = () =>
     createDropTeam: vi.fn().mockResolvedValue({ id: 'team-x' }),
   }) as never
 
+// task-pending-share (position 5): `ApprovalsService` — injectable (defaults
+// to a stub reporting 'NONE') for the SAME reason `auditLogService` above
+// is: `buildProfileView` (`getStatus`) and `adminUpdateUser`/`changeSalary`
+// (`proposeInTx`) reach it now, and specific tests below need to assert ON
+// or CONTROL those calls.
+const makeApprovalsService = () =>
+  ({
+    getStatus: vi.fn().mockResolvedValue('NONE'),
+    proposeInTx: vi.fn().mockResolvedValue(undefined),
+    approveInTx: vi.fn().mockResolvedValue(undefined),
+    rejectInTx: vi.fn().mockResolvedValue(undefined),
+  }) as never
+
 // `auditLogService` is injectable (defaults to a fresh stub) — SR-M-12 /
 // personal_email_changed tests below need to assert ON that specific call,
 // which a freshly-constructed internal stub they cannot reach would not let
 // them do; every pre-existing call site keeps passing a single `db` arg.
-const makeUsersService = (db: DrizzleDb, auditLogService?: AuditLogService): UsersService =>
+const makeUsersService = (
+  db: DrizzleDb,
+  auditLogService?: AuditLogService,
+  approvalsService?: unknown,
+): UsersService =>
   new UsersService(
     db as never,
     makeAccessService() as never,
@@ -69,6 +86,7 @@ const makeUsersService = (db: DrizzleDb, auditLogService?: AuditLogService): Use
     makeProjectAuditLogService(),
     makeTeamsService(),
     makeInviteMailer(),
+    (approvalsService ?? makeApprovalsService()) as never,
   )
 
 // ---------------------------------------------------------------------------
@@ -2056,13 +2074,38 @@ describe('UsersService.adminUpdateUser', () => {
     expect(result.techStack).toBeNull()
   })
 
-  it('updates seniorSharePercent for SENIOR', async () => {
-    const existing = makeSenior()
-    const updated = makeSenior({ seniorSharePercent: 80 })
-    const db = makeDb({ existingUser: existing, updatedUser: updated })
-    const service = makeUsersService(db)
-    const result = await service.adminUpdateUser('senior-1', { seniorSharePercent: 80 })
-    expect(result.seniorSharePercent).toBe(80)
+  it('task-pending-share: PROPOSES seniorSharePercent for SENIOR instead of writing it directly', async () => {
+    const existing = makeSenior({ seniorSharePercent: 26 })
+    // The live column is UNCHANGED by this call (task-pending-share AC2) —
+    // the mock's canned `updatedUser` return represents that: `updateUserRow`
+    // is never handed `seniorSharePercent` in its `set`, so what actually
+    // comes back is the row as it stood, not 80.
+    const db = makeDb({ existingUser: existing, updatedUser: existing })
+    const approvals = makeApprovalsService() as {
+      proposeInTx: ReturnType<typeof vi.fn>
+      getStatus: ReturnType<typeof vi.fn>
+    }
+    const service = makeUsersService(db, undefined, approvals)
+    const result = await service.adminUpdateUser('senior-1', { seniorSharePercent: 80 }, 'admin-1')
+    expect(result.seniorSharePercent).toBe(26)
+    expect(approvals.proposeInTx).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        subjectType: 'USER_SENIOR_SHARE',
+        subjectId: 'senior-1',
+        approverUserIds: ['senior-1'],
+        proposedByUserId: 'admin-1',
+      }),
+    )
+  })
+
+  it('task-pending-share: no-ops (does not propose) when requested value equals the current one', async () => {
+    const existing = makeSenior({ seniorSharePercent: 26 })
+    const db = makeDb({ existingUser: existing, updatedUser: existing })
+    const approvals = makeApprovalsService() as { proposeInTx: ReturnType<typeof vi.fn> }
+    const service = makeUsersService(db, undefined, approvals)
+    await service.adminUpdateUser('senior-1', { seniorSharePercent: 26 }, 'admin-1')
+    expect(approvals.proposeInTx).not.toHaveBeenCalled()
   })
 
   // ─── LOW findings from PR #373: role-scoped share-percent writes ───────
@@ -2867,7 +2910,17 @@ describe('UsersService.buildProfileView — ForbiddenException on empty tabs', (
     const auditService = makeAuditLogService()
     const tosService = makeTosService()
 
-    return new UsersService(db as never, accessService as never, auditService as never, tosService)
+    return new UsersService(
+      db as never,
+      accessService as never,
+      auditService as never,
+      tosService,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      makeApprovalsService(),
+    )
   }
 
   const juniorTarget = makeJunior({ id: 'junior-target-id' })
@@ -3008,6 +3061,11 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
       accessService as never,
       makeAuditLogService() as never,
       makeTosService(),
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      makeApprovalsService(),
     )
   }
 
@@ -3415,6 +3473,11 @@ describe('UsersService.buildProfileView — ToS hidden from JUNIOR self (data-pr
       accessService as never,
       makeAuditLogService() as never,
       tosService,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      makeApprovalsService(),
     )
   }
 

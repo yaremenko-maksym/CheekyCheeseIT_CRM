@@ -112,55 +112,6 @@ export type PayoutRequestStatus = z.infer<typeof payoutRequestStatusSchema>
 export const seniorSharePercentSourceSchema = z.enum(['PROJECT', 'TEAM', 'USER_DEFAULT'])
 export type SeniorSharePercentSource = z.infer<typeof seniorSharePercentSourceSchema>
 
-// ---------------------------------------------------------------------------
-// Pending senior share — task-pending-share (position 5 of
-// docs/superpowers/specs/2026-09-01-notifications-and-confirmations-
-// design.md, §4.3). A changed SENIOR share % (project override OR a
-// person's own base default) does not take effect until the affected senior
-// confirms it on the platform — see `approvals` (subject types
-// 'PROJECT_SENIOR_SHARE' / 'USER_SENIOR_SHARE'). The TEAM level
-// (`teams.seniorSharePercentOverride`) is deliberately excluded — it applies
-// immediately, per the owner's decision recorded in the task file.
-// ---------------------------------------------------------------------------
-
-/**
- * A proposed new SENIOR share % awaiting the affected senior's own
- * confirmation. Presence of this object (vs `null` on the DTO field that
- * carries it) IS the "something is pending" signal — never infer it from
- * `percent` alone: a PROJECT-level proposal can legitimately propose `null`
- * ("clear the override, fall back to the team/user default"), so `percent`
- * being null does not mean nothing is pending.
- */
-export const pendingSeniorShareSchema = z.object({
-  /**
-   * Proposed value. Nullable only for a PROJECT-level proposal — a base-share
-   * proposal is always a concrete percent (the column it targets,
-   * `users.seniorSharePercent`, is NOT NULL, so there is nothing to "clear").
-   */
-  percent: z.number().int().min(0).max(100).nullable(),
-  /** Who must confirm — the affected SENIOR (the person whose share this is). */
-  approverId: z.string().uuid(),
-  approverName: z.string(),
-})
-export type PendingSeniorShare = z.infer<typeof pendingSeniorShareSchema>
-
-/**
- * Rejecting a pending share-change proposal requires a reason (design spec
- * §3 decision 3 — "Отказ возможен и требует причины"). Shared by the
- * project-override and base-share reject endpoints; same validation shape
- * as `rejectProjectSchema` (a project draft is a different subject, so a
- * separate schema keeps the two endpoints' contracts independently
- * evolvable even though the rule is identical today).
- */
-export const rejectPendingShareSchema = z.object({
-  reason: z
-    .string()
-    .trim()
-    .min(1, 'Причина отказа обязательна')
-    .max(500, 'Причина отказа слишком длинная (максимум 500 символов)'),
-})
-export type RejectPendingShareDto = z.infer<typeof rejectPendingShareSchema>
-
 /**
  * task-drop-share-override-and-receiver (Part A). Provenance of the DROP share
  * percent snapshotted on a DROP_INCOME transaction.

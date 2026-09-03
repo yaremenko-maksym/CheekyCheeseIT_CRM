@@ -12,6 +12,7 @@ import type {
   ArchiveImpact,
   ArchivePendingTransaction,
   AuditChange,
+  PendingSeniorShare,
   SessionUser,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -42,6 +43,7 @@ import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
+import { ApprovalsService } from '../approvals/approvals.service'
 import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
@@ -157,7 +159,165 @@ export class UsersService {
     @Inject(forwardRef(() => TeamsService))
     private teamsService: TeamsService,
     private inviteMailer: PersonalEmailInviteMailerService,
+    private readonly approvals: ApprovalsService,
   ) {}
+
+  /**
+   * task-pending-share (position 5). `subjectType` this module registers
+   * base-share-change approvals under — distinct from `ProjectsService`'s
+   * `'PROJECT'` (draft confirmation) and `'PROJECT_SENIOR_SHARE'` (project
+   * override changes): a person's base default and a project's override are
+   * different subjects, confirmed independently, even for the same senior.
+   */
+  private static readonly SENIOR_SHARE_SUBJECT_TYPE = 'USER_SENIOR_SHARE'
+
+  /**
+   * Seam for position 6 of docs/superpowers/specs/2026-09-01-notifications-
+   * and-confirmations-design.md ("Типы уведомлений и их производители") — the
+   * "подтвердить новую долю" notification (§7.2) is created here once that
+   * position wires a real NotificationsService in. Deliberately a no-op
+   * today: the notification TYPE this call would use does not exist yet
+   * (owned by position 6, out of this task's scope). Called exactly once per
+   * opened proposal (see `proposeSeniorShareChangeInTx` below) so position 6
+   * has one call site to fill in rather than having to re-discover it —
+   * verified by `users.pending-share.spec.ts`'s spy assertion.
+   */
+  private notifyPendingSeniorShareProposed(input: {
+    subjectId: string
+    approverUserId: string
+    proposedPercent: number
+    previousPercent: number
+  }): void {
+    // Intentionally empty — see doc comment above.
+    void input
+  }
+
+  /**
+   * task-pending-share (position 5, design spec §4.3). Intercepts a
+   * requested `seniorSharePercent` change BEFORE it would reach `set` /
+   * `updateUserRow`: the base share is one of the two levels that require
+   * the affected SENIOR's own confirmation (task file "На каких уровнях" —
+   * the TEAM override is the excluded third level and stays immediate,
+   * unaffected by this method).
+   *
+   * Never writes `seniorSharePercent` itself — only `pendingSeniorSharePercent`
+   * (until `approveSeniorShareChange` swaps them). No-ops when the requested
+   * value equals the CURRENT active one (reuses `changedEntitlementFields` —
+   * the exact same "actual change, not mere presence" rule `updateUserRow`
+   * already applies to every other entitlement column, so resubmitting an
+   * unchanged form does not spam a proposal). Reuses
+   * `ARCHIVED_ENTITLEMENT_MESSAGE` for the archived-user refusal — an
+   * archived senior must not acquire a new entitlement any more than any
+   * other entitlement write (archived-entitlement.ts's own module doc).
+   */
+  private async proposeSeniorShareChangeInTx(
+    tx: DrizzleTx,
+    existing: Pick<User, 'id' | 'archivedAt' | 'seniorSharePercent'>,
+    requestedPercent: number,
+    actorId: string,
+  ): Promise<void> {
+    if (changedEntitlementFields(existing, { seniorSharePercent: requestedPercent }).length === 0) {
+      return
+    }
+    if (existing.archivedAt) {
+      throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
+    }
+    await this.approvals.proposeInTx(tx, {
+      subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
+      subjectId: existing.id,
+      approverUserIds: [existing.id],
+      proposedByUserId: actorId,
+    })
+    await tx
+      .update(users)
+      .set({ pendingSeniorSharePercent: requestedPercent, updatedAt: new Date() })
+      .where(eq(users.id, existing.id))
+    this.notifyPendingSeniorShareProposed({
+      subjectId: existing.id,
+      approverUserId: existing.id,
+      proposedPercent: requestedPercent,
+      previousPercent: existing.seniorSharePercent,
+    })
+  }
+
+  /**
+   * task-pending-share, AC3: the pending → active swap happens as ONE
+   * operation — `approveInTx` (marks the approval row APPROVED) and the
+   * `users` write below run in the SAME transaction, so no caller can ever
+   * observe a state where the approval is APPROVED but the active percent
+   * has not moved yet (or vice versa). `impersonatorId` guard mirrors
+   * `ProjectsService.approveDraft` exactly — consent must come from the
+   * invited approver's own session, not an admin impersonating them.
+   *
+   * Routed through `updateUserRow` (the SAME choke point every other
+   * `seniorSharePercent` writer uses) rather than a raw `tx.update(users)` —
+   * this is a REAL entitlement move (archived-entitlement.ts's own
+   * inventory test enumerates every direct writer and refuses to let a
+   * second door open for an entitlement column), and going through it means
+   * a senior archived AFTER proposing but BEFORE confirming correctly fails
+   * the swap instead of silently minting a new entitlement for someone who
+   * no longer works here.
+   */
+  async approveSeniorShareChange(id: string, currentUser: SessionUser): Promise<User> {
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException(
+        'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
+      )
+    }
+    return this.db.db.transaction(async (tx) => {
+      await this.approvals.approveInTx(tx, {
+        subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
+        subjectId: id,
+        approverUserId: currentUser.id,
+      })
+      const [row] = await tx.select().from(users).where(eq(users.id, id)).for('update').limit(1)
+      if (!row) throw new NotFoundException('User not found')
+      // `row.pendingSeniorSharePercent` is guaranteed non-null here: it is
+      // only ever read after `approveInTx` above has already thrown for
+      // "no live PENDING row" — reaching this line means a real proposal
+      // existed, and a base-share proposal is always a concrete percent
+      // (proposeSeniorShareChangeInTx never writes null there).
+      return this.updateUserRow(tx, id, row, {
+        seniorSharePercent: row.pendingSeniorSharePercent ?? row.seniorSharePercent,
+        pendingSeniorSharePercent: null,
+        updatedAt: new Date(),
+      })
+    })
+  }
+
+  /**
+   * task-pending-share, design spec §3 decision 3: rejection requires a
+   * reason (Zod-validated at the controller boundary) and discards the
+   * pending value — the active `seniorSharePercent` is untouched, exactly
+   * "При отказе ожидающее отбрасывается, действующее не трогается" (task
+   * file, "Что сделать" §1).
+   */
+  async rejectSeniorShareChange(
+    id: string,
+    reason: string,
+    currentUser: SessionUser,
+  ): Promise<User> {
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException(
+        'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
+      )
+    }
+    return this.db.db.transaction(async (tx) => {
+      await this.approvals.rejectInTx(tx, {
+        subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
+        subjectId: id,
+        approverUserId: currentUser.id,
+        reason,
+      })
+      const [updated] = await tx
+        .update(users)
+        .set({ pendingSeniorSharePercent: null, updatedAt: new Date() })
+        .where(eq(users.id, id))
+        .returning()
+      if (!updated) throw new NotFoundException('User not found')
+      return updated
+    })
+  }
 
   findByEmail(email: string): Promise<User | undefined> {
     return this.db.db
@@ -870,8 +1030,17 @@ export class UsersService {
     // effective role actually uses the field, so an "orphaned" value can't
     // surface later if the user is promoted into that role. Mirrors the
     // UserDialog finance section (SENIOR-slider / DROP-slider / salary-field).
-    if (data.seniorSharePercent !== undefined && effectiveRole === 'SENIOR')
-      set.seniorSharePercent = data.seniorSharePercent
+    //
+    // task-pending-share (position 5): `seniorSharePercent` is DELIBERATELY
+    // excluded from `set` here — it no longer writes the active column
+    // directly. `requestedSeniorSharePercent` below is routed through
+    // `proposeSeniorShareChangeInTx` inside the SAME transaction as the rest
+    // of this write (see the `tx.transaction` block further down), so the
+    // affected SENIOR must confirm before it takes effect.
+    const requestedSeniorSharePercent: number | undefined =
+      data.seniorSharePercent !== undefined && effectiveRole === 'SENIOR'
+        ? data.seniorSharePercent
+        : undefined
     if (data.dropSharePercent !== undefined && effectiveRole === 'DROP')
       set.dropSharePercent = data.dropSharePercent
     if ('monthlySalary' in data)
@@ -923,6 +1092,19 @@ export class UsersService {
       // form, unchanged `role` and `monthlySalary` included, and must not be
       // blocked (that edit is settlement, not a new entitlement).
       const u = await this.updateUserRow(tx, id, existing, set)
+
+      // task-pending-share (position 5): a requested base-share change opens
+      // a proposal instead of writing `seniorSharePercent` directly — see
+      // `requestedSeniorSharePercent`'s own comment above. Runs in the SAME
+      // transaction as `updateUserRow` so an interruption between the two
+      // cannot leave the rest of this PATCH applied while the share change
+      // silently vanished (or vice versa).
+      if (requestedSeniorSharePercent !== undefined) {
+        if (!actorId) {
+          throw new BadRequestException('Смена доли требует определённого инициатора запроса')
+        }
+        await this.proposeSeniorShareChangeInTx(tx, existing, requestedSeniorSharePercent, actorId)
+      }
 
       // §4.4: keep the WORK row in `user_emails` in sync — login now reads
       // THAT table (findLoginableUserByEmail), so without this an admin
@@ -1368,19 +1550,41 @@ export class UsersService {
       salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
       seniorSharePercent?: number
     },
+    // Optional: only consulted (and required) when `data.seniorSharePercent`
+    // is actually present — every OTHER call of this method (monthlySalary /
+    // salaryCurrency only) is unaffected and does not need to supply one.
+    actorId?: string,
   ): Promise<User> {
     const set: Record<string, unknown> = { updatedAt: new Date() }
     if (data.monthlySalary !== undefined)
       set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
-    if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
+    // task-pending-share (position 5): `seniorSharePercent` is DELIBERATELY
+    // excluded from `set` — this was a second, un-gated direct-write door
+    // onto the same column `adminUpdateUser` already routes through
+    // proposal+confirmation (this endpoint had no role check at all, unlike
+    // that one — closing it here, not widening it). See
+    // `proposeSeniorShareChangeInTx`'s doc for the full reasoning.
     // task-archived-user-completeness (AC2): this method wrote blind (no read
     // of the target at all), so it could not have known the user was archived.
     // The read is what `updateUserRow` compares against — without it every
     // resubmit of an unchanged salary would look like a change and 400.
     const existing = await this.findById(id)
     if (!existing) throw new NotFoundException('User not found')
-    return this.updateUserRow(this.db.db, id, existing, set)
+    // No share change requested — byte-for-byte the pre-existing single
+    // statement, no transaction wrapper added (keeps this the SAME shape
+    // every OTHER caller of this method already relies on).
+    if (data.seniorSharePercent === undefined) {
+      return this.updateUserRow(this.db.db, id, existing, set)
+    }
+    if (!actorId) {
+      throw new BadRequestException('Смена доли требует определённого инициатора запроса')
+    }
+    return this.db.db.transaction(async (tx) => {
+      const updated = await this.updateUserRow(tx, id, existing, set)
+      await this.proposeSeniorShareChangeInTx(tx, existing, data.seniorSharePercent!, actorId)
+      return updated
+    })
   }
 
   async setAdminNote(id: string, note: string | null): Promise<User> {
@@ -2207,6 +2411,26 @@ export class UsersService {
         })
       : undefined
 
+    // task-pending-share (position 5): same `fields.share` gate as
+    // `seniorSharePercent` itself below — a viewer masked from the active
+    // value must not learn a change is even proposed. Only queried when that
+    // gate is open (avoids the round-trip, and avoids leaking "something is
+    // pending" via response-time side channel to a masked viewer).
+    const pendingSeniorShareStatus = permissions.fields.share
+      ? await this.approvals.getStatus(UsersService.SENIOR_SHARE_SUBJECT_TYPE, target.id)
+      : 'NONE'
+    const pendingSeniorShare: PendingSeniorShare | null =
+      pendingSeniorShareStatus === 'PENDING'
+        ? {
+            // Guaranteed non-null in practice while PENDING — see
+            // `proposeSeniorShareChangeInTx`'s doc (a base-share proposal is
+            // always a concrete percent). `??` is a defensive fallback only.
+            percent: target.pendingSeniorSharePercent ?? target.seniorSharePercent,
+            approverId: target.id,
+            approverName: target.displayName,
+          }
+        : null
+
     // ---------------------------------------------------------------------------
     // Build filteredUser with explicit allow-list projection (OWASP A01 guard).
     //
@@ -2232,11 +2456,12 @@ export class UsersService {
     // SEC-09: exclude googleId — Google's internal identifier is not part of the
     // profile API contract and should not be returned to any caller. The field
     // is used only for OAuth callback flow (updateGoogleId), never for display.
-    type FilteredUser = Omit<User, 'email' | 'googleId'> & {
+    type FilteredUser = Omit<User, 'email' | 'googleId' | 'pendingSeniorSharePercent'> & {
       email: string | null
       personalEmail: string | null
       personalEmailCanLogin: boolean | null
       personalContactVisible: boolean
+      pendingSeniorShare: PendingSeniorShare | null
     }
     const filteredUser: FilteredUser = {
       // Always-safe identity fields (persona display, never masked)
@@ -2294,6 +2519,9 @@ export class UsersService {
       monthlySalary: permissions.fields.salary ? target.monthlySalary : null,
       salaryCurrency: permissions.fields.salary ? (target.salaryCurrency ?? null) : null,
       seniorSharePercent: permissions.fields.share ? target.seniorSharePercent : 0,
+      // task-pending-share (position 5): computed above, already gated on
+      // `fields.share` (the query itself is skipped when masked).
+      pendingSeniorShare,
       // Drop role - phase 1: also mask dropSharePercent for non-privileged viewers
       dropSharePercent: permissions.fields.share ? (target.dropSharePercent ?? null) : null,
 

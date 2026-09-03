@@ -14,6 +14,7 @@ import {
 import {
   addProjectMemberSchema,
   createProjectSchema,
+  rejectPendingShareSchema,
   rejectProjectSchema,
   type SessionUser,
   updateProjectSchema,
@@ -104,6 +105,35 @@ export class ProjectsController {
   ) {
     const { reason } = rejectProjectSchema.parse(body)
     return this.projectsService.rejectDraft(id, reason, user)
+  }
+
+  /**
+   * task-pending-share, position 5. The project's SENIOR confirms a
+   * proposed change to `seniorSharePercentOverride`. No `@Roles(...)` —
+   * mirrors `approveDraft` above: a caller who was never the subject of a
+   * live proposal simply gets 404 from `ApprovalsService` (no live row for
+   * them), so a role check would be redundant, not protective.
+   */
+  @Post(':id/senior-share/approve')
+  approveSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.projectsService.approveSeniorShareChange(id, user)
+  }
+
+  /**
+   * task-pending-share, design spec §3 decision 3 — rejection requires a
+   * reason. Same no-`@Roles` reasoning as the approve endpoint above.
+   */
+  @Post(':id/senior-share/reject')
+  rejectSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { reason } = rejectPendingShareSchema.parse(body)
+    return this.projectsService.rejectSeniorShareChange(id, reason, user)
   }
 
   @Delete(':id')

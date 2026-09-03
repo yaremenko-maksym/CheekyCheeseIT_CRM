@@ -233,8 +233,17 @@ function buildHarness(project: ReturnType<typeof makeDropProject>) {
   }
   const usersSvc = { unarchive: vi.fn(), unarchivePairTx: vi.fn() }
   const hrAccess = new HrAccessService(db as never)
+  // task-pending-share: findOne's response path resolves pendingSeniorShare
+  // via getStatus — 'NONE' here, this file only exercises drop-identity masking.
+  const approvals = { getStatus: vi.fn(async () => 'NONE' as const) }
 
-  const service = new ProjectsService(db as never, auditLog as never, usersSvc as never, hrAccess)
+  const service = new ProjectsService(
+    db as never,
+    auditLog as never,
+    usersSvc as never,
+    hrAccess,
+    approvals as never,
+  )
 
   // Bypass access check — we test mapping logic, not RBAC gate
   vi.spyOn(service as never, 'assertAccess').mockResolvedValue(undefined)

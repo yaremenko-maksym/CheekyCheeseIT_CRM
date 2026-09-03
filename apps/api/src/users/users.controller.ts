@@ -28,6 +28,7 @@ import {
   createDropSchema,
   createUserSchema,
   paymentRequisitesSchema,
+  rejectPendingShareSchema,
   rejoinTeamSchema,
   setNoteSchema,
   updateProfileSchema,
@@ -359,12 +360,47 @@ export class UsersController {
   @Patch(':id/salary')
   @Roles('ADMIN')
   @AuditLog('salary_change')
-  async changeSalary(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
+  async changeSalary(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+  ) {
     const dto = changeSalarySchema.parse(body)
     return this.usersService.changeSalary(
       id,
       compact(dto) as Parameters<typeof this.usersService.changeSalary>[1],
+      currentUser.id,
     )
+  }
+
+  /**
+   * task-pending-share, position 5. The affected SENIOR confirms a proposed
+   * change to their OWN base share % (`users.seniorSharePercent`). No
+   * `@Roles(...)` — mirrors `ProjectsController.approveDraft`: a caller who
+   * was never the subject of a live proposal simply gets 404 from
+   * `ApprovalsService` (no live row for them), so a role check would be
+   * redundant, not protective.
+   */
+  @Post(':id/senior-share/approve')
+  approveSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: SessionUser,
+  ) {
+    return this.usersService.approveSeniorShareChange(id, currentUser)
+  }
+
+  /**
+   * task-pending-share, design spec §3 decision 3 — rejection requires a
+   * reason. Same no-`@Roles` reasoning as the approve endpoint above.
+   */
+  @Post(':id/senior-share/reject')
+  rejectSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() currentUser: SessionUser,
+  ) {
+    const { reason } = rejectPendingShareSchema.parse(body)
+    return this.usersService.rejectSeniorShareChange(id, reason, currentUser)
   }
 
   @Patch(':id/requisites')

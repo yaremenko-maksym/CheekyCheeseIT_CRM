@@ -473,6 +473,17 @@ describe('archived-entitlement — the inventory of everything that writes `user
     'users/users.service.ts::updateGoogleId': 'google_id only',
     'users/users.service.ts::archiveDrop': 'archived_at only',
     'teams/teams.service.ts::archiveDropTeam': 'archived_at only, paired drop-team archive',
+    // task-pending-share (position 5). `pending_senior_share_percent` is NOT
+    // an entitlement column (not in ENTITLEMENT_FIELD_KIND — it decides
+    // nothing about what anyone is owed until `approveSeniorShareChange`
+    // swaps it in, and THAT method goes through `updateUserRow` itself, so
+    // it does not appear here as a second writer). `proposeSeniorShareChangeInTx`
+    // still runs its OWN archived-refusal by hand (reusing
+    // `changedEntitlementFields`/`ARCHIVED_ENTITLEMENT_MESSAGE`) before this
+    // write — see that method's own doc.
+    'users/users.service.ts::proposeSeniorShareChangeInTx': 'pending_senior_share_percent only',
+    'users/users.service.ts::rejectSeniorShareChange':
+      'pending_senior_share_percent only — discards the proposal, active column untouched',
   }
 
   const SRC_ROOT = path.resolve(import.meta.dirname, '..')

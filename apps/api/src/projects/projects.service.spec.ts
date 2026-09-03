@@ -73,6 +73,7 @@ interface ProjectRow {
   rate: number
   currency: string
   seniorSharePercentOverride: number | null
+  pendingSeniorSharePercentOverride?: number | null
   dropSharePercentOverride?: number | null
   drop?: { id: string; dropSharePercent: number | null } | null
   techStack: string | null
@@ -133,6 +134,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     rate: 4000,
     currency: 'USDT',
     seniorSharePercentOverride: null,
+    pendingSeniorSharePercentOverride: null,
     dropSharePercentOverride: null,
     techStack: null,
     teamSize: null,
@@ -244,7 +246,14 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     unarchive: vi.fn(async () => undefined),
     unarchivePairTx: vi.fn(async () => undefined),
   }
-  const approvals = { proposeInTx: vi.fn(async () => undefined) }
+  // task-pending-share: `getStatus` defaults to 'NONE' (nothing pending) —
+  // enough for every test in this file EXCEPT the pending-share-specific
+  // ones below, which override it per-case. `approveInTx`/`rejectInTx` are
+  // exercised by projects.pending-share.spec.ts, not here.
+  const approvals = {
+    proposeInTx: vi.fn(async () => undefined),
+    getStatus: vi.fn(async () => 'NONE' as const),
+  }
 
   const service = new ProjectsService(
     db as never,
@@ -260,6 +269,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     financeRows,
     projectUpdateValues,
     auditRecord: projectAuditLogService.record,
+    approvals,
     getFinanceInsertCount: () => financeInsertCount,
     getFinanceUpdateCount: () => financeUpdateCount,
   }
@@ -301,34 +311,48 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
     expect(h.getFinanceUpdateCount()).toBe(0)
   })
 
-  it('allows ADMIN PATCH with seniorSharePercentOverride: 30 — persists on projects + finance_settings', async () => {
+  // task-pending-share (position 5): a requested change to
+  // seniorSharePercentOverride now OPENS A PROPOSAL instead of applying
+  // immediately — the four tests below were rewritten from asserting an
+  // immediate write to asserting propose-was-called + nothing else moved.
+  // Full propose→approve→reject behavior (AC2/AC3/AC4/AC6/AC7) lives in
+  // projects.pending-share.spec.ts; this file keeps only the RBAC/implicit-
+  // null shape it already covered.
+
+  it('allows ADMIN PATCH with seniorSharePercentOverride: 30 — opens a proposal, does NOT write the live column', async () => {
     const h = buildHarness()
     await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
-    expect(h.projectRow.seniorSharePercentOverride).toBe(30)
-    // First write — insert into finance_settings.
-    expect(h.getFinanceInsertCount()).toBe(1)
-    expect(h.financeRows[0]?.seniorSharePercentOverride).toBe(30)
-    expect(h.financeRows[0]?.updatedBy).toBe(adminUser.id)
-    // Audit log records the change.
-    expect(h.auditRecord).toHaveBeenCalledWith(
+    // Live column untouched (AC2's precondition: the resolver keeps reading this).
+    expect(h.projectRow.seniorSharePercentOverride).toBeNull()
+    // Pending column carries the proposed value.
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBe(30)
+    // A proposal was opened for the project's SENIOR, by the admin.
+    expect(h.approvals.proposeInTx).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
-        actorId: adminUser.id,
-        targetId: 'proj-1',
-        action: 'project_edited',
-        changes: expect.objectContaining({
-          seniorSharePercentOverride: { before: null, after: 30 },
-        }),
+        subjectType: 'PROJECT_SENIOR_SHARE',
+        subjectId: 'proj-1',
+        approverUserIds: ['senior-1'],
+        proposedByUserId: adminUser.id,
       }),
     )
+    // Mirror + audit log deliberately NOT touched yet — task requirement #2
+    // ("Зеркало не получает ожидающего значения") + audit only records a
+    // REAL change, which only exists after approval.
+    expect(h.getFinanceInsertCount()).toBe(0)
+    expect(h.getFinanceUpdateCount()).toBe(0)
+    expect(h.auditRecord).not.toHaveBeenCalled()
   })
 
-  it('allows ACCOUNTANT PATCH with seniorSharePercentOverride: 35 (only override) — persists', async () => {
+  it('allows ACCOUNTANT PATCH with seniorSharePercentOverride: 35 (only override) — opens a proposal', async () => {
     const h = buildHarness()
     await h.service.update('proj-1', { seniorSharePercentOverride: 35 }, accountantUser)
-    expect(h.projectRow.seniorSharePercentOverride).toBe(35)
-    expect(h.getFinanceInsertCount()).toBe(1)
-    expect(h.financeRows[0]?.seniorSharePercentOverride).toBe(35)
-    expect(h.financeRows[0]?.updatedBy).toBe(accountantUser.id)
+    expect(h.projectRow.seniorSharePercentOverride).toBeNull()
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBe(35)
+    expect(h.approvals.proposeInTx).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ proposedByUserId: accountantUser.id }),
+    )
   })
 
   it('rejects ACCOUNTANT PATCH that also touches other fields (cannot piggyback edits)', async () => {
@@ -338,28 +362,26 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
     ).rejects.toThrow(ForbiddenException)
   })
 
-  it('allows ADMIN PATCH with seniorSharePercentOverride: null (reset) — projects.* and finance_settings cleared', async () => {
+  it('allows ADMIN PATCH with seniorSharePercentOverride: null (reset) — proposes clearing, live column untouched', async () => {
     const h = buildHarness({ seniorSharePercentOverride: 30 })
-    // Pre-seed finance_settings so the second update path is exercised.
-    h.financeRows.push({
-      id: 'fs-1',
-      projectId: 'proj-1',
-      seniorSharePercentOverride: 30,
-      juniorSalaryOverride: null,
-      updatedBy: 'admin-1',
-      updatedAt: new Date(),
-    })
     await h.service.update('proj-1', { seniorSharePercentOverride: null }, adminUser)
-    expect(h.projectRow.seniorSharePercentOverride).toBeNull()
-    expect(h.getFinanceUpdateCount()).toBe(1)
-    expect(h.financeRows[0]?.seniorSharePercentOverride).toBeNull()
-    expect(h.auditRecord).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changes: expect.objectContaining({
-          seniorSharePercentOverride: { before: 30, after: null },
-        }),
-      }),
-    )
+    // Live column still 30 — nothing applies until the senior confirms.
+    expect(h.projectRow.seniorSharePercentOverride).toBe(30)
+    // Pending column holds the proposed "clear" (null) — a legitimate
+    // proposal value, not "nothing pending" (see the column's schema.ts doc).
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
+    expect(h.approvals.proposeInTx).toHaveBeenCalledOnce()
+    expect(h.getFinanceUpdateCount()).toBe(0)
+  })
+
+  it('no-ops (does not propose) when the requested value equals the CURRENT ACTIVE value', async () => {
+    const h = buildHarness({ seniorSharePercentOverride: 30 })
+    await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
+    // No actual change requested — a routine resubmit of the form must not
+    // spam a fresh proposal (mirrors updateUserRow's "actual change, not
+    // mere presence" rule for every other entitlement column).
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
   })
 
   it('throws NotFoundException when project does not exist', async () => {
@@ -378,48 +400,26 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
   // -----------------------------------------------------------------------
   // PR #39 round 2: implicit null detection. UI больше не имеет toggle/
   // «Сбросить» — слайдер всегда виден. Когда payload value === senior's
-  // эффективному дефолту → backend пишет null (implicit reset).
+  // эффективному дефолту → backend ПРЕДЛАГАЕТ null (implicit reset),
+  // instead of writing it immediately (task-pending-share).
   // -----------------------------------------------------------------------
 
-  it('implicit-null: ADMIN PATCH с value === senior default (26) → projects.* = null, finance_settings.* = null', async () => {
+  it('implicit-null: ADMIN PATCH с value === senior default (26) → proposes null, live column untouched', async () => {
     const h = buildHarness({ seniorSharePercentOverride: 30 })
-    // Pre-seed finance_settings так чтобы exercised update-путь, не insert.
-    h.financeRows.push({
-      id: 'fs-1',
-      projectId: 'proj-1',
-      seniorSharePercentOverride: 30,
-      juniorSalaryOverride: null,
-      updatedBy: 'admin-1',
-      updatedAt: new Date(),
-    })
     // Senior default = 26 (из default-харности). Слайдер выставлен на 26.
     await h.service.update('proj-1', { seniorSharePercentOverride: 26 }, adminUser)
-    // Записалось null, а не 26.
-    expect(h.projectRow.seniorSharePercentOverride).toBeNull()
-    expect(h.financeRows[0]?.seniorSharePercentOverride).toBeNull()
-    // Audit log зафиксировал переход 30 → null (implicit reset), не 30 → 26.
-    expect(h.auditRecord).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changes: expect.objectContaining({
-          seniorSharePercentOverride: { before: 30, after: null },
-        }),
-      }),
-    )
+    // Live column still 30 — implicit reset is now a PROPOSAL, not a write.
+    expect(h.projectRow.seniorSharePercentOverride).toBe(30)
+    // Proposed null, not 26 — implicit-null transform applied before propose.
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
   })
 
-  it('implicit-null: ADMIN PATCH с value !== senior default (35) → projects.* = 35, finance_settings.* = 35', async () => {
+  it('implicit-null: ADMIN PATCH с value !== senior default (35) → proposes 35, live column untouched', async () => {
     const h = buildHarness()
     await h.service.update('proj-1', { seniorSharePercentOverride: 35 }, adminUser)
-    // Записалось число (35 ≠ 26), не null.
-    expect(h.projectRow.seniorSharePercentOverride).toBe(35)
-    expect(h.financeRows[0]?.seniorSharePercentOverride).toBe(35)
-    expect(h.auditRecord).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changes: expect.objectContaining({
-          seniorSharePercentOverride: { before: null, after: 35 },
-        }),
-      }),
-    )
+    // Записалось (proposed) число (35 ≠ 26), не null.
+    expect(h.projectRow.seniorSharePercentOverride).toBeNull()
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBe(35)
   })
 })
 
@@ -543,12 +543,23 @@ describe('ProjectsService.update — DTO mapping', () => {
     ).toBeNull()
   })
 
-  it('returns seniorSharePercentOverride = 30 after admin sets it', async () => {
+  it('task-pending-share: seniorSharePercentOverride stays null after admin PROPOSES 30 — pendingSeniorShare carries it instead', async () => {
     const h = buildHarness()
+    // getStatus must report PENDING for pendingSeniorShare to be populated —
+    // the propose call inside update() is what would make this true against
+    // the real ApprovalsService; the mock is told the same fact directly.
+    h.approvals.getStatus.mockResolvedValue('PENDING')
     const result = await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
     expect(
       (result as { seniorSharePercentOverride: number | null }).seniorSharePercentOverride,
-    ).toBe(30)
+    ).toBeNull()
+    expect(
+      (
+        result as {
+          pendingSeniorShare: { percent: number | null; approverId: string; approverName: string }
+        }
+      ).pendingSeniorShare,
+    ).toEqual({ percent: 30, approverId: 'senior-1', approverName: 'Senior One' })
   })
 })
 
@@ -752,7 +763,14 @@ function buildHrScopingHarness({
     unarchive: vi.fn(async () => undefined),
     unarchivePairTx: vi.fn(async () => undefined),
   }
-  const approvals = { proposeInTx: vi.fn(async () => undefined) }
+  // task-pending-share: `getStatus` defaults to 'NONE' (nothing pending) —
+  // enough for every test in this file EXCEPT the pending-share-specific
+  // ones below, which override it per-case. `approveInTx`/`rejectInTx` are
+  // exercised by projects.pending-share.spec.ts, not here.
+  const approvals = {
+    proposeInTx: vi.fn(async () => undefined),
+    getStatus: vi.fn(async () => 'NONE' as const),
+  }
 
   const service = new ProjectsService(
     db as never,
