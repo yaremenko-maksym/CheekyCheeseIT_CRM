@@ -131,11 +131,11 @@ ds-bundle/
 services/signal-plus/.env
 services/signal-plus/state*.json
 services/signal-plus/data/
-# Standard Python build/test hygiene for this one Python package in an
-# otherwise all-TS repo — not explicitly requested by the task, but omitting
-# it means __pycache__/.pytest_cache show up as untracked cruft on every
-# future commit here; narrowly scoped to this directory so it cannot affect
-# any other package.
+# SPEC-L-1 (spec review, PR #650): four lines beyond the three the task
+# literally asked for -- kept, one-line justification: without them
+# __pycache__/.pytest_cache/*.egg-info show up as untracked cruft on every
+# local test run of this one Python package in an otherwise all-TS repo;
+# narrowly scoped to this directory, no risk to any other package.
 services/signal-plus/**/__pycache__/
 services/signal-plus/**/*.pyc
 services/signal-plus/.pytest_cache/
