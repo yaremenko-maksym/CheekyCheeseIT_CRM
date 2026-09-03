@@ -3,7 +3,10 @@
 > **Скоуп:** task-infra-post-merge-ci (2026-07-27). Валидация фактического
 > состояния `main` после мержа + оповещение о красном main.
 > Workflows: `.github/workflows/ci.yml` (jobs `quality` / `integration` /
-> `e2e` / `post_merge_alert`), `.github/workflows/auto-merge-on-label.yml`.
+> `mutation` / `e2e` / `post_merge_alert`), `.github/workflows/auto-merge-on-label.yml`.
+> `mutation` split out of `quality` 2026-09-03 (task-infra-split-mutation-gate)
+> and added to `post_merge_alert`'s `needs` at the same time — see that job's
+> own comment in ci.yml for why.
 > Скрипт алерта: `scripts/devops/post-merge-alert.sh` (shared с
 > `.github/workflows/deploy-alert.yml`, см. §4.3) + `scripts/devops/resolve-alert-channel.sh`.
 
@@ -62,7 +65,9 @@ steps.squash.outcome == 'success'`), а не по дефолтному `success(
 ### 2.1 Что именно гоняется post-merge
 
 **Полный набор:** `quality` (typecheck / lint / unit) + `integration`
-(Postgres) + все 7 E2E-шардов. Урезания нет — обоснование в §3.
+(Postgres) + `mutation` (suppression-скан; сам гейт `--changed` PR-only, на
+push не гоняется — см. `mutation-gate-runbook.md`) + все E2E-шарды.
+Урезания нет — обоснование в §3.
 
 `Lighthouse` (`lighthouse.yml`) в post-merge **не входит** осознанно: это
 PR-гейт, скоупленный на `apps/landing/**`, с порогами, чувствительными к шуму
@@ -74,7 +79,8 @@ Lighthouse на main породил бы alert-fatigue на сигнале, ко
 
 `dorny/paths-filter` теперь вызывается **только на `pull_request`**. На
 push/dispatch scope принудительно `code=true` — шаг `Resolve run scope` в
-каждом из трёх job'ов.
+каждом из четырёх job'ов (`quality`, `integration`, `mutation`, `e2e`;
+`mutation` добавлен 2026-09-03, task-infra-split-mutation-gate).
 
 Причина: paths-filter строит диапазон из base..head PR'а. Вне PR он
 сравнивает дефолтную ветку саму с собой, и неверная догадка тут даёт «нет
@@ -124,8 +130,9 @@ CI активных PR) и alert-fatigue. Отсюда — прогон **на �
 
 ## 4. Алерт о красном main
 
-Job `post_merge_alert` (`ci.yml`) агрегирует три ноги и вызывает
-`scripts/devops/post-merge-alert.sh`.
+Job `post_merge_alert` (`ci.yml`) агрегирует четыре ноги (`quality` /
+`integration` / `e2e_summary` / `mutation` — `mutation` добавлен 2026-09-03,
+task-infra-split-mutation-gate) и вызывает `scripts/devops/post-merge-alert.sh`.
 
 **Канал:** приватный репо `yaremenko-maksym/cheekycheese-telemetry` через
 `TELEMETRY_ISSUES_PAT` (тот же секрет, что у telemetry-digest) — это канал,
