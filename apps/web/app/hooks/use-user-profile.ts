@@ -165,7 +165,7 @@ export function useChangePersonalEmail(userId: string) {
 export function useApproveSeniorShareChange(userId: string) {
   const qc = useQueryClient()
   return useMutation({
-    // Stryker disable next-line ArrowFunction: `.then((r) => r.data)`'s resolved value is never consumed — PendingBaseShareBanner's `approveMutation.mutate()` call has no onSuccess capturing it, and nothing reads `approveMutation.data`. Verified by hand: forcing this callback to `() => undefined` still passes every test in OverviewTab.pending-share.test.tsx (the mutationFn call itself, and the toast/invalidateQueries side effects, are separately proven and DO fail without this exact line).
+    // Stryker disable next-line ArrowFunction: `.then((r) => r.data)`'s resolved value is never consumed — PendingBaseShareBanner's `approveMutation.mutate()` call has no onSuccess capturing it, and nothing reads `approveMutation.data`. Verified by hand: forcing this callback to `() => undefined` still passes every test in OverviewTab.pending-share.test.tsx (the mutationFn call itself, and the toast/invalidateQueries side effects, are separately proven and DO fail without this exact line). The gate's own "COVERS MORE THAN ONE MUTANT" warning fires here (2 ArrowFunction variants on this one line) — checked by hand: forcing the WHOLE `mutationFn` to `() => undefined` (skipping the api.post call entirely) DOES fail 2 tests, so only the inner `.then()` callback is the genuinely-equivalent one this directive is meant to cover.
     mutationFn: () => api.post(`/users/${userId}/senior-share/approve`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
