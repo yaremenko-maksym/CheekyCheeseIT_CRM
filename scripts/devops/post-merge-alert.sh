@@ -147,7 +147,7 @@ case "$KIND" in
   deploy) LABEL_DESC="Deploy workflow red after a merge to main" ;;
   backup) LABEL_DESC="Prod DB backup missing or stale (> threshold) after a Deploy run" ;;
   mutation) LABEL_DESC="Nightly mutation sweep found tests that cannot fail" ;;
-  resume-perf) LABEL_DESC="Resume-extraction timing guards failed outside Stryker instrumentation" ;;
+  resume-perf) LABEL_DESC="Resume-extraction PDF content-stream guard timed out outside Stryker instrumentation" ;;
   *) LABEL_DESC="CI red on main after merge" ;;
 esac
 run_gh label create "$LABEL" --repo "$ALERT_REPO" \
@@ -319,30 +319,33 @@ if [ "$RESULT" = "failure" ]; then
     )
   elif [ "$KIND" = "resume-perf" ]; then
     BODY=$(
-      printf '## Guard-тесты resume-extraction упали без Stryker\n\n'
+      printf '## Resume-extraction PDF content-stream guard упал без Stryker\n\n'
       printf '**Commit:** `%s`\n' "$COMMIT_SHA"
       [ -n "$SUBJECT_LINE" ] && printf '%s\n' "$SUBJECT_LINE"
-      printf '**Упавшие проверки:** %s\n' "$FAILED_LEGS"
+      printf '**Упавшая проверка:** %s\n' "$FAILED_LEGS"
       printf '**Run:** %s\n\n' "$RUN_URL"
-      printf 'Это отдельный job на голом `vitest`, БЕЗ Stryker: те же тесты в\n'
-      printf '`resume-text-extraction.service.spec.ts` под Stryker дают ложный красный\n'
-      printf '(инструментация покрытия превращает 250 мс в ~1.6 с) — поэтому их не\n'
+      printf 'Это отдельный job на голом `vitest`, БЕЗ Stryker: тот же тест в\n'
+      printf '`resume-text-extraction.service.spec.ts` под Stryker даёт ложный красный\n'
+      printf '(инструментация покрытия превращает 250 мс в ~1.6 с) — поэтому его не\n'
       printf 'проверяет мутационный гейт, а проверяет этот job. Красный здесь\n'
       printf 'инструментацией не объясняется.\n\n'
-      printf '> Эти тесты чувствительны к нагрузке раннера/машины (event-loop lag —\n'
+      printf '> Этот тест чувствителен к нагрузке раннера/машины (event-loop lag —\n'
       printf '> свойство параллельного окружения, не только кода). Один красный\n'
       printf '> прогон — не обязательно регресс; см. "Что делать" ниже.\n\n'
       printf '## Что делать\n\n'
       printf '1. Открыть run выше → лог упавшего теста.\n'
       printf '2. Перезапустить job вручную — если позеленел, это была нагрузка раннера,\n'
       printf '   не регресс; issue закроется само на следующем зелёном прогоне.\n'
-      printf '3. Если падает стабильно — искать регресс в PDF/DOCX-парсинге\n'
-      printf '   (`apps/api/src/resumes/resume-text-extraction.service.ts`), не\n'
-      printf '   увеличивать порог вслепую (см. комментарии самого теста).\n'
+      printf '3. Если падает стабильно — искать регресс в PDF-парсинге\n'
+      printf '   (`apps/api/src/resumes/resume-text-extraction.service.ts`,\n'
+      printf '   `inspectPdfContent`), не увеличивать порог вслепую (см. комментарии\n'
+      printf '   самого теста).\n'
       printf '4. Issue закроется автоматически, когда прогон снова станет зелёным.\n\n'
-      printf 'Тест: `apps/api/src/resumes/resume-text-extraction.service.spec.ts`\n'
-      printf '(`RESUME_PERF=1`, HIGH-2 content-stream guard + опциональные\n'
-      printf 'perf-характеристики).\n'
+      printf 'Тест: `resume-text-extraction.service.spec.ts` >\n'
+      printf '"refuses the amplified bomb without a visible stall" (`RESUME_PERF=1`).\n'
+      printf 'Только он — другой опциональный `RESUME_PERF=1`-тест в этом файле\n'
+      printf '(DOCX-пропорциональность) по собственному докстрингу «it is not a gate»\n'
+      printf 'и в этот job намеренно не входит (`-t`-фильтр).\n'
     )
   else
     BODY=$(

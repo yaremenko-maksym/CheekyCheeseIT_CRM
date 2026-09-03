@@ -547,7 +547,7 @@ finding that ended the prototype.
   coverage instrumentation (a real ~1.6s under instrumentation vs. the true,
   uninstrumented cost), so no threshold in the spec file could ever have been
   "right" for both contexts at once. `resume-perf-guard`, a separate job in
-  `mutation-nightly.yml` (not inside `sweep`), now runs the same guard tests
+  `mutation-nightly.yml` (not inside `sweep`), runs exactly that one test
   on plain `vitest` with `RESUME_PERF=1`, no Stryker — genuine, uninstrumented
   signal on the actual guard, routed through `post-merge-alert.sh`'s
   `KIND=resume-perf`. The `api` leg's Stryker dry run itself is unaffected by
