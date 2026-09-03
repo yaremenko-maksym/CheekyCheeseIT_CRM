@@ -238,6 +238,17 @@ export const projectSchema = z.object({
    * contains one.
    */
   status: projectStatusSchema,
+  /**
+   * task-project-status-filter-ui. The reason the live approval generation
+   * was declined — read from `approvals.rejectionReason` on the row that
+   * rejected (see `ApprovalsService.getRejectionReasons`'s own doc: a
+   * REJECTED subject's live generation has exactly one live row). `null`
+   * whenever `status !== 'REJECTED'`, or when the reason could not be
+   * resolved (defensive — should not happen given the CHECK constraint on
+   * `approvals.rejection_reason`). `.optional()` keeps older cached/mocked
+   * responses (pre this field) parseable.
+   */
+  rejectionReason: z.string().nullable().optional(),
   archivedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

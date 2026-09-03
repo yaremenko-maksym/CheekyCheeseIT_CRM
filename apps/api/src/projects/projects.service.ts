@@ -130,6 +130,16 @@ export class ProjectsService {
       | Map<string, { id: string; seniorSharePercentOverride: number | null }[]>
       | undefined,
     viewerRole: SessionUser['role'],
+    /**
+     * task-project-status-filter-ui. Pre-computed (batched, never queried
+     * per-row here — `mapProject` stays synchronous) rejection-reason
+     * lookup, keyed by project id. Absent/no-entry → `null` on the DTO.
+     * Callers: `findAll`/`findOne` pass a batch built via
+     * `ApprovalsService.getRejectionReasons`; `loadForResponse` passes a
+     * single-entry map built from the reason `rejectDraft` already has in
+     * scope (no query needed for "the project I just rejected").
+     */
+    rejectionReasonByProjectId?: Map<string, string>,
   ) {
     // task-team-senior-share-override. Compute effective share + source for
     // the UI. The resolver mirrors the snapshot logic in
@@ -274,6 +284,13 @@ export class ProjectsService {
       // confirmed is ADMIN or an invited approver, so there is nobody left to
       // mask this field FROM.
       status: project.status,
+      // task-project-status-filter-ui. Same "nobody left to mask this FROM"
+      // reasoning as `status` above — only ever populated for a REJECTED
+      // project, which only ADMIN/invited-approvers ever receive at all.
+      rejectionReason:
+        project.status === 'REJECTED'
+          ? (rejectionReasonByProjectId?.get(project.id) ?? null)
+          : null,
       archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
@@ -465,7 +482,19 @@ export class ProjectsService {
     // senior referenced by the filtered set so `mapProject` resolves the
     // effective share + source without N+1 queries.
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior(filtered)
-    return filtered.map((p) => this.mapProject(p, teamOverridesBySeniorId, currentUser.role))
+    // task-project-status-filter-ui. Batch-load rejection reasons for every
+    // REJECTED project in the filtered set — one round trip for the whole
+    // list, not one per row. `getRejectionReasons([])` short-circuits
+    // before touching the DB, so this stays a no-op for every caller whose
+    // list has no REJECTED project at all (the common case).
+    const rejectedIds = filtered.filter((p) => p.status === 'REJECTED').map((p) => p.id)
+    const rejectionReasonByProjectId = await this.approvals.getRejectionReasons(
+      ProjectsService.APPROVAL_SUBJECT_TYPE,
+      rejectedIds,
+    )
+    return filtered.map((p) =>
+      this.mapProject(p, teamOverridesBySeniorId, currentUser.role, rejectionReasonByProjectId),
+    )
   }
 
   /**
@@ -550,6 +579,13 @@ export class ProjectsService {
     await this.assertAccess(project, currentUser)
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
+    // task-project-status-filter-ui. Same batched lookup as `findAll`,
+    // narrowed to this one project — `getRejectionReasons([])` short-
+    // circuits (no query) for every project that isn't REJECTED.
+    const rejectionReasonByProjectId = await this.approvals.getRejectionReasons(
+      ProjectsService.APPROVAL_SUBJECT_TYPE,
+      project.status === 'REJECTED' ? [project.id] : [],
+    )
     // JUNIOR must not see effectiveTeam — it contains senior/HR/accountant
     // identity. We skip the computation entirely (saves DB round-trip) and
     // return undefined so the field is absent from the JUNIOR DTO.
@@ -557,7 +593,15 @@ export class ProjectsService {
       currentUser.role === 'JUNIOR'
         ? undefined
         : await this.computeEffectiveTeam(project, currentUser.role)
-    return { ...this.mapProject(project, teamOverridesBySeniorId, currentUser.role), effectiveTeam }
+    return {
+      ...this.mapProject(
+        project,
+        teamOverridesBySeniorId,
+        currentUser.role,
+        rejectionReasonByProjectId,
+      ),
+      effectiveTeam,
+    }
   }
 
   /**
@@ -922,7 +966,11 @@ export class ProjectsService {
       })
       await this.applyApprovalAggregate(tx, id)
     })
-    return this.loadForResponse(id, currentUser)
+    // task-project-status-filter-ui. `reason` is already in scope — pass it
+    // straight through instead of re-querying `approvals` for the row this
+    // very call just wrote (also keeps this path clear of the new
+    // `getRejectionReasons` query entirely, see `loadForResponse`'s doc).
+    return this.loadForResponse(id, currentUser, reason)
   }
 
   /**
@@ -953,15 +1001,37 @@ export class ProjectsService {
     }
   }
 
-  /** Re-fetches + maps a project for the approve/reject response. */
-  private async loadForResponse(id: string, currentUser: SessionUser) {
+  /**
+   * Re-fetches + maps a project for the approve/reject response.
+   *
+   * `knownRejectionReason` — task-project-status-filter-ui: when the caller
+   * (`rejectDraft`) already knows the reason (it just wrote it), pass it
+   * here instead of querying `approvals` back — `approveDraft`'s call site
+   * omits it, which is correct too: its result is never REJECTED, so
+   * `mapProject` never reads the map either way. Deliberately NOT the same
+   * "batch-query `getRejectionReasons`" path `findAll`/`findOne` use — this
+   * keeps `approveDraft`/`rejectDraft` free of an extra DB round trip for a
+   * value the caller already has in hand.
+   */
+  private async loadForResponse(
+    id: string,
+    currentUser: SessionUser,
+    knownRejectionReason?: string,
+  ) {
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations | undefined
     if (!project) throw new NotFoundException('Project not found')
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    return this.mapProject(project, teamOverridesBySeniorId, currentUser.role)
+    const rejectionReasonByProjectId =
+      knownRejectionReason !== undefined ? new Map([[id, knownRejectionReason]]) : undefined
+    return this.mapProject(
+      project,
+      teamOverridesBySeniorId,
+      currentUser.role,
+      rejectionReasonByProjectId,
+    )
   }
 
   /**
