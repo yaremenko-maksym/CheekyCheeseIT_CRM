@@ -156,6 +156,110 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
+  resume-perf-guard:
+    name: Resume-extraction perf guard (no Stryker)
+    runs-on: ubuntu-latest
+    # Plain vitest, not Stryker — deliberately its own job, not a step inside
+    # `sweep`. resume-text-extraction.service.spec.ts's PDF content-stream
+    # guard measures real wall-clock stall time (startLagMeter()); Stryker's
+    # coverage instrumentation inflates that measurement by roughly an order
+    # of magnitude (observed: a 250ms budget read as ~1.6s under Stryker),
+    # which is exactly what made the `api` leg's dry run red before this job
+    # existed — a false positive nobody could act on, because the guard
+    # itself was never actually broken. This job runs the SAME assertion
+    # uninstrumented, so a red here is a real finding, not a measurement
+    # artifact. Excluded from `sweep` on purpose (task-mutation-gate
+    # nightly-alert-fidelity, review #647 CR-M-1) — do not fold it back in.
+    #
+    # ONE test only, `-t`-filtered (review #647 second round, CR-M-2): the
+    # spec file also carries a SEPARATE RESUME_PERF=1 characterisation test
+    # (DOCX proportionality) whose own docstring says "it is not a gate ...
+    # run it on a quiet machine" — measured 400-1243ms locally against its
+    # 200ms budget, i.e. it is EXPECTED to be red on a shared runner. A
+    # substring test-name filter would have swept it in and taught everyone
+    # to ignore this job's alerts. Only "refuses the amplified bomb without a
+    # visible stall" (PR #647, the test this job exists for) is a real gate.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    env:
+      # Same minimal set `sweep` uses — only here so the env schema validates
+      # at import time; this suite is DB-free (no DATABASE_URL: integration
+      # specs self-exclude, and this spec file has none anyway).
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      PRIVATE_REPO: yaremenko-maksym/cheekycheese-telemetry
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      # continue-on-error: the alert steps below need to run on EITHER outcome
+      # (open/comment on red, close on recovery) — a hard step failure here
+      # would skip straight past them. steps.perf.outcome carries the real
+      # result into the alert step; "Fail the job" at the end still makes this
+      # visible in the Actions UI, same as sweep's own survivor-budget step.
+      - name: 'resume-text-extraction: PDF content-stream guard (RESUME_PERF=1, plain vitest)'
+        id: perf
+        continue-on-error: true
+        env:
+          RESUME_PERF: '1'
+        run: >-
+          pnpm --filter @crm/api test -- resume-text-extraction -t "refuses
+          the amplified bomb without a visible stall"
+
+      - name: Read swept commit
+        id: commit
+        run: |
+          DELIM="COMMIT_SUBJECT_EOF_$(openssl rand -hex 8)"
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "subject<<$DELIM"
+            git log -1 --pretty=%s
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve alert channel
+        id: channel
+        env:
+          PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
+          PUBLIC_REPO: ${{ github.repository }}
+        run: ./scripts/devops/resolve-alert-channel.sh
+
+      - name: Open / update / close the alert issue
+        env:
+          GH_TOKEN: ${{ steps.channel.outputs.use_pat == 'true' && secrets.TELEMETRY_ISSUES_PAT || github.token }}
+          ALERT_REPO: ${{ steps.channel.outputs.repo }}
+          RESULT: ${{ steps.perf.outcome == 'success' && 'success' || 'failure' }}
+          FAILED_LEGS: 'resume-text-extraction.service.spec.ts > "refuses the amplified bomb without a visible stall" (RESUME_PERF=1, no Stryker)'
+          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+          COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          KIND: resume-perf
+        run: ./scripts/devops/post-merge-alert.sh
+
+      - name: Fail the job when the perf guard failed
+        if: steps.perf.outcome != 'success'
+        run: |
+          echo "::error::resume-text-extraction's PDF content-stream guard failed outside Stryker — a real finding, see the alert issue and the failed step above."
+          exit 1
   alert:
     name: Nightly Mutation Alert
     runs-on: ubuntu-latest
@@ -231,6 +335,8 @@ jobs:
           ALERT_REPO: ${{ steps.channel.outputs.repo }}
           RESULT: ${{ steps.tally.outputs.result }}
           FAILED_LEGS: ${{ steps.tally.outputs.detail }}
+          MUTATION_REASON: ${{ steps.tally.outputs.reason }}
+          MUTATION_MISSING_PACKAGES: ${{ steps.tally.outputs.missing_packages }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
           COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

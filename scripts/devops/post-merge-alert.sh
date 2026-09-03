@@ -47,12 +47,35 @@
 #   COMMIT_SHA   the main commit that was validated / deployed
 #   RUN_URL      link to the Actions run
 # Optional env:
-#   KIND           ci (default) | deploy | backup | mutation — selects title/body
+#   KIND           ci (default) | deploy | backup | mutation | resume-perf —
+#                   selects title/body
 #                   text below
 #   FAILED_LEGS    human list of failed jobs, e.g. "quality, e2e" or "deploy";
 #                   for KIND=backup, the one-line freshness-check detail
 #                   (scripts/devops/check-backup-freshness.sh's `detail` output);
-#                   for KIND=mutation, the one-line survivor tally
+#                   for KIND=mutation, the one-line detail from
+#                   check-mutation-tally.mjs — a survivor tally OR a reason the
+#                   sweep produced no evidence at all, see MUTATION_REASON
+#   MUTATION_REASON KIND=mutation only. check-mutation-tally.mjs's `reason`
+#                   output: `survivors` (the sweep completed and found some —
+#                   today's body/title) or `incomplete` (a leg failed, a
+#                   report could not be parsed, or no reports were produced —
+#                   nothing was verified, and the alert says so instead of
+#                   reading like accumulated mutant debt). Unset/unrecognised
+#                   → `survivors`, so a caller that predates this var (or a
+#                   manual DRY_RUN) keeps today's text rather than silently
+#                   losing its body. task-mutation-gate nightly-alert-fidelity,
+#                   2026-09-03 — see mutation-gate-runbook.md "PR gate vs
+#                   nightly" for why this distinction exists at all: the
+#                   nightly was red for 20+ consecutive nights and every one
+#                   of them read as "mutants survived", not "the check is down".
+#   MUTATION_MISSING_PACKAGES  KIND=mutation + MUTATION_REASON=incomplete only.
+#                   Comma-joined package names (check-mutation-tally.mjs's
+#                   `missing_packages` output) that produced NO report at all —
+#                   named in the body so "which leg" does not require opening
+#                   the run first. May be empty (e.g. reports parsed but were
+#                   corrupt, or the whole matrix job errored before any leg
+#                   started) — the body handles that case too.
 #   COMMIT_SUBJECT commit subject line (untrusted input — never eval'd)
 #   LABEL          issue label (default: ci-main-broken for KIND=ci,
 #                   deploy-broken for KIND=deploy, backup-stale for KIND=backup,
@@ -62,9 +85,9 @@ set -euo pipefail
 
 KIND="${KIND:-ci}"
 case "$KIND" in
-  ci | deploy | backup | mutation) ;;
+  ci | deploy | backup | mutation | resume-perf) ;;
   *)
-    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup|mutation) — refusing to guess which alert text to use" >&2
+    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup|mutation|resume-perf) — refusing to guess which alert text to use" >&2
     exit 2
     ;;
 esac
@@ -73,11 +96,21 @@ case "$KIND" in
   deploy) LABEL="${LABEL:-deploy-broken}" ;;
   backup) LABEL="${LABEL:-backup-stale}" ;;
   mutation) LABEL="${LABEL:-mutants-surviving}" ;;
+  resume-perf) LABEL="${LABEL:-resume-perf-broken}" ;;
   *) LABEL="${LABEL:-ci-main-broken}" ;;
 esac
 DRY_RUN="${DRY_RUN:-0}"
 FAILED_LEGS="${FAILED_LEGS:-unknown}"
 COMMIT_SUBJECT="${COMMIT_SUBJECT:-}"
+# Default `survivors`, not `incomplete`: an unset/unrecognised value must keep
+# TODAY's body (see the env-doc comment above), not switch to the new one —
+# the new text names a specific reason the run failed, which would be a lie
+# for a caller that never told us one.
+case "${MUTATION_REASON:-survivors}" in
+  incomplete) MUTATION_REASON=incomplete ;;
+  *) MUTATION_REASON=survivors ;;
+esac
+MUTATION_MISSING_PACKAGES="${MUTATION_MISSING_PACKAGES:-}"
 
 for var in ALERT_REPO RESULT COMMIT_SHA RUN_URL; do
   if [ -z "${!var:-}" ]; then
@@ -114,6 +147,7 @@ case "$KIND" in
   deploy) LABEL_DESC="Deploy workflow red after a merge to main" ;;
   backup) LABEL_DESC="Prod DB backup missing or stale (> threshold) after a Deploy run" ;;
   mutation) LABEL_DESC="Nightly mutation sweep found tests that cannot fail" ;;
+  resume-perf) LABEL_DESC="Resume-extraction PDF content-stream guard timed out outside Stryker instrumentation" ;;
   *) LABEL_DESC="CI red on main after merge" ;;
 esac
 run_gh label create "$LABEL" --repo "$ALERT_REPO" \
@@ -229,6 +263,38 @@ if [ "$RESULT" = "failure" ]; then
       printf '3. Issue закроется автоматически, когда следующая проверка после `Deploy` найдёт\n'
       printf '   свежую резервную копию.\n'
     )
+  elif [ "$KIND" = "mutation" ] && [ "$MUTATION_REASON" = "incomplete" ]; then
+    # task-mutation-gate nightly-alert-fidelity, 2026-09-03: a SEPARATE title
+    # and body from the survivors case below — see MUTATION_REASON's env-doc
+    # comment for why this split exists. Nothing here talks about closing
+    # mutants; there is nothing to close, because nothing ran.
+    BODY=$(
+      printf '## Ночной мутационный прогон НЕ выполнился\n\n'
+      printf '**Commit:** `%s`\n' "$COMMIT_SHA"
+      [ -n "$SUBJECT_LINE" ] && printf '%s\n' "$SUBJECT_LINE"
+      printf '**Что обнаружено:** %s\n' "$FAILED_LEGS"
+      if [ -n "$MUTATION_MISSING_PACKAGES" ]; then
+        printf '**Пакеты без отчёта:** %s\n' "$MUTATION_MISSING_PACKAGES"
+      fi
+      printf '**Run:** %s\n\n' "$RUN_URL"
+      printf 'Сбор не дошёл до конца — упал раньше (проверка/тест/бюджет), поэтому список\n'
+      printf 'выживших ниже НЕ появится: смотреть в этом run нечего, кроме упавшего шага.\n\n'
+      printf '> Пакет(ы) выше сегодня не получили НИКАКОЙ проверки: PR-гейт по\n'
+      printf '> конструкции видит только строки, изменённые самим PR-запросом (весь\n'
+      printf '> код, написанный раньше, ему не виден), а ночной full-прогон —\n'
+      printf '> единственный, кто покрывает написанное раньше, — сегодня для них\n'
+      printf '> не доехал.\n\n'
+      printf '## Что делать\n\n'
+      printf '1. Открыть run выше → job `Sweep` (пакет из строки «Пакеты без отчёта») → найти\n'
+      printf '   первый красный шаг (обычно `Gate self-check` или `Full mutation sweep`).\n'
+      printf '2. Починить ЭТОТ шаг — это задача о самом прогоне, не о мутантах.\n'
+      printf '3. Перезапустить вручную (`gh workflow run mutation-nightly.yml --ref main`) и\n'
+      printf '   убедиться, что все три ноги дошли до отчёта.\n'
+      printf '4. Issue закроется автоматически, когда прогон завершится и не найдёт выживших\n'
+      printf '   (сам факт завершения — success; список выживших, если он появится, — уже\n'
+      printf '   отдельный алерт с другим текстом).\n\n'
+      printf 'Подробности — `scripts/devops/mutation-gate-runbook.md` "PR gate vs nightly".\n'
+    )
   elif [ "$KIND" = "mutation" ]; then
     BODY=$(
       printf '## Ночной мутационный прогон нашёл тесты, которые не умеют падать\n\n'
@@ -250,6 +316,36 @@ if [ "$RESULT" = "failure" ]; then
       printf '   заглушка не принимается (`scripts/devops/check-mutation-suppressions.mjs`).\n'
       printf '4. Issue закроется автоматически, когда ночной прогон не найдёт выживших.\n\n'
       printf 'Подробности — `scripts/devops/mutation-gate-runbook.md`.\n'
+    )
+  elif [ "$KIND" = "resume-perf" ]; then
+    BODY=$(
+      printf '## Resume-extraction PDF content-stream guard упал без Stryker\n\n'
+      printf '**Commit:** `%s`\n' "$COMMIT_SHA"
+      [ -n "$SUBJECT_LINE" ] && printf '%s\n' "$SUBJECT_LINE"
+      printf '**Упавшая проверка:** %s\n' "$FAILED_LEGS"
+      printf '**Run:** %s\n\n' "$RUN_URL"
+      printf 'Это отдельный job на голом `vitest`, БЕЗ Stryker: тот же тест в\n'
+      printf '`resume-text-extraction.service.spec.ts` под Stryker даёт ложный красный\n'
+      printf '(инструментация покрытия превращает 250 мс в ~1.6 с) — поэтому его не\n'
+      printf 'проверяет мутационный гейт, а проверяет этот job. Красный здесь\n'
+      printf 'инструментацией не объясняется.\n\n'
+      printf '> Этот тест чувствителен к нагрузке раннера/машины (event-loop lag —\n'
+      printf '> свойство параллельного окружения, не только кода). Один красный\n'
+      printf '> прогон — не обязательно регресс; см. "Что делать" ниже.\n\n'
+      printf '## Что делать\n\n'
+      printf '1. Открыть run выше → лог упавшего теста.\n'
+      printf '2. Перезапустить job вручную — если позеленел, это была нагрузка раннера,\n'
+      printf '   не регресс; issue закроется само на следующем зелёном прогоне.\n'
+      printf '3. Если падает стабильно — искать регресс в PDF-парсинге\n'
+      printf '   (`apps/api/src/resumes/resume-text-extraction.service.ts`,\n'
+      printf '   `inspectPdfContent`), не увеличивать порог вслепую (см. комментарии\n'
+      printf '   самого теста).\n'
+      printf '4. Issue закроется автоматически, когда прогон снова станет зелёным.\n\n'
+      printf 'Тест: `resume-text-extraction.service.spec.ts` >\n'
+      printf '"refuses the amplified bomb without a visible stall" (`RESUME_PERF=1`).\n'
+      printf 'Только он — другой опциональный `RESUME_PERF=1`-тест в этом файле\n'
+      printf '(DOCX-пропорциональность) по собственному докстрингу «it is not a gate»\n'
+      printf 'и в этот job намеренно не входит (`-t`-фильтр).\n'
     )
   else
     BODY=$(
@@ -275,12 +371,17 @@ if [ "$RESULT" = "failure" ]; then
     )
   fi
 
-  case "$KIND" in
-    deploy) TITLE="🚨 Деплой упал на прод ($SHORT_SHA)" ;;
-    backup) TITLE="🚨 Нет свежего бэкапа БД ($SHORT_SHA)" ;;
-    mutation) TITLE="🧬 Выжившие мутанты на main ($SHORT_SHA)" ;;
-    *) TITLE="🚨 CI красный на main ($SHORT_SHA)" ;;
-  esac
+  if [ "$KIND" = "mutation" ] && [ "$MUTATION_REASON" = "incomplete" ]; then
+    TITLE="🧬 Ночной мутационный прогон не выполнился ($SHORT_SHA)"
+  else
+    case "$KIND" in
+      deploy) TITLE="🚨 Деплой упал на прод ($SHORT_SHA)" ;;
+      backup) TITLE="🚨 Нет свежего бэкапа БД ($SHORT_SHA)" ;;
+      mutation) TITLE="🧬 Выжившие мутанты на main ($SHORT_SHA)" ;;
+      resume-perf) TITLE="🐌 Resume-extraction perf guard упал ($SHORT_SHA)" ;;
+      *) TITLE="🚨 CI красный на main ($SHORT_SHA)" ;;
+    esac
+  fi
 
   if [ -z "$OPEN" ]; then
     run_gh issue create --repo "$ALERT_REPO" \
@@ -301,6 +402,7 @@ if [ -n "$OPEN" ]; then
     deploy) RECOVERY_COMMENT="✅ Деплой на прод снова прошёл успешно (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     backup) RECOVERY_COMMENT="✅ В бакете \`crm-backups\` снова есть свежая резервная копия (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     mutation) RECOVERY_COMMENT="✅ Ночной мутационный прогон не нашёл выживших мутантов (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
+    resume-perf) RECOVERY_COMMENT="✅ Resume-extraction perf guard снова зелёный без Stryker (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     *) RECOVERY_COMMENT="✅ post-merge CI на \`main\` снова зелёный (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
   esac
   run_gh issue close "$OPEN" --repo "$ALERT_REPO" --comment "$RECOVERY_COMMENT"

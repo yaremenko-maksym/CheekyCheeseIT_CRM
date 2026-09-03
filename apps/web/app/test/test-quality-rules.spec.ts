@@ -74,11 +74,19 @@ describe('test-quality lint rules', () => {
         .map((m) => m.line)
         .sort((a, b) => a - b)
 
-      expect(containerLines).toEqual([148, 161])
+      // task-mutation-gate nightly-alert-fidelity, 2026-09-03: these two moved
+      // from 148/161 to 178/191 when the fixture's vi.mock() gained
+      // `useJobSources` and its DTO literal gained `matchScore`/
+      // `matchedKeywords` — both additions required so the fixture still
+      // satisfies the CURRENT module surface at render time (PR #515 added
+      // both after this fixture was frozen on 2026-08-07; see the fixture's
+      // own comments). Neither addition touches the two assertions this test
+      // is actually about — it moved, the defect it proves did not.
+      expect(containerLines).toEqual([178, 191])
 
       const sourceLines = vacuumSource.split('\n')
-      expect(sourceLines[147]).toContain("expect(container.querySelector('script')).toBeNull()")
-      expect(sourceLines[160]).toContain("expect(container.querySelector('img')).toBeNull()")
+      expect(sourceLines[177]).toContain("expect(container.querySelector('script')).toBeNull()")
+      expect(sourceLines[190]).toContain("expect(container.querySelector('img')).toBeNull()")
     })
 
     it('does NOT rely on no-node-access, which is exempt for this path', async () => {

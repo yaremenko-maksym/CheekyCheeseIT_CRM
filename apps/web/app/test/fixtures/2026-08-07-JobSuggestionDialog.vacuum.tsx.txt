@@ -27,6 +27,17 @@ vi.mock('@/hooks/use-job-sourcing', () => ({
   useUpdateJobSuggestionStatus: () => ({ mutate, isPending: false }),
   useCreateJobExclusion: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteJobExclusion: () => ({ mutate: vi.fn(), isPending: false }),
+  // useJobSources: SourceBudgetPanel (task-vacancy-matching AC7, same PR #515
+  // as matchScore/matchedKeywords below) did not exist when this fixture was
+  // frozen on 2026-08-07 — added here ONLY because vitest now validates a
+  // vi.mock() factory against every export the module surface actually needs
+  // at render time and throws instead of returning undefined for a missing
+  // one. renderDialog() never passes canViewBudgets, so this hook is called
+  // with enabled=false and SourceBudgetPanel bails out on its very next line
+  // (`if (!canView) return null`) — the return shape here is inert to
+  // anything arm 4 proves, kept parallel to useJobExclusions above only for
+  // consistency.
+  useJobSources: () => ({ data: { items: [] }, isLoading: false, isError: false }),
 }))
 
 function suggestion(overrides: Partial<JobSuggestionDto['posting']> = {}): JobSuggestionDto {
@@ -50,6 +61,25 @@ function suggestion(overrides: Partial<JobSuggestionDto['posting']> = {}): JobSu
       collectedAt: '2026-08-07T09:00:00.000Z',
       ...overrides,
     },
+    // task-vacancy-matching (PR #515, 2026-08-12) added these two fields to
+    // JobSuggestionDto AFTER this fixture was frozen on 2026-08-07 — added
+    // here ONLY so this object still satisfies the CURRENT type at runtime.
+    // This file is copied straight over the real .test.tsx and run through
+    // vitest's transform, which does not type-check, so a missing required
+    // field does not fail loudly at compile time: it failed as `Cannot read
+    // properties of undefined (reading 'map')` deep inside MatchSummary
+    // instead, silently, in every nightly run from 2026-08-12 until this
+    // fix (see mutation-gate.mjs's "PR GATE vs NIGHTLY" header section).
+    // `matchScore: null` is the most historically faithful value available —
+    // it is what "not ranked yet" meant before this feature existed, and it
+    // also short-circuits MatchSummary before matchedKeywords is ever read,
+    // exactly as this pre-fix component's real behaviour never touched it
+    // either. Both fields are inert to what arm 4 actually proves (the
+    // container-vs-portal AC6 assertions) — do not "improve" them with a
+    // score or keywords, that only adds scope this frozen fixture must not
+    // otherwise gain.
+    matchScore: null,
+    matchedKeywords: [],
   }
 }
 

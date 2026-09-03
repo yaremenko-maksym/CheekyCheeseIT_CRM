@@ -48,6 +48,80 @@
  * you changed"), and it is also a real limit: the enclosing block's own mutants
  * are only ever reached by the nightly full run.
  *
+ * PR GATE vs NIGHTLY — ignoreStatic considered and rejected (owner decision, 2026-09-03)
+ * ----------------------------------------------------------------
+ * `ignoreStatic` — Stryker's own flag to skip mutants whose ONLY coverage is
+ * at module load time (a constant, a Zod schema default, never inside a
+ * per-test run) — was PROPOSED for `--changed` only, prototyped, and
+ * REJECTED. It is OFF here, unconditionally, in both `--changed` and
+ * `--full`. This section exists so nobody re-proposes it without reading why
+ * first.
+ *
+ * The case for it was real, and the cost of not having it is unresolved, not
+ * eliminated by rejecting it: Stryker's own summary on PR #623 (61 static
+ * mutants) put them at 11% of the mutant count and 84% of the wall time —
+ * killing a static mutant costs the FULL suite regardless of which one test
+ * would matter, and that is the single biggest time lever this gate has.
+ * Until the `api` leg is file-sharded (`.claude/tasks/BACKLOG-followups.md`
+ * #135, promoted to priority the day this was rejected — the only remaining
+ * lever), a heavy diff on `--changed` runs 25-47 minutes — same figure and
+ * same source as `mutation-gate-runbook.md`'s "Measured cost" section (8
+ * successful CI runs, before this decision: `shared` ~10s, `web` ~230s,
+ * `api` typically 250s, max 2489s). Not re-measured after the revert:
+ * `ignoreStatic` never shipped, so nothing about rejecting it changes what
+ * the mutation gate itself costs. That is knowingly
+ * accepted: the direct, measured price of keeping this gate honest instead
+ * of fast.
+ *
+ * Why rejected: turning it on for `--changed` was verified — by actually
+ * running `mutation-gate-vacuum-proof.sh`, not by reasoning about it — to
+ * hide exactly the class of object the 2026-08-07 incident was about. With
+ * `ignoreStatic` active, 4 of the vacuum-proof's 5 XSS-defence mutants came
+ * back `Ignored` (static) and were never exercised at all — both
+ * `MARKDOWN_URL_TRANSFORM` and `MARKDOWN_COMPONENTS` in
+ * JobSuggestionDialog.tsx are module-level `export const`s, exactly the
+ * shape `ignoreStatic` is built to skip. Only 1 of 5 was actually tested, and
+ * arm 1's "the real test kills the defence mutants (>= 4)" assertion — true
+ * since this file was written — dropped to 1 while the gate itself reported
+ * PASS: green, for a diff that deletes the render-side XSS defence. In the
+ * owner's own words, deciding against it: it hides module-level constants —
+ * the exact class of the 2026-08-07 incident. A gate that cannot see the one
+ * thing it was built to catch is not a gate this repo keeps, whatever time it
+ * would have bought.
+ *
+ * `mutation-gate-vacuum-proof.sh`'s own assertions were never weakened to
+ * accommodate the prototype — arm 1 still expects the real test to kill all
+ * 4 killable defence mutants — and with `ignoreStatic` off (as it is now,
+ * unconditionally), it does: verified live, 5/5 reference mutants exercised,
+ * 0 skipped.
+ *
+ * Separately from the ignoreStatic question, the `web` leg's self-check used
+ * to crash before any of this: the frozen vacuum fixture
+ * (2026-08-07-JobSuggestionDialog.vacuum.tsx.txt) predated
+ * `matchScore`/`matchedKeywords` on `JobSuggestionDto` and the
+ * `SourceBudgetPanel`/`useJobSources` render path added by PR #515
+ * (2026-08-12) — nothing type-checks a `.txt` fixture before it is copied
+ * over the real test file and run. That crash is fixed independently of the
+ * ignoreStatic decision above (the fixture's mock now satisfies the current
+ * module surface, with historically-accurate inert values — see the
+ * fixture's own comments), and with it fixed AND ignoreStatic off, the
+ * self-check passes end to end again — verified live, all 4 arms, all 9
+ * assertions.
+ *
+ * The `api` leg remains blocked, for a third, unrelated reason: Stryker's
+ * initial (unmutated) dry run is red before mutation starts, because of an
+ * existing test — `resume-text-extraction.service.spec.ts`'s "PDF
+ * content-stream guard (HIGH-2) … without stalling" asserts a 250ms stall
+ * ceiling that a shared CI runner does not reliably meet (observed: ~1.6s).
+ * NOT fixed here — `*.spec.ts` is AutoTest's zone
+ * (`.claude/rules/common/zone-of-write.md`) — and being fixed in a separate
+ * PR as of this writing.
+ *
+ * See mutation-gate-runbook.md "PR gate vs nightly" for the fuller history
+ * (including the alert-template defect that let the nightly stay red for
+ * 20+ nights unnoticed — `.claude/tasks/BACKLOG-followups.md` #137) and the
+ * current, precise status of each leg.
+ *
  * VERDICT RULES
  * -------------
  *   Survived      → RED, UNLESS Stryker's own report says zero tests ran for
@@ -60,8 +134,8 @@
  *   Ignored       → allowed ONLY with a reason (`// Stryker disable next-line
  *                   <mutator>: <why>`). The reason is read back out of Stryker's
  *                   own report, so a suppression without one is red HERE too, not
- *                   only in check-mutation-suppressions.mjs. Equivalent mutants
- *                   are real (this repo has one — `img: () => null` mutated to
+ *                   only in check-mutation-suppressions.mjs. Equivalent mutants are
+ *                   real (this repo has one — `img: () => null` mutated to
  *                   `() => undefined` renders identically), so a suppression
  *                   mechanism is not optional: without one, the gate gets
  *                   switched off wholesale. A suppression with no stated reason,
@@ -557,7 +631,21 @@ function writeConfig(pkg, patterns, reportPath, concurrency) {
     // (pnpm workspace, no hoisting) has no @stryker-mutator/* of its own.
     plugins: [VITEST_RUNNER_PLUGIN],
     coverageAnalysis: 'perTest',
-    reporters: ['json', 'clear-text'],
+    // `ignoreStatic` (Stryker's flag to skip load-time-only mutants) was
+    // proposed for `--changed`, prototyped, and REJECTED by the owner,
+    // 2026-09-03 — see "PR GATE vs NIGHTLY" in this file's header for why.
+    // Left OFF, unconditionally, in both modes.
+    reporters: ['json', 'clear-text', 'progress-append-only'],
+    // progress-append-only (packages/core/src/reporters/progress-append-only-reporter.ts
+    // in @stryker-mutator/core, matches the pin in package.json) writes one
+    // plain, ANSI-free line to stdout every 10s instead of redrawing a bar in
+    // place — the bar (reporter 'progress') uses cursor control that either
+    // does not render or prints garbage in a non-TTY CI log. runStryker()
+    // below forwards the child's stdout to ours as each chunk arrives, so
+    // these lines show up live in the Actions log instead of going silent
+    // until the run ends. Reporters run independently of each other
+    // (broadcast-reporter.ts calls each in its own try/catch), so this does
+    // not touch the JSON report the gate's own verdict is read from.
     jsonReporter: { fileName: reportPath },
     concurrency,
     // Our own verdict is computed from the JSON report (Stryker's break
