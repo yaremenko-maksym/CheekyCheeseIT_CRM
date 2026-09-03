@@ -12,9 +12,10 @@
  * whole-false, operator swaps, equality flips, string-literal swaps).
  */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PendingSeniorShare, UserProfileDto, ViewPermissions } from '@crm/shared'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { OverviewTab } from '../OverviewTab'
@@ -35,6 +36,9 @@ vi.mock('@/lib/axios', () => ({
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
+
+import { api } from '@/lib/axios'
+import { toast } from 'sonner'
 
 const PENDING: PendingSeniorShare = {
   percent: 55,
@@ -125,5 +129,75 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
   it('hides the badge when nothing is pending', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: null }), 'view')
     expect(screen.queryByTestId('user-senior-share-pending-badge')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Approve / reject interactions — mutation-gate gap-fill (2026-09-03). The
+// display-gating tests above never CLICK anything, so none of
+// useApproveSeniorShareChange/useRejectSeniorShareChange's own mutationFn/
+// onSuccess/onError bodies (use-user-profile.ts) or the reject dialog's
+// disabled/handler wiring (OverviewTab.tsx) were ever exercised — same
+// convention as ChangePersonalEmailDialog.test.tsx (click, waitFor, assert
+// on the mocked api.* call args + toast.*).
+// ---------------------------------------------------------------------------
+
+describe('OverviewTab — pending base share banner, approve/reject interactions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { ok: true } })
+  })
+
+  it('approve: POSTs to the approve endpoint with no body and shows the exact success toast', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-approve-button'))
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/users/a0000000-0000-4000-8000-000000000001/senior-share/approve',
+      ),
+    )
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Новый процент подтверждён'))
+  })
+
+  it('approve: a rejected request shows the exact error toast, prefixed "Ошибка: "', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-approve-button'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Ошибка: network down'))
+  })
+
+  it('reject: the confirm button is disabled until a non-blank reason is entered', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    const confirmButton = await screen.findByTestId('pending-base-share-reject-confirm')
+    expect(confirmButton).toBeDisabled()
+
+    // Whitespace-only stays disabled — `reason.trim()`, not `reason` itself.
+    await user.type(screen.getByTestId('pending-base-share-reject-reason'), '   ')
+    expect(confirmButton).toBeDisabled()
+
+    await user.type(screen.getByTestId('pending-base-share-reject-reason'), 'причина отказа')
+    expect(confirmButton).toBeEnabled()
+  })
+
+  it('reject: confirming POSTs the reason to the reject endpoint and shows the exact success toast', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    await user.type(
+      await screen.findByTestId('pending-base-share-reject-reason'),
+      'Слишком высокий процент',
+    )
+    await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/users/a0000000-0000-4000-8000-000000000001/senior-share/reject',
+        { reason: 'Слишком высокий процент' },
+      ),
+    )
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Предложение отклонено'))
   })
 })
