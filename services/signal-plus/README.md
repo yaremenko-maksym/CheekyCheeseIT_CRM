@@ -143,6 +143,22 @@ directly into the image — that path is step 2's job to populate (build the
 `Linux-native` binary into the image at that location) and step 3's to
 mount the volume.
 
+The tag announced by GitHub, the asset name, and both download URLs must
+all literally agree before anything downloads (fix-round 2, SR-H-3) — a
+release claiming to be `v9.9.9` while its assets are really the old,
+validly-signed `v0.9.0` is rejected before the network call, not after.
+After install, the binary that actually landed is run with `--version` and
+must report the announced version, or the symlink swap is rolled back and
+the attempt fails — the GPG signature only proves AsamK signed those
+bytes, not that they are what they claim to be.
+
+Runs `TMPDIR`/`SQLITE_TMPDIR` pointed at `$SIGNAL_DATA_DIR`'s volume (fix-round
+2, SR-M-8) rather than the container's own `/tmp`, which
+`docker-compose.yml` mounts `noexec` — signal-cli's bundled sqlite-jdbc
+extracts and `dlopen`s a native library at startup, which a `noexec`
+filesystem cannot serve. `docker-entrypoint.sh` creates that directory on
+every boot.
+
 ## Alerting
 
 Three layers on any `ERROR` (retry exhaustion before the handover cutoff,
