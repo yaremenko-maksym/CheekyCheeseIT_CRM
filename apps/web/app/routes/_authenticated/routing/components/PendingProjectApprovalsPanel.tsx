@@ -1,5 +1,6 @@
 import { Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePendingProjectApprovals } from '@/hooks/use-project-approvals'
@@ -43,9 +44,43 @@ export const card = {
  * an "all clear" card on every single dashboard load would be noise the
  * KPI-grid-adjacent placement does not need; the panel simply does not
  * exist for that render, same as InProgressPanel's own empty sections.
+ *
+ * Local-dismiss on `onActed` (found live, real-stack, while verifying AC3
+ * for DROP): `usePendingProjectApprovals` buckets purely on
+ * `project.status === 'DRAFT'` — it cannot tell "still needs MY decision"
+ * from "I already decided, project stays DRAFT waiting on the OTHER
+ * invited approver" (a project can have both a senior AND a drop invited;
+ * business spec §4.1 partial agreement). Without this, a viewer who just
+ * approved/rejected keeps seeing their own already-resolved item until
+ * some later, unrelated event finally moves the project out of `pending` —
+ * on THIS, the viewer's only reachable surface for the action, "click
+ * Confirm and it just sits there" reads as broken, not as "waiting on the
+ * other party". `dismissedIds` hides an item the INSTANT its own mutation
+ * settles (success or the harmless already-responded 409/404 — see
+ * `isAlreadyRespondedError`), independent of whether the server-side
+ * status ever changes. Pruned back to the intersection with the live
+ * `pending` set on every fresh fetch so a ended dismissal never lingers
+ * across a reject → re-propose cycle that legitimately brings the SAME
+ * project id back into `pending` for a NEW decision.
  */
 export function PendingProjectApprovalsPanel() {
-  const { pending, isLoading, isError } = usePendingProjectApprovals()
+  const { pending, isLoading, isError, dataUpdatedAt } = usePendingProjectApprovals()
+  const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(new Set())
+
+  useEffect(() => {
+    setDismissedIds((prev) => {
+      if (prev.size === 0) return prev
+      const stillPending = new Set(pending.map((p) => p.id))
+      const next = new Set([...prev].filter((id) => stillPending.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+    // Deliberately keyed on `dataUpdatedAt`, not `pending` — `pending` is a
+    // brand-new filtered array every render (referentially), which would
+    // re-run this on every render instead of only on an actual refetch.
+    // (react-hooks/exhaustive-deps is not configured in this project's eslint.)
+  }, [dataUpdatedAt])
+
+  const visiblePending = pending.filter((project) => !dismissedIds.has(project.id))
 
   if (isLoading) {
     return (
@@ -62,7 +97,7 @@ export function PendingProjectApprovalsPanel() {
   // A failed fetch just means the panel doesn't render this load — the next
   // successful load (or /projects, for whoever has that route) still shows
   // it.
-  if (isError || pending.length === 0) return null
+  if (isError || visiblePending.length === 0) return null
 
   return (
     <motion.div initial={card.hidden} animate={card.show}>
@@ -76,7 +111,7 @@ export function PendingProjectApprovalsPanel() {
           </div>
         </CardHeader>
         <CardContent className="space-y-2 px-5 pb-4">
-          {pending.map((project) => (
+          {visiblePending.map((project) => (
             <div
               key={project.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 bg-muted/20 px-3 py-2"
@@ -86,7 +121,11 @@ export function PendingProjectApprovalsPanel() {
                 <p className="truncate text-sm font-medium">{project.companyName}</p>
                 <p className="truncate text-xs text-muted-foreground">{project.name}</p>
               </div>
-              <ProjectApprovalActions projectId={project.id} companyName={project.companyName} />
+              <ProjectApprovalActions
+                projectId={project.id}
+                companyName={project.companyName}
+                onActed={() => setDismissedIds((prev) => new Set(prev).add(project.id))}
+              />
             </div>
           ))}
         </CardContent>
