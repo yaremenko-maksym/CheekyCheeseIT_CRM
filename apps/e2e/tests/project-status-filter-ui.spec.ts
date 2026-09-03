@@ -366,6 +366,127 @@ test.describe('Project status filter — AC5 (responsive)', () => {
     }
   })
 
+  /**
+   * COPY-H-3 = QA-H-1 (PR #646 fix-round 2). The overflow test above passed
+   * throughout — the bug was never a document.scrollWidth overflow, it was
+   * the status column's content (badge + caption + Confirm/Reject)
+   * visually SITTING ON TOP OF its neighbor columns' content at 320-768px,
+   * something `scrollWidth` cannot see (nothing forced the page wider,
+   * two grid cells just occupied the same pixels). This is exactly the gap
+   * QA's finding names: the design review's own fidelity check measured
+   * row overflow, not cell-to-cell intersection, and passed a genuinely
+   * broken layout. jsdom/happy-dom has no real layout engine (returns
+   * zero-size rects for everything), so this has to be a real-browser
+   * check — a Vitest/RTL unit test could only ever pin the className that
+   * IMPLEMENTS the fix (as ProjectRow.test.tsx's other layout tests
+   * already do throughout this file), never prove the geometry it
+   * produces actually stops overlapping.
+   */
+  test('status column does not overlap the rate/date or senior columns at 320/375/768 — the actual QA-H-1 repro, not scrollWidth', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    const dropEmail = `ac5-overlap-${suffix}@cheekycheese.dev`
+
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { dropId } = await createDropViaAPI(page, {
+      email: dropEmail,
+      displayName: `AC5 Overlap Drop ${suffix}`,
+    })
+
+    try {
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+      // onboardDropViaAPI leaves the session logged in as the drop.
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      // Both senior and drop invited, neither approved (skipApproval) — the
+      // richest status-column content this component ever renders: badge +
+      // "от <senior> и дропа" caption + BOTH Confirm/Reject buttons (once
+      // logged in as the invited senior below). QA's repro was on exactly
+      // this shape, not the simpler senior-only case the overflow test above
+      // already covers.
+      const { projectId } = await createDropProjectViaAPI(page, {
+        dropId,
+        seniorEmail: SEED_EMAILS.seniorA,
+        companyName: `AC5 Overlap Co ${suffix}`,
+        skipApproval: true,
+      })
+
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      await page.goto('/projects?status=PENDING')
+      const row = page.getByTestId(`project-row-${projectId}`)
+      await expect(row).toBeVisible()
+      // Confirms the fullest-content case actually rendered before trusting
+      // the geometry check below — a hidden/empty button set would make
+      // "doesn't overlap" a vacuous pass.
+      await expect(row.getByTestId(`project-approval-approve-${projectId}`)).toBeVisible()
+
+      // Measuring `status-column`'s OWN boundingBox() is not enough — that
+      // div is a CSS grid item with `min-w-0`, so ITS box shrinks to the
+      // grid track (a thin sliver, confirmed by an earlier diagnostic run:
+      // 16-51px wide depending on viewport), while the overflowing CONTENT
+      // (the badge, the caption `<p>`, the Confirm/Reject button group)
+      // visually spills out well past it — a parent's bounding box does not
+      // grow to include overflowing children. This is exactly the bug: the
+      // grid track stays put, the CONTENT is what overlaps the neighbor
+      // cells. So the union of every element actually rendered inside
+      // status-column (not the wrapper itself) is what has to be compared
+      // against the neighboring columns' own boxes.
+      const contentUnionBox = (testId: string) =>
+        page.evaluate((id) => {
+          const root = document.querySelector(`[data-testid="${id}"]`)
+          if (!root) return null
+          const nodes = [root, ...root.querySelectorAll('*')]
+          let left = Infinity
+          let top = Infinity
+          let right = -Infinity
+          let bottom = -Infinity
+          for (const node of nodes) {
+            const r = node.getBoundingClientRect()
+            if (r.width === 0 || r.height === 0) continue
+            left = Math.min(left, r.left)
+            top = Math.min(top, r.top)
+            right = Math.max(right, r.right)
+            bottom = Math.max(bottom, r.bottom)
+          }
+          if (left === Infinity) return null
+          return { x: left, y: top, width: right - left, height: bottom - top }
+        }, testId)
+
+      for (const width of [320, 375, 768]) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(100)
+
+        const statusBox = await contentUnionBox(`project-row-${projectId}-status-column`)
+        const rateBox = await contentUnionBox(`project-row-${projectId}-rate-column`)
+        const seniorBox = await contentUnionBox(`project-row-${projectId}-senior-column`)
+        expect(statusBox, `status column content box at ${width}px`).not.toBeNull()
+        expect(rateBox, `rate column content box at ${width}px`).not.toBeNull()
+        expect(seniorBox, `senior column content box at ${width}px`).not.toBeNull()
+
+        const intersects = (
+          a: { x: number; y: number; width: number; height: number },
+          b: { x: number; y: number; width: number; height: number },
+        ) =>
+          a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+
+        expect(
+          intersects(statusBox!, rateBox!),
+          `status column content overlaps rate/date column content at ${width}px`,
+        ).toBe(false)
+        expect(
+          intersects(statusBox!, seniorBox!),
+          `status column content overlaps senior column content at ${width}px`,
+        ).toBe(false)
+      }
+
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await deleteProjectViaAPI(page, projectId)
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await cleanupDropViaAPI(page, dropId)
+    }
+  })
+
   test('mobile (375): tab buttons meet the 44px touch-target minimum', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.setViewportSize({ width: 375, height: 800 })

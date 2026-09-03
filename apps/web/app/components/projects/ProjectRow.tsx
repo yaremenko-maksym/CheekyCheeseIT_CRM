@@ -158,10 +158,26 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
         isPending && 'ring-1 ring-amber-500/20',
       )}
     >
-      <div
-        className="grid items-center gap-3 px-3 py-3 min-h-19"
-        style={{ gridTemplateColumns: '3fr 1.4fr 1.4fr 1.2fr 1fr' }}
-      >
+      {/* COPY-H-3 = QA-H-1 (PR #646 fix-round 2). Below 1024px the status
+          column (badge + caption + Confirm/Reject) visually overlapped the
+          rate/date and senior columns — QA's screenshots confirmed it AT
+          768px specifically, clean only from 1024px up. The review's own
+          note said "<md (до 1024)", a self-contradiction (Tailwind's `md`
+          is 768px); resolved toward the numeric "до 1024" since that is
+          what QA's evidence actually pins — hence `lg:` (1024px) below, not
+          `md:`. Orchestrator's decision (A1, reversible): do not redesign
+          the grid — only the status column relocates, to a second row
+          spanning full width, below `lg:`; at `lg:`+ this is byte-for-byte
+          the original single-row 5-column grid (same ratios, now expressed
+          as Tailwind arbitrary values instead of an inline style so they
+          can vary by breakpoint at all — grid-template-columns cannot be
+          responsive as a plain inline style). Grid auto-placement (default
+          `grid-auto-flow: row`) puts the status column on its own row with
+          no explicit row-start needed: at `<lg` it is 4 columns wide
+          (col-span-4) but the FIRST row already holds exactly 4 same-width
+          items (project/senior/junior/rate), so it doesn't fit and wraps —
+          at `lg:` it is back to col-span-1, fits in the row's 5th slot. */}
+      <div className="grid items-center gap-3 px-3 py-3 min-h-19 grid-cols-[3fr_1.4fr_1.4fr_1.2fr] lg:grid-cols-[3fr_1.4fr_1.4fr_1.2fr_1fr]">
         {/* Project info column — logo + name + company */}
         <div className="flex items-center gap-3 min-w-0">
           <ProjectLogo
@@ -208,7 +224,10 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
         </div>
 
         {/* Senior column — seniorId/seniorName are null for JUNIOR viewers (identity masking). */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div
+          data-testid={`project-row-${project.id}-senior-column`}
+          className="flex items-center gap-2 min-w-0"
+        >
           {project.seniorId != null ? (
             <>
               <Avatar className="h-7 w-7 shrink-0">
@@ -308,7 +327,10 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
         {/* Rate + date column.
             rate / currency are null for JUNIOR viewers (finance masking, RBAC A01).
             Render an em-dash placeholder so the column still occupies its grid cell. */}
-        <div className="flex flex-col items-end justify-center text-right">
+        <div
+          data-testid={`project-row-${project.id}-rate-column`}
+          className="flex flex-col items-end justify-center text-right"
+        >
           <p className="text-sm font-semibold tabular-nums">
             {project.rate != null ? (
               <>
@@ -340,7 +362,16 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
             same-purpose caption in TransactionRow.tsx. */}
         <div
           data-testid={`project-row-${project.id}-status-column`}
-          className="flex min-w-0 max-w-full flex-col items-end gap-1"
+          // COPY-H-3 = QA-H-1: `col-span-4 lg:col-span-1` is the actual
+          // overlap fix (see the grid container's own comment above) — this
+          // block moves to its own full-width row below `lg:`. The
+          // orientation flip (row below `lg:`, column at `lg:`+) is not
+          // itself required by the finding (nothing overlaps either way
+          // once this is its own row) but a lone right-aligned vertical
+          // stack floating at the end of a full-width row reads as broken,
+          // not fixed — "бейдж + подпись + кнопки" is also how the review
+          // itself describes the second row, left-to-right.
+          className="col-span-4 flex min-w-0 max-w-full flex-row flex-wrap items-center justify-start gap-2 lg:col-span-1 lg:flex-col lg:items-end lg:justify-center lg:gap-1"
         >
           {isArchived ? (
             <Badge
@@ -375,7 +406,13 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 </p>
               )}
               {canAct && (
-                <div className="mt-1">
+                // COPY-H-3 = QA-H-1: the parent's own `gap-2`/`lg:gap-1`
+                // already spaces this from its siblings on both layouts —
+                // `mt-1` here would double that spacing in the row layout
+                // (`<lg`), where it reads as an oversized gap before the
+                // buttons rather than the small vertical breathing room it
+                // was for in the original column layout.
+                <div className="lg:mt-1">
                   <ProjectApprovalActions
                     projectId={project.id}
                     companyName={project.companyName}
