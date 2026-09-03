@@ -1,5 +1,14 @@
 import { Fragment, useState } from 'react'
-import { Zap, ChevronDown, Pencil, StickyNote, Archive, ArchiveRestore } from 'lucide-react'
+import {
+  Zap,
+  ChevronDown,
+  Pencil,
+  StickyNote,
+  Archive,
+  ArchiveRestore,
+  MailPlus,
+  Mail,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -9,10 +18,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { ActionKey, UserProfileDto } from '@crm/shared'
-import { useUnarchiveUser } from '@/hooks/use-user-profile'
+import { useResendPersonalEmailInvite, useUnarchiveUser } from '@/hooks/use-user-profile'
 import { UserDialog } from '@/components/users/UserDialog'
 import { AdminNoteDialog } from './AdminNoteDialog'
 import { ArchiveUserDialog } from './ArchiveUserDialog'
+import { ChangePersonalEmailDialog } from './ChangePersonalEmailDialog'
 
 /** Edit-related ActionKeys that collectively gate the «Редактировать» button. */
 const EDIT_ACTION_KEYS: ActionKey[] = [
@@ -25,7 +35,7 @@ const EDIT_ACTION_KEYS: ActionKey[] = [
 /** Actions that get a separator rendered above them. */
 const SEPARATOR_BEFORE: Array<'set-note' | 'archive'> = ['set-note', 'archive']
 
-type OpenDialog = 'edit' | 'set-note' | 'archive' | null
+type OpenDialog = 'edit' | 'set-note' | 'archive' | 'change-personal-email' | null
 
 export function AdminActionsMenu({
   userId,
@@ -40,19 +50,77 @@ export function AdminActionsMenu({
   const close = () => setOpen(null)
   const isArchived = !!user.archivedAt
   const unarchiveMutation = useUnarchiveUser(userId, { isSenior: user.role === 'SENIOR' })
+  const resendInviteMutation = useResendPersonalEmailInvite(userId)
 
   // Show «Редактировать» if the user has any of the edit-related action keys.
   const canEdit = EDIT_ACTION_KEYS.some((k) => actions.includes(k))
   const canSetNote = actions.includes('set-note')
   const canArchive = actions.includes('archive')
+  // task-user-emails-invite (spec §5): the action key alone only says the
+  // VIEWER is allowed to resend — the button itself is further gated on
+  // there actually being something to resend. `personalContactVisible`
+  // (UX-M-1) must be checked FIRST: without it, `personalEmailCanLogin ===
+  // false` cannot be told apart from "this viewer cannot see the field at
+  // all" (which is also `null`, not `false` — see that field's own doc —
+  // so `=== false` alone already excludes the masked case, this check is
+  // belt-and-suspenders against a future loosening of that contract).
+  const canResendInvite =
+    actions.includes('resend-personal-invite') &&
+    user.personalContactVisible === true &&
+    !!user.personalEmail &&
+    user.personalEmailCanLogin === false
+  // security-review PR #623 round 4, owner decision: unlike resend-invite
+  // above, NOT further gated on personalEmailCanLogin — must stay usable
+  // both before AND after an invite is accepted (fast fix for a typo,
+  // whenever it is discovered). Still requires `personalContactVisible`
+  // (the same PII-visibility gate every other personalEmail-touching
+  // action in this menu already respects).
+  //
+  // COPY-M-12 (copy-review PR #623 round 5): also deliberately NOT gated on
+  // `user.personalEmail` being set — this is the ONLY entry point that can
+  // ADD a first personal address, not merely change or remove an existing
+  // one (`UsersService.changePersonalEmail`'s own doc: "Replaces whatever
+  // PERSONAL row the user currently has (if any)"). Restricting visibility
+  // to "has one already" would remove that capability. The label below
+  // reflects which of the two the admin is actually about to do instead.
+  const canChangePersonalEmail =
+    actions.includes('change-personal-email') && user.personalContactVisible === true
 
-  type MenuItem = { key: 'edit' | 'set-note' | 'archive'; icon: React.ReactNode; label: string }
+  type MenuItem = {
+    key: 'edit' | 'set-note' | 'archive' | 'resend-invite' | 'change-personal-email'
+    icon: React.ReactNode
+    label: string
+  }
   const menuItems: MenuItem[] = []
   if (canEdit) {
     menuItems.push({
       key: 'edit',
       icon: <Pencil className="mr-2 h-4 w-4" />,
       label: 'Редактировать',
+    })
+  }
+  if (canResendInvite) {
+    menuItems.push({
+      key: 'resend-invite',
+      icon: <MailPlus className="mr-2 h-4 w-4" />,
+      // COPY-L-1 (copy-review PR #623 round 4): was the longest item in
+      // this menu by a wide margin (237px vs 103/97px for the neighbours) —
+      // the item only ever shows when an invite has already been sent
+      // (canResendInvite below), so "повторно/снова" carries little.
+      label: 'Отправить приглашение снова',
+    })
+  }
+  if (canChangePersonalEmail) {
+    menuItems.push({
+      key: 'change-personal-email',
+      icon: <Mail className="mr-2 h-4 w-4" />,
+      // COPY-M-12 (copy-review PR #623 round 5): this item shows even when
+      // `user.personalEmail` is null (see `canChangePersonalEmail`'s own
+      // comment for why the check is deliberately NOT further gated on
+      // that) — "Изменить" is a false claim when there is nothing yet to
+      // change. `ChangePersonalEmailDialog` itself branches its own title/
+      // description on the SAME condition — keep both in sync.
+      label: user.personalEmail ? 'Изменить личный email' : 'Добавить личный email',
     })
   }
   if (canSetNote) {
@@ -89,7 +157,17 @@ export function AdminActionsMenu({
                 <DropdownMenuSeparator />
               )}
               <DropdownMenuItem
-                onClick={() => setOpen(item.key)}
+                data-testid={
+                  item.key === 'resend-invite'
+                    ? 'admin-actions-resend-invite'
+                    : item.key === 'change-personal-email'
+                      ? 'admin-actions-change-personal-email'
+                      : undefined
+                }
+                disabled={item.key === 'resend-invite' && resendInviteMutation.isPending}
+                onClick={() =>
+                  item.key === 'resend-invite' ? resendInviteMutation.mutate() : setOpen(item.key)
+                }
                 className={item.key === 'archive' ? 'text-destructive focus:text-destructive' : ''}
               >
                 {item.icon}
@@ -119,6 +197,14 @@ export function AdminActionsMenu({
         <AdminNoteDialog userId={userId} currentNote={user.adminNote} onClose={close} />
       )}
       {open === 'archive' && <ArchiveUserDialog user={user} onClose={close} />}
+      {open === 'change-personal-email' && (
+        <ChangePersonalEmailDialog
+          userId={userId}
+          currentEmail={user.personalEmail ?? null}
+          workEmail={user.email}
+          onClose={close}
+        />
+      )}
     </>
   )
 }

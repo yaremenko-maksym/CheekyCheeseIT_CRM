@@ -4,6 +4,7 @@ import {
   adminUpdateUserSchema,
   createUserSchema,
   createDropSchema,
+  changePersonalEmailSchema,
 } from './users'
 import { MIN_SALARY_AMOUNT } from './money'
 
@@ -316,6 +317,125 @@ describe('createUserSchema.monthlySalary — floor (security-review MED-1)', () 
   })
 })
 
+// ─── §4.4: personalEmail must differ from the work email ──────────────────────
+
+describe('createUserSchema — personalEmail must differ from work email (§4.4)', () => {
+  it('rejects when personalEmail is byte-identical to email', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: 'ivan@example.com',
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success ? result.error.issues[0] : undefined
+    expect(issue?.path).toEqual(['personalEmail'])
+    expect(issue?.message).toBe('Личный email должен отличаться от рабочего')
+    expect(issue?.code).toBe('custom')
+  })
+
+  it('rejects when the two addresses differ only by case', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: 'IVAN@EXAMPLE.COM',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a genuinely different personal email', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: 'ivan.personal@gmail.com',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts an omitted personalEmail (the common case — most users have none)', () => {
+    expect(
+      createUserSchema.safeParse({ ...juniorWithLegalName, email: 'ivan@example.com' }).success,
+    ).toBe(true)
+  })
+
+  it('rejects an invalid personalEmail shape with the standard email message', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: 'not-an-email',
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'personalEmail')
+      : undefined
+    expect(issue?.message).toBe('Некорректный email')
+  })
+})
+
+// security-review PR #623 (SR-M-1): `.max(255)` caps `email` / `personalEmail`
+// at the `varchar(255)` column bound — `.email()` alone accepts arbitrarily
+// long strings. Pins BOTH the boundary itself and the Russian message text
+// (a mutation-gate run on this file found the message string on both calls
+// unasserted — StringLiteral survivors on schemas/users.ts:174/185 — while
+// every OTHER mutant on this same line, including the 255 boundary itself,
+// was already killed by unrelated tests that merely happen to exercise a
+// valid-length email).
+describe('createUserSchema — email / personalEmail length cap (security-review PR #623, SR-M-1)', () => {
+  const DOMAIN = '@x.co' // 5 chars
+  const email256 = `${'a'.repeat(256 - DOMAIN.length)}${DOMAIN}` // 256 chars total — one over the cap
+  const email255 = email256.slice(1) // 255 chars — exactly at the cap
+
+  it('rejects an email one character over the 255 cap, with the field-specific message', () => {
+    expect(email256).toHaveLength(256)
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: email256,
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'email')
+      : undefined
+    expect(issue?.message).toBe('Email не длиннее 255 символов')
+  })
+
+  it('accepts an email exactly at the 255 cap', () => {
+    expect(email255).toHaveLength(255)
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: email255,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a personalEmail one character over the 255 cap, with the field-specific message', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'ivan@example.com',
+      personalEmail: email256,
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'personalEmail')
+      : undefined
+    expect(issue?.message).toBe('Email не длиннее 255 символов')
+  })
+
+  // mutation-gate closure (PR #623): `.email('Некорректный email')` on the
+  // WORK `email` field had no test asserting its message text — the
+  // personalEmail test above (line ~369) only covers the message on THAT
+  // field. StringLiteral survivor on schemas/users.ts:174.
+  it('rejects an invalid work email shape with the standard email message', () => {
+    const result = createUserSchema.safeParse({
+      ...juniorWithLegalName,
+      email: 'not-an-email',
+    })
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'email')
+      : undefined
+    expect(issue?.message).toBe('Некорректный email')
+  })
+})
+
 describe('adminUpdateUserSchema.monthlySalary — floor (security-review MED-1)', () => {
   it('rejects an amount below the smallest storable unit', () => {
     const result = adminUpdateUserSchema.safeParse({ monthlySalary: 0.001 })
@@ -331,5 +451,49 @@ describe('adminUpdateUserSchema.monthlySalary — floor (security-review MED-1)'
   it('still accepts 0 and omitted (unchanged behaviour)', () => {
     expect(adminUpdateUserSchema.safeParse({ monthlySalary: 0 }).success).toBe(true)
     expect(adminUpdateUserSchema.safeParse({}).success).toBe(true)
+  })
+})
+
+// security-review PR #623 round 4, owner decision — mutation gate (`--changed`)
+// caught this with ZERO prior coverage: an `ObjectLiteral` mutant emptying
+// the whole schema to `z.object({})` survived every existing test, because
+// nothing anywhere had ever parsed a single payload through it.
+describe('changePersonalEmailSchema (security-review PR #623 round 4, owner decision)', () => {
+  it('accepts a valid email', () => {
+    const result = changePersonalEmailSchema.safeParse({ personalEmail: 'ivan.personal@gmail.com' })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.personalEmail).toBe('ivan.personal@gmail.com')
+  })
+
+  it('accepts null (removal)', () => {
+    const result = changePersonalEmailSchema.safeParse({ personalEmail: null })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.personalEmail).toBeNull()
+  })
+
+  it('requires the field — omitting it fails (unlike createUserSchema.personalEmail, this is not .optional())', () => {
+    expect(changePersonalEmailSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('rejects an invalid email shape with the exact message', () => {
+    const result = changePersonalEmailSchema.safeParse({ personalEmail: 'not-an-email' })
+    expect(result.success).toBe(false)
+    const message = !result.success ? result.error.issues[0]?.message : undefined
+    expect(message).toBe('Некорректный email')
+  })
+
+  it("rejects an email over the 255-char cap with the exact message (mirrors createUserSchema.personalEmail's bound)", () => {
+    const email256 = `${'a'.repeat(247)}@example.com` // 260 chars, well over 255
+    const result = changePersonalEmailSchema.safeParse({ personalEmail: email256 })
+    expect(result.success).toBe(false)
+    const message = !result.success ? result.error.issues[0]?.message : undefined
+    expect(message).toBe('Email не длиннее 255 символов')
+  })
+
+  it('accepts exactly 255 characters (boundary — kills an off-by-one on the cap)', () => {
+    // 'a'.repeat(243) + '@example.com' (12 chars) = 255 exactly.
+    const email255 = `${'a'.repeat(243)}@example.com`
+    expect(email255).toHaveLength(255)
+    expect(changePersonalEmailSchema.safeParse({ personalEmail: email255 }).success).toBe(true)
   })
 })

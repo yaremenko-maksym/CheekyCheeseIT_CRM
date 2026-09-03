@@ -21,6 +21,7 @@ function compact<T>(obj: T): T {
 }
 import {
   adminUpdateUserSchema,
+  changePersonalEmailSchema,
   changeRequisitesSchema,
   changeRoleSchema,
   changeSalarySchema,
@@ -33,11 +34,13 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { AdminWriteThrottle } from '../config/throttle-decorators'
 import { Roles } from '../common/decorators/roles.decorator'
 import { AuditLog } from '../common/decorators/audit-log.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { AuditLogService } from './audit-log.service'
+import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 import { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { TransactionsService } from '../finance/transactions.service'
@@ -52,6 +55,7 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly auditLogService: AuditLogService,
     private readonly accessService: UsersAccessService,
+    private readonly inviteMailer: PersonalEmailInviteMailerService,
     @Optional() private readonly transactionsService?: TransactionsService,
   ) {}
 
@@ -93,6 +97,13 @@ export class UsersController {
 
   @Post()
   @Roles('ADMIN', 'HR')
+  // security-review PR #623 (SR-M-5, MED): a 409 here confirms an email is
+  // already registered — including as someone's PERSONAL address, which the
+  // caller (HR included) has no read access to otherwise. Uniqueness itself
+  // cannot be relaxed (that reopens SR-H-1's one-address-two-accounts hole),
+  // so this throttles the only remaining lever: how many probes per minute
+  // an HR/ADMIN session can burn turning this into an enumeration oracle.
+  @AdminWriteThrottle()
   async createUser(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
     const dto = createUserSchema.parse(body)
     // ut-12: ADMIN creation is fixed-pool — block at the HTTP boundary too.
@@ -120,6 +131,12 @@ export class UsersController {
     const isHrActor = currentUser.role === 'HR'
     return this.usersService.createUser({
       email: dto.email,
+      // §4.4: same posture as legalFullName/wallet*/bankUah* above — an HR
+      // actor's provisioning surface is deliberately narrowed to
+      // seniorSharePercent only (see the security comment above), so a
+      // personal address (PII the invite flow will email) is forced to
+      // server-default (unset) for HR, same as everything else in this list.
+      personalEmail: isHrActor ? null : (dto.personalEmail ?? null),
       displayName: dto.displayName,
       role: dto.role,
       telegram: dto.telegram ?? null,
@@ -158,6 +175,8 @@ export class UsersController {
    */
   @Post('drops')
   @Roles('ADMIN')
+  // SR-M-5 — same existence-oracle reasoning as createUser above.
+  @AdminWriteThrottle()
   async createDrop(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
     const dto = createDropSchema.parse(body)
     return this.usersService.createDrop(
@@ -373,6 +392,87 @@ export class UsersController {
   async setNote(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
     const dto = setNoteSchema.parse(body)
     return this.usersService.setAdminNote(id, dto.note)
+  }
+
+  /**
+   * task-user-emails-invite (spec §5 — "Админ должен уметь выслать
+   * приглашение заново"). Regenerates the invite token for the user's
+   * EXISTING PERSONAL row and re-sends the email — the recovery path for a
+   * typo'd address, a lost email, or a delivery failure logged by
+   * `PersonalEmailInviteMailerService`. `UsersService.
+   * resendPersonalEmailInvite` throws `BadRequestException` (no PERSONAL row
+   * at all) or `ConflictException` (already accepted) — both surface as
+   * their standard HTTP status via NestJS's exception filter, no special
+   * handling needed here.
+   *
+   * `@AdminWriteThrottle` — same rate-limit posture as every other admin
+   * write on this controller (createUser, setNote, archiveUser, …); this
+   * one ALSO triggers a real outbound email per call, which is reason
+   * enough on its own even before considering it as a write.
+   */
+  @Post(':id/personal-email/resend-invite')
+  @Roles('ADMIN')
+  @AdminWriteThrottle()
+  async resendPersonalEmailInvite(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const { rawToken, email, displayName } = await this.usersService.resendPersonalEmailInvite(
+      id,
+      currentUser.id,
+    )
+    // copy-review PR #623 (COPY-M-1): report whether the mail actually left
+    // this process — the frontend toast must not claim "отправлено" when
+    // sendInvite silently no-op'd (missing API key) or exhausted its retries.
+    const delivered = await this.inviteMailer.sendInvite({ to: email, displayName, rawToken })
+    return { ok: true, delivered }
+  }
+
+  /**
+   * PATCH /api/users/:id/personal-email — security-review PR #623 round 4,
+   * owner decision (see `changePersonalEmailSchema`'s doc, `@crm/shared`):
+   * fast, unconditional fix for a mistyped personal address. Deliberately a
+   * SEPARATE endpoint from `PATCH /:id` (`updateUser` above) — see that
+   * schema's own comment for why this stays out of `adminUpdateUserSchema`.
+   *
+   * `@AuditLog` is NOT used here — `UsersService.changePersonalEmail`
+   * records its own audit entry directly (`personal_email_changed`), for
+   * the same reason `resendPersonalEmailInvite` does: the automatic
+   * before/after diff `AuditInterceptor` performs compares the `users`
+   * TABLE row, which never changes here (only `user_emails` does).
+   *
+   * SR-L-2 (security-review PR #623 round 5): `@AdminWriteThrottle()`
+   * (5/min) was flagged as possibly too tight for this specific endpoint —
+   * this is the emergency-revocation path, and if a raced accept forced the
+   * admin to retry, the 5/min budget could be exhausted mid-incident.
+   * Left unchanged: that concern was downstream of SR-H-5 (`UsersService.
+   * acceptPersonalEmailInvite`'s own doc), which removed the race that
+   * would have forced a retry in the first place — a correctly-ordered
+   * `changePersonalEmail` call now either succeeds outright or blocks
+   * briefly on a row lock, never fails and needs re-issuing. 5/min remains
+   * generous for a single deliberate admin action.
+   */
+  @Patch(':id/personal-email')
+  @Roles('ADMIN')
+  @AdminWriteThrottle()
+  async changePersonalEmail(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+  ) {
+    const dto = changePersonalEmailSchema.parse(body)
+    const result = await this.usersService.changePersonalEmail(
+      id,
+      dto.personalEmail,
+      currentUser.id,
+    )
+    if (!result) return { ok: true, delivered: null }
+    const delivered = await this.inviteMailer.sendInvite({
+      to: result.email,
+      displayName: result.displayName,
+      rawToken: result.rawToken,
+    })
+    return { ok: true, delivered }
   }
 
   @Delete(':id')

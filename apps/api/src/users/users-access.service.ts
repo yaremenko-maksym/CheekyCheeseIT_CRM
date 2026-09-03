@@ -60,6 +60,18 @@ export class UsersAccessService {
           'change-requisites',
           'set-note',
           'archive',
+          // task-user-emails-invite: gated further on the frontend by
+          // whether a PERSONAL row actually exists and is not yet
+          // accepted (see the actionKeySchema comment) — always offered
+          // to ADMIN here, same posture as every other action in this
+          // list (edit-profile/archive/etc. are also always offered and
+          // rely on the UI + the service's own state checks, not on
+          // narrowing THIS list per-target).
+          'resend-personal-invite',
+          // security-review PR #623 round 4, owner decision: unlike the
+          // action above, NOT further gated on canLogin state — must stay
+          // usable both before and after an invite is accepted.
+          'change-personal-email',
         )
       }
       // ADMIN viewing self: hide own salary/share/payment-method/registration-date KPIs (own
@@ -78,6 +90,15 @@ export class UsersAccessService {
       fields.fopPii = true
       // Real contacts (email, phone, telegram) — visible to ADMIN always
       fields.realContacts = true
+      // security-review PR #623 (SR-M-4): personalEmail is NOT covered by
+      // realContacts — that flag is also true for HR viewing a teammate
+      // (see the isHr branch below), and HR is deliberately barred from
+      // EVER setting personalEmail (UsersController.createUser forces it
+      // null for an HR actor) — a field too sensitive for HR to enter but
+      // visible to HR to read is the same boundary enforced in only one of
+      // its two places. ADMIN + self are the only viewers who may ever see
+      // it; every other branch below leaves this at its `false` default.
+      fields.personalContact = true
       // ADMIN can view/edit any SENIOR's or DROP's legend (subject excluded by isSelf check)
       fields.legend = targetIsLegendSubject && !isSelf
       // task-junior-ut-round2 §6: ADMIN sees + edits a JUNIOR's project credentials
@@ -138,6 +159,9 @@ export class UsersAccessService {
       fields.fopPii = true
       // Real contacts — owner sees own contacts
       fields.realContacts = true
+      // SR-M-4 — see the ADMIN branch above for the full reasoning. Owner
+      // always sees their own personal address.
+      fields.personalContact = true
       // Subject cannot view/edit their own legend (new model: self-access removed)
       fields.legend = false
     } else if (isAccountant) {

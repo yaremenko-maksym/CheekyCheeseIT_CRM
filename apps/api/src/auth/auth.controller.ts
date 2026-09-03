@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -8,6 +9,7 @@ import {
   HttpStatus,
   Logger,
   NotFoundException,
+  Param,
   Post,
   Query,
   Req,
@@ -29,11 +31,18 @@ import type { Env } from '../config/env'
 import { AdminWriteThrottle, AuthThrottle, RelaxableThrottle } from '../config/throttle-decorators'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
-import { UsersService } from '../users/users.service'
+import type { User, UserEmail } from '../database/schema'
+import {
+  GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE,
+  INVITE_TARGET_ARCHIVED_MESSAGE,
+  UsersService,
+} from '../users/users.service'
 import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
 import { Public } from './public.decorator'
 import {
+  INVITE_COOKIE_HARDENED,
+  INVITE_COOKIE_LEGACY,
   JWT_COOKIE_HARDENED,
   JWT_COOKIE_LEGACY,
   STATE_COOKIE_HARDENED,
@@ -93,6 +102,10 @@ export class AuthController {
   private readonly jwtClearCookieOpts: ClearCookieOpts
   private readonly stateSetCookieOpts: SetCookieOpts
   private readonly stateClearCookieOpts: ClearCookieOpts
+  // task-user-emails-invite — see cookie-names.ts's doc on this pair.
+  private readonly inviteCookieName: string
+  private readonly inviteSetCookieOpts: SetCookieOpts
+  private readonly inviteClearCookieOpts: ClearCookieOpts
 
   constructor(
     private authService: AuthService,
@@ -104,6 +117,7 @@ export class AuthController {
     this.isProduction = this.config.get('NODE_ENV', { infer: true }) === 'production'
     this.jwtCookieName = this.isProduction ? JWT_COOKIE_HARDENED : JWT_COOKIE_LEGACY
     this.stateCookieName = this.isProduction ? STATE_COOKIE_HARDENED : STATE_COOKIE_LEGACY
+    this.inviteCookieName = this.isProduction ? INVITE_COOKIE_HARDENED : INVITE_COOKIE_LEGACY
     this.jwtSetCookieOpts = {
       httpOnly: true,
       sameSite: 'lax',
@@ -130,6 +144,9 @@ export class AuthController {
       secure: this.isProduction,
       path: '/',
     }
+    // Same shape as the state cookie — see cookie-names.ts.
+    this.inviteSetCookieOpts = this.stateSetCookieOpts
+    this.inviteClearCookieOpts = this.stateClearCookieOpts
   }
 
   /**
@@ -160,6 +177,60 @@ export class AuthController {
     const authUrl = this.authService.buildGoogleAuthUrl(state)
 
     reply.setCookie(this.stateCookieName, state, this.stateSetCookieOpts)
+    // SR-M-11 (security-review PR #623 round 4): an invite-accept round trip
+    // (below) may have left this cookie behind (its own 10-minute maxAge) —
+    // clear it so an ordinary login click can never be misrouted into
+    // `googleCallback`'s invite branch. The state-binding in that branch is
+    // the primary defense (a normal round's `state` never matches an old
+    // invite cookie's embedded state either); this is belt-and-suspenders.
+    reply.clearCookie(this.inviteCookieName, this.inviteClearCookieOpts)
+    await reply.redirect(authUrl, 302)
+  }
+
+  /**
+   * task-user-emails-invite (spec §2, §5) — the invite email's link points
+   * here directly (see PersonalEmailInviteMailerService), same pattern the
+   * login page's own "Войти с Google" button already uses (a plain link
+   * straight to a backend endpoint that redirects to Google — no frontend
+   * page needed for this step).
+   *
+   * Sets the SAME OAuth-state cookie `initiateGoogleAuth` sets (CSRF
+   * defense, unchanged) PLUS the invite-token cookie — `googleCallback`
+   * below reads that second cookie to know this round trip is an
+   * invite-accept, not a normal login. A malformed token (wrong shape —
+   * `generateInviteToken` always produces 64 hex chars) is rejected here,
+   * before spending a Google round trip on it; a well-formed but
+   * nonexistent/expired/used one is still rejected later, in
+   * `UsersService.acceptPersonalEmailInvite` — this check is cheap hygiene,
+   * not the real validation.
+   *
+   * SR-M-11 (security-review PR #623 round 4): the invite cookie's VALUE is
+   * `${state}:${token}`, not the bare token — `googleCallback` only honours
+   * it when the embedded `state` matches THIS callback's `state` query
+   * param. Before this, the cookie was keyed on nothing but its own
+   * presence: `googleCallback` treated ANY request carrying it as an
+   * invite-accept, and this endpoint set it for any syntactically valid
+   * 64-hex string without checking it existed — so a link to
+   * `/api/auth/invite/<any 64 hex>`, opened once, made the visitor's NEXT
+   * ordinary login (within the 10-minute cookie lifetime) silently fail
+   * with an invite-flavoured error instead of signing them in.
+   */
+  @Get('invite/:token')
+  @Public()
+  @AuthThrottle()
+  async startInviteAccept(@Param('token') token: string, @Res() reply: FastifyReply) {
+    if (!/^[0-9a-f]{64}$/.test(token)) {
+      await reply.redirect(`${this.frontendUrl}/login?error=invite_invalid`, 302)
+      return
+    }
+
+    const state = randomBytes(16).toString('hex')
+    reply.setCookie(this.stateCookieName, state, this.stateSetCookieOpts)
+    reply.setCookie(this.inviteCookieName, `${state}:${token}`, this.inviteSetCookieOpts)
+    // COPY-H-3 (copy-review PR #623 round 4): force Google's account
+    // chooser — see AuthService.buildGoogleAuthUrl's doc for why this is
+    // invite-only.
+    const authUrl = this.authService.buildGoogleAuthUrl(state, { promptSelectAccount: true })
     await reply.redirect(authUrl, 302)
   }
 
@@ -182,6 +253,25 @@ export class AuthController {
     // see `issueJwtCookie` doc for why a `__Host-*` deletion needs `secure`.
     reply.clearCookie(this.stateCookieName, this.stateClearCookieOpts)
 
+    // task-user-emails-invite: read BEFORE the Google exchange (below) so
+    // the branch decision does not depend on anything Google returns —
+    // clear unconditionally, whether or not this turns out to be an
+    // invite round trip, so a stale cookie never lingers into a later,
+    // unrelated login.
+    // Stryker disable next-line OptionalChaining: the guard at line 247 (`!storedState`) already returned early unless `request.cookies?.[stateCookieName]` was truthy — which requires `request.cookies` itself to be a real object at that point (optional-chaining on undefined/null always yields undefined, never a truthy cookie value). By the time this line runs, `request.cookies` cannot be null/undefined, so `?.` here is unobservable — verified against the control flow above, not asserted.
+    const rawInviteCookie = request.cookies?.[this.inviteCookieName]
+    reply.clearCookie(this.inviteCookieName, this.inviteClearCookieOpts)
+    // SR-M-11 (security-review PR #623 round 4): the cookie's value is
+    // `${state}:${token}` (see startInviteAccept's doc) — only treat this
+    // as an invite-accept round trip when the embedded state matches THIS
+    // callback's `state` query param. A cookie left over from an earlier,
+    // already-finished (or naively forged) invite round carries a
+    // DIFFERENT state and is ignored here, falling through to the ordinary
+    // login path below instead of hijacking it.
+    // Stryker disable next-line ArrayDeclaration: `?? []` only ever changes `cookieState` (position 0) — `inviteToken` (position 1) stays `undefined` for ANY single-element fallback array, and `isInviteRound` below reads `cookieState` only when `Boolean(inviteToken)` is already true. No fallback array content can make `isInviteRound` observably differ from `[]`'s.
+    const [cookieState, inviteToken] = rawInviteCookie?.split(':') ?? []
+    const isInviteRound = Boolean(inviteToken) && cookieState === state
+
     let googleUser: { id: string; email: string; name: string; picture: string }
     try {
       const tokens = await this.authService.exchangeGoogleCode(code)
@@ -192,8 +282,34 @@ export class AuthController {
       return
     }
 
-    const user = await this.usersService.findByEmail(googleUser.email)
-    if (!user) {
+    if (isInviteRound) {
+      // Invite-accept branch (task §2 — "Точка приёма"). No session is
+      // minted here — Google has confirmed WHO is in the browser, but that
+      // is all this branch does anything with. The person still has to hit
+      // the ordinary "Войти с Google" button afterwards to actually sign
+      // in, same as anyone else.
+      try {
+        await this.usersService.acceptPersonalEmailInvite(
+          // Non-null: `isInviteRound` already asserted `Boolean(inviteToken)`.
+          inviteToken!,
+          googleUser.email,
+          googleUser.id,
+        )
+      } catch (err) {
+        await reply.redirect(`${this.frontendUrl}/login?error=${mapInviteAcceptError(err)}`, 302)
+        return
+      }
+      await reply.redirect(`${this.frontendUrl}/login?invited=1`, 302)
+      return
+    }
+
+    // §4.4/§5: lookup goes through user_emails (findLoginableEmailRow),
+    // NOT users.email directly — a personal address that exists but has not
+    // been activated via invite-accept must behave exactly like "not
+    // found" here, not like a valid login.
+    const emailRow = await this.usersService.findLoginableEmailRow(googleUser.email)
+    const user = emailRow ? await this.usersService.findById(emailRow.userId) : undefined
+    if (!emailRow || !user) {
       await reply.redirect(`${this.frontendUrl}/login?error=unauthorized`, 302)
       return
     }
@@ -207,26 +323,88 @@ export class AuthController {
       return
     }
 
-    if (!user.googleId) {
-      await this.usersService.updateGoogleId(user.id, googleUser.id)
-    } else if (user.googleId !== googleUser.id) {
-      // Audit LOW #3: the email is already bound to a DIFFERENT Google `sub`.
-      // Refuse rather than silently honouring the existing binding — protects
-      // against account-takeover via email reuse / re-issued Google accounts.
-      // MED (security-review): log user.id only — never raw email (PII).
-      this.logger.warn(`Google account mismatch (OAuth callback) for user id=${user.id}`)
+    if (!(await this.verifyOrBindGoogleIdentity(user, emailRow, googleUser.id, 'OAuth callback'))) {
       await reply.redirect(`${this.frontendUrl}/login?error=account_mismatch`, 302)
       return
     }
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
     // Full SessionUser (incl. legalFullName) is re-hydrated via GET /me.
-    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    // SR-H-6 (security-review PR #623 round 5): `userEmailId` — the row
+    // that actually unlocked this login, WORK or PERSONAL — see
+    // `jwtPayloadSchema`'s own doc for why JwtAuthGuard needs it.
+    const jwtPayload = jwtPayloadSchema.parse({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      userEmailId: emailRow.id,
+    })
     const token = this.jwtService.sign(jwtPayload)
 
     this.issueJwtCookie(reply, token)
 
     await reply.redirect(`${this.frontendUrl}/`, 302)
+  }
+
+  /**
+   * task-user-emails-invite: Google-identity binding, scoped to whichever
+   * `user_emails` ROW matched the login (see `findLoginableEmailRow`) —
+   * not to the user as a whole. WORK rows bind/verify against
+   * `users.googleId`, EXACTLY as before this task (three prior security-
+   * review rounds covered that path; this branch is byte-for-byte the same
+   * check, only moved into a shared helper). PERSONAL rows bind/verify
+   * against their OWN `user_emails.google_id` instead — see that column's
+   * comment in schema.ts for why one shared slot cannot serve both a
+   * corporate WORK account and a personal one, which are, by construction,
+   * different Google accounts.
+   *
+   * Threat model preserved 1:1 per row (Audit LOW #3's rationale: refuse
+   * rather than silently honour a changed `sub` for an address that
+   * already has one bound) — this only changes WHERE the previously-bound
+   * `sub` is looked up, never whether a mismatch is rejected.
+   *
+   * Returns `true` on success (already matched, or bound for the first
+   * time); `false` on mismatch — logs the same way the pre-existing WORK
+   * check already did, callers decide how to fail (redirect vs 401).
+   */
+  private async verifyOrBindGoogleIdentity(
+    user: User,
+    emailRow: UserEmail,
+    incomingGoogleId: string,
+    logSuffix: string,
+  ): Promise<boolean> {
+    if (emailRow.kind === 'WORK') {
+      if (!user.googleId) {
+        await this.usersService.updateGoogleId(user.id, incomingGoogleId)
+        return true
+      }
+      if (user.googleId !== incomingGoogleId) {
+        // MED (security-review): log user.id only — never raw email (PII).
+        this.logger.warn(`Google account mismatch (${logSuffix}) for user id=${user.id}`)
+        return false
+      }
+      return true
+    }
+
+    // PERSONAL. Defensive-only null branch: `acceptPersonalEmailInvite` is
+    // the sole writer of a PERSONAL row's `googleId`, and it always sets it
+    // in the SAME transaction that flips `canLogin` to true — a
+    // `canLogin=true` PERSONAL row with no `googleId` is a data
+    // inconsistency this code should never actually reach, not a
+    // legitimate first-time bind. Still bind rather than throw, mirroring
+    // the WORK branch's shape, so a bug here degrades to "logged in" rather
+    // than "locked out".
+    if (!emailRow.googleId) {
+      await this.usersService.updateEmailRowGoogleId(emailRow.id, incomingGoogleId)
+      return true
+    }
+    if (emailRow.googleId !== incomingGoogleId) {
+      this.logger.warn(
+        `Google account mismatch (${logSuffix}, personal address) for user id=${user.id}`,
+      )
+      return false
+    }
+    return true
   }
 
   // `/me` requires auth (no @Public) — caller is the global JwtAuthGuard now.
@@ -299,6 +477,14 @@ export class AuthController {
    * minimal (interceptor-level only, not threaded into every service-layer
    * audit writer) per the same owner decision against heavier machinery.
    * list excludes admins — enforced here; frontend filters UI list accordingly.
+   *
+   * SR-M-13 (security-review PR #623 round 6): the minted token carries the
+   * calling admin's OWN `userEmailId` (if their session had one) forward
+   * under `impersonatorUserEmailId` — NOT under `userEmailId` itself; this
+   * token has no `user_emails` row of its own (see `jwtPayloadSchema`'s doc,
+   * case 1). `stopImpersonating` reads it back to restore the admin's row
+   * binding on the way out — see that field's own doc for the full
+   * rationale and the reproduction it closes.
    */
   @Post('impersonate')
   @UseGuards(RolesGuard)
@@ -336,6 +522,14 @@ export class AuthController {
       email: target.email,
       role: target.role,
       impersonatorId: currentUser.id,
+      // SR-M-13 — see this method's own doc above + the field's own doc
+      // (`jwtPayloadSchema`, `@crm/shared`) for the full rationale.
+      // `currentUser.userEmailId` is itself optional (the admin's own
+      // session may be in one of the documented no-row cases), so this may
+      // legitimately carry `undefined` through — `stopImpersonating`
+      // handles that the same way a pre-existing userEmailId-less session
+      // already does.
+      impersonatorUserEmailId: currentUser.userEmailId,
     })
     const token = this.jwtService.sign(jwtPayload)
 
@@ -356,6 +550,13 @@ export class AuthController {
    *
    * Security invariant: restores ONLY the admin whose id is in `impersonatorId`
    * of the caller's token — never an arbitrary user.
+   *
+   * SR-M-13 (security-review PR #623 round 6): restores `userEmailId` from
+   * `currentUser.impersonatorUserEmailId` — the admin's own row binding,
+   * relayed across the round trip by `impersonate` above — instead of
+   * always minting a userEmailId-less session. See `impersonatorUserEmailId`'s
+   * own doc (`jwtPayloadSchema`, `@crm/shared`) for the reproduction this
+   * closes.
    */
   @Post('stop-impersonating')
   @RelaxableThrottle(20)
@@ -379,6 +580,9 @@ export class AuthController {
       email: admin.email,
       role: admin.role,
       // No impersonatorId — restoring clean admin session.
+      // SR-M-13: restore the admin's own row binding, if the token being
+      // stopped was carrying one — see this method's own doc above.
+      userEmailId: currentUser.impersonatorUserEmailId,
     })
     const token = this.jwtService.sign(jwtPayload)
 
@@ -402,26 +606,29 @@ export class AuthController {
       throw new UnauthorizedException('Invalid Google credential')
     }
 
-    const user = await this.usersService.findByEmail(googleUser.email)
-    if (!user) throw new UnauthorizedException('Email not authorized')
+    // §4.4/§5 — same rationale as googleCallback above.
+    const emailRow = await this.usersService.findLoginableEmailRow(googleUser.email)
+    const user = emailRow ? await this.usersService.findById(emailRow.userId) : undefined
+    if (!emailRow || !user) throw new UnauthorizedException('Email not authorized')
 
     // LOW (security-audit authz-hardening): mirrors the same check in
     // googleCallback — an archived (fired) user must never receive a
     // session, not even a 401-request's worth of DB re-hydration lag.
     if (user.archivedAt) throw new UnauthorizedException('Account disabled')
 
-    if (!user.googleId) {
-      await this.usersService.updateGoogleId(user.id, googleUser.sub)
-    } else if (user.googleId !== googleUser.sub) {
-      // Audit LOW #3: incoming Google `sub` differs from the one already bound
-      // to this email — reject instead of ignoring the mismatch.
-      // MED (security-review): log user.id only — never raw email (PII).
-      this.logger.warn(`Google account mismatch (one-tap) for user id=${user.id}`)
+    if (!(await this.verifyOrBindGoogleIdentity(user, emailRow, googleUser.sub, 'one-tap'))) {
       throw new UnauthorizedException('Google account mismatch')
     }
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
-    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    // SR-H-6 (security-review PR #623 round 5) — see googleCallback's
+    // identical comment above.
+    const jwtPayload = jwtPayloadSchema.parse({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      userEmailId: emailRow.id,
+    })
     const token = this.jwtService.sign(jwtPayload)
 
     this.issueJwtCookie(reply, token)
@@ -465,11 +672,29 @@ export class AuthController {
   async devLogin(@Body() body: { email: string }, @Res({ passthrough: true }) reply: FastifyReply) {
     if (this.isProduction) throw new UnauthorizedException('Not available in production')
 
-    const user = await this.usersService.findByEmail(body.email)
-    if (!user) throw new NotFoundException(`User ${body.email} not found in DB`)
+    // §4.4/§5 — same rationale as googleCallback above: dev-login stands in
+    // for real OAuth login, so it must respect the same canLogin gate (an
+    // E2E/dev script exercising "personal email cannot log in yet" needs
+    // this path to behave identically to the real one).
+    //
+    // SR-H-6 (security-review PR #623 round 5): resolves the ROW
+    // (`findLoginableEmailRow`), not just the user (`findLoginableUserByEmail`,
+    // still used elsewhere), because the JWT below needs `emailRow.id` —
+    // dev-login is how E2E/dev scripts simulate a PERSONAL-address login
+    // (real Google OAuth is not available in that environment), so it must
+    // carry the same `userEmailId` a real login would, or the SR-H-6
+    // revocation check could never be exercised outside production.
+    const emailRow = await this.usersService.findLoginableEmailRow(body.email)
+    const user = emailRow ? await this.usersService.findById(emailRow.userId) : undefined
+    if (!emailRow || !user) throw new NotFoundException(`User ${body.email} not found in DB`)
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
-    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    const jwtPayload = jwtPayloadSchema.parse({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      userEmailId: emailRow.id,
+    })
     const token = this.jwtService.sign(jwtPayload)
     // devLogin can only reach this line when `this.isProduction === false`
     // (checked above), so `issueJwtCookie`'s `secure: this.isProduction`
@@ -478,4 +703,53 @@ export class AuthController {
 
     return { ok: true, user: jwtPayload }
   }
+}
+
+/**
+ * LOW-1/LOW-2 (security-review PR #623 round 4): `acceptPersonalEmailInvite`
+ * throws two DIFFERENT situations under the SAME exception type
+ * (`ForbiddenException` for "wrong Google account" vs "target archived";
+ * `ConflictException` for "token already used" vs "Google account bound
+ * elsewhere") — `instanceof` alone cannot tell them apart, only the
+ * message can. Extracts the plain string from the `{ statusCode, message,
+ * error }` shape every `new XException('msg')` call in this codebase
+ * produces.
+ */
+function exceptionMessage(err: ForbiddenException | ConflictException): string {
+  const response = err.getResponse()
+  // Stryker disable next-line ConditionalExpression,StringLiteral: verified empirically (node -e against @nestjs/common) — `new ForbiddenException('str')`/`new ConflictException('str')`, the ONLY construction shape `acceptPersonalEmailInvite` ever uses, always returns an OBJECT `{message, error, statusCode}` from `getResponse()`, never a raw string. This branch guards a Nest exception-body shape this codebase never actually produces.
+  if (typeof response === 'string') return response
+  const message = (response as { message?: unknown }).message
+  // Stryker disable next-line ConditionalExpression,StringLiteral: the ONLY caller (mapInviteAcceptError below) does strict equality against a known sentinel string — any non-matching value, whether `''` or `undefined` (what this ternary's `true`-mutant would leak through instead), compares unequal to that sentinel the same way. A test asserting on the mapped `?error=` code (the only thing this function's result is ever used for) cannot distinguish the two — verified by hand: mutating this line to `return message` still passes every test in this file, because `mapInviteAcceptError` never reads this value on its own.
+  return typeof message === 'string' ? message : ''
+}
+
+/**
+ * task-user-emails-invite: maps `UsersService.acceptPersonalEmailInvite`'s
+ * exceptions to the `?error=` code `googleCallback`'s invite branch
+ * redirects with — the login page (`login.tsx`) owns the Russian copy
+ * shown for each. Kept as a free function (not a private method) since it
+ * has no dependency on controller state — a pure exception → string map.
+ */
+function mapInviteAcceptError(err: unknown): string {
+  if (err instanceof ForbiddenException) {
+    // LOW-2: target account was archived (fired) after the invite was
+    // issued — reuse the SAME code the ordinary login path already emits
+    // for a fired user, rather than the generic mismatch message.
+    return exceptionMessage(err) === INVITE_TARGET_ARCHIVED_MESSAGE
+      ? 'account_disabled'
+      : 'invite_email_mismatch'
+  }
+  if (err instanceof ConflictException) {
+    // LOW-1: the confirming Google account is already bound to a DIFFERENT
+    // user_emails row — this token was NOT used (used_at stays NULL, the
+    // whole transaction rolled back), so calling it "used" would be false.
+    return exceptionMessage(err) === GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE
+      ? 'invite_account_taken'
+      : 'invite_used'
+  }
+  if (err instanceof BadRequestException) return 'invite_expired'
+  // NotFoundException and anything unexpected — same bucket as "garbage
+  // link": nothing more specific to tell the visitor.
+  return 'invite_invalid'
 }

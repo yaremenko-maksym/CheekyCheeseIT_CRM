@@ -83,6 +83,74 @@ export function useArchiveUser(userId: string) {
   })
 }
 
+/**
+ * task-user-emails-invite (spec §5 — "Админ должен уметь выслать
+ * приглашение заново"). Mirrors `useAdminSetNote`'s shape — invalidates the
+ * profile query so `personalEmailCanLogin`/`personalContactVisible` (unlikely
+ * to change here, but the row's `updatedAt` does) stay fresh, no optimistic
+ * update (the action has no visible field to flip locally — a toast is the
+ * whole UI signal).
+ */
+export function useResendPersonalEmailInvite(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      api
+        .post<{ ok: true; delivered: boolean }>(`/users/${userId}/personal-email/resend-invite`)
+        .then((r) => r.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      // COPY-M-1 (copy-review PR #623 round 4): the API now reports whether
+      // the mail actually left the process — `sendInvite` swallows delivery
+      // failures (no API key, exhausted retries) and used to unconditionally
+      // return `{ ok: true }`, so this toast claimed «отправлено повторно»
+      // even when nothing was sent.
+      if (data.delivered) {
+        toast.success('Письмо отправлено на личный адрес')
+      } else {
+        toast.error('Письмо не ушло — почтовый сервис не ответил. Попробуйте ещё раз через пару минут.')
+      }
+    },
+    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+  })
+}
+
+/**
+ * ADMIN action (security-review PR #623 round 4, owner decision — see
+ * `changePersonalEmailSchema`'s doc, `@crm/shared`). Changes or removes a
+ * user's personal address; the backend revokes login on whatever address
+ * was there before, unconditionally — see `UsersService.changePersonalEmail`.
+ * `personalEmail: null` removes it.
+ */
+export function useChangePersonalEmail(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (personalEmail: string | null) =>
+      api
+        .patch<{ ok: true; delivered: boolean | null }>(`/users/${userId}/personal-email`, {
+          personalEmail,
+        })
+        .then((r) => r.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      if (data.delivered === null) {
+        // COPY-M-13 (copy-review PR #623 round 5): this branch's own comment
+        // already says a no-op resubmit can't reach here — the submit button
+        // is disabled on `isNoop` (`ChangePersonalEmailDialog`) — so in
+        // practice this IS the removal branch, and the generic "Сохранено"
+        // (the same word an admin-note edit gets) said nothing about the
+        // access that was just revoked.
+        toast.success('Личный адрес удалён — вход по нему больше не работает.')
+      } else if (data.delivered) {
+        toast.success('Письмо отправлено на личный адрес')
+      } else {
+        toast.error('Письмо не ушло — почтовый сервис не ответил. Попробуйте ещё раз через пару минут.')
+      }
+    },
+    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+  })
+}
+
 export function useUnarchiveUser(userId: string, opts?: { isSenior?: boolean }) {
   const qc = useQueryClient()
   return useMutation({

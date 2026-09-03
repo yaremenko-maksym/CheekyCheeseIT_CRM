@@ -546,3 +546,183 @@ describe('UserDialog — step 1 legalFullName visible error on submit (BUG #2)',
     )
   })
 })
+
+// ── Tests: §4.4 personalEmail field (task-user-emails-dual-login) ─────────
+
+describe('UserDialog — personalEmail field (§4.4)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+    mockPost.mockResolvedValue(newUserResponse)
+  })
+
+  it('is rendered only in create mode, not edit mode', () => {
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+    expect(screen.getByTestId('user-dialog-personal-email')).toBeInTheDocument()
+  })
+
+  it('a filled personalEmail is forwarded in the POST /api/users body', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-personal-email'), 'ivan.personal@gmail.com')
+    await fillStep1AndAdvance(user)
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = postCalls[0]?.[1] as Record<string, unknown>
+      expect(body.personalEmail).toBe('ivan.personal@gmail.com')
+    })
+  })
+
+  it('an omitted personalEmail is NOT present in the POST /api/users body', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await fillStep1AndAdvance(user)
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = postCalls[0]?.[1] as Record<string, unknown>
+      expect(body).not.toHaveProperty('personalEmail')
+    })
+  })
+
+  it('a personalEmail identical to the work email is rejected client-side — no POST', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-email'), 'same@example.com')
+    await user.type(screen.getByTestId('user-dialog-personal-email'), 'same@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Тест Тестов')
+    await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Тестов Тест Тестович')
+    await user.type(screen.getByTestId('user-dialog-bank-recipient'), 'Тестов Тест')
+    await user.type(screen.getByTestId('user-dialog-bank-iban'), 'UA123456789012345678901234567')
+    await user.type(screen.getByTestId('user-dialog-bank-rnokpp'), '1234567890')
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls).toHaveLength(0)
+    })
+  })
+
+  // mutation-gate closure (PR #623): the tests above exercise the onBlur
+  // validator (Tests ran: lists them against every survivor in the block),
+  // but never asserted the actual rendered error TEXT or destructive style —
+  // only whether POST fired. A validator that silently returns the wrong
+  // message, or a render that silently drops the destructive class, left
+  // those tests green. The tests below assert what actually appears in the
+  // DOM.
+  it('shows the exact zod format-error text and the destructive input style for an invalid personalEmail', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-personal-email')
+    expect(input).toHaveAttribute('spellcheck', 'false')
+    // Baseline: untouched field carries no destructive style.
+    expect(input.className).not.toContain('border-destructive')
+
+    await user.type(input, 'not-an-email')
+    await user.tab()
+
+    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+    expect(input.className).toContain('border-destructive')
+  })
+
+  it('shows the exact duplicate-email error when personalEmail matches the (untrimmed, differently-cased) work email', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    // Trailing space on the work email — the email field's own onChange is
+    // raw/untrimmed until submit, so the comparison must trim it itself.
+    // Different case on both sides — the comparison must fold both.
+    await user.type(screen.getByTestId('user-dialog-email'), 'Same@Example.com ')
+    await user.type(screen.getByTestId('user-dialog-personal-email'), 'same@example.com')
+    await user.tab()
+
+    expect(
+      await screen.findByText('Личный email должен отличаться от рабочего'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('user-dialog-personal-email').className).toContain(
+      'border-destructive',
+    )
+  })
+
+  it('clears the inline error once an invalid personalEmail is fixed to a genuinely different, valid one', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-personal-email')
+    await user.type(input, 'not-an-email')
+    await user.tab()
+    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+
+    await user.clear(input)
+    await user.type(input, 'ivan.personal@gmail.com')
+    await user.tab()
+
+    await waitFor(() => {
+      expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('Личный email должен отличаться от рабочего'),
+      ).not.toBeInTheDocument()
+    })
+    expect(input.className).not.toContain('border-destructive')
+  })
+
+  // Note on intent: this types a padded value on purpose, but the padding
+  // itself is NOT what's being pinned — a `type="email"` input's own HTML
+  // value-sanitization strips leading/trailing whitespace before `onChange`
+  // ever sees it (verified in jsdom; WHATWG HTML §4.10.5.1.4, not a jsdom
+  // quirk), so no typed input can exercise the `.trim()` calls in
+  // UserDialog.tsx differently with vs. without them — those are suppressed
+  // at the source with that reasoning. What THIS test still pins for real:
+  // a personalEmail typed alongside real spacebar keystrokes round-trips to
+  // the POST body correctly and raises no false-positive inline error.
+  it('forwards a personalEmail typed with surrounding spaces to POST /api/users, with no inline error', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-personal-email'), '  ivan.personal@gmail.com  ')
+    await fillStep1AndAdvance(user)
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = postCalls[0]?.[1] as Record<string, unknown>
+      expect(body.personalEmail).toBe('ivan.personal@gmail.com')
+    })
+    expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+  })
+
+  it('omits a whitespace-only personalEmail from the POST body instead of sending it as an empty string', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-personal-email')
+    await user.type(input, '   ')
+    await user.tab()
+
+    // mutation-gate closure: a mutant that bypasses the validator's
+    // `!trimmed` early-return would fall through to `z.string().email()`
+    // on an EMPTY string (post-trim) and produce the format error here —
+    // whitespace-only is meant to behave exactly like untouched/empty, not
+    // like invalid input.
+    await waitFor(() => {
+      expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+    })
+    expect(input.className).not.toContain('border-destructive')
+
+    await fillStep1AndAdvance(user)
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = postCalls[0]?.[1] as Record<string, unknown>
+      expect(body).not.toHaveProperty('personalEmail')
+    })
+  })
+})

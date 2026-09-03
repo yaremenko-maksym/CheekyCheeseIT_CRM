@@ -81,3 +81,65 @@ describe('UserProfileHeader — telegram link (code-review round 2)', () => {
     ).toHaveLength(0)
   })
 })
+
+// §4.4 (task-user-emails-dual-login): personal address on file, shown next
+// to the work email — zero prior coverage for this render path.
+describe('UserProfileHeader — personalEmail (§4.4)', () => {
+  it('renders a mailto: link for the personal address when set', () => {
+    render(<UserProfileHeader user={makeUser({ personalEmail: 'ivan.personal@gmail.com' })} />)
+    const link = screen.getByRole('link', { name: 'ivan.personal@gmail.com' })
+    expect(link).toHaveAttribute('href', 'mailto:ivan.personal@gmail.com')
+  })
+
+  it('renders nothing for the personal address when null (the common case)', () => {
+    render(<UserProfileHeader user={makeUser({ personalEmail: null })} />)
+    expect(screen.queryByRole('link', { name: 'ivan.personal@gmail.com' })).not.toBeInTheDocument()
+  })
+
+  it('the work email link is unaffected by a set personal address', () => {
+    render(
+      <UserProfileHeader
+        user={makeUser({ email: 'ivan@work.com', personalEmail: 'ivan.personal@gmail.com' })}
+      />,
+    )
+    const workLink = screen.getByRole('link', { name: 'ivan@work.com' })
+    expect(workLink).toHaveAttribute('href', 'mailto:ivan@work.com')
+  })
+})
+
+// task-user-emails-invite (spec §5): the "не подтверждён" status badge next
+// to the personal address — zero prior coverage for this render path.
+describe('UserProfileHeader — personal-email invite status badge', () => {
+  it('shows "не подтверждён" when personalEmailCanLogin is false', () => {
+    render(
+      <UserProfileHeader
+        user={makeUser({
+          personalEmail: 'ivan.personal@gmail.com',
+          personalContactVisible: true,
+          personalEmailCanLogin: false,
+        })}
+      />,
+    )
+    expect(screen.getByTestId('personal-email-not-confirmed-badge')).toHaveTextContent(
+      'не подтверждён',
+    )
+  })
+
+  it('hides the badge once personalEmailCanLogin is true (invite accepted)', () => {
+    render(
+      <UserProfileHeader
+        user={makeUser({
+          personalEmail: 'ivan.personal@gmail.com',
+          personalContactVisible: true,
+          personalEmailCanLogin: true,
+        })}
+      />,
+    )
+    expect(screen.queryByTestId('personal-email-not-confirmed-badge')).not.toBeInTheDocument()
+  })
+
+  it('hides the badge when there is no personal address at all', () => {
+    render(<UserProfileHeader user={makeUser({ personalEmail: null })} />)
+    expect(screen.queryByTestId('personal-email-not-confirmed-badge')).not.toBeInTheDocument()
+  })
+})

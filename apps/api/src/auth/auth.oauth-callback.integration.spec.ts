@@ -12,7 +12,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '../database/schema'
 import * as schema from '../database/schema'
-import { users } from '../database/schema'
+import { userEmails, users } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
 import { UsersService } from '../users/users.service'
 import { AuthController } from './auth.controller'
@@ -249,6 +249,20 @@ describe.skipIf(!hasDatabaseUrl())(
           }),
         ])
         .onConflictDoNothing()
+
+      // §4.4/§5: googleCallback now reads user_emails (findLoginableUserByEmail),
+      // NOT users.email directly — every seeded persona needs a matching,
+      // login-enabled WORK row, exactly like the real backfill migration
+      // gives every pre-existing user (2026-09-01_user_emails.sql).
+      await db
+        .insert(userEmails)
+        .values([
+          { userId: FRESH_USER_ID, email: FRESH_EMAIL, kind: 'WORK', canLogin: true },
+          { userId: BOUND_USER_ID, email: BOUND_EMAIL, kind: 'WORK', canLogin: true },
+          { userId: MISMATCH_USER_ID, email: MISMATCH_EMAIL, kind: 'WORK', canLogin: true },
+          { userId: ARCHIVED_USER_ID, email: ARCHIVED_EMAIL, kind: 'WORK', canLogin: true },
+        ])
+        .onConflictDoNothing()
     }, 30_000)
 
     afterAll(async () => {
@@ -258,6 +272,8 @@ describe.skipIf(!hasDatabaseUrl())(
         // ignore
       }
       try {
+        // user_emails rows cascade-delete with their users row (FK ON DELETE
+        // CASCADE) — deleting users is sufficient cleanup for both tables.
         await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
       } catch {
         // Non-fatal cleanup failure — do not mask test results.

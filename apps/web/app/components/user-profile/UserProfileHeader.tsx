@@ -1,4 +1,4 @@
-import { CalendarDays, Camera, KanbanSquare, Mail, Phone, Send } from 'lucide-react'
+import { CalendarDays, Camera, KanbanSquare, Mail, MailPlus, Phone, Send } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -90,13 +90,77 @@ export function UserProfileHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          {/* ui-ux-designer PR #623 fidelity audit: `email` / `personalEmail`
+              are admin-entered (`.max(255)`, security-review SR-M-1) with no
+              structural word-break requirement — an unbroken run overflows
+              its own box instead of wrapping, same defect class already
+              fixed in notifications-bell.tsx (#620). `wrap-anywhere`
+              (overflow-wrap: anywhere), not `break-words`: the CSS Text spec
+              excludes `break-word` from the flex item's automatic-minimum-size
+              calculation, so an unbreakable run still forces the box wide
+              before break-word gets a chance to wrap — confirmed empirically
+              here the same way #620 confirmed it (measured overflow before
+              the fix). `min-w-0` lets the flex item actually shrink below its
+              max-content size inside this `flex flex-wrap` row so
+              wrap-anywhere has room to act. Verified live at 320/768/1024/1440
+              with a 140-char unbroken personal address: previously bled
+              under the header's action buttons (1440/1024) or was clipped
+              off-screen entirely by `<main overflow-hidden>` (768/320,
+              unreadable and unscrollable either way) — now wraps onto
+              multiple lines within the contact-links row at every width.
+
+              UX-H-2 (this round): `items-center` on a flex row whose text
+              item wraps onto N lines centers the OTHER row items (icon,
+              badge) against the wrapped item's TOTAL height, not its first
+              line — with a short work email (≤2 wrapped lines) the couple
+              of px of drift was invisible, but add the `personalEmailCanLogin
+              === false` badge next to a personal address long enough to wrap
+              3+ lines (measured live: any real address over ~20 chars at
+              320px) and the badge renders stranded mid-address, e.g. between
+              "oleksiy.andriyovyc" and "h.kovalenko1987@gmail.com" — read as
+              attached to neither. `items-start` aligns every row item to the
+              FIRST line of the (possibly wrapped) text instead — icon and
+              badge now read as attached to the start of the entry, and for
+              single-line content (nothing wraps) it is pixel-identical to
+              `items-center` (verified at 1440/1024/768/320, both with and
+              without the badge). */}
           <a
             href={`mailto:${user.email}`}
-            className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
+            className="inline-flex min-w-0 items-start gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
           >
-            <Mail className="h-4 w-4" />
+            <Mail className="h-4 w-4 shrink-0" />
             {user.email}
           </a>
+          {user.personalEmail && (
+            // §4.4 — personal address on file. Not (yet) a login method —
+            // labelled "личный", not duplicated as a second "email" link, so
+            // it reads as contact info rather than a second account.
+            <span className="inline-flex min-w-0 items-start gap-1.5">
+              <a
+                href={`mailto:${user.personalEmail}`}
+                className="inline-flex min-w-0 items-start gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
+                title="Личный email"
+              >
+                <MailPlus className="h-4 w-4 shrink-0" />
+                {user.personalEmail}
+              </a>
+              {/* task-user-emails-invite: `personalEmailCanLogin === false`
+                  is unambiguous ONLY because `user.personalEmail` above is
+                  already truthy — a masked viewer never gets a truthy
+                  personalEmail in the first place (UX-M-1's
+                  personalContactVisible gate), so this render path cannot be
+                  reached by "no access", only by "set, not yet accepted". */}
+              {user.personalEmailCanLogin === false && (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 text-xs"
+                  data-testid="personal-email-not-confirmed-badge"
+                >
+                  не подтверждён
+                </Badge>
+              )}
+            </span>
+          )}
           {hasRealPhone(user.phone) && (
             <a
               href={`tel:${user.phone}`}

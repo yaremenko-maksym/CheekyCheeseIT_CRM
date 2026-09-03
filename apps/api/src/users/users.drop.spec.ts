@@ -57,6 +57,11 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
         }),
       }),
     }),
+    // §4.4: createDrop's assertEmailAvailable pre-check (user_emails, NOT
+    // users.email) — "nothing found" default, matching the not-a-conflict
+    // shape of `existingRow` above for every test that doesn't set
+    // `existingEmail`.
+    query: { userEmails: { findFirst: vi.fn().mockResolvedValue(undefined) } },
     transaction: vi
       .fn()
       .mockImplementation((fn: (tx: unknown) => unknown) => Promise.resolve(fn(txHandle))),
@@ -306,6 +311,31 @@ describe('UsersService.createDrop — validation/RBAC', () => {
     const insertedRow = insertValuesSpy.mock.calls[0]?.[0] as Record<string, unknown>
     expect(insertedRow.legalFullName).toBe('Дропенко Дроп Дропович')
     expect(insertedRow).not.toHaveProperty('registrationAddress')
+  })
+
+  // §4.4 (task-user-emails-dual-login): the WORK row is what login actually
+  // reads (findLoginableUserByEmail) — without a correctly-shaped insert
+  // here a newly-created drop could never sign in.
+  it('inserts a login-enabled WORK row into user_emails alongside the drop user', async () => {
+    const { service, insertValuesSpy } = makeService()
+    await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        accountantId: 'acc-1',
+      },
+      adminUser,
+    )
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'drop-new', // createdUser.id from the shared fixture in makeService()
+        kind: 'WORK',
+        canLogin: true,
+      }),
+    )
   })
 })
 

@@ -71,6 +71,44 @@ export const userProfileSchema = z.object({
   archivedAt: z.coerce.date().nullable(),
   adminNote: z.string().nullable(),
   createdAt: z.coerce.date(),
+  /**
+   * Personal address on file (§4.4). Set by ADMIN at creation, visible on
+   * the profile. `null` when never set OR when masked from this viewer
+   * (see `personalContactVisible` below — the two collapse to the SAME
+   * `null` here; that ambiguity is intentional for this field specifically,
+   * since a masked viewer must not learn "not set" vs "set but hidden"
+   * either). Masked the same way as `email` (realContacts permission) —
+   * never shown to a viewer without contact access. NOT a login method by
+   * itself — see `user_emails.canLogin`.
+   */
+  personalEmail: z.string().email().nullable().optional(),
+  /**
+   * task-user-emails-invite (UX-M-1, design-gate audit PR #623): whether
+   * `personalEmail`/`personalEmailCanLogin` came back `null` because this
+   * viewer cannot see the field at all, or because it genuinely has no
+   * value. A consumer MUST check this before treating either sibling
+   * field's `null` as "not set" — see `UsersService.buildProfileView`'s
+   * `personalContactVisible` for the full rationale. `.optional()` (not
+   * `.default()`) deliberately — a `.default()` here makes the field
+   * REQUIRED in the inferred `UserProfileDto` type, breaking every existing
+   * fixture across the frontend that types itself as `UserProfileDto`
+   * without it (found via `pnpm --filter @crm/web typecheck` — a wide,
+   * mechanical blast radius for a field most fixtures have no reason to
+   * care about). `undefined` is treated as falsy at every call site
+   * (`user.personalContactVisible === true`, never `!== false`), so an
+   * omitted field fails safe as "not visible" exactly like `.default(false)`
+   * would have — without forcing every unrelated fixture to know this field
+   * exists.
+   */
+  personalContactVisible: z.boolean().optional(),
+  /**
+   * task-user-emails-invite (spec §5): tri-state, gated by
+   * `personalContactVisible` — `null` = no personal address on file, `false`
+   * = address on file but the invite has not been accepted yet, `true` =
+   * accepted, works as a login. `undefined`/omitted only for API responses
+   * that predate this field (older cached data); treat the same as `null`.
+   */
+  personalEmailCanLogin: z.boolean().nullable().optional(),
 })
 
 export const updateProfileSchema = z.object({
@@ -157,7 +195,32 @@ const CONTRACT_ROLES = new Set<string>(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT', 
 
 export const createUserSchema = z
   .object({
-    email: z.string().email('Некорректный email'),
+    // security-review PR #623 (SR-M-1): `.max(255)` matches the `varchar(255)`
+    // column both `users.email` and `user_emails.email` actually are —
+    // `.email()` alone accepts arbitrarily long strings, and UsersService now
+    // wraps the write in a transaction specifically so a value that slips
+    // past validation and hits the column bound rolls back cleanly instead
+    // of leaving a half-created user — but catching it here means the admin
+    // sees a clear field error instead of a raw request failure at all.
+    email: z.string().email('Некорректный email').max(255, 'Email не длиннее 255 символов'),
+    /**
+     * Personal address (§4.4) — optional, set by ADMIN at creation. `null`/
+     * omitted = not set. Post-creation changes (typo fix, address rotation,
+     * removal) go through the DEDICATED `changePersonalEmailSchema` /
+     * `PATCH /users/:id/personal-email` below, not through
+     * `adminUpdateUserSchema` — see that schema's own comment for why this
+     * stays a separate endpoint rather than folding into the general
+     * profile-edit surface (owner decision, security-review PR #623 round 4:
+     * an admin must be able to fix a mistyped personal address FAST, and the
+     * fix must immediately revoke login on the old address, not just add a
+     * new one alongside it).
+     */
+    personalEmail: z
+      .string()
+      .email('Некорректный email')
+      .max(255, 'Email не длиннее 255 символов')
+      .nullable()
+      .optional(),
     displayName: z.string().min(2).max(255),
     role: roleSchema,
     telegram: telegramSchema.nullable().optional(),
@@ -211,6 +274,21 @@ export const createUserSchema = z
   })
   .superRefine((data, ctx) => {
     refineRequisitePresence(data, ctx)
+
+    // §4.4: a personal address identical to the work address is nonsensical
+    // input (same DB unique index would reject it at insert time anyway,
+    // but that surfaces as a raw 409 with no field pointer — catch it here
+    // so the admin sees exactly which field is wrong). No `.trim()` here —
+    // both fields are already `z.string().email()`, which rejects leading/
+    // trailing whitespace on its own (verified empirically), so by the time
+    // this line runs neither value can carry any to trim away.
+    if (data.personalEmail && data.personalEmail.toLowerCase() === data.email.toLowerCase()) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Личный email должен отличаться от рабочего',
+        path: ['personalEmail'],
+      })
+    }
 
     // A3-3 / A2c: legalFullName required for contract-eligible roles.
     if (CONTRACT_ROLES.has(data.role) && !data.legalFullName?.trim()) {
@@ -401,6 +479,35 @@ export const adminUpdateUserSchema = z
     registrationAddress: z.string().max(500).nullable().optional(),
   })
   .superRefine(refineRequisitePresence)
+
+/**
+ * Dedicated payload for `PATCH /users/:id/personal-email` — security-review
+ * PR #623 round 4, owner decision: "туда будет всегда попадать валидная
+ * почта. В случае чего, мы можем быстро изменить почту, что за собой
+ * изменит и правила для входа и со старой указанной почты уже нельзя будет
+ * войти". Kept OUT of `adminUpdateUserSchema` (not folded into the general
+ * profile PATCH) so this single-purpose, security-sensitive write — it
+ * revokes login on whatever address was there before, unconditionally —
+ * has its own narrow endpoint, its own audit action
+ * (`personal_email_changed`), and cannot be smuggled in as one field among
+ * many in a large edit payload.
+ *
+ * `personalEmail: null` means "remove the personal address" (and revoke its
+ * login, same as any other change — see `UsersService.changePersonalEmail`).
+ * A non-null value means "set/replace it" — covers add (no PERSONAL row
+ * yet), change (typo fix, address rotation) and re-invite-by-replacement
+ * uniformly; the service treats all three as the same operation: delete
+ * whatever PERSONAL row exists, insert the new one if provided.
+ */
+export const changePersonalEmailSchema = z.object({
+  personalEmail: z
+    .string()
+    .email('Некорректный email')
+    .max(255, 'Email не длиннее 255 символов')
+    .nullable(),
+})
+
+export type ChangePersonalEmailDto = z.infer<typeof changePersonalEmailSchema>
 
 // Query params for list endpoints — `?archived=true|false`.
 export const listArchivedQuerySchema = z.object({

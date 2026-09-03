@@ -32,3 +32,25 @@ export const JWT_COOKIE_LEGACY = 'jwt'
 
 export const STATE_COOKIE_HARDENED = '__Host-oauth_state'
 export const STATE_COOKIE_LEGACY = 'oauth_state'
+
+/**
+ * task-user-emails-invite: carries the RAW invite token across the Google
+ * OAuth round trip, alongside the (unchanged) OAuth-state cookie above —
+ * same short-lived (600s), single-use, cleared-after-callback lifecycle,
+ * httpOnly (never readable by page JS). Storing the raw token here adds no
+ * exposure beyond what the invite EMAIL link itself already carries in
+ * plaintext (over HTTPS, same as this cookie) — `UsersService.
+ * acceptPersonalEmailInvite` hashes it before ever comparing against the
+ * DB, which only ever stores the hash (schema.ts's `userEmailInvites`).
+ *
+ * Why a cookie and not a second `redirect_uri`: Google OAuth clients have
+ * ONE registered `redirect_uri` (`GOOGLE_CALLBACK_URL`, a fixed value in
+ * Google Cloud Console — see `AuthService.buildGoogleAuthUrl`). A second,
+ * unregistered callback path would be rejected by Google outright. The
+ * invite-accept flow therefore reuses the EXISTING
+ * `GET /auth/google/callback` endpoint — `AuthController.googleCallback`
+ * branches on whether this cookie is present — rather than adding a route
+ * this app has no way to actually register with Google.
+ */
+export const INVITE_COOKIE_HARDENED = '__Host-invite_token'
+export const INVITE_COOKIE_LEGACY = 'invite_token'

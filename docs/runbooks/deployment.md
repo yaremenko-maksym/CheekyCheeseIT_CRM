@@ -923,7 +923,9 @@ SHA всё равно пересобирал текущий `main` HEAD и пу�
     apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql \
     apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql \
     apps/api/drizzle/manual/2026-09-01_approvals.sql \
+    apps/api/drizzle/manual/2026-09-01_user_emails.sql \
     apps/api/drizzle/manual/2026-09-02_project_status.sql \
+    apps/api/drizzle/manual/2026-09-02_user_email_invites.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
