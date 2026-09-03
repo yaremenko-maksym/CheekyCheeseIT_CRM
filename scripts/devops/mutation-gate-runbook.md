@@ -493,83 +493,71 @@ Verify both bodies with `DRY_RUN=1 ... MUTATION_REASON=incomplete|survivors
 `scripts/devops/post-merge-ci-runbook.md` §4.1 (that file, not this one; this
 runbook has no numbered sections of its own).
 
-## PR gate vs nightly (`ignoreStatic`)
+## PR gate vs nightly (`ignoreStatic` — considered and rejected)
 
-**Status, 2026-09-03 — read `mutation-gate.mjs`'s own header section "PR GATE
-vs NIGHTLY" first; this is the runbook-side pointer, not a duplicate.** Short
-version: `--changed` runs with Stryker's `ignoreStatic: true` (owner decision,
-2026-09-03 — 61 static mutants were 11% of the count and 84% of the wall time
-on PR #623), `--full` does not, and the nightly is where that gap is supposed
-to close. As of this decision it had not, ever, closed:
+**Read `mutation-gate.mjs`'s own header section "PR GATE vs NIGHTLY" first;
+this is the runbook-side pointer, not a duplicate.** `ignoreStatic`
+(Stryker's flag to skip load-time-only mutants — a module-level constant, a
+Zod schema default) was proposed for `--changed` only, prototyped, and
+**rejected by the owner, 2026-09-03**, after the self-check itself
+demonstrated the cost: it hides module-level constants — the exact class of
+the 2026-08-07 incident. It is OFF, unconditionally, in both `--changed` and
+`--full`.
 
-- `@crm/shared` has completed a full sweep every night since 2026-08-12 —
-  its statics WERE covered throughout.
-- `@crm/api` and `@crm/web` had not completed one at all, for two unrelated
-  causes: `web` crashed in `mutation-gate-vacuum-proof.sh` on a frozen fixture
-  that predated two later features on `JobSuggestionDialog.tsx`, now fixed;
-  `api` fails Stryker's initial dry run on a pre-existing, unrelated test —
-  `resume-text-extraction.service.spec.ts`'s HIGH-2 PDF content-stream guard
-  asserts a stall ceiling of 250ms that a shared runner does not reliably
-  meet (observed ~1.6s) — NOT fixed here (`*.spec.ts` is AutoTest's zone).
+**The case for it was real — 61 static mutants on PR #623 were 11% of the
+mutant count and 84% of the wall time — and that cost is unresolved, not
+eliminated by rejecting it.** Until the `api` leg is file-sharded
+(`.claude/tasks/BACKLOG-followups.md` #135, promoted to priority the same
+day — the only remaining lever after this rejection), a heavy diff on
+`--changed` runs 36-47 minutes. Knowingly accepted: the measured price of
+keeping the gate honest instead of fast.
 
-**Fixing the `web` crash surfaced something more serious than a crash.** With
-the fixture crash gone, `mutation-gate-vacuum-proof.sh` runs its 5 intended
-mutants — and with `ignoreStatic` genuinely on (as `--changed` really runs),
-4 of those 5 XSS-defence mutants in `MARKDOWN_URL_TRANSFORM`/
-`MARKDOWN_COMPONENTS` come back `Ignored` (static), leaving only 1 actually
-exercised. Both are module-level `export const`s — exactly `ignoreStatic`'s
-target shape — and this is the SAME defence this whole gate exists to
-protect, after the 2026-08-07 incident that motivated it. The self-check's
-assertions were deliberately left unchanged rather than weakened to match:
-it still (correctly) fails, and that failure IS the finding, not a bug to
-paper over. Do not "fix" `mutation-gate-vacuum-proof.sh` to pass under
-`ignoreStatic` without first re-reading `mutation-gate.mjs`'s own header on
-this — silencing that failure would hide the exact class of regression this
-gate was built to catch.
+**What the prototype broke, verified by running `mutation-gate-vacuum-proof.sh`
+itself, not by reasoning about it:** with `ignoreStatic` active, 4 of the
+self-check's 5 XSS-defence mutants (`MARKDOWN_URL_TRANSFORM` and
+`MARKDOWN_COMPONENTS` in `JobSuggestionDialog.tsx`, both module-level
+`export const`s) came back `Ignored` (static) and were never exercised.
+`arm 1`'s "the real test kills the defence mutants (>= 4)" assertion — true
+since this file was written — dropped to 1, and the gate reported PASS for a
+diff that deletes the render-side XSS defence. The self-check's assertions
+were never weakened to accommodate this; the failure stood, and it was the
+finding that ended the prototype.
 
-**Status, 2026-09-03 (precise, so nobody re-derives this from the code) — the
-nightly is STILL NOT green end-to-end.** The nightly has been red every
-scheduled run from its first trigger (2026-08-12) through today; the owner's
-own framing of it was "red since 2026-08-15" (temporary threshold in the
-self-check) — that framing undersold it, because the self-check's `arm 4`
-crash (not a threshold) is what actually blocked the `web` leg the whole
-time, and fixing it surfaced a second, unrelated blocker rather than closing
-the gap:
+**Current status of each leg, verified live after the revert:**
 
 - `@crm/shared` — green every night since 2026-08-12; its statics have been
-  verified throughout. Not part of what follows.
-- `@crm/web` — the `arm 4` crash is FIXED today (fixture updated). The leg
-  still cannot complete: `arm 1`'s "the real test kills the defence mutants"
-  assertion now fails for the reason above, and `mutation-gate-vacuum-proof.sh`
-  is a **required** step before `Full mutation sweep` runs for this leg (see
-  `.github/workflows/mutation-nightly.yml`'s `sweep` job — the sweep step has
-  no `if:`, so a failed self-check skips it, same as the old crash did).
-  Resolving this needs an owner decision (see the paragraph above); it is not
-  something today's change makes for you.
-- `@crm/api` — still blocked on `resume-text-extraction.service.spec.ts`'s
-  250ms assertion, unchanged, `*.spec.ts` is AutoTest's zone.
+  verified throughout.
+- `@crm/web` — the self-check's `arm 4` crash (frozen vacuum fixture
+  predating `matchScore`/`matchedKeywords` and `SourceBudgetPanel`/
+  `useJobSources` from PR #515) is fixed, AND with `ignoreStatic` reverted,
+  the whole self-check passes end to end again: `mutation-gate-vacuum-proof.sh`
+  run fresh — 9/9 assertions, all 4 arms, 5/5 reference mutants in arm 4
+  actually exercised (0 skipped as static). The `Gate self-check` step no
+  longer blocks `Full mutation sweep` for this leg.
+- `@crm/api` — still blocked, for a third, unrelated reason: Stryker's
+  initial dry run is red on `resume-text-extraction.service.spec.ts`'s 250ms
+  stall-ceiling assertion (observed ~1.6s on a shared runner). `*.spec.ts` is
+  AutoTest's zone; being fixed in a separate PR as of this writing, not this
+  one.
 
-**In practice: for `@crm/api` and `@crm/web`, static mutants have not been
-verified ANYWHERE — not on the PR gate (by design, `ignoreStatic`) and not
-nightly (both legs still cannot complete a full sweep) — for the entire
-window from 2026-08-12 to at least today.** This PR does not claim to close
-that window; it fixes one contributing cause (the `web` crash) and documents
-the other two precisely enough that closing them does not require
-re-investigating from scratch. `.claude/tasks/BACKLOG-followups.md` #137
-covers a related, separate finding: even the (previously miscategorized)
-nightly alert issue itself went three-plus weeks and 22 comments without
-anyone reading it, which is why none of this was noticed sooner.
+So after this revert, a green full nightly needs exactly one thing it did
+not need before: AutoTest's `api`-leg fix landing. `@crm/shared` and
+`@crm/web` are no longer blockers.
 
-**What DID get a full, non-scoped verification before this PR opened:** the
-complete local `.husky/pre-push` sequence — `pnpm typecheck` +
-`pnpm --filter @crm/shared|@crm/api|@crm/web|@crm/landing test`, unscoped,
-run to completion, not the point-scoped runs §"Running it yourself" warns
-against above. 391 test files, 6616 tests, 0 failures. That is evidence this
-PR's OWN changes are sound — it is deliberately NOT evidence the nightly gap
-above is closed, which is a different question this same PR is careful not
-to conflate (see "The alert text depends on WHETHER the sweep ran, not only
-on WHAT it found" above — the exact failure mode this status paragraph
-exists to not repeat).
+`.claude/tasks/BACKLOG-followups.md` #137 covers a related, separate finding:
+even the (previously miscategorized) nightly alert issue went three-plus
+weeks and 22 comments without anyone reading it, which is why none of this
+was noticed sooner.
+
+**What got a full, non-scoped local verification, and what that does and
+does not prove:** the complete local `.husky/pre-push` sequence —
+`pnpm typecheck` + `pnpm --filter @crm/shared|@crm/api|@crm/web|@crm/landing
+test`, unscoped, not the point-scoped runs §"Running it yourself" warns
+against above. That is evidence this repo's OWN test suites are sound on
+this branch; it is not, and does not claim to be, evidence about the nightly
+`--full` sweep's own survivor count, which is a different question (see "The
+alert text depends on WHETHER the sweep ran, not only on WHAT it found"
+above).
 
 ## Tuning
 
