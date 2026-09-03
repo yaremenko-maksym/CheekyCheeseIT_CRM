@@ -6,7 +6,7 @@ import { api } from '@/lib/axios'
 /**
  * task-project-status-filter-ui. Shared cache key for the "default" (non-
  * archived) project list — the SAME fetch backs the /projects page's
- * Активные/Ожидают подтверждения/Отклонённые tabs (bucketed client-side by
+ * Активные/На подтверждении/Отклонённые tabs (bucketed client-side by
  * `project.status`, see routes/_authenticated/projects/index.tsx) AND
  * `usePendingProjectApprovals` below. Sharing the key means a mutation on
  * either surface (approve/reject) invalidates both at once, and switching

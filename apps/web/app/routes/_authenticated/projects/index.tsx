@@ -191,8 +191,8 @@ function ProjectsPage() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   // task-project-status-filter-ui (design spec §2). `status` is now the ONE
-  // URL-driven source for all four tabs (ADMIN can deep-link «Ожидают
-  // подтверждения» too, not just «Архив») — `archived=true` (the old
+  // URL-driven source for all four tabs (ADMIN can deep-link «На
+  // подтверждении» too, not just «Архив») — `archived=true` (the old
   // link shape) resolves to the same ARCHIVED tab for back-compat. A role
   // that can't see the resolved tab (a stale/crafted URL) silently falls
   // back to ACTIVE, same defense-in-depth `effectiveIsArchivedView` used to
