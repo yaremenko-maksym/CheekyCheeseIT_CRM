@@ -151,6 +151,45 @@ export function useChangePersonalEmail(userId: string) {
   })
 }
 
+/**
+ * task-pending-share (position 5, design spec §4.3). The affected SENIOR
+ * confirms a proposed change to their OWN base share % — self-only by
+ * construction (the endpoint 404s for anyone who isn't the invited
+ * approver, same as `ProjectsService.approveDraft`'s pattern), so this is
+ * only ever called with the viewer's own id. Invalidates both query keys
+ * `useMe`/`useUser` can be reached through — the acting SENIOR's own
+ * session reads via `['user-profile', 'me']`; the `userId`-keyed one is
+ * invalidated too for the same defensive reason `useUpdateMe` refreshes
+ * `['auth', 'me']` alongside its own key.
+ */
+export function useApproveSeniorShareChange(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post(`/users/${userId}/senior-share/approve`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+      toast.success('Новый процент подтверждён')
+    },
+    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+  })
+}
+
+/** Rejection counterpart of `useApproveSeniorShareChange` — reason required (design spec §3 decision 3). */
+export function useRejectSeniorShareChange(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (reason: string) =>
+      api.post(`/users/${userId}/senior-share/reject`, { reason }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+      toast.success('Предложение отклонено')
+    },
+    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+  })
+}
+
 export function useUnarchiveUser(userId: string, opts?: { isSenior?: boolean }) {
   const qc = useQueryClient()
   return useMutation({

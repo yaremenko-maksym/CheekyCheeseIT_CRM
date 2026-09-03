@@ -15,6 +15,18 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/crm-dialog'
+import { Textarea } from '@/components/ui/textarea'
+import { useApproveSeniorShareChange, useRejectSeniorShareChange } from '@/hooks/use-user-profile'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
 import { ProfileEditFields } from '../self-edit/ProfileEditFields'
 import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
@@ -55,6 +67,100 @@ function RequisitesMissingBanner({ onGoToRequisites }: { onGoToRequisites: () =>
       >
         Заполнить реквизиты
       </Button>
+    </div>
+  )
+}
+
+/**
+ * task-pending-share (position 5, design spec §4.3/§8.3). Self-view ONLY —
+ * a SENIOR looking at their OWN profile sees this when their BASE share
+ * percent has a pending proposal awaiting their confirmation. Mirrors
+ * `PendingShareApprovalBanner` in the project detail page (same texts,
+ * same two-action shape) — deliberately not a shared component: the two
+ * post to different endpoints (`/users/:id/senior-share/*` vs
+ * `/projects/:id/senior-share/*`) and a shared abstraction over "which id,
+ * which URL" would buy less than it costs here.
+ */
+function PendingBaseShareBanner({
+  userId,
+  pending,
+}: {
+  userId: string
+  pending: NonNullable<UserProfileDto['pendingSeniorShare']>
+}) {
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const approveMutation = useApproveSeniorShareChange(userId)
+  const rejectMutation = useRejectSeniorShareChange(userId)
+
+  const handleReject = () => {
+    rejectMutation.mutate(reason, {
+      onSuccess: () => {
+        setRejectOpen(false)
+        setReason('')
+      },
+    })
+  }
+
+  return (
+    <div
+      className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-3"
+      data-testid="pending-base-share-approval-banner"
+    >
+      <p className="text-sm">
+        Новый базовый процент вашей доли:{' '}
+        <span className="font-medium tabular-nums">{pending.percent}%</span>. Действующий процент
+        применяется, пока вы не подтвердите.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          onClick={() => approveMutation.mutate()}
+          disabled={approveMutation.isPending}
+          data-testid="pending-base-share-approve-button"
+        >
+          Подтвердить
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setRejectOpen(true)}
+          disabled={approveMutation.isPending}
+          data-testid="pending-base-share-reject-button"
+        >
+          Отклонить
+        </Button>
+      </div>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <CrmDialogContent>
+          <CrmDialogHeader>
+            <DialogTitle>Отклонить новый процент</DialogTitle>
+            <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
+          </CrmDialogHeader>
+          <CrmDialogBody>
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Например: процент не согласован устно"
+              data-testid="pending-base-share-reject-reason"
+            />
+          </CrmDialogBody>
+          <CrmDialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={!reason.trim() || rejectMutation.isPending}
+              data-testid="pending-base-share-reject-confirm"
+            >
+              Отклонить
+            </Button>
+          </CrmDialogFooter>
+        </CrmDialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -235,6 +341,14 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
         <DropRequisitesSnippet user={user} onGoToRequisites={goToRequisites} />
       )}
 
+      {/* task-pending-share (position 5): the affected SENIOR, on their OWN
+          profile, sees the actionable banner. Everyone else who can see the
+          share (ADMIN, or the senior viewed by ACCOUNTANT/HR-with-access)
+          only gets the informational badge inside the "Доля" card below. */}
+      {mode === 'self' && user.role === 'SENIOR' && user.pendingSeniorShare && (
+        <PendingBaseShareBanner userId={user.id} pending={user.pendingSeniorShare} />
+      )}
+
       {kpiCards > 0 && (
         <div
           className={`grid grid-cols-1 gap-4 ${
@@ -258,10 +372,32 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs uppercase text-muted-foreground">Доля</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-1.5">
                 <div className="text-2xl font-bold">
                   {(user.role === 'DROP' ? user.dropSharePercent : user.seniorSharePercent) ?? 0}%
                 </div>
+                {/* task-pending-share: informational for every viewer who can
+                    see this card (admin / accountant / the senior's own
+                    view) — the actionable version is the banner above,
+                    self-view only. */}
+                {user.pendingSeniorShare && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400"
+                        data-testid="user-senior-share-pending-badge"
+                      >
+                        новый {user.pendingSeniorShare.percent}% ожидает подтверждения (
+                        {user.pendingSeniorShare.approverName})
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Действует прежний процент, пока {user.pendingSeniorShare.approverName} не
+                      подтвердит новый.
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </CardContent>
             </Card>
           )}

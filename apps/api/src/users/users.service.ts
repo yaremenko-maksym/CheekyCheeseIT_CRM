@@ -209,15 +209,26 @@ export class UsersService {
    * `ARCHIVED_ENTITLEMENT_MESSAGE` for the archived-user refusal — an
    * archived senior must not acquire a new entitlement any more than any
    * other entitlement write (archived-entitlement.ts's own module doc).
+   *
+   * Returns whether a proposal was actually opened — callers that also
+   * return the `existing`/`updateUserRow` row to the caller (`adminUpdateUser`)
+   * use this to patch `pendingSeniorSharePercent` onto that already-fetched
+   * object: `updateUserRow`'s own `.returning()` runs BEFORE this method
+   * writes the pending column (same transaction, later statement), so
+   * without the patch the HTTP response would echo back a stale
+   * `pendingSeniorSharePercent` even though the row IN THE DATABASE is
+   * already correct — caught by hand while visually verifying this task
+   * against a scratch DB (`adminUpdateUser`'s response showed `null` right
+   * after a propose that the DB itself had recorded correctly).
    */
   private async proposeSeniorShareChangeInTx(
     tx: DrizzleTx,
     existing: Pick<User, 'id' | 'archivedAt' | 'seniorSharePercent'>,
     requestedPercent: number,
     actorId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (changedEntitlementFields(existing, { seniorSharePercent: requestedPercent }).length === 0) {
-      return
+      return false
     }
     if (existing.archivedAt) {
       throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
@@ -238,6 +249,7 @@ export class UsersService {
       proposedPercent: requestedPercent,
       previousPercent: existing.seniorSharePercent,
     })
+    return true
   }
 
   /**
@@ -1103,7 +1115,17 @@ export class UsersService {
         if (!actorId) {
           throw new BadRequestException('Смена доли требует определённого инициатора запроса')
         }
-        await this.proposeSeniorShareChangeInTx(tx, existing, requestedSeniorSharePercent, actorId)
+        const proposed = await this.proposeSeniorShareChangeInTx(
+          tx,
+          existing,
+          requestedSeniorSharePercent,
+          actorId,
+        )
+        // `u` was already fetched (via updateUserRow's own `.returning()`)
+        // BEFORE this call ran its own write, in the SAME transaction — patch
+        // it here so the HTTP response reflects what the DB now actually
+        // holds, not a stale pre-propose snapshot (see this method's own doc).
+        if (proposed) u.pendingSeniorSharePercent = requestedSeniorSharePercent
       }
 
       // §4.4: keep the WORK row in `user_emails` in sync — login now reads
@@ -1582,7 +1604,14 @@ export class UsersService {
     }
     return this.db.db.transaction(async (tx) => {
       const updated = await this.updateUserRow(tx, id, existing, set)
-      await this.proposeSeniorShareChangeInTx(tx, existing, data.seniorSharePercent!, actorId)
+      const proposed = await this.proposeSeniorShareChangeInTx(
+        tx,
+        existing,
+        data.seniorSharePercent!,
+        actorId,
+      )
+      // Same stale-response fix as adminUpdateUser — see proposeSeniorShareChangeInTx's own doc.
+      if (proposed) updated.pendingSeniorSharePercent = data.seniorSharePercent!
       return updated
     })
   }

@@ -59,6 +59,7 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -553,7 +554,10 @@ function ProjectShareInfo({
   testId = 'project-senior-share',
   badgeTestId = 'project-senior-share-override-badge',
 }: {
-  project: Pick<ProjectDetailDto, 'seniorSharePercentOverride' | 'seniorSharePercentDefault'>
+  project: Pick<
+    ProjectDetailDto,
+    'seniorSharePercentOverride' | 'seniorSharePercentDefault' | 'pendingSeniorShare'
+  >
   variant?: 'block' | 'inline'
   /** Override the default `data-testid` so multiple instances can coexist on the same page. */
   testId?: string
@@ -563,9 +567,10 @@ function ProjectShareInfo({
   const hasOverride = overrideRaw !== null && overrideRaw !== undefined
   const fallback = project.seniorSharePercentDefault ?? 26
   const effective = hasOverride ? overrideRaw : fallback
+  const pending = project.pendingSeniorShare ?? null
   return (
     <span
-      className={cn('inline-flex items-center gap-2', variant === 'inline' && 'text-sm')}
+      className={cn('inline-flex flex-wrap items-center gap-2', variant === 'inline' && 'text-sm')}
       data-testid={testId}
     >
       {variant === 'inline' && <span className="text-muted-foreground">Доля синьора:</span>}
@@ -584,7 +589,137 @@ function ProjectShareInfo({
       ) : (
         <span className="text-xs text-muted-foreground">(по умолчанию)</span>
       )}
+      {/* task-pending-share (position 5): значение выше — ДЕЙСТВУЮЩЕЕ, не
+          меняется пока согласование открыто (AC2). Индикатор — отдельная
+          пометка рядом, а не подмена цифры. */}
+      {pending && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="outline"
+              className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400"
+              data-testid="project-senior-share-pending-badge"
+            >
+              новый {pending.percent ?? fallback}% ожидает подтверждения ({pending.approverName})
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            Действует прежний процент, пока {pending.approverName} не подтвердит новый.
+          </TooltipContent>
+        </Tooltip>
+      )}
     </span>
+  )
+}
+
+/**
+ * task-pending-share (position 5, design spec §4.3/§8.3). Shown ONLY to the
+ * person the pending proposal is actually waiting on (the affected SENIOR —
+ * `pendingSeniorShare.approverId === viewerId`). Everyone else who can see
+ * the share (ADMIN/ACCOUNTANT/the senior's own view) already gets the
+ * informational badge from `ProjectShareInfo` above; this banner is the
+ * ACTIONABLE surface, deliberately separate from that read-only indicator.
+ */
+function PendingShareApprovalBanner({
+  projectId,
+  pending,
+}: {
+  projectId: string
+  pending: NonNullable<ProjectDetailDto['pendingSeniorShare']>
+}) {
+  const qc = useQueryClient()
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [reason, setReason] = useState('')
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['projects', projectId] })
+    void qc.invalidateQueries({ queryKey: ['projects'] })
+  }
+
+  const approveMutation = useMutation({
+    mutationFn: () => api.post(`/projects/${projectId}/senior-share/approve`),
+    onSuccess: () => {
+      toast.success('Новый процент подтверждён')
+      invalidate()
+    },
+    onError: (err: unknown) => {
+      toast.error(getApiErrorMessage(err as AxiosError, 'Не удалось подтвердить'))
+    },
+  })
+
+  const rejectMutation = useMutation({
+    mutationFn: () => api.post(`/projects/${projectId}/senior-share/reject`, { reason }),
+    onSuccess: () => {
+      toast.success('Предложение отклонено')
+      setRejectOpen(false)
+      setReason('')
+      invalidate()
+    },
+    onError: (err: unknown) => {
+      toast.error(getApiErrorMessage(err as AxiosError, 'Не удалось отклонить'))
+    },
+  })
+
+  return (
+    <div
+      className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-3"
+      data-testid="pending-share-approval-banner"
+    >
+      <p className="text-sm">
+        Новый процент по вашей доле:{' '}
+        <span className="font-medium tabular-nums">{pending.percent ?? 0}%</span>. Действующий
+        процент применяется, пока вы не подтвердите.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          onClick={() => approveMutation.mutate()}
+          disabled={approveMutation.isPending}
+          data-testid="pending-share-approve-button"
+        >
+          Подтвердить
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setRejectOpen(true)}
+          disabled={approveMutation.isPending}
+          data-testid="pending-share-reject-button"
+        >
+          Отклонить
+        </Button>
+      </div>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <CrmDialogContent>
+          <CrmDialogHeader>
+            <DialogTitle>Отклонить новый процент</DialogTitle>
+            <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
+          </CrmDialogHeader>
+          <CrmDialogBody>
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Например: процент не согласован устно"
+              data-testid="pending-share-reject-reason"
+            />
+          </CrmDialogBody>
+          <CrmDialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => rejectMutation.mutate()}
+              disabled={!reason.trim() || rejectMutation.isPending}
+              data-testid="pending-share-reject-confirm"
+            >
+              Отклонить
+            </Button>
+          </CrmDialogFooter>
+        </CrmDialogContent>
+      </Dialog>
+    </div>
   )
 }
 
@@ -1103,6 +1238,17 @@ function ProjectDetailPage() {
             </div>
           </div>
         </motion.div>
+        {/* task-pending-share (position 5): actionable banner, ONLY for the
+            viewer the proposal is waiting on — everyone else sees the
+            read-only badge via ProjectShareInfo instead. */}
+        {project.pendingSeniorShare && user?.id === project.pendingSeniorShare.approverId && (
+          <div className="px-4 sm:px-6">
+            <PendingShareApprovalBanner
+              projectId={project.id}
+              pending={project.pendingSeniorShare}
+            />
+          </div>
+        )}
         {/* ── Post-hero content — horizontal padding (px-0 removed from outer wrapper, Вариант Б) ── */}
         <div className="space-y-5 px-4 sm:px-6">
           {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
