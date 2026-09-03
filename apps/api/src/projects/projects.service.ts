@@ -303,11 +303,26 @@ export class ProjectsService {
       // confirmed is ADMIN or an invited approver, so there is nobody left to
       // mask this field FROM.
       status: project.status,
-      // task-project-status-filter-ui. Same "nobody left to mask this FROM"
-      // reasoning as `status` above — only ever populated for a REJECTED
-      // project, which only ADMIN/invited-approvers ever receive at all.
+      // SR-M-5 (PR #646 fix-round 2). ADMIN ONLY — narrower than the
+      // "REJECTED project" access gate above. Design spec §1/§2/§6 say
+      // three times that the rejection reason is an ADMIN-only view; the
+      // reason text is free-form and AUTHORED BY an invited approver
+      // (senior or drop), so showing it to the OTHER invited approver would
+      // let that free text identify the author regardless of the identity
+      // masking this same method already does elsewhere (`dropName: null`
+      // for a SENIOR viewer, RBAC rule #2) — a drop's rejection reason
+      // reaching the senior it is deliberately hidden from is exactly the
+      // "DTO itself carries no sensitive data" violation the JUNIOR-masking
+      // comments a few lines up describe for finance fields. The reject
+      // dialog's own copy ("причину увидит админ") is what makes this
+      // narrowing correct, not just a policy choice, so viewer identity is
+      // used as-is, not the project's `assertAccess` outcome — an invited
+      // approver reading their OWN rejected project gets `null` here even
+      // though they legitimately see everything else about the row.
       rejectionReason:
-        project.status === 'REJECTED' ? (rejectionReasonByProjectId.get(project.id) ?? null) : null,
+        project.status === 'REJECTED' && viewerRole === 'ADMIN'
+          ? (rejectionReasonByProjectId.get(project.id) ?? null)
+          : null,
       // SPEC-M-2. Checked against `project.seniorId`/`project.dropId` —
       // the RAW, pre-mask columns on this method's own `project` param, not
       // the (possibly-masked-to-null) `effectiveSeniorId` local above — see
@@ -1212,6 +1227,22 @@ export class ProjectsService {
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
+
+    // SR-H-1 (PR #646 fix-round 2). update() is a WRITE path, and predates
+    // the draft-visibility gate (task-project-draft-status) — it never
+    // asserted DRAFT/REJECTED visibility because at the time it was written
+    // there was nothing draft-shaped to hide. Fix-round 1 (CR-M-1, SPEC-M-2)
+    // started returning rejectionReason and the two ApprovalPending booleans
+    // from its response WITHOUT adding this gate, so HR/ACCOUNTANT — who
+    // findOne already 404s on any non-ACTIVE project, per assertAccess's own
+    // "INCLUDING ACCOUNTANT" comment below — could PATCH a field they are
+    // allowed to touch (e.g. `name`) on a REJECTED project and get the full
+    // rejection reason back in the response, despite never being able to
+    // GET that project at all. Same gate, same place in the call order,
+    // same reasoning as findOne: MUST run before any role-specific
+    // early-return so a DRAFT/REJECTED project is never visible-by-write
+    // even to a role that would otherwise pass.
+    await this.assertAccess(project, currentUser)
 
     // HR cross-team scoping: HR may only update projects for seniors in their own teams.
     // ACCOUNTANT doing a hasOnlyOverride patch is exempted (their patch is finance-scoped,

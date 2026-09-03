@@ -17,6 +17,16 @@
  *     all.
  *   - `approveDraft` — never populates the field (a project it just
  *     approved is never REJECTED).
+ *
+ * SR-M-5 (PR #646 fix-round 2): on TOP of all three call sites above,
+ * `mapProject` itself gates the final text to `viewerRole === 'ADMIN'` —
+ * design spec §1/§2/§6 name ADMIN as the only audience for the reason text,
+ * narrower than "is this project visible to me at all" (an invited approver
+ * legitimately sees their own REJECTED project's STATUS, never the reason,
+ * which may have been authored by the OTHER invited approver whose
+ * identity is otherwise masked from them). No special case for "it is MY
+ * OWN reason, I just wrote it" — `rejectDraft`'s own actor gets `null` back
+ * too, same as anyone else who is not ADMIN.
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -164,9 +174,19 @@ describe('ProjectsService — rejectionReason on findAll/findOne (task-project-s
     expect(approvals.getRejectionReasons).not.toHaveBeenCalled()
   })
 
-  it('findOne: the invited SENIOR sees the reason on their own rejected project', async () => {
+  it('SR-M-5 (PR #646 fix-round 2): findOne — the invited SENIOR sees the project (assertAccess passes) but NOT the reason text — rejectionReason is ADMIN-only, narrower than the visibility gate', async () => {
     const { service } = buildService([rejectedProject()])
     const result = await service.findOne(PROJECT_ID, sessionFor(SENIOR_ID, 'SENIOR'))
+    // The project itself IS visible (design spec: an invited approver sees
+    // their own REJECTED project's status) — only the free-text reason,
+    // possibly authored by the OTHER invited approver, is withheld.
+    expect(result.status).toBe('REJECTED')
+    expect(result.rejectionReason).toBeNull()
+  })
+
+  it('SR-M-5: findOne — ADMIN still sees the reason (the one audience the design spec names)', async () => {
+    const { service } = buildService([rejectedProject()])
+    const result = await service.findOne(PROJECT_ID, sessionFor(ADMIN_ID, 'ADMIN'))
     expect(result.rejectionReason).toBe('Бюджет не подтверждён')
   })
 
@@ -345,7 +365,7 @@ describe('ProjectsService.rejectDraft — rejectionReason on the response (task-
     return { service }
   }
 
-  it('the response carries the SAME reason string just passed in, with no extra approvals query', async () => {
+  it('SR-M-5 (PR #646 fix-round 2): the response status flips to REJECTED, but rejectionReason is null — the actor who JUST wrote the reason is SENIOR/DROP, never ADMIN, so mapProject\'s ADMIN-only gate applies to them too, no special case for "it is my own reason"', async () => {
     const projectRow = { ...rejectedProject(), status: 'DRAFT' as const }
     const { service } = buildService(projectRow)
 
@@ -356,7 +376,7 @@ describe('ProjectsService.rejectDraft — rejectionReason on the response (task-
     )
 
     expect(result.status).toBe('REJECTED')
-    expect(result.rejectionReason).toBe('Бюджет не подтверждён')
+    expect(result.rejectionReason).toBeNull()
   })
 })
 
@@ -421,5 +441,89 @@ describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR
     await service.update(PROJECT_ID, { name: 'Renamed' }, sessionFor(ADMIN_ID, 'ADMIN'))
 
     expect(approvals.getRejectionReasons).not.toHaveBeenCalled()
+  })
+
+  // SR-H-1 (PR #646 fix-round 2, HIGH). update() never called assertAccess —
+  // HR/ACCOUNTANT could PATCH a field they are allowed to touch (e.g. name)
+  // on a REJECTED project they can never GET (findOne 404s them on the same
+  // project) and get the full rejectionReason text back in the PATCH
+  // response. Proven here the same way the finding itself proved it:
+  // findOne 404s, THEN update on the identical project/viewer pair must
+  // ALSO refuse — not just omit the reason, refuse the whole write, same as
+  // a caller who cannot even see the row.
+  function buildServiceWithAccessGate(
+    projectRow: ReturnType<typeof rejectedProject>,
+    opts: { isApprover: boolean },
+  ) {
+    const db = {
+      db: {
+        query: {
+          projects: { findFirst: async () => projectRow },
+          teamMembers: { findFirst: async () => null, findMany: async () => [] },
+        },
+        update: (_table: unknown) => ({
+          set: (_values: Record<string, unknown>) => ({
+            where: (_expr: unknown) => Promise.resolve(),
+          }),
+        }),
+      },
+    }
+    const auditLog = { record: vi.fn(async () => undefined) }
+    const hrAccess = new HrAccessService(db as never)
+    const approvals = {
+      isApprover: vi.fn(async () => opts.isApprover),
+      getRejectionReasons: vi.fn(async () => new Map([[PROJECT_ID, 'Бюджет не подтверждён']])),
+    }
+    const service = new ProjectsService(
+      db as never,
+      auditLog as never,
+      {} as never,
+      hrAccess,
+      approvals as never,
+    )
+    return { service, approvals }
+  }
+
+  it('SR-H-1: HR patching a REJECTED project they are not invited on gets 404 — same as findOne, not a 200 with the field merely blank', async () => {
+    const { service } = buildServiceWithAccessGate(rejectedProject(), { isApprover: false })
+
+    await expect(
+      service.update(PROJECT_ID, { name: 'Sneaky rename' }, sessionFor('hr-1', 'HR')),
+    ).rejects.toThrow('Project not found')
+  })
+
+  it('SR-H-1: ACCOUNTANT patching ONLY finance-scoped fields (the branch that skips assertHrCanManageProject) still gets 404 on a REJECTED project they are not invited on — assertAccess runs regardless of which fields are touched', async () => {
+    const { service } = buildServiceWithAccessGate(rejectedProject(), { isApprover: false })
+
+    await expect(
+      service.update(
+        PROJECT_ID,
+        { seniorSharePercentOverride: 30 },
+        sessionFor('accountant-1', 'ACCOUNTANT'),
+      ),
+    ).rejects.toThrow('Project not found')
+  })
+
+  it("SR-H-1 defense-in-depth: even if update() authorization is ever loosened so a non-ADMIN caller CAN pass assertAccess on a REJECTED project (isApprover: true), the response still never carries rejectionReason — SR-M-5's ADMIN-only gate is independent of, not redundant with, the assertAccess gate", async () => {
+    // ACCOUNTANT doing a finance-scoped-only patch is the one non-ADMIN
+    // path that skips assertHrCanManageProject and reaches assertAccess
+    // directly — poisoning isApprover to true here (unreachable in the
+    // real domain model today, since only SENIOR/DROP are ever assigned as
+    // approvers) proves SR-M-5's gate does not silently rely on "nobody
+    // non-ADMIN ever gets this far" being true forever.
+    const { service } = buildServiceWithAccessGate(rejectedProject(), { isApprover: true })
+
+    // paymentType (not seniorSharePercentOverride) — still finance-scoped
+    // (satisfies ACCOUNTANT's hasOnlyOverride gate) but avoids
+    // syncFinanceSettingsOverride's own DB dependency, which this focused
+    // mock does not stub.
+    const result = await service.update(
+      PROJECT_ID,
+      { paymentType: 'FOP' },
+      sessionFor('accountant-1', 'ACCOUNTANT'),
+    )
+
+    expect(result.status).toBe('REJECTED')
+    expect(result.rejectionReason).toBeNull()
   })
 })

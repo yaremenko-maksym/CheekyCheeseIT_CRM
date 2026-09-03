@@ -230,6 +230,12 @@ test.describe('Project status filter — AC3 (confirm/reject) + AC4 (badge/reaso
       await expect(page.getByText('Отклонить проект')).not.toBeVisible()
       await expect(row).not.toBeVisible({ timeout: 10_000 })
 
+      // SR-M-5 (PR #646 fix-round 2): rejectionReason is ADMIN-only now —
+      // the SENIOR who just wrote it does NOT see it echoed back, even on
+      // their own project (design spec §1/§2/§6: only ADMIN sees the
+      // reason text). Re-login as ADMIN, the one audience the field is for,
+      // before verifying the reason landed.
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
       const res = await page.request.get(`${REAL_API}/projects/${projectId}`)
       const body = (await res.json()) as { status: string; rejectionReason: string | null }
       expect(body.status).toBe('REJECTED')
