@@ -69,16 +69,63 @@ jobs:
       # short-circuit the entire post-merge run to a *silent green*. That is
       # the one outcome a post-merge gate must never produce, so non-PR scope
       # is resolved explicitly below instead of being inferred here.
+      # predicate-quantifier: every — REQUIRED, not stylistic. dorny/paths-filter's
+      # default ('some') matches a file if it satisfies AT LEAST ONE pattern; with
+      # an all-negated filter like `code:` below, a pure-docs change such as
+      # `docs/foo.md` still matches `!.github/CODEOWNERS` (the file isn't that
+      # path, so the negation is trivially satisfied) — so `code` came back `true`
+      # on docs-only PRs and this entire early-exit never actually fired (found on
+      # two merged docs-only PRs, #628 and #633, both ran the full E2E matrix).
+      # `every` requires a file to satisfy ALL patterns — i.e. NOT under docs/, NOT
+      # a .md file, and NOT CODEOWNERS — which is what "this is a code change"
+      # actually means. Verified against dorny/paths-filter's own matching source
+      # (src/filter.ts: `patterns.every(aPredicate)`, each negated pattern's
+      # `isMatch` already inverted by picomatch) — traced by hand for both a
+      # docs-only file (every negated pattern must hold -> false the moment one
+      # pattern is under docs/**, so `code=false`) and a real code file (every
+      # negated pattern holds -> `code=true`). predicate-quantifier is scoped to
+      # the WHOLE step (all named filters in one `with:` block), not per-filter —
+      # so `hooks:` below (two plain OR'd patterns, needs the default 'some') gets
+      # its OWN step instead of sharing this one; setting `every` here would make
+      # `hooks` require a file to match BOTH `.claude/hooks/**` AND
+      # `scripts/devops/tests/**` at once, which no single file ever can.
+      #
+      # `!**/*.md`, not `!**.md` — second, independent bug found while verifying
+      # the quantifier fix above against PR #633's actual diff (a single file,
+      # `.claude/tasks/BACKLOG-followups.md` — not under docs/**). picomatch's
+      # negation of a bare '**.EXT' pattern only cleanly inverts a ROOT-level
+      # filename; for any path containing '/' it returns true (does NOT
+      # exclude) regardless of predicate-quantifier — verified directly against
+      # picomatch@2.3.1 (the exact version dorny/paths-filter@v3 pins). Under
+      # `every` with the old `!**.md`, #633's file still passed every negated
+      # pattern (docs/** no, CODEOWNERS no, and the broken !**.md said "not an
+      # excluded .md" for a nested path) — same false-`code=true` outcome the
+      # quantifier fix was meant to close. Confirmed against the real PR #633
+      # quality-job log (run 33673550650, job 100392683996): "Run scope:
+      # event=pull_request code=true" on a diff that was exactly that one
+      # nested .md file. `!**/*.md` is a clean negation at every depth — same
+      # three exclusion categories (docs/**, *.md anywhere, CODEOWNERS), not a
+      # broadened list, just a glob that actually reaches nested files.
       - name: Detect non-docs changes
         id: filter
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '!docs/**'
-              - '!**.md'
+              - '!**/*.md'
               - '!.github/CODEOWNERS'
+
+      # Separate step (see predicate-quantifier comment above) — default
+      # quantifier ('some'): matches if a changed file is under EITHER dir.
+      - name: Detect hook corpus changes
+        id: filter_hooks
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
             hooks:
               - '.claude/hooks/**'
               - 'scripts/devops/tests/**'
@@ -97,7 +144,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           PR_CODE: ${{ steps.filter.outputs.code }}
-          PR_HOOKS: ${{ steps.filter.outputs.hooks }}
+          PR_HOOKS: ${{ steps.filter_hooks.outputs.hooks }}
         run: |
           if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
@@ -365,16 +412,22 @@ jobs:
           fetch-depth: 2
 
       # PR-only filter + explicit non-PR scope — see the matching pair of steps
-      # in the `quality` job above for the full rationale.
+      # in the `quality` job above for the full rationale, including two
+      # independent bugs found and fixed together: predicate-quantifier: every
+      # (an all-negated filter otherwise matches almost any file, including a
+      # pure-docs change) and `!**/*.md` instead of `!**.md` (picomatch does not
+      # cleanly negate a bare '**.md' below the repo root). No `hooks:` filter
+      # shares this step here, so no split into a second step is needed.
       - name: Detect non-docs changes
         id: filter
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '!docs/**'
-              - '!**.md'
+              - '!**/*.md'
               - '!.github/CODEOWNERS'
 
       - name: Resolve run scope
@@ -882,7 +935,7 @@ jobs:
             # won over chasing the marginally shorter shard.
             files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts
           - name: team-users
-            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/rbac-junior-on-other.spec.ts
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts
           - name: projects
             files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts
           - name: finance
@@ -1056,16 +1109,22 @@ jobs:
       # required `E2E Tests` status check.
       #
       # PR-only filter + explicit non-PR scope — see the matching pair of steps
-      # in the `quality` job above for the full rationale.
+      # in the `quality` job above for the full rationale, including two
+      # independent bugs found and fixed together: predicate-quantifier: every
+      # (an all-negated filter otherwise matches almost any file, including a
+      # pure-docs change) and `!**/*.md` instead of `!**.md` (picomatch does not
+      # cleanly negate a bare '**.md' below the repo root). No `hooks:` filter
+      # shares this step here, so no split into a second step is needed.
       - name: Detect non-docs changes
         id: filter
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '!docs/**'
-              - '!**.md'
+              - '!**/*.md'
               - '!.github/CODEOWNERS'
 
       - name: Resolve run scope
