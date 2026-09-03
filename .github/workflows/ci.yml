@@ -631,11 +631,28 @@ jobs:
   # nightly full sweep (.github/workflows/mutation-nightly.yml) independently
   # arrived at the identical Typst-then-build sequence for the identical
   # reason — see that workflow's own comments on its `sweep` job.
+  # Split into a 3-package matrix (task-infra-mutation-gate-matrix,
+  # 2026-09-03): the three packages ran SEQUENTIALLY inside
+  # mutation-gate.mjs's own loop (measured: shared ~10s, web ~230s, api
+  # typically ~250s but up to 2489s seen — see the runbook's "Measured cost"
+  # section) even though the script has supported `MUTATION_PACKAGES` since
+  # task-mutation-gate-mechanical and nothing about the three packages'
+  # Stryker runs depends on one another. `mutation_summary` below rolls the
+  # three legs back into the single `Mutation Gate` required-check context —
+  # the exact shape `e2e` / `e2e_summary` already use for the 8 E2E shards
+  # (see that pair further down; this one copies it on purpose).
   mutation:
-    name: Mutation Gate
+    name: Mutation Gate (${{ matrix.package.name }})
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - { name: '@crm/shared', slug: 'shared' }
+          - { name: '@crm/api', slug: 'api' }
+          - { name: '@crm/web', slug: 'web' }
     env:
       S3_ENDPOINT: http://localhost:9000
       S3_FORCE_PATH_STYLE: 'true'
@@ -653,7 +670,10 @@ jobs:
       # Same always-run skeleton as `quality`/`integration` above — PR-only
       # filter, explicit non-PR scope so a push/dispatch run never silently
       # short-circuits. See the `quality` job's matching pair of steps for
-      # the full rationale; not repeated here.
+      # the full rationale; not repeated here. Duplicated per matrix leg
+      # rather than factored out: each leg is its own job instance on its
+      # own runner, the same constraint the `e2e` shard matrix below already
+      # lives with (its copy of this same pair of steps, once per shard).
       - name: Detect non-docs changes
         id: filter
         if: github.event_name == 'pull_request'
@@ -727,6 +747,11 @@ jobs:
       # the gate below, because the gate only ever sees mutants generated inside
       # the CHANGED lines of this PR, so a suppression that drifts into untouched
       # code would otherwise never be looked at again.
+      #
+      # Runs identically on all three matrix legs (task-infra-mutation-gate-
+      # matrix, 2026-09-03): it is a whole-repo, sub-second scan independent of
+      # `matrix.package`, so tripling it costs nothing observable and avoids
+      # pinning a repo-wide correctness check on one arbitrarily-chosen leg.
       - name: Mutation suppressions must state a reason
         if: steps.scope.outputs.code == 'true'
         run: node scripts/devops/check-mutation-suppressions.mjs
@@ -747,7 +772,15 @@ jobs:
       # same thing dorny/paths-filter relies on). If the base cannot be resolved
       # the script exits 2 rather than reporting "nothing changed".
       #
-      # Budget: 1 hour (recalibrated 2026-08-30 — see below; was 900s/15min).
+      # Budget: 1 hour, unchanged by the matrix split (task-infra-mutation-
+      # gate-matrix, 2026-09-03). This is the SAME 3600s the single job used
+      # before the split, carried over as-is rather than divided or
+      # re-guessed three ways: no per-leg timing exists yet to calibrate a
+      # smaller number against, and a smaller budget here would be a silent
+      # tightening dressed up as a refactor. `MUTATION_PACKAGES` below only
+      # narrows WHICH package this leg mutates; the ceiling it can spend
+      # doing so is the one the whole job had (recalibrated 2026-08-30 — see
+      # below; was 900s/15min).
       #
       # The old 900s figure was measured against a BROKEN `apps/web` gate: a
       # fixed repo-root walk-up in the vitest configs landed on the wrong
@@ -786,20 +819,21 @@ jobs:
         if: steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
         env:
           MUTATION_BUDGET_SECONDS: '3600'
+          MUTATION_PACKAGES: ${{ matrix.package.name }}
         run: node scripts/devops/mutation-gate.mjs --changed
 
       - name: Upload mutation report
         if: always() && steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: mutation-report-pr-${{ github.event.pull_request.number }}
+          name: mutation-report-pr-${{ github.event.pull_request.number }}-${{ matrix.package.slug }}
           path: reports/mutation/
           retention-days: 7
           if-no-files-found: ignore
 
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
-        run: echo "Docs-only PR — skipping mutation gate, satisfying required status."
+        run: echo "Docs-only PR — skipping mutation gate (${{ matrix.package.name }}), satisfying required status."
 
       - name: Label PR on mutation gate failure
         if: failure() && github.event_name == 'pull_request'
@@ -811,6 +845,32 @@ jobs:
           gh label create "ci-failed" --repo "$REPO" \
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
+
+  # Aggregate status of all 3 mutation-gate package legs into one PR-level
+  # check — the exact same shape `e2e_summary` below uses for the 8 E2E
+  # shards (see that job's own comment for the "do not trust a hardcoded
+  # count blindly" caveat; it applies here too — recount `matrix.package`
+  # entries above rather than copying "3" forward if a package is ever
+  # added or removed). Branch protection depends on this single job's
+  # `Mutation Gate` context, not on any of the three per-package contexts
+  # the matrix above produces (those are named `Mutation Gate (@crm/...)`
+  # and cannot themselves satisfy a required check named `Mutation Gate`).
+  mutation_summary:
+    name: Mutation Gate
+    runs-on: ubuntu-latest
+    needs: mutation
+    if: always() && needs.mutation.result != 'skipped'
+    steps:
+      - name: Aggregate package results
+        env:
+          MUTATION_RESULT: ${{ needs.mutation.result }}
+        run: |
+          echo "All 3 mutation-gate package legs aggregate result: $MUTATION_RESULT"
+          if [ "$MUTATION_RESULT" != "success" ]; then
+            echo "::error::Mutation gate package(s) failed (result=$MUTATION_RESULT). See individual package logs above."
+            exit 1
+          fi
+          echo "All mutation gate packages passed ✓"
 
   # ── Job `auto_merge` УДАЛЁН 2026-07-27 (review PR #441) ───────────────────
   #
@@ -1349,8 +1409,15 @@ jobs:
   # job without adding it here would have silently dropped that one failure
   # mode from post-merge alerting — the job still runs unconditionally (same
   # `code`-scope pattern as `quality`/`integration`, no job-level `if:`
-  # restricting it to `pull_request`), so `needs.mutation.result` is a real
-  # success/failure on every push, not a `skipped`.
+  # restricting it to `pull_request`), so `needs.mutation_summary.result` is a
+  # real success/failure on every push, not a `skipped`.
+  #
+  # Points at `mutation_summary`, not the raw `mutation` matrix job (task-
+  # infra-mutation-gate-matrix, 2026-09-03) — same reason this job already
+  # depends on `e2e_summary` rather than `e2e`: `mutation` alone would still
+  # aggregate correctly (`needs.<job>.result` rolls up every matrix leg on its
+  # own), but going through the summary job keeps this list naming only the
+  # same public, single-context legs branch protection itself depends on.
   #
   # Deliberately NOT a merge gate: prod deploys in parallel with this run (see
   # deploy.yml), so by the time an alert fires the bad state is usually already
@@ -1359,7 +1426,7 @@ jobs:
   post_merge_alert:
     name: Post-merge Alert
     runs-on: ubuntu-latest
-    needs: [quality, integration, e2e_summary, mutation]
+    needs: [quality, integration, e2e_summary, mutation_summary]
     # `always()` so the job still runs when a leg failed. Guarded to main +
     # non-PR so PR runs and feature-branch dispatches never open alerts.
     #
@@ -1402,7 +1469,7 @@ jobs:
           QUALITY: ${{ needs.quality.result }}
           INTEGRATION: ${{ needs.integration.result }}
           E2E: ${{ needs.e2e_summary.result }}
-          MUTATION: ${{ needs.mutation.result }}
+          MUTATION: ${{ needs.mutation_summary.result }}
         run: |
           FAILED=""
           [ "$QUALITY" = "failure" ] && FAILED="$FAILED quality"
