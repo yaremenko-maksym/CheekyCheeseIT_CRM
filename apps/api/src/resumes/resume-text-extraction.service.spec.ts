@@ -1206,20 +1206,106 @@ describe('ResumeTextExtractionService.extract', () => {
  *   30 pages, 24 KB file -> accepted, 23 267 ms stall, 884 MB resident
  */
 describe('PDF content-stream guard (HIGH-2)', () => {
-  it('refuses the shared-content-stream amplification without stalling', async () => {
+  /**
+   * The behaviour, with no clock involved: the amplified bomb is refused.
+   *
+   * A `startLagMeter()` ceiling used to stand here too (`< 250` ms), on the
+   * reasoning that "refuses" is not enough by itself — a regression could
+   * keep the rejection and still do the amplified work FIRST, which is
+   * exactly what the historical numbers above are. That reasoning was right;
+   * the clock was the wrong instrument for catching it. Stryker's mutation
+   * gate runs this file's DRY RUN (no mutant applied yet) on a shared CI
+   * runner, under coverage instrumentation — both slower and noisier than a
+   * laptop — and the ceiling tripped there at ~1.6 s on code that does
+   * exactly what it always did (found 2026-09-03: blocked the nightly
+   * `@crm/api` mutation sweep from its first run on 2026-08-12 onward —
+   * `scripts/devops/mutation-gate-runbook.md` "PR gate vs nightly"). Sampling
+   * event-loop lag with a 10 ms interval timer is itself a macrotask a loaded
+   * host can delay — the meter can report a stall that never happened in the
+   * code under test, only in the scheduler measuring it.
+   *
+   * The property that actually needs proving — the guard decides from
+   * ARITHMETIC on one physically-scanned stream, never from a real re-scan
+   * per page — does not need a clock at all, and is proven directly below.
+   * The wall-time characterisation is not deleted, only moved: it is the
+   * opt-in `RESUME_PERF` test beside it, the same discipline already applied
+   * to `MAX_PDF_CONTENT_BYTES` above ("the earlier timing gate, removed when
+   * the always-on assertions became functional").
+   */
+  it('refuses the shared-content-stream amplification', async () => {
     // One stream, 30 pages pointing at it: 600 000 operator executions from a
     // file smaller than an email signature.
     const bomb = buildPdfSharedContentStream(30, 20_000)
     expect(bomb.length).toBeLessThan(64 * 1024)
 
-    const meter = startLagMeter()
     await expect(service.extract(bomb, RESUME_PDF_MIME)).rejects.toBeInstanceOf(
       ResumeFileUnreadableError,
     )
-    const { worstStall } = meter.stop()
-    // Measured after the fix: 5 ms wall, 0 ms stall.
-    expect(worstStall).toBeLessThan(250)
   }, 120_000)
+
+  /**
+   * THE MECHANISM that makes the refusal above cheap regardless of `pages`:
+   * `inspectPdfContent` finds the shared stream ONCE in the file bytes and
+   * MULTIPLIES by the page count; it does not walk the stream once per page.
+   * `maxTextOperators` is raised far past `amplifiedOperators` so the call
+   * returns its own accounting instead of throwing — this test is about HOW
+   * the guard counted, not whether it refuses (the test above, and "charges
+   * the page multiplier" below, already prove that).
+   *
+   * MUTATION: change `Math.max(1, pages) * largestStreamOperators` to `+`, or
+   * change the loop to re-decode the stream once per page instead of once per
+   * physical occurrence, and this goes red — either the product no longer
+   * holds, or `streams`/`textOperators` stop matching a SINGLE scan. Neither
+   * shape needs a clock to catch: the first leaves the arithmetic wrong at
+   * numbers a wall-clock ceiling would never notice (still fast); the second
+   * would eventually show up as a stall, but only after paying for the CI
+   * noise a clock-based assertion inherits for free.
+   */
+  it('counts the shared stream once and multiplies arithmetically, never re-scanning per page', async () => {
+    const bomb = buildPdfSharedContentStream(30, 20_000)
+    // A ceiling generous enough that the call returns its accounting instead
+    // of throwing — 30 x 20 000 is well under Number.MAX_SAFE_INTEGER.
+    const info = await inspectPdfContent(bomb, 30, MAX_PDF_CONTENT_BYTES, Number.MAX_SAFE_INTEGER)
+
+    // Physically, the shared stream appears exactly once in the file bytes —
+    // the 30 pages point AT it, they do not duplicate it.
+    expect(info.streams).toBe(1)
+    // Non-vacuity: it was really scanned, not skipped as inert (an image).
+    expect(info.textOperators).toBeGreaterThan(0)
+    // ...and scanned exactly once: what was counted is what ONE stream
+    // holds, not what 30 of them would.
+    expect(info.textOperators).toBe(info.largestStreamOperators)
+    // The amplification the guard charges is the PRODUCT, not a real re-walk
+    // of the same bytes 30 times — this is the fact that keeps the refusal
+    // above cheap no matter how many pages reference the stream.
+    expect(info.amplifiedOperators).toBe(30 * info.largestStreamOperators)
+  })
+
+  /**
+   * Opt-in wall-clock characterisation of the same refusal:
+   * `RESUME_PERF=1 pnpm --filter @crm/api test resume-text-extraction`. Not a
+   * gate — this is what used to be a `startLagMeter()` ceiling on the first
+   * test in this block, moved here for the same reason `MAX_PDF_CONTENT_BYTES`'s
+   * own timing gate was moved above: proving the guard does not stall belongs
+   * on a quiet machine, not on whatever host happens to run the suite that
+   * hour. Run it after touching `inspectPdfContent`, `countTextOperators`, or
+   * either PDF constant above.
+   */
+  it.skipIf(process.env['RESUME_PERF'] !== '1')(
+    'refuses the amplified bomb without a visible stall',
+    async () => {
+      const bomb = buildPdfSharedContentStream(30, 20_000)
+      const meter = startLagMeter()
+      await expect(service.extract(bomb, RESUME_PDF_MIME)).rejects.toBeInstanceOf(
+        ResumeFileUnreadableError,
+      )
+      const { worstStall } = meter.stop()
+      // Measured on a quiet machine: 5 ms wall, 0 ms stall — two orders of
+      // magnitude below the historical 6 109 ms this guard exists to prevent.
+      expect(worstStall).toBeLessThan(250)
+    },
+    120_000,
+  )
 
   it('charges the page multiplier, not just the byte total', async () => {
     // Same stream, one page: well inside the budget and accepted.
