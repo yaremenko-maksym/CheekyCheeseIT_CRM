@@ -7,6 +7,7 @@ Requirement 10 (verbatim): "Алерт — три слоя, каждый нез�
 """
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from pathlib import Path
@@ -14,10 +15,13 @@ from pathlib import Path
 import pytest
 
 from signal_plus.alert import (
+    RESEND_API_URL,
     log_error,
     notify_stale_pin,
     raise_alert,
+    raise_handover_alert,
     send_github_issue_alert,
+    send_handover_email,
     send_personal_alert,
 )
 from signal_plus.config import Config
@@ -31,6 +35,19 @@ def config_with_recipient(tmp_path) -> Config:
         signal_cli_bin=tmp_path / "signal-cli",
         state_file=tmp_path / "state.json",
         signal_alert_recipient="+380509998877",
+    )
+
+
+@pytest.fixture
+def config_with_email(tmp_path) -> Config:
+    return Config(
+        signal_account="+380501234567",
+        signal_group_id="group.abc123==",
+        signal_cli_bin=tmp_path / "signal-cli",
+        state_file=tmp_path / "state.json",
+        signal_alert_recipient="+380509998877",
+        resend_api_key="re_test_key",
+        alert_email_to="owner@example.com",
     )
 
 
@@ -273,10 +290,29 @@ def test_notify_stale_pin_sends_personal_dm_when_recipient_configured(config_wit
 
 
 def test_notify_stale_pin_noops_dm_without_recipient(config_without_recipient):
-    def fail_run(argv, **kwargs):
-        raise AssertionError("must not call signal-cli without a configured recipient")
+    # A raising fake would have its exception silently caught by
+    # notify_stale_pin's own try/except around send_personal_alert, masking
+    # a removed guard instead of catching it (the same masking found and
+    # fixed for send_handover_email's no-op tests above) -- track calls
+    # instead of raising.
+    #
+    # Verified by mutation: removing notify_stale_pin's OWN guard does not
+    # turn this test red, because send_personal_alert has the identical
+    # `signal_alert_recipient` check inside itself (defense in depth, same
+    # class of finding as the once-per-day update guard existing at both
+    # cli.py and updater.py). The call-tracking assertion below is still the
+    # right test -- it verifies the actual contract (zero signal-cli calls
+    # when no recipient is configured) rather than which of the two layers
+    # provides it; send_personal_alert's own guard is covered directly by
+    # test_send_personal_alert_noops_when_recipient_not_configured.
+    calls = []
 
-    notify_stale_pin(config_without_recipient, "0.14.6", "0.14.7", run=fail_run)  # must not raise
+    def tracking_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    notify_stale_pin(config_without_recipient, "0.14.6", "0.14.7", run=tracking_run)
+    assert calls == []
 
 
 def test_notify_stale_pin_dm_failure_does_not_raise(config_with_recipient):
@@ -284,3 +320,192 @@ def test_notify_stale_pin_dm_failure_does_not_raise(config_with_recipient):
         raise RuntimeError("signal-cli exploded")
 
     notify_stale_pin(config_with_recipient, "0.14.6", "0.14.7", run=raising_run)  # must not propagate
+
+
+# ---------------------------------------------------------------------------
+# send_handover_email — requirement 9's rewritten handover-to-human email,
+# sent directly to the Resend HTTP API (stdlib urllib, no SDK), never a real
+# network call in tests (AC6) -- http_post is always injected.
+# ---------------------------------------------------------------------------
+
+
+def test_send_handover_email_posts_to_resend_with_auth_header(config_with_email):
+    captured = {}
+
+    def fake_http_post(url, *, headers, body):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["body"] = body
+        return 200, b'{"id":"abc"}'
+
+    sent = send_handover_email(config_with_email, "connection refused", http_post=fake_http_post)
+
+    assert sent is True
+    assert captured["url"] == RESEND_API_URL
+    assert captured["headers"]["Authorization"] == "Bearer re_test_key"
+
+
+def test_send_handover_email_body_carries_reason_and_recipient(config_with_email):
+    captured = {}
+
+    def fake_http_post(url, *, headers, body):
+        captured["body"] = body
+        return 200, b"{}"
+
+    send_handover_email(config_with_email, "connection refused", http_post=fake_http_post)
+
+    payload = json.loads(captured["body"])
+    assert payload["to"] == ["owner@example.com"]
+    assert payload["from"] == "site@cheekycheese.tech"
+    assert "connection refused" in payload["text"]
+    assert "08:00" in payload["text"]
+    # Project transactional-email convention: no thanks/framing, one thought.
+    assert "спасибо" not in payload["text"].lower()
+
+
+def test_send_handover_email_noops_without_resend_api_key(tmp_path):
+    config = Config(
+        signal_account="+380501234567",
+        signal_group_id="group.abc123==",
+        signal_cli_bin=tmp_path / "signal-cli",
+        state_file=tmp_path / "state.json",
+        alert_email_to="owner@example.com",
+        resend_api_key=None,
+    )
+    calls = []
+
+    def tracking_http_post(url, *, headers, body):
+        calls.append(url)
+        return 200, b"{}"
+
+    result = send_handover_email(config, "reason", http_post=tracking_http_post)
+    # A call-tracking fake (not a raising one): send_handover_email wraps
+    # http_post in a broad try/except, so a fake that raises to signal "you
+    # weren't supposed to call me" would have its exception silently caught
+    # and turned into the SAME `False` result the correct no-op path
+    # produces -- masking a removed guard instead of catching it. Asserting
+    # on `calls` observes the guard directly.
+    assert calls == []
+    assert result is False
+
+
+def test_send_handover_email_noops_without_alert_email_to(tmp_path):
+    config = Config(
+        signal_account="+380501234567",
+        signal_group_id="group.abc123==",
+        signal_cli_bin=tmp_path / "signal-cli",
+        state_file=tmp_path / "state.json",
+        resend_api_key="re_test_key",
+        alert_email_to=None,
+    )
+    calls = []
+
+    def tracking_http_post(url, *, headers, body):
+        calls.append(url)
+        return 200, b"{}"
+
+    result = send_handover_email(config, "reason", http_post=tracking_http_post)
+    assert calls == []
+    assert result is False
+
+
+def test_send_handover_email_false_on_non_2xx_status(config_with_email):
+    def fake_http_post(url, *, headers, body):
+        return 401, b'{"message":"invalid API key"}'
+
+    assert send_handover_email(config_with_email, "reason", http_post=fake_http_post) is False
+
+
+def test_send_handover_email_false_on_http_post_exception(config_with_email):
+    def raising_http_post(url, *, headers, body):
+        raise OSError("network unreachable")
+
+    assert send_handover_email(config_with_email, "reason", http_post=raising_http_post) is False
+
+
+# ---------------------------------------------------------------------------
+# raise_handover_alert — requirement 9's four independent layers at the
+# handover moment: the three from requirement 10 (log/DM/issue) PLUS the
+# handover email. "Resend вернул ошибку -> ERROR, остальные слои алерта
+# (п. 10) всё равно срабатывают."
+# ---------------------------------------------------------------------------
+
+
+def test_raise_handover_alert_fires_all_four_layers(config_with_email, tmp_path, caplog):
+    script = tmp_path / "post-merge-alert.sh"
+    dm_calls = []
+    issue_calls = []
+
+    def fake_run(argv, **kwargs):
+        if str(script) in argv:
+            issue_calls.append(argv)
+        else:
+            dm_calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    def fake_http_post(url, *, headers, body):
+        return 200, b"{}"
+
+    with caplog.at_level(logging.ERROR, logger="signal_plus"):
+        outcome = raise_handover_alert(
+            config_with_email,
+            "ERROR: handover",
+            "connection refused",
+            issue_extra_env={},
+            script_path=script,
+            run=fake_run,
+            http_post=fake_http_post,
+        )
+
+    assert outcome.logged is True
+    assert outcome.dm_sent is True
+    assert outcome.issue_called is True
+    assert outcome.email_sent is True
+    assert len(dm_calls) == 1
+    assert len(issue_calls) == 1
+
+
+def test_raise_handover_alert_resend_failure_does_not_block_other_layers(config_with_email, tmp_path):
+    script = tmp_path / "post-merge-alert.sh"
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    def raising_http_post(url, *, headers, body):
+        raise OSError("Resend unreachable")
+
+    outcome = raise_handover_alert(
+        config_with_email,
+        "ERROR: handover",
+        "connection refused",
+        issue_extra_env={},
+        script_path=script,
+        run=fake_run,
+        http_post=raising_http_post,
+    )
+    assert outcome.email_sent is False
+    assert outcome.dm_sent is True
+    assert outcome.issue_called is True
+
+
+def test_raise_handover_alert_other_layer_failure_does_not_block_email(config_with_email, tmp_path):
+    script = tmp_path / "post-merge-alert.sh"
+
+    def raising_run(argv, **kwargs):
+        raise RuntimeError("signal-cli/script exploded")
+
+    def fake_http_post(url, *, headers, body):
+        return 200, b"{}"
+
+    outcome = raise_handover_alert(
+        config_with_email,
+        "ERROR: handover",
+        "connection refused",
+        issue_extra_env={},
+        script_path=script,
+        run=raising_run,
+        http_post=fake_http_post,
+    )
+    assert outcome.email_sent is True
+    assert outcome.dm_sent is False
+    assert outcome.issue_called is False

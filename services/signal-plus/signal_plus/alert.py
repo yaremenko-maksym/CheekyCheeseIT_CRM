@@ -21,9 +21,12 @@ caller) — see README.md's "Шаг 4" section.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -137,3 +140,109 @@ def notify_stale_pin(
         send_personal_alert(config, message, run=run)
     except Exception:
         logger.exception("stale-pin notification DM failed")
+
+
+# ---------------------------------------------------------------------------
+# Requirement 9 (rewritten in full in the task file, 2026-09-03, owner
+# decision quoted verbatim): "если сервис не успевает до 8 утра, то нужно
+# отправить на имейл ... письмо, что пайплайн зафейлился и нужно написать в
+# групу самостоятельно." Sent directly against the Resend HTTP API (stdlib
+# urllib, no SDK, per the task) -- reuses the same RESEND_API_KEY already in
+# the web app's deploy secrets, no second key.
+# ---------------------------------------------------------------------------
+
+RESEND_API_URL = "https://api.resend.com/emails"
+
+
+def _default_http_post(url: str, *, headers: dict[str, str], body: bytes) -> tuple[int, bytes]:  # pragma: no cover - real network, never used in tests
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+
+def send_handover_email(config: Config, reason: str, *, http_post=_default_http_post) -> bool:
+    """POST a handover email to Resend. No-op (returns ``False``) if either
+    ``RESEND_API_KEY`` or ``ALERT_EMAIL_TO`` is unconfigured — this layer is
+    optional the same way the personal-DM layer is.
+
+    Body text follows the project's transactional-email convention (no
+    thanks/framing, one thought), the wording quoted verbatim in the task
+    file: "Утренний + не отправлен к 08:00. Напишите в группу вручную.
+    Причина: <последняя ошибка>. Сервис на сегодня остановлен."
+    """
+    if not config.resend_api_key or not config.alert_email_to:
+        return False
+
+    handover_hhmm = config.handover_time.strftime("%H:%M")
+    text = (
+        f"Утренний + не отправлен к {handover_hhmm}. Напишите в группу вручную. "
+        f"Причина: {reason}. Сервис на сегодня остановлен."
+    )
+    payload = json.dumps(
+        {
+            "from": config.alert_email_from,
+            "to": [config.alert_email_to],
+            "subject": f"signal-plus: \"+\" не отправлен к {handover_hhmm}",
+            "text": text,
+        }
+    ).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {config.resend_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        status, body = http_post(RESEND_API_URL, headers=headers, body=payload)
+    except Exception as exc:
+        logger.error("Resend handover email failed: %s", exc)
+        return False
+
+    if not (200 <= status < 300):
+        logger.error("Resend handover email failed: HTTP %s: %s", status, body)
+        return False
+    return True
+
+
+@dataclass(frozen=True)
+class HandoverAlertOutcome:
+    logged: bool
+    dm_sent: bool
+    issue_called: bool
+    email_sent: bool
+
+
+def raise_handover_alert(
+    config: Config,
+    message: str,
+    reason: str,
+    *,
+    issue_extra_env: dict[str, str] | None = None,
+    script_path: Path = DEFAULT_POST_MERGE_ALERT_SCRIPT,
+    run=subprocess.run,
+    http_post=_default_http_post,
+) -> HandoverAlertOutcome:
+    """The handover moment fires requirement 10's three layers (via
+    :func:`raise_alert`) PLUS the handover email — four independent layers.
+    Task file: "Resend вернул ошибку → ERROR, остальные слои алерта (п. 10)
+    всё равно срабатывают" — so the email layer's own try/except must never
+    prevent (or be prevented by) the other three.
+    """
+    base_outcome = raise_alert(
+        config, message, issue_extra_env=issue_extra_env, script_path=script_path, run=run
+    )
+
+    email_sent = False
+    try:
+        email_sent = send_handover_email(config, reason, http_post=http_post)
+    except Exception:
+        logger.exception("handover email layer raised unexpectedly")
+
+    return HandoverAlertOutcome(
+        logged=base_outcome.logged,
+        dm_sent=base_outcome.dm_sent,
+        issue_called=base_outcome.issue_called,
+        email_sent=email_sent,
+    )
