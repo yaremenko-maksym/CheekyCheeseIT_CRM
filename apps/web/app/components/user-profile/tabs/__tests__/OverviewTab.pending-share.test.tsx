@@ -94,6 +94,7 @@ function renderTab(user: UserProfileDto, mode: 'self' | 'view') {
       </TooltipProvider>
     </QueryClientProvider>,
   )
+  return { qc }
 }
 
 describe('OverviewTab — pending base share banner (self + SENIOR + live proposal)', () => {
@@ -143,9 +144,18 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
 // ---------------------------------------------------------------------------
 
 describe('OverviewTab — pending base share banner, approve/reject interactions', () => {
+  const USER_ID = 'a0000000-0000-4000-8000-000000000001'
+
   beforeEach(() => {
     vi.clearAllMocks()
     ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { ok: true } })
+  })
+
+  it('the exact copy names the pending percent (not just "some text")', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const banner = screen.getByTestId('pending-base-share-approval-banner')
+    expect(banner.textContent).toContain('Новый базовый процент вашей доли')
+    expect(banner.textContent).toContain('55%')
   })
 
   it('approve: POSTs to the approve endpoint with no body and shows the exact success toast', async () => {
@@ -153,9 +163,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
     await waitFor(() =>
-      expect(api.post).toHaveBeenCalledWith(
-        '/users/a0000000-0000-4000-8000-000000000001/senior-share/approve',
-      ),
+      expect(api.post).toHaveBeenCalledWith(`/users/${USER_ID}/senior-share/approve`),
     )
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Новый процент подтверждён'))
   })
@@ -168,23 +176,54 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Ошибка: network down'))
   })
 
+  it('approve: invalidates BOTH the userId-keyed and the "me"-keyed profile query on success', async () => {
+    const { qc } = renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-approve-button'))
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] }),
+    )
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
+  })
+
+  it('reject dialog starts closed, with an empty reason field', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    expect(screen.queryByTestId('pending-base-share-reject-reason')).not.toBeInTheDocument()
+  })
+
   it('reject: the confirm button is disabled until a non-blank reason is entered', async () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
-    const confirmButton = await screen.findByTestId('pending-base-share-reject-confirm')
+    const reasonField = (await screen.findByTestId(
+      'pending-base-share-reject-reason',
+    )) as HTMLTextAreaElement
+    expect(reasonField.value).toBe('')
+    const confirmButton = screen.getByTestId('pending-base-share-reject-confirm')
     expect(confirmButton).toBeDisabled()
 
     // Whitespace-only stays disabled — `reason.trim()`, not `reason` itself.
-    await user.type(screen.getByTestId('pending-base-share-reject-reason'), '   ')
+    await user.type(reasonField, '   ')
     expect(confirmButton).toBeDisabled()
 
-    await user.type(screen.getByTestId('pending-base-share-reject-reason'), 'причина отказа')
+    await user.type(reasonField, 'причина отказа')
     expect(confirmButton).toBeEnabled()
   })
 
-  it('reject: confirming POSTs the reason to the reject endpoint and shows the exact success toast', async () => {
+  it('reject: Отмена closes the dialog WITHOUT calling the reject endpoint', async () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    await user.type(await screen.findByTestId('pending-base-share-reject-reason'), 'черновик')
+    await user.click(screen.getByRole('button', { name: 'Отмена' }))
+    expect(screen.queryByTestId('pending-base-share-reject-reason')).not.toBeInTheDocument()
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
+  it('reject: confirming POSTs the reason to the reject endpoint, shows the exact success toast, and closes + resets the dialog', async () => {
+    const { qc } = renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     await user.type(
@@ -193,11 +232,32 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     )
     await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
     await waitFor(() =>
-      expect(api.post).toHaveBeenCalledWith(
-        '/users/a0000000-0000-4000-8000-000000000001/senior-share/reject',
-        { reason: 'Слишком высокий процент' },
-      ),
+      expect(api.post).toHaveBeenCalledWith(`/users/${USER_ID}/senior-share/reject`, {
+        reason: 'Слишком высокий процент',
+      }),
     )
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Предложение отклонено'))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
+    // Dialog closed (state.rejectOpen reset) — reopening shows an EMPTY
+    // field, not the stale submitted text (state.reason reset).
+    await waitFor(() =>
+      expect(screen.queryByTestId('pending-base-share-reject-reason')).not.toBeInTheDocument(),
+    )
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    const reopened = (await screen.findByTestId(
+      'pending-base-share-reject-reason',
+    )) as HTMLTextAreaElement
+    expect(reopened.value).toBe('')
+  })
+
+  it('reject: a rejected request shows the exact error toast, prefixed "Ошибка: "', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('validation failed'))
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    await user.type(await screen.findByTestId('pending-base-share-reject-reason'), 'причина')
+    await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Ошибка: validation failed'))
   })
 })
