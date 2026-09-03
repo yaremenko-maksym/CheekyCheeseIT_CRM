@@ -5,10 +5,15 @@ Requirement 2: "Слот — случайный момент в 07:00–07:45 Eu
 module hands out is built with :mod:`zoneinfo`, so DST transitions are handled by
 the IANA tz database rules rather than a hand-rolled fixed offset.
 
-Requirement 9: "окно упущено (рестарт, сбой, обновление) → слать до 10:00
-Europe/Kyiv с WARNING late; после 10:00 — сегодня не слать, ERROR + алерт."
-``WINDOW_START``/``WINDOW_END``/``LATE_CUTOFF`` are fixed constants (not env
-vars) — requirement 1's explicit env-var list has no cutoff-time setting.
+Requirement 9 (rewritten in full in the task file, 2026-09-03, owner decision
+quoted verbatim): "окно упущено → слать с WARNING late только до 08:00
+Europe/Kyiv; в 08:00 без успешной отправки — письмо владельцу и останов
+попыток на сегодня." ``WINDOW_START``/``WINDOW_END`` stay fixed constants
+(requirement 1's env-var list has no window setting). The handover cutoff is
+now env-driven (``HANDOVER_TIME``, default 08:00) — :data:`DEFAULT_CUTOFF`
+here is only a fallback default for direct unit tests of this module;
+:func:`signal_plus.cli.run_cycle` always passes the real value from
+``config.handover_time`` explicitly.
 """
 from __future__ import annotations
 
@@ -19,7 +24,7 @@ from zoneinfo import ZoneInfo
 TIMEZONE = ZoneInfo("Europe/Kyiv")
 WINDOW_START = time(7, 0)
 WINDOW_END = time(7, 45)
-LATE_CUTOFF = time(10, 0)
+DEFAULT_CUTOFF = time(8, 0)
 
 
 def pick_slot(
@@ -64,12 +69,13 @@ def is_late(now: datetime, *, window_end: time = WINDOW_END, tz: ZoneInfo = TIME
 
 
 def is_past_cutoff(
-    now: datetime, *, cutoff: time = LATE_CUTOFF, tz: ZoneInfo = TIMEZONE
+    now: datetime, *, cutoff: time = DEFAULT_CUTOFF, tz: ZoneInfo = TIMEZONE
 ) -> bool:
     """True once ``now`` (converted to ``tz``) is at/after ``cutoff``.
 
-    Requirement 9: at/after 10:00 the daemon gives up on today entirely —
-    no more send attempts, ``ERROR`` + alert instead.
+    Requirement 9: at/after the configured handover time (``HANDOVER_TIME``,
+    default 08:00) the daemon gives up on today entirely — no more send
+    attempts, a handover email, and the rest of the alert (requirement 10).
     """
     local_time = now.astimezone(tz).timetz().replace(tzinfo=None)
     return local_time >= cutoff

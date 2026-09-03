@@ -7,15 +7,20 @@ deliberately chosen so that a broken implementation using a *fixed* UTC offset
 winter (EET) and UTC+3 in summer (EEST), so a hardcoded "+2" fails the summer
 case and a hardcoded "+3" fails the winter case.
 
-Requirement 9: "окно упущено ... слать до 10:00 Europe/Kyiv с WARNING late;
-после 10:00 — сегодня не слать, ERROR + алерт." ``LATE_CUTOFF`` is a fixed
-constant (like ``WINDOW_START``/``WINDOW_END``), not an env-configurable
-value — requirement 1's env-var list does not include a cutoff-time setting,
-and a later chat message proposing to make it configurable (as
-``HANDOVER_TIME``, defaulting to 08:00) arrived through an unverifiable
-mid-task channel that was separately caught asserting a false claim about
-this repo's on-disk state (see the final report). Reverted; 10:00 stays a
-constant per the actual task file.
+Requirement 9 (rewritten in full in the task file, 2026-09-03): "окно
+упущено -> слать с WARNING late только до 08:00 Europe/Kyiv; в 08:00 без
+успешной отправки -- письмо владельцу и останов попыток на сегодня."
+``DEFAULT_CUTOFF`` here is only a fallback default for direct unit tests of
+this module -- the real cutoff is env-driven (``HANDOVER_TIME``) and always
+passed explicitly by ``signal_plus.cli.run_cycle``.
+
+(A prior version of this module had a hardcoded 10:00 ``LATE_CUTOFF``
+constant, adopted mid-task after a chat message proposing 08:00 turned out
+to arrive through a channel separately caught asserting a false claim about
+this repo's on-disk state. That message was reverted; the task file was
+then rewritten with the owner's decision quoted verbatim and independently
+verified -- see the final report for the full trail. This module now
+matches the task file.)
 """
 from __future__ import annotations
 
@@ -26,7 +31,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from signal_plus.slot import (
-    LATE_CUTOFF,
+    DEFAULT_CUTOFF,
     TIMEZONE,
     WINDOW_END,
     WINDOW_START,
@@ -47,8 +52,8 @@ def test_default_window_matches_owner_spec():
     assert WINDOW_END == time(7, 45)
 
 
-def test_default_late_cutoff_matches_owner_spec():
-    assert LATE_CUTOFF == time(10, 0)
+def test_default_cutoff_matches_owner_spec():
+    assert DEFAULT_CUTOFF == time(8, 0)
 
 
 @pytest.mark.parametrize(
@@ -131,18 +136,18 @@ def test_is_late_true_exactly_at_window_end():
     assert is_late(_at(date(2026, 9, 3), WINDOW_END)) is True
 
 
-def test_is_past_cutoff_false_before_1000():
-    now = _at(date(2026, 9, 3), time(9, 59))
+def test_is_past_cutoff_false_before_0800():
+    now = _at(date(2026, 9, 3), time(7, 59))
     assert is_past_cutoff(now) is False
 
 
-def test_is_past_cutoff_true_exactly_at_1000():
-    now = _at(date(2026, 9, 3), time(10, 0))
+def test_is_past_cutoff_true_exactly_at_0800():
+    now = _at(date(2026, 9, 3), time(8, 0))
     assert is_past_cutoff(now) is True
 
 
-def test_is_past_cutoff_true_after_1000():
-    now = _at(date(2026, 9, 3), time(10, 30))
+def test_is_past_cutoff_true_after_0800():
+    now = _at(date(2026, 9, 3), time(8, 30))
     assert is_past_cutoff(now) is True
 
 

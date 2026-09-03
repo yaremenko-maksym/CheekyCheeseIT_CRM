@@ -1,6 +1,7 @@
 """Tests for signal_plus.config — env-driven configuration."""
 from __future__ import annotations
 
+from datetime import time
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,52 @@ def test_optional_fields_default_none():
     assert cfg.signal_data_dir is None
     assert cfg.signal_cli_gpg_fingerprint is None
     assert cfg.signal_alert_recipient is None
+    assert cfg.resend_api_key is None
+    assert cfg.alert_email_to is None
+
+
+def test_handover_time_defaults_to_0800():
+    # Requirement 9 (task file, rewritten 2026-09-03): "Время передачи — env
+    # HANDOVER_TIME, default 08:00."
+    cfg = Config.from_env(dict(REQUIRED_ENV))
+    assert cfg.handover_time == time(8, 0)
+
+
+def test_handover_time_overridable():
+    env = dict(REQUIRED_ENV, HANDOVER_TIME="08:30")
+    cfg = Config.from_env(env)
+    assert cfg.handover_time == time(8, 30)
+
+
+def test_handover_time_rejects_bad_format():
+    env = dict(REQUIRED_ENV, HANDOVER_TIME="not-a-time")
+    with pytest.raises(ConfigError):
+        Config.from_env(env)
+
+
+def test_alert_email_from_default():
+    # Requirement 9: default site@cheekycheese.tech (= CONTACT_FROM_EMAIL at
+    # the API, domain already verified in Resend).
+    cfg = Config.from_env(dict(REQUIRED_ENV))
+    assert cfg.alert_email_from == "site@cheekycheese.tech"
+
+
+def test_alert_email_from_overridable():
+    env = dict(REQUIRED_ENV, ALERT_EMAIL_FROM="ops@example.com")
+    cfg = Config.from_env(env)
+    assert cfg.alert_email_from == "ops@example.com"
+
+
+def test_resend_api_key_optional_passthrough():
+    env = dict(REQUIRED_ENV, RESEND_API_KEY="re_test_123")
+    cfg = Config.from_env(env)
+    assert cfg.resend_api_key == "re_test_123"
+
+
+def test_alert_email_to_optional_passthrough():
+    env = dict(REQUIRED_ENV, ALERT_EMAIL_TO="owner@example.com")
+    cfg = Config.from_env(env)
+    assert cfg.alert_email_to == "owner@example.com"
 
 
 def test_signal_data_dir_parsed_as_path():

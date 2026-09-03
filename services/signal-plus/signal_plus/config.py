@@ -7,20 +7,28 @@ other module receives an already-built :class:`Config` instance and never touche
 ``os.environ`` itself, which is what makes the rest of the package testable without
 monkeypatching the environment.
 
-Fields are exactly the set requirement 1 names: the four required base settings
-(``SIGNAL_ACCOUNT``, ``SIGNAL_GROUP_ID``, ``SIGNAL_CLI_BIN``, ``STATE_FILE``) plus
-the three optional ones needed for auto-update and alerting
-(``SIGNAL_DATA_DIR``, ``SIGNAL_CLI_GPG_FINGERPRINT``, ``SIGNAL_ALERT_RECIPIENT``).
-Nothing else — a mid-task message claiming to add email escalation via a
-production Resend key arrived through an unverifiable channel (not the task
-file) and, on inspection, that same channel was caught asserting a false claim
-about this repository's on-disk state; the email/HANDOVER_TIME fields it asked
-for were reverted for that reason. See the final report for the full trail.
+Fields: the four required base settings (``SIGNAL_ACCOUNT``, ``SIGNAL_GROUP_ID``,
+``SIGNAL_CLI_BIN``, ``STATE_FILE``); the auto-update settings (``SIGNAL_DATA_DIR``,
+``SIGNAL_CLI_GPG_FINGERPRINT``); and the alerting settings (``SIGNAL_ALERT_RECIPIENT``,
+``HANDOVER_TIME``, ``RESEND_API_KEY``, ``ALERT_EMAIL_FROM``, ``ALERT_EMAIL_TO`` —
+requirement 9, rewritten in full in the task file 2026-09-03: the owner's decision
+to send a handover email via Resend when the window is missed past
+``HANDOVER_TIME``, quoted verbatim there).
+
+A mid-task chat message had earlier proposed this same email addition; it was
+reverted on suspicion because the channel it arrived through was separately
+caught asserting a false claim about this repo's on-disk state. The
+requirement was then written into the task file itself (the pre-existing,
+designed, zone-of-write-governed channel for this), with the owner's decision
+quoted verbatim, plus an independently-verifiable GPG source — see the final
+report for the full trail and the independent verification performed before
+re-implementing this.
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import time
 from pathlib import Path
 
 
@@ -44,6 +52,21 @@ def mask_secret(value: str | None) -> str:
     return f"{value[0]}***{value[-1]}"
 
 
+def _parse_time(raw: str, *, env_name: str) -> time:
+    parts = raw.split(":")
+    if len(parts) != 2:
+        raise ConfigError(f"{env_name}={raw!r} is not HH:MM")
+    hour_str, minute_str = parts
+    try:
+        return time(int(hour_str), int(minute_str))
+    except ValueError as exc:
+        raise ConfigError(f"{env_name}={raw!r} is not HH:MM") from exc
+
+
+DEFAULT_HANDOVER_TIME = time(8, 0)
+DEFAULT_ALERT_EMAIL_FROM = "site@cheekycheese.tech"
+
+
 @dataclass(frozen=True)
 class Config:
     """Fully-resolved, immutable configuration for one run of signal-plus."""
@@ -55,6 +78,10 @@ class Config:
     signal_data_dir: Path | None = None
     signal_cli_gpg_fingerprint: str | None = None
     signal_alert_recipient: str | None = None
+    handover_time: time = DEFAULT_HANDOVER_TIME
+    resend_api_key: str | None = None
+    alert_email_from: str = DEFAULT_ALERT_EMAIL_FROM
+    alert_email_to: str | None = None
 
     def masked_account(self) -> str:
         return mask_secret(self.signal_account)
@@ -74,6 +101,7 @@ class Config:
             return value or None
 
         signal_data_dir_raw = optional("SIGNAL_DATA_DIR")
+        handover_raw = optional("HANDOVER_TIME") or "08:00"
 
         return cls(
             signal_account=require("SIGNAL_ACCOUNT"),
@@ -83,4 +111,8 @@ class Config:
             signal_data_dir=Path(signal_data_dir_raw) if signal_data_dir_raw else None,
             signal_cli_gpg_fingerprint=optional("SIGNAL_CLI_GPG_FINGERPRINT"),
             signal_alert_recipient=optional("SIGNAL_ALERT_RECIPIENT"),
+            handover_time=_parse_time(handover_raw, env_name="HANDOVER_TIME"),
+            resend_api_key=optional("RESEND_API_KEY"),
+            alert_email_from=optional("ALERT_EMAIL_FROM") or DEFAULT_ALERT_EMAIL_FROM,
+            alert_email_to=optional("ALERT_EMAIL_TO"),
         )
