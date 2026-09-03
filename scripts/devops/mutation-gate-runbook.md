@@ -413,6 +413,21 @@ pnpm mutation:full                       # everything (long)
 MUTATION_ONLY_FILES=apps/api/src/auth/jwt.guard.ts pnpm mutation:changed
 ```
 
+**A point run is for debugging ONE mutant, never proof before a push.**
+PR #623 ran the gate scoped to each round's own files/lines
+(`MUTATION_ONLY_FILES`, or a diff base narrowed to that round) seven separate
+rounds, and every round reported `survived 0`. CI, running `--changed`
+against the FULL branch diff vs `origin/main` with no `MUTATION_ONLY_FILES`,
+found **34 surviving mutants** on the same branch. Broken down: **20** were
+in files that round's changes never touched at all, and the other **14**
+were in files a round DID touch, but on different lines than that round's
+own edit. Seven point runs saw zero of the thirty-four between them — not
+because the gate missed them, but because a scoped run's "changed" is
+whatever you told it to look at, not what the branch actually changed.
+Before a push: `pnpm mutation:changed` with NOTHING narrowing it — the
+`MUTATION_ONLY_FILES` line above is for iterating on one finding after the
+full run already told you where it is, never a substitute for running it.
+
 `reports/mutation/*.report.json` holds the full machine-readable result
 (gitignored; uploaded as a CI artifact).
 
