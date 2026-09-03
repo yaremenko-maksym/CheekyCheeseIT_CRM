@@ -107,11 +107,27 @@ export type ApproveApprovalInput = z.infer<typeof approveApprovalInputSchema>
 /**
  * One approver saying no. `reason` is required and non-blank — decision "Отказ
  * возможен и требует причины" (§3.3) — an empty rejection is not representable.
+ *
+ * SR-L-1 (PR #646 fix-round 1): `.max(500)` — `approvals.rejection_reason`
+ * is a `text` column (unbounded), so this is the only backstop against an
+ * authenticated invited approver writing an arbitrarily large blob that
+ * later renders on the admin's screen. This schema is the shared registry
+ * EVERY subject type's reject path validates through (not just projects —
+ * `rejectProjectSchema` in projects.ts already had its own 500-cap, but
+ * that only protects the ONE endpoint built on top of THIS one; a future
+ * subject type calling `ApprovalsService.reject()` directly, or any path
+ * that skips the endpoint-level DTO, was unprotected without this). Same
+ * bound and message as `rejectProjectSchema`'s — one number, not two to
+ * keep in sync.
  */
 export const rejectApprovalInputSchema = z.object({
   subjectType: approvalSubjectTypeSchema,
   subjectId: z.string().uuid(),
   approverUserId: z.string().uuid(),
-  reason: z.string().trim().min(1, 'Причина отказа обязательна'),
+  reason: z
+    .string()
+    .trim()
+    .min(1, 'Причина отказа обязательна')
+    .max(500, 'Причина отказа слишком длинная (максимум 500 символов)'),
 })
 export type RejectApprovalInput = z.infer<typeof rejectApprovalInputSchema>

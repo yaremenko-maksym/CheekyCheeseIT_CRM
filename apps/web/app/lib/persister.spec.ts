@@ -23,7 +23,12 @@ const hoisted = vi.hoisted(() => {
     setItem: (k: string, v: string) => Promise<unknown>
     removeItem: (k: string) => Promise<unknown>
   }
-  type CapturedOptions = { storage: StorageAdapter; key: string; throttleTime?: number }
+  type CapturedOptions = {
+    storage: StorageAdapter
+    key: string
+    throttleTime?: number
+    serialize?: (client: unknown) => string
+  }
 
   return {
     capturedOptionsRef: { current: undefined as CapturedOptions | undefined },
@@ -57,7 +62,12 @@ vi.mock('@tanstack/query-async-storage-persister', () => ({
 // ---------------------------------------------------------------------------
 // Import AFTER mocks — module evaluation now runs with the mocks in place
 // ---------------------------------------------------------------------------
-import { PERSIST_KEY, persister } from './persister'
+import {
+  PERSIST_KEY,
+  persister,
+  stripSensitiveFields,
+  SENSITIVE_PERSISTED_FIELDS,
+} from './persister'
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -107,5 +117,99 @@ describe('persister — idb-keyval storage adapter wiring', () => {
   it('storage.removeItem delegates to idb-keyval del()', async () => {
     await hoisted.capturedOptionsRef.current?.storage.removeItem('crm-query-cache')
     expect(hoisted.mockDel).toHaveBeenCalledWith('crm-query-cache')
+  })
+})
+
+// SR-M-1 (PR #646 fix-round 1): rejectionReason (up to 500 chars of why
+// someone declined a project's money terms) was reaching IndexedDB via the
+// 'projects' persisted key, which the allow-list's own comment promises is
+// "non-PII reference data". These tests pin the field-level strip that
+// keeps that promise true without dropping the whole 'projects' key.
+describe('persister — stripSensitiveFields (SR-M-1)', () => {
+  it('drops rejectionReason from a single object (findOne-shaped query data)', () => {
+    const input = { id: 'p1', status: 'REJECTED', rejectionReason: 'Нет бюджета на Q3' }
+    const result = stripSensitiveFields(input) as Record<string, unknown>
+    expect(result.id).toBe('p1')
+    expect(result.status).toBe('REJECTED')
+    expect('rejectionReason' in result).toBe(false)
+  })
+
+  it('drops rejectionReason from every element of an array (findAll-shaped query data)', () => {
+    const input = [
+      { id: 'p1', status: 'REJECTED', rejectionReason: 'Нет бюджета' },
+      { id: 'p2', status: 'ACTIVE', rejectionReason: null },
+    ]
+    const result = stripSensitiveFields(input) as Array<Record<string, unknown>>
+    expect(result).toHaveLength(2)
+    expect(result.every((p) => !('rejectionReason' in p))).toBe(true)
+    expect(result[0]?.id).toBe('p1')
+    expect(result[1]?.id).toBe('p2')
+  })
+
+  it('strips at ANY depth — nested inside the PersistedClient shape a real query cache has', () => {
+    const persistedClient = {
+      timestamp: 1,
+      buster: 'v1',
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects', { archived: 'active' }],
+            state: {
+              data: [{ id: 'p1', status: 'REJECTED', rejectionReason: 'Секретная причина' }],
+            },
+          },
+        ],
+        mutations: [],
+      },
+    }
+    const result = JSON.parse(JSON.stringify(stripSensitiveFields(persistedClient)))
+    const serializedWhole = JSON.stringify(result)
+    expect(serializedWhole).not.toContain('Секретная причина')
+    expect(serializedWhole).not.toContain('rejectionReason')
+    // Everything else survives — this is a strip, not a wipe.
+    expect(result.clientState.queries[0].state.data[0].id).toBe('p1')
+    expect(result.clientState.queries[0].state.data[0].status).toBe('REJECTED')
+  })
+
+  it('leaves non-object, non-array values (string/number/boolean/null) untouched', () => {
+    expect(stripSensitiveFields('plain string')).toBe('plain string')
+    expect(stripSensitiveFields(42)).toBe(42)
+    expect(stripSensitiveFields(null)).toBeNull()
+    expect(stripSensitiveFields(true)).toBe(true)
+  })
+
+  it('the field name lives in ONE place (SENSITIVE_PERSISTED_FIELDS) — this test documents the SR-M-2 extension point, it does not itself fix SR-M-2', () => {
+    expect(SENSITIVE_PERSISTED_FIELDS.has('rejectionReason')).toBe(true)
+    // SR-M-2 (out of scope for this PR): members[].email, rate, share
+    // percentages, notesGeneral are NOT yet in this set — this assertion
+    // documents the current (incomplete, on purpose here) state so a
+    // future PR closing SR-M-2 has to consciously change this line, not
+    // silently regress it.
+    expect(SENSITIVE_PERSISTED_FIELDS.size).toBe(1)
+  })
+})
+
+describe('persister — serialize option is wired to strip sensitive fields before JSON.stringify (SR-M-1)', () => {
+  it('createAsyncStoragePersister was called with a serialize function', () => {
+    expect(typeof hoisted.capturedOptionsRef.current?.serialize).toBe('function')
+  })
+
+  it('the wired serialize function strips rejectionReason and returns a JSON string', () => {
+    const serialize = hoisted.capturedOptionsRef.current?.serialize
+    if (!serialize) throw new Error('serialize was not captured')
+    const output = serialize({
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects'],
+            state: { data: [{ id: 'p1', rejectionReason: 'должно исчезнуть' }] },
+          },
+        ],
+      },
+    })
+    expect(typeof output).toBe('string')
+    expect(output).not.toContain('должно исчезнуть')
+    expect(output).not.toContain('rejectionReason')
+    expect(JSON.parse(output).clientState.queries[0].state.data[0].id).toBe('p1')
   })
 })

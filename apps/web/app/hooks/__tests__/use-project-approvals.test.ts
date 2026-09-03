@@ -86,10 +86,10 @@ describe('isAlreadyRespondedError', () => {
     ).toBe(true)
   })
 
-  it('true for a 404 (NotFoundException — "не найдено или уже погашено")', () => {
+  it('SR-M-4 (PR #646 fix-round 1): false for a 404 — used to be true, but a 404 can mean the caller was NEVER an invited approver (real auth failure), not just "already responded"; only 409 is unambiguous', () => {
     expect(
       isAlreadyRespondedError({ isAxiosError: true, response: { status: 404 } }),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('false for a 500 — a real error, must stay surfaced', () => {
@@ -217,6 +217,20 @@ describe('useApproveProjectDraft / useRejectProjectDraft', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
+  })
+
+  it('SR-M-4 (PR #646 fix-round 1): a 404 on APPROVE does NOT invalidate — it is a real error now (possibly an unauthorized caller), not a stale-list signal', async () => {
+    mockPost.mockRejectedValue(
+      Object.assign(new Error('Not Found'), { isAxiosError: true, response: { status: 404 } }),
+    )
+    const qc = makeQC()
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useApproveProjectDraft(), { wrapper: makeWrapper(qc) })
+
+    act(() => result.current.mutate('proj-1'))
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(invalidateSpy).not.toHaveBeenCalled()
   })
 
   it('a genuine 500 on APPROVE does NOT invalidate — nothing actually changed server-side', async () => {

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Check, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { cn } from '@/lib/utils'
+import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 import {
   isAlreadyRespondedError,
   useApproveProjectDraft,
@@ -24,11 +26,13 @@ export interface ProjectApprovalActionsProps {
   /** Used only in the reject dialog's title/copy. */
   companyName: string
   /**
-   * Called after a successful approve/reject, AND after a 409/404 (already
-   * responded — see `isAlreadyRespondedError`'s doc). Callers use this to
-   * drop the item from a local list (`PendingProjectApprovalsPanel`) or to
-   * rely on the shared query invalidation alone (`ProjectRow`, which
-   * re-renders from the invalidated list anyway).
+   * Called after a successful approve/reject, AND after a 409 (already
+   * responded — see `isAlreadyRespondedError`'s doc; SR-M-4 narrowed this
+   * from 409/404 to 409 only — a 404 is now a real, toasted error). Callers
+   * use this to drop the item from a local list
+   * (`PendingProjectApprovalsPanel`) or to rely on the shared query
+   * invalidation alone (`ProjectRow`, which re-renders from the invalidated
+   * list anyway).
    */
   onActed?: () => void
   className?: string
@@ -77,7 +81,15 @@ export function ProjectApprovalActions({
     approve.mutate(projectId, {
       onSuccess: () => onActed?.(),
       onError: (err) => {
-        if (isAlreadyRespondedError(err)) onActed?.()
+        // SR-M-4: 409 ("already responded") stays a silent self-correction;
+        // anything else — including a 404, which can mean the caller was
+        // never actually an invited approver — is a REAL error and must be
+        // visible, not just a vanished element with no explanation.
+        if (isAlreadyRespondedError(err)) {
+          onActed?.()
+        } else {
+          toast.error(getUserFacingErrorMessage(err))
+        }
       },
     })
   }
@@ -98,10 +110,16 @@ export function ProjectApprovalActions({
           onActed?.()
         },
         onError: (err) => {
+          // SR-M-4: same 409-only self-correction as handleApprove above —
+          // a 404 here stays open with the inline error text (rejectError,
+          // below) AND a toast, since the dialog is already visible and the
+          // reason the user typed should not just disappear silently.
           if (isAlreadyRespondedError(err)) {
             setRejectOpen(false)
             setReason('')
             onActed?.()
+          } else {
+            toast.error(getUserFacingErrorMessage(err))
           }
         },
       },
@@ -110,8 +128,9 @@ export function ProjectApprovalActions({
 
   // The axios response interceptor already rewrites `.message` to a
   // friendly RU string (getUserFacingErrorMessage) before it reaches here —
-  // an "already responded" 409/404 is handled above and never shown as an
-  // error at all.
+  // an "already responded" 409 is handled above and never shown as an
+  // error at all. A 404 (SR-M-4) is now a real error: shown BOTH here
+  // (inline, next to the control the click was on) and as a toast above.
   const approveError =
     approve.isError && !isAlreadyRespondedError(approve.error)
       ? (approve.error as Error).message
@@ -131,7 +150,12 @@ export function ProjectApprovalActions({
           type="button"
           size="sm"
           variant="outline"
-          className="h-7 min-w-11 gap-1 border-emerald-500/30 px-2 text-[11px] text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+          // UX-H-2 (PR #646 fix-round 1): h-11 (44px, responsive-design.md
+          // hard-gate) on mobile, back to the tighter h-7 (28px) from sm:
+          // (640px+) up — same responsive-height pattern index.tsx's
+          // SegmentedToggle mobile instance already uses
+          // ([&>button]:min-h-11) for the same 44px requirement.
+          className="h-11 min-w-11 gap-1 border-emerald-500/30 px-2 text-[11px] text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 sm:h-7"
           onClick={handleApprove}
           disabled={approve.isPending}
           data-testid={`project-approval-approve-${projectId}`}
@@ -143,7 +167,8 @@ export function ProjectApprovalActions({
           type="button"
           size="sm"
           variant="outline"
-          className="h-7 min-w-11 gap-1 border-destructive/30 px-2 text-[11px] text-destructive hover:bg-destructive/10"
+          // UX-H-2: same responsive-height fix as the Confirm button above.
+          className="h-11 min-w-11 gap-1 border-destructive/30 px-2 text-[11px] text-destructive hover:bg-destructive/10 sm:h-7"
           onClick={(e) => {
             stop(e)
             setRejectOpen(true)
@@ -188,6 +213,11 @@ export function ProjectApprovalActions({
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Например: нет бюджета на Q3"
                 rows={3}
+                // SR-L-2 (PR #646 fix-round 1): matches rejectProjectSchema's
+                // / rejectApprovalInputSchema's own `.max(500, ...)` — without
+                // this, 500+ characters would type fine here and only fail
+                // as a 400 after Отклонить, with no hint at the field itself.
+                maxLength={500}
                 data-testid="project-approval-reject-reason"
               />
             </div>

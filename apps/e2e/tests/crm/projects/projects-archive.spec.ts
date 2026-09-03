@@ -75,15 +75,41 @@ test.describe('Projects archive — list page tab', () => {
     await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
   })
 
-  // AC2: non-ADMIN sees no tabs row at all (not just the «Архив» tab).
-  test('non-ADMIN does not see any status tabs row (SENIOR)', async ({ asSenior: page }) => {
+  // SPEC-M-5 (PR #646 fix-round 1): SENIOR now GETS a status tabs row —
+  // task-project-status-filter-ui (design spec §2's visibility table) gives
+  // SENIOR two of the four values (Активные + Ожидают подтверждения, so
+  // they can act on their own draft from the card, AC3) while HR/ACCOUNTANT/
+  // JUNIOR/DROP still see none (their list is always ACTIVE-only — the
+  // `(isAdmin || isSenior) &&` guard in index.tsx is exactly this). AC2's
+  // OLD claim ("non-ADMIN sees no tabs row at all") was true for every non-
+  // ADMIN role before this task; SENIOR is now the one deliberate exception.
+  test('SENIOR sees a REDUCED status tabs row (2 tabs, not the ADMIN 4)', async ({
+    asSenior: page,
+  }) => {
+    await page.goto('/projects')
+    const tabs = page.getByTestId('projects-status-tabs')
+    await expect(tabs).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'Активные' })).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'Ожидают подтверждения' })).toBeVisible()
+    // The two ADMIN-only values are genuinely absent, not just unselected.
+    await expect(tabs.getByRole('tab', { name: 'Отклонённые' })).toHaveCount(0)
+    await expect(tabs.getByRole('tab', { name: 'Архив' })).toHaveCount(0)
+  })
+
+  // HR/ACCOUNTANT/JUNIOR/DROP: the SPEC-M-5 exception above is SENIOR-only —
+  // every other non-ADMIN role still sees no tabs row at all (AC2's original
+  // claim, unchanged for them).
+  test('non-ADMIN (HR) still sees no status tabs row at all', async ({ asHr: page }) => {
     await page.goto('/projects')
     await expect(page.getByTestId('projects-status-tabs')).not.toBeVisible()
   })
 
-  // AC3: non-ADMIN with ?archived=true URL — tabs absent, no archived projects shown.
-  // The page silently falls back to active-only list regardless of URL param.
-  test('non-ADMIN with ?archived=true URL sees active-only list, no tabs (SENIOR)', async ({
+  // AC3: non-ADMIN with ?archived=true URL — SENIOR's allowedTabs never
+  // includes ARCHIVED, so the legacy param resolves and then silently falls
+  // back to the ACTIVE tab (index.tsx's own `allowedTabs.includes(urlStatus)
+  // ? urlStatus : 'ACTIVE'` guard) — active-only list, on the (now visible,
+  // SPEC-M-5) 2-tab row, never the archived project.
+  test('non-ADMIN (SENIOR) with ?archived=true URL falls back to the Активные tab, never shows archived projects', async ({
     asSenior: page,
   }) => {
     // Mock: active project in default list, archived project only when ?archived=true
@@ -108,12 +134,15 @@ test.describe('Projects archive — list page tab', () => {
 
     await page.goto('/projects?archived=true')
 
-    // Tabs row must not be visible
-    await expect(page.getByTestId('projects-status-tabs')).not.toBeVisible()
+    // Tabs row IS visible (SPEC-M-5) — but the ACTIVE tab is the one selected.
+    const tabs = page.getByTestId('projects-status-tabs')
+    await expect(tabs).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'Активные' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
     // Active project is shown (from active-only API call)
     await expect(page.getByText(activeProject.name)).toBeVisible()
-    // (Page-title/subtitle removed in de-title refactor — the active-only state
-    // is proven by the hidden tabs + the active project being listed above.)
   })
 
   test('archived project card has data-archived=true and no inline restore button (ut-38)', async ({

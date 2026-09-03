@@ -225,6 +225,82 @@ describe('ProjectsService — rejectionReason on findAll/findOne (task-project-s
   })
 })
 
+// SR-M-3 (PR #646 fix-round 1). Every test above sets isApprover -> true and
+// listSubjectIdsForApprover -> every project id, unconditionally — the exact
+// gate that keeps rejectionReason from reaching a non-approver is disabled
+// in all of them. A regression that leaked the reason past that gate would
+// pass every test above and still be a real leak. These tests turn the gate
+// back on (isApprover -> false, listSubjectIdsForApprover -> empty) and
+// prove the reason genuinely cannot be reached — not just that the field
+// happens to read null, but that the REJECTED project is invisible at all,
+// same as `draft-visibility.unit.spec.ts`'s own AC5 coverage, specifically
+// for the path this field's own tests were blind to.
+describe('ProjectsService — rejectionReason genuinely gated behind visibility, not just null-by-default (SR-M-3)', () => {
+  function buildServiceWithNoApprovers(projectRows: ReturnType<typeof rejectedProject>[]) {
+    const db = {
+      db: {
+        query: {
+          projects: {
+            findFirst: async () => projectRows[0],
+            findMany: async () => projectRows,
+          },
+          teamMembers: { findFirst: async () => null, findMany: async () => [] },
+        },
+        select: () => ({
+          from: () => ({
+            where: () => Promise.resolve([]),
+            innerJoin: () => ({ where: () => Promise.resolve([]) }),
+          }),
+        }),
+      },
+    }
+    const auditLog = { record: vi.fn(async () => undefined) }
+    const hrAccess = new HrAccessService(db as never)
+    const approvals = {
+      // The gate turned ON: nobody is an approver, nobody was ever invited.
+      isApprover: vi.fn(async () => false),
+      listSubjectIdsForApprover: vi.fn(async () => new Set<string>()),
+      getRejectionReasons: vi.fn(async (_subjectType: string, ids: string[]) => {
+        const map = new Map<string, string>()
+        if (ids.includes(PROJECT_ID)) map.set(PROJECT_ID, 'Бюджет не подтверждён')
+        return map
+      }),
+    }
+    const service = new ProjectsService(
+      db as never,
+      auditLog as never,
+      {} as never,
+      hrAccess,
+      approvals as never,
+    )
+    return { service, approvals }
+  }
+
+  it('findAll: a non-ADMIN, non-invited viewer (HR) never sees the REJECTED project at all — not present in the result, not just rejectionReason: null', async () => {
+    const { service } = buildServiceWithNoApprovers([rejectedProject()])
+
+    const result = await service.findAll(sessionFor('hr-1', 'HR'), { archived: false })
+
+    expect(result.find((p) => p.id === PROJECT_ID)).toBeUndefined()
+  })
+
+  it('findAll: getRejectionReasons is never even called for a non-invited viewer — the project is filtered out BEFORE the batch lookup runs, not after', async () => {
+    const { service, approvals } = buildServiceWithNoApprovers([rejectedProject()])
+
+    await service.findAll(sessionFor('hr-1', 'HR'), { archived: false })
+
+    expect(approvals.getRejectionReasons).not.toHaveBeenCalled()
+  })
+
+  it('findOne: a non-ADMIN, non-invited viewer gets 404 (existence-oracle-safe), not a project with rejectionReason: null', async () => {
+    const { service } = buildServiceWithNoApprovers([rejectedProject()])
+
+    await expect(service.findOne(PROJECT_ID, sessionFor('hr-1', 'HR'))).rejects.toThrow(
+      'Project not found',
+    )
+  })
+})
+
 describe('ProjectsService.rejectDraft — rejectionReason on the response (task-project-status-filter-ui)', () => {
   function buildService(projectRow: ReturnType<typeof rejectedProject> | undefined) {
     const db = {

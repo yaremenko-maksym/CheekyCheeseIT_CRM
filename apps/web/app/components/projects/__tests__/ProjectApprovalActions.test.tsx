@@ -4,8 +4,10 @@
  * on `ProjectRow` (card) and `PendingProjectApprovalsPanel` (dashboard
  * widget). These tests exercise the component directly, with the two
  * mutation hooks mocked so no real HTTP happens — `isAlreadyRespondedError`
- * is kept REAL (partial mock) since its 409/404 branching is exactly what
- * AC3's "stale item disappears instead of erroring" behaviour depends on.
+ * is kept REAL (partial mock) since its 409-only branching (SR-M-4, PR #646
+ * fix-round 1 — narrowed from 409/404) is exactly what AC3's "stale item
+ * disappears instead of erroring" behaviour depends on. `sonner`'s `toast`
+ * is mocked to assert the SR-M-4 "404 is now a real, toasted error" fix.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -14,6 +16,7 @@ import { ProjectApprovalActions } from '../ProjectApprovalActions'
 
 const mockApprove = vi.fn()
 const mockReject = vi.fn()
+const mockToastError = vi.fn()
 let approveState: { isPending: boolean; isError: boolean; error: unknown } = {
   isPending: false,
   isError: false,
@@ -34,12 +37,34 @@ vi.mock('@/hooks/use-project-approvals', async (orig) => {
   }
 })
 
+vi.mock('sonner', () => ({
+  toast: { error: (msg: string) => mockToastError(msg) },
+}))
+
 const PROJECT_ID = '00000000-0000-0000-0000-0000000000a1'
 
 function conflictError() {
   return Object.assign(new Error('Conflict'), {
     isAxiosError: true,
     response: { status: 409 },
+  })
+}
+
+/**
+ * SR-M-4 (PR #646 fix-round 1): a 404 is now a real error, never "already
+ * responded". Body shape matches what `ApprovalsService.assertRespondable`
+ * actually sends (Nest's default exception-filter JSON:
+ * `{ statusCode, message, error }`) — realistic enough that
+ * `getUserFacingErrorMessage` takes the SAME code path (`extractBackendMessage`
+ * priority 2) a real 404 from this endpoint would.
+ */
+function notFoundError() {
+  return Object.assign(new Error('Not Found'), {
+    isAxiosError: true,
+    response: {
+      status: 404,
+      data: { statusCode: 404, message: 'Согласование не найдено или уже погашено' },
+    },
   })
 }
 
@@ -53,6 +78,7 @@ function serverError() {
 beforeEach(() => {
   mockApprove.mockReset()
   mockReject.mockReset()
+  mockToastError.mockReset()
   approveState = { isPending: false, isError: false, error: null }
   rejectState = { isPending: false, isError: false, error: null }
 })
@@ -91,7 +117,7 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(onActed).toHaveBeenCalledTimes(1)
   })
 
-  it('an "already responded" 409 on approve calls onActed too — no error surfaced', async () => {
+  it('an "already responded" 409 on approve calls onActed too — no error surfaced, no toast', async () => {
     const user = userEvent.setup()
     const onActed = vi.fn()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
@@ -101,6 +127,31 @@ describe('ProjectApprovalActions — Confirm', () => {
     act(() => opts.onError(conflictError()))
 
     expect(onActed).toHaveBeenCalledTimes(1)
+    expect(mockToastError).not.toHaveBeenCalled()
+  })
+
+  it('SR-M-4 (PR #646 fix-round 1): a 404 on approve does NOT call onActed — it is a real error, not "already responded" (used to be treated the same as 409)', async () => {
+    const user = userEvent.setup()
+    const onActed = vi.fn()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
+
+    await user.click(screen.getByTestId(`project-approval-approve-${PROJECT_ID}`))
+    const opts = mockApprove.mock.calls[0]?.[1] as { onError: (e: unknown) => void }
+    act(() => opts.onError(notFoundError()))
+
+    expect(onActed).not.toHaveBeenCalled()
+  })
+
+  it('SR-M-4: a 404 on approve calls toast.error with the user-facing message — the element no longer just silently vanishes', async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+
+    await user.click(screen.getByTestId(`project-approval-approve-${PROJECT_ID}`))
+    const opts = mockApprove.mock.calls[0]?.[1] as { onError: (e: unknown) => void }
+    act(() => opts.onError(notFoundError()))
+
+    expect(mockToastError).toHaveBeenCalledTimes(1)
+    expect(mockToastError.mock.calls[0]?.[0]).toBe('Согласование не найдено или уже погашено')
   })
 
   it('a real approve error renders the message from the mutation state, INSIDE a <p> (not as a bare text node — the `&&` must stay `&&`, not `||`)', () => {
@@ -147,6 +198,17 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(button).not.toHaveTextContent('Подтвердить')
   })
 
+  it('UX-H-2 (PR #646 fix-round 1): both buttons are h-11 (44px, responsive-design.md hard-gate) on mobile and revert to h-7 from sm: (640px+) up — same pattern as SegmentedToggle', () => {
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    const approve = screen.getByTestId(`project-approval-approve-${PROJECT_ID}`)
+    const reject = screen.getByTestId(`project-approval-reject-${PROJECT_ID}`)
+    for (const button of [approve, reject]) {
+      expect(button.className).toContain('h-11')
+      expect(button.className).toContain('sm:h-7')
+      expect(button.className).not.toContain('h-7 min-w-11')
+    }
+  })
+
   it('the actions container sits at z-[2] — the stretched-link escape ProjectRow relies on', () => {
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     expect(screen.getByTestId(`project-approval-actions-${PROJECT_ID}`).className).toContain(
@@ -189,6 +251,15 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
 
     expect(await screen.findByText('Отклонить проект «Acme Corp»')).toBeInTheDocument()
+  })
+
+  it("SR-L-2 (PR #646 fix-round 1): the reason field has maxLength=500, matching the schema's own .max(500) — caught at the field, not only as a post-send 400", async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+
+    const textarea = await screen.findByTestId('project-approval-reject-reason')
+    expect(textarea).toHaveAttribute('maxLength', '500')
   })
 
   it('submit is disabled while the reason is empty or whitespace-only, enabled once typed', async () => {
@@ -259,7 +330,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     expect(() => act(() => opts.onSuccess())).not.toThrow()
   })
 
-  it('an "already responded" 409/404 on reject also closes the dialog, clears the reason, and calls onActed', async () => {
+  it('an "already responded" 409 on reject also closes the dialog, clears the reason, calls onActed, and never toasts', async () => {
     const user = userEvent.setup()
     const onActed = vi.fn()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
@@ -274,6 +345,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
 
     expect(onActed).toHaveBeenCalledTimes(1)
     expect(screen.queryByText('Отклонить проект «Acme»')).not.toBeInTheDocument()
+    expect(mockToastError).not.toHaveBeenCalled()
 
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     expect(await screen.findByTestId('project-approval-reject-reason')).toHaveValue('')
@@ -290,6 +362,39 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
 
     const opts = mockReject.mock.calls[0]?.[1] as { onError: (e: unknown) => void }
     expect(() => act(() => opts.onError(conflictError()))).not.toThrow()
+  })
+
+  it('SR-M-4 (PR #646 fix-round 1): a 404 on reject keeps the dialog OPEN (unlike 409) and does NOT call onActed — it is a real error now', async () => {
+    const user = userEvent.setup()
+    const onActed = vi.fn()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+    fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
+      target: { value: 'нет бюджета' },
+    })
+    await user.click(screen.getByTestId('project-approval-reject-submit'))
+
+    const opts = mockReject.mock.calls[0]?.[1] as { onError: (e: unknown) => void }
+    act(() => opts.onError(notFoundError()))
+
+    expect(onActed).not.toHaveBeenCalled()
+    expect(screen.getByText('Отклонить проект «Acme»')).toBeInTheDocument()
+  })
+
+  it('SR-M-4: a 404 on reject calls toast.error with the user-facing message', async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+    fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
+      target: { value: 'нет бюджета' },
+    })
+    await user.click(screen.getByTestId('project-approval-reject-submit'))
+
+    const opts = mockReject.mock.calls[0]?.[1] as { onError: (e: unknown) => void }
+    act(() => opts.onError(notFoundError()))
+
+    expect(mockToastError).toHaveBeenCalledTimes(1)
+    expect(mockToastError.mock.calls[0]?.[0]).toBe('Согласование не найдено или уже погашено')
   })
 
   it('a NON-"already responded" reject error keeps the dialog OPEN, shows the message, and does NOT call onActed', async () => {

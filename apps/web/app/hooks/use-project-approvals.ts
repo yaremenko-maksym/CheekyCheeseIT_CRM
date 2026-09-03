@@ -36,8 +36,8 @@ export function useApproveProjectDraft() {
   return useMutation({
     mutationFn: (projectId: string) =>
       api.post<ProjectDto>(`/projects/${projectId}/approve`).then((r) => r.data),
-    // Invalidate on success AND on an "already responded" 409/404 (see
-    // isAlreadyRespondedError below) — both mean the shared project list is
+    // Invalidate on success AND on an "already responded" 409 (see
+    // isAlreadyRespondedError below) — it means the shared project list is
     // now stale, so the card AND the dashboard widget self-correct on the
     // very next render instead of continuing to show a resolved item as
     // still awaiting a decision.
@@ -63,20 +63,33 @@ export function useRejectProjectDraft() {
 }
 
 /**
- * task-project-status-filter-ui. A 409 (`ConflictException`, "Согласование
- * уже получило ответ") or 404 (`NotFoundException`, "не найдено или уже
- * погашено" — `ApprovalsService.assertRespondable`) on either mutation is
- * NOT a real error for the caller: it means the viewer's own approval row
- * already resolved — most commonly because the project has TWO invited
- * approvers (senior + drop) and the viewer already acted while the project
- * itself stayed DRAFT waiting on the other one (partial agreement,
- * business spec §4.1), so a since-stale list still showed it as "needs your
- * decision". Both call sites treat this pair as "stop showing this item,
- * no toast" — every OTHER status (network/500/validation) stays a real,
- * surfaced error.
+ * SR-M-4 (PR #646 fix-round 1): NARROWED to 409 only — this used to also
+ * treat 404 as harmless, which was wrong. `ApprovalsService.
+ * loadLiveRowForUpdate` scopes its query to `approverUserId = <caller>`, so
+ * a 404 ("Согласование не найдено или уже погашено") fires for TWO
+ * genuinely different callers: (a) the viewer's own row was superseded by a
+ * re-proposal — a real "this went stale, refresh" case — but ALSO (b) the
+ * caller was NEVER an invited approver at all (no row for them ever
+ * existed) — a real authorization failure, e.g. a stale UI state or a
+ * direct API call from someone who should not have this button at all. The
+ * backend cannot tell these apart from the response alone (same message,
+ * same status), and silently swallowing BOTH meant an unauthorized click
+ * produced no visible signal whatsoever — the element just vanished with no
+ * toast, until the next reload. Treating 404 as a real, surfaced error
+ * (toast) trades a rare false-positive toast on the legitimate staleness
+ * case for never again hiding the illegitimate one — the safer default per
+ * security review.
+ *
+ * 409 (`ConflictException`, "Согласование уже получило ответ") stays
+ * harmless: it can ONLY mean the viewer's own row is no longer PENDING
+ * (they responded), never "never had a row" — most commonly because the
+ * project has TWO invited approvers (senior + drop) and the viewer already
+ * acted while the project itself stayed DRAFT waiting on the other one
+ * (partial agreement, business spec §4.1), so a since-stale list still
+ * showed it as "needs your decision".
  */
 export function isAlreadyRespondedError(err: unknown): boolean {
-  return axios.isAxiosError(err) && (err.response?.status === 409 || err.response?.status === 404)
+  return axios.isAxiosError(err) && err.response?.status === 409
 }
 
 /**
