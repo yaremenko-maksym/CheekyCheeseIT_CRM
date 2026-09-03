@@ -47,7 +47,8 @@
 #   COMMIT_SHA   the main commit that was validated / deployed
 #   RUN_URL      link to the Actions run
 # Optional env:
-#   KIND           ci (default) | deploy | backup | mutation — selects title/body
+#   KIND           ci (default) | deploy | backup | mutation | resume-perf —
+#                   selects title/body
 #                   text below
 #   FAILED_LEGS    human list of failed jobs, e.g. "quality, e2e" or "deploy";
 #                   for KIND=backup, the one-line freshness-check detail
@@ -84,9 +85,9 @@ set -euo pipefail
 
 KIND="${KIND:-ci}"
 case "$KIND" in
-  ci | deploy | backup | mutation) ;;
+  ci | deploy | backup | mutation | resume-perf) ;;
   *)
-    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup|mutation) — refusing to guess which alert text to use" >&2
+    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup|mutation|resume-perf) — refusing to guess which alert text to use" >&2
     exit 2
     ;;
 esac
@@ -95,6 +96,7 @@ case "$KIND" in
   deploy) LABEL="${LABEL:-deploy-broken}" ;;
   backup) LABEL="${LABEL:-backup-stale}" ;;
   mutation) LABEL="${LABEL:-mutants-surviving}" ;;
+  resume-perf) LABEL="${LABEL:-resume-perf-broken}" ;;
   *) LABEL="${LABEL:-ci-main-broken}" ;;
 esac
 DRY_RUN="${DRY_RUN:-0}"
@@ -145,6 +147,7 @@ case "$KIND" in
   deploy) LABEL_DESC="Deploy workflow red after a merge to main" ;;
   backup) LABEL_DESC="Prod DB backup missing or stale (> threshold) after a Deploy run" ;;
   mutation) LABEL_DESC="Nightly mutation sweep found tests that cannot fail" ;;
+  resume-perf) LABEL_DESC="Resume-extraction timing guards failed outside Stryker instrumentation" ;;
   *) LABEL_DESC="CI red on main after merge" ;;
 esac
 run_gh label create "$LABEL" --repo "$ALERT_REPO" \
@@ -276,10 +279,11 @@ if [ "$RESULT" = "failure" ]; then
       printf '**Run:** %s\n\n' "$RUN_URL"
       printf 'Сбор не дошёл до конца — упал раньше (проверка/тест/бюджет), поэтому список\n'
       printf 'выживших ниже НЕ появится: смотреть в этом run нечего, кроме упавшего шага.\n\n'
-      printf '> Статические мутанты в эту ночь не проверялись — ни для одного из пакетов\n'
-      printf '> выше. PR-гейт их и так не смотрит (`ignoreStatic`, см.\n'
-      printf '> `mutation-gate.mjs` "PR GATE vs NIGHTLY"), а ночной, единственный, кто\n'
-      printf '> должен был, не доехал.\n\n'
+      printf '> Пакет(ы) выше сегодня не получили НИКАКОЙ проверки: PR-гейт по\n'
+      printf '> конструкции видит только строки, изменённые самим PR-запросом (весь\n'
+      printf '> код, написанный раньше, ему не виден), а ночной full-прогон —\n'
+      printf '> единственный, кто покрывает написанное раньше, — сегодня для них\n'
+      printf '> не доехал.\n\n'
       printf '## Что делать\n\n'
       printf '1. Открыть run выше → job `Sweep` (пакет из строки «Пакеты без отчёта») → найти\n'
       printf '   первый красный шаг (обычно `Gate self-check` или `Full mutation sweep`).\n'
@@ -313,6 +317,33 @@ if [ "$RESULT" = "failure" ]; then
       printf '4. Issue закроется автоматически, когда ночной прогон не найдёт выживших.\n\n'
       printf 'Подробности — `scripts/devops/mutation-gate-runbook.md`.\n'
     )
+  elif [ "$KIND" = "resume-perf" ]; then
+    BODY=$(
+      printf '## Guard-тесты resume-extraction упали без Stryker\n\n'
+      printf '**Commit:** `%s`\n' "$COMMIT_SHA"
+      [ -n "$SUBJECT_LINE" ] && printf '%s\n' "$SUBJECT_LINE"
+      printf '**Упавшие проверки:** %s\n' "$FAILED_LEGS"
+      printf '**Run:** %s\n\n' "$RUN_URL"
+      printf 'Это отдельный job на голом `vitest`, БЕЗ Stryker: те же тесты в\n'
+      printf '`resume-text-extraction.service.spec.ts` под Stryker дают ложный красный\n'
+      printf '(инструментация покрытия превращает 250 мс в ~1.6 с) — поэтому их не\n'
+      printf 'проверяет мутационный гейт, а проверяет этот job. Красный здесь\n'
+      printf 'инструментацией не объясняется.\n\n'
+      printf '> Эти тесты чувствительны к нагрузке раннера/машины (event-loop lag —\n'
+      printf '> свойство параллельного окружения, не только кода). Один красный\n'
+      printf '> прогон — не обязательно регресс; см. "Что делать" ниже.\n\n'
+      printf '## Что делать\n\n'
+      printf '1. Открыть run выше → лог упавшего теста.\n'
+      printf '2. Перезапустить job вручную — если позеленел, это была нагрузка раннера,\n'
+      printf '   не регресс; issue закроется само на следующем зелёном прогоне.\n'
+      printf '3. Если падает стабильно — искать регресс в PDF/DOCX-парсинге\n'
+      printf '   (`apps/api/src/resumes/resume-text-extraction.service.ts`), не\n'
+      printf '   увеличивать порог вслепую (см. комментарии самого теста).\n'
+      printf '4. Issue закроется автоматически, когда прогон снова станет зелёным.\n\n'
+      printf 'Тест: `apps/api/src/resumes/resume-text-extraction.service.spec.ts`\n'
+      printf '(`RESUME_PERF=1`, HIGH-2 content-stream guard + опциональные\n'
+      printf 'perf-характеристики).\n'
+    )
   else
     BODY=$(
       printf '## CI упал на `main` после мержа\n\n'
@@ -344,6 +375,7 @@ if [ "$RESULT" = "failure" ]; then
       deploy) TITLE="🚨 Деплой упал на прод ($SHORT_SHA)" ;;
       backup) TITLE="🚨 Нет свежего бэкапа БД ($SHORT_SHA)" ;;
       mutation) TITLE="🧬 Выжившие мутанты на main ($SHORT_SHA)" ;;
+      resume-perf) TITLE="🐌 Resume-extraction perf guard упал ($SHORT_SHA)" ;;
       *) TITLE="🚨 CI красный на main ($SHORT_SHA)" ;;
     esac
   fi
@@ -367,6 +399,7 @@ if [ -n "$OPEN" ]; then
     deploy) RECOVERY_COMMENT="✅ Деплой на прод снова прошёл успешно (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     backup) RECOVERY_COMMENT="✅ В бакете \`crm-backups\` снова есть свежая резервная копия (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     mutation) RECOVERY_COMMENT="✅ Ночной мутационный прогон не нашёл выживших мутантов (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
+    resume-perf) RECOVERY_COMMENT="✅ Resume-extraction perf guard снова зелёный без Stryker (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     *) RECOVERY_COMMENT="✅ post-merge CI на \`main\` снова зелёный (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
   esac
   run_gh issue close "$OPEN" --repo "$ALERT_REPO" --comment "$RECOVERY_COMMENT"
