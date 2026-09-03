@@ -560,6 +560,17 @@ covers a related, separate finding: even the (previously miscategorized)
 nightly alert issue itself went three-plus weeks and 22 comments without
 anyone reading it, which is why none of this was noticed sooner.
 
+**What DID get a full, non-scoped verification before this PR opened:** the
+complete local `.husky/pre-push` sequence — `pnpm typecheck` +
+`pnpm --filter @crm/shared|@crm/api|@crm/web|@crm/landing test`, unscoped,
+run to completion, not the point-scoped runs §"Running it yourself" warns
+against above. 391 test files, 6616 tests, 0 failures. That is evidence this
+PR's OWN changes are sound — it is deliberately NOT evidence the nightly gap
+above is closed, which is a different question this same PR is careful not
+to conflate (see "The alert text depends on WHETHER the sweep ran, not only
+on WHAT it found" above — the exact failure mode this status paragraph
+exists to not repeat).
+
 ## Tuning
 
 Everything lives in `scripts/devops/mutation-gate.mjs`:
