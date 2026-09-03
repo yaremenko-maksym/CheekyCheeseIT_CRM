@@ -54,6 +54,21 @@ def _default_tmp_dir(config: Config) -> Path:
     return Path(tempfile.gettempdir()) / "signal-plus"
 
 
+def _first_line_for_state(text: str) -> str:
+    """SR-M-6 (PR #650 security review round 2, id 5107124812): truncation
+    belongs HERE, not inside signal_plus.signal._sanitize_cli_text (which
+    now masks every line but keeps them all — callers like `--groups` and
+    updater.is_outdated_client_error() need the full, if masked, text).
+    ``state.last_error`` is the one thing that persists (state.json, and
+    downstream of it the handover email body and the healthcheck's
+    UNHEALTHY message) — a multi-line `receive` envelope dump has no
+    business living there long-term, so only THIS call site truncates.
+    """
+    if not text:
+        return text
+    return text.splitlines()[0]
+
+
 def _issue_alert_env(failed_leg: str) -> dict[str, str]:
     """Best-effort env for post-merge-alert.sh (see signal_plus/alert.py's
     module docstring — full wiring is step 4/DevOps). ALERT_REPO/GH_TOKEN are
@@ -133,7 +148,7 @@ def send_with_retries_and_update(
         if result.ok:
             return True, state_obj
 
-        last_error = result.output.strip() or f"send exited {result.returncode}"
+        last_error = _first_line_for_state(result.output.strip()) or f"send exited {result.returncode}"
         state_obj = replace(state_obj, last_error=last_error)
         logger.warning("send attempt %d/%d failed: %s", attempt, attempts, last_error)
 
@@ -176,7 +191,7 @@ def send_with_retries_and_update(
                 retry_result = _attempt_send_once(config, message, run=run)
                 if retry_result.ok:
                     return True, state_obj
-                last_error = retry_result.output.strip() or f"send exited {retry_result.returncode}"
+                last_error = _first_line_for_state(retry_result.output.strip()) or f"send exited {retry_result.returncode}"
                 state_obj = replace(state_obj, last_error=last_error)
                 logger.warning("send still failed after auto-update: %s", last_error)
             else:

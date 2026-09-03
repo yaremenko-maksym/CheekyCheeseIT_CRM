@@ -189,19 +189,40 @@ def test_other_peoples_e164_numbers_are_also_scrubbed_from_output(config):
     assert other_number not in result.output
 
 
-def test_multiline_output_is_not_leaked_past_the_first_line(config):
-    # `receive` can dump multiple incoming envelopes (message bodies +
-    # sender numbers) across several lines -- none of that has any business
-    # leaving this module, only the first line (where signal-cli's own
-    # single-line error messages live) does.
+def test_multiline_output_is_masked_on_every_line_but_not_dropped(config):
+    # SR-M-6 (PR #650 security review round 2, id 5107124812) correction of
+    # round 1's own instruction: this module previously TRUNCATED to the
+    # first line here, which silently broke `--groups` (only the first of
+    # several listed groups survived) and is_outdated_client_error() (blind
+    # to the trigger message whenever it was not literally the first stderr
+    # line -- a real signal-cli behaviour, not a hypothetical). Masking now
+    # applies per line, over the FULL text; only channels that persist text
+    # long-term (state.last_error and what derives from it) truncate, and
+    # they do it themselves -- see test_cli.py's coverage of that.
     fake = RecordingRun(
         returncode=0,
-        stdout="first line is safe\nsecond line: +15551234999 leaked body text",
+        stdout="first line is safe\nsecond line: +15551234999 still here, just masked",
         stderr="",
     )
     result = receive(config, run=fake)
-    assert "leaked body text" not in result.output
+    assert "still here, just masked" in result.output
     assert "+15551234999" not in result.output
+    assert "<phone-redacted>" in result.output
+
+
+def test_multiline_output_masks_the_account_on_every_line(config):
+    # Same guarantee as above, specifically for the CONFIGURED account
+    # (mask_secret's first/last-char form, not the generic phone scrub).
+    fake = RecordingRun(
+        returncode=0,
+        stdout=f"line one\nline two mentions {config.signal_account} again",
+        stderr="",
+    )
+    result = receive(config, run=fake)
+    assert "line one" in result.output
+    assert "line two mentions" in result.output
+    assert config.signal_account not in result.output
+    assert "***" in result.output
 
 
 def test_outdated_client_message_survives_sanitization(config):

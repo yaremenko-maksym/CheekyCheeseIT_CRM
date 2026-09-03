@@ -558,6 +558,7 @@ def test_outdated_client_error_triggers_update_then_resends(config, tmp_path):
             _ok(),  # receive
             (1, "", f"Error loading state file for user x: {OUTDATED_CLIENT_MESSAGE} (IOException)"),  # send fails, outdated
             gpg_ok,  # gpg --verify
+            (0, "signal-cli 0.14.7\n", ""),  # SR-H-3 part 2: post-install --version check
             _ok(),  # receive again (post-update)
             _ok(),  # send again -- succeeds
         ]
@@ -661,6 +662,50 @@ def test_non_outdated_error_never_triggers_update(config, tmp_path):
     assert new_state.last_update_attempt_date is None
 
 
+def test_outdated_client_error_detected_with_preceding_stderr_lines(config, tmp_path):
+    # SR-M-6 (security review round 2, id 5107124812) reproduction, exactly:
+    # a normal signal-cli log line (stderr is its ordinary log channel)
+    # ahead of the trigger message used to make
+    # updater.is_outdated_client_error() -- and therefore requirement 8's
+    # whole auto-update path -- blind, because signal_plus.signal used to
+    # truncate to stderr's first line before this function ever saw it.
+    from signal_plus.updater import OUTDATED_CLIENT_MESSAGE
+
+    def fail_http_get(url):
+        raise AssertionError("auto-update needs SIGNAL_DATA_DIR/fingerprint, neither set here")
+
+    multiline_stderr = f"WARN  ProvisioningManager - some unrelated warning\n{OUTDATED_CLIENT_MESSAGE}"
+    results = [_ok(), (1, "", multiline_stderr)]  # attempt 1: receive, send fails (outdated, line 2)
+    # already_attempted_today() is true from attempt 2 onward (this attempt
+    # sets last_update_attempt_date even though run_auto_update itself
+    # declines) -- the retry loop keeps going regardless, same as any other
+    # failed attempt, so it needs the remaining scripted results too.
+    for _ in range(cli.DEFAULT_RETRY_ATTEMPTS - 1):
+        results += [_ok(), _fail("still outdated")]
+    results.append(_ok())  # issue-alert script call after exhaustion
+    run = ScriptedRun(results)
+
+    ok, new_state = cli.send_with_retries_and_update(
+        config,
+        "+",
+        State(),
+        today=date(2026, 9, 3),
+        run=run,
+        sleep_fn=lambda s: None,
+        http_get=fail_http_get,
+        tmp_dir=tmp_path / "downloads",
+    )
+    # config has no signal_data_dir/gpg_fingerprint (see the `config`
+    # fixture), so the update attempt itself is correctly declined -- but
+    # that decision must be REACHED at all, i.e. is_outdated_client_error()
+    # must have returned True despite the preceding warning line. Proven by
+    # `last_update_attempt_date` being SET (only happens once
+    # already_attempted_today's caller path -- run_auto_update -- was
+    # actually invoked from inside the outdated-client branch).
+    assert ok is False
+    assert new_state.last_update_attempt_date == date(2026, 9, 3)
+
+
 def test_update_not_attempted_twice_same_day(config, tmp_path):
     from signal_plus.updater import OUTDATED_CLIENT_MESSAGE
 
@@ -702,6 +747,27 @@ def test_groups_mode_lists_groups(config, capsys):
     captured = capsys.readouterr()
     assert "My Group" in captured.out
     assert run.calls == [[str(config.signal_cli_bin), "-a", config.signal_account, "listGroups"]]
+
+
+def test_groups_mode_lists_all_groups_not_just_the_first(config, capsys):
+    # SR-M-6 (security review round 2, id 5107124812) reproduction, exactly:
+    # `listGroups` with three groups on the input printed only one before
+    # the fix (the old truncate-to-first-line pass inside
+    # signal_plus.signal._sanitize_cli_text). README step 3 ("найти
+    # пустую тестовую группу в выводе") is unusable with more than one
+    # group if this regresses.
+    listing = (
+        "Id: aGVsbG8xMg== Name: Team A  Active: true Blocked: false\n"
+        "Id: d29ybGQzNA== Name: Team B  Active: true Blocked: false\n"
+        "Id: c2lnbmFsNTY= Name: Empty Test Group  Active: true Blocked: false\n"
+    )
+    run = ScriptedRun([(0, listing, "")])
+    code = cli.main_with_config(config, ["--groups"], run=run)
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "Team A" in captured.out
+    assert "Team B" in captured.out
+    assert "Empty Test Group" in captured.out
 
 
 def test_now_mode_sends_immediately_without_waiting_for_slot(config):

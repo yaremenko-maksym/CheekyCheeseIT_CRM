@@ -220,6 +220,78 @@ def test_fetch_latest_release_accepts_the_real_download_url_shape():
 
 
 # ---------------------------------------------------------------------------
+# SR-H-3 (PR #650 security review round 2, id 5107124812, OWASP A08) --
+# tag_name, asset name, and download URL are three separate fields from the
+# same untrusted Releases API response, and nothing tied them together.
+# Reproduced by the reviewer end-to-end with a REAL archive and a VALID
+# signature: tag_name announces "v9.9.9" while the asset name/URLs point at
+# the real, validly-signed v0.9.0 release -- _is_strictly_newer compares the
+# ANNOUNCED "9.9.9" against the installed version (passes, it looks newer)
+# while the bytes that actually land are the real, old, vulnerable 0.9.0
+# binary. Worse than a one-time downgrade: state.installed_version becomes
+# "9.9.9" afterwards, so every REAL future release forever compares as "not
+# newer" and requirement 8 stops firing at all, silently.
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_latest_release_rejects_asset_name_not_matching_the_tag():
+    # The reviewer's exact reproduction shape: tag_name lies about the
+    # version, the asset name/URLs still name the real (old) release.
+    payload = _releases_api_payload(**{"tag_name": "v9.9.9"})
+    for asset in payload["assets"]:
+        asset["name"] = asset["name"].replace("0.14.7", "0.9.0")
+        asset["browser_download_url"] = asset["browser_download_url"].replace("0.14.7", "0.9.0")
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+def test_fetch_latest_release_rejects_url_path_naming_a_different_tag():
+    # Asset NAME matches the announced tag's version, but the download URL's
+    # own /releases/download/<tag>/ path segment names a different tag --
+    # still a mismatch between "what we were told" and "where it comes
+    # from", even though SR-M-1's host/prefix allow-list alone would not
+    # catch it (both hosts are github.com/AsamK/signal-cli/releases/download).
+    payload = _releases_api_payload()
+    for asset in payload["assets"]:
+        asset["browser_download_url"] = asset["browser_download_url"].replace("v0.14.7", "v0.9.0")
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+def test_fetch_latest_release_rejects_tag_name_dot_traversal_via_asset_binding():
+    # SR-H-3's own follow-on note: tag_name="." passes _validate_safe_token
+    # (the regex accepts it, ".." in "." is False) and would install straight
+    # into bin/ itself -- the asset-name binding rejects it as a side effect,
+    # since no real asset is ever named "signal-cli-.-Linux-native.tar.gz".
+    payload = _releases_api_payload(**{"tag_name": "."})
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+def test_fetch_latest_release_accepts_when_all_three_fields_agree():
+    # Regression guard: the binding check must not reject the ordinary,
+    # internally-consistent case _releases_api_payload() already models.
+    def fake_http_get(url):
+        return json.dumps(_releases_api_payload()).encode()
+
+    release = fetch_latest_release(http_get=fake_http_get)
+    assert release.version == "0.14.7"
+    assert release.archive_name == "signal-cli-0.14.7-Linux-native.tar.gz"
+
+
+# ---------------------------------------------------------------------------
 # download_to
 # ---------------------------------------------------------------------------
 
@@ -566,13 +638,27 @@ def _fake_http_get_factory(archive_bytes: bytes, sig_stdout: str):
     return fake_http_get
 
 
+def _fake_run_gpg_and_version(expected_version: str):
+    """Routes `gpg --verify` to a passing status and any `<binary> --version`
+    call (SR-H-3's post-install check) to a matching version string --
+    shared by tests where the update is expected to actually succeed.
+    """
+
+    def fake_run(argv, **kwargs):
+        if argv[0] == "gpg":
+            return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+        if "--version" in argv:
+            return subprocess.CompletedProcess(argv, 0, f"signal-cli {expected_version}\n", "")
+        raise AssertionError(f"unexpected run() call: {argv}")
+
+    return fake_run
+
+
 def test_run_auto_update_happy_path(config, tmp_path):
     archive_bytes = tmp_path.joinpath("scratch.tar.gz")
     _make_native_archive(archive_bytes, content=b"new-version-binary")
     http_get = _fake_http_get_factory(archive_bytes.read_bytes(), _gpg_status_output(FINGERPRINT))
-
-    def fake_run(argv, **kwargs):
-        return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+    fake_run = _fake_run_gpg_and_version("0.14.7")
 
     state = State(installed_version="0.14.6")
     outcome = run_auto_update(
@@ -606,7 +692,16 @@ def test_run_auto_update_refuses_to_downgrade(config, tmp_path):
     # as "latest" via a manipulated/rolled-back API response.
     archive_bytes = tmp_path.joinpath("scratch.tar.gz")
     _make_native_archive(archive_bytes, content=b"old-version-binary")
+    # Internally CONSISTENT v0.9.0 payload (tag/asset-name/URL all agree) --
+    # isolates the downgrade check from SR-H-3's separate tag<->asset
+    # binding check, which would otherwise reject this fixture earlier for
+    # a different reason (asset still named ...-0.14.7-... under a
+    # "v0.9.0" tag) and make this test pass without ever exercising
+    # _is_strictly_newer at all.
     payload = _releases_api_payload(**{"tag_name": "v0.9.0"})
+    for asset in payload["assets"]:
+        asset["name"] = asset["name"].replace("0.14.7", "0.9.0")
+        asset["browser_download_url"] = asset["browser_download_url"].replace("0.14.7", "0.9.0")
 
     def fake_http_get(url):
         if "releases/latest" in url:
@@ -615,8 +710,8 @@ def test_run_auto_update_refuses_to_downgrade(config, tmp_path):
             return b"signature-bytes"
         return archive_bytes.read_bytes()
 
-    def fake_run(argv, **kwargs):
-        return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+    def fail_run(argv, **kwargs):
+        raise AssertionError("downgrade must be refused before verify_signature/install ever run")
 
     state = State(installed_version="0.14.7")
     outcome = run_auto_update(
@@ -624,7 +719,7 @@ def test_run_auto_update_refuses_to_downgrade(config, tmp_path):
         state,
         today=date(2026, 9, 3),
         http_get=fake_http_get,
-        run=fake_run,
+        run=fail_run,
         tmp_dir=tmp_path / "downloads",
     )
 
@@ -640,9 +735,7 @@ def test_run_auto_update_allows_the_first_ever_update_with_no_installed_version(
     archive_bytes = tmp_path.joinpath("scratch.tar.gz")
     _make_native_archive(archive_bytes, content=b"first-update-binary")
     http_get = _fake_http_get_factory(archive_bytes.read_bytes(), _gpg_status_output(FINGERPRINT))
-
-    def fake_run(argv, **kwargs):
-        return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+    fake_run = _fake_run_gpg_and_version("0.14.7")
 
     outcome = run_auto_update(
         config,
@@ -653,6 +746,94 @@ def test_run_auto_update_allows_the_first_ever_update_with_no_installed_version(
         tmp_dir=tmp_path / "downloads",
     )
     assert outcome.success is True
+
+
+# ---------------------------------------------------------------------------
+# SR-H-3 part 2 (task-650-fix-round-1.md, fix-round 2): even when
+# tag_name/asset-name/URL all agree (SR-H-3 part 1's binding check passes),
+# the ARCHIVE CONTENTS could still not be what they claim -- the GPG
+# signature only proves AsamK signed THESE bytes, not that they are
+# truthfully labeled. After install, the binary that actually landed must
+# report the announced version via --version, or the symlink swap is
+# rolled back and the attempt fails.
+# ---------------------------------------------------------------------------
+
+
+def test_run_auto_update_rolls_back_when_installed_binary_reports_a_different_version(config, tmp_path):
+    old_archive = tmp_path / "old.tar.gz"
+    _make_native_archive(old_archive, content=b"trusted-old-binary")
+    old_current = install_release(old_archive, config.signal_data_dir, "0.14.7")
+    assert old_current.resolve().read_bytes() == b"trusted-old-binary"
+
+    new_archive_bytes = tmp_path.joinpath("scratch.tar.gz")
+    _make_native_archive(new_archive_bytes, content=b"mislabeled-binary")
+    payload = _releases_api_payload(**{"tag_name": "v0.15.0"})
+    for asset in payload["assets"]:
+        asset["name"] = asset["name"].replace("0.14.7", "0.15.0")
+        asset["browser_download_url"] = asset["browser_download_url"].replace("0.14.7", "0.15.0")
+
+    def fake_http_get(url):
+        if "releases/latest" in url:
+            return json.dumps(payload).encode()
+        if url.endswith(".asc"):
+            return b"signature-bytes"
+        return new_archive_bytes.read_bytes()
+
+    def fake_run(argv, **kwargs):
+        if argv[0] == "gpg":
+            return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+        if "--version" in argv:
+            # The binary that actually landed reports the OLD version, not
+            # the announced 0.15.0 -- exactly what a mislabeled/stale
+            # re-publish would look like.
+            return subprocess.CompletedProcess(argv, 0, "signal-cli 0.9.0\n", "")
+        raise AssertionError(f"unexpected run() call: {argv}")
+
+    state = State(installed_version="0.14.7")
+    outcome = run_auto_update(
+        config,
+        state,
+        today=date(2026, 9, 3),
+        http_get=fake_http_get,
+        run=fake_run,
+        tmp_dir=tmp_path / "downloads",
+    )
+
+    assert outcome.attempted is True
+    assert outcome.success is False
+    # Rolled back: `current` points at the TRUSTED old binary again, not
+    # the mislabeled one that just failed verification.
+    current = config.signal_data_dir / "bin" / "current"
+    assert current.resolve().read_bytes() == b"trusted-old-binary"
+
+
+def test_run_auto_update_removes_current_when_version_mismatch_on_first_ever_install(config, tmp_path):
+    # No prior `bin/current` to roll back TO -- the mismatched symlink must
+    # be removed entirely, not left pointing at a binary that just failed
+    # its own version check.
+    archive_bytes = tmp_path.joinpath("scratch.tar.gz")
+    _make_native_archive(archive_bytes, content=b"mislabeled-first-binary")
+    http_get = _fake_http_get_factory(archive_bytes.read_bytes(), _gpg_status_output(FINGERPRINT))
+
+    def fake_run(argv, **kwargs):
+        if argv[0] == "gpg":
+            return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+        if "--version" in argv:
+            return subprocess.CompletedProcess(argv, 0, "signal-cli 0.0.1\n", "")
+        raise AssertionError(f"unexpected run() call: {argv}")
+
+    outcome = run_auto_update(
+        config,
+        State(),
+        today=date(2026, 9, 3),
+        http_get=http_get,
+        run=fake_run,
+        tmp_dir=tmp_path / "downloads",
+    )
+
+    assert outcome.success is False
+    current = config.signal_data_dir / "bin" / "current"
+    assert not current.exists() and not current.is_symlink()
 
 
 def test_run_auto_update_skips_when_already_attempted_today(config, tmp_path):

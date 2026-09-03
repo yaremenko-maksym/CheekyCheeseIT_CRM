@@ -51,25 +51,37 @@ def _sanitize_cli_text(raw: str, *, account: str) -> str:
     from silently regressing when a new caller reads ``result.output``
     instead of re-doing this substitution at each of those call sites.
 
-    Two techniques, both from the security review's fix instruction:
-      - truncate to the first line: signal-cli's own error messages are a
-        single log line (verified: every fixture in this suite and in
-        ``updater.py``'s module docstring citation is single-line), while
-        ``receive``'s dump of incoming envelopes can spread real message
-        bodies and OTHER people's numbers across many lines that have no
-        business leaving this module at all;
-      - mask the configured account via the same :func:`mask_secret` used
-        elsewhere (not just delete it — requirement 1 says "маскировать",
-        so a human reading a log can still recognise *which* account), then
-        scrub any remaining E.164-shaped number as a second pass, in case
-        some other phone number is present.
+    Masks the configured account via the same :func:`mask_secret` used
+    elsewhere (not just delete it — requirement 1 says "маскировать", so a
+    human reading a log can still recognise *which* account), then scrubs
+    any remaining E.164-shaped number as a second pass, in case some other
+    phone number is present — applied to EVERY line, not just the first.
+
+    SR-M-6 (PR #650 security review round 2, id 5107124812) — correction of
+    round 1's own instruction: this function used to also TRUNCATE to the
+    first line here. Reproduced by the reviewer: `--groups` prints ONE
+    group instead of all of them (signal_plus.cli.main_with_config prints
+    this function's return value verbatim), and
+    updater.is_outdated_client_error() goes blind to the trigger message
+    whenever a signal-cli log line comes before it in stderr — a real
+    behaviour, not a hypothetical, since stderr is signal-cli's ordinary log
+    channel. Masking still needs to see every line (a number could appear
+    anywhere), but DROPPING lines was never actually needed for masking —
+    it was a truncation policy for LONG-LIVED storage (state.last_error and
+    what derives from it), misapplied here to every caller including the
+    ones that need the full text. That truncation now happens where it
+    belongs — see signal_plus/cli.py's own first-line helper, used only at
+    the point text is about to land in state.last_error.
     """
     if not raw:
         return raw
-    first_line = raw.splitlines()[0]
-    if account:
-        first_line = first_line.replace(account, mask_secret(account))
-    return _PHONE_PATTERN.sub("<phone-redacted>", first_line)
+
+    def _mask_line(line: str) -> str:
+        if account:
+            line = line.replace(account, mask_secret(account))
+        return _PHONE_PATTERN.sub("<phone-redacted>", line)
+
+    return "\n".join(_mask_line(line) for line in raw.splitlines())
 
 
 @dataclass(frozen=True)

@@ -206,6 +206,19 @@ def fetch_latest_release(*, http_get=_default_http_get) -> ReleaseAsset:
     trusted as a filesystem path component (`version`, `archive_name`) or a
     URL to fetch (`archive_url`, `signature_url`) — this response is network
     input, not pre-validated data.
+
+    SR-H-3 (PR #650 security review round 2, id 5107124812, OWASP A08):
+    `tag_name`, the asset `name`, and the download URLs are three SEPARATE
+    fields from that same untrusted response, and nothing tied them
+    together before this — `tag_name` announcing "v9.9.9" while the asset
+    name/URLs pointed at the real, validly-signed v0.9.0 release passed
+    every check that existed (GPG signature valid, host allow-listed,
+    "9.9.9" > any real installed version). The signature proves the BYTES
+    are genuinely AsamK's; it says nothing about what version those bytes
+    are being presented as. Requiring the asset name and both URLs to
+    literally contain the announced tag closes that gap at the one place
+    all three fields are read together, before any of them is trusted
+    individually.
     """
     raw = http_get(GITHUB_RELEASES_API)
     try:
@@ -215,6 +228,7 @@ def fetch_latest_release(*, http_get=_default_http_get) -> ReleaseAsset:
         signature_name = archive_name + ".asc"
         signature_url = assets[signature_name]
         version = str(data["tag_name"]).lstrip("v")
+        raw_tag = str(data["tag_name"])
     except (KeyError, StopIteration, json.JSONDecodeError) as exc:
         raise UpdaterError(f"unexpected GitHub releases API response: {exc}") from exc
 
@@ -222,6 +236,17 @@ def fetch_latest_release(*, http_get=_default_http_get) -> ReleaseAsset:
     _validate_safe_token(archive_name, field="asset name")
     archive_url = _validate_download_url(assets[archive_name], field="archive_url")
     signature_url = _validate_download_url(signature_url, field="signature_url")
+
+    # SR-H-3: bind tag_name <-> asset name <-> URL into one assertion.
+    expected_archive = f"signal-cli-{version}-Linux-native.tar.gz"
+    if archive_name != expected_archive:
+        raise UpdaterError(
+            f"asset name {archive_name!r} does not match tag {raw_tag!r} "
+            f"(expected {expected_archive!r})"
+        )
+    expected_prefix = _ALLOWED_DOWNLOAD_URL_PREFIX + raw_tag + "/"
+    if not archive_url.startswith(expected_prefix) or not signature_url.startswith(expected_prefix):
+        raise UpdaterError(f"download URL does not belong to the announced tag {raw_tag!r}")
 
     return ReleaseAsset(
         version=version,
@@ -442,7 +467,51 @@ def run_auto_update(
             )
 
         old_version = state.installed_version
-        install_release(archive_path, config.signal_data_dir, release.version)
+        current_link = Path(config.signal_data_dir) / "bin" / "current"
+        # Capture what `current` pointed at BEFORE the swap -- the only
+        # thing SR-H-3 part 2's rollback below can restore. A dangling/
+        # missing prior symlink is treated the same as "nothing to roll
+        # back to" (readlink would raise) -- an unlikely disk-tampering
+        # edge case, not worth failing the whole update attempt over.
+        previous_target: str | None = None
+        if current_link.is_symlink():
+            try:
+                previous_target = os.readlink(current_link)
+            except OSError:
+                previous_target = None
+
+        new_current = install_release(archive_path, config.signal_data_dir, release.version)
+
+        # SR-H-3 part 2 (task-650-fix-round-1.md, fix-round 2): the GPG
+        # signature just verified proves AsamK signed THESE BYTES -- it says
+        # nothing about whether those bytes are truthfully the version they
+        # were announced as (a compromised/stale release pipeline could
+        # validly sign old content under a new tag/filename, which SR-H-3
+        # part 1's tag<->asset<->URL binding cannot catch on metadata
+        # alone). Run the binary that ACTUALLY landed and require its own
+        # --version output to agree before trusting the swap.
+        version_check = run(
+            [str(new_current), "--version"], capture_output=True, text=True, timeout=30
+        )
+        actual_version = ((version_check.stdout or "") + (version_check.stderr or "")).strip()
+        if release.version not in actual_version:
+            if previous_target is not None:
+                tmp_link = current_link.parent / ".current.tmp"
+                if tmp_link.is_symlink() or tmp_link.exists():
+                    tmp_link.unlink()
+                tmp_link.symlink_to(previous_target)
+                os.replace(tmp_link, current_link)
+            else:
+                current_link.unlink(missing_ok=True)
+            return UpdateOutcome(
+                attempted=True,
+                success=False,
+                reason=(
+                    f"installed binary reports {actual_version!r}, expected "
+                    f"{release.version!r} -- rolled back"
+                ),
+            )
+
         return UpdateOutcome(
             attempted=True,
             success=True,
