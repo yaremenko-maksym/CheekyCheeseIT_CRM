@@ -174,6 +174,13 @@ function buildService(
     approveInTx: vi.fn(async () => undefined),
     rejectInTx: vi.fn(async () => undefined),
     getStatusInTx: vi.fn(async () => aggregate),
+    // SPEC-M-2 (PR #646 fix-round 1): loadForResponse now unconditionally
+    // asks this for every project it returns that is STILL DRAFT — exactly
+    // the PENDING-aggregate case this file's own top test is about. Reports
+    // the drop as the one still-pending approver (the senior — CURRENT_SENIOR
+    // — just approved via THIS call), letting that test assert on the
+    // response's booleans instead of only `projectRow.status`.
+    getPendingApproverIds: vi.fn(async () => new Map([[PROJECT_ID, new Set([DROP_ID])]])),
   }
   const service = new ProjectsService(
     db as never,
@@ -199,6 +206,12 @@ describe('ProjectsService.approveDraft / rejectDraft — applyApprovalAggregate 
     })
     expect(projectRow.status).toBe('DRAFT')
     expect(result.status).toBe('DRAFT')
+    // SPEC-M-2 (PR #646 fix-round 1): the response of the SENIOR's own
+    // approve call correctly reports the DROP as the one still pending —
+    // this exact response is what `PendingProjectApprovalsPanel`'s
+    // dismiss-fix and `ProjectRow`'s pendingCaption both build on.
+    expect(result.seniorApprovalPending).toBe(false)
+    expect(result.dropApprovalPending).toBe(true)
   })
 
   it('APPROVED aggregate (every invited approver confirmed) flips the project to ACTIVE', async () => {

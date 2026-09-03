@@ -283,3 +283,67 @@ describe('ProjectsService.rejectDraft — rejectionReason on the response (task-
     expect(result.rejectionReason).toBe('Бюджет не подтверждён')
   })
 })
+
+// CR-M-1 (PR #646 fix-round 1): update() was the one call site of the five
+// (findAll/findOne/create/loadForResponse/update) that did NOT enrich
+// rejectionReason — reachable because ProjectRow's row-Link is unconditional
+// for a REJECTED project (same as ARCHIVED), so a REJECTED project can be
+// PATCHed, and the PATCH response silently answered `rejectionReason: null`
+// for the one status AC4 requires it on. Mirrors findOne's own guarded
+// batch-lookup exactly.
+describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR #646 fix-round 1)', () => {
+  function buildService(projectRow: ReturnType<typeof rejectedProject>) {
+    const db = {
+      db: {
+        query: {
+          projects: { findFirst: async () => projectRow },
+          teamMembers: { findFirst: async () => null, findMany: async () => [] },
+        },
+        update: (_table: unknown) => ({
+          set: (_values: Record<string, unknown>) => ({
+            where: (_expr: unknown) => Promise.resolve(),
+          }),
+        }),
+      },
+    }
+    const auditLog = { record: vi.fn(async () => undefined) }
+    const usersService = {}
+    const hrAccess = new HrAccessService(db as never)
+    const approvals = {
+      getRejectionReasons: vi.fn(async (_subjectType: string, ids: string[]) => {
+        const map = new Map<string, string>()
+        if (ids.includes(PROJECT_ID)) map.set(PROJECT_ID, 'Бюджет не подтверждён')
+        return map
+      }),
+    }
+    const service = new ProjectsService(
+      db as never,
+      auditLog as never,
+      usersService as never,
+      hrAccess,
+      approvals as never,
+    )
+    return { service, approvals }
+  }
+
+  it('ADMIN patches a REJECTED project (e.g. a display-only field) — the response still carries rejectionReason', async () => {
+    const { service } = buildService(rejectedProject())
+
+    const result = await service.update(
+      PROJECT_ID,
+      { name: 'Renamed after rejection' },
+      sessionFor(ADMIN_ID, 'ADMIN'),
+    )
+
+    expect(result.status).toBe('REJECTED')
+    expect(result.rejectionReason).toBe('Бюджет не подтверждён')
+  })
+
+  it('getRejectionReasons is never called when the patched project is not REJECTED (same guard as findOne)', async () => {
+    const { service, approvals } = buildService({ ...rejectedProject(), status: 'ACTIVE' as const })
+
+    await service.update(PROJECT_ID, { name: 'Renamed' }, sessionFor(ADMIN_ID, 'ADMIN'))
+
+    expect(approvals.getRejectionReasons).not.toHaveBeenCalled()
+  })
+})

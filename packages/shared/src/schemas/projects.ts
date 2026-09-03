@@ -249,6 +249,30 @@ export const projectSchema = z.object({
    * responses (pre this field) parseable.
    */
   rejectionReason: z.string().nullable().optional(),
+  /**
+   * SPEC-M-2 (PR #646 fix-round 1). Whether the SENIOR / DROP specifically
+   * still owes a decision — a live PENDING `approvals` row for that user
+   * (see `ApprovalsService.getPendingApproverIds`). A project invites up to
+   * two approvers (senior always, drop when assigned); once one of them
+   * decides while the project waits on the other (business spec §4.1
+   * partial agreement), the project stays `status: 'DRAFT'` but only ONE of
+   * these stays true — the frontend caption ("от {синьор} и дропа" vs "от
+   * {синьор}") is built from THESE, not from `dropId`'s mere presence on
+   * the project, which the earlier version conflated with "still awaiting
+   * the drop specifically". Booleans rather than a raw id array
+   * deliberately: `seniorId`/`dropId` on this same DTO can be MASKED to
+   * `null` for some viewers (admin-as-senior + non-privileged viewer — see
+   * `mapProject`'s identity-masking block), so a frontend `.includes(id)`
+   * check against a masked id would silently misreport; a boolean carries
+   * no identity to mask and is computed server-side against the
+   * project's REAL (pre-mask) senior/drop ids. Both `false` whenever
+   * `status !== 'DRAFT'`, or when resolution fails (defensive — see
+   * `getRejectionReasons`'s identical contract for the REJECTED sibling
+   * field above). `.optional()` keeps older cached/mocked responses
+   * (pre this field) parseable.
+   */
+  seniorApprovalPending: z.boolean().optional(),
+  dropApprovalPending: z.boolean().optional(),
   archivedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

@@ -257,7 +257,72 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(row.className).toContain('ring-amber-500/20')
   })
 
-  it('DRAFT drop-project: caption names both the senior and "дропа"', async () => {
+  it('UX-H-1 / SPEC-M-1 (PR #646 fix-round 1): DRAFT with a long approver name — caption is width-capped (max-w-40), not max-w-full', async () => {
+    // The finding SPEC-M-1 flagged: the one overflow E2E test only ever grew
+    // companyName, never the approver name, so this half of AC4 ("длинные
+    // имена не переполняют") had zero coverage. jsdom has no real layout
+    // engine, so this pins the FIX (the class that actually caps the width)
+    // rather than a pixel measurement — same style as this file's existing
+    // `dot.className.toContain(...)` assertions.
+    const longSeniorName = 'Oleksandr Verylongsurnamovych Kovalenkovskyi-Tretiakov'
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: null,
+      seniorName: longSeniorName,
+    })
+    renderProjectRow(project)
+
+    const caption = await screen.findByText(`от ${longSeniorName}`)
+    expect(caption.className).toContain('max-w-40')
+    expect(caption.className).not.toContain('max-w-full')
+    expect(caption).toHaveAttribute('title', `от ${longSeniorName}`)
+  })
+
+  it('DRAFT drop-project, BOTH still pending: caption names both the senior and "дропа"', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: true,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText(`от ${project.seniorName} и дропа`)).toBeInTheDocument()
+  })
+
+  it('SPEC-M-2 (PR #646 fix-round 1): DRAFT drop-project, drop ALREADY approved — caption names only the senior, not "и дропа"', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: true,
+      dropApprovalPending: false,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText(`от ${project.seniorName}`)).toBeInTheDocument()
+    expect(screen.queryByText(/и дропа/)).not.toBeInTheDocument()
+  })
+
+  it('SPEC-M-2: DRAFT drop-project, senior ALREADY approved — caption names only "дропа", not the senior', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: false,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText('от дропа')).toBeInTheDocument()
+    expect(screen.queryByText(new RegExp(`^от ${project.seniorName}`))).not.toBeInTheDocument()
+  })
+
+  it('DRAFT drop-project, fields absent (old cached DTO, pre this fix): defaults to "both still pending" — same text as before this fix', async () => {
     const project = makeProject({ status: 'DRAFT', dropId: DROP_ID, dropName: 'Drop One' })
     renderProjectRow(project)
 
@@ -278,6 +343,30 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     const row = screen.getByTestId(`project-row-${project.id}`)
     expect(row.className).toContain('opacity-60')
     expect(row.className).not.toContain('ring-amber-500/20')
+  })
+
+  it('UX-H-1 (PR #646 fix-round 1): REJECTED with a realistic ~90-char reason — reason text is width-capped, status column shrinks (min-w-0)', async () => {
+    // Exact class of text the designer's live repro used (Mode B comment):
+    // a normal-length rejection reason, not an edge case. Before the fix
+    // this blew out the status column and collapsed columns 0-2 on
+    // 768/1024px — unobservable via `document.scrollWidth` (the clip
+    // happens on an intermediate ancestor, not the document), which is why
+    // this is pinned at the className level, not via a layout measurement
+    // jsdom cannot produce anyway.
+    const longReason =
+      'Нет бюджета на Q3, вернёмся к вопросу в начале следующего квартала после пересмотра плана'
+    const project = makeProject({ status: 'REJECTED', rejectionReason: longReason })
+    renderProjectRow(project)
+
+    const reason = await screen.findByText(`«${longReason}»`)
+    expect(reason.className).toContain('max-w-40')
+    expect(reason.className).not.toContain('max-w-full')
+    expect(reason).toHaveAttribute('title', longReason)
+    // Container symmetry with column 1 (ProjectRow.tsx's own "Project info
+    // column" div) — without it, a CSS grid item's default min-width: auto
+    // is what let the column blow out in the first place.
+    const statusColumn = screen.getByTestId(`project-row-${project.id}-status-column`)
+    expect(statusColumn.className).toContain('min-w-0')
   })
 
   it('REJECTED with no reason on the DTO: the badge still renders, no reason paragraph', async () => {

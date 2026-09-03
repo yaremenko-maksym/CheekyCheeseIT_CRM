@@ -72,10 +72,27 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
   // note ("можно не показывать вовсе") but not wrong, and keeping ONE
   // unconditional render path (no viewerRole branch) is simpler to reason
   // about and test than suppressing it for exactly one audience.
+  //
+  // SPEC-M-2 (PR #646 fix-round 1): names whoever is STILL PENDING
+  // (`seniorApprovalPending`/`dropApprovalPending`, business spec §4.1
+  // partial agreement), not whoever was merely INVITED — a project with
+  // both a senior and a drop stays DRAFT after only one of them decides
+  // (see `PendingProjectApprovalsPanel`'s own dismiss-fix for the same
+  // underlying fact), so the earlier `project.dropId ? "...и дропа" : ...`
+  // kept naming an already-decided drop. `?? true` only matters for a
+  // cached/mocked DTO predating these two fields (`.optional()` on the
+  // schema) — while genuinely DRAFT, "unknown" defaults to "still pending",
+  // never to "already decided".
+  const seniorStillPending = project.seniorApprovalPending ?? true
+  const dropStillPending = !!project.dropId && (project.dropApprovalPending ?? true)
   const pendingCaption = isPending
-    ? project.dropId
+    ? seniorStillPending && dropStillPending
       ? `от ${project.seniorName} и дропа`
-      : `от ${project.seniorName}`
+      : seniorStillPending
+        ? `от ${project.seniorName}`
+        : dropStillPending
+          ? 'от дропа'
+          : null
     : null
   // §Что сделать item 3: the card's own Confirm/Reject — for whoever reaches
   // this row AND is actually the invited approver (identity check, not role
@@ -91,17 +108,19 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
   // senior (not the drop)".
   const viewerIsInvitedApprover =
     !!viewerId && (viewerId === project.seniorId || viewerId === project.dropId)
-  // NOT a "cannot be tested" case: __tests__/ProjectRow.test.tsx's "ACTIVE
-  // project, viewer IS the senior" test DOES kill this exact mutation —
-  // manually editing this line to `isPending || viewerIsInvitedApprover` and
-  // running `vitest run ProjectRow.test.tsx` directly fails it, with exactly
-  // the predicted false-positive `canAct`. The full `mutation-gate.mjs
-  // --changed` run nonetheless reports both mutants Survived with
-  // `testsCompleted` counting every test in the file and none failing —
-  // reproduced identically across several full-suite runs; root cause not
-  // found, see the coder's final report for the manual-mutant transcript
-  // that pins the discrepancy to the gate's run mode, not to the assertion.
-  // Stryker disable next-line ConditionalExpression,LogicalOperator: manually verified this mutant IS killed by ProjectRow.test.tsx when run directly (vitest run), but mutation-gate.mjs's full-suite Stryker run reports it Survived — a reproducible gate/runner discrepancy, not an untested branch; see the comment just above for the transcript
+  // CR-H-1 (PR #646 fix-round 1): a previous suppression here misattributed
+  // which test kills the `isPending && viewerIsInvitedApprover` → `||`
+  // mutation to "ACTIVE project, viewer IS the senior" — that test in fact
+  // CANNOT observe it: `canAct` is read only inside the `isPending ? (...)`
+  // JSX branch below, so on an ACTIVE project that branch never renders and
+  // `canAct`'s value never reaches the DOM, regardless of the mutation. The
+  // real killers are the two DRAFT-status tests below ("neither senior nor
+  // drop" / "no viewerId supplied") — DRAFT makes `isPending` true, so the
+  // `&&`→`||` swap turns the whole expression true regardless of
+  // `viewerIsInvitedApprover`, and the assertion that no actions render then
+  // fails. Verified red→green directly: applying the mutation and running
+  // `vitest run ProjectRow.test.tsx` fails exactly those two tests — no
+  // suppression; the mutant is real and killed by tests already in this file.
   const canAct = isPending && viewerIsInvitedApprover
   // §2b: effective share % for SENIOR viewer.
   const seniorSharePct =
@@ -300,7 +319,21 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
         </div>
 
         {/* Status / badges column */}
-        <div className="flex max-w-full flex-col items-end gap-1">
+        {/* UX-H-1 (PR #646 fix-round 1): `min-w-0` here mirrors column 1's own
+            `min-w-0` above — a CSS grid item's default `min-width: auto`
+            refuses to shrink below its content's intrinsic width, so without
+            it a long pendingCaption/rejectionReason grows THIS column and
+            steals width from every other column on the row (measured: senior
+            name silently truncated on 1440px, columns 0-2 collapsed to 0px
+            on 768/1024px). `max-w-full` on the text below only ever computes
+            against this container's own (previously unconstrained) width, so
+            it could never actually cap anything — see the two `max-w-40`
+            fixes below, same fixed-width pattern already used for a
+            same-purpose caption in TransactionRow.tsx. */}
+        <div
+          data-testid={`project-row-${project.id}-status-column`}
+          className="flex min-w-0 max-w-full flex-col items-end gap-1"
+        >
           {isArchived ? (
             <Badge
               variant="outline"
@@ -319,8 +352,11 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 Ждёт подтверждения
               </Badge>
               {pendingCaption && (
+                // UX-H-1: fixed max-w-40 (TransactionRow.tsx:666 precedent),
+                // not max-w-full — see the container comment above for why
+                // max-w-full alone never actually caps this text's width.
                 <p
-                  className="max-w-full truncate text-[11px] text-amber-300/80"
+                  className="max-w-40 truncate text-[11px] text-amber-300/80"
                   title={pendingCaption}
                 >
                   {pendingCaption}
@@ -346,8 +382,9 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 Отклонено
               </Badge>
               {project.rejectionReason && (
+                // UX-H-1: same fixed max-w-40 fix as pendingCaption above.
                 <p
-                  className="max-w-full truncate text-[11px] text-destructive/90"
+                  className="max-w-40 truncate text-[11px] text-destructive/90"
                   title={project.rejectionReason}
                 >
                   «{project.rejectionReason}»

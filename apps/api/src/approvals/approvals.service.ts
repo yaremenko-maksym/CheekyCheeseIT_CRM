@@ -344,6 +344,42 @@ export class ApprovalsService {
     return map
   }
 
+  /**
+   * SPEC-M-2 (PR #646 fix-round 1). Batched read of "which approver(s) still
+   * owe a decision" — every live PENDING row's `approverUserId`, grouped by
+   * subject. Same batching contract as `getRejectionReasons`: callers pass
+   * only ids already known to be in a live-decision state (project
+   * `status === 'DRAFT'`), empty input short-circuits before touching the
+   * DB. An id with no live PENDING row at all (every approver has decided,
+   * or the subject was never proposed) simply has no entry in the returned
+   * map — callers read that as "nobody left pending" (empty set), same as a
+   * present-but-empty `Set`.
+   */
+  async getPendingApproverIds(
+    subjectType: string,
+    subjectIds: string[],
+  ): Promise<Map<string, Set<string>>> {
+    const map = new Map<string, Set<string>>()
+    if (subjectIds.length === 0) return map
+    const rows = await this.db.db
+      .select({ subjectId: approvals.subjectId, approverUserId: approvals.approverUserId })
+      .from(approvals)
+      .where(
+        and(
+          eq(approvals.subjectType, subjectType),
+          inArray(approvals.subjectId, subjectIds),
+          eq(approvals.status, 'PENDING'),
+          isNull(approvals.supersededAt),
+        ),
+      )
+    for (const row of rows) {
+      const set = map.get(row.subjectId) ?? new Set<string>()
+      set.add(row.approverUserId)
+      map.set(row.subjectId, set)
+    }
+    return map
+  }
+
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------

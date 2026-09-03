@@ -646,3 +646,76 @@ describe('ApprovalsService.getRejectionReasons', () => {
     expect(result.has('proj-1')).toBe(false)
   })
 })
+
+// SPEC-M-2 (PR #646 fix-round 1). Mirror of the getRejectionReasons block
+// above — same batching contract, same "querying only live PENDING rows"
+// concern, different status/shape (Set of approver ids per subject, not a
+// single reason string, since a subject can have UP TO TWO live PENDING rows
+// at once — this is exactly the case the method exists to distinguish from
+// "one decided, one didn't").
+describe('ApprovalsService.getPendingApproverIds', () => {
+  it('empty input never touches the DB (the caller-side guard exists for this, but the internal one is a backstop)', async () => {
+    const select = vi.fn()
+    const service = new ApprovalsService({ db: { select } } as unknown as DatabaseService)
+
+    const result = await service.getPendingApproverIds(SUBJECT_TYPE, [])
+
+    expect(result).toEqual(new Map())
+    expect(select).not.toHaveBeenCalled()
+  })
+
+  it('groups PENDING rows by subjectId into a Set of approverUserId, querying only live (non-superseded) PENDING rows of the given type', async () => {
+    const rows = [
+      { subjectId: 'proj-1', approverUserId: SENIOR_ID },
+      { subjectId: 'proj-1', approverUserId: DROP_ID },
+      { subjectId: 'proj-2', approverUserId: SENIOR_ID },
+    ]
+    const chain = {
+      from: vi.fn(() => chain),
+      where: vi.fn(() => Promise.resolve(rows)),
+    }
+    const select = vi.fn(() => chain)
+    const service = new ApprovalsService({ db: { select } } as unknown as DatabaseService)
+
+    const result = await service.getPendingApproverIds(SUBJECT_TYPE, ['proj-1', 'proj-2', 'proj-3'])
+
+    expect(select).toHaveBeenCalledWith({
+      subjectId: expect.anything(),
+      approverUserId: expect.anything(),
+    })
+    // Exact-match against a condition built with the SAME drizzle helpers —
+    // see getRejectionReasons's own test above for why not a substring check.
+    const whereArg = chain.where.mock.calls[0]?.[0]
+    const expectedWhere = and(
+      eq(approvals.subjectType, SUBJECT_TYPE),
+      inArray(approvals.subjectId, ['proj-1', 'proj-2', 'proj-3']),
+      eq(approvals.status, 'PENDING'),
+      isNull(approvals.supersededAt),
+    )
+    expect(serializeSqlCondition(whereArg)).toBe(serializeSqlCondition(expectedWhere))
+    expect(result.get('proj-1')).toEqual(new Set([SENIOR_ID, DROP_ID]))
+    expect(result.get('proj-2')).toEqual(new Set([SENIOR_ID]))
+    // proj-3 was asked for but had no live PENDING row (e.g. both already
+    // decided) — absent from the map, not an empty Set entry. Callers treat
+    // absence and an empty Set identically (`?.has(id) ?? false`).
+    expect(result.has('proj-3')).toBe(false)
+  })
+
+  it('two PENDING rows for the SAME subject and approver (should not happen — one live row per approver per generation) still dedupe via Set, not an inflated Set', async () => {
+    const rows = [
+      { subjectId: 'proj-1', approverUserId: SENIOR_ID },
+      { subjectId: 'proj-1', approverUserId: SENIOR_ID },
+    ]
+    const chain = {
+      from: vi.fn(() => chain),
+      where: vi.fn(() => Promise.resolve(rows)),
+    }
+    const service = new ApprovalsService({
+      db: { select: vi.fn(() => chain) },
+    } as unknown as DatabaseService)
+
+    const result = await service.getPendingApproverIds(SUBJECT_TYPE, ['proj-1'])
+
+    expect(result.get('proj-1')?.size).toBe(1)
+  })
+})

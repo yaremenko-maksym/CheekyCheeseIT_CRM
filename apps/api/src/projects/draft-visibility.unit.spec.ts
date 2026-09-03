@@ -117,6 +117,14 @@ function buildService(invitedIds: Set<string>) {
     listSubjectIdsForApprover: vi.fn(async (_subjectType: string, userId: string) =>
       invitedIds.has(userId) ? new Set([PROJECT_ID]) : new Set<string>(),
     ),
+    // SPEC-M-2 (PR #646 fix-round 1): findAll/findOne now unconditionally
+    // call this for every DRAFT project in scope — this file's fixtures
+    // ARE drafts, so the stub is required, not just completeness. Returns
+    // empty (no entry) for every id: this file's own AC5 concern is
+    // visibility, not the caption text, so "nobody pending" is a safe,
+    // unopinionated default that doesn't assert anything this suite isn't
+    // about.
+    getPendingApproverIds: vi.fn(async () => new Map<string, Set<string>>()),
   }
   const service = new ProjectsService(
     db as never,
