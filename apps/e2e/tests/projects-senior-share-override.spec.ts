@@ -14,16 +14,18 @@
  *     info-row «Доля синьора» в Обзоре, секцию ShareSlider в edit-форме.
  *
  * Scenarios:
- *   A) ADMIN can edit → переопределение сохраняется → "Override" badge.
+ *   A) ADMIN can edit → PATCH opens a proposal → pending badge appears
+ *      (task-pending-share, position 5 — the active value does NOT move).
  *   B) HR не видит секцию ShareSlider в edit-форме (DOM целиком отсутствует).
- *   C) ACCOUNTANT может редактировать → бэйдж появляется.
+ *   C) ACCOUNTANT может редактировать → proposal open → pending badge.
  *   D) Snapshot honored: SENIOR_INCOME row показывает Доля% из tx snapshot.
  *   E) PayoutDialog preview читает snapshot ("Ваша доля 30%", "К оплате 70%").
- *   F) Boundary 0 / 100 (ADMIN).
+ *   F) Boundary 0 / 100 (ADMIN) → proposal opens, active value untouched.
  *   G) ShareSlider клиентский clamp (0..100).
  *   H) Implicit null: ADMIN ставит value === default → PATCH carries default,
- *      и в read-view после save показывается "(по умолчанию)" + badge скрыт.
- *   I) Cross-screen consistency (live invalidation без reload).
+ *      opening a proposal to CLEAR the override (still pending, not applied).
+ *   I) Cross-screen consistency (live invalidation без reload) — the PENDING
+ *      badge appears without reload; the active value is unchanged.
  *   J) MyProjectShares widget (SENIOR-only).
  *   K) Legacy tx без snapshot → "approx" badge в PayoutDialog.
  *   L) Backend RBAC negative path: HR не отправляет override field.
@@ -31,6 +33,16 @@
  *   O) HR не видит табу «Финансы» в /projects/:id (новый round-2 scenario).
  *   P) HR не видит info-row «Доля синьора» на табе «Обзор» (новый round-2 scenario).
  *   Q) ADMIN/SENIOR всё ещё видят табу «Финансы» + info-row (regression check).
+ *
+ * task-pending-share (position 5, 2026-09-03): a changed
+ * seniorSharePercentOverride no longer applies immediately — it opens a
+ * proposal the project's SENIOR must confirm (`pendingSeniorShare` on the
+ * DTO), and the ACTIVE `seniorSharePercentOverride` is untouched until they
+ * do. `mockProjectDetail`'s PATCH handler below simulates exactly that:
+ * an incoming `seniorSharePercentOverride` field populates
+ * `pendingSeniorShare` instead of overwriting the active column. Scenarios
+ * A/C/F/H/I were updated to assert the PENDING outcome, not an immediate
+ * value change — see each scenario's own comment for what changed and why.
  *
  * All scenarios run against the mocked /api/* responses defined in fixtures.ts.
  */
@@ -42,9 +54,14 @@ function mockProjectDetail(
   page: import('@playwright/test').Page,
   overrides: Partial<(typeof PROJECTS)[number]> & { effectiveTeam?: unknown } = {},
 ) {
-  const detail = {
+  const detail: Record<string, unknown> = {
     ...PROJECTS[0],
     ...overrides,
+    pendingSeniorShare: null as {
+      percent: number | null
+      approverId: string
+      approverName: string
+    } | null,
     effectiveTeam: {
       senior: {
         id: USERS.senior.id,
@@ -63,8 +80,20 @@ function mockProjectDetail(
   // route handlers in reverse-registration order.
   return page.route(`**/api/projects/${PROJECTS[0]!.id}`, (r) => {
     if (r.request().method() === 'PATCH') {
-      const body = JSON.parse(r.request().postData() ?? '{}') as Partial<typeof detail>
-      Object.assign(detail, body)
+      const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
+      // task-pending-share: a `seniorSharePercentOverride` field in the PATCH
+      // body no longer overwrites the active value — it opens a proposal
+      // (mirrors ProjectsService.update/proposeSeniorShareChange). Every
+      // OTHER field still applies immediately (unaffected by this task).
+      const { seniorSharePercentOverride, ...rest } = body
+      Object.assign(detail, rest)
+      if ('seniorSharePercentOverride' in body) {
+        detail['pendingSeniorShare'] = {
+          percent: seniorSharePercentOverride as number | null,
+          approverId: (detail['seniorId'] as string) ?? USERS.senior.id,
+          approverName: (detail['seniorName'] as string) ?? USERS.senior.displayName,
+        }
+      }
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -81,7 +110,9 @@ function mockProjectDetail(
 
 test.describe('per-project SENIOR share override', () => {
   test.describe('Scenario A — ADMIN can edit', () => {
-    test('saves new override → badge appears after reload', async ({ asAdmin: page }) => {
+    test('saves new override → opens a proposal, active value untouched (task-pending-share)', async ({
+      asAdmin: page,
+    }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
@@ -107,11 +138,21 @@ test.describe('per-project SENIOR share override', () => {
       await page.getByRole('button', { name: 'Сохранить' }).click()
       const req = await patchReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
+      // The FRONTEND still sends the same field — the backend is what now
+      // routes it through a proposal instead of applying it directly.
       expect(body['seniorSharePercentOverride']).toBe(30)
 
-      // After save, the read view reflects the new value.
-      await expect(page.getByTestId('project-senior-share')).toContainText('30%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // task-pending-share AC2: the active value does NOT move — no reload
+      // needed to see this, it's the same response that never changed it.
+      await expect(page.getByTestId('project-senior-share')).toContainText('26%')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      // The PENDING indicator appears instead, naming the proposed value and
+      // who it is waiting on (the project's senior).
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('30%')
+      await expect(pendingBadge).toContainText(USERS.senior.displayName)
     })
   })
 
@@ -146,7 +187,9 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario C — ACCOUNTANT can edit override', () => {
-    test('ACCOUNTANT opens edit, sets override = 35, saves', async ({ page }) => {
+    test('ACCOUNTANT opens edit, sets override = 35, saves → opens a proposal (task-pending-share)', async ({
+      page,
+    }) => {
       await mockAuthAs(page, USERS.accountant)
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
@@ -167,8 +210,13 @@ test.describe('per-project SENIOR share override', () => {
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       expect(body['seniorSharePercentOverride']).toBe(35)
 
-      await expect(page.getByTestId('project-senior-share')).toContainText('35%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // Active value unchanged; the ACCOUNTANT sees the same pending
+      // indicator an ADMIN would (both are gated on `fields.share`, not role).
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('35%')
     })
   })
 
@@ -237,7 +285,9 @@ test.describe('per-project SENIOR share override', () => {
   //
 
   test.describe('Scenario F — boundary values 0 and 100', () => {
-    test('ADMIN saves override = 0 → badge shows "0%" + Override', async ({ asAdmin: page }) => {
+    test('ADMIN saves override = 0 → opens a proposal for "0%", active value untouched', async ({
+      asAdmin: page,
+    }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
@@ -253,11 +303,16 @@ test.describe('per-project SENIOR share override', () => {
       // Numeric coercion in the form → backend receives 0, not the empty string.
       expect(body['seniorSharePercentOverride']).toBe(0)
 
-      await expect(page.getByTestId('project-senior-share')).toContainText('0%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // 0 is a legitimate PROPOSED value, distinct from "nothing proposed" —
+      // the pending badge must render it, and the active value must not move.
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('0%')
     })
 
-    test('ADMIN saves override = 100 → badge shows "100%" + Override', async ({
+    test('ADMIN saves override = 100 → opens a proposal for "100%", active value untouched', async ({
       asAdmin: page,
     }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
@@ -274,8 +329,11 @@ test.describe('per-project SENIOR share override', () => {
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
       expect(body['seniorSharePercentOverride']).toBe(100)
 
-      await expect(page.getByTestId('project-senior-share')).toContainText('100%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('100%')
     })
   })
 
@@ -314,16 +372,22 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario H — implicit null when value === default', () => {
-    test('ADMIN с активным override (30) → выставляет slider на default (26) → save → backend пишет null, badge скрыт', async ({
+    test('ADMIN с активным override (30) → выставляет slider на default (26) → save → proposes CLEARING the override (still pending, task-pending-share)', async ({
       asAdmin: page,
     }) => {
-      // Mock project с активным override = 30. Backend (мокаем тут как
-      // прокси: при PATCH с body.value === senior_default=26 ответ возвращает
-      // override=null) — implicit null применился.
-      const detail = {
+      // Mock project с активным override = 30. Backend implicit-null
+      // transform still runs (unchanged by task-pending-share — it decides
+      // WHAT is proposed, not whether it applies immediately): a slider
+      // value === the senior's default proposes null (clear), not 26.
+      const detail: Record<string, unknown> = {
         ...PROJECTS[0],
         seniorSharePercentOverride: 30,
         seniorSharePercentDefault: 26,
+        pendingSeniorShare: null as {
+          percent: number | null
+          approverId: string
+          approverName: string
+        } | null,
         effectiveTeam: {
           senior: {
             id: USERS.senior.id,
@@ -340,14 +404,17 @@ test.describe('per-project SENIOR share override', () => {
       await page.route(`**/api/projects/${PROJECTS[0]!.id}`, (r) => {
         if (r.request().method() === 'PATCH') {
           const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
-          // Эмулируем implicit-null detection в backend: если override === default → null.
-          const overrideRaw = body['seniorSharePercentOverride']
-          if (overrideRaw === 26) {
-            detail.seniorSharePercentOverride = null as unknown as number
-          } else if (typeof overrideRaw === 'number') {
-            detail.seniorSharePercentOverride = overrideRaw
-          } else if (overrideRaw === null) {
-            detail.seniorSharePercentOverride = null as unknown as number
+          if ('seniorSharePercentOverride' in body) {
+            // Эмулируем implicit-null detection: если override === default →
+            // proposed value is null. The ACTIVE column (seniorSharePercentOverride)
+            // is never touched here — that is exactly what task-pending-share changed.
+            const overrideRaw = body['seniorSharePercentOverride']
+            const proposedPercent = overrideRaw === 26 ? null : (overrideRaw as number | null)
+            detail['pendingSeniorShare'] = {
+              percent: proposedPercent,
+              approverId: USERS.senior.id,
+              approverName: USERS.senior.displayName,
+            }
           }
           return r.fulfill({
             status: 200,
@@ -363,7 +430,7 @@ test.describe('per-project SENIOR share override', () => {
       })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      // Sanity — badge изначально виден (override = 30).
+      // Sanity — badge изначально виден (active override = 30).
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
 
       await page.getByTestId('project-edit-button').click()
@@ -384,23 +451,31 @@ test.describe('per-project SENIOR share override', () => {
       expect('seniorSharePercentOverride' in body).toBe(true)
       expect(body['seniorSharePercentOverride']).toBe(26)
 
-      // После save read-view синхронизируется: badge исчезает,
-      // показывается "(по умолчанию)".
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
+      // task-pending-share AC2: the ACTIVE override (30%) is still what
+      // resolves — read-view keeps showing it, badge stays visible, because
+      // nothing has been confirmed yet.
+      await expect(page.getByTestId('project-senior-share')).toContainText('30%')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // The pending indicator shows the PROPOSED outcome — clearing the
+      // override falls back to the default (26%), phrased as "26%" per
+      // ProjectShareInfo's own `pending.percent ?? fallback` fallback.
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('26%')
     })
   })
 
   test.describe('Scenario I — cross-screen consistency without reload', () => {
-    test('saving override updates badge on the detail page without page reload', async ({
+    test('saving override updates the PENDING badge on the detail page without page reload', async ({
       asAdmin: page,
     }) => {
-      // Project starts with default — no badge.
+      // Project starts with default — no badge, nothing pending.
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
+      await expect(page.getByTestId('project-senior-share-pending-badge')).toHaveCount(0)
 
       // Edit → set 42 (different from default 26).
       await page.getByTestId('project-edit-button').click()
@@ -408,11 +483,13 @@ test.describe('per-project SENIOR share override', () => {
       await input.fill('42')
       await page.getByRole('button', { name: 'Сохранить' }).click()
 
-      // No reload — the TanStack Query cache invalidation should re-paint the badge.
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
-      await expect(page.getByTestId('project-senior-share')).toContainText('42%')
-      // The fallback text should be gone.
-      await expect(page.getByTestId('project-senior-share')).not.toContainText('(по умолчанию)')
+      // No reload — the TanStack Query cache invalidation should re-paint the
+      // PENDING badge (task-pending-share: the "Override" badge stays absent,
+      // the active value is still the default — only the proposal is new).
+      await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
+      await expect(page.getByTestId('project-senior-share-pending-badge')).toContainText('42%')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
     })
   })
 
