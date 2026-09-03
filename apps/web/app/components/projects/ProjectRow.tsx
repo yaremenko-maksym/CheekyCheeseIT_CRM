@@ -99,29 +99,37 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
   // check — correctly covers the admin-as-senior edge case too). Both ids
   // are already backend-masked per viewer (null for JUNIOR, null for a
   // non-privileged viewer of an admin-owned project), so this can never
-  // light up for someone who isn't genuinely the approver. Split into two
-  // statements (not one `isPending && !!viewerId && (a || b)` expression) so
-  // a mutation suppression on the outer `isPending &&` (see below) cannot
-  // ALSO swallow the inner `viewerId === project.seniorId ||
-  // viewerId === project.dropId` check — that one stays fully exposed to
-  // Stryker and is genuinely killed by "DRAFT drop-project + viewer IS the
-  // senior (not the drop)".
-  const viewerIsInvitedApprover =
-    !!viewerId && (viewerId === project.seniorId || viewerId === project.dropId)
-  // CR-H-1 (PR #646 fix-round 1): a previous suppression here misattributed
-  // which test kills the `isPending && viewerIsInvitedApprover` → `||`
-  // mutation to "ACTIVE project, viewer IS the senior" — that test in fact
-  // CANNOT observe it: `canAct` is read only inside the `isPending ? (...)`
-  // JSX branch below, so on an ACTIVE project that branch never renders and
-  // `canAct`'s value never reaches the DOM, regardless of the mutation. The
-  // real killers are the two DRAFT-status tests below ("neither senior nor
-  // drop" / "no viewerId supplied") — DRAFT makes `isPending` true, so the
-  // `&&`→`||` swap turns the whole expression true regardless of
-  // `viewerIsInvitedApprover`, and the assertion that no actions render then
-  // fails. Verified red→green directly: applying the mutation and running
-  // `vitest run ProjectRow.test.tsx` fails exactly those two tests — no
-  // suppression; the mutant is real and killed by tests already in this file.
-  const canAct = isPending && viewerIsInvitedApprover
+  // light up for someone who isn't genuinely the approver.
+  const viewerIsSenior = !!viewerId && viewerId === project.seniorId
+  const viewerIsDrop = !!viewerId && viewerId === project.dropId
+  // CR-H-1 (PR #646 fix-round 1) / CR-H-1 comment kept accurate for
+  // fix-round 2's rewrite: `canAct` is read only inside the
+  // `isPending ? (...)` JSX branch below, so on an ACTIVE project that
+  // branch never renders and `canAct`'s value never reaches the DOM — the
+  // `isPending &&` gate is exercised only by DRAFT-status tests, same as
+  // before this rewrite.
+  //
+  // COPY-H-2 (PR #646 fix-round 2): `viewerIsInvitedApprover` alone used to
+  // be enough — but on a two-approver project, the viewer's OWN
+  // `seniorApprovalPending`/`dropApprovalPending` can already be `false`
+  // (they confirmed, the project stays DRAFT waiting on the OTHER party)
+  // while `isPending` is still `true`. The button must gate on "I,
+  // specifically, still owe a decision", not "I was invited, ever" — the
+  // old `canAct` kept the button live for a second click that only ever
+  // produced a silent 409.
+  const canAct =
+    isPending && ((viewerIsSenior && seniorStillPending) || (viewerIsDrop && dropStillPending))
+  // COPY-H-2: the viewer already acted (they are an invited approver, but
+  // their OWN half is done) — replace the generic pendingCaption (which
+  // names whoever is STILL pending, useful to ADMIN/a third party) with a
+  // first-person one, symmetric for senior/drop. `null` for anyone who is
+  // not an invited approver at all — they get the generic caption instead.
+  const viewerAlreadyActedCaption =
+    isPending && viewerIsSenior && !seniorStillPending
+      ? 'Вы подтвердили. Ждём дропа'
+      : isPending && viewerIsDrop && !dropStillPending
+        ? 'Вы подтвердили. Ждём синьора'
+        : null
   // §2b: effective share % for SENIOR viewer.
   const seniorSharePct =
     viewerRole === 'SENIOR'
@@ -351,15 +359,19 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 <Clock className="h-3 w-3" aria-hidden />
                 Ждёт подтверждения
               </Badge>
-              {pendingCaption && (
+              {(viewerAlreadyActedCaption ?? pendingCaption) && (
                 // UX-H-1: fixed max-w-40 (TransactionRow.tsx:666 precedent),
                 // not max-w-full — see the container comment above for why
                 // max-w-full alone never actually caps this text's width.
+                // COPY-H-2: the viewer's own first-person caption
+                // (`viewerAlreadyActedCaption`) takes priority over the
+                // generic "who's still pending" one when the viewer is the
+                // invited approver who already acted.
                 <p
                   className="max-w-40 truncate text-[11px] text-amber-300/80"
-                  title={pendingCaption}
+                  title={viewerAlreadyActedCaption ?? pendingCaption ?? undefined}
                 >
-                  {pendingCaption}
+                  {viewerAlreadyActedCaption ?? pendingCaption}
                 </p>
               )}
               {canAct && (

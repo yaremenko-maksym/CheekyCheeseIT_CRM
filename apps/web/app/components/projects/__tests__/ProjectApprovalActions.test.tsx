@@ -17,6 +17,7 @@ import { ProjectApprovalActions } from '../ProjectApprovalActions'
 const mockApprove = vi.fn()
 const mockReject = vi.fn()
 const mockToastError = vi.fn()
+const mockToastSuccess = vi.fn()
 let approveState: { isPending: boolean; isError: boolean; error: unknown } = {
   isPending: false,
   isError: false,
@@ -38,7 +39,10 @@ vi.mock('@/hooks/use-project-approvals', async (orig) => {
 })
 
 vi.mock('sonner', () => ({
-  toast: { error: (msg: string) => mockToastError(msg) },
+  toast: {
+    error: (msg: string) => mockToastError(msg),
+    success: (msg: string) => mockToastSuccess(msg),
+  },
 }))
 
 const PROJECT_ID = '00000000-0000-0000-0000-0000000000a1'
@@ -79,6 +83,7 @@ beforeEach(() => {
   mockApprove.mockReset()
   mockReject.mockReset()
   mockToastError.mockReset()
+  mockToastSuccess.mockReset()
   approveState = { isPending: false, isError: false, error: null }
   rejectState = { isPending: false, isError: false, error: null }
 })
@@ -90,7 +95,7 @@ describe('ProjectApprovalActions — Confirm', () => {
     const reject = screen.getByTestId(`project-approval-reject-${PROJECT_ID}`)
     expect(approve).toBeInTheDocument()
     expect(approve).toHaveTextContent('Подтвердить')
-    expect(approve).not.toHaveTextContent('Подтверждаем…')
+    expect(approve).not.toHaveTextContent('Подтверждение…')
     expect(reject).toBeInTheDocument()
     expect(reject).toHaveTextContent('Отклонить')
   })
@@ -105,16 +110,34 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(mockApprove.mock.calls[0]?.[0]).toBe(PROJECT_ID)
   })
 
-  it('a successful approve calls onActed', async () => {
+  it('COPY-H-2 (PR #646 fix-round 2): a successful approve that flips the project to ACTIVE calls onActed AND toasts the "confirmed" message', async () => {
     const user = userEvent.setup()
     const onActed = vi.fn()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
 
     await user.click(screen.getByTestId(`project-approval-approve-${PROJECT_ID}`))
-    const opts = mockApprove.mock.calls[0]?.[1] as { onSuccess: () => void }
-    act(() => opts.onSuccess())
+    const opts = mockApprove.mock.calls[0]?.[1] as {
+      onSuccess: (project: { status: string }) => void
+    }
+    act(() => opts.onSuccess({ status: 'ACTIVE' }))
 
     expect(onActed).toHaveBeenCalledTimes(1)
+    expect(mockToastSuccess).toHaveBeenCalledWith('Проект «Acme» подтверждён')
+  })
+
+  it('COPY-H-2: a successful approve that leaves the project DRAFT (partial agreement — the other invited approver has not decided) toasts the "waiting on the other side" message, not the "confirmed" one', async () => {
+    const user = userEvent.setup()
+    const onActed = vi.fn()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
+
+    await user.click(screen.getByTestId(`project-approval-approve-${PROJECT_ID}`))
+    const opts = mockApprove.mock.calls[0]?.[1] as {
+      onSuccess: (project: { status: string }) => void
+    }
+    act(() => opts.onSuccess({ status: 'DRAFT' }))
+
+    expect(onActed).toHaveBeenCalledTimes(1)
+    expect(mockToastSuccess).toHaveBeenCalledWith('Вы подтвердили. Ждём решения второй стороны')
   })
 
   it('an "already responded" 409 on approve calls onActed too — no error surfaced, no toast', async () => {
@@ -151,7 +174,12 @@ describe('ProjectApprovalActions — Confirm', () => {
     act(() => opts.onError(notFoundError()))
 
     expect(mockToastError).toHaveBeenCalledTimes(1)
-    expect(mockToastError.mock.calls[0]?.[0]).toBe('Согласование не найдено или уже погашено')
+    // COPY-H-1 (PR #646 fix-round 2): the toast shows the OWN mapped
+    // string, never the backend's raw "Согласование ... погашено" text
+    // (fixture's own message, asserted separately below where it matters).
+    expect(mockToastError.mock.calls[0]?.[0]).toBe(
+      'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+    )
   })
 
   it('a real approve error renders the message from the mutation state, INSIDE a <p> (not as a bare text node — the `&&` must stay `&&`, not `||`)', () => {
@@ -194,7 +222,7 @@ describe('ProjectApprovalActions — Confirm', () => {
 
     const button = screen.getByTestId(`project-approval-approve-${PROJECT_ID}`)
     expect(button).toBeDisabled()
-    expect(button).toHaveTextContent('Подтверждаем…')
+    expect(button).toHaveTextContent('Подтверждение…')
     expect(button).not.toHaveTextContent('Подтвердить')
   })
 
@@ -270,7 +298,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     const submit = await screen.findByTestId('project-approval-reject-submit')
     const textarea = screen.getByTestId('project-approval-reject-reason')
     expect(submit).toBeDisabled()
-    // At-rest label — not the in-flight "Отклоняем…" text.
+    // At-rest label — not the in-flight "Отклонение…" text.
     expect(submit).toHaveTextContent('Отклонить')
 
     fireEvent.change(textarea, { target: { value: '   ' } })
@@ -394,7 +422,12 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     act(() => opts.onError(notFoundError()))
 
     expect(mockToastError).toHaveBeenCalledTimes(1)
-    expect(mockToastError.mock.calls[0]?.[0]).toBe('Согласование не найдено или уже погашено')
+    // COPY-H-1 (PR #646 fix-round 2): the toast shows the OWN mapped
+    // string, never the backend's raw "Согласование ... погашено" text
+    // (fixture's own message, asserted separately below where it matters).
+    expect(mockToastError.mock.calls[0]?.[0]).toBe(
+      'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+    )
   })
 
   it('a NON-"already responded" reject error keeps the dialog OPEN, shows the message, and does NOT call onActed', async () => {
@@ -444,7 +477,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
 
     const submit = screen.getByTestId('project-approval-reject-submit')
     expect(submit).toBeDisabled()
-    expect(submit).toHaveTextContent('Отклоняем…')
+    expect(submit).toHaveTextContent('Отклонение…')
   })
 
   it('Отмена closes the dialog without ever calling reject.mutate, and clears whatever was typed', async () => {

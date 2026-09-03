@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { cn } from '@/lib/utils'
-import { getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { getAxiosStatus, getUserFacingErrorMessage } from '@/lib/axios-utils'
 import {
   isAlreadyRespondedError,
   useApproveProjectDraft,
@@ -55,6 +55,26 @@ export interface ProjectApprovalActionsProps {
  * approver and 404s otherwise, so this component adds no new capability,
  * only a second place to reach an already-safe action.
  */
+/**
+ * COPY-H-1 (PR #646 fix-round 2). The backend's own 404 message
+ * ("Согласование не найдено или уже погашено" — `ApprovalsService.
+ * loadLiveRowForUpdate`) reaches the user verbatim via
+ * `getUserFacingErrorMessage`'s priority-1 backend-message passthrough —
+ * three defects at once: "Согласование" is a name for the same concept the
+ * rest of this UI calls "подтверждение" (tab, badge, button all agree; the
+ * backend disagrees); "погашено" is the Расчёт/settle term this project's
+ * glossary (`CONTEXT.md`) lists under `_Избегать_` for anything that is not
+ * an actual payout — this is neither; and it names no next step. Mapped to
+ * an own, actionable string here instead — the backend message stays
+ * accurate for logs/support, this is what the USER sees.
+ */
+function friendlyErrorMessage(err: unknown): string {
+  if (getAxiosStatus(err) === 404) {
+    return 'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.'
+  }
+  return getUserFacingErrorMessage(err)
+}
+
 export function ProjectApprovalActions({
   projectId,
   companyName,
@@ -79,7 +99,24 @@ export function ProjectApprovalActions({
   function handleApprove(e: React.MouseEvent) {
     stop(e)
     approve.mutate(projectId, {
-      onSuccess: () => onActed?.(),
+      // COPY-H-2 (PR #646 fix-round 2). Silence used to be the ENTIRE
+      // feedback for a successful confirm — a viewer who just clicked had
+      // no way to tell "it worked" from "nothing happened yet" without
+      // watching the row/item disappear, which is not always immediate
+      // (query invalidation) and easy to miss on a widget on a dashboard
+      // full of other cards. `project.status` on the mutation response
+      // tells us which of the two real outcomes happened: everyone has now
+      // confirmed (ACTIVE), or the project is still waiting on the OTHER
+      // invited approver (still DRAFT) — two different facts, two
+      // different sentences, not one generic "done".
+      onSuccess: (project) => {
+        toast.success(
+          project.status === 'ACTIVE'
+            ? `Проект «${companyName}» подтверждён`
+            : 'Вы подтвердили. Ждём решения второй стороны',
+        )
+        onActed?.()
+      },
       onError: (err) => {
         // SR-M-4: 409 ("already responded") stays a silent self-correction;
         // anything else — including a 404, which can mean the caller was
@@ -88,7 +125,7 @@ export function ProjectApprovalActions({
         if (isAlreadyRespondedError(err)) {
           onActed?.()
         } else {
-          toast.error(getUserFacingErrorMessage(err))
+          toast.error(friendlyErrorMessage(err))
         }
       },
     })
@@ -107,6 +144,10 @@ export function ProjectApprovalActions({
         onSuccess: () => {
           setRejectOpen(false)
           setReason('')
+          // COPY-H-2: same "success used to be silent" fix as approve — a
+          // reject is a real, final, financially-relevant decision and
+          // deserves the same one-line confirmation.
+          toast.success('Проект отклонён, админ увидит причину')
           onActed?.()
         },
         onError: (err) => {
@@ -119,25 +160,28 @@ export function ProjectApprovalActions({
             setReason('')
             onActed?.()
           } else {
-            toast.error(getUserFacingErrorMessage(err))
+            toast.error(friendlyErrorMessage(err))
           }
         },
       },
     )
   }
 
-  // The axios response interceptor already rewrites `.message` to a
-  // friendly RU string (getUserFacingErrorMessage) before it reaches here —
-  // an "already responded" 409 is handled above and never shown as an
-  // error at all. A 404 (SR-M-4) is now a real error: shown BOTH here
-  // (inline, next to the control the click was on) and as a toast above.
+  // COPY-H-1: `friendlyErrorMessage` here too, not raw `.message` — the
+  // axios interceptor's own rewrite (`getUserFacingErrorMessage`) already
+  // ran by the time `.error` reaches this component, but that rewrite has
+  // no 404-specific case, so it still passes the backend's "Согласование
+  // ... погашено" string straight through for THIS one status. An
+  // "already responded" 409 is handled above and never shown as an error
+  // at all. A 404 (SR-M-4) is a real error: shown BOTH here (inline, next
+  // to the control the click was on) and as a toast above.
   const approveError =
     approve.isError && !isAlreadyRespondedError(approve.error)
-      ? (approve.error as Error).message
+      ? friendlyErrorMessage(approve.error)
       : null
   const rejectError =
     reject.isError && !isAlreadyRespondedError(reject.error)
-      ? (reject.error as Error).message
+      ? friendlyErrorMessage(reject.error)
       : null
 
   return (
@@ -161,7 +205,11 @@ export function ProjectApprovalActions({
           data-testid={`project-approval-approve-${projectId}`}
         >
           <Check className="h-3 w-3" aria-hidden />
-          {approve.isPending ? 'Подтверждаем…' : 'Подтвердить'}
+          {/* COPY-L-1 (PR #646 fix-round 2, optional): repo convention is the
+              deverbal noun ("Сохранение…", "Создание…", "Публикация…" — 15
+              instances) over first-person plural ("Сохраняем…" — 4) —
+              matches the majority. */}
+          {approve.isPending ? 'Подтверждение…' : 'Подтвердить'}
         </Button>
         <Button
           type="button"
@@ -203,11 +251,19 @@ export function ProjectApprovalActions({
             </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody className="space-y-3">
+            {/* COPY-L-3 (PR #646 fix-round 2, optional): this paragraph's
+                "админ увидит её" claim used to be broader than the truth
+                (every invited approver received the text) — SR-M-5 (same
+                fix-round) narrowed rejectionReason to ADMIN-only, which
+                makes this sentence accurate as written; no wording change
+                needed here, only the `*` on the label below (obligatory
+                field marked visually, matching the finance screens'
+                convention — "Чек / подтверждение *"). */}
             <p className="text-sm text-muted-foreground">
               Причина обязательна — админ увидит её и сможет предложить проект заново.
             </p>
             <div className="space-y-1.5">
-              <Label className="text-xs">Причина отказа</Label>
+              <Label className="text-xs">Причина отказа *</Label>
               <Textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
@@ -220,6 +276,12 @@ export function ProjectApprovalActions({
                 maxLength={500}
                 data-testid="project-approval-reject-reason"
               />
+              {/* COPY-M-4 / QA-L-2 (PR #646 fix-round 2): maxLength alone is
+                  silent — the field simply stops accepting input with no
+                  sound or hint, and the schema's own "слишком длинная"
+                  message becomes unreachable once this attribute is in
+                  place. A visible counter is the only remaining signal. */}
+              <p className="text-right text-[10px] text-muted-foreground">{reason.length}/500</p>
             </div>
             {rejectError && <p className="text-xs text-destructive">{rejectError}</p>}
           </CrmDialogBody>
@@ -239,7 +301,7 @@ export function ProjectApprovalActions({
               disabled={reject.isPending || !reason.trim()}
               data-testid="project-approval-reject-submit"
             >
-              {reject.isPending ? 'Отклоняем…' : 'Отклонить'}
+              {reject.isPending ? 'Отклонение…' : 'Отклонить'}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>

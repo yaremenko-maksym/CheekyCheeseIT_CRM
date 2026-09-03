@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useAuth } from '@/context/auth'
 import { usePendingProjectApprovals } from '@/hooks/use-project-approvals'
 import { ProjectApprovalActions } from '@/components/projects/ProjectApprovalActions'
 
@@ -64,6 +65,7 @@ export const card = {
  * project id back into `pending` for a NEW decision.
  */
 export function PendingProjectApprovalsPanel() {
+  const { user } = useAuth()
   const { pending, isLoading, isError, dataUpdatedAt } = usePendingProjectApprovals()
   const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(new Set())
 
@@ -84,7 +86,31 @@ export function PendingProjectApprovalsPanel() {
     // (react-hooks/exhaustive-deps is not configured in this project's eslint.)
   }, [dataUpdatedAt])
 
-  const visiblePending = pending.filter((project) => !dismissedIds.has(project.id))
+  // COPY-H-2 (PR #646 fix-round 2). `pending` (usePendingProjectApprovals)
+  // buckets purely on `project.status === 'DRAFT'` — it does not know WHO
+  // is looking. On a two-approver project, the viewer's OWN half can
+  // already be done (`seniorApprovalPending`/`dropApprovalPending` false
+  // for them specifically) while the project stays DRAFT waiting on the
+  // OTHER party — `dismissedIds` only covers "I acted THIS session"; a
+  // fresh page load (or another device) would show the same
+  // already-resolved item again with a live Confirm/Reject that only ever
+  // 409s. `?? true` mirrors ProjectRow.tsx's own fallback: an old
+  // cached/mocked DTO predating these two fields defaults to "still
+  // pending", never to "already decided".
+  const visiblePending = pending.filter((project) => {
+    if (dismissedIds.has(project.id)) return false
+    const viewerIsSenior = !!user?.id && user.id === project.seniorId
+    const viewerIsDrop = !!user?.id && user.id === project.dropId
+    const seniorStillPending = project.seniorApprovalPending ?? true
+    const dropStillPending = project.dropApprovalPending ?? true
+    if (viewerIsSenior) return seniorStillPending
+    if (viewerIsDrop) return dropStillPending
+    // Neither id matches this viewer — should not happen (the backend only
+    // ever returns a DRAFT project to ADMIN or an invited approver), but
+    // fail open to "show it" rather than silently hiding a genuine pending
+    // decision behind a defensive guess.
+    return true
+  })
 
   if (isLoading) {
     return (
@@ -95,13 +121,23 @@ export function PendingProjectApprovalsPanel() {
     )
   }
 
-  // Silent on error: the dashboard's own primary summary card already shows
-  // a "не удалось загрузить" error for ITS data; a second error card for
-  // this secondary, optional widget would compete for the same attention.
-  // A failed fetch just means the panel doesn't render this load — the next
-  // successful load (or /projects, for whoever has that route) still shows
-  // it.
-  if (isError || visiblePending.length === 0) return null
+  // COPY-M-7 (PR #646 fix-round 2): DROP has NO other reachable surface for
+  // this action at all (see the component doc above) — the earlier "silent
+  // on error" reasoning ("the dashboard's own summary card already shows
+  // an error") does not hold here: that OTHER card is about
+  // useDropSummary's own data, a genuinely different fetch. If THIS panel's
+  // `GET /projects` fails, silence means DROP never learns someone is
+  // waiting on them, with no other screen that would tell them either. One
+  // line, not a full error card — the empty case (genuinely nothing
+  // pending) still renders nothing, that IS the correct "all clear" state.
+  if (isError) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="pending-project-approvals-error">
+        Не удалось проверить, ждут ли вас подтверждения. Обновите страницу.
+      </p>
+    )
+  }
+  if (visiblePending.length === 0) return null
 
   return (
     <motion.div initial={card.hidden} animate={card.show}>
@@ -124,6 +160,29 @@ export function PendingProjectApprovalsPanel() {
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{project.companyName}</p>
                 <p className="truncate text-xs text-muted-foreground">{project.name}</p>
+                {/* COPY-M-6 (PR #646 fix-round 2): DROP has no route access
+                    to /projects at all — this widget is their ONLY view of
+                    what they are being asked to agree to, so "да" here was
+                    effectively blind (share % and who the senior is are
+                    both already on the DTO, just not shown). Symmetric for
+                    SENIOR: dropName stays masked from them either way (RBAC
+                    rule #2, unrelated to this fix), so no attempt to name
+                    the drop for that viewer — their own share % is still
+                    useful context. `effectiveDropSharePercent`/
+                    `effectiveSeniorSharePercent` (not the raw per-user
+                    default `dropSharePercent`) — the resolved value,
+                    accounting for a project-level override, is what
+                    actually applies to THIS decision. */}
+                {user?.id === project.dropId ? (
+                  <p className="truncate text-[11px] text-amber-300/70">
+                    Ваша доля: {project.effectiveDropSharePercent ?? '—'}% · синьор:{' '}
+                    {project.seniorName}
+                  </p>
+                ) : user?.id === project.seniorId ? (
+                  <p className="truncate text-[11px] text-amber-300/70">
+                    Ваша доля: {project.effectiveSeniorSharePercent ?? '—'}%
+                  </p>
+                ) : null}
               </div>
               <ProjectApprovalActions
                 projectId={project.id}
