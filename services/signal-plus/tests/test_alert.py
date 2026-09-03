@@ -15,6 +15,7 @@ import pytest
 
 from signal_plus.alert import (
     log_error,
+    notify_stale_pin,
     raise_alert,
     send_github_issue_alert,
     send_personal_alert,
@@ -239,3 +240,47 @@ def test_raise_alert_without_recipient_still_logs_and_calls_issue(config_without
     assert outcome.logged is True
     assert outcome.dm_sent is False
     assert outcome.issue_called is True
+
+
+# ---------------------------------------------------------------------------
+# notify_stale_pin — requirement 8's "успешное обновление -> INFO + алерт
+# (не ERROR)" -- deliberately NOT the 3-layer ERROR alert.
+# ---------------------------------------------------------------------------
+
+
+def test_notify_stale_pin_logs_at_info_not_error(config_with_recipient, caplog):
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    with caplog.at_level(logging.INFO, logger="signal_plus"):
+        notify_stale_pin(config_with_recipient, "0.14.6", "0.14.7", run=fake_run)
+
+    assert not any(r.levelno == logging.ERROR for r in caplog.records)
+    info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert any("0.14.6" in r.message and "0.14.7" in r.message for r in info_records)
+
+
+def test_notify_stale_pin_sends_personal_dm_when_recipient_configured(config_with_recipient):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    notify_stale_pin(config_with_recipient, "0.14.6", "0.14.7", run=fake_run)
+    assert len(calls) == 1
+    assert "+380509998877" in calls[0]
+
+
+def test_notify_stale_pin_noops_dm_without_recipient(config_without_recipient):
+    def fail_run(argv, **kwargs):
+        raise AssertionError("must not call signal-cli without a configured recipient")
+
+    notify_stale_pin(config_without_recipient, "0.14.6", "0.14.7", run=fail_run)  # must not raise
+
+
+def test_notify_stale_pin_dm_failure_does_not_raise(config_with_recipient):
+    def raising_run(argv, **kwargs):
+        raise RuntimeError("signal-cli exploded")
+
+    notify_stale_pin(config_with_recipient, "0.14.6", "0.14.7", run=raising_run)  # must not propagate

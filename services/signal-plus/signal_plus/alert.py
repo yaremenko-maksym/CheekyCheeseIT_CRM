@@ -115,3 +115,25 @@ def raise_alert(
         logger.exception("GitHub issue alert layer raised unexpectedly")
 
     return AlertOutcome(logged=True, dm_sent=dm_sent, issue_called=issue_called)
+
+
+def notify_stale_pin(
+    config: Config, old_version: str | None, new_version: str | None, *, run=subprocess.run
+) -> None:
+    """Requirement 8's last bullet: "Успешное обновление → INFO `old → new` +
+    алерт «пин в образе отстал» (не ERROR)." Deliberately does NOT go through
+    :func:`log_error`/:func:`raise_alert` — those are the ERROR-severity
+    3-layer alert for actual failures, and the task is explicit this case is
+    "не ERROR". Only the personal-DM layer is used (if configured): a
+    routine successful auto-update does not warrant opening a tracked GitHub
+    issue the way a real failure does, but the owner may still want a
+    heads-up that the image needs rebuilding with the new pinned version.
+    """
+    message = f"INFO: signal-cli auto-updated {old_version} -> {new_version}; image's pinned binary is now stale"
+    logger.info(message)
+    if not config.signal_alert_recipient:
+        return
+    try:
+        send_personal_alert(config, message, run=run)
+    except Exception:
+        logger.exception("stale-pin notification DM failed")
