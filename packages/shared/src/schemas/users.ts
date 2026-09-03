@@ -3,6 +3,7 @@ import type { Role } from '../types/roles'
 import { currencyEnumSchema, paymentMethodSchema } from './payment-requisites'
 import { tabKeySchema, actionKeySchema } from './view-permissions'
 import { withSalaryFloor } from './money'
+import { pendingSeniorShareSchema } from './finance'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
@@ -50,6 +51,16 @@ export const userProfileSchema = z.object({
   bankUahRnokpp: z.string().nullable(),
   bankUahBankName: z.string().nullable(),
   seniorSharePercent: z.number().int().min(0).max(100),
+  /**
+   * task-pending-share (position 5, design spec §4.3). A proposed new value
+   * for `seniorSharePercent` above, awaiting THIS person's own confirmation
+   * — `null` when nothing is pending. Gated by the same `fields.share`
+   * permission as `seniorSharePercent` itself (see `UsersService.
+   * buildProfileView`). Always `.percent` non-null when present — the
+   * column it targets is NOT NULL, so a base-share proposal never proposes
+   * "clear".
+   */
+  pendingSeniorShare: pendingSeniorShareSchema.nullable().optional(),
   /**
    * DROP-only: percentage the drop keeps off the project income (0-100).
    * Default 5. Nullable for non-DROP roles (column is nullable in DB).

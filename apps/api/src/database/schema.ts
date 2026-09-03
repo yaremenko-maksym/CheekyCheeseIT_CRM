@@ -355,6 +355,21 @@ export const users = pgTable('users', {
   bankUahBankName: text('bank_uah_bank_name'),
   // For SENIOR and ADMIN: percentage they keep from project income (0-100)
   seniorSharePercent: integer('senior_share_percent').notNull().default(26),
+  // task-pending-share (position 5 of docs/superpowers/specs/2026-09-01-
+  // notifications-and-confirmations-design.md §4.3). A proposed NEW base
+  // share % sits here, next to the active column, while the affected SENIOR
+  // has not yet confirmed it (see `approvals`, subjectType
+  // 'USER_SENIOR_SHARE', subjectId = this user's id). `seniorSharePercent`
+  // above is NEVER written while a proposal is live — `UsersService`'s
+  // propose helpers write ONLY this column; `approveSeniorShareChange` swaps
+  // the two in one transaction, `rejectSeniorShareChange` clears this column
+  // and leaves the active one untouched. NULL both when nothing is pending
+  // AND is itself a legitimate "clear" outcome is not possible here (the
+  // active column is NOT NULL, so there is nothing to "clear" — every
+  // proposal carries a concrete percent). "Is something pending" is decided
+  // by `ApprovalsService.getStatus()`, never by this column's null-ness
+  // alone (see that service's own subject-agnostic status contract).
+  pendingSeniorSharePercent: integer('pending_senior_share_percent'),
   // For DROP: percentage the drop keeps from project income (0-100, default 5).
   // Nullable for non-DROP roles. Drop role - phase 1.
   dropSharePercent: integer('drop_share_percent').default(5),
@@ -615,6 +630,19 @@ export const projects = pgTable('projects', {
   // existing transactions.service.ts finance flow keeps reading the same
   // effective value.
   seniorSharePercentOverride: integer('senior_share_percent_override'),
+  // task-pending-share (position 5, design spec §4.3). A proposed NEW value
+  // for the column immediately above, while the project's SENIOR has not yet
+  // confirmed it (`approvals`, subjectType 'PROJECT_SENIOR_SHARE', subjectId
+  // = this project's id). CAN legitimately be NULL while a proposal is live
+  // — "propose clearing the override back to the team/user default" is a
+  // real, valid proposal, so this column's own null-ness never by itself
+  // means "nothing pending" (only `ApprovalsService.getStatus()` does — see
+  // that service's subject-agnostic status contract). `update()` writes
+  // ONLY this column when a change is requested; `approveSeniorShareChange`
+  // swaps it into `seniorSharePercentOverride` (and mirrors into
+  // `project_finance_settings`) in one transaction; `rejectSeniorShareChange`
+  // clears it, leaving the active column untouched.
+  pendingSeniorSharePercentOverride: integer('pending_senior_share_percent_override'),
   // task-drop-share-override-and-receiver (Part A). Per-project override for the
   // DROP's share percent (0-100). NULL = use users.dropSharePercent (→ 5).
   // Editable only by ADMIN/ACCOUNTANT. Resolved by resolveDropShare and
