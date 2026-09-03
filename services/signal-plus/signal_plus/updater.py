@@ -28,14 +28,15 @@ generic ``catch (Throwable e)`` branch) may wrap this further as
 but the literal string above always survives inside that wrapper — hence a
 substring check rather than an exact-equality check.
 
-GPG FINGERPRINT — cited from the release artifact itself, not a doc page
---------------------------------------------------------------------------
-The task asked for this from signal-cli's README/wiki; neither documents it
-(verified: ``grep -rniE "gpg|pgp|fingerprint"`` across both the README and
-every page of the ``AsamK/signal-cli.wiki`` repo returns zero matches as of
-2026-09-03). The fingerprint below was instead extracted directly from the
-actual cryptographic artifacts, which is the strongest first-party source
-available for a trust-on-first-use decision:
+GPG FINGERPRINT -- cited from three independent sources, not a doc page
+---------------------------------------------------------------------------
+The task initially asked for this from signal-cli's README/wiki; neither
+documents it (verified: ``grep -rniE "gpg|pgp|fingerprint"`` across both the
+README and every page of the ``AsamK/signal-cli.wiki`` repo returns zero
+matches as of 2026-09-03). The task file was then revised to require an
+independent source instead -- not the artifact being verified -- so the
+fingerprint below is cross-checked against three separate sources, all
+agreeing:
 
   - ``gpg --list-packets`` on the real ``signal-cli-0.14.7-Linux-native.tar.gz.asc``
     release asset (downloaded via ``gh release download v0.14.7 --repo
@@ -43,9 +44,18 @@ available for a trust-on-first-use decision:
     ``hashed subpkt 33 len 21 (issuer fpr v4 FA10826A74907F9EC6BBB7FC2BA2CD21B5B09570)``.
   - The same fingerprint signs the GPG-signed git tag ``v0.14.7`` itself
     (``git cat-file tag v0.14.7``), tagged by ``AsamK <asamk@gmx.de>``.
+  - Independent of the release artifact: GitHub publishes a user's
+    registered GPG public key(s) at ``https://github.com/<username>.gpg``
+    (the same mechanism as ``.keys`` for SSH). Fetching
+    ``https://github.com/AsamK.gpg`` fresh and importing it into a scratch
+    keyring (``gpg --import`` then ``gpg --list-keys --with-fingerprint``)
+    shows the primary key's fingerprint as
+    ``FA10826A74907F9EC6BBB7FC2BA2CD21B5B09570`` for user ID
+    ``AsamK <asamk@gmx.de>`` -- identical to the two sources above, and
+    obtained through a channel that never touches the file being verified.
 
-Both point to the same key, so it is set here as the default fingerprint —
-but it is still only ever used as the *default* for
+All three point to the same key, so it is set here as the default
+fingerprint -- but it is still only ever used as the *default* for
 ``SIGNAL_CLI_GPG_FINGERPRINT``; the env var (requirement 1) is what actually
 governs verification, so a maintainer key rotation only needs a config
 change, not a code change.

@@ -20,15 +20,19 @@ Not a pnpm workspace member — plain Python, `python -m pytest`, stdlib-first.
   file, written atomically (temp file + `os.replace`). A restart after a
   successful send today does not send a second `+`.
 - **Late but not too late:** miss the window (restart, crash, update) and the
-  service still sends up to **10:00 Kyiv**, logging `WARNING late`. Past
-  10:00 it gives up for the day (`ERROR` + alert) and does not retry until
+  service still sends up to the handover cutoff (`HANDOVER_TIME`, default
+  **08:00 Kyiv**), logging `WARNING late`. At the cutoff, with no successful
+  send yet today, it sends a handover email (see "Alerting"), gives up on the
+  day entirely (`ERROR` + the rest of the alert), and does not retry until
   tomorrow.
 - **`receive` before every `send`** — otherwise the linked device goes stale.
 - **Retries with exponential backoff** on a send failure; full exhaustion is
   an `ERROR` + alert.
 - **Auto-updates signal-cli** if (and only if) the server rejects the client
   as too old — see "Auto-update" below. At most one attempt per day.
-- **Three independent alert layers** on failure — see "Alerting" below.
+- **Four independent alert layers** at the handover cutoff (log, personal
+  DM, GitHub issue, handover email); the retry-exhaustion `ERROR` before
+  that point uses the first three — see "Alerting" below.
 
 ## Install & run
 
@@ -51,15 +55,19 @@ signal-plus              # daemon: repeats forever, one cycle per day
 Everything is env-driven (`signal_plus/config.py`) — nothing is hardcoded,
 no secret is ever in source. Full reference: `.env.example`.
 
-| Variable                     | Required | Purpose                                                          |
-| ---------------------------- | -------- | ---------------------------------------------------------------- |
-| `SIGNAL_ACCOUNT`             | yes      | the sending account (masked in logs)                             |
-| `SIGNAL_GROUP_ID`            | yes      | target group                                                     |
-| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                       |
-| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                          |
-| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)            |
-| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off) |
-| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)         |
+| Variable                     | Required | Purpose                                                            |
+| ---------------------------- | -------- | ------------------------------------------------------------------ |
+| `SIGNAL_ACCOUNT`             | yes      | the sending account (masked in logs)                               |
+| `SIGNAL_GROUP_ID`            | yes      | target group                                                       |
+| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                         |
+| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                            |
+| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)              |
+| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off)   |
+| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)           |
+| `HANDOVER_TIME`              | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                     |
+| `RESEND_API_KEY`             | no       | Resend API key for the handover email (unset = that layer skipped) |
+| `ALERT_EMAIL_FROM`           | no       | sender, default `site@cheekycheese.tech`                           |
+| `ALERT_EMAIL_TO`             | no       | handover email recipient (unset = that layer skipped)              |
 
 ## Testing
 
@@ -79,7 +87,7 @@ network — on top of every individual test already injecting its own fake.
 
 ```
 signal_plus/config.py    env -> Config dataclass, validation, SIGNAL_ACCOUNT masking
-signal_plus/slot.py      the 07:00-07:45 window, DST-safe (zoneinfo), the 10:00 cutoff
+signal_plus/slot.py      the 07:00-07:45 window, DST-safe (zoneinfo), the handover cutoff
 signal_plus/state.py     atomic JSON state (temp file + os.replace)
 signal_plus/signal.py    subprocess wrapper: receive / send / listGroups
 signal_plus/updater.py   outdated-client detection, signed download, GPG verify, atomic swap
@@ -109,13 +117,15 @@ the downloaded files and does not install or run them.
 
 The fingerprint's default (`FA10826A74907F9EC6BBB7FC2BA2CD21B5B09570`) was
 **not** found documented in signal-cli's README or wiki (checked, zero
-matches) — it was instead extracted directly from the actual release
-artifact's own PGP signature packet (`gpg --list-packets` on the real
-`signal-cli-0.14.7-Linux-native.tar.gz.asc`) and cross-checked against the
-GPG-signed git tag `v0.14.7` (tagger `AsamK <asamk@gmx.de>`); both match.
-This is still only a default — `SIGNAL_CLI_GPG_FINGERPRINT` is what actually
-governs verification, so a maintainer key rotation is a config change, not a
-code change.
+matches). Verified against three independent sources instead, all agreeing:
+the release artifact's own PGP signature packet (`gpg --list-packets` on the
+real `signal-cli-0.14.7-Linux-native.tar.gz.asc`), the GPG-signed git tag
+`v0.14.7` (tagger `AsamK <asamk@gmx.de>`), and — independent of the release
+artifact itself — GitHub's own `https://github.com/AsamK.gpg` (the same
+mechanism as `.keys` for SSH), fetched fresh and imported into a scratch
+keyring. This is still only a default — `SIGNAL_CLI_GPG_FINGERPRINT` is what
+actually governs verification, so a maintainer key rotation is a config
+change, not a code change.
 
 On success: extract to `$SIGNAL_DATA_DIR/bin/<version>/`, atomically swap the
 `bin/current` symlink, record the version in state, `receive` (lets any
@@ -135,7 +145,9 @@ mount the volume.
 
 ## Alerting
 
-Three layers, each independent — one failing does not prevent the others:
+Three layers on any `ERROR` (retry exhaustion before the handover cutoff,
+or the handover cutoff itself), each independent — one failing does not
+prevent the others:
 
 1. `ERROR` in the log, always.
 2. A personal Signal DM to `SIGNAL_ALERT_RECIPIENT` via `signal-cli send`, if
@@ -145,6 +157,19 @@ Three layers, each independent — one failing does not prevent the others:
    signal-plus** — it is DevOps's zone. `signal_plus/alert.py` only shapes
    the call; see "Step 4" below for what's still missing to make this layer
    actually work end to end.
+
+**At the handover cutoff specifically** (`HANDOVER_TIME`, default 08:00 —
+requirement 9, rewritten in the task file 2026-09-03, owner decision quoted
+verbatim there), a fourth independent layer fires alongside the three
+above: a handover email via the Resend HTTP API (stdlib `urllib`, no SDK),
+reusing the same `RESEND_API_KEY` already in the web app's deploy secrets.
+No-ops (skipped, not an error) if `RESEND_API_KEY` or `ALERT_EMAIL_TO` is
+unconfigured — same pattern as the personal-DM layer. Body text follows the
+project's transactional-email convention (no thanks/framing, one thought):
+"Утренний + не отправлен к `<HANDOVER_TIME>`. Напишите в группу вручную.
+Причина: `<последняя ошибка>`. Сервис на сегодня остановлен." A Resend
+failure logs `ERROR` but does not block the other three layers, and vice
+versa (`signal_plus.alert.raise_handover_alert`).
 
 A successful auto-update is explicitly **not** routed through the `ERROR`
 alert (`signal_plus.alert.notify_stale_pin`): it logs `INFO old -> new` and

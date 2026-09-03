@@ -3,7 +3,9 @@
 Requirement 6: "Сон до цели кусками ~5 минут, не одним sleep; после каждого
 куска пересчёт «сейчас»." Requirement 7: "Режимы: --groups, --now, --once,
 демон по умолчанию." Requirement 5: "Ретраи с backoff; полный провал — ERROR
-в лог + алерт." Requirement 9: late-until-10:00, then give up for the day.
+в лог + алерт." Requirement 9 (rewritten 2026-09-03): late until
+``config.handover_time`` (default 08:00), then a handover email + give up
+on the day entirely.
 """
 from __future__ import annotations
 
@@ -119,7 +121,9 @@ def send_with_retries_and_update(
         if result.ok:
             return True, state_obj
 
-        logger.warning("send attempt %d/%d failed: %s", attempt, attempts, result.output.strip())
+        last_error = result.output.strip() or f"send exited {result.returncode}"
+        state_obj = replace(state_obj, last_error=last_error)
+        logger.warning("send attempt %d/%d failed: %s", attempt, attempts, last_error)
 
         if updater.is_outdated_client_error(result.output) and not updater.already_attempted_today(
             state_obj, today
@@ -141,8 +145,11 @@ def send_with_retries_and_update(
                 retry_result = _attempt_send_once(config, message, run=run)
                 if retry_result.ok:
                     return True, state_obj
-                logger.warning("send still failed after auto-update: %s", retry_result.output.strip())
+                last_error = retry_result.output.strip() or f"send exited {retry_result.returncode}"
+                state_obj = replace(state_obj, last_error=last_error)
+                logger.warning("send still failed after auto-update: %s", last_error)
             else:
+                state_obj = replace(state_obj, last_error=f"auto-update failed: {outcome.reason}")
                 logger.error("auto-update attempt failed: %s", outcome.reason)
 
         if attempt < attempts:
@@ -165,16 +172,19 @@ def run_cycle(
     rng: random.Random | None = None,
     run=subprocess.run,
     http_get=None,
+    http_post=None,
     tmp_dir: Path | None = None,
     wait_for_slot: bool = True,
     alert_script_path: Path = alert.DEFAULT_POST_MERGE_ALERT_SCRIPT,
 ) -> CycleOutcome:
     """Requirement 7's ``--once``/daemon-cycle behaviour: wait for the slot
     (unless ``wait_for_slot=False``, requirement 7's ``--now``), send with
-    idempotency (requirement 3), lateness handling up to the 10:00 cutoff
-    (requirement 9), retries with auto-update (requirements 5, 8).
+    idempotency (requirement 3), lateness handling up to the
+    ``config.handover_time`` cutoff (requirement 9, rewritten 2026-09-03),
+    retries with auto-update (requirements 5, 8).
     """
     tmp_dir = Path(tmp_dir) if tmp_dir else _default_tmp_dir(config)
+    http_post = http_post or alert._default_http_post
     st = state.load(config.state_file)
     today = now_fn().astimezone(slot.TIMEZONE).date()
 
@@ -182,7 +192,7 @@ def run_cycle(
         logger.info("already sent today (%s); nothing to do", today)
         return CycleOutcome(sent=False, reason="already-sent")
     if st.handover_date == today:
-        logger.info("already gave up for today (%s) at the cutoff; nothing to do", today)
+        logger.info("already gave up for today (%s) at the handover cutoff; nothing to do", today)
         return CycleOutcome(sent=False, reason="already-given-up")
 
     if wait_for_slot:
@@ -192,14 +202,16 @@ def run_cycle(
     while True:
         now = now_fn()
 
-        if slot.is_past_cutoff(now):
-            reason = "today's + was not sent by the Kyiv 10:00 cutoff"
-            alert.raise_alert(
+        if slot.is_past_cutoff(now, cutoff=config.handover_time):
+            reason = st.last_error or "today's + was not sent in time (no prior error recorded)"
+            alert.raise_handover_alert(
                 config,
-                f"ERROR: {reason}",
+                f"ERROR: today's + was not sent by the {config.handover_time.strftime('%H:%M')} Kyiv handover cutoff",
+                reason,
                 issue_extra_env=_issue_alert_env(reason),
                 script_path=alert_script_path,
                 run=run,
+                http_post=http_post,
             )
             state.save(config.state_file, replace(st, handover_date=today))
             return CycleOutcome(sent=False, reason="cutoff")

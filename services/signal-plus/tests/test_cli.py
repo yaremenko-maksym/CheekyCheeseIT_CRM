@@ -158,30 +158,67 @@ def test_late_send_after_0745_logs_warning(config, caplog):
     assert any("late" in r.message.lower() for r in caplog.records if r.levelno == logging.WARNING)
 
 
-def test_after_1000_cutoff_refuses_and_alerts_without_sending(config, caplog, tmp_path):
+def _with_email(config: Config) -> Config:
+    return replace(config, resend_api_key="re_test_key", alert_email_to="owner@example.com")
+
+
+def test_before_0800_no_email_yet_attempts_continue(config, tmp_path):
+    # Task file test list: "07:59 без отправки -> письма нет, попытки идут."
+    # 07:59 is past window_end (07:45, so send is attempted with a WARNING)
+    # but before the 08:00 handover cutoff -- the daemon must still be
+    # trying, not giving up.
+    clock = FakeClock(_kyiv(2026, 9, 3, 7, 59))
+    email_calls = []
+
+    def fail_http_post(url, *, headers, body):
+        email_calls.append(url)
+        return 200, b"{}"
+
+    run = ScriptedRun([_ok(), _ok()])  # receive, send -- succeeds
+    outcome = cli.run_cycle(
+        _with_email(config),
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=ZERO_RNG,
+        run=run,
+        http_post=fail_http_post,
+        alert_script_path=tmp_path / "post-merge-alert.sh",
+    )
+    assert outcome.sent is True
+    assert email_calls == []
+
+
+def test_at_0800_cutoff_sends_email_exactly_once_and_refuses_plus(config, caplog, tmp_path):
     import logging
 
-    clock = FakeClock(_kyiv(2026, 9, 3, 10, 1))  # past the 10:00 cutoff already
+    clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))  # exactly the default handover cutoff
     script = tmp_path / "post-merge-alert.sh"
     run = ScriptedRun([_ok()])  # only the issue-alert script call is expected
+    email_calls = []
 
     def fake_run(argv, **kwargs):
         run.calls.append(list(argv))
         return subprocess.CompletedProcess(argv, 0, "", "")
 
+    def fake_http_post(url, *, headers, body):
+        email_calls.append((url, headers, body))
+        return 200, b"{}"
+
     with caplog.at_level(logging.ERROR, logger="signal_plus"):
         outcome = cli.run_cycle(
-            config,
+            _with_email(config),
             now_fn=clock.now_fn,
             sleep_fn=clock.sleep_fn,
             rng=ZERO_RNG,
             run=fake_run,
+            http_post=fake_http_post,
             alert_script_path=script,
         )
 
     assert outcome.sent is False
     assert outcome.reason == "cutoff"
     assert any(r.levelno == logging.ERROR for r in caplog.records)
+    assert len(email_calls) == 1
     st = load_state(config.state_file)
     assert st.handover_date == date(2026, 9, 3)
     assert st.last_success_date is None
@@ -189,9 +226,124 @@ def test_after_1000_cutoff_refuses_and_alerts_without_sending(config, caplog, tm
     assert not any("send" in c and "+" in c for c in run.calls)
 
 
+def test_restart_after_handover_sends_neither_email_nor_plus_again(config, tmp_path):
+    # Task file test list: "далее ни «+», ни второго письма при рестарте" --
+    # a restart at 08:20 after handover_date is already set for today.
+    save_state(config.state_file, State(handover_date=date(2026, 9, 3)))
+    clock = FakeClock(_kyiv(2026, 9, 3, 8, 20))
+    run = ScriptedRun([])
+
+    def fail_http_post(url, *, headers, body):
+        raise AssertionError("must not send a second handover email on restart")
+
+    outcome = cli.run_cycle(
+        _with_email(config),
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=ZERO_RNG,
+        run=run,
+        http_post=fail_http_post,
+        alert_script_path=tmp_path / "post-merge-alert.sh",
+    )
+    assert outcome.sent is False
+    assert outcome.reason == "already-given-up"
+    assert run.calls == []
+
+
+def test_0800_but_plus_already_sent_at_0730_sends_no_email(config, tmp_path):
+    # Task file test list: "08:00, но «+» ушёл в 07:30 -> письма нет."
+    save_state(config.state_file, State(last_success_date=date(2026, 9, 3)))
+    clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))
+    run = ScriptedRun([])
+
+    def fail_http_post(url, *, headers, body):
+        raise AssertionError("must not send a handover email when today's + already succeeded")
+
+    outcome = cli.run_cycle(
+        _with_email(config),
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=ZERO_RNG,
+        run=run,
+        http_post=fail_http_post,
+        alert_script_path=tmp_path / "post-merge-alert.sh",
+    )
+    assert outcome.sent is False
+    assert outcome.reason == "already-sent"
+    assert run.calls == []
+
+
+def test_resend_error_at_cutoff_still_fires_the_other_alert_layers(config, caplog, tmp_path):
+    # Task file test list: "Resend вернул ошибку -> ERROR, остальные слои
+    # алерта (п. 10) всё равно срабатывают."
+    import logging
+
+    clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))
+    script = tmp_path / "post-merge-alert.sh"
+    issue_calls = []
+
+    def fake_run(argv, **kwargs):
+        if str(script) in argv:
+            issue_calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    def raising_http_post(url, *, headers, body):
+        raise OSError("Resend unreachable")
+
+    with caplog.at_level(logging.ERROR, logger="signal_plus"):
+        outcome = cli.run_cycle(
+            _with_email(config),
+            now_fn=clock.now_fn,
+            sleep_fn=clock.sleep_fn,
+            rng=ZERO_RNG,
+            run=fake_run,
+            http_post=raising_http_post,
+            alert_script_path=script,
+        )
+
+    assert outcome.reason == "cutoff"
+    assert len(issue_calls) == 1  # layer 3 still fired despite the email layer failing
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+def test_handover_email_reason_carries_the_last_recorded_error(config, tmp_path):
+    # Task file: email text is "... Причина: <последняя ошибка> ...". Rather
+    # than simulating enough elapsed retry-exhaustion cycles to actually
+    # reach 08:00 (each cycle costs 450s of simulated backoff+chunk sleep --
+    # ~8 of them to cross an hour from a 07:00 start), pre-populate state
+    # with a realistic last_error and put the clock at the cutoff directly:
+    # this isolates and verifies the wiring (does the cutoff branch read
+    # state.last_error and thread it into the email) rather than re-testing
+    # that retries eventually reach 08:00, which other tests already cover.
+    save_state(config.state_file, State(last_error="connection refused: host unreachable"))
+    clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))
+    email_calls = []
+
+    def fake_http_post(url, *, headers, body):
+        email_calls.append(body)
+        return 200, b"{}"
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    outcome = cli.run_cycle(
+        _with_email(config),
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=ZERO_RNG,
+        run=fake_run,
+        http_post=fake_http_post,
+        alert_script_path=tmp_path / "post-merge-alert.sh",
+    )
+    assert outcome.sent is False and outcome.reason == "cutoff"
+    assert len(email_calls) == 1
+    payload = json.loads(email_calls[0])
+    assert "connection refused: host unreachable" in payload["text"]
+
+
 def test_after_cutoff_second_run_same_day_noops(config, tmp_path):
     save_state(config.state_file, State(handover_date=date(2026, 9, 3)))
-    clock = FakeClock(_kyiv(2026, 9, 3, 10, 30))
+    clock = FakeClock(_kyiv(2026, 9, 3, 8, 30))
     run = ScriptedRun([])
     outcome = cli.run_cycle(
         config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run,
