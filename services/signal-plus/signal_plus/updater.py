@@ -143,6 +143,23 @@ def download_to(url: str, dest: Path, *, http_get=_default_http_get) -> Path:
     return dest
 
 
+# SR-H-2 (PR #650 security review, id 5105061153): status-fd tags that mean
+# "this signature exists but must not be trusted" -- gpg still exits 0 and
+# still emits VALIDSIG (with the signer's real fingerprint) for every one of
+# these, replacing GOODSIG with one of these instead. A fingerprint pin alone
+# defends against a DIFFERENT key signing the release; it does nothing
+# against the SAME key being revoked or expired, which is the one mechanism
+# a maintainer has to disown a compromised key. Reproduced by the reviewer
+# with a real generated-then-revoked test key (`REVKEYSIG`/`KEYREVOKED`);
+# `EXPKEYSIG`/`KEYEXPIRED` (key expired) and `EXPSIG` (signature itself
+# expired) are the same class of gpg output, not separately reproduced but
+# documented identically by GnuPG (`doc/DETAILS`, "mutually exclusive
+# primary signature status" lines).
+_UNTRUSTED_SIGNATURE_TAGS = frozenset(
+    {"REVKEYSIG", "EXPKEYSIG", "KEYREVOKED", "KEYEXPIRED", "EXPSIG", "BADSIG", "ERRSIG"}
+)
+
+
 def verify_signature(
     archive_path: Path,
     signature_path: Path,
@@ -150,9 +167,18 @@ def verify_signature(
     fingerprint: str,
     run=subprocess.run,
 ) -> bool:
-    """``gpg --verify`` the release archive; require BOTH a valid signature AND
-    that it was made by exactly ``fingerprint`` (no trust-on-first-use: a
-    valid signature from some *other* key in the keyring is still rejected).
+    """``gpg --verify`` the release archive; require ALL of:
+
+    - exit code 0;
+    - ``GOODSIG`` present (gpg's own "this is a fully trustworthy signature"
+      marker — absent whenever the signing key is revoked, expired, or the
+      signature itself is bad/expired, even though ``VALIDSIG`` and exit 0
+      still happen in those cases);
+    - none of :data:`_UNTRUSTED_SIGNATURE_TAGS` present, as explicit
+      defense-in-depth on top of the GOODSIG check above;
+    - a ``VALIDSIG`` line whose fingerprint matches ``fingerprint`` exactly
+      (no trust-on-first-use: a valid signature from some *other* key in the
+      keyring is still rejected).
     """
     completed = run(
         ["gpg", "--status-fd", "1", "--verify", str(signature_path), str(archive_path)],
@@ -161,8 +187,16 @@ def verify_signature(
     )
     if completed.returncode != 0:
         return False
+
+    lines = completed.stdout.splitlines()
+    tags = {line.split()[1] for line in lines if line.startswith("[GNUPG:] ") and len(line.split()) > 1}
+    if tags & _UNTRUSTED_SIGNATURE_TAGS:
+        return False
+    if "GOODSIG" not in tags:
+        return False
+
     target = fingerprint.strip().upper().replace(" ", "")
-    for line in completed.stdout.splitlines():
+    for line in lines:
         if line.startswith("[GNUPG:] VALIDSIG "):
             parts = line.split()
             if len(parts) < 3:

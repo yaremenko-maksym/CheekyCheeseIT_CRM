@@ -165,9 +165,17 @@ def test_download_to_writes_bytes_from_http_get(tmp_path):
 
 
 def _gpg_status_output(fingerprint: str) -> str:
+    # GOODSIG included (SR-H-2, security review 5105061153): real gpg emits
+    # GOODSIG for a signature made by a key that is neither revoked nor
+    # expired -- GOODSIG/REVKEYSIG/EXPKEYSIG/BADSIG are mutually exclusive
+    # "primary signature status" lines. Omitting it here would make this
+    # fixture describe an impossible gpg output (VALIDSIG with no primary
+    # status at all), and would silently defeat the GOODSIG requirement the
+    # fix below adds.
     return (
         "[GNUPG:] NEWSIG\n"
         f"[GNUPG:] VALIDSIG {fingerprint} 2026-08-01 1785571747 0 4 0 1 10 00 {fingerprint}\n"
+        f"[GNUPG:] GOODSIG {fingerprint[-16:]} Test Maintainer <test@example.invalid>\n"
         "[GNUPG:] TRUST_ULTIMATE 0 pgp\n"
     )
 
@@ -235,6 +243,107 @@ def test_verify_signature_matches_case_insensitively(tmp_path):
         return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT.lower()), "")
 
     assert verify_signature(archive, sig, fingerprint=FINGERPRINT, run=fake_run) is True
+
+
+# ---------------------------------------------------------------------------
+# SR-H-2 (PR #650 security review, id 5105061153) -- gpg returns exit=0 and
+# still emits VALIDSIG with the SIGNER'S OWN fingerprint even when that
+# key has since been revoked or has expired; it swaps GOODSIG for
+# REVKEYSIG/EXPKEYSIG and adds KEYREVOKED/KEYEXPIRED instead. Reproduced by
+# the reviewer with a real generated+revoked test key, not a guess:
+#
+#   $ gpg --batch --status-fd 1 --verify a.tar.gz.asc a.tar.gz
+#   gpg exit=0
+#   [GNUPG:] REVKEYSIG ...
+#   [GNUPG:] VALIDSIG <the correct fingerprint> ...
+#   [GNUPG:] KEYREVOKED
+#
+# The fingerprint pin alone (SR-M-1's neighbour, "no trust-on-first-use")
+# defends against a DIFFERENT key signing the release; it does nothing
+# against the SAME key being revoked, which is the one mechanism a
+# maintainer has to disown a compromised key.
+# ---------------------------------------------------------------------------
+
+
+def test_verify_signature_false_when_key_is_revoked_even_with_matching_fingerprint(tmp_path):
+    archive = tmp_path / "a.tar.gz"
+    sig = tmp_path / "a.tar.gz.asc"
+    archive.write_bytes(b"x")
+    sig.write_bytes(b"sig")
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            (
+                f"[GNUPG:] REVKEYSIG {FINGERPRINT[-16:]} Fake Maintainer <fake@example.invalid>\n"
+                f"[GNUPG:] VALIDSIG {FINGERPRINT} 2026-08-01 1785571747 0 4 0 1 10 00 {FINGERPRINT}\n"
+                "[GNUPG:] KEYREVOKED\n"
+            ),
+            "",
+        )
+
+    assert verify_signature(archive, sig, fingerprint=FINGERPRINT, run=fake_run) is False
+
+
+def test_verify_signature_false_when_key_has_expired(tmp_path):
+    archive = tmp_path / "a.tar.gz"
+    sig = tmp_path / "a.tar.gz.asc"
+    archive.write_bytes(b"x")
+    sig.write_bytes(b"sig")
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            (
+                f"[GNUPG:] EXPKEYSIG {FINGERPRINT[-16:]} Test Maintainer <test@example.invalid>\n"
+                f"[GNUPG:] VALIDSIG {FINGERPRINT} 2026-08-01 1785571747 0 4 0 1 10 00 {FINGERPRINT}\n"
+                "[GNUPG:] KEYEXPIRED 1785571747\n"
+            ),
+            "",
+        )
+
+    assert verify_signature(archive, sig, fingerprint=FINGERPRINT, run=fake_run) is False
+
+
+def test_verify_signature_false_when_signature_itself_has_expired(tmp_path):
+    archive = tmp_path / "a.tar.gz"
+    sig = tmp_path / "a.tar.gz.asc"
+    archive.write_bytes(b"x")
+    sig.write_bytes(b"sig")
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            (
+                f"[GNUPG:] EXPSIG {FINGERPRINT[-16:]} Test Maintainer <test@example.invalid>\n"
+                f"[GNUPG:] VALIDSIG {FINGERPRINT} 2026-08-01 1785571747 0 4 0 1 10 00 {FINGERPRINT}\n"
+            ),
+            "",
+        )
+
+    assert verify_signature(archive, sig, fingerprint=FINGERPRINT, run=fake_run) is False
+
+
+def test_verify_signature_false_when_validsig_present_but_goodsig_absent(tmp_path):
+    # Neither a revocation/expiry marker NOR GOODSIG is present -- must not
+    # be treated as trusted just because nothing explicitly bad was seen.
+    archive = tmp_path / "a.tar.gz"
+    sig = tmp_path / "a.tar.gz.asc"
+    archive.write_bytes(b"x")
+    sig.write_bytes(b"sig")
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            f"[GNUPG:] VALIDSIG {FINGERPRINT} 2026-08-01 1785571747 0 4 0 1 10 00 {FINGERPRINT}\n",
+            "",
+        )
+
+    assert verify_signature(archive, sig, fingerprint=FINGERPRINT, run=fake_run) is False
 
 
 # ---------------------------------------------------------------------------

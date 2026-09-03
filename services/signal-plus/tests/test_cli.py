@@ -543,7 +543,12 @@ def test_outdated_client_error_triggers_update_then_resends(config, tmp_path):
     gpg_ok = (
         0,
         f"[GNUPG:] VALIDSIG {DEFAULT_SIGNAL_CLI_GPG_FINGERPRINT} 2026-08-01 0 0 4 0 1 10 00 "
-        f"{DEFAULT_SIGNAL_CLI_GPG_FINGERPRINT}\n",
+        f"{DEFAULT_SIGNAL_CLI_GPG_FINGERPRINT}\n"
+        # GOODSIG required (SR-H-2, security review 5105061153) -- real gpg
+        # only emits it for a signature whose key is neither revoked nor
+        # expired; see signal_plus/updater.py's verify_signature and
+        # tests/test_updater.py's _gpg_status_output for the full rationale.
+        f"[GNUPG:] GOODSIG {DEFAULT_SIGNAL_CLI_GPG_FINGERPRINT[-16:]} AsamK <asamk@gmx.de>\n",
         "",
     )
     run = ScriptedRun(

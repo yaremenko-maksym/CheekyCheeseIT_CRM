@@ -62,30 +62,22 @@ RUN curl -fsSL -o signal-cli.tar.gz \
     && curl -fsSL -o signal-cli.tar.gz.asc \
       "https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}-Linux-native.tar.gz.asc"
 
-# Fail-loud, not "should be fine": a signature that does not verify, or
-# verifies but was made by some OTHER key, must stop the build cold — the
-# same "no trust-on-first-use" requirement signal_plus.updater.verify_signature
-# enforces at runtime (task requirement 8), mirrored here at build time for
-# the pinned copy. `gpg --status-fd 1 --verify` followed by a `VALIDSIG
-# <fingerprint>` line match is the exact mechanism that function uses too —
-# duplicated here in shell (not imported — this stage has no signal_plus
-# package yet) rather than invented independently, so both checks agree by
-# construction on what "verified" means.
-RUN set -eu; \
-    gpg --batch --import asamk.gpg; \
-    if gpg --batch --status-fd 1 --verify signal-cli.tar.gz.asc signal-cli.tar.gz \
-        > gpg-status.log 2> gpg-stderr.log; then \
-      if ! grep -q "^\[GNUPG:\] VALIDSIG ${SIGNAL_CLI_GPG_FINGERPRINT} " gpg-status.log; then \
-        echo "signal-cli release signature is valid but NOT from the expected key ${SIGNAL_CLI_GPG_FINGERPRINT}:" >&2; \
-        cat gpg-status.log >&2; \
-        exit 1; \
-      fi; \
-    else \
-      echo "signal-cli release signature verification FAILED:" >&2; \
-      cat gpg-stderr.log >&2; \
-      exit 1; \
-    fi; \
-    echo "signal-cli v${SIGNAL_CLI_VERSION} release signature verified (${SIGNAL_CLI_GPG_FINGERPRINT})"
+# Fail-loud, not "should be fine": a signature that does not verify, was
+# made by some OTHER key, OR was made by a key that has since been REVOKED
+# or EXPIRED (SR-H-2, security review 5105061153, PR #650 — gpg still exits
+# 0 and still emits VALIDSIG with the signer's real fingerprint in every one
+# of those cases; a fingerprint pin alone does not catch a revoked key) must
+# stop the build cold. verify-release-signature.sh is the SAME script
+# signal_plus.updater.verify_signature (task requirement 8) mirrors in
+# Python — a shared, independently-testable script instead of hand-written
+# shell duplicated inline, so the two checks cannot silently drift apart
+# again the way this one did before SR-H-2 (see that script's own comments
+# and services/signal-plus/tests/test_verify_release_signature.sh for the
+# real generated-then-revoked-key reproduction this fix is verified against).
+COPY verify-release-signature.sh ./verify-release-signature.sh
+RUN chmod 755 verify-release-signature.sh \
+    && gpg --batch --import asamk.gpg \
+    && ./verify-release-signature.sh signal-cli.tar.gz.asc signal-cli.tar.gz "${SIGNAL_CLI_GPG_FINGERPRINT}"
 
 # The Linux-native archive is a single executable file named `signal-cli` at
 # the archive root (no wrapping directory) — confirmed against the real
