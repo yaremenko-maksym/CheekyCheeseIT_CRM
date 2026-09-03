@@ -110,10 +110,21 @@ WORKDIR /src
 COPY pyproject.toml ./
 COPY signal_plus ./signal_plus
 COPY tests ./tests
+# SR-M-7 (security review round 2, id 5107124812): tests/
+# test_verify_release_signature_shell.py runs
+# tests/test_verify_release_signature.sh, which resolves
+# ../verify-release-signature.sh RELATIVE TO ITSELF -- without this COPY the
+# wrapped test fails here with "No such file or directory" (caught by
+# actually building this stage, not assumed OK because the standalone
+# script runs fine from a real checkout, where the layout differs).
+COPY verify-release-signature.sh ./
 RUN pip install --no-cache-dir '.[dev]'
 # AC6 (task-signal-plus-service.md): the suite itself refuses real
 # signal-cli/network access (tests/conftest.py empties PATH and forbids
 # socket.socket) — nothing extra required here to keep this build hermetic.
+# test_verify_release_signature_shell.py's own subprocess call needs a real
+# PATH (see that test's docstring) but shadows `gpg` with its OWN fake shim
+# first -- no real gpg package install is needed in this stage either.
 RUN python -m pytest
 
 # ---- Stage 3: runtime --------------------------------------------------------
@@ -188,6 +199,26 @@ ENV XDG_DATA_HOME=/data
 # specifically so it survives container recreation and stays writable even
 # under docker-compose.yml's `read_only: true`.
 ENV GNUPGHOME=/data/gnupg
+# SR-M-8 (PR #650 security review round 2, id 5107124812): docker-compose.yml's
+# `tmpfs: /tmp` is `noexec` (Docker's own default for `--tmpfs`; confirmed by
+# reproduction: mmap(PROT_EXEC)/dlopen of a file placed there fails with
+# EPERM/"Operation not permitted", not just direct script execution). The
+# native-image binary bundles sqlite-jdbc, which extracts and dlopen's a
+# native `libsqlitejdbc.so` at startup (confirmed by inspecting the real
+# v0.14.7 binary's own embedded strings: `SQLITE_TMPDIR`, `org.sqlite.tmpdir`,
+# and the resource path `org/sqlite/native/Linux/x86_64/libsqlitejdbc.so` are
+# all present) — that extraction target must NOT be the noexec `/tmp`.
+# SQLITE_TMPDIR is sqlite-jdbc's own, most specific override; TMPDIR is the
+# generic JVM/POSIX fallback (java.io.tmpdir defaults to reading it), set
+# too in case any other native-image component reads the generic variable
+# instead. Both point at the persistent volume, which carries no `noexec`
+# restriction anywhere in this project's compose config. This directory is
+# created by docker-entrypoint.sh on every boot (parallel to $GNUPGHOME).
+# NOT a substitute for /tmp itself staying noexec — see that finding's "не
+# ставить exec на весь /tmp" instruction; this redirects the ONE thing that
+# needs exec, nothing else moves off tmpfs.
+ENV TMPDIR=/data/tmp
+ENV SQLITE_TMPDIR=/data/tmp
 ENV PYTHONUNBUFFERED=1
 # Under docker-compose.yml's `read_only: true`, Python's default attempt to
 # cache .pyc bytecode alongside the installed package in site-packages would
@@ -200,8 +231,12 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # signal_plus/signal.py always invokes signal-cli via config.signal_cli_bin's
 # FULL path — it never relies on PATH, so this is only for the OWNER's own
 # interactive step 3 commands (README.md "Деплой и линковка": `docker
-# compose -p signal-plus run --rm -it signal-plus signal-cli link -n
-# ...`), so a bare `signal-cli` resolves without needing to know or type
+# compose -p signal-plus run --rm -it signal-plus sh -c 'signal-cli link -n
+# "server-plus" | grep -o -m 1 "sgnl://[^ ]*" | qrencode -t ansiutf8'` — CR-L-2,
+# code review round 2, id 5107141323: this comment previously quoted the
+# pre-SR-M-5 form of that command, from before the linking procedure moved
+# to a single container/single pipeline; kept in sync with the README now),
+# so a bare `signal-cli` resolves without needing to know or type
 # /data/signal-cli/bin/current. Note this is a `signal-cli` FILENAME, not
 # `current` — docker-entrypoint.sh creates a `bin/signal-cli -> current`
 # symlink on every boot specifically so PATH lookup (which matches by

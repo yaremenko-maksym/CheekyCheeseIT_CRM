@@ -67,10 +67,19 @@ services:
     cap_drop:
       - ALL
     tmpfs:
-      # The GraalVM native-image signal-cli binary extracts its bundled
-      # shared libraries (libsqlitejdbc.so, libsignal_jni.so) here at
-      # startup — without a writable /tmp this fails closed before signal-cli
-      # can run at all.
+      # SR-M-8 (security review round 2, id 5107124812) corrected this
+      # comment's earlier claim: this /tmp is `noexec` (Docker's own
+      # default for `--tmpfs`, reproduced by direct test — mmap(PROT_EXEC)/
+      # dlopen of a file placed here fails with EPERM), and the
+      # native-image binary DOES need to dlopen a native .so at startup
+      # (sqlite-jdbc's bundled libsqlitejdbc.so — confirmed by inspecting
+      # the real binary's own embedded strings, not assumed). That
+      # extraction is redirected to the persistent volume instead
+      # (Dockerfile's `TMPDIR`/`SQLITE_TMPDIR` ENV, created by
+      # docker-entrypoint.sh) — /tmp itself stays writable+noexec here for
+      # whatever ordinary temp-file use the process (Python's own, or
+      # signal-cli's non-executable scratch files) still needs, without
+      # being a code-execution surface for anything landing on it.
       - /tmp:size=256m
       - /run:size=16m
     # No ports published — this service never accepts inbound connections;

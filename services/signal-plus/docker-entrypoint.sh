@@ -39,6 +39,15 @@
 #    symlink exists purely so the OWNER's own interactive step 3 commands
 #    (README.md "Деплой и линковка") can type plain `signal-cli link ...`
 #    / `signal-cli listGroups` instead of the full volume path.
+#
+# 4. Create $TMPDIR (default /data/tmp, see the Dockerfile's ENV) — SR-M-8
+#    (security review round 2, id 5107124812): the native-image binary's
+#    bundled sqlite-jdbc extracts+dlopen's a native .so there at startup,
+#    and docker-compose.yml's tmpfs /tmp is noexec (Docker's own default),
+#    which a dlopen from a noexec filesystem cannot survive. Created here,
+#    unconditionally (unlike step 1, which only runs when SIGNAL_DATA_DIR
+#    is configured) — the daemon needs a working native-lib extraction
+#    directory regardless of whether auto-update itself is set up.
 set -eu
 
 GNUPGHOME="${GNUPGHOME:-/data/gnupg}"
@@ -46,6 +55,8 @@ export GNUPGHOME
 mkdir -p "$GNUPGHOME"
 chmod 700 "$GNUPGHOME"
 gpg --batch --quiet --import /opt/signal-cli-pinned/asamk.gpg >/dev/null 2>&1 || true
+
+mkdir -p "${TMPDIR:-/data/tmp}"
 
 if [ -n "${SIGNAL_DATA_DIR:-}" ]; then
   # SR-M-2 (PR #650 security review, id 5105061153): SIGNAL_DATA_DIR was

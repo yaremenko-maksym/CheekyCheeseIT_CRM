@@ -15,6 +15,18 @@ name: Deploy Signal Plus
 # its own VPS directory, and touching deploy.yml's already very large file
 # for an unrelated service is not worth the risk.
 #
+# Two jobs (SR-M-7 + CR-M-6, PR #650 security/code review round 2, ids
+# 5107124812/5107141323 — "одна правка"): neither of this service's own two
+# test suites (pytest, and the shell regression test for SR-H-2's
+# revoked-key check) gated a PR before this — the ONLY place `python -m
+# pytest` ran at all was this workflow's own `test` build stage, which only
+# ever built on `push: main`, i.e. AFTER merge. `build-and-test` now runs on
+# every PR that touches this service (or this workflow file) and on every
+# push to main; `deploy` (SSH, VPS secrets, `docker compose up -d`) still
+# runs ONLY on `push: main`/`workflow_dispatch` — never on a PR, and
+# `needs: build-and-test` means it cannot even start until the build+tests
+# it depends on have already passed.
+#
 # STOP LINE (task-signal-plus-step2-deploy.md): this workflow builds, pushes,
 # writes the VPS's .env, and runs `docker compose up -d` — it does NOT link
 # the Signal account (step 3, `signal-cli link`, run manually by the owner
@@ -22,6 +34,10 @@ name: Deploy Signal Plus
 # the real VPS until SIGNAL_PLUS_ENV/VPS_* secrets exist and the owner says
 # to.
 on:
+  pull_request:
+    paths:
+      - 'services/signal-plus/**'
+      - '.github/workflows/deploy-signal-plus.yml'
   push:
     branches: [main]
     paths:
@@ -29,9 +45,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # One deploy at a time, same shape as deploy.yml's `deploy-production` —
-  # a superseded run should not race the one that replaced it.
-  group: deploy-signal-plus
+  # Scoped per-PR (so rapid pushes to the SAME PR cancel each other, not a
+  # push:main deploy in flight) — a bare `deploy-signal-plus` group here
+  # would let a PR update cancel an in-progress PRODUCTION deploy, or vice
+  # versa, which is a different failure class than "a superseded run should
+  # not race the one that replaced it" (the reason this existed at all).
+  group: deploy-signal-plus-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
   cancel-in-progress: true
 
 env:
@@ -45,8 +64,74 @@ env:
   IMAGE_NAME: yaremenko-maksym/cheekycheeseit-crm-signal-plus
 
 jobs:
+  build-and-test:
+    name: Build & test signal-plus image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # push:false, load:true — this build's whole point is to gate PRs
+      # (and re-confirm push:main) cheaply; it never needs to reach GHCR.
+      # The `test` stage (python -m pytest — 176 tests as of fix-round 2,
+      # including SR-M-7's wrapped tests/test_verify_release_signature.sh)
+      # already fails the whole build if anything is red, same as before —
+      # this job just makes THAT failure visible on the PR itself instead
+      # of only after merge.
+      - name: Build signal-plus image locally (test stage gates pytest + shell GPG test)
+        uses: docker/build-push-action@v6
+        with:
+          context: services/signal-plus
+          push: false
+          load: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ci-${{ github.sha }}
+          cache-from: type=gha,scope=signal-plus
+          cache-to: type=gha,mode=max,scope=signal-plus
+
+      # SR-M-8 (security review round 2, id 5107124812): CR-M-1's original
+      # smoke test ran a bare `docker run --entrypoint ... --version`, with
+      # none of docker-compose.yml's own hardening (`read_only`, `tmpfs`,
+      # `cap_drop: [ALL]`, `no-new-privileges`) — it proved the binary can
+      # execute, not that it can execute in the profile it will actually
+      # run under in production. `docker compose run` against the REAL
+      # compose file (not a hand-reconstructed flag list) answers that with
+      # a fact, on ubuntu-latest's real amd64 hardware, where the
+      # QEMU/Apple-Silicon CPU-ISA emulation gap this binary hits locally
+      # does not apply (see the Dockerfile's own comment on that).
+      # IMAGE_TAG points compose at the image `load: true` just placed in
+      # this runner's local Docker daemon — nothing is pulled from GHCR.
+      - name: Smoke-test under the real hardening profile (docker compose run)
+        working-directory: services/signal-plus
+        env:
+          IMAGE_TAG: ci-${{ github.sha }}
+        run: |
+          cp .env.example .env
+
+          VERSION_OUTPUT="$(docker compose -p signal-plus-ci run --rm \
+            --entrypoint /opt/signal-cli-pinned/signal-cli signal-plus --version)"
+          echo "signal-cli --version (under read_only+tmpfs+cap_drop:ALL+no-new-privileges): $VERSION_OUTPUT"
+          case "$VERSION_OUTPUT" in
+            *0.14.7*) ;;
+            *)
+              echo "::error::expected signal-cli 0.14.7, got: $VERSION_OUTPUT"
+              docker compose -p signal-plus-ci down -v
+              exit 1
+              ;;
+          esac
+
+          docker compose -p signal-plus-ci down -v
+
   deploy:
-    name: Build, push, and deploy signal-plus
+    name: Push & deploy signal-plus
+    needs: build-and-test
+    # CR-M-6: deploy (SSH, VPS secrets, docker compose up -d) never runs on
+    # a pull_request event — only on push:main or a manual dispatch. A PR
+    # cannot reach the VPS or any deploy secret through this workflow.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -75,7 +160,9 @@ jobs:
       # `${IMAGE_TAG:-latest}` default resolves to when IMAGE_TAG is unset).
       # No third `:main` "rolling" tag — task-signal-plus-step2-deploy.md
       # says "тег sha + latest", not the 3-tag scheme deploy.yml uses for
-      # the CRM images.
+      # the CRM images. Same cache scope as build-and-test's own build, so
+      # this reuses those layers instead of rebuilding from scratch —
+      # build-and-test already gated this exact content (`needs:` above).
       - name: Build & push signal-plus image
         uses: docker/build-push-action@v6
         with:
@@ -86,33 +173,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha,scope=signal-plus
           cache-to: type=gha,mode=max,scope=signal-plus
-
-      # CR-M-1 (PR #650 code review, id 5105099737): nothing in this
-      # workflow previously verified the built binary actually RUNS.
-      # signal-cli's Linux-native asset is a real x86_64 GraalVM
-      # native-image binary -- it cannot be smoke-tested locally on Apple
-      # Silicon (`--platform linux/amd64` under QEMU user-mode emulation
-      # fails an internal CPU-ISA-level check the binary does at startup,
-      # see the Dockerfile's own comment on that), which is exactly why it
-      # needs to happen HERE, on ubuntu-latest's real amd64 hardware, where
-      # that emulation gap does not apply. `--entrypoint` bypasses
-      # docker-entrypoint.sh's volume-seeding logic (irrelevant to "does the
-      # baked-in binary execute at all", and there is no real
-      # SIGNAL_DATA_DIR volume in this job to seed from anyway) and runs the
-      # pinned copy directly -- the exact bytes signal-cli-fetch verified
-      # and the runtime image will fall back to on first boot.
-      - name: Smoke-test the built image (signal-cli --version)
-        run: |
-          VERSION_OUTPUT="$(docker run --rm --entrypoint /opt/signal-cli-pinned/signal-cli \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" --version)"
-          echo "signal-cli --version: $VERSION_OUTPUT"
-          case "$VERSION_OUTPUT" in
-            *0.14.7*) ;;
-            *)
-              echo "::error::expected signal-cli 0.14.7, got: $VERSION_OUTPUT"
-              exit 1
-              ;;
-          esac
 
       # Single secret blob (task: "один секрет-блоб") — unlike CRM's
       # .env.production (composed from ~25 individual secrets field-by-field,
