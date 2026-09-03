@@ -93,8 +93,32 @@ def _run_signal_cli(
     run=subprocess.run,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> SignalResult:
+    """Invoke signal-cli via ``run`` and always return a :class:`SignalResult`
+    -- never raise.
+
+    CR-H-2 (PR #650 code review, id 5105099737): a hung `receive` during a
+    network stall (`subprocess.TimeoutExpired`) or a missing/unreadable
+    binary (`OSError`/`FileNotFoundError`) previously propagated straight
+    out of this module, past `cli.py`'s entire retry loop and all four
+    alert layers, and crashed the process -- `restart: always` would then
+    pick a brand-new random slot and retry the WHOLE window, rather than
+    this one attempt. This is the single choke point every caller
+    (`receive`/`send_group_message`/`send_direct_message`/`list_groups`)
+    goes through, so catching here treats a subprocess-level failure
+    exactly like a nonzero-exit failure everywhere downstream (retry
+    counting, `state.last_error`, alerting) — no separate handling needed
+    at any call site.
+    """
     argv = [str(config.signal_cli_bin), "-a", config.signal_account, *args]
-    completed = run(argv, capture_output=True, text=True, timeout=timeout)
+    try:
+        completed = run(argv, capture_output=True, text=True, timeout=timeout)
+    except (subprocess.SubprocessError, OSError) as exc:
+        return SignalResult(
+            ok=False,
+            returncode=-1,
+            stdout="",
+            stderr=_sanitize_cli_text(str(exc), account=config.signal_account),
+        )
     return SignalResult(
         ok=completed.returncode == 0,
         returncode=completed.returncode,

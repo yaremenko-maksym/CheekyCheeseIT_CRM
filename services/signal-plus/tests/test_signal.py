@@ -217,3 +217,44 @@ def test_outdated_client_message_survives_sanitization(config):
     result = receive(config, run=fake)
     assert OUTDATED_CLIENT_MESSAGE in result.output
     assert config.signal_account not in result.output
+
+
+# ---------------------------------------------------------------------------
+# CR-H-2 (PR #650 code review, id 5105099737) -- an exception raised BY the
+# injected `run` callable itself (subprocess.TimeoutExpired modelling a
+# hung `receive` during a network stall, or OSError modelling a missing/
+# unreadable binary) must never propagate out of this module: every caller
+# (cli.py's retry loop, alert.py's DM layer) only knows how to handle a
+# returned SignalResult with ok=False, not a raised exception. Reviewer
+# reproduced this exact crash with a fake `run` raising TimeoutExpired.
+# ---------------------------------------------------------------------------
+
+
+def test_run_raising_timeout_expired_returns_failed_result_not_an_exception(config):
+    def raising_run(argv, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=60)
+
+    result = receive(config, run=raising_run)
+    assert isinstance(result, SignalResult)
+    assert result.ok is False
+
+
+def test_run_raising_oserror_returns_failed_result_not_an_exception(config):
+    def raising_run(argv, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+    result = send_group_message(config, "+", run=raising_run)
+    assert isinstance(result, SignalResult)
+    assert result.ok is False
+
+
+def test_exception_message_is_sanitized_like_any_other_output(config):
+    # The account number can legitimately appear in an OSError's own text
+    # (e.g. a path built from config.signal_cli_bin) -- same masking
+    # guarantee as normal stdout/stderr, not a separate, forgettable path.
+    def raising_run(argv, **kwargs):
+        raise OSError(f"cannot exec binary for account {config.signal_account}")
+
+    result = receive(config, run=raising_run)
+    assert result.ok is False
+    assert config.signal_account not in result.output

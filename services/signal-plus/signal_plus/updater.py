@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -90,6 +91,79 @@ _NATIVE_ASSET_SUFFIX = "-Linux-native.tar.gz"
 # запасную копию"). Documented in README.md so both sides agree on the path.
 DEFAULT_IMAGE_PINNED_BIN_DIR = Path("/opt/signal-cli-pinned")
 
+# SR-M-1 (PR #650 security review, id 5105061153): the GitHub Releases API
+# response is attacker-influenceable network input, not pre-validated data --
+# `tag_name`/asset `name` become filesystem path components
+# (install_release's `data_dir / "bin" / version`, download_to's
+# `tmp_dir / archive_name`), and `browser_download_url` is fetched as-is
+# with no host check. Reproduced: an unvalidated `tag_name` of
+# `../../../../ESCAPED` installed OUTSIDE SIGNAL_DATA_DIR and pointed
+# bin/current there; a `browser_download_url` of `https://evil.example/a`
+# was downloaded and would have passed a VALID GPG signature check (the
+# signature is over the archive BYTES, not over where they came from).
+_SAFE_TOKEN_RE = re.compile(r"^[0-9A-Za-z._-]+$")
+
+# Verified against the REAL GitHub Releases API response, 2026-09-03
+# (`gh api repos/AsamK/signal-cli/releases/latest`): browser_download_url is
+# ALWAYS this exact `github.com/<owner>/<repo>/releases/download/<tag>/`
+# wrapper form -- never the release-assets.githubusercontent.com CDN host
+# the actual bytes 302-redirect to (that redirect is GitHub's own server
+# decision once urllib.request.urlopen follows it, not attacker-influenced
+# API-response data, so it is not separately allow-listed here).
+_ALLOWED_DOWNLOAD_URL_PREFIX = "https://github.com/AsamK/signal-cli/releases/download/"
+
+# ~2.4x the real ~104 MB Linux-native asset (task's "Проверенные факты") --
+# bounds both the in-memory buffer of a real network read (_default_http_get)
+# and, redundantly, whatever download_to's caller passes as `http_get`
+# (defense in depth: the cap must hold even if a future refactor swaps in an
+# http_get that does not itself bound its read).
+MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024
+
+
+def _validate_safe_token(value: str, *, field: str) -> str:
+    """Reject anything that is not a safe, single-segment filesystem token --
+    no `/`, no `..`, no other path-meaningful character. Used for both
+    `tag_name` (-> version) and the asset `name` (-> archive_name), both of
+    which get joined onto a real filesystem path later.
+    """
+    if not _SAFE_TOKEN_RE.match(value) or ".." in value:
+        raise UpdaterError(f"{field} {value!r} is not a safe filesystem token")
+    return value
+
+
+def _validate_download_url(url: str, *, field: str) -> str:
+    """Reject any URL outside the exact GitHub Releases download prefix for
+    this repo -- a fingerprint-valid signature says nothing about WHERE the
+    bytes were fetched from, only that they match whatever the archive
+    turned out to contain.
+    """
+    if not url.startswith(_ALLOWED_DOWNLOAD_URL_PREFIX):
+        raise UpdaterError(f"{field} {url!r} is not an allowed signal-cli release download URL")
+    return url
+
+
+def _parse_version_tuple(version: str) -> tuple[int, ...] | None:
+    """Best-effort dotted-numeric parse (`"0.14.7" -> (0, 14, 7)`) for the
+    downgrade check in :func:`run_auto_update`. Returns ``None`` for
+    anything not purely dotted integers -- by the time a version reaches
+    here it has already passed :func:`_validate_safe_token`, so this is
+    about making the COMPARISON meaningful, not a second security gate.
+    """
+    try:
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return None
+
+
+def _is_strictly_newer(candidate: str, installed: str) -> bool:
+    candidate_tuple = _parse_version_tuple(candidate)
+    installed_tuple = _parse_version_tuple(installed)
+    if candidate_tuple is None or installed_tuple is None:
+        # Cannot compare meaningfully -- fail closed: refuse rather than
+        # silently accept an unparseable "newer" claim.
+        return False
+    return candidate_tuple > installed_tuple
+
 
 class UpdaterError(RuntimeError):
     """Raised for update-flow failures that are not simply 'signature rejected'."""
@@ -115,11 +189,24 @@ class ReleaseAsset:
 
 def _default_http_get(url: str) -> bytes:  # pragma: no cover - real network, never used in tests
     with urllib.request.urlopen(url, timeout=30) as response:
-        return response.read()
+        # SR-M-1: bound the in-memory read at the source -- response.read()
+        # with no argument would buffer an arbitrarily large response (a
+        # compromised/misbehaving server serving "a few hundred MB" is an
+        # OOM-kill-and-restart, not merely a slow download).
+        data = response.read(MAX_DOWNLOAD_BYTES + 1)
+        if len(data) > MAX_DOWNLOAD_BYTES:
+            raise UpdaterError(f"response from {url} exceeded the {MAX_DOWNLOAD_BYTES}-byte limit")
+        return data
 
 
 def fetch_latest_release(*, http_get=_default_http_get) -> ReleaseAsset:
-    """Fetch and parse the latest GitHub release, picking the Linux-native asset."""
+    """Fetch and parse the latest GitHub release, picking the Linux-native asset.
+
+    SR-M-1: every field taken from the response is validated before being
+    trusted as a filesystem path component (`version`, `archive_name`) or a
+    URL to fetch (`archive_url`, `signature_url`) — this response is network
+    input, not pre-validated data.
+    """
     raw = http_get(GITHUB_RELEASES_API)
     try:
         data = json.loads(raw)
@@ -127,19 +214,36 @@ def fetch_latest_release(*, http_get=_default_http_get) -> ReleaseAsset:
         archive_name = next(name for name in assets if name.endswith(_NATIVE_ASSET_SUFFIX))
         signature_name = archive_name + ".asc"
         signature_url = assets[signature_name]
+        version = str(data["tag_name"]).lstrip("v")
     except (KeyError, StopIteration, json.JSONDecodeError) as exc:
         raise UpdaterError(f"unexpected GitHub releases API response: {exc}") from exc
+
+    _validate_safe_token(version, field="tag_name")
+    _validate_safe_token(archive_name, field="asset name")
+    archive_url = _validate_download_url(assets[archive_name], field="archive_url")
+    signature_url = _validate_download_url(signature_url, field="signature_url")
+
     return ReleaseAsset(
-        version=str(data["tag_name"]).lstrip("v"),
+        version=version,
         archive_name=archive_name,
-        archive_url=assets[archive_name],
+        archive_url=archive_url,
         signature_url=signature_url,
     )
 
 
 def download_to(url: str, dest: Path, *, http_get=_default_http_get) -> Path:
+    """Fetch ``url`` via ``http_get`` and write it to ``dest``.
+
+    SR-M-1: re-checks the size limit here too (not just inside the real
+    ``_default_http_get``) — defense in depth so the cap holds regardless of
+    which ``http_get`` implementation a caller wires in, not only the
+    default one.
+    """
+    data = http_get(url)
+    if len(data) > MAX_DOWNLOAD_BYTES:
+        raise UpdaterError(f"download from {url} is {len(data)} bytes, exceeding the {MAX_DOWNLOAD_BYTES}-byte limit")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(http_get(url))
+    dest.write_bytes(data)
     return dest
 
 
@@ -303,6 +407,24 @@ def run_auto_update(
         release = fetch_latest_release(http_get=http_get)
     except UpdaterError as exc:
         return UpdateOutcome(attempted=True, success=False, reason=f"could not fetch release info: {exc}")
+
+    # SR-M-1: "проверено: installed_version='0.14.7', «latest» заявляет
+    # '0.9.0' -> success=True ... Откат на старый, законно подписанный,
+    # уязвимый signal-cli подписью не ловится -- она валидна." The GPG pin
+    # (below) defends the CONTENT of the download; it says nothing about the
+    # DIRECTION of the version change. Skipped when nothing is recorded yet
+    # (image-pinned fallback binary, never auto-updated before) -- there is
+    # no baseline to compare against, and refusing here would break the
+    # auto-update feature's entire first-trigger case.
+    if state.installed_version is not None and not _is_strictly_newer(release.version, state.installed_version):
+        return UpdateOutcome(
+            attempted=True,
+            success=False,
+            reason=(
+                f"latest release {release.version} is not newer than installed "
+                f"{state.installed_version} -- refusing to downgrade"
+            ),
+        )
 
     archive_path = tmp_dir / release.archive_name
     signature_path = tmp_dir / (release.archive_name + ".asc")

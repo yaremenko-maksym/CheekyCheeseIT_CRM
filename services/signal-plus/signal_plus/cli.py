@@ -141,9 +141,28 @@ def send_with_retries_and_update(
             state_obj, today
         ):
             logger.info("signal-cli reports an outdated client; attempting one auto-update for today")
-            outcome = updater.run_auto_update(
-                config, state_obj, today=today, http_get=http_get, run=run, tmp_dir=tmp_dir
-            )
+            try:
+                outcome = updater.run_auto_update(
+                    config, state_obj, today=today, http_get=http_get, run=run, tmp_dir=tmp_dir
+                )
+            except Exception as exc:
+                # CR-H-2 (code review 5105099737): "тот же класс дыры" as
+                # the signal-cli subprocess call this same finding covers --
+                # run_auto_update()'s own internal try/except only wraps
+                # fetch_latest_release()'s UpdaterError; a network failure
+                # reaching for the archive itself (download_to), a disk
+                # failure (install_release), or a hung `gpg --verify`
+                # (verify_signature's own `run` call) all propagate straight
+                # out of it uncaught. This is the ONE place in the update
+                # flow that must never let the daemon die -- everything
+                # past this line already knows how to handle
+                # UpdateOutcome(success=False), so an unexpected exception
+                # here is folded into that exact same shape rather than
+                # handled as a separate case.
+                logger.exception("auto-update attempt raised unexpectedly")
+                outcome = updater.UpdateOutcome(
+                    attempted=True, success=False, reason=f"unexpected error: {exc}"
+                )
             state_obj = replace(state_obj, last_update_attempt_date=today)
             if outcome.success:
                 state_obj = replace(state_obj, installed_version=outcome.new_version)

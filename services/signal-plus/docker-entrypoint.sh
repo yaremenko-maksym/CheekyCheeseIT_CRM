@@ -48,7 +48,15 @@ chmod 700 "$GNUPGHOME"
 gpg --batch --quiet --import /opt/signal-cli-pinned/asamk.gpg >/dev/null 2>&1 || true
 
 if [ -n "${SIGNAL_DATA_DIR:-}" ]; then
-  python3 -c "from signal_plus.updater import ensure_seed_binary; ensure_seed_binary('${SIGNAL_DATA_DIR}')"
+  # SR-M-2 (PR #650 security review, id 5105061153): SIGNAL_DATA_DIR was
+  # previously interpolated straight into the Python SOURCE TEXT passed to
+  # `python3 -c "..."` -- a value containing a single quote (e.g. from a
+  # misconfigured/compromised SIGNAL_PLUS_ENV secret) closes the string
+  # literal early and the rest of the value runs as arbitrary Python
+  # (reproduced: `os.system(...)` executed via a crafted value, before
+  # this fix). Passed as `sys.argv[1]` instead -- the value is data, never
+  # source code, regardless of what characters it contains.
+  python3 -c 'import sys; from signal_plus.updater import ensure_seed_binary; ensure_seed_binary(sys.argv[1])' "$SIGNAL_DATA_DIR"
   BIN_DIR="${SIGNAL_DATA_DIR}/bin"
   if [ -e "$BIN_DIR/current" ]; then
     ln -sf current "$BIN_DIR/signal-cli"

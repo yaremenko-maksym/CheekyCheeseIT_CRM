@@ -496,17 +496,19 @@ def test_full_retry_exhaustion_before_cutoff_alerts_and_keeps_looping(config, tm
 
 
 def _release_payload():
+    # URL matches the real GitHub Releases API browser_download_url shape
+    # (SR-M-1, security review 5105061153, validates this exact prefix).
     return json.dumps(
         {
             "tag_name": "v0.14.7",
             "assets": [
                 {
                     "name": "signal-cli-0.14.7-Linux-native.tar.gz",
-                    "browser_download_url": "https://example.invalid/a.tar.gz",
+                    "browser_download_url": "https://github.com/AsamK/signal-cli/releases/download/v0.14.7/signal-cli-0.14.7-Linux-native.tar.gz",
                 },
                 {
                     "name": "signal-cli-0.14.7-Linux-native.tar.gz.asc",
-                    "browser_download_url": "https://example.invalid/a.tar.gz.asc",
+                    "browser_download_url": "https://github.com/AsamK/signal-cli/releases/download/v0.14.7/signal-cli-0.14.7-Linux-native.tar.gz.asc",
                 },
             ],
         }
@@ -582,6 +584,54 @@ def test_outdated_client_error_triggers_update_then_resends(config, tmp_path):
     # script (making `ok is True` pass either way) but only after paying a
     # backoff sleep it should never have needed.
     assert sleep_calls == []
+
+
+def test_auto_update_raising_unexpectedly_does_not_crash_the_retry_loop(config, tmp_path):
+    # CR-H-2 (code review 5105099737): "тот же корень и в
+    # run_auto_update()/install_release() -- не отдельная находка, тот же
+    # класс дыры: в цепочке нет ни одной границы try/except вокруг
+    # подпроцесс/сеть/диск-операций." Here: http_get raises a raw OSError
+    # (network down) reaching for the archive itself, a path run_auto_update
+    # does not wrap in its own try/except (only fetch_latest_release's
+    # UpdaterError is caught internally) -- must not crash
+    # send_with_retries_and_update, must count as a failed attempt and let
+    # the retry loop continue.
+    from signal_plus.updater import OUTDATED_CLIENT_MESSAGE, DEFAULT_SIGNAL_CLI_GPG_FINGERPRINT
+
+    config = replace(
+        config, signal_data_dir=tmp_path / "data", signal_cli_gpg_fingerprint=DEFAULT_SIGNAL_CLI_GPG_FINGERPRINT
+    )
+
+    def raising_http_get(url):
+        if "releases/latest" in url:
+            return _release_payload()
+        raise OSError("network is unreachable")
+
+    results = [
+        _ok(),  # receive
+        (1, "", f"Error loading state file for user x: {OUTDATED_CLIENT_MESSAGE} (IOException)"),  # send fails, outdated
+    ]
+    for _ in range(cli.DEFAULT_RETRY_ATTEMPTS - 1):
+        results += [_ok(), _fail("still outdated")]
+    run = ScriptedRun(results)
+
+    ok, new_state = cli.send_with_retries_and_update(
+        config,
+        "+",
+        State(),
+        today=date(2026, 9, 3),
+        run=run,
+        sleep_fn=lambda s: None,
+        http_get=raising_http_get,
+        tmp_dir=tmp_path / "downloads",
+    )
+
+    assert ok is False
+    # The attempt still counts (requirement 8's once-per-day guard must see
+    # it even though it raised) and the daemon is still alive to report it,
+    # not a propagated OSError.
+    assert new_state.last_update_attempt_date == date(2026, 9, 3)
+    assert new_state.last_error is not None
 
 
 def test_non_outdated_error_never_triggers_update(config, tmp_path):

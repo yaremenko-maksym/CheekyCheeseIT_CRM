@@ -176,6 +176,25 @@ alert (`signal_plus.alert.notify_stale_pin`): it logs `INFO old -> new` and
 sends only the personal-DM layer (if configured), as a heads-up that the
 image's pinned binary is now behind, not as an incident.
 
+## Секреты: отзыв и скоуп
+
+`RESEND_API_KEY` (SR-M-4, security review 5105061153) — **тот же ключ, что
+у контактной формы веб-части CRM**, отдельного не заводили. `.env.example`
+говорит об этом прямо. Практическое следствие: если контейнер
+`signal-plus` скомпрометирован (например, через `SIGNAL_PLUS_ENV`), у
+атакующего оказывается ключ, которым можно слать письма от имени
+верифицированного `@cheekycheese.tech` — тот же ключ, что использует
+контактная форма сайта. **Отзыв одного ключа в Resend отзывает канал у
+обоих потребителей одновременно** — отдельно откатить только signal-plus,
+оставив контактную форму работающей, сейчас нельзя.
+
+Оба значения (веб-часть и signal-plus) в любом случае живут на одном VPS,
+так что изоляция контейнеров друг от друга не была бы полной защитой сама
+по себе — но отзываемость по отдельности всё равно ценна: send-only ключ с
+ограниченным скоупом для signal-plus позволил бы откатить именно этот
+канал, не выключая контактную форму. Отдельный ключ — решение владельца,
+не код; вынесено как вопрос в «Допущения» этого PR.
+
 ## Step 4 (DevOps) — what's still needed for the GitHub-issue alert layer
 
 **Done, in step 2 (this PR's own workflow-failure alert needed the same
@@ -266,12 +285,14 @@ stdin без явного построчного режима, ждёт EOF (к�
 ### Выбор группы и первый тест
 
 ```bash
-docker compose -p signal-plus run --rm signal-plus signal-cli --groups
+docker compose -p signal-plus run --rm signal-plus signal-plus --groups
 ```
 
-(режим `--groups` — см. `build_arg_parser()` в `signal_plus/cli.py`; печатает
-список групп с id, ничего не отправляет). Найти **пустую тестовую группу**
-в выводе, скопировать её id.
+(режим `--groups` — флаг ОБЁРТКИ, см. `build_arg_parser()` в
+`signal_plus/cli.py`, а не самого `signal-cli` — у него такого флага нет,
+список групп там только через подкоманду `listGroups`, которую наша
+обёртка и вызывает; печатает список групп с id, ничего не отправляет).
+Найти **пустую тестовую группу** в выводе, скопировать её id.
 
 ```bash
 vi /opt/signal-plus/.env   # SIGNAL_GROUP_ID=<id пустой группы>

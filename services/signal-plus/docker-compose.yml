@@ -53,6 +53,19 @@ services:
     # `read_only` since it's an explicit volume mount, not part of the
     # container's own root filesystem).
     read_only: true
+    # SR-M-3 (PR #650 security review, id 5105061153): `read_only` alone
+    # does not defang the base image's own setuid-root binaries (verified:
+    # `python:3.12-slim` ships eight -- passwd, chsh, mount, umount,
+    # newgrp, gpasswd, su, chfn -- rootfs is mounted WITHOUT `nosuid`, so
+    # `read_only: true` does not neutralise them). For a process whose job
+    # is executing a binary it downloads from the internet
+    # (signal_plus.updater's auto-update), these two lines close local
+    # privilege escalation via any of them as a class, rather than chasing
+    # individual binaries in the Dockerfile.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     tmpfs:
       # The GraalVM native-image signal-cli binary extracts its bundled
       # shared libraries (libsqlitejdbc.so, libsignal_jni.so) here at

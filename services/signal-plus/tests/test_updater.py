@@ -17,6 +17,7 @@ import pytest
 from signal_plus.config import Config
 from signal_plus.state import State
 from signal_plus.updater import (
+    MAX_DOWNLOAD_BYTES,
     OUTDATED_CLIENT_MESSAGE,
     ReleaseAsset,
     UpdateOutcome,
@@ -86,21 +87,31 @@ def test_is_outdated_client_error_false_on_any_other_error(other_output):
 # ---------------------------------------------------------------------------
 
 
+_REAL_RELEASE_DOWNLOAD_PREFIX = "https://github.com/AsamK/signal-cli/releases/download/v0.14.7/"
+
+
 def _releases_api_payload(**overrides):
+    # URLs match the REAL shape of GitHub Releases API's browser_download_url
+    # field (verified against the real API response, 2026-09-03: always
+    # `github.com/<owner>/<repo>/releases/download/<tag>/<asset>`, never the
+    # release-assets.githubusercontent.com CDN host the actual bytes redirect
+    # to) -- SR-M-1 (security review 5105061153) validates this exact prefix,
+    # so fixtures need to actually look like it for the happy-path tests to
+    # mean anything.
     payload = {
         "tag_name": "v0.14.7",
         "assets": [
             {
                 "name": "signal-cli-0.14.7-Linux-native.tar.gz",
-                "browser_download_url": "https://example.invalid/signal-cli-0.14.7-Linux-native.tar.gz",
+                "browser_download_url": _REAL_RELEASE_DOWNLOAD_PREFIX + "signal-cli-0.14.7-Linux-native.tar.gz",
             },
             {
                 "name": "signal-cli-0.14.7-Linux-native.tar.gz.asc",
-                "browser_download_url": "https://example.invalid/signal-cli-0.14.7-Linux-native.tar.gz.asc",
+                "browser_download_url": _REAL_RELEASE_DOWNLOAD_PREFIX + "signal-cli-0.14.7-Linux-native.tar.gz.asc",
             },
             {
                 "name": "signal-cli-0.14.7.tar.gz",
-                "browser_download_url": "https://example.invalid/signal-cli-0.14.7.tar.gz",
+                "browser_download_url": _REAL_RELEASE_DOWNLOAD_PREFIX + "signal-cli-0.14.7.tar.gz",
             },
         ],
     }
@@ -143,6 +154,72 @@ def test_fetch_latest_release_raises_when_signature_asset_missing():
 
 
 # ---------------------------------------------------------------------------
+# SR-M-1 (PR #650 security review, id 5105061153) -- the updater trusts
+# fields from the GitHub Releases API response (tag_name, asset name,
+# browser_download_url) as if they were pre-validated, when they are
+# attacker-influenceable input over the network. Reproduced by the reviewer
+# with a hostile JSON response: a `tag_name` of `../../../../ESCAPED`
+# installed OUTSIDE SIGNAL_DATA_DIR and pointed bin/current there, and a
+# `browser_download_url` of `https://evil.example/a` was fetched as-is with
+# a VALID GPG signature still passing (the signature is over the archive
+# BYTES, not over where they came from).
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_latest_release_rejects_path_traversal_in_tag_name():
+    payload = _releases_api_payload(**{"tag_name": "v../../../../ESCAPED"})
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+def test_fetch_latest_release_rejects_path_traversal_in_asset_name():
+    payload = _releases_api_payload()
+    # Still matches the Linux-native suffix selection, so it WOULD be picked
+    # as archive_name if nothing validated it further.
+    payload["assets"][0]["name"] = "../../../etc/evil-Linux-native.tar.gz"
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+@pytest.mark.parametrize(
+    "hostile_url",
+    [
+        "https://evil.example/a.tar.gz",
+        "http://github.com/AsamK/signal-cli/releases/download/v0.14.7/a.tar.gz",  # http, not https
+        "https://github.com.evil.example/AsamK/signal-cli/releases/download/v0.14.7/a.tar.gz",  # lookalike host
+        "https://github.com/SomeoneElse/other-repo/releases/download/v1/a.tar.gz",  # wrong repo
+    ],
+)
+def test_fetch_latest_release_rejects_download_url_off_the_allowed_prefix(hostile_url):
+    payload = _releases_api_payload()
+    payload["assets"][0]["browser_download_url"] = hostile_url
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+def test_fetch_latest_release_accepts_the_real_download_url_shape():
+    # Regression guard for the fixes above: the ACTUAL shape GitHub's API
+    # returns (verified against the live API, 2026-09-03) must still pass.
+    def fake_http_get(url):
+        return json.dumps(_releases_api_payload()).encode()
+
+    release = fetch_latest_release(http_get=fake_http_get)
+    assert release.archive_url.startswith("https://github.com/AsamK/signal-cli/releases/download/")
+
+
+# ---------------------------------------------------------------------------
 # download_to
 # ---------------------------------------------------------------------------
 
@@ -157,6 +234,25 @@ def test_download_to_writes_bytes_from_http_get(tmp_path):
     result = download_to("https://example.invalid/file.bin", dest, http_get=fake_http_get)
     assert result == dest
     assert dest.read_bytes() == b"binary-content"
+
+
+def test_download_to_rejects_a_response_over_the_size_limit(tmp_path):
+    # SR-M-1: "_default_http_get делает response.read() целиком в память без
+    # ограничения размера ... ответ на несколько сотен МБ = OOM-kill +
+    # перезапуск". download_to is the choke point every caller (archive AND
+    # signature download) goes through, regardless of which http_get is
+    # wired in -- reject an oversized response before it is ever written to
+    # disk (or, for the real implementation, capped further upstream too --
+    # see _default_http_get's own MAX_DOWNLOAD_BYTES-capped read).
+    dest = tmp_path / "file.bin"
+    oversized = b"x" * (MAX_DOWNLOAD_BYTES + 1)
+
+    def fake_http_get(url):
+        return oversized
+
+    with pytest.raises(UpdaterError):
+        download_to("https://example.invalid/file.bin", dest, http_get=fake_http_get)
+    assert not dest.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +593,66 @@ def test_run_auto_update_happy_path(config, tmp_path):
     assert current.resolve().read_bytes() == b"new-version-binary"
     # Downloaded artifacts are cleaned up, not left lying around.
     assert not (tmp_path / "downloads").exists() or not list((tmp_path / "downloads").glob("*.tar.gz"))
+
+
+def test_run_auto_update_refuses_to_downgrade(config, tmp_path):
+    # SR-M-1: "проверено: installed_version='0.14.7', «latest» заявляет
+    # '0.9.0' -> success=True, new_version='0.9.0'. Откат на старый ...
+    # signal-cli подписью не ловится -- она валидна." The GPG pin defends
+    # the CONTENT; nothing defended the DIRECTION until this fix. The
+    # attacker-controlled field here is `tag_name`, not the asset filename
+    # (which stays a real, validly-signed v0.14.7 asset) -- exactly the
+    # reviewer's reproduction shape: a legitimate old release masquerading
+    # as "latest" via a manipulated/rolled-back API response.
+    archive_bytes = tmp_path.joinpath("scratch.tar.gz")
+    _make_native_archive(archive_bytes, content=b"old-version-binary")
+    payload = _releases_api_payload(**{"tag_name": "v0.9.0"})
+
+    def fake_http_get(url):
+        if "releases/latest" in url:
+            return json.dumps(payload).encode()
+        if url.endswith(".asc"):
+            return b"signature-bytes"
+        return archive_bytes.read_bytes()
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+
+    state = State(installed_version="0.14.7")
+    outcome = run_auto_update(
+        config,
+        state,
+        today=date(2026, 9, 3),
+        http_get=fake_http_get,
+        run=fake_run,
+        tmp_dir=tmp_path / "downloads",
+    )
+
+    assert outcome.attempted is True
+    assert outcome.success is False
+    assert not (config.signal_data_dir / "bin" / "current").exists()
+
+
+def test_run_auto_update_allows_the_first_ever_update_with_no_installed_version(config, tmp_path):
+    # No state.installed_version to compare against yet (image-pinned
+    # fallback binary, never auto-updated before) -- must not block the
+    # update just because there is nothing recorded to compare against.
+    archive_bytes = tmp_path.joinpath("scratch.tar.gz")
+    _make_native_archive(archive_bytes, content=b"first-update-binary")
+    http_get = _fake_http_get_factory(archive_bytes.read_bytes(), _gpg_status_output(FINGERPRINT))
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+
+    outcome = run_auto_update(
+        config,
+        State(),
+        today=date(2026, 9, 3),
+        http_get=http_get,
+        run=fake_run,
+        tmp_dir=tmp_path / "downloads",
+    )
+    assert outcome.success is True
 
 
 def test_run_auto_update_skips_when_already_attempted_today(config, tmp_path):
