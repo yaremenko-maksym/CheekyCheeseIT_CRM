@@ -474,7 +474,9 @@ between two genuinely different bodies (see its own header comment on
 package(s) produced no report, says explicitly that static mutants were not
 checked that night, and points at fixing the RUN, not at closing mutants.
 Verify both bodies with `DRY_RUN=1 ... MUTATION_REASON=incomplete|survivors
-./scripts/devops/post-merge-alert.sh` per §4.1 above.
+./scripts/devops/post-merge-alert.sh` — pattern and worked example in
+`scripts/devops/post-merge-ci-runbook.md` §4.1 (that file, not this one; this
+runbook has no numbered sections of its own).
 
 ## PR gate vs nightly (`ignoreStatic`)
 
@@ -509,6 +511,41 @@ paper over. Do not "fix" `mutation-gate-vacuum-proof.sh` to pass under
 `ignoreStatic` without first re-reading `mutation-gate.mjs`'s own header on
 this — silencing that failure would hide the exact class of regression this
 gate was built to catch.
+
+**Status, 2026-09-03 (precise, so nobody re-derives this from the code) — the
+nightly is STILL NOT green end-to-end.** The nightly has been red every
+scheduled run from its first trigger (2026-08-12) through today; the owner's
+own framing of it was "red since 2026-08-15" (temporary threshold in the
+self-check) — that framing undersold it, because the self-check's `arm 4`
+crash (not a threshold) is what actually blocked the `web` leg the whole
+time, and fixing it surfaced a second, unrelated blocker rather than closing
+the gap:
+
+- `@crm/shared` — green every night since 2026-08-12; its statics have been
+  verified throughout. Not part of what follows.
+- `@crm/web` — the `arm 4` crash is FIXED today (fixture updated). The leg
+  still cannot complete: `arm 1`'s "the real test kills the defence mutants"
+  assertion now fails for the reason above, and `mutation-gate-vacuum-proof.sh`
+  is a **required** step before `Full mutation sweep` runs for this leg (see
+  `.github/workflows/mutation-nightly.yml`'s `sweep` job — the sweep step has
+  no `if:`, so a failed self-check skips it, same as the old crash did).
+  Resolving this needs an owner decision (see the paragraph above); it is not
+  something today's change makes for you.
+- `@crm/api` — still blocked on `resume-text-extraction.service.spec.ts`'s
+  250ms assertion, unchanged, `*.spec.ts` is AutoTest's zone.
+
+**In practice: for `@crm/api` and `@crm/web`, static mutants have not been
+verified ANYWHERE — not on the PR gate (by design, `ignoreStatic`) and not
+nightly (both legs still cannot complete a full sweep) — for the entire
+window from 2026-08-12 to at least today.** This PR does not claim to close
+that window; it fixes one contributing cause (the `web` crash) and documents
+the other two precisely enough that closing them does not require
+re-investigating from scratch. `.claude/tasks/BACKLOG-followups.md` #137
+covers a related, separate finding: even the (previously miscategorized)
+nightly alert issue itself went three-plus weeks and 22 comments without
+anyone reading it, which is why none of this was noticed sooner.
+
+## Tuning
 
 Everything lives in `scripts/devops/mutation-gate.mjs`:
 
