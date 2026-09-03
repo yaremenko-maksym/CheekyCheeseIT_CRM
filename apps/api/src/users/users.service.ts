@@ -290,21 +290,35 @@ export class UsersService {
    * surfaces as an unhandled crash instead of a 409.
    *
    * COPY-H-6 (security-review PR #623 closing round): this message was
-   * still raw English (`'User with this email already exists'`) — the
-   * admin sees it verbatim as a toast (`getUserFacingErrorMessage` forwards
-   * backend exception messages unchanged) in an otherwise all-Russian
-   * interface, same class of bug COPY-H-5 already fixed on
-   * `assertEmailAvailable` above. A concrete, deterministic path that
-   * reaches THIS catch branch specifically (not `assertEmailAvailable`'s):
-   * an admin edits a user's WORK email (`adminUpdateUser`) to the address
-   * that SAME user already has as their PERSONAL address —
-   * `assertEmailAvailable(db, data.email, id)` sees only its own
-   * `excludeUserId` row and lets it through (`isOwnRow`), so the write
-   * proceeds and the DB's unique index (global across `kind`) is what
-   * actually rejects it, landing here. Does NOT reuse
-   * `assertEmailAvailable`'s "занят другим пользователем" wording — that
-   * would misname the caller: this is a collision with the SAME user's own
-   * other row, not a stranger's.
+   * still raw English (`'User with this email already exists'`) — same
+   * class of bug COPY-H-5 already fixed on `assertEmailAvailable` above.
+   *
+   * COPY-L-4 (copy-review PR #623 closing round): the previous version of
+   * this paragraph named `adminUpdateUser` as "a concrete, deterministic
+   * path" reaching THIS catch and, in the same breath, claimed the admin
+   * sees the message verbatim as a toast — each half was true on its OWN,
+   * but false stated together: `UserDialog.tsx`'s `explainUserMutationError`
+   * overwrites EVERY 409 from `adminUpdateUser`'s endpoint with a generic
+   * toast, so that path never actually showed this wording. Naming both
+   * reachable paths separately, and precisely:
+   *   - `adminUpdateUser`: since COPY-M-15 (this file, the email-uniqueness
+   *     check above the call to `assertEmailAvailable` inside that method)
+   *     the SAME-user WORK-equals-PERSONAL case is caught earlier, with its
+   *     own 400 message, before `assertEmailAvailable` is even reached —
+   *     this catch is reachable from there only through a genuine race (a
+   *     colliding row inserted between that check's SELECT and this
+   *     write's UPDATE), not routine admin use, and even then
+   *     `explainUserMutationError` still swallows the message.
+   *   - `changePersonalEmail`: reaches this catch on a race between two
+   *     concurrent writes to the SAME new address (its own
+   *     `assertEmailAvailable(this.db.db, newEmail, userId)` call is a
+   *     non-atomic pre-check, same TOCTOU gap). That mutation's `onError`
+   *     (`useChangePersonalEmail`, `use-user-profile.ts`) shows `e.message`
+   *     with no 409-specific override — THIS is the path where the
+   *     Russian wording below is what the admin actually reads.
+   * Does NOT reuse `assertEmailAvailable`'s "занят другим пользователем"
+   * wording — that would misname the caller: this is a collision with the
+   * SAME user's own other row, not a stranger's.
    */
   private async writeUserEmailOrConflict<T>(write: () => Promise<T>): Promise<T> {
     try {
@@ -786,6 +800,28 @@ export class UsersService {
       const conflict = await this.findByEmail(data.email)
       if (conflict && conflict.id !== id) {
         throw new ConflictException('User with this email already exists')
+      }
+      // COPY-M-15 (copy-review PR #623 closing round): the routine case of
+      // this SAME user's own WORK/PERSONAL swap, named and dispatched with
+      // its own message BEFORE `assertEmailAvailable` below — that check's
+      // `isOwnRow` pass-through deliberately lets a same-user collision
+      // through (see its own doc) and leaves the DB's unique index as the
+      // ONLY thing catching it, which surfaces as the generic 409
+      // `writeUserEmailOrConflict` throws downstream. The frontend's
+      // `explainUserMutationError` (`UserDialog.tsx`) overwrites EVERY 409
+      // from this endpoint with a hardcoded "already exists" toast — an
+      // admin who set the WORK address to this SAME employee's own
+      // PERSONAL address would read that and go looking for a second
+      // account that does not exist. 400 is not intercepted by that
+      // handler (only 409 is), so this message reaches the toast verbatim.
+      // Mirrors `changePersonalEmail`'s identical check from the other
+      // direction (`newEmail.toLowerCase() === target.email.toLowerCase()`
+      // → "Личный email должен отличаться от рабочего").
+      const ownPersonalRow = await this.db.db.query.userEmails.findFirst({
+        where: and(eq(userEmails.userId, id), eq(userEmails.kind, 'PERSONAL')),
+      })
+      if (ownPersonalRow && ownPersonalRow.email.toLowerCase() === data.email.toLowerCase()) {
+        throw new BadRequestException('Рабочий email должен отличаться от личного')
       }
       // §4.4 — see createUser's identical check: users.email alone cannot
       // see a collision with someone else's PERSONAL row.

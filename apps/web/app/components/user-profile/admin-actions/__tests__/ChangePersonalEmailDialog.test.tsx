@@ -142,12 +142,25 @@ describe('ChangePersonalEmailDialog — removal state (field cleared, currentEma
 
   it('description names ONLY the current address, no mention of a new one (COPY-M-11), and matches the "Удалить" button verb (COPY-M-14)', async () => {
     await typeEmptyAfterClearing()
-    expect(
-      screen.getByText(
-        'Удалите — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.',
-      ),
-    ).toBeInTheDocument()
+    const description = screen.getByText(
+      'Удалите — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.',
+    )
+    expect(description).toBeInTheDocument()
     expect(screen.queryByText(/На новый адрес уйдёт приглашение/)).not.toBeInTheDocument()
+
+    // COPY-M-16 (copy-review PR #623 closing round): a non-breaking space
+    // (U+00A0) before "его." keeps the last two words on the same line at
+    // 375px, the mandatory mobile width (responsive-design.md) — a regular
+    // space here left "его." hanging alone on its own line. `getByText`'s
+    // default normalizer treats NBSP as ordinary whitespace (JS `\s`
+    // matches U+00A0) and collapses both to a plain space before
+    // comparing, so the `getByText` match above would pass with EITHER
+    // character — it does not, by itself, prove the nbsp is there. Reading
+    // the raw `textContent` instead (no normalizer) does.
+    expect(description.textContent).toContain('подтвердил его.')
+    const heIndex = description.textContent?.indexOf('его.') ?? -1
+    expect(heIndex).toBeGreaterThan(0)
+    expect(description.textContent?.charCodeAt(heIndex - 1)).toBe(0x00a0)
   })
 
   it('submit button reads "Удалить адрес" and is the destructive variant', async () => {

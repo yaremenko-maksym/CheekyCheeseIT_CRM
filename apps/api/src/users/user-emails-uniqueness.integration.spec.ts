@@ -21,7 +21,7 @@
  * SEED namespace: a17a0003-****.
  */
 
-import { ConflictException } from '@nestjs/common'
+import { BadRequestException, ConflictException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
@@ -310,32 +310,48 @@ describe.skipIf(!hasDatabaseUrl())(
     // re-saving an unchanged email) — but it must not, and does not, excuse
     // a collision with a DIFFERENT row of that SAME user: setting one's own
     // WORK address equal to one's own PERSONAL address still hits the
-    // global unique index (not scoped by kind). That write must fail
-    // cleanly (409), not crash (500), and must fully roll back — the
-    // ORIGINAL work address keeps working, the PERSONAL row is untouched.
+    // global unique index (not scoped by kind).
+    //
+    // COPY-M-15 (copy-review PR #623 closing round): this used to be the
+    // ONLY thing catching this case — the write reached the DB, hit the
+    // unique index, and `writeUserEmailOrConflict` turned the 23505 into a
+    // 409 that then rolled the transaction back. `adminUpdateUser` now has
+    // an earlier, dedicated, deterministic check for exactly this scenario
+    // (own WORK email set to own PERSONAL email) that runs BEFORE the
+    // transaction is even opened — see `UsersService.adminUpdateUser`'s
+    // email-uniqueness block. So this test's assertion changed from 409 to
+    // 400, and "rolls back" is no longer the right frame: nothing is
+    // attempted in the first place. The invariants below (original WORK
+    // address unchanged, PERSONAL row untouched, still loginable) stay
+    // exactly as they were — even more trivially true now — so they are
+    // kept as-is to prove the new, earlier rejection is not, itself, a
+    // regression on any of them. `assertEmailAvailable`'s `isOwnRow`
+    // pass-through this comment used to describe is still exercised by
+    // OTHER callers (see `users.service.spec.ts`'s SR-M-3 unit test, which
+    // now calls it directly for exactly this reason) — this integration
+    // test moved on to pinning the NEW, user-facing outcome instead.
 
-    it("SR-M-2: admin setting a user's WORK email to that SAME user's own PERSONAL email is rejected cleanly, not a raw 500 — and rolls back completely", async () => {
+    it("SR-M-2/COPY-M-15: admin setting a user's WORK email to that SAME user's own PERSONAL email is rejected with a clear 400, before any write is attempted", async () => {
       await expect(
         usersService.adminUpdateUser(EXISTING_USER_ID, { email: EXISTING_PERSONAL_EMAIL }, null),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toBeInstanceOf(BadRequestException)
 
-      // Rollback verification: `users.email` still has the ORIGINAL
-      // address — upsertWorkEmail's UPDATE was reverted along with it in
-      // the same transaction, not left half-applied.
+      // `users.email` still has the ORIGINAL address — the check that
+      // rejects this runs before `updateUserRow`/`upsertWorkEmail` are ever
+      // reached, so there is nothing to roll back in the first place.
       const userRow = await dbSvc.db.query.users.findFirst({
         where: eq(users.id, EXISTING_USER_ID),
       })
       expect(userRow?.email).toBe(EXISTING_WORK_EMAIL)
 
-      // The PERSONAL row is completely untouched by the failed attempt.
+      // The PERSONAL row is completely untouched by the rejected attempt.
       const personalRow = await dbSvc.db.query.userEmails.findFirst({
         where: eq(userEmails.email, EXISTING_PERSONAL_EMAIL),
       })
       expect(personalRow?.userId).toBe(EXISTING_USER_ID)
       expect(personalRow?.kind).toBe('PERSONAL')
 
-      // The ORIGINAL work address still logs in — the whole point of "rolls
-      // back completely" is that this keeps working after the failed edit.
+      // The ORIGINAL work address still logs in.
       const stillLoginable = await usersService.findLoginableUserByEmail(EXISTING_WORK_EMAIL)
       expect(stillLoginable?.id).toBe(EXISTING_USER_ID)
     })

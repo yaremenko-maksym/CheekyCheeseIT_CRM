@@ -2246,20 +2246,21 @@ describe('UsersService.adminUpdateUser', () => {
 
     await service.adminUpdateUser('user-1', { email: 'new@example.com' })
 
-    // 2 calls: assertEmailAvailable's pre-check (before the tx) +
-    // upsertWorkEmail's find-existing-WORK-row lookup (inside the tx). A
-    // mutated `data.email !== existing.email` guard that always skips the
-    // sync would leave this at 1.
+    // 3 calls: COPY-M-15's own-PERSONAL-row check (before the tx) +
+    // assertEmailAvailable's pre-check (before the tx) + upsertWorkEmail's
+    // find-existing-WORK-row lookup (inside the tx). A mutated
+    // `data.email !== existing.email` guard that always skips the sync
+    // would leave this at 2.
     const findFirstMock = db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>
-    expect(findFirstMock).toHaveBeenCalledTimes(2)
+    expect(findFirstMock).toHaveBeenCalledTimes(3)
 
-    // mutation-gate closure (PR #623): upsertWorkEmail's own lookup (2nd
-    // call) must pass a REAL where clause filtering kind = 'WORK' — a
-    // mutant emptying the whole call to `.findFirst({})` (ObjectLiteral) or
-    // blanking the literal to `''` (StringLiteral) both still resolve via
-    // this mock (which ignores its args), so only inspecting the ACTUAL
-    // compiled where clause catches either.
-    const upsertLookupArgs = findFirstMock.mock.calls[1]?.[0] as { where?: unknown } | undefined
+    // mutation-gate closure (PR #623): upsertWorkEmail's own lookup (3rd
+    // call — see the count above) must pass a REAL where clause filtering
+    // kind = 'WORK' — a mutant emptying the whole call to `.findFirst({})`
+    // (ObjectLiteral) or blanking the literal to `''` (StringLiteral) both
+    // still resolve via this mock (which ignores its args), so only
+    // inspecting the ACTUAL compiled where clause catches either.
+    const upsertLookupArgs = findFirstMock.mock.calls[2]?.[0] as { where?: unknown } | undefined
     expect(
       upsertLookupArgs?.where,
       'expected upsertWorkEmail to pass a where clause, not {}',
@@ -2316,10 +2317,12 @@ describe('UsersService.adminUpdateUser', () => {
     const existing = makeUser({ id: 'user-1', email: 'old@example.com' })
     const updated = makeUser({ id: 'user-1', email: 'new@example.com' })
     const db = makeDb({ existingUser: existing, updatedUser: updated })
-    // upsertWorkEmail's own lookup (the 2nd findFirst call — the 1st is
-    // assertEmailAvailable's pre-check) finds an existing WORK row, so it
-    // must take the UPDATE branch, not INSERT a second one.
+    // upsertWorkEmail's own lookup (the 3rd findFirst call — the 1st is
+    // COPY-M-15's own-PERSONAL-row check, the 2nd is assertEmailAvailable's
+    // pre-check) finds an existing WORK row, so it must take the UPDATE
+    // branch, not INSERT a second one.
     ;(db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(undefined) // COPY-M-15: no own PERSONAL row
       .mockResolvedValueOnce(undefined) // assertEmailAvailable: no conflict
       .mockResolvedValueOnce({ id: 'row-1', userId: 'user-1', kind: 'WORK' }) // upsertWorkEmail: found
     const service = makeUsersService(db)
@@ -2364,32 +2367,142 @@ describe('UsersService.adminUpdateUser', () => {
   // independent `if` statements specifically so each can be pinned on its
   // own — this is the pin for the SECOND one: a row already exists, but it
   // belongs to the SAME user the write is for, so the APP-LEVEL check must
-  // let it through (return, not throw) and let the actual write proceed.
-  // Every REAL caller in this codebase happens to hit a genuine DB
-  // constraint immediately afterward when this branch is taken (see
-  // user-emails-uniqueness.integration.spec.ts's SR-M-2 test) — which means
-  // an end-to-end test alone cannot tell "the app-level check correctly
-  // passed through, then the DB legitimately objected" apart from "the
-  // app-level check incorrectly objected on its own": both produce the same
-  // ConflictException. Only a mocked unit test, where the write is made to
-  // SUCCEED, can observe the pass-through in isolation — which is the
-  // entire point of this test.
+  // let it through (return, not throw).
+  //
+  // COPY-M-15 (copy-review PR #623 closing round): this test used to call
+  // `adminUpdateUser` directly, with a WORK-email-equals-own-PERSONAL-email
+  // scenario, to reach this branch — `adminUpdateUser` now has its OWN,
+  // EARLIER check for exactly that scenario (own WORK email set to own
+  // PERSONAL email — see the check above the `assertEmailAvailable` call
+  // inside that method), which throws `BadRequestException` BEFORE
+  // `assertEmailAvailable` is ever reached from there. Routing through
+  // `adminUpdateUser` would now pin the WRONG layer and silently start
+  // asserting the OLD, now-incorrect outcome (a resolve, where the correct
+  // behavior for THAT scenario is a 400 — see the new tests above).
+  // Exercising `assertEmailAvailable` directly (same pattern as
+  // `writeUserEmailOrConflict` above) keeps this test about the ONE thing
+  // it was written to pin, independent of what any particular caller does
+  // around it. This is still real, reachable production behavior, just
+  // through OTHER callers: `changePersonalEmail`'s own call relies on the
+  // exact same pass-through for a re-cased resubmit of a PERSONAL address
+  // (see that method's own SR-L-1 comment), and `adminUpdateUser`'s call
+  // still reaches it for a same-user, different-case resubmit of the WORK
+  // address (COPY-M-15's new check only queries the PERSONAL row, so a
+  // WORK-vs-WORK match is untouched by it).
   it('SR-M-3: does NOT throw when the only existing row for that email belongs to the SAME user (isOwnRow pass-through)', async () => {
-    const existing = makeUser({ id: 'user-1', email: 'old@example.com' })
-    const updated = makeUser({ id: 'user-1', email: 'shared@example.com' })
+    const db = makeDb({ existingUser: undefined, createdUser: makeJunior() })
+    // The found row's userId is the SAME 'user-1' passed as excludeUserId
+    // below. A mutant flipping `===` to `!==`, or negating either `if`,
+    // would make this call throw ConflictException instead of resolving.
+    ;(db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'row-other-kind',
+      userId: 'user-1',
+      kind: 'PERSONAL',
+    })
+    const service = makeUsersService(db) as unknown as {
+      assertEmailAvailable: (dbArg: unknown, email: string, excludeUserId?: string) => Promise<void>
+    }
+
+    await expect(
+      service.assertEmailAvailable(db.db, 'shared@example.com', 'user-1'),
+    ).resolves.toBeUndefined()
+  })
+
+  // COPY-M-15 (copy-review PR #623 closing round): an admin editing a
+  // user's WORK email to that SAME user's own PERSONAL email used to reach
+  // `assertEmailAvailable`'s `isOwnRow` pass-through (SR-M-3, above) and
+  // only fail downstream at the DB unique index, surfacing as the generic
+  // 409 `UserDialog.tsx`'s `explainUserMutationError` then overwrites with
+  // a hardcoded "already exists" toast — sending the admin to look for a
+  // second account that does not exist. This is the pin for the new,
+  // earlier, dedicated check: a 400 that names the actual problem, and
+  // that the frontend's 409-only override does not touch.
+  it("COPY-M-15: throws BadRequestException (not the generic 409) when the new WORK email equals the SAME user's own PERSONAL email", async () => {
+    const existing = makeUser({ id: 'user-1', email: 'work@example.com' })
+    const db = makeDb({ existingUser: existing })
+    // The FIRST findFirst call is COPY-M-15's own check (userId + kind =
+    // 'PERSONAL') — resolving it to a row whose email matches (case-
+    // insensitively) the new WORK email is the exact scenario this check
+    // exists for. A mutant that drops the `ownPersonalRow &&` guard, flips
+    // the `.toLowerCase() === .toLowerCase()` comparison, or empties the
+    // WHERE clause would all fail to throw here.
+    ;(db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 'row-personal',
+      userId: 'user-1',
+      kind: 'PERSONAL',
+      email: 'Personal@Example.com',
+    })
+    const service = makeUsersService(db)
+
+    const promise = service.adminUpdateUser('user-1', { email: 'personal@example.com' })
+    await expect(promise).rejects.toBeInstanceOf(BadRequestException)
+    await expect(promise).rejects.toThrow('Рабочий email должен отличаться от личного')
+    // Caught before `assertEmailAvailable`/`upsertWorkEmail` — no write was
+    // even attempted, so the transaction never opens.
+    expect(db.db.transaction).not.toHaveBeenCalled()
+    // mutation-gate closure: the check's own WHERE clause must actually
+    // filter by THIS user's id and kind='PERSONAL', not `.findFirst({})` —
+    // a mutant emptying it would still resolve via this call-order-based
+    // mock (which ignores its args).
+    const findFirstMock = db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>
+    const ownRowLookupArgs = findFirstMock.mock.calls[0]?.[0] as { where?: unknown } | undefined
+    expect(ownRowLookupArgs?.where, 'expected a real where clause, not {}').toBeDefined()
+    const compiledWhere = new PgDialect().sqlToQuery(
+      ownRowLookupArgs!.where as Parameters<PgDialect['sqlToQuery']>[0],
+    )
+    expect(compiledWhere.params).toContain('PERSONAL')
+    expect(compiledWhere.params).toContain('user-1')
+  })
+
+  // mutation-gate closure: kills the `if (ownPersonalRow && true)`
+  // ConditionalExpression mutant on the check above — every OTHER test in
+  // this file either has NO PERSONAL row at all (falsy either way, so a
+  // mutant that drops the email comparison behaves identically) or a
+  // MATCHING one (throws either way). Only a row that EXISTS but does NOT
+  // match distinguishes the real `.toLowerCase() === .toLowerCase()`
+  // comparison from a mutant that ignores it and throws on ANY row.
+  it('COPY-M-15: does NOT throw when the user HAS a PERSONAL row, but its email is DIFFERENT from the new WORK email', async () => {
+    const existing = makeUser({ id: 'user-1', email: 'work@example.com' })
+    const updated = makeUser({ id: 'user-1', email: 'new-work@example.com' })
     const db = makeDb({ existingUser: existing, updatedUser: updated })
-    // assertEmailAvailable's pre-check finds a row — but its userId is the
-    // SAME 'user-1' that adminUpdateUser is called for (excludeUserId).
-    // A mutant flipping `===` to `!==`, or negating either `if`, would
-    // make this call throw ConflictException instead of resolving.
     ;(db.db.query.userEmails.findFirst as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ id: 'row-other-kind', userId: 'user-1', kind: 'PERSONAL' }) // assertEmailAvailable: own row, different kind
-      .mockResolvedValueOnce(undefined) // upsertWorkEmail: no existing WORK row → insert branch
+      .mockResolvedValueOnce({
+        id: 'row-personal',
+        userId: 'user-1',
+        kind: 'PERSONAL',
+        email: 'unrelated-personal@example.com',
+      }) // COPY-M-15's check: a PERSONAL row exists, but at a DIFFERENT address
+      .mockResolvedValueOnce(undefined) // assertEmailAvailable: no conflict
+      .mockResolvedValueOnce(undefined) // upsertWorkEmail: no existing WORK row → insert
     const service = makeUsersService(db)
 
     await expect(
-      service.adminUpdateUser('user-1', { email: 'shared@example.com' }),
+      service.adminUpdateUser('user-1', { email: 'new-work@example.com' }),
     ).resolves.toMatchObject({ id: 'user-1' })
+  })
+
+  // COPY-M-15 regression: a collision with a DIFFERENT (stranger's) user's
+  // email must still be the OLD, pre-existing 409 — COPY-M-15 only adds a
+  // NEW, EARLIER branch for the same-user case; it must not touch this one.
+  it("COPY-M-15 regression: a stranger's already-taken email still throws the OLD 409 unchanged", async () => {
+    const existing = makeUser({ id: 'user-1', email: 'old@example.com' })
+    const stranger = makeUser({ id: 'user-2', email: 'taken@example.com' })
+    // makeDb's select-chain resolves the 1st select().where() call
+    // (findById, inside adminUpdateUser) to `existingUser` and every
+    // subsequent one to `createdUser` — the 2nd call here is
+    // `findByEmail(data.email)`, so seeding the stranger as `createdUser`
+    // is what makes that lookup return THEIR row.
+    const db = makeDb({ existingUser: existing, createdUser: stranger })
+    const service = makeUsersService(db)
+
+    const promise = service.adminUpdateUser('user-1', { email: 'taken@example.com' })
+    await expect(promise).rejects.toBeInstanceOf(ConflictException)
+    await expect(promise).rejects.toThrow('User with this email already exists')
+    // This collision is caught by `findByEmail`, strictly BEFORE COPY-M-15's
+    // own-PERSONAL-row check — a mutant reordering the two checks would
+    // still throw SOMETHING here, but `userEmails.findFirst` would no
+    // longer be untouched.
+    expect(db.db.query.userEmails.findFirst).not.toHaveBeenCalled()
   })
 })
 

@@ -132,10 +132,23 @@ export function ChangePersonalEmailDialog({
   // one action actually available in this state. Swapped to "Удалите",
   // matching the button; the rest of the sentence is unchanged (round-5
   // copy review's own wording, still true for the removal case).
+  //
+  // COPY-M-16 (copy-review PR #623 closing round): "Удалите" is shorter
+  // than "Сохраните" (the change-branch's verb below), so the removal
+  // sentence reflows to one word less per line at the mandatory 375px
+  // mobile width (responsive-design.md) — the last line ends up a single
+  // hanging word, "его.". Fixed with a non-breaking space (U+00A0, not the
+  // HTML entity `&nbsp;` — this is a JS string literal, not JSX text;
+  // precedent: the raw NBSP character in `terminal.tsx`) between
+  // "подтвердил" and "его.", keeping them on the same line. Does not touch
+  // the change-branch sentence below, which already wraps cleanly at every
+  // width this dialog is measured at — adding the SAME nbsp there for
+  // symmetry was measured and rejected: it collapses that sentence from 3
+  // lines to 2 at 375px, which is a layout change with no defect to fix.
   const description = isAdding
     ? 'На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес.'
     : isRemoval
-      ? 'Удалите — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.'
+      ? 'Удалите — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.'
       : 'Сохраните — и вход по нынешнему адресу закроется сразу, даже если сотрудник уже подтвердил его. На новый адрес уйдёт приглашение.'
 
   return (
