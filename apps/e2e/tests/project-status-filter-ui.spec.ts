@@ -73,14 +73,14 @@ test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
       // All 4 tabs present for ADMIN.
       const tabs = page.getByTestId('projects-status-tabs')
       await expect(tabs.getByRole('tab', { name: 'Активные' })).toBeVisible()
-      await expect(tabs.getByRole('tab', { name: 'Ожидают подтверждения' })).toBeVisible()
+      await expect(tabs.getByRole('tab', { name: 'На подтверждении' })).toBeVisible()
       await expect(tabs.getByRole('tab', { name: 'Отклонённые' })).toBeVisible()
       await expect(tabs.getByRole('tab', { name: 'Архив' })).toBeVisible()
 
       // AC2: the draft is invisible on Active, visible on Pending — ADMIN
       // is an "invited approver" population, so this also proves AC2's
       // "viewed by ADMIN" half.
-      await tabs.getByRole('tab', { name: 'Ожидают подтверждения' }).click()
+      await tabs.getByRole('tab', { name: 'На подтверждении' }).click()
       await expect(page.getByText(`AC1 Draft Co ${suffix}`)).toBeVisible()
       await expect(page.getByText(`AC1 Active Co ${suffix}`)).not.toBeVisible()
       await expect(page.getByTestId(`project-row-${draftId}-status-pending`)).toBeVisible()
@@ -119,11 +119,11 @@ test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
 
       const tabsMobile = page.getByTestId('projects-status-tabs')
       await expect(tabsMobile.getByRole('tab', { name: 'Активные' })).toBeVisible()
-      await expect(tabsMobile.getByRole('tab', { name: 'Ожидают подтверждения' })).toBeVisible()
+      await expect(tabsMobile.getByRole('tab', { name: 'На подтверждении' })).toBeVisible()
       await expect(tabsMobile.getByRole('tab', { name: 'Отклонённые' })).not.toBeVisible()
       await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
 
-      await tabsMobile.getByRole('tab', { name: 'Ожидают подтверждения' }).click()
+      await tabsMobile.getByRole('tab', { name: 'На подтверждении' }).click()
       await expect(page.getByText(`AC1 Senior Own Co ${suffix}`)).toBeVisible()
       // AC2: not-my-draft is invisible even on the Pending tab.
       await expect(page.getByText(`AC1 Senior Other Co ${suffix}`)).not.toBeVisible()
@@ -400,7 +400,8 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       // Both senior and drop invited, neither approved (skipApproval) — the
       // richest status-column content this component ever renders: badge +
-      // "от <senior> и дропа" caption + BOTH Confirm/Reject buttons (once
+      // "от <дроп> и <senior>" caption (COPY-M-1: drop-first order) + BOTH
+      // Confirm/Reject buttons (once
       // logged in as the invited senior below). QA's repro was on exactly
       // this shape, not the simpler senior-only case the overflow test above
       // already covers.

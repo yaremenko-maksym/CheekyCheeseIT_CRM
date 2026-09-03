@@ -77,7 +77,7 @@ test.describe('Projects archive — list page tab', () => {
 
   // SPEC-M-5 (PR #646 fix-round 1): SENIOR now GETS a status tabs row —
   // task-project-status-filter-ui (design spec §2's visibility table) gives
-  // SENIOR two of the four values (Активные + Ожидают подтверждения, so
+  // SENIOR two of the four values (Активные + На подтверждении, so
   // they can act on their own draft from the card, AC3) while HR/ACCOUNTANT/
   // JUNIOR/DROP still see none (their list is always ACTIVE-only — the
   // `(isAdmin || isSenior) &&` guard in index.tsx is exactly this). AC2's
@@ -90,7 +90,7 @@ test.describe('Projects archive — list page tab', () => {
     const tabs = page.getByTestId('projects-status-tabs')
     await expect(tabs).toBeVisible()
     await expect(tabs.getByRole('tab', { name: 'Активные' })).toBeVisible()
-    await expect(tabs.getByRole('tab', { name: 'Ожидают подтверждения' })).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'На подтверждении' })).toBeVisible()
     // The two ADMIN-only values are genuinely absent, not just unselected.
     await expect(tabs.getByRole('tab', { name: 'Отклонённые' })).toHaveCount(0)
     await expect(tabs.getByRole('tab', { name: 'Архив' })).toHaveCount(0)

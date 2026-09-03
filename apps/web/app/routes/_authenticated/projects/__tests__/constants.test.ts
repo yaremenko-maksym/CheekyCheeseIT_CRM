@@ -17,20 +17,20 @@ describe('PROJECT_STATUS_FILTERS / STATUS_FILTER_LABELS (design spec §2/§5)', 
     expect(PROJECT_STATUS_FILTERS).toEqual(['ACTIVE', 'PENDING', 'REJECTED', 'ARCHIVED'])
   })
 
-  it('desktop labels match the design spec §5 table exactly', () => {
+  it('desktop labels match the design spec §5 table (COPY-M-2, PR #646 fix-round 2: PENDING shortened from "Ожидают подтверждения" — 154px broke the 4-column equal-width toggle at 640-749px)', () => {
     expect(STATUS_FILTER_LABELS).toEqual({
       ACTIVE: 'Активные',
-      PENDING: 'Ожидают подтверждения',
+      PENDING: 'На подтверждении',
       REJECTED: 'Отклонённые',
       ARCHIVED: 'Архив',
     })
   })
 
-  it('mobile labels abbreviate PENDING/REJECTED only — ACTIVE/ARCHIVED stay full-length (§5: already short enough)', () => {
+  it('COPY-M-3 (PR #646 fix-round 2): mobile labels are the full 4-abbreviation set measured to fit 320px with no two a single letter apart — the old ACTIVE (full-length "Активные") and REJECTED ("Откл.", one letter from "Ожид.", and readable as "disabled") both got replaced', () => {
     expect(STATUS_FILTER_LABELS_MOBILE).toEqual({
-      ACTIVE: 'Активные',
-      PENDING: 'Ожид.',
-      REJECTED: 'Откл.',
+      ACTIVE: 'Идут',
+      PENDING: 'Ждут',
+      REJECTED: 'Отказ',
       ARCHIVED: 'Архив',
     })
   })

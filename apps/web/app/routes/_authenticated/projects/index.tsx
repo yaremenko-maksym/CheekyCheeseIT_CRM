@@ -71,7 +71,7 @@ function useTeamlessSeniorGate(isSenior: boolean) {
 
 // task-project-status-filter-ui (design spec §2). `status` is the new,
 // canonical filter — deep-linkable so ADMIN can send a colleague a direct
-// link to the «Ожидают подтверждения» queue. `archived=true` is kept
+// link to the «На подтверждении» queue. `archived=true` is kept
 // working (NOT removed) for old bookmarks/links — `?archived=true` resolves
 // to `status: 'ARCHIVED'` below, same behaviour as before this task shipped.
 // `z.coerce.boolean()` on `archived` accepts both `boolean` and string
@@ -479,7 +479,16 @@ function ProjectsPage() {
       ? { text: 'Архив пуст', icon: Briefcase }
       : currentTab === 'PENDING'
         ? {
-            text: isAdmin ? 'Черновиков нет' : 'Нет проектов, ожидающих вашего решения',
+            // COPY-M-5 (PR #646 fix-round 2): "черновик" is already the
+            // name of a DIFFERENT concept in this CRM — contract drafts
+            // ("Вернуть в черновик", "Сохранить как черновик", "Контракт
+            // сохранён как черновик"). This tab and its badge both say
+            // "подтверждение"; the empty state used to be the one place on
+            // this exact screen using a third, already-taken word for the
+            // same object.
+            text: isAdmin
+              ? 'Проектов на подтверждении нет'
+              : 'Нет проектов, ожидающих вашего решения',
             icon: Clock,
           }
         : currentTab === 'REJECTED'

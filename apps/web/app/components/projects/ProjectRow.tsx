@@ -85,9 +85,21 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
   // never to "already decided".
   const seniorStillPending = project.seniorApprovalPending ?? true
   const dropStillPending = !!project.dropId && (project.dropApprovalPending ?? true)
+  // COPY-M-1 (PR #646 fix-round 2): the caption below is capped at
+  // `max-w-40` (160px) and truncated with an ellipsis from the TAIL — a
+  // long senior name used to push "и дропа" past that cap, so a viewer
+  // reading "от Александра Мельниченко…" has no way to tell the drop is
+  // ALSO still pending (SPEC-M-2's whole point — naming everyone who
+  // hasn't decided — silently undone by truncation on exactly the names
+  // long enough to need it). `seniorName` is safe to truncate here because
+  // it is ALSO printed, untruncated up to its own cap, in the row's own
+  // "Синьор" column — losing characters off the END of THIS copy costs
+  // nothing. `dropName` has no such second location on this row, so it (or
+  // the generic "дропа" fallback) goes first, where truncation can never
+  // reach it.
   const pendingCaption = isPending
     ? seniorStillPending && dropStillPending
-      ? `от ${project.seniorName} и дропа`
+      ? `от ${project.dropName ?? 'дропа'} и ${project.seniorName}`
       : seniorStillPending
         ? `от ${project.seniorName}`
         : dropStillPending

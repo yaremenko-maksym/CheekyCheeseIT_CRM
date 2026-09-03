@@ -278,7 +278,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(caption).toHaveAttribute('title', `от ${longSeniorName}`)
   })
 
-  it('DRAFT drop-project, BOTH still pending: caption names both the senior and "дропа"', async () => {
+  it('DRAFT drop-project, BOTH still pending: caption names both, drop FIRST (COPY-M-1, PR #646 fix-round 2 — the senior name is the one safe to lose to truncation, since it repeats untruncated in the Синьор column)', async () => {
     const project = makeProject({
       status: 'DRAFT',
       dropId: DROP_ID,
@@ -289,7 +289,21 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText(`от ${project.seniorName} и дропа`)).toBeInTheDocument()
+    expect(screen.getByText(`от ${project.dropName} и ${project.seniorName}`)).toBeInTheDocument()
+  })
+
+  it('COPY-M-1: DRAFT drop-project, BOTH still pending, dropName is null (old cached DTO) — falls back to generic "дропа", still drop-first', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: null,
+      seniorApprovalPending: true,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText(`от дропа и ${project.seniorName}`)).toBeInTheDocument()
   })
 
   it('SPEC-M-2 (PR #646 fix-round 1): DRAFT drop-project, drop ALREADY approved — caption names only the senior, not "и дропа"', async () => {
@@ -322,12 +336,12 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(screen.queryByText(new RegExp(`^от ${project.seniorName}`))).not.toBeInTheDocument()
   })
 
-  it('DRAFT drop-project, fields absent (old cached DTO, pre this fix): defaults to "both still pending" — same text as before this fix', async () => {
+  it('DRAFT drop-project, approval fields absent (old cached DTO, pre SPEC-M-2): defaults to "both still pending", drop-first order (COPY-M-1)', async () => {
     const project = makeProject({ status: 'DRAFT', dropId: DROP_ID, dropName: 'Drop One' })
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText(`от ${project.seniorName} и дропа`)).toBeInTheDocument()
+    expect(screen.getByText(`от ${project.dropName} и ${project.seniorName}`)).toBeInTheDocument()
   })
 
   it('REJECTED: renders the "Отклонено" badge + reason text, destructive dot, opacity dimming (same treatment as archived)', async () => {
