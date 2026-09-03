@@ -318,6 +318,7 @@ def test_outdated_client_error_triggers_update_then_resends(config, tmp_path):
             _ok(),  # send again -- succeeds
         ]
     )
+    sleep_calls: list[float] = []
 
     ok, new_state = cli.send_with_retries_and_update(
         config,
@@ -325,7 +326,7 @@ def test_outdated_client_error_triggers_update_then_resends(config, tmp_path):
         State(),
         today=date(2026, 9, 3),
         run=run,
-        sleep_fn=lambda s: None,
+        sleep_fn=sleep_calls.append,
         http_get=fake_http_get,
         tmp_dir=tmp_path / "downloads",
     )
@@ -333,6 +334,12 @@ def test_outdated_client_error_triggers_update_then_resends(config, tmp_path):
     assert ok is True
     assert new_state.installed_version == "0.14.7"
     assert new_state.last_update_attempt_date == date(2026, 9, 3)
+    # The resend after a successful update must be immediate -- not a fall-
+    # through into the normal per-attempt backoff sleep. If it fell through,
+    # attempt 2's receive+send would still happen to succeed against this
+    # script (making `ok is True` pass either way) but only after paying a
+    # backoff sleep it should never have needed.
+    assert sleep_calls == []
 
 
 def test_non_outdated_error_never_triggers_update(config, tmp_path):
@@ -424,3 +431,53 @@ def test_now_mode_respects_idempotency(config):
     )
     assert outcome.sent is False
     assert run.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Daemon mode (default, no flags) -- requirement 7's fourth mode
+# ---------------------------------------------------------------------------
+
+
+class _StopDaemon(Exception):
+    """Raised by a scripted sleep_fn to break run_daemon's infinite loop under test."""
+
+
+def test_daemon_mode_runs_a_cycle_then_sleeps_and_loops(config):
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    run = ScriptedRun([_ok(), _ok()])
+    recheck_sleeps: list[float] = []
+    total_calls = {"n": 0}
+
+    def sleep_fn(seconds: float) -> None:
+        total_calls["n"] += 1
+        if total_calls["n"] > 500:
+            # Safety net: if a mutation removed the daemon-level sleep_fn
+            # call entirely, run_daemon's `while True` would otherwise spin
+            # forever here rather than failing visibly.
+            raise _StopDaemon("run_daemon never reached its recheck sleep")
+        if seconds == cli.DAEMON_RECHECK_INTERVAL_SECONDS:
+            recheck_sleeps.append(seconds)
+            raise _StopDaemon()  # stop after the first daemon-level recheck sleep
+        clock.sleep_fn(seconds)
+
+    with pytest.raises(_StopDaemon):
+        cli.run_daemon(config, now_fn=clock.now_fn, sleep_fn=sleep_fn, rng=ZERO_RNG, run=run)
+
+    assert recheck_sleeps == [cli.DAEMON_RECHECK_INTERVAL_SECONDS]
+    st = load_state(config.state_file)
+    assert st.last_success_date == date(2026, 9, 3), "run_cycle must have actually run before the recheck sleep"
+
+
+def test_no_flags_dispatches_to_daemon(config, monkeypatch):
+    called = {}
+
+    def fake_run_daemon(cfg, **kwargs):
+        called["config"] = cfg
+        called["run"] = kwargs.get("run")
+
+    monkeypatch.setattr(cli, "run_daemon", fake_run_daemon)
+    run = ScriptedRun([])
+    code = cli.main_with_config(config, [], run=run)
+    assert code == 0
+    assert called["config"] is config
+    assert called["run"] is run
