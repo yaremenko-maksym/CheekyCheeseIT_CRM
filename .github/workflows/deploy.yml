@@ -2057,6 +2057,9 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           source: 'apps/api/drizzle/manual/2026-09-02_project_status.sql'
           target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-09-02_project_status.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-09-02_project_status.sql
 
       # user_emails (task-notifications position 2, PR #623): the login path
       # reads this table, so without it EVERY sign-in fails. The file and its
@@ -2086,8 +2089,8 @@ jobs:
           source: 'apps/api/drizzle/manual/2026-09-02_user_email_invites.sql'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target:
-          # apps/api/drizzle/manual/2026-09-02_project_status.sql
-          #   → /opt/crm/apps/api/drizzle/manual/2026-09-02_project_status.sql
+          # apps/api/drizzle/manual/2026-09-02_user_email_invites.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-09-02_user_email_invites.sql
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
