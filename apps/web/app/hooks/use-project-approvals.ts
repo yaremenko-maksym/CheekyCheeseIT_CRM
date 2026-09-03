@@ -102,12 +102,19 @@ export function isAlreadyRespondedError(err: unknown): boolean {
  * (`ProjectsService.findAll`'s "узкий путь к черновику" gate) — this hook
  * only buckets that response down to `status === 'DRAFT'` client-side.
  *
- * Deliberately does NOT try to distinguish "still pending on me" from
- * "I already approved, waiting on the other party" — that would need a
- * backend field this task's minimal, justified enrichment doesn't add (see
- * PR body «Допущения»). `isAlreadyRespondedError` above is what makes that
- * safe: a stale item's Confirm/Reject 409/404s harmlessly and disappears on
- * the very next interaction instead of silently misleading the viewer.
+ * This hook itself does NOT try to distinguish "still pending on me" from
+ * "I already approved, waiting on the other party" — SPEC-M-2 (PR #646
+ * fix-round 1) DID add the backend fields that make that distinction
+ * possible (`seniorApprovalPending`/`dropApprovalPending`, already on
+ * `ProjectDto`), but the filtering itself lives one layer up, in
+ * `PendingProjectApprovalsPanel`'s own `visiblePending` (COPY-H-2, fix-round
+ * 2) — this hook only needs to know "is it DRAFT at all", the per-viewer
+ * narrowing is the consuming component's job, not this shared hook's.
+ * `isAlreadyRespondedError` above is the remaining safety net for the case
+ * that narrowing still cannot fully close (a page freshly loaded before any
+ * client-side dismiss has happened): a stale item's Confirm/Reject
+ * 409/404s harmlessly and disappears on the very next interaction instead
+ * of silently misleading the viewer.
  */
 export function usePendingProjectApprovals(enabled = true) {
   const query = useQuery({

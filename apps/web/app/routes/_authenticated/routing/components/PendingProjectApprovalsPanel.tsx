@@ -77,7 +77,33 @@ export function PendingProjectApprovalsPanel() {
       // would only skip computing `stillPending`, never change the result.
       const stillPending = new Set(pending.map((p) => p.id))
       const next = new Set([...prev].filter((id) => stillPending.has(id)))
-      // Stryker disable next-line ConditionalExpression: when nothing was pruned, `next`'s CONTENT already equals `prev`'s — returning `next` unconditionally still leaves every `.has(id)` call in this file identical; the only effect a mutant here has is an extra React re-render (new Set reference), which no test can observe without asserting a render count, an implementation detail this codebase does not test for
+      // CR-M-3 (PR #646 fix-round 2). `ConditionalExpression` on a single
+      // ternary generates exactly two mutants — Stryker's own docs example
+      // (`a < b ? b : a` → `true ? b : a` AND `false ? b : a`) — and a
+      // per-line disable comment silences the whole mutator category, both
+      // variants at once; there is no comment syntax that targets only one
+      // of the two (confirmed against Stryker's disable-mutants reference —
+      // scope is `next-line <mutatorName>`, never a specific generated
+      // mutant). So the directive below covers BOTH, and both need a stated
+      // reason, not just the one this comment used to name:
+      //
+      // - `false ? prev : next` (always returns `next`): equivalent. When
+      //   nothing was pruned, `next`'s CONTENT already equals `prev`'s —
+      //   returning `next` unconditionally still leaves every `.has(id)`
+      //   call in this file identical; the only effect is an extra React
+      //   re-render (new Set reference), which no test can observe without
+      //   asserting a render count, an implementation detail this codebase
+      //   does not test for.
+      // - `true ? prev : next` (always returns `prev`, i.e. pruning never
+      //   happens): NOT equivalent, and NOT actually silenced in practice —
+      //   "a fresh fetch (dataUpdatedAt changes) prunes a dismissal for an
+      //   item no longer in `pending`" (this file's own test, below) fails
+      //   under this exact mutant: with `dismissedIds` never pruned, a
+      //   later re-proposal of the same id would stay hidden, contradicting
+      //   that test's `toBeInTheDocument()`. Left under the same directive
+      //   anyway ONLY because Stryker cannot generate this mutant without
+      //   its equivalent sibling above — not because it is untested.
+      // Stryker disable next-line ConditionalExpression: covers both mutants of this ternary (see the block comment above) — `false?` branch is a true equivalent mutant (extra re-render only), `true?` branch is NOT equivalent but is independently killed by "a fresh fetch (dataUpdatedAt changes) prunes a dismissal..." below and cannot be generated separately from its sibling
       return next.size === prev.size ? prev : next
     })
     // Deliberately keyed on `dataUpdatedAt`, not `pending` — `pending` is a
