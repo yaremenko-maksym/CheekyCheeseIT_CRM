@@ -69,9 +69,13 @@ export function PendingProjectApprovalsPanel() {
 
   useEffect(() => {
     setDismissedIds((prev) => {
-      if (prev.size === 0) return prev
+      // No early-return for `prev.size === 0`: the size-comparison below
+      // already returns `prev` unchanged in that case too (an empty `prev`
+      // filters to an empty `next`, and `0 === 0`) — a guard in front of it
+      // would only skip computing `stillPending`, never change the result.
       const stillPending = new Set(pending.map((p) => p.id))
       const next = new Set([...prev].filter((id) => stillPending.has(id)))
+      // Stryker disable next-line ConditionalExpression: when nothing was pruned, `next`'s CONTENT already equals `prev`'s — returning `next` unconditionally still leaves every `.has(id)` call in this file identical; the only effect a mutant here has is an extra React re-render (new Set reference), which no test can observe without asserting a render count, an implementation detail this codebase does not test for
       return next.size === prev.size ? prev : next
     })
     // Deliberately keyed on `dataUpdatedAt`, not `pending` — `pending` is a

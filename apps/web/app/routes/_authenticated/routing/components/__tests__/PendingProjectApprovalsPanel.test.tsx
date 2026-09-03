@@ -184,6 +184,32 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('a fresh fetch that STILL contains the dismissed id (the partial-agreement case: the other invited approver has not decided yet) keeps it hidden — the prune only drops ids that actually left `pending`', async () => {
+    const user = userEvent.setup()
+    const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    mockApprove.mockImplementation((_projectId: string, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    )
+    const { rerender } = renderPanel()
+
+    await user.click(screen.getByTestId('project-approval-approve-p1'))
+    expect(screen.queryByTestId('pending-project-approval-p1')).not.toBeInTheDocument()
+
+    // The invalidated query refetches — the project itself is STILL DRAFT
+    // (the other invited approver has not decided) so `pending` STILL
+    // reports p1, same as `usePendingProjectApprovals` genuinely would.
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 2 }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    rerender(
+      <QueryClientProvider client={qc}>
+        <PendingProjectApprovalsPanel />
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByTestId('pending-project-approval-p1')).not.toBeInTheDocument()
+  })
+
   it('a fresh fetch (dataUpdatedAt changes) prunes a dismissal for an item no longer in `pending` — a later re-proposal of the same id is not hidden forever', async () => {
     const user = userEvent.setup()
     const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
