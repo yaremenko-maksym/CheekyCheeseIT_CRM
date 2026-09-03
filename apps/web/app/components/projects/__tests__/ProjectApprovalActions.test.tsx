@@ -12,6 +12,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { ProjectApprovalActions } from '../ProjectApprovalActions'
 
 const mockApprove = vi.fn()
@@ -186,7 +187,14 @@ describe('ProjectApprovalActions — Confirm', () => {
     approveState = { isPending: false, isError: true, error: serverError() }
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
 
-    const text = screen.getByText('Не удалось загрузить проекты')
+    // COPY-H-1 (PR #646 fix-round 2): `friendlyErrorMessage` routes anything
+    // that isn't a 404 through `getUserFacingErrorMessage`, same as the
+    // toast below — `serverError()`'s hand-set `.message` string is never
+    // read (that function derives the text from `response.status`/`data`,
+    // never from `.message`; see its own doc for why). The assertion computes
+    // the SAME real function's output rather than hardcoding its result, so
+    // it can't silently drift from what the component actually calls.
+    const text = screen.getByText(getUserFacingErrorMessage(serverError()))
     expect(text.tagName).toBe('P')
     expect(text.className).toContain('text-destructive')
   })
@@ -209,10 +217,15 @@ describe('ProjectApprovalActions — Confirm', () => {
 
     await user.click(screen.getByTestId(`project-approval-approve-${PROJECT_ID}`))
     const opts = mockApprove.mock.calls[0]?.[1] as {
-      onSuccess: () => void
+      onSuccess: (project: { status: string }) => void
       onError: (e: unknown) => void
     }
-    expect(() => act(() => opts.onSuccess())).not.toThrow()
+    // COPY-H-2: onSuccess now reads `project.status` off its argument (see
+    // the two dedicated tests above) — a REAL mutate call always supplies a
+    // project, so this "never crashes without onActed" check exercises the
+    // rest of the handler (the onActed?.() optional-call itself), not a
+    // shape no real caller could produce.
+    expect(() => act(() => opts.onSuccess({ status: 'ACTIVE' }))).not.toThrow()
     expect(() => act(() => opts.onError(conflictError()))).not.toThrow()
   })
 
@@ -339,6 +352,10 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
 
     expect(onActed).toHaveBeenCalledTimes(1)
     expect(screen.queryByText('Отклонить проект «Acme»')).not.toBeInTheDocument()
+    // COPY-H-2: reject's onSuccess takes no argument (unlike approve's,
+    // which branches on project.status) — there is only one outcome, so one
+    // fixed toast, asserted here since this is the main reject-success test.
+    expect(mockToastSuccess).toHaveBeenCalledWith('Проект отклонён, админ увидит причину')
 
     // Reopen — the reason field must be blank, not still carrying "нет бюджета".
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
@@ -454,7 +471,8 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
 
-    const text = await screen.findByText('Не удалось загрузить проекты')
+    // COPY-H-1: same reasoning as the approve-side version of this test above.
+    const text = await screen.findByText(getUserFacingErrorMessage(serverError()))
     expect(text.tagName).toBe('P')
     expect(text.className).toContain('text-destructive')
   })

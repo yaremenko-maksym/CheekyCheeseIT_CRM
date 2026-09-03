@@ -442,4 +442,50 @@ describe('ProjectRow — Confirm/Reject actions gate (canAct, §Что сдел�
     await screen.findByTestId(`project-row-${project.id}`)
     expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
   })
+
+  // COPY-H-2 (PR #646 fix-round 2). Every test above either has BOTH
+  // approval flags pending (the fixture default via `?? true`) or has the
+  // viewer NOT be an invited approver at all — none of them puts the VIEWER
+  // specifically on the "already decided, other side still owes a decision"
+  // side, which is exactly the shape the old `viewerIsInvitedApprover`-only
+  // gate got wrong (button stayed live for a second click that only ever
+  // produced a silent 409). These two are the "Тест на оба" the review asked
+  // for — one per role.
+  it('COPY-H-2: senior already confirmed (their own seniorApprovalPending is false), drop still owes a decision — no actions for the senior, first-person caption instead', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: false,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project, { viewerRole: 'SENIOR', viewerId: SENIOR_ID })
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
+    expect(screen.queryByTestId(`project-approval-reject-${project.id}`)).not.toBeInTheDocument()
+    const caption = screen.getByText('Вы подтвердили. Ждём дропа')
+    expect(caption.tagName).toBe('P')
+    // The generic third-party caption ("от дропа") must NOT also be present
+    // — the first-person one replaces it, not sits alongside it.
+    expect(screen.queryByText('от дропа')).not.toBeInTheDocument()
+  })
+
+  it('COPY-H-2: drop already confirmed (their own dropApprovalPending is false), senior still owes a decision — no actions for the drop, first-person caption instead', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: true,
+      dropApprovalPending: false,
+    })
+    renderProjectRow(project, { viewerRole: 'DROP', viewerId: DROP_ID })
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
+    expect(screen.queryByTestId(`project-approval-reject-${project.id}`)).not.toBeInTheDocument()
+    const caption = screen.getByText('Вы подтвердили. Ждём синьора')
+    expect(caption.tagName).toBe('P')
+    expect(screen.queryByText(`от ${project.seniorName}`)).not.toBeInTheDocument()
+  })
 })

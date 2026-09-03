@@ -20,7 +20,7 @@
  */
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ProjectDto } from '@crm/shared'
 import { PendingProjectApprovalsPanel, card } from '../PendingProjectApprovalsPanel'
@@ -31,6 +31,18 @@ let mockState: {
   isError: boolean
   dataUpdatedAt: number
 } = { pending: [], isLoading: false, isError: false, dataUpdatedAt: 0 }
+
+// COPY-H-2 / COPY-M-6 (PR #646 fix-round 2): both fixes read `useAuth()`'s
+// `user.id` — undefined (no mock at all) makes `visiblePending`'s
+// `viewerIsSenior`/`viewerIsDrop` checks permanently false, which only ever
+// exercises the fail-open `return true` branch. Defaults to `null` (no
+// viewer) so every PRE-EXISTING test above keeps hitting that same
+// fail-open branch unchanged; only the new describe block below sets this.
+let mockUser: { id: string } | null = null
+
+vi.mock('@/context/auth', () => ({
+  useAuth: () => ({ user: mockUser }),
+}))
 
 const mockApprove = vi.fn()
 const mockReject = vi.fn()
@@ -98,6 +110,10 @@ function renderPanel() {
   )
 }
 
+beforeEach(() => {
+  mockUser = null
+})
+
 describe('PendingProjectApprovalsPanel — card animation variants', () => {
   it('hidden/show carry the exact fade-up values (mutation gate: ObjectLiteral)', () => {
     expect(card).toEqual({
@@ -116,11 +132,13 @@ describe('PendingProjectApprovalsPanel', () => {
     expect(screen.queryByTestId('pending-project-approvals-panel')).not.toBeInTheDocument()
   })
 
-  it("error: renders nothing at all — the dashboard's own summary card already owns the error message", () => {
+  it('COPY-M-7 (PR #646 fix-round 2): error: shows a one-line message instead of silently rendering nothing — a DROP who can never see /projects had no other way to learn the check failed', () => {
     mockState = { pending: [], isLoading: false, isError: true, dataUpdatedAt: 0 }
-    const { container } = renderPanel()
+    renderPanel()
 
-    expect(container).toBeEmptyDOMElement()
+    expect(screen.getByTestId('pending-project-approvals-error')).toHaveTextContent(
+      'Не удалось проверить, ждут ли вас подтверждения. Обновите страницу.',
+    )
   })
 
   it('empty (nothing pending): renders nothing — no "all clear" noise on every dashboard load', () => {
@@ -156,8 +174,15 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     // (a project with both a senior and a drop invited stays DRAFT, and
     // thus stays in `pending`, after only one of them decides).
     mockState = { pending: [p1, p2], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    mockApprove.mockImplementation((_projectId: string, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    // COPY-H-2 (PR #646 fix-round 2): handleApprove's onSuccess now reads
+    // `project.status` off its argument — `{ status: 'DRAFT' }` matches this
+    // describe block's own partial-agreement premise (see the file's top
+    // doc): the project stays DRAFT after only ONE invited approver acts,
+    // which is exactly why the panel needs its own local-dismiss instead of
+    // relying on `pending` to shrink by itself.
+    mockApprove.mockImplementation(
+      (_projectId: string, opts?: { onSuccess?: (project: { status: string }) => void }) =>
+        opts?.onSuccess?.({ status: 'DRAFT' }),
     )
     renderPanel()
 
@@ -174,8 +199,15 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     const user = userEvent.setup()
     const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
     mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    mockApprove.mockImplementation((_projectId: string, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    // COPY-H-2 (PR #646 fix-round 2): handleApprove's onSuccess now reads
+    // `project.status` off its argument — `{ status: 'DRAFT' }` matches this
+    // describe block's own partial-agreement premise (see the file's top
+    // doc): the project stays DRAFT after only ONE invited approver acts,
+    // which is exactly why the panel needs its own local-dismiss instead of
+    // relying on `pending` to shrink by itself.
+    mockApprove.mockImplementation(
+      (_projectId: string, opts?: { onSuccess?: (project: { status: string }) => void }) =>
+        opts?.onSuccess?.({ status: 'DRAFT' }),
     )
     const { container } = renderPanel()
 
@@ -188,8 +220,15 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     const user = userEvent.setup()
     const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
     mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    mockApprove.mockImplementation((_projectId: string, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    // COPY-H-2 (PR #646 fix-round 2): handleApprove's onSuccess now reads
+    // `project.status` off its argument — `{ status: 'DRAFT' }` matches this
+    // describe block's own partial-agreement premise (see the file's top
+    // doc): the project stays DRAFT after only ONE invited approver acts,
+    // which is exactly why the panel needs its own local-dismiss instead of
+    // relying on `pending` to shrink by itself.
+    mockApprove.mockImplementation(
+      (_projectId: string, opts?: { onSuccess?: (project: { status: string }) => void }) =>
+        opts?.onSuccess?.({ status: 'DRAFT' }),
     )
     const { rerender } = renderPanel()
 
@@ -214,8 +253,15 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     const user = userEvent.setup()
     const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
     mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    mockApprove.mockImplementation((_projectId: string, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
+    // COPY-H-2 (PR #646 fix-round 2): handleApprove's onSuccess now reads
+    // `project.status` off its argument — `{ status: 'DRAFT' }` matches this
+    // describe block's own partial-agreement premise (see the file's top
+    // doc): the project stays DRAFT after only ONE invited approver acts,
+    // which is exactly why the panel needs its own local-dismiss instead of
+    // relying on `pending` to shrink by itself.
+    mockApprove.mockImplementation(
+      (_projectId: string, opts?: { onSuccess?: (project: { status: string }) => void }) =>
+        opts?.onSuccess?.({ status: 'DRAFT' }),
     )
     const { rerender } = renderPanel()
 
@@ -244,5 +290,110 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     )
 
     expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
+  })
+})
+
+describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY-H-2 widget half)', () => {
+  // Every test in the two describe blocks above renders with `mockUser: null`
+  // (the file's own `beforeEach`) — `visiblePending`'s `viewerIsSenior`/
+  // `viewerIsDrop` are permanently false there, so ALL of them exercise only
+  // the fail-open `return true` branch. None of them puts the mocked VIEWER
+  // on the "already decided their own half" side, which is the exact case
+  // this fix (and COPY-H-2's ProjectRow.tsx sibling, same fix-round) exists
+  // for: a fresh page load must not show the viewer their own already-acted
+  // item with a live Confirm/Reject that would only ever 409.
+  const SENIOR_ID = 'senior-1' // matches project()'s own fixture default
+
+  it('a project where the viewer (senior) already confirmed is NOT in visiblePending, even though it is still DRAFT (waiting on the drop)', () => {
+    mockUser = { id: SENIOR_ID }
+    const p1 = project({
+      id: 'p1',
+      dropId: 'drop-1',
+      dropName: 'Drop One',
+      seniorApprovalPending: false,
+      dropApprovalPending: true,
+    })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    const { container } = renderPanel()
+
+    // Same "nothing pending" contract as a genuinely empty fetch — the ONE
+    // item that exists is filtered out before the panel ever decides
+    // whether to render a Card at all.
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('a project where the viewer (drop) already confirmed is NOT in visiblePending, even though it is still DRAFT (waiting on the senior)', () => {
+    mockUser = { id: 'drop-1' }
+    const p1 = project({
+      id: 'p1',
+      dropId: 'drop-1',
+      dropName: 'Drop One',
+      seniorApprovalPending: true,
+      dropApprovalPending: false,
+    })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    const { container } = renderPanel()
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('a project where the viewer (senior) STILL owes a decision stays visible, alongside one where they already decided', () => {
+    mockUser = { id: SENIOR_ID }
+    const stillOwed = project({
+      id: 'p1',
+      companyName: 'Still Owed Co',
+      seniorApprovalPending: true,
+    })
+    const alreadyDone = project({
+      id: 'p2',
+      companyName: 'Already Done Co',
+      dropId: 'drop-1',
+      dropName: 'Drop One',
+      seniorApprovalPending: false,
+      dropApprovalPending: true,
+    })
+    mockState = {
+      pending: [stillOwed, alreadyDone],
+      isLoading: false,
+      isError: false,
+      dataUpdatedAt: 1,
+    }
+    renderPanel()
+
+    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
+    expect(screen.queryByTestId('pending-project-approval-p2')).not.toBeInTheDocument()
+  })
+
+  it('COPY-M-6: a visible item for a DROP viewer shows their resolved share % and the senior name — their only reachable view of what they are agreeing to', () => {
+    mockUser = { id: 'drop-1' }
+    const p1 = project({
+      id: 'p1',
+      dropId: 'drop-1',
+      dropName: 'Drop One',
+      seniorName: 'Senior Alpha',
+      effectiveDropSharePercent: 15,
+      dropApprovalPending: true,
+    })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    renderPanel()
+
+    expect(screen.getByText('Ваша доля: 15% · синьор: Senior Alpha')).toBeInTheDocument()
+  })
+
+  it('COPY-M-6: a visible item for a SENIOR viewer shows their resolved share %, WITHOUT naming the drop (stays RBAC-masked either way)', () => {
+    mockUser = { id: SENIOR_ID }
+    const p1 = project({
+      id: 'p1',
+      dropId: 'drop-1',
+      dropName: 'Drop One',
+      effectiveSeniorSharePercent: 26,
+      seniorApprovalPending: true,
+    })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    renderPanel()
+
+    expect(screen.getByText('Ваша доля: 26%')).toBeInTheDocument()
+    expect(screen.queryByText(/синьор/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Drop One/)).not.toBeInTheDocument()
   })
 })
