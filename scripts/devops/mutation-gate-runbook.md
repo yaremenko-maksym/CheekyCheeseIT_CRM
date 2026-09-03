@@ -542,6 +542,17 @@ finding that ended the prototype.
   stall-ceiling assertion (observed ~1.6s on a shared runner). `*.spec.ts` is
   AutoTest's zone; being fixed in a separate PR as of this writing, not this
   one.
+  **Update, Fix-round 1 (review #647 CR-M-1):** the 250ms assertion was
+  never actually the wrong number — it fails specifically under Stryker's own
+  coverage instrumentation (a real ~1.6s under instrumentation vs. the true,
+  uninstrumented cost), so no threshold in the spec file could ever have been
+  "right" for both contexts at once. `resume-perf-guard`, a separate job in
+  `mutation-nightly.yml` (not inside `sweep`), now runs the same guard tests
+  on plain `vitest` with `RESUME_PERF=1`, no Stryker — genuine, uninstrumented
+  signal on the actual guard, routed through `post-merge-alert.sh`'s
+  `KIND=resume-perf`. The `api` leg's Stryker dry run itself is unaffected by
+  this and remains red until AutoTest's separate fix lands; `resume-perf-guard`
+  is what makes that redness no longer load-bearing for verifying the guard.
 
 So after this revert, a green full nightly needs exactly one thing it did
 not need before: AutoTest's `api`-leg fix landing. `@crm/shared` and
