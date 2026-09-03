@@ -8,6 +8,17 @@ Verifies that every apps/e2e/tests/**/*.spec.ts is either:
 
 Fails with a clear error listing uncovered files + instructions.
 
+Also verifies the reverse direction (task-infra-ci-docs-filter-and-dead-shard,
+2026-09): every EXACT *.spec.ts token named in a shard's `files:` line must
+resolve to a real file, OR be explicitly listed in PENDING_SHARD_FILES below.
+Before this, a spec could be deleted (tests/rbac-junior-on-other.spec.ts,
+commit d0735fe2 / #162) while its shard entry lived on indefinitely — the
+shard silently ran fewer tests than its `files:` line claimed, and nothing
+here noticed. Directory-prefix tokens (e.g. `tests/crm`, `tests/landing/`)
+need no such check: resolve_sharded_specs() only ever adds specs that already
+exist in all_specs for those, so a dangling directory prefix just resolves to
+zero files, not a ghost entry.
+
 Tests: scripts/devops/tests/test-check-e2e-shard-coverage.sh — positive AND
 negative cases, including the two ways a spec can LOOK covered without being run
 (named in a ci.yml comment; named under a key that is not a shard's `files:`).
@@ -146,6 +157,40 @@ KNOWN_UNSHARDED = {
 
 }
 
+# ---------------------------------------------------------------------------
+# PENDING_SHARD_FILES — explicit "wired ahead of merge" acknowledgment.
+#
+# A shard's `files:` line in ci.yml is sometimes intentionally updated to name
+# a spec that does not exist on disk yet, because the spec itself lands in a
+# separate, not-yet-merged PR (see e.g. the `auth-nav` / `drop-finance` shard
+# comments in ci.yml, PRs #521 and #528: "listing it here now is a no-op today
+# and self-activates the moment #NNN merges — no follow-up PR needed, no
+# window where the spec lands on main unsharded"). That convention exists FOR
+# A REASON: the alternative — land the spec unsharded first, shard it in a
+# follow-up PR — reopens exactly the gap this whole guard exists to close (a
+# spec running on main with zero CI coverage in the meantime).
+#
+# But an UNACKNOWLEDGED shard entry pointing at nothing is indistinguishable
+# from the bug this file's existence check exists to catch (a spec that was
+# DELETED and never unwired — tests/rbac-junior-on-other.spec.ts, commit
+# d0735fe2 / #162, orphaned in the `team-users` shard for months). Filename
+# alone cannot tell "not created yet" from "deleted, never removed" apart, and
+# git history can't either in practice: the CI job that runs this script
+# checks out with `fetch-depth: 2`, so a deletion from months ago is not even
+# in the fetched history to look up.
+#
+# So: wiring a shard entry ahead of its spec's own PR requires ALSO adding the
+# filename here — same "wire it or explicitly acknowledge it, never just
+# silently drift" idiom as KNOWN_UNSHARDED above (and as
+# check-prod-ddl-wiring.py / check-ssh-action-capture-stdout-version.py use
+# for their own incident classes). Remove the entry once the spec lands — a
+# stale one (already on disk, or no longer referenced by any shard) is a
+# WARNING below, same non-fatal treatment as KNOWN_UNSHARDED's own ghost_debt.
+#
+# Empty today: every currently-listed shard entry resolves to a real file.
+# ---------------------------------------------------------------------------
+PENDING_SHARD_FILES: set[str] = set()
+
 
 def parse_sharded_from_ci(ci_yml_path):
     """
@@ -214,12 +259,26 @@ def main():
     ghost_debt = sorted(KNOWN_UNSHARDED - all_specs)
     uncovered = sorted(all_specs - accounted)
 
+    # Reverse-direction check: exact *.spec.ts tokens named in a shard's
+    # `files:` line (NOT directory-prefix tokens like `tests/crm`) that do not
+    # resolve to a real file — unless explicitly acknowledged as a pending,
+    # wired-ahead-of-merge entry. resolve_sharded_specs() adds a literal
+    # *.spec.ts token to `sharded_specs` unconditionally (it has no way to
+    # know the file doesn't exist), so this is the only place that notices.
+    sharded_literal_files = {p for p in sharded_patterns if p.endswith(".spec.ts")}
+    still_pending = sharded_literal_files - all_specs
+    ghost_shard_files = sorted(still_pending - PENDING_SHARD_FILES)
+    stale_pending = sorted(PENDING_SHARD_FILES - still_pending)
+
     print("E2E Shard Coverage Guard")
     print("  Total spec files:    {}".format(len(all_specs)))
     print("  Sharded (gated):     {}".format(len(sharded_specs)))
     print("  Excluded (by design):{}".format(len(excluded_specs)))
     print("  Known unsharded:     {}".format(len(KNOWN_UNSHARDED)))
     print("  Ghost debt entries:  {}".format(len(ghost_debt)))
+    print("  Pending shard files: {}".format(len(PENDING_SHARD_FILES)))
+    print("  Stale pending:       {}".format(len(stale_pending)))
+    print("  GHOST shard entries: {}".format(len(ghost_shard_files)))
     print("  UNCOVERED (new!):    {}".format(len(uncovered)))
 
     if ghost_debt:
@@ -229,7 +288,37 @@ def main():
             print("  {}".format(f))
         print("  -> Remove these stale entries from KNOWN_UNSHARDED in this script.")
 
+    if stale_pending:
+        print()
+        print("WARNING: PENDING_SHARD_FILES entries that are no longer pending")
+        print("(the file now exists on disk, or no shard references it anymore):")
+        for f in stale_pending:
+            print("  {}".format(f))
+        print("  -> Remove these stale entries from PENDING_SHARD_FILES in this script.")
+
+    failed = False
+
+    if ghost_shard_files:
+        failed = True
+        print()
+        print("FAIL: The following shard `files:` entries in ci.yml name a spec that")
+        print("does not exist on disk and is not in PENDING_SHARD_FILES:")
+        for f in ghost_shard_files:
+            print("  {}".format(f))
+        print()
+        print("Fix options:")
+        print("  1. The spec was deleted/renamed and the shard entry is stale — remove")
+        print("     it from the shard's `files:` line in .github/workflows/ci.yml.")
+        print("  2. The spec is intentionally wired ahead of a not-yet-merged PR that")
+        print("     creates it — add the filename to PENDING_SHARD_FILES in")
+        print("     scripts/devops/check-e2e-shard-coverage.py with a comment naming")
+        print("     the PR, and remove it again once that PR merges.")
+        print()
+        print("Rule: a shard `files:` entry must point at a real file, or be an")
+        print("explicitly acknowledged pending one — never a silent dangling reference.")
+
     if uncovered:
+        failed = True
         print()
         print("FAIL: The following spec files are NOT in any CI shard and NOT in KNOWN_UNSHARDED:")
         for f in uncovered:
@@ -242,10 +331,13 @@ def main():
         print("     with # debt: <reason>")
         print()
         print("Rule: every spec must be either gated in CI or explicitly acknowledged as debt.")
+
+    if failed:
         return 1
 
     print()
-    print("OK: All spec files are either sharded in CI or explicitly listed as debt.")
+    print("OK: All spec files are either sharded in CI or explicitly listed as debt,")
+    print("and every shard `files:` entry points at a real (or pending-acknowledged) file.")
     return 0
 
 
