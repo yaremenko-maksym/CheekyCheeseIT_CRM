@@ -83,10 +83,14 @@ export function ProjectApprovalActions({
   }
 
   function handleRejectSubmit() {
-    const trimmed = reason.trim()
-    if (!trimmed) return
+    // No internal empty-reason guard here — the submit button's own
+    // `disabled={reject.isPending || !reason.trim()}` (below) is the ONE
+    // enforcement point, same precedent as ValidateDialog's reject button.
+    // A disabled `<button>` never dispatches a click in a real browser (or
+    // in `@testing-library/user-event`, which models that), so a second
+    // guard here would be dead code no interaction could ever reach.
     reject.mutate(
-      { projectId, reason: trimmed },
+      { projectId, reason: reason.trim() },
       {
         onSuccess: () => {
           setRejectOpen(false)
@@ -120,6 +124,7 @@ export function ProjectApprovalActions({
   return (
     <>
       <div
+        data-testid={`project-approval-actions-${projectId}`}
         className={cn('relative z-[2] flex flex-wrap items-center justify-end gap-1.5', className)}
       >
         <Button

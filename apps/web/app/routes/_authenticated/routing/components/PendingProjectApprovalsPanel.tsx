@@ -5,7 +5,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { usePendingProjectApprovals } from '@/hooks/use-project-approvals'
 import { ProjectApprovalActions } from '@/components/projects/ProjectApprovalActions'
 
-const card = {
+// Exported (not module-private) so a plain object-equality unit test can
+// pin the exact animation values without fighting jsdom/framer-motion's
+// runtime (which never actually animates in a test environment) — see
+// __tests__/PendingProjectApprovalsPanel.test.tsx.
+export const card = {
   hidden: { opacity: 0, y: 12 },
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
 }

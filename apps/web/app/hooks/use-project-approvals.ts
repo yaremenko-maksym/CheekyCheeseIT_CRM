@@ -102,6 +102,12 @@ export function usePendingProjectApprovals(enabled = true) {
     queryFn: () => api.get<ProjectDto[]>('/projects').then((r) => r.data),
     enabled,
   })
+  // Stryker disable next-line ArrayDeclaration: any placeholder Stryker
+  // substitutes for `[]` here gets filtered out by `.status === 'DRAFT'`
+  // just the same as a real empty array would (a sentinel value has no
+  // `.status` field, so it never passes the predicate) — no assertion on
+  // `pending`'s content can distinguish "fallback is []" from "fallback is
+  // some other filtered-out placeholder" through this hook's public output.
   const pending = (query.data ?? []).filter((p) => p.status === 'DRAFT')
   return { ...query, pending }
 }

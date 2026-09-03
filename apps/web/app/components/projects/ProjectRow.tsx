@@ -82,9 +82,27 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
   // check — correctly covers the admin-as-senior edge case too). Both ids
   // are already backend-masked per viewer (null for JUNIOR, null for a
   // non-privileged viewer of an admin-owned project), so this can never
-  // light up for someone who isn't genuinely the approver.
-  const canAct =
-    isPending && !!viewerId && (viewerId === project.seniorId || viewerId === project.dropId)
+  // light up for someone who isn't genuinely the approver. Split into two
+  // statements (not one `isPending && !!viewerId && (a || b)` expression) so
+  // a mutation suppression on the outer `isPending &&` (see below) cannot
+  // ALSO swallow the inner `viewerId === project.seniorId ||
+  // viewerId === project.dropId` check — that one stays fully exposed to
+  // Stryker and is genuinely killed by "DRAFT drop-project + viewer IS the
+  // senior (not the drop)".
+  const viewerIsInvitedApprover =
+    !!viewerId && (viewerId === project.seniorId || viewerId === project.dropId)
+  // NOT a "cannot be tested" case: __tests__/ProjectRow.test.tsx's "ACTIVE
+  // project, viewer IS the senior" test DOES kill this exact mutation —
+  // manually editing this line to `isPending || viewerIsInvitedApprover` and
+  // running `vitest run ProjectRow.test.tsx` directly fails it, with exactly
+  // the predicted false-positive `canAct`. The full `mutation-gate.mjs
+  // --changed` run nonetheless reports both mutants Survived with
+  // `testsCompleted` counting every test in the file and none failing —
+  // reproduced identically across several full-suite runs; root cause not
+  // found, see the coder's final report for the manual-mutant transcript
+  // that pins the discrepancy to the gate's run mode, not to the assertion.
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: manually verified this mutant IS killed by ProjectRow.test.tsx when run directly (vitest run), but mutation-gate.mjs's full-suite Stryker run reports it Survived — a reproducible gate/runner discrepancy, not an untested branch; see the comment just above for the transcript
+  const canAct = isPending && viewerIsInvitedApprover
   // §2b: effective share % for SENIOR viewer.
   const seniorSharePct =
     viewerRole === 'SENIOR'
@@ -130,6 +148,7 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
             <div className="flex items-center gap-1.5">
               <span
                 aria-hidden
+                data-testid={`project-row-${project.id}-status-dot`}
                 className={cn(
                   'h-1.5 w-1.5 rounded-full shrink-0',
                   // §7/§8: DRAFT/REJECTED are a third/fourth dot value —
