@@ -151,11 +151,15 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { ok: true } })
   })
 
-  it('the exact copy names the pending percent (not just "some text")', () => {
+  it("the exact copy names the pending percent, with the space JSX needs an explicit {' '} for", () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     const banner = screen.getByTestId('pending-base-share-approval-banner')
-    expect(banner.textContent).toContain('Новый базовый процент вашей доли')
-    expect(banner.textContent).toContain('55%')
+    // A single assertion spanning the JSX text node AND the `{' '}` spacer
+    // AND the <span> — `.toContain('...доли')` +
+    // `.toContain('55%')` SEPARATELY would not notice `{' '}` collapsing to
+    // `{''}` (both substrings would still individually be present, just
+    // run together as "...доли:55%").
+    expect(banner.textContent).toContain('Новый базовый процент вашей доли: 55%')
   })
 
   it('approve: POSTs to the approve endpoint with no body and shows the exact success toast', async () => {

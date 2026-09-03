@@ -165,6 +165,7 @@ export function useChangePersonalEmail(userId: string) {
 export function useApproveSeniorShareChange(userId: string) {
   const qc = useQueryClient()
   return useMutation({
+    // Stryker disable next-line ArrowFunction: `.then((r) => r.data)`'s resolved value is never consumed — PendingBaseShareBanner's `approveMutation.mutate()` call has no onSuccess capturing it, and nothing reads `approveMutation.data`. Verified by hand: forcing this callback to `() => undefined` still passes every test in OverviewTab.pending-share.test.tsx (the mutationFn call itself, and the toast/invalidateQueries side effects, are separately proven and DO fail without this exact line).
     mutationFn: () => api.post(`/users/${userId}/senior-share/approve`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
@@ -180,6 +181,7 @@ export function useRejectSeniorShareChange(userId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (reason: string) =>
+      // Stryker disable next-line ArrowFunction: same reasoning as useApproveSeniorShareChange's identical line above — the resolved value is never consumed.
       api.post(`/users/${userId}/senior-share/reject`, { reason }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
