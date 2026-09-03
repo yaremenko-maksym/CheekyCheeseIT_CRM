@@ -1073,6 +1073,19 @@ export class UsersService {
     // way — so `requestedSeniorSharePercent` ends up `undefined` regardless
     // of which path this condition takes. No test, however written, can
     // observe a difference (verified by hand, both branches derived above).
+    //
+    // The mutation gate's own "COVERS MORE THAN ONE MUTANT" warning fires on
+    // this line — checked by hand (temporarily removing the directive and
+    // re-running the gate scoped to @crm/api): the OTHER 3 ConditionalExpression
+    // variants Stryker generates here (whole-condition true/false, right
+    // operand alone) are already independently KILLED by other tests in this
+    // describe block and by the RBAC/no-op tests above `adminUpdateUser`
+    // itself — this directive silences 4 mutants but only 1 of them was ever
+    // a real survivor. NOT the same situation as `projects.service.ts`'s
+    // `overrideEffective !== undefined` sibling, which turned out to be a
+    // GENUINE gap on closer inspection (see that file's git history,
+    // task-pending-share follow-up 2026-09-03) — always re-verify by hand,
+    // this repo has been wrong about "equivalent" before in both directions.
     const requestedSeniorSharePercent: number | undefined =
       // Stryker disable next-line ConditionalExpression: see the comment above this statement.
       data.seniorSharePercent !== undefined && effectiveRole === 'SENIOR'
