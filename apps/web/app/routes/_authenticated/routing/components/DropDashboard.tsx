@@ -11,6 +11,7 @@ import { CompanySharePayoutModal } from '@/routes/_authenticated/finance/compone
 import { useDropSummary, DROP_SUMMARY_QUERY_KEY } from '@/hooks/use-drop-summary'
 import { useDropProjects } from '@/hooks/use-drop-incomes'
 import { InProgressPanel } from './InProgressPanel'
+import { PendingProjectApprovalsPanel } from './PendingProjectApprovalsPanel'
 
 /**
  * DropDashboard — ролевой дашборд для роли DROP.
@@ -199,6 +200,12 @@ export function DropDashboard() {
                 />
               </motion.div>
             </motion.div>
+
+            {/* task-project-status-filter-ui, §Что сделать item 3. DROP has
+                no route access to /projects — this is the ONLY surface
+                where a drop-project awaiting their confirmation is
+                reachable at all. Self-hides when there's nothing pending. */}
+            <PendingProjectApprovalsPanel />
 
             {/* «Транзакции в работе» — DROP_INCOME (PENDING/VALIDATED) + PAYOUT
                 (PENDING_PAYMENT). Shared InProgressPanel (same as SeniorDashboard). */}

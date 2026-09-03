@@ -36,8 +36,15 @@ export function useApproveProjectDraft() {
   return useMutation({
     mutationFn: (projectId: string) =>
       api.post<ProjectDto>(`/projects/${projectId}/approve`).then((r) => r.data),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects'] })
+    // Invalidate on success AND on an "already responded" 409/404 (see
+    // isAlreadyRespondedError below) — both mean the shared project list is
+    // now stale, so the card AND the dashboard widget self-correct on the
+    // very next render instead of continuing to show a resolved item as
+    // still awaiting a decision.
+    onSettled: (_data, error) => {
+      if (!error || isAlreadyRespondedError(error)) {
+        void qc.invalidateQueries({ queryKey: ['projects'] })
+      }
     },
   })
 }
@@ -47,8 +54,10 @@ export function useRejectProjectDraft() {
   return useMutation({
     mutationFn: ({ projectId, reason }: { projectId: string; reason: string }) =>
       api.post<ProjectDto>(`/projects/${projectId}/reject`, { reason }).then((r) => r.data),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects'] })
+    onSettled: (_data, error) => {
+      if (!error || isAlreadyRespondedError(error)) {
+        void qc.invalidateQueries({ queryKey: ['projects'] })
+      }
     },
   })
 }
