@@ -337,6 +337,11 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
     // checked against the raw id, not this masked field.
     expect(result.seniorApprovalPending).toBe(true)
     expect(result.dropApprovalPending).toBe(true)
+    // findOne's own guard: mutating `[project.id]` to `[]` in that call
+    // must fail this (the mock above only has an entry keyed by PROJECT_ID,
+    // but does not itself distinguish the args it was called with —
+    // this assertion is what does).
+    expect(approvals.getPendingApproverIds).toHaveBeenCalledWith('PROJECT', [PROJECT_ID])
   })
 })
 
