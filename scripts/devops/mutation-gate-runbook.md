@@ -553,11 +553,14 @@ was noticed sooner.
 does not prove:** the complete local `.husky/pre-push` sequence —
 `pnpm typecheck` + `pnpm --filter @crm/shared|@crm/api|@crm/web|@crm/landing
 test`, unscoped, not the point-scoped runs §"Running it yourself" warns
-against above. That is evidence this repo's OWN test suites are sound on
-this branch; it is not, and does not claim to be, evidence about the nightly
-`--full` sweep's own survivor count, which is a different question (see "The
-alert text depends on WHETHER the sweep ran, not only on WHAT it found"
-above).
+against above — ran clean on the commit that reverted `ignoreStatic`: 391
+test files, 6616 tests, 0 failures (identical file/test counts to the
+pre-revert run — expected, since this revert touches only
+`scripts/devops/**` and docs, nothing any of those four suites imports).
+That is evidence this repo's OWN test suites are sound on this branch; it is
+not, and does not claim to be, evidence about the nightly `--full` sweep's
+own survivor count, which is a different question (see "The alert text
+depends on WHETHER the sweep ran, not only on WHAT it found" above).
 
 ## Tuning
 
