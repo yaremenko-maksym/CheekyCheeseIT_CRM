@@ -135,12 +135,7 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
     expect(project?.dropApprovalPending).toBe(false)
   })
 
-  it('findAll: called with ONLY the DRAFT project ids, not the ACTIVE ones — and the ACTIVE sibling gets both booleans false regardless of what the map says', async () => {
-    // The mock's own getPendingApproverIds would happily report SENIOR_ID as
-    // pending for ANY id it's asked about that matches PROJECT_ID — the
-    // point of this test is proving findAll only ever ASKS about DRAFT ids
-    // in the first place (mutating `[project.id]` to `[]` in the call, or
-    // forcing the `status === 'DRAFT'` gate to `true`, must fail this).
+  it('findAll: called with ONLY the DRAFT project ids, not the ACTIVE ones', async () => {
     const activeRow = {
       ...draftProject(),
       id: 'active-proj-1',
@@ -148,19 +143,113 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
     }
     const { service, approvals } = buildService([draftProject(), activeRow])
 
+    await service.findAll(sessionFor(ADMIN_ID, 'ADMIN'), { archived: false })
+
+    // Mutating `[project.id]` to `[]` in that call must fail this.
+    expect(approvals.getPendingApproverIds).toHaveBeenCalledWith('PROJECT', [PROJECT_ID])
+  })
+
+  it("findAll: mapProject's own status===DRAFT gate defends an ACTIVE project even if the returned map INCORRECTLY carries an entry for its id too (defense in depth — the guarded query at the call site is not the only thing standing between a stale/buggy map and a wrong boolean)", async () => {
+    const activeRow = {
+      ...draftProject(),
+      id: 'active-proj-1',
+      status: 'ACTIVE' as const,
+    }
+    const db = {
+      db: {
+        query: {
+          projects: {
+            findFirst: async () => draftProject(),
+            findMany: async () => [draftProject(), activeRow],
+          },
+          teamMembers: { findFirst: async () => null, findMany: async () => [] },
+        },
+        select: () => ({
+          from: () => ({
+            where: () => Promise.resolve([]),
+            innerJoin: () => ({ where: () => Promise.resolve([]) }),
+          }),
+        }),
+      },
+    }
+    const auditLog = { record: vi.fn(async () => undefined) }
+    const hrAccess = new HrAccessService(db as never)
+    const approvals = {
+      isApprover: vi.fn(async () => true),
+      listSubjectIdsForApprover: vi.fn(async () => new Set(['draft-proj-1', 'active-proj-1'])),
+      // Poisoned on purpose: a real caller only ever asks about DRAFT ids,
+      // but this mock answers for BOTH regardless of what it's asked —
+      // proving mapProject's OWN status gate (not just the call-site guard)
+      // is what keeps the ACTIVE project's booleans false.
+      getPendingApproverIds: vi.fn(
+        async () =>
+          new Map([
+            ['draft-proj-1', new Set([SENIOR_ID, DROP_ID])],
+            ['active-proj-1', new Set([SENIOR_ID, DROP_ID])],
+          ]),
+      ),
+    }
+    const service = new ProjectsService(
+      db as never,
+      auditLog as never,
+      {} as never,
+      hrAccess,
+      approvals as never,
+    )
+
     const result = await service.findAll(sessionFor(ADMIN_ID, 'ADMIN'), { archived: false })
 
-    expect(approvals.getPendingApproverIds).toHaveBeenCalledWith('PROJECT', [PROJECT_ID])
     const active = result.find((p) => p.id === 'active-proj-1')
     expect(active?.seniorApprovalPending).toBe(false)
     expect(active?.dropApprovalPending).toBe(false)
+    // The DRAFT sibling, same poisoned map, correctly stays true — this is
+    // a status gate, not a blanket "always false" bug hiding the mutant.
+    const draft = result.find((p) => p.id === 'draft-proj-1')
+    expect(draft?.seniorApprovalPending).toBe(true)
+    expect(draft?.dropApprovalPending).toBe(true)
   })
 
-  it('findAll: dropApprovalPending is false when the project has no drop at all, even if the (mocked, permissive) map would otherwise say the drop id is pending', async () => {
-    // dropId: null here — !!project.dropId must gate this to false BEFORE
-    // the map is even consulted for a drop id that does not exist.
+  it('findAll: dropApprovalPending is false when the project has no drop at all, even if the (poisoned) map says the drop id is pending', async () => {
+    // dropId: null here — !!project.dropId must gate this to false. The map
+    // is poisoned with project.seniorId under a Set that ALSO happens to
+    // satisfy .has(null/undefined) being asked would be a bug — this proves
+    // the `!!project.dropId` short-circuit itself is load-bearing, not
+    // "vacuously true because the map never has a null entry anyway".
     const seniorOnlyProject = { ...draftProject(), dropId: null, drop: null }
-    const { service } = buildService([seniorOnlyProject])
+    const db = {
+      db: {
+        query: {
+          projects: {
+            findFirst: async () => seniorOnlyProject,
+            findMany: async () => [seniorOnlyProject],
+          },
+          teamMembers: { findFirst: async () => null, findMany: async () => [] },
+        },
+        select: () => ({
+          from: () => ({
+            where: () => Promise.resolve([]),
+            innerJoin: () => ({ where: () => Promise.resolve([]) }),
+          }),
+        }),
+      },
+    }
+    const auditLog = { record: vi.fn(async () => undefined) }
+    const hrAccess = new HrAccessService(db as never)
+    const approvals = {
+      isApprover: vi.fn(async () => true),
+      listSubjectIdsForApprover: vi.fn(async () => new Set([PROJECT_ID])),
+      getPendingApproverIds: vi.fn(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async () => new Map([[PROJECT_ID, new Set([SENIOR_ID, null as any])]]),
+      ),
+    }
+    const service = new ProjectsService(
+      db as never,
+      auditLog as never,
+      {} as never,
+      hrAccess,
+      approvals as never,
+    )
 
     const result = await service.findAll(sessionFor(ADMIN_ID, 'ADMIN'), { archived: false })
 
