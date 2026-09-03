@@ -113,8 +113,15 @@ function makeInterviewDb(fixture: {
   return { db, findManyArgs, seatedUserIds }
 }
 
+// security-review round 2 (SR-H-6): `createFromInterview` now opens an
+// approval proposal after the insert — a real `ApprovalsService`
+// constructor arg, not `undefined` (the 4-arg call this file used before
+// SR-H-6 shipped left it unset, and `this.approvals.proposeInTx(...)` throws
+// on `undefined`). This double only needs to not throw; the proposal itself
+// is proven separately (create-from-interview-draft-status.unit.spec.ts).
 function makeService(db: never): ProjectsService {
-  return new ProjectsService(db, {} as never, {} as never, {} as never)
+  const approvals = { proposeInTx: vi.fn(async () => []) }
+  return new ProjectsService(db, {} as never, {} as never, {} as never, approvals as never)
 }
 
 const interview = {

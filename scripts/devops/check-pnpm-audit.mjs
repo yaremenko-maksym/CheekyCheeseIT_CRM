@@ -227,7 +227,9 @@ function loadAuditJson() {
     if (err[AUDIT_UNREACHABLE]) {
       console.log('== check-pnpm-audit.mjs ==')
       console.log('')
-      console.log(`FAIL: could not reach the package registry after ${AUDIT_MAX_ATTEMPTS} attempts.`)
+      console.log(
+        `FAIL: could not reach the package registry after ${AUDIT_MAX_ATTEMPTS} attempts.`,
+      )
       console.log(
         '`pnpm audit` never produced parseable output — this looks like a transient network or',
       )
@@ -235,7 +237,7 @@ function loadAuditJson() {
         'registry problem, NOT an unrecognized output shape (that is a different, separate',
       )
       console.log(
-        'failure — see this guard\'s other message for it). Re-run the job; if this persists,',
+        "failure — see this guard's other message for it). Re-run the job; if this persists,",
       )
       console.log('check registry status before assuming the dependency tree itself is at fault.')
       process.exit(1)
@@ -297,17 +299,13 @@ function main() {
   ) {
     console.log('== check-pnpm-audit.mjs ==')
     console.log('')
+    console.log('FAIL: could not verify — the audit report has no `advisories` object at all.')
     console.log(
-      'FAIL: could not verify — the audit report has no `advisories` object at all.',
+      'This is NOT the same as "0 vulnerabilities found": either `pnpm audit`\'s JSON output',
     )
-    console.log(
-      "This is NOT the same as \"0 vulnerabilities found\": either `pnpm audit`'s JSON output",
-    )
-    console.log(
-      'shape changed, or the command produced something unexpected. Refusing to report a',
-    )
+    console.log('shape changed, or the command produced something unexpected. Refusing to report a')
     console.log('silent green on unrecognized input — inspect the raw `pnpm audit --json` output')
-    console.log('by hand and update this guard\'s parsing if the shape genuinely changed.')
+    console.log("by hand and update this guard's parsing if the shape genuinely changed.")
     process.exit(1)
   }
 
@@ -432,6 +430,12 @@ function main() {
     failed = true
     console.log(`FAIL: ${gated.length} advisory(ies) at or above "${auditLevel}" are not covered`)
     console.log('by a valid exception in scripts/devops/pnpm-audit-exceptions.json:')
+    console.log('')
+    console.log('Not sure this is about YOUR diff? Start here:')
+    console.log(
+      '  scripts/devops/pnpm-audit-runbook.md — Step 0 (is the SAME check red on main right now?',
+    )
+    console.log('  a newly-published CVE gates every branch, not just yours).')
     for (const adv of gated) {
       console.log('')
       console.log(`   [${adv.severity}] ${adv.module_name} — ${adv.title}`)

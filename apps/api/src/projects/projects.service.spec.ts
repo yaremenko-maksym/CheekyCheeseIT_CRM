@@ -82,6 +82,7 @@ interface ProjectRow {
   salaryReview: string | null
   corpTech: string | null
   notesGeneral: string | null
+  status: string
   archivedAt: Date | null
   createdAt: Date
   updatedAt: Date
@@ -140,6 +141,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     salaryReview: null,
     corpTech: null,
     notesGeneral: null,
+    status: 'ACTIVE',
     archivedAt: null,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
@@ -227,6 +229,10 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
           }
         },
       }),
+      // task-project-draft-status: not exercised by this file's `update()`-
+      // focused tests, but kept for parity with the `db.db` shape `create()`
+      // now requires.
+      transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(db.db),
     },
   }
 
@@ -238,12 +244,14 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     unarchive: vi.fn(async () => undefined),
     unarchivePairTx: vi.fn(async () => undefined),
   }
+  const approvals = { proposeInTx: vi.fn(async () => undefined) }
 
   const service = new ProjectsService(
     db as never,
     projectAuditLogService as never,
     usersService as never,
     new HrAccessService(db as never),
+    approvals as never,
   )
 
   return {
@@ -591,6 +599,7 @@ function buildHrScopingHarness({
     salaryReview: null,
     corpTech: null,
     notesGeneral: null,
+    status: 'ACTIVE',
     archivedAt: null,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
@@ -712,6 +721,9 @@ function buildHrScopingHarness({
               salaryReview: null,
               corpTech: null,
               notesGeneral: null,
+              // task-project-draft-status: matches what `create()` really
+              // inserts — a fresh project starts DRAFT.
+              status: 'DRAFT',
               archivedAt: null,
               createdAt: new Date(),
               updatedAt: new Date(),
@@ -724,6 +736,11 @@ function buildHrScopingHarness({
           where: async () => undefined,
         }),
       }),
+      // task-project-draft-status: `create()` now wraps the insert + approvals
+      // proposal in one `db.transaction` — the callback only needs the SAME
+      // `insert`/`update` surface already mocked on `db.db` above, so pass
+      // that object through as `tx` directly (no separate tx mock needed).
+      transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(db.db),
     },
   }
 
@@ -735,12 +752,14 @@ function buildHrScopingHarness({
     unarchive: vi.fn(async () => undefined),
     unarchivePairTx: vi.fn(async () => undefined),
   }
+  const approvals = { proposeInTx: vi.fn(async () => undefined) }
 
   const service = new ProjectsService(
     db as never,
     projectAuditLogService as never,
     usersService as never,
     new HrAccessService(db as never),
+    approvals as never,
   )
 
   return {

@@ -933,9 +933,15 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
   function buildServiceWithQueue(queue: Row[][]): {
     svc: UsersAccessService
     selectCalls: () => number
+    // task-project-draft-status: every `select(...)` argument, in call
+    // order — lets a test pin the SELECTED-COLUMNS shape of one specific
+    // chain in the sequence (e.g. "the 3rd select() is the seniorProjects
+    // one") without this queue-based mock otherwise ever inspecting it.
+    getSelectArgs: () => unknown[]
   } {
     let idx = 0
     let started = 0
+    const selectArgs: unknown[] = []
     const makeBuilder = (): Record<string, unknown> => {
       const result = queue[idx] ?? []
       const builder: Record<string, unknown> = {
@@ -956,14 +962,15 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
     }
     const db = {
       db: {
-        select: () => {
+        select: (arg?: unknown) => {
           started += 1
+          selectArgs.push(arg)
           return makeBuilder()
         },
       },
     }
     const svc = new UsersAccessService(db as never)
-    return { svc, selectCalls: () => started }
+    return { svc, selectCalls: () => started, getSelectArgs: () => selectArgs }
   }
 
   const callHelper = (svc: UsersAccessService, hrId: string, target: User): Promise<boolean> =>
@@ -1047,7 +1054,7 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
 
   // ── JUNIOR (existing project-path behaviour — pinned) ──
   it('JUNIOR active in a project of an HR-team senior → true', async () => {
-    const { svc } = buildServiceWithQueue([
+    const { svc, getSelectArgs } = buildServiceWithQueue([
       [{ teamId: 't1' }], // hrTeams
       [{ userId: 'sr1' }], // seniorMembers (innerJoin users)
       [{ id: 'p1' }], // seniorProjects
@@ -1055,6 +1062,11 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
     ])
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))
     expect(ok).toBe(true)
+    // task-project-draft-status: pins the 3rd select() (seniorProjects) —
+    // this queue-based mock otherwise ignores the columns shape entirely, so
+    // a gutted `.select({})` would still resolve to the queued rows and pass
+    // every OTHER assertion here.
+    expect(getSelectArgs()[2]).toEqual({ id: expect.anything() })
   })
 
   it('JUNIOR not active in any HR-team senior project → false', async () => {

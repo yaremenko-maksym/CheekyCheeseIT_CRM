@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import type {
   CreateCredentialDto,
   ProjectCredential,
+  ProjectStatus,
   SessionUser,
   UpdateCredentialDto,
 } from '@crm/shared'
@@ -12,7 +13,7 @@ import { CredentialsCryptoService } from './credentials-crypto.service'
 import { DatabaseService } from '../database/database.service'
 import { projectCredentials, projectMembers, projects } from '../database/schema'
 
-type ProjectRow = { id: string; seniorId: string | null }
+type ProjectRow = { id: string; seniorId: string | null; status: ProjectStatus }
 
 /**
  * Project credentials — work-account passwords, encrypted at-rest.
@@ -48,13 +49,31 @@ export class CredentialsService {
    */
   private async assertAccess(viewer: SessionUser, projectId: string): Promise<ProjectRow> {
     const rows = await this.db.db
-      .select({ id: projects.id, seniorId: projects.seniorId })
+      .select({ id: projects.id, seniorId: projects.seniorId, status: projects.status })
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1)
 
     const project = rows[0]
     if (!project) throw new NotFoundException('Проект не найден')
+
+    // SR-M-1 (security-review round 3, task-project-draft-status): a JUNIOR
+    // seated on a DRAFT/REJECTED project (ProjectsService.addMember does not
+    // gate on status — see resolveJuniorSalaryReceivers's SR-H-1 comment for
+    // why the fix lives elsewhere, not there) must not see its credentials —
+    // the project card itself already 404s that same JUNIOR
+    // (ProjectsService.assertAccess), so this endpoint gave a different
+    // answer to "does this project exist for you" than the project's own
+    // page did. ADMIN is exempt, mirroring that method's own ADMIN
+    // exemption. No third role to reconcile: `canAccess` below never
+    // returns true for SENIOR/DROP/ACCOUNTANT (task allowlist is
+    // junior+hr+admin only — see that method's own comment), so gating
+    // ahead of it only changes JUNIOR/HR from 403 to 404 on a non-ACTIVE
+    // project, the SAME existence-oracle shape `assertAccess` uses
+    // elsewhere for a non-invited viewer.
+    if (viewer.role !== 'ADMIN' && project.status !== 'ACTIVE') {
+      throw new NotFoundException('Проект не найден')
+    }
 
     const allowed = await this.canAccess(viewer, project)
     if (!allowed) throw new ForbiddenException('Нет доступа к паролям проекта')

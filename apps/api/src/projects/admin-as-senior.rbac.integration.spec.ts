@@ -22,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { ApprovalsService } from '../approvals/approvals.service'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from './projects.service'
@@ -276,7 +277,15 @@ class TestDatabaseModule {}
     {
       provide: ProjectsService,
       useFactory: (db: DatabaseService, auditLog: ProjectAuditLogService, usersSvc: UsersService) =>
-        new ProjectsService(db, auditLog, usersSvc, new HrAccessService(db)),
+        new ProjectsService(
+          db,
+          auditLog,
+          usersSvc,
+          new HrAccessService(db),
+          // task-project-draft-status: real ApprovalsService against the same
+          // real DB — this is an integration spec, not a mock.
+          new ApprovalsService(db),
+        ),
       inject: [DatabaseService, ProjectAuditLogService, UsersService],
     },
     {

@@ -19,8 +19,11 @@ import {
   createProjectSchema,
   updateProjectSchema,
   PROJECT_PAYMENT_TYPES,
+  PROJECT_STATUSES,
   archivePendingTransactionSchema,
   archiveImpactSchema,
+  projectStatusSchema,
+  rejectProjectSchema,
 } from './projects'
 
 const baseCreate = {
@@ -204,5 +207,49 @@ describe('archiveImpactSchema — user/team variants carry pendingTransactions +
         ],
       }),
     ).toThrow()
+  })
+})
+
+describe('task-project-draft-status — projectStatusSchema / rejectProjectSchema', () => {
+  it('projectStatusSchema accepts exactly DRAFT/ACTIVE/REJECTED', () => {
+    for (const s of PROJECT_STATUSES) {
+      expect(projectStatusSchema.parse(s)).toBe(s)
+    }
+    expect(() => projectStatusSchema.parse('PENDING')).toThrow()
+    expect(() => projectStatusSchema.parse('')).toThrow()
+  })
+
+  it('rejectProjectSchema requires a non-blank reason (design spec §3.3)', () => {
+    expect(() => rejectProjectSchema.parse({ reason: '' })).toThrow()
+    expect(() => rejectProjectSchema.parse({ reason: '   ' })).toThrow()
+    expect(() => rejectProjectSchema.parse({})).toThrow()
+    const result = rejectProjectSchema.safeParse({ reason: '' })
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'Причина отказа обязательна',
+    )
+  })
+
+  it('rejectProjectSchema trims and accepts a real reason', () => {
+    expect(rejectProjectSchema.parse({ reason: '  Не согласен с условиями  ' })).toEqual({
+      reason: 'Не согласен с условиями',
+    })
+  })
+
+  // security-review round 3 (SR-L-1): `approvals.rejection_reason` is a `text`
+  // column (unbounded) — this schema is the only backstop against an invited
+  // approver writing an arbitrarily large blob that later renders on the
+  // admin's screen.
+  it('rejectProjectSchema rejects a reason over 500 characters', () => {
+    const tooLong = 'a'.repeat(501)
+    expect(() => rejectProjectSchema.parse({ reason: tooLong })).toThrow()
+    const result = rejectProjectSchema.safeParse({ reason: tooLong })
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'Причина отказа слишком длинная (максимум 500 символов)',
+    )
+  })
+
+  it('rejectProjectSchema accepts a reason at exactly the 500-character bound', () => {
+    const atBound = 'a'.repeat(500)
+    expect(rejectProjectSchema.parse({ reason: atBound })).toEqual({ reason: atBound })
   })
 })

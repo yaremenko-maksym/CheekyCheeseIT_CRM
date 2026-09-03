@@ -263,10 +263,16 @@ const ARCHIVED_DROP = {
   archivedAt: new Date('2026-02-28T00:00:00.000Z'),
 }
 
+// task-project-draft-status: `status: 'ACTIVE'` is required here so
+// `assertProjectActive`'s new fused fetch+status guard (Д2) does not
+// short-circuit BEFORE the archived-person guard this suite tests — these
+// fixtures test the SENIOR/DROP archival gate specifically, not project
+// status, so the project itself is always confirmed.
 const SENIOR_PROJECT = {
   id: 'proj-1',
   seniorId: ACTIVE_SENIOR.id,
   dropId: null,
+  status: 'ACTIVE' as const,
   paymentType: 'FOP' as const,
   companyName: 'Acme',
   seniorSharePercentOverride: null,
@@ -277,6 +283,7 @@ const DROP_PROJECT = {
   id: 'proj-2',
   seniorId: null,
   dropId: ACTIVE_DROP.id,
+  status: 'ACTIVE' as const,
   paymentType: 'FOP' as const,
   companyName: 'Acme',
   dropSharePercentOverride: null,

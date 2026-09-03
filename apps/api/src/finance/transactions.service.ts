@@ -66,8 +66,10 @@ import {
   transactions,
   transactionAuditLog,
   users,
+  visibleProjects,
   type Transaction,
 } from '../database/schema'
+import { assertProjectActive } from '../projects/project-status.util'
 import type { DrizzleTx } from '../database/types'
 import { isUniqueViolation, uniqueViolationConstraint } from '../database/pg-errors'
 import {
@@ -1804,10 +1806,23 @@ export class TransactionsService {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
       throw new ForbiddenException()
 
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, data.projectId),
-    })
-    if (!project) throw new NotFoundException('Project not found')
+    // task-project-draft-status (Д2): fused fetch+status guard — a DRAFT or
+    // REJECTED project must never accrue income. See project-status.util.ts's
+    // own doc for why this is one call, not a fetch followed by a separate
+    // check.
+    const project = assertProjectActive(
+      // Stryker disable next-line ObjectLiteral: the `where` SHAPE is unobservable
+      // from this file's mocked unit specs — they stub `query.projects.findFirst`
+      // to return a canned row regardless of what `where` it is called with (same
+      // structural limit `income-compliance.unit.spec.ts` documents for
+      // `transactions.findMany`). A gutted `{}` here would fetch an ARBITRARY
+      // project instead of `data.projectId`'s — caught by this entry point's own
+      // RBAC/ownership integration spec (multiple seeded projects, asserts on the
+      // SPECIFIC one), not observable from a mocked unit double.
+      await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, data.projectId),
+      }),
+    )
 
     let projectOwnerId: string
     if (currentUser.role === 'ADMIN') {
@@ -2077,10 +2092,20 @@ export class TransactionsService {
     )
     if (receiptErr) throw new BadRequestException(receiptErr)
 
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, data.projectId),
-    })
-    if (!project) throw new NotFoundException('Project not found')
+    // task-project-draft-status (Д2): fused fetch+status guard.
+    const project = assertProjectActive(
+      // Stryker disable next-line ObjectLiteral: the `where` SHAPE is unobservable
+      // from this file's mocked unit specs — they stub `query.projects.findFirst`
+      // to return a canned row regardless of what `where` it is called with (same
+      // structural limit `income-compliance.unit.spec.ts` documents for
+      // `transactions.findMany`). A gutted `{}` here would fetch an ARBITRARY
+      // project instead of `data.projectId`'s — caught by this entry point's own
+      // RBAC/ownership integration spec (multiple seeded projects, asserts on the
+      // SPECIFIC one), not observable from a mocked unit double.
+      await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, data.projectId),
+      }),
+    )
     // Gate: this flow is ONLY for USDT-payment projects (D2). FOP/GIG income is
     // declared by the SENIOR/DROP themselves via createSeniorIncome/DropIncome.
     if (project.paymentType !== 'USDT') {
@@ -2309,11 +2334,22 @@ export class TransactionsService {
     })
     if (seniorIncomeReplay) return this.findOne(seniorIncomeReplay.id, currentUser)
 
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, data.projectId),
-      with: { financeSettings: true },
-    })
-    if (!project) throw new NotFoundException('Project not found')
+    // task-project-draft-status (Д2): fused fetch+status guard.
+    const project = assertProjectActive(
+      // Stryker disable next-line ObjectLiteral: the `where` SHAPE is unobservable
+      // from this file's mocked unit specs — they stub `query.projects.findFirst`
+      // to return a canned row regardless of what `where` it is called with (same
+      // structural limit `income-compliance.unit.spec.ts` documents for
+      // `transactions.findMany`). A gutted `{}` here would fetch an ARBITRARY
+      // project instead of `data.projectId`'s — caught by this entry point's own
+      // RBAC/ownership integration spec (multiple seeded projects, asserts on the
+      // SPECIFIC one), not observable from a mocked unit double.
+      await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, data.projectId),
+        // Stryker disable next-line BooleanLiteral,ObjectLiteral: unobservable from a mocked unit double — this file's mocked specs stub `query.projects.findFirst` to return a canned row with `financeSettings` already populated, regardless of what `with` shape is requested; caught by this entry point's own RBAC/ownership integration spec against real Postgres, same reasoning as the `where`-shape suppression on the line above.
+        with: { financeSettings: true },
+      }),
+    )
     if (project.seniorId !== currentUser.id) {
       throw new ForbiddenException('You can only add income for your own projects')
     }
@@ -2463,10 +2499,20 @@ export class TransactionsService {
     })
     if (dropIncomeReplay) return this.findOne(dropIncomeReplay.id, currentUser)
 
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, data.projectId),
-    })
-    if (!project) throw new NotFoundException('Project not found')
+    // task-project-draft-status (Д2): fused fetch+status guard.
+    const project = assertProjectActive(
+      // Stryker disable next-line ObjectLiteral: the `where` SHAPE is unobservable
+      // from this file's mocked unit specs — they stub `query.projects.findFirst`
+      // to return a canned row regardless of what `where` it is called with (same
+      // structural limit `income-compliance.unit.spec.ts` documents for
+      // `transactions.findMany`). A gutted `{}` here would fetch an ARBITRARY
+      // project instead of `data.projectId`'s — caught by this entry point's own
+      // RBAC/ownership integration spec (multiple seeded projects, asserts on the
+      // SPECIFIC one), not observable from a mocked unit double.
+      await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, data.projectId),
+      }),
+    )
     // The drop can only declare income on a drop-project routed through them.
     if (project.dropId !== currentUser.id) {
       throw new ForbiddenException('Это не drop-проект под вами')
@@ -7309,10 +7355,18 @@ export class TransactionsService {
     // ── 1. Active own senior-projects + effective share % ──────────────────────
     // Self-scope at the DB level: only projects where seniorId === self AND not
     // archived. No other senior's project can ever surface here.
-    const ownProjects = await this.db.db.query.projects.findMany({
-      where: and(eq(projects.seniorId, selfId), isNull(projects.archivedAt)),
-      orderBy: (table, { desc: d }) => [d(table.createdAt)],
-    })
+    // task-project-draft-status: sourced from `visibleProjects` — a DRAFT or
+    // REJECTED project of the senior's own must not show as "active" here
+    // either (it never accrued income and never will until confirmed).
+    // Views are not registered in Drizzle's relational-query schema config
+    // (same reason `nonDeletedTransactions` reads use explicit
+    // select/join elsewhere in this file), so `db.query.projects.findMany`
+    // is replaced with an explicit select + orderBy.
+    const ownProjects = await this.db.db
+      .select()
+      .from(visibleProjects)
+      .where(eq(visibleProjects.seniorId, selfId))
+      .orderBy(desc(visibleProjects.createdAt))
 
     // Effective share resolution reuses the canonical resolver
     // (project override → single active team override → user default). One
@@ -7567,10 +7621,22 @@ export class TransactionsService {
     // One pass: a project contributes to its SENIOR owner (always) AND to its
     // DROP owner (when dropId is set). The owner's role decides the income type
     // we look for (SENIOR_INCOME vs ADMIN_INCOME vs DROP_INCOME).
-    const activeProjects = await this.db.db.query.projects.findMany({
-      where: isNull(projects.archivedAt),
-      columns: { id: true, name: true, companyName: true, seniorId: true, dropId: true },
-    })
+    // task-project-draft-status: sourced from `visibleProjects` — a DRAFT or
+    // REJECTED project cannot have declared income yet (Д2 refuses
+    // transaction creation on either), so including it here would only ever
+    // show a false "hasn't submitted income" flag. Views are not registered
+    // in Drizzle's relational-query schema config (same reason as the
+    // `ownProjects` read above), so `db.query.projects.findMany` is replaced
+    // with an explicit select.
+    const activeProjects = await this.db.db
+      .select({
+        id: visibleProjects.id,
+        name: visibleProjects.name,
+        companyName: visibleProjects.companyName,
+        seniorId: visibleProjects.seniorId,
+        dropId: visibleProjects.dropId,
+      })
+      .from(visibleProjects)
 
     if (activeProjects.length === 0) {
       return {
@@ -7884,6 +7950,25 @@ export class TransactionsService {
       throw new ForbiddenException()
     }
 
+    // SR-M-3 (security-review round 3, task-project-draft-status):
+    // ACCOUNTANT must not see finance settings for a project
+    // ProjectsService.assertAccess would already 404 them on directly (a
+    // DRAFT/REJECTED project — ACCOUNTANT is neither ADMIN nor an invited
+    // approver, see that method's own existence-oracle comment). ADMIN
+    // always passes here too, mirroring assertAccess's own ADMIN exemption
+    // — an admin legitimately configures finance settings before
+    // confirmation (the SAME seniorSharePercentOverride field `create()`
+    // already accepts on a still-DRAFT project).
+    if (currentUser.role === 'ACCOUNTANT') {
+      const project = await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, projectId),
+        columns: { status: true },
+      })
+      if (!project || project.status !== 'ACTIVE') {
+        throw new NotFoundException('Project not found')
+      }
+    }
+
     const settings = await this.db.db.query.projectFinanceSettings.findFirst({
       where: eq(projectFinanceSettings.projectId, projectId),
     })
@@ -7906,6 +7991,13 @@ export class TransactionsService {
       where: eq(projects.id, projectId),
     })
     if (!project) throw new NotFoundException('Project not found')
+    // SR-M-3 — same ACCOUNTANT-only status gate as getProjectFinanceSettings
+    // above (this method already fetches the full project row for the
+    // existence check, so the extra query the read-only sibling needs is
+    // not needed here).
+    if (currentUser.role === 'ACCOUNTANT' && project.status !== 'ACTIVE') {
+      throw new NotFoundException('Project not found')
+    }
 
     const fsValues = {
       seniorSharePercentOverride: data.seniorSharePercentOverride ?? null,
@@ -8502,6 +8594,22 @@ export class TransactionsService {
    *
    * Not fixed here (deliberately, different zone + PR #541, since merged): the
    * re-attach itself in `ProjectsService.addMember`. Tracked separately.
+   *
+   * security-review round 3 (SR-H-1, task-project-draft-status): same shape
+   * of gap, one door over. `ProjectsService.addMember` does not gate on
+   * `project.status` either — a JUNIOR can be seated on a DRAFT (or
+   * REJECTED) project, and until this check existed this resolver minted
+   * them a fresh PENDING salary every month regardless, bypassing
+   * `assertProjectActive` entirely (that guard only sits on the 4
+   * income-CREATION entry points in this file — the salary cron is a 5th
+   * door with no fetch+check call site to fuse it into). Per the SAME
+   * precedent as the archival check three paragraphs up: the fix belongs in
+   * THIS resolver's loop, not in `addMember` — Drizzle's relational API
+   * cannot filter `project_members` parent rows by the related `project`'s
+   * `status` column either, so the check joins its sibling `user.archivedAt`
+   * check below rather than living in the query. `project.status` is read
+   * off the SAME already-fetched `with: { project }` relation this resolver
+   * already loads — no extra query.
    */
   private async resolveJuniorSalaryReceivers(): Promise<
     Array<{
@@ -8558,6 +8666,12 @@ export class TransactionsService {
       // `user.archivedAt` — see the method comment: a dismissed junior whose
       // membership was re-opened must not be accrued a new salary.
       if (!user || user.role !== 'JUNIOR' || user.archivedAt || !project) continue
+      // SR-H-1 — see the method comment: a DRAFT (never agreed) or REJECTED
+      // (explicitly declined) project must not mint money, same Д2 rule
+      // `assertProjectActive` enforces on the 4 income-creation entry
+      // points. `project.status` comes off the relation already loaded
+      // above — no extra fetch.
+      if (project.status !== 'ACTIVE') continue
       if (seenReceiverIds.has(user.id)) continue
 
       // Resolve salary: project override → user default

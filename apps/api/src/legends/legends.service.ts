@@ -4,6 +4,7 @@ import type {
   AddLegendEntryDto,
   Legend,
   LegendEntry,
+  ProjectStatus,
   SessionUser,
   UpsertLegendDto,
 } from '@crm/shared'
@@ -12,7 +13,7 @@ import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { legendEntries, legends, projectMembers, projects, users } from '../database/schema'
 
-type ProjectRow = { id: string; seniorId: string; dropId: string | null }
+type ProjectRow = { id: string; seniorId: string; dropId: string | null; status: ProjectStatus }
 
 /** Defaults prefilled from the real subject (drop ?? senior) for ADMIN/HR viewers. */
 interface LegendDefaults {
@@ -92,16 +93,37 @@ export class LegendsService {
 
   /**
    * Load project row — throws NotFoundException if not found.
+   *
+   * SR-M-1 (security-review round 3, task-project-draft-status): also
+   * throws NotFoundException (never ForbiddenException — same
+   * existence-oracle shape `ProjectsService.assertAccess` uses for a
+   * non-invited viewer of a DRAFT/REJECTED project) when the viewer is not
+   * ADMIN and the project is not yet confirmed. Before this fix, a JUNIOR
+   * seated on a DRAFT project (`ProjectsService.addMember` does not gate on
+   * status) saw its legend/credentials even though the project's own card
+   * already 404s that same JUNIOR — two different answers to "does this
+   * project exist for you". Threading `viewer` through every `loadProject`
+   * call site (all 3 immediately call `canAccess(viewer, project)` right
+   * after this returns anyway) keeps the gate in the ONE place that already
+   * knows both facts, instead of repeating it at each of the 3 callers.
    */
-  private async loadProject(projectId: string): Promise<ProjectRow> {
+  private async loadProject(projectId: string, viewer: SessionUser): Promise<ProjectRow> {
     const rows = await this.db.db
-      .select({ id: projects.id, seniorId: projects.seniorId, dropId: projects.dropId })
+      .select({
+        id: projects.id,
+        seniorId: projects.seniorId,
+        dropId: projects.dropId,
+        status: projects.status,
+      })
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1)
 
     const project = rows[0]
     if (!project) throw new NotFoundException('Проект не найден')
+    if (viewer.role !== 'ADMIN' && project.status !== 'ACTIVE') {
+      throw new NotFoundException('Проект не найден')
+    }
     return project
   }
 
@@ -225,7 +247,7 @@ export class LegendsService {
    * - defaults: non-null only for ADMIN/HR (AC8)
    */
   async getLegend(viewer: SessionUser, projectId: string): Promise<Legend | null> {
-    const project = await this.loadProject(projectId)
+    const project = await this.loadProject(projectId, viewer)
 
     const allowed = await this.canAccess(viewer, project)
     if (!allowed) throw new ForbiddenException('Нет доступа к легенде проекта')
@@ -253,7 +275,7 @@ export class LegendsService {
     projectId: string,
     dto: UpsertLegendDto,
   ): Promise<Legend> {
-    const project = await this.loadProject(projectId)
+    const project = await this.loadProject(projectId, viewer)
 
     const canEdit = await this.canAccess(viewer, project)
     if (!canEdit) throw new ForbiddenException('Нет доступа к редактированию легенды проекта')
@@ -312,7 +334,7 @@ export class LegendsService {
    * - 404 if legend does not exist yet (must upsert first)
    */
   async addEntry(viewer: SessionUser, projectId: string, dto: AddLegendEntryDto): Promise<Legend> {
-    const project = await this.loadProject(projectId)
+    const project = await this.loadProject(projectId, viewer)
 
     const canEdit = await this.canAccess(viewer, project)
     if (!canEdit) throw new ForbiddenException('Нет доступа к легенде проекта')

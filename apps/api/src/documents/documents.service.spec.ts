@@ -28,7 +28,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { DocumentsService } from './documents.service'
-import { documentAccessLog, projectMembers, projects, teamMembers } from '../database/schema'
+import { documentAccessLog, projectMembers, teamMembers, visibleProjects } from '../database/schema'
 import type { HrAccessService } from '../common/hr-access.service'
 
 // -----------------------------------------------------------------------------
@@ -134,6 +134,14 @@ interface HarnessOptions {
   honorSoftDeleteFilter?: boolean
 }
 
+// task-project-draft-status: captures the LAST `select({...})` columns
+// argument passed anywhere through `makeHarness`'s db stub — the stub itself
+// ignores it (routes purely by table identity), so a mutation gutting the
+// SELECTED-COLUMNS shape (e.g. `.select({ id: visibleProjects.id })` →
+// `.select({})`) is otherwise unobservable. `capturedSelectArg` lets a test
+// assert on it directly instead.
+let capturedSelectArg: unknown
+
 function makeHarness(opts: HarnessOptions = {}) {
   const docsRows: DocRow[] = (opts.docs ?? []).map((d, idx) => ({
     id: d.id ?? `doc-${idx}`,
@@ -184,48 +192,59 @@ function makeHarness(opts: HarnessOptions = {}) {
         },
       },
 
-      select: (_arg?: unknown) => ({
-        from: (_table: unknown) => {
-          // task-file-storage-hardening HIGH-1 fix: routed by TABLE IDENTITY
-          // (the real imported Drizzle table objects — `_table` is the exact
-          // reference `getTeammateIds`/`getHrSeniorIds` pass to `.from()`,
-          // so `===` reliably distinguishes them) instead of the previous
-          // single-bucket heuristic that couldn't tell `projects` /
-          // `projectMembers` / `teamMembers` apart.
-          if (_table === projects) {
-            return {
-              where: async (_pred: unknown) => opts.seniorProjects ?? [],
+      select: (arg?: unknown) => {
+        return {
+          from: (_table: unknown) => {
+            // task-file-storage-hardening HIGH-1 fix: routed by TABLE IDENTITY
+            // (the real imported Drizzle table objects — `_table` is the exact
+            // reference `getTeammateIds`/`getHrSeniorIds` pass to `.from()`,
+            // so `===` reliably distinguishes them) instead of the previous
+            // single-bucket heuristic that couldn't tell `projects` /
+            // `projectMembers` / `teamMembers` apart. task-project-draft-status:
+            // production code now reads via the `visibleProjects` VIEW, not the
+            // raw `projects` table (ESLint bans the raw import in this module) —
+            // route on that identity instead.
+            if (_table === visibleProjects) {
+              // Captured HERE (not at the outer `select(arg)`) — `getTeammateIds`
+              // makes several `.select(...)` calls (visibleProjects, then
+              // projectMembers) per request, and a bare capture at `select()`
+              // would keep overwriting itself with whichever table was queried
+              // LAST, never actually pinning the `visibleProjects` one.
+              capturedSelectArg = arg
+              return {
+                where: async (_pred: unknown) => opts.seniorProjects ?? [],
+              }
             }
-          }
-          if (_table === projectMembers) {
-            return {
-              where: async (_pred: unknown) => opts.activeProjectMembers ?? [],
+            if (_table === projectMembers) {
+              return {
+                where: async (_pred: unknown) => opts.activeProjectMembers ?? [],
+              }
             }
-          }
-          if (_table === teamMembers) {
-            // `select({fields}).from(teamMembers).where(...)` (getHrSeniorIds'
-            // first query) returns a Promise directly; the innerJoin path
-            // (its second query) resolves the SENIOR-filtered list.
-            return {
-              where: async (_p: unknown) =>
-                (opts.hrSeniorIds ?? []).map((id) => ({ teamId: 't1', userId: id })),
-              innerJoin: (_t: unknown, _on: unknown) => ({
+            if (_table === teamMembers) {
+              // `select({fields}).from(teamMembers).where(...)` (getHrSeniorIds'
+              // first query) returns a Promise directly; the innerJoin path
+              // (its second query) resolves the SENIOR-filtered list.
+              return {
                 where: async (_p: unknown) =>
-                  (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
-              }),
+                  (opts.hrSeniorIds ?? []).map((id) => ({ teamId: 't1', userId: id })),
+                innerJoin: (_t: unknown, _on: unknown) => ({
+                  where: async (_p: unknown) =>
+                    (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
+                }),
+              }
             }
-          }
-          // Fallback (documents, etc.) — the list()-style builder. makeHarness's
-          // callers don't exercise `select().from(documents)` (list() tests use
-          // makeExtendedHarness instead), kept only as a safe default.
-          const builder = {
-            where: (_pred: unknown) => builder,
-            innerJoin: (_t: unknown, _on: unknown) => builder,
-            orderBy: async (_o: unknown) => docsRows.map((r) => ({ ...r })),
-          }
-          return builder
-        },
-      }),
+            // Fallback (documents, etc.) — the list()-style builder. makeHarness's
+            // callers don't exercise `select().from(documents)` (list() tests use
+            // makeExtendedHarness instead), kept only as a safe default.
+            const builder = {
+              where: (_pred: unknown) => builder,
+              innerJoin: (_t: unknown, _on: unknown) => builder,
+              orderBy: async (_o: unknown) => docsRows.map((r) => ({ ...r })),
+            }
+            return builder
+          },
+        }
+      },
 
       insert: (_table: unknown) => {
         if (_table === documentAccessLog) {
@@ -338,6 +357,7 @@ function makeHarness(opts: HarnessOptions = {}) {
     docsRows,
     accessLogRows,
     getFindFirstCount: () => findFirstCallCount,
+    getCapturedSelectArg: () => capturedSelectArg,
   }
 }
 
@@ -926,6 +946,11 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
     })
     const result = await h.service.getDownloadUrl(SENIOR, 'd1')
     expect(result.url).toBeTruthy()
+    // task-project-draft-status: the `visibleProjects` read only asks for
+    // `id` — a gutted `{}` (selects every column) would still pass every
+    // OTHER assertion in this suite (the stub ignores the shape either way),
+    // so this pins the actual columns requested.
+    expect(h.getCapturedSelectArg()).toEqual({ id: expect.anything() })
   })
 
   it("SENIOR CANNOT download a JUNIOR's RESUME who is NOT on their project → 404, not 403", async () => {

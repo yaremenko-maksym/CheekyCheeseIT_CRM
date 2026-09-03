@@ -45,6 +45,20 @@ export const projectMemberSchema = z.object({
 export const currencySchema = z.enum(['USDT', 'USD', 'EUR', 'UAH'])
 
 /**
+ * task-project-draft-status. Project lifecycle status — separate axis from
+ * `archivedAt` (see schema.ts's own comment on the `projects.status` column
+ * for why the two must never be merged). A project starts `DRAFT`, becomes
+ * `ACTIVE` once every invited approver (the project's senior + drop, if any
+ * — see `approvals`, subjectType `PROJECT`) confirms, or `REJECTED` if any
+ * one of them declines. Only `ACTIVE` + non-archived projects are visible
+ * outside the narrow admin/approver path (see `visible_projects` view) and
+ * only `ACTIVE` projects accept transactions.
+ */
+export const PROJECT_STATUSES = ['DRAFT', 'ACTIVE', 'REJECTED'] as const
+export const projectStatusSchema = z.enum(PROJECT_STATUSES)
+export type ProjectStatus = z.infer<typeof projectStatusSchema>
+
+/**
  * task-drop-share-override-and-receiver (Part B / D1). Project payment type —
  * migrated from a free-text `varchar(100)` to a fixed enum. Drives the income
  * declaration gate: FOP/GIG projects let SENIOR/DROP declare their own income;
@@ -216,6 +230,14 @@ export const projectSchema = z.object({
   salaryReview: z.string().nullable(),
   corpTech: z.string().nullable(),
   notesGeneral: z.string().nullable(),
+  /**
+   * task-project-draft-status. `DRAFT` until every invited approver
+   * confirms, `ACTIVE` once confirmed, `REJECTED` if any one declines.
+   * Only ADMIN and the invited approvers ever receive a non-`ACTIVE` row —
+   * everyone else's reads are served from `visible_projects`, which never
+   * contains one.
+   */
+  status: projectStatusSchema,
   archivedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -510,6 +532,27 @@ export const updateProjectSchema = z
     notesGeneral: z.string().max(1000).optional().nullable(),
   })
   .superRefine(refineLogoXor)
+
+/**
+ * task-project-draft-status, item 4. `POST /api/projects/:id/reject` body —
+ * mirrors `rejectApprovalInputSchema`'s own "Отказ возможен и требует
+ * причины" (§3.3) contract: non-blank reason required.
+ *
+ * security-review round 3 (SR-L-1): `.max(500)` — the DB column
+ * (`approvals.rejection_reason`) is `text` (unbounded), so this is the only
+ * backstop against an authenticated invited approver writing an arbitrarily
+ * large blob that then renders on the admin's screen. Mirrors the sibling
+ * precedent `contracts.rejectionReason` (`varchar(500)` /
+ * `z.string().max(500)` in finance.ts) rather than inventing a new bound.
+ */
+export const rejectProjectSchema = z.object({
+  reason: z
+    .string()
+    .trim()
+    .min(1, 'Причина отказа обязательна')
+    .max(500, 'Причина отказа слишком длинная (максимум 500 символов)'),
+})
+export type RejectProjectDto = z.infer<typeof rejectProjectSchema>
 
 export const addProjectMemberSchema = z.object({
   userId: z.string().uuid(),

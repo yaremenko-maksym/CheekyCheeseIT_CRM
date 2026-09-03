@@ -54,28 +54,39 @@ export class ApprovalsService {
    * generation's rows are never rewritten, only extinguished.
    */
   async propose(rawInput: ProposeApprovalInput): Promise<Approval[]> {
+    return this.db.db.transaction((tx) => this.proposeInTx(tx, rawInput))
+  }
+
+  /**
+   * task-project-draft-status. Same logic as `propose()`, but running INSIDE
+   * a transaction the CALLER already opened — for a subject module (e.g.
+   * `ProjectsService.create`) that must insert its own row and open the
+   * proposal as ONE atomic unit ("Строки согласования создаются в той же
+   * транзакции, что и черновик" — design spec §Д1). `propose()` above is now
+   * a thin wrapper that opens its own transaction and delegates here, so the
+   * two entry points can never drift apart.
+   */
+  async proposeInTx(tx: DrizzleTx, rawInput: ProposeApprovalInput): Promise<Approval[]> {
     const input = proposeApprovalInputSchema.parse(rawInput)
     const now = new Date()
 
-    return this.db.db.transaction(async (tx) => {
-      await this.supersedeLiveRows(tx, input.subjectType, input.subjectId, now)
+    await this.supersedeLiveRows(tx, input.subjectType, input.subjectId, now)
 
-      const rows = await tx
-        .insert(approvals)
-        .values(
-          input.approverUserIds.map((approverUserId) => ({
-            subjectType: input.subjectType,
-            subjectId: input.subjectId,
-            approverUserId,
-            proposedByUserId: input.proposedByUserId,
-            status: 'PENDING' as const,
-            createdAt: now,
-          })),
-        )
-        .returning()
+    const rows = await tx
+      .insert(approvals)
+      .values(
+        input.approverUserIds.map((approverUserId) => ({
+          subjectType: input.subjectType,
+          subjectId: input.subjectId,
+          approverUserId,
+          proposedByUserId: input.proposedByUserId,
+          status: 'PENDING' as const,
+          createdAt: now,
+        })),
+      )
+      .returning()
 
-      return rows.map(toApproval)
-    })
+    return rows.map(toApproval)
   }
 
   /**
@@ -84,22 +95,31 @@ export class ApprovalsService {
    * with no extra field: query the live rows and see one APPROVED, one not).
    */
   async approve(rawInput: ApproveApprovalInput): Promise<Approval> {
+    return this.db.db.transaction((tx) => this.approveInTx(tx, rawInput))
+  }
+
+  /**
+   * task-project-draft-status. Same logic as `approve()`, running inside a
+   * transaction the CALLER already opened — for a subject module that must
+   * also write its own denormalised status (e.g. `projects.status` flipping
+   * to `ACTIVE` once every approver has confirmed) atomically with this row
+   * transition, so the two can never observably disagree.
+   */
+  async approveInTx(tx: DrizzleTx, rawInput: ApproveApprovalInput): Promise<Approval> {
     const input = approveApprovalInputSchema.parse(rawInput)
     const now = new Date()
 
-    return this.db.db.transaction(async (tx) => {
-      const row = await this.loadLiveRowForUpdate(tx, input)
-      this.assertRespondable(row)
+    const row = await this.loadLiveRowForUpdate(tx, input)
+    this.assertRespondable(row)
 
-      const [updated] = await tx
-        .update(approvals)
-        .set({ status: 'APPROVED', decidedAt: now })
-        .where(eq(approvals.id, row.id))
-        .returning()
-      if (!updated) throw new Error('Failed to record approval')
+    const [updated] = await tx
+      .update(approvals)
+      .set({ status: 'APPROVED', decidedAt: now })
+      .where(eq(approvals.id, row.id))
+      .returning()
+    if (!updated) throw new Error('Failed to record approval')
 
-      return toApproval(updated)
-    })
+    return toApproval(updated)
   }
 
   /**
@@ -131,44 +151,60 @@ export class ApprovalsService {
    * cycle is structurally impossible rather than merely unlikely.
    */
   async reject(rawInput: RejectApprovalInput): Promise<Approval> {
+    return this.db.db.transaction((tx) => this.rejectInTx(tx, rawInput))
+  }
+
+  /**
+   * task-project-draft-status. Same logic as `reject()`, running inside a
+   * transaction the caller already opened — see `approveInTx`'s doc for why.
+   */
+  async rejectInTx(tx: DrizzleTx, rawInput: RejectApprovalInput): Promise<Approval> {
     const input = rejectApprovalInputSchema.parse(rawInput)
     const now = new Date()
 
-    return this.db.db.transaction(async (tx) => {
-      const liveRows = await this.lockLiveRows(tx, input.subjectType, input.subjectId)
-      const row = liveRows.find((r) => r.approverUserId === input.approverUserId) ?? null
-      this.assertRespondable(row)
+    const liveRows = await this.lockLiveRows(tx, input.subjectType, input.subjectId)
+    const row = liveRows.find((r) => r.approverUserId === input.approverUserId) ?? null
+    this.assertRespondable(row)
 
-      const [updated] = await tx
-        .update(approvals)
-        .set({ status: 'REJECTED', rejectionReason: input.reason, decidedAt: now })
-        .where(eq(approvals.id, row.id))
-        .returning()
-      if (!updated) throw new Error('Failed to record rejection')
+    const [updated] = await tx
+      .update(approvals)
+      .set({ status: 'REJECTED', rejectionReason: input.reason, decidedAt: now })
+      .where(eq(approvals.id, row.id))
+      .returning()
+    if (!updated) throw new Error('Failed to record rejection')
 
-      await tx
-        .update(approvals)
-        .set({ supersededAt: now })
-        .where(
-          and(
-            eq(approvals.subjectType, input.subjectType),
-            eq(approvals.subjectId, input.subjectId),
-            isNull(approvals.supersededAt),
-            ne(approvals.id, updated.id),
-          ),
-        )
+    await tx
+      .update(approvals)
+      .set({ supersededAt: now })
+      .where(
+        and(
+          eq(approvals.subjectType, input.subjectType),
+          eq(approvals.subjectId, input.subjectId),
+          isNull(approvals.supersededAt),
+          ne(approvals.id, updated.id),
+        ),
+      )
 
-      return toApproval(updated)
-    })
+    return toApproval(updated)
   }
 
   /**
    * The current generation's rows for a subject — a quenched (superseded)
    * row never appears here, whatever its `status` says (§4.1: "погашенная
    * строка не участвует в подсчёте"). Ordered by proposal order.
+   *
+   * task-project-draft-status: `db` defaults to the plain pool handle but
+   * accepts a caller-supplied `tx` — this is what lets `getStatusInTx` (and
+   * therefore a subject module writing its own denormalised status) read the
+   * POST-write aggregate inside the SAME transaction as the row change,
+   * without duplicating this query.
    */
-  async listLive(subjectType: string, subjectId: string): Promise<Approval[]> {
-    const rows = await this.db.db
+  async listLive(
+    subjectType: string,
+    subjectId: string,
+    db: DatabaseService['db'] | DrizzleTx = this.db.db,
+  ): Promise<Approval[]> {
+    const rows = await db
       .select()
       .from(approvals)
       .where(
@@ -189,10 +225,20 @@ export class ApprovalsService {
    */
   async getStatus(subjectType: string, subjectId: string): Promise<ApprovalGroupStatus> {
     const live = await this.listLive(subjectType, subjectId)
-    if (live.length === 0) return 'NONE'
-    if (live.some((row) => row.status === 'REJECTED')) return 'REJECTED'
-    if (live.every((row) => row.status === 'APPROVED')) return 'APPROVED'
-    return 'PENDING'
+    return aggregateStatus(live)
+  }
+
+  /**
+   * task-project-draft-status. Same aggregate as `getStatus()`, reading
+   * through a caller-supplied `tx` — see `listLive`'s doc for why.
+   */
+  async getStatusInTx(
+    tx: DrizzleTx,
+    subjectType: string,
+    subjectId: string,
+  ): Promise<ApprovalGroupStatus> {
+    const live = await this.listLive(subjectType, subjectId, tx)
+    return aggregateStatus(live)
   }
 
   /**
@@ -213,6 +259,49 @@ export class ApprovalsService {
       )
       .orderBy(asc(approvals.createdAt))
     return rows.map(toApproval)
+  }
+
+  /**
+   * task-project-draft-status. Was `userId` EVER asked to approve this
+   * subject — across every generation, not just the current live one. Used
+   * by a subject module's own visibility gate (e.g. "can this SENIOR see
+   * their still-DRAFT project") where the invited set does not change
+   * between re-proposals (the project's senior/drop are fixed people, so a
+   * re-proposal re-asks the SAME approvers) — see `ProjectsService`'s own
+   * narrow-path comment for why "ever asked" is the correct and sufficient
+   * check there, not just "asked in the CURRENT generation": a rejected
+   * generation's rows are quenched for everyone except the rejecter (decision
+   * #5, "отказ одного гасит предложение целиком"), so `listLive` alone
+   * cannot answer "who was asked" once one of them has already answered no.
+   */
+  async isApprover(subjectType: string, subjectId: string, userId: string): Promise<boolean> {
+    const rows = await this.db.db
+      .select({ id: approvals.id })
+      .from(approvals)
+      .where(
+        and(
+          eq(approvals.subjectType, subjectType),
+          eq(approvals.subjectId, subjectId),
+          eq(approvals.approverUserId, userId),
+        ),
+      )
+      .limit(1)
+    return rows.length > 0
+  }
+
+  /**
+   * Bulk form of `isApprover` — every subject id (of `subjectType`) `userId`
+   * was EVER asked to approve, in one query. Used when a subject module
+   * filters a LIST of its own rows for visibility (e.g.
+   * `ProjectsService.findAll`) — one round-trip instead of one `isApprover`
+   * call per row.
+   */
+  async listSubjectIdsForApprover(subjectType: string, userId: string): Promise<Set<string>> {
+    const rows = await this.db.db
+      .selectDistinct({ subjectId: approvals.subjectId })
+      .from(approvals)
+      .where(and(eq(approvals.subjectType, subjectType), eq(approvals.approverUserId, userId)))
+    return new Set(rows.map((r) => r.subjectId))
   }
 
   // ---------------------------------------------------------------------------
@@ -313,6 +402,14 @@ export class ApprovalsService {
     if (!row) throw new NotFoundException('Согласование не найдено или уже погашено')
     if (row.status !== 'PENDING') throw new ConflictException('Согласование уже получило ответ')
   }
+}
+
+/** Pure aggregation over a subject's live rows — shared by getStatus/getStatusInTx. */
+function aggregateStatus(live: Approval[]): ApprovalGroupStatus {
+  if (live.length === 0) return 'NONE'
+  if (live.some((row) => row.status === 'REJECTED')) return 'REJECTED'
+  if (live.every((row) => row.status === 'APPROVED')) return 'APPROVED'
+  return 'PENDING'
 }
 
 function toApproval(row: ApprovalRow): Approval {

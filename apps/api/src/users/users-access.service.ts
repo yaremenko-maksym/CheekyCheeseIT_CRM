@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { ActionKey, TabKey, ViewPermissions } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { projectMembers, projects, teamMembers, users, type User } from '../database/schema'
+import { projectMembers, teamMembers, users, visibleProjects, type User } from '../database/schema'
 import { canAccessResume } from '../resumes/resume-access'
 
 /**
@@ -346,11 +346,13 @@ export class UsersAccessService {
       const seniorIds = seniorMembers.map((s) => s.userId)
       if (seniorIds.length === 0) return false
 
-      // Find projects owned by those seniors
+      // Find projects owned by those seniors. task-project-draft-status:
+      // sourced from `visibleProjects` — same reasoning as
+      // `isSeniorViewingOwnProjectMember` above.
       const seniorProjects = await this.db.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(inArray(projects.seniorId, seniorIds))
+        .select({ id: visibleProjects.id })
+        .from(visibleProjects)
+        .where(inArray(visibleProjects.seniorId, seniorIds))
       const projectIds = seniorProjects.map((p) => p.id)
       if (projectIds.length === 0) return false
 
@@ -379,11 +381,15 @@ export class UsersAccessService {
     seniorId: string,
     targetId: string,
   ): Promise<boolean> {
-    // Find active projects owned by this SENIOR
+    // Find active projects owned by this SENIOR. task-project-draft-status:
+    // sourced from `visibleProjects` — a DRAFT/REJECTED project has no real
+    // members yet (narrow admin/approver path only), so this also closes a
+    // pre-existing gap where this read never excluded archived projects either.
     const seniorProjects = await this.db.db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(eq(projects.seniorId, seniorId))
+      // Stryker disable next-line ObjectLiteral: the SELECTED-COLUMNS shape is unobservable from this file's mocked unit specs (they stub `select()` to return canned rows regardless of the requested columns) — a wrong/empty column list is caught by the RBAC integration specs that exercise this exact SENIOR/JUNIOR visibility path against real seeded data, not by a mocked unit double.
+      .select({ id: visibleProjects.id })
+      .from(visibleProjects)
+      .where(eq(visibleProjects.seniorId, seniorId))
     if (seniorProjects.length === 0) return false
     const projectIds = seniorProjects.map((p) => p.id)
 
@@ -408,18 +414,15 @@ export class UsersAccessService {
    * Mirrors LegendsService.juniorCanViewLegend.
    */
   private async isJuniorUnderLegendSubject(juniorId: string, targetId: string): Promise<boolean> {
-    // Step 1: collect active project IDs for this JUNIOR
+    // Step 1: collect active project IDs for this JUNIOR. task-project-draft-
+    // status: sourced from `visibleProjects` — a JUNIOR cannot legitimately be
+    // a member of a still-DRAFT project (narrow admin/approver path only),
+    // and a REJECTED one is equally not a real membership.
     const membership = await this.db.db
       .select({ projectId: projectMembers.projectId })
       .from(projectMembers)
-      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
-      .where(
-        and(
-          eq(projectMembers.userId, juniorId),
-          isNull(projectMembers.leftAt),
-          isNull(projects.archivedAt),
-        ),
-      )
+      .innerJoin(visibleProjects, eq(projectMembers.projectId, visibleProjects.id))
+      .where(and(eq(projectMembers.userId, juniorId), isNull(projectMembers.leftAt)))
       .limit(50)
 
     if (membership.length === 0) return false
@@ -428,9 +431,13 @@ export class UsersAccessService {
 
     // Step 2: check if targetId is senior OR drop on any of those projects
     const matched = await this.db.db
-      .select({ id: projects.id, seniorId: projects.seniorId, dropId: projects.dropId })
-      .from(projects)
-      .where(inArray(projects.id, projectIds))
+      .select({
+        id: visibleProjects.id,
+        seniorId: visibleProjects.seniorId,
+        dropId: visibleProjects.dropId,
+      })
+      .from(visibleProjects)
+      .where(inArray(visibleProjects.id, projectIds))
 
     return matched.some((p) => p.seniorId === targetId || p.dropId === targetId)
   }

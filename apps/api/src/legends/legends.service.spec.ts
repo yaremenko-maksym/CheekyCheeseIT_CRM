@@ -94,8 +94,18 @@ const accountant = makeUser(ACCOUNTANT_ID, 'ACCOUNTANT')
 const otherSenior = makeUser(OTHER_SENIOR_ID, 'SENIOR')
 
 // Project rows: seniorProject has seniorId; dropProject has both seniorId and dropId
-const seniorProject = { id: PROJECT_ID, seniorId: SENIOR_ID, dropId: null as string | null }
-const dropProject = { id: PROJECT_ID, seniorId: SENIOR_ID, dropId: DROP_ID }
+const seniorProject = {
+  id: PROJECT_ID,
+  seniorId: SENIOR_ID,
+  dropId: null as string | null,
+  status: 'ACTIVE' as const,
+}
+const dropProject = {
+  id: PROJECT_ID,
+  seniorId: SENIOR_ID,
+  dropId: DROP_ID,
+  status: 'ACTIVE' as const,
+}
 
 const mockLegendRow = {
   id: LEGEND_ID,
@@ -413,7 +423,12 @@ describe('LegendsService — TASK 7: cross-project isolation + team isolation', 
   it('JUNIOR of project A → DENIED for project B (cross-project)', async () => {
     const { service, chain } = buildService()
     // project B belongs to a different senior
-    const projectB = { id: PROJECT_ID_B, seniorId: OTHER_SENIOR_ID, dropId: null as string | null }
+    const projectB = {
+      id: PROJECT_ID_B,
+      seniorId: OTHER_SENIOR_ID,
+      dropId: null as string | null,
+      status: 'ACTIVE' as const,
+    }
     chain.limit.mockResolvedValueOnce([projectB]) // project B found
     // Junior has no membership in project B
     chain.limit.mockResolvedValueOnce([]) // no active membership in project B
@@ -607,5 +622,64 @@ describe('LegendsService.loadEntries — eventDate sort (AC9)', () => {
     expect(chain.values).toHaveBeenCalled()
     // Result should include the entry with the eventDate
     expect(legend.entries[0].eventDate).toBe('2024-05-15')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SR-M-1 (security-review round 3, task-project-draft-status)
+// ---------------------------------------------------------------------------
+
+describe('LegendsService — SR-M-1: a non-ACTIVE project is invisible via loadProject', () => {
+  const dto = { fullName: 'Новий Іван' }
+
+  for (const status of ['DRAFT', 'REJECTED'] as const) {
+    it(`JUNIOR active member gets NotFoundException on a ${status} project (getLegend)`, async () => {
+      const { service, chain } = buildService()
+      chain.limit.mockResolvedValueOnce([{ ...seniorProject, status }]) // project — not ACTIVE
+      const err = await service.getLegend(junior, PROJECT_ID).catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(NotFoundException)
+      expect((err as NotFoundException).message).toBe('Проект не найден')
+      // Never reaches juniorCanAccess's own membership select — only ONE
+      // .limit() call total for this invocation.
+      expect(chain.limit).toHaveBeenCalledTimes(1)
+    })
+
+    it(`HR sharing the senior's team gets NotFoundException on a ${status} project (upsertLegend)`, async () => {
+      const { service, chain } = buildService()
+      chain.limit.mockResolvedValueOnce([{ ...seniorProject, status }])
+      const err = await service.upsertLegend(hr, PROJECT_ID, dto).catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(NotFoundException)
+      expect((err as NotFoundException).message).toBe('Проект не найден')
+    })
+  }
+
+  it("loadProject's own SELECT projects `status` (not a columnless read the gate could not see)", async () => {
+    const { service, chain, db } = buildService()
+    chain.limit.mockResolvedValueOnce([{ ...seniorProject, status: 'DRAFT' }])
+    await service.getLegend(junior, PROJECT_ID).catch(() => undefined)
+
+    expect(db.select).toHaveBeenCalledTimes(1)
+    const projection = (db.select as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined
+    expect(projection).toBeDefined()
+    expect(Object.keys(projection!).sort()).toEqual(['dropId', 'id', 'seniorId', 'status'])
+  })
+
+  it('ADMIN is exempt from the status gate on a DRAFT project (getLegend reaches the legend read)', async () => {
+    const { service, chain } = buildService()
+    chain.limit
+      .mockResolvedValueOnce([{ ...seniorProject, status: 'DRAFT' }]) // project
+      .mockResolvedValueOnce([]) // no legend row yet
+    const result = await service.getLegend(admin, PROJECT_ID)
+    expect(result).toBeNull()
+  })
+
+  it('an ACTIVE project still enforces real JUNIOR membership (the gate did not swallow the RBAC check)', async () => {
+    const { service, chain } = buildService()
+    chain.limit
+      .mockResolvedValueOnce([seniorProject]) // project, status ACTIVE
+      .mockResolvedValueOnce([]) // no active membership
+    await expect(service.getLegend(junior, PROJECT_ID)).rejects.toBeInstanceOf(ForbiddenException)
   })
 })

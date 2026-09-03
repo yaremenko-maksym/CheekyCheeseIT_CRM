@@ -63,9 +63,9 @@ import {
   invoiceSignatures,
   nonDeletedTransactions,
   projectMembers,
-  projects,
   teamMembers,
   users,
+  visibleProjects,
 } from '../database/schema'
 import { HrAccessService } from '../common/hr-access.service'
 import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.service'
@@ -1362,10 +1362,13 @@ export class DocumentsService {
       // directly matches the stricter precedent already established by
       // `UsersAccessService.isJuniorUnderLegendSubject` (the other
       // established project-lookup for the SAME kind of relationship).
+      // task-project-draft-status: sourced from `visibleProjects` — a DRAFT
+      // or REJECTED project's senior must not extend document visibility to
+      // "teammates" any more than an archived one does.
       const seniorProjects = await this.db.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(inArray(projects.seniorId, seniorIds), isNull(projects.archivedAt)))
+        .select({ id: visibleProjects.id })
+        .from(visibleProjects)
+        .where(inArray(visibleProjects.seniorId, seniorIds))
       if (seniorProjects.length > 0) {
         const projectIds = seniorProjects.map((p) => p.id)
         const juniors = await this.db.db

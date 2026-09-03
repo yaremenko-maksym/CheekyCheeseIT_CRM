@@ -38,6 +38,7 @@ import {
   validateTransactionViaAPI,
   createPayoutRequestViaAPI,
   onboardDropViaAPI,
+  signContractAndAcceptTosViaAPI,
   ensureCompanyWalletViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
@@ -154,6 +155,14 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
     // Use seniorB to avoid cross-test interference if the 50/50 cleanup lags.
     const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorB)
     if (!senior) throw new Error('Seed senior not found')
+
+    // task-project-draft-status: seniorB (dmytro) is seeded READY_TO_SIGN,
+    // not SIGNED (deliberately, for the onboarding-wizard specs) —
+    // `createDropProjectViaAPI` below now auto-approves the DRAFT project
+    // as its invited senior, which needs him past OnboardingGuard first.
+    // `onboardDropViaAPI` would 409 on him (its mark-ready step requires
+    // DRAFT, he's already one step past it); this is the tail-only helper.
+    await signContractAndAcceptTosViaAPI(page, SEED_EMAILS.seniorB)
 
     await patchUserSharePercentViaAPI(page, senior.id, { seniorSharePercent: 60 })
 
