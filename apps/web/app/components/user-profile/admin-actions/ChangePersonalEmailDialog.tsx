@@ -166,9 +166,12 @@ export function ChangePersonalEmailDialog({
   // precedent: the raw NBSP character in `terminal.tsx`) between
   // "подтвердил" and "его.", keeping them on the same line. Does not touch
   // the change-branch sentence below, which already wraps cleanly at every
-  // width this dialog is measured at — adding the SAME nbsp there for
-  // symmetry was measured and rejected: it collapses that sentence from 3
-  // lines to 2 at 375px, which is a layout change with no defect to fix.
+  // width this dialog is measured at.
+  // Does not touch the change-branch sentence below: at 375px it wraps to
+  // four lines ending on «приглашение.» — a full content word at 95px of a
+  // 325px measure, not an orphan. The same nbsp there changes nothing
+  // (measured: 4 lines with it, 4 without — `text-wrap: wrap` is greedy, so
+  // an nbsp can only hold the line count or raise it, never lower it).
   const description = isAdding
     ? 'На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес.'
     : isRemoval
