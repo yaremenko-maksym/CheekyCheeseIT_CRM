@@ -135,6 +135,39 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
     expect(project?.dropApprovalPending).toBe(false)
   })
 
+  it('findAll: called with ONLY the DRAFT project ids, not the ACTIVE ones — and the ACTIVE sibling gets both booleans false regardless of what the map says', async () => {
+    // The mock's own getPendingApproverIds would happily report SENIOR_ID as
+    // pending for ANY id it's asked about that matches PROJECT_ID — the
+    // point of this test is proving findAll only ever ASKS about DRAFT ids
+    // in the first place (mutating `[project.id]` to `[]` in the call, or
+    // forcing the `status === 'DRAFT'` gate to `true`, must fail this).
+    const activeRow = {
+      ...draftProject(),
+      id: 'active-proj-1',
+      status: 'ACTIVE' as const,
+    }
+    const { service, approvals } = buildService([draftProject(), activeRow])
+
+    const result = await service.findAll(sessionFor(ADMIN_ID, 'ADMIN'), { archived: false })
+
+    expect(approvals.getPendingApproverIds).toHaveBeenCalledWith('PROJECT', [PROJECT_ID])
+    const active = result.find((p) => p.id === 'active-proj-1')
+    expect(active?.seniorApprovalPending).toBe(false)
+    expect(active?.dropApprovalPending).toBe(false)
+  })
+
+  it('findAll: dropApprovalPending is false when the project has no drop at all, even if the (mocked, permissive) map would otherwise say the drop id is pending', async () => {
+    // dropId: null here — !!project.dropId must gate this to false BEFORE
+    // the map is even consulted for a drop id that does not exist.
+    const seniorOnlyProject = { ...draftProject(), dropId: null, drop: null }
+    const { service } = buildService([seniorOnlyProject])
+
+    const result = await service.findAll(sessionFor(ADMIN_ID, 'ADMIN'), { archived: false })
+
+    const project = result.find((p) => p.id === PROJECT_ID)
+    expect(project?.dropApprovalPending).toBe(false)
+  })
+
   it('findAll: getPendingApproverIds is never called when the filtered list has no DRAFT project', async () => {
     const activeRow = { ...draftProject(), status: 'ACTIVE' as const }
     const { service, approvals } = buildService([activeRow])
@@ -278,6 +311,63 @@ describe('ProjectsService.create — seniorApprovalPending/dropApprovalPending c
 
     expect(result.seniorApprovalPending).toBe(true)
     expect(result.dropApprovalPending).toBe(true)
+    expect(approvals.getPendingApproverIds).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectsService.update — seniorApprovalPending/dropApprovalPending on a DRAFT project (SPEC-M-2)', () => {
+  function buildService(projectRow: ReturnType<typeof draftProject>) {
+    const db = {
+      db: {
+        query: {
+          projects: { findFirst: async () => projectRow },
+          teamMembers: { findFirst: async () => null, findMany: async () => [] },
+        },
+        update: (_table: unknown) => ({
+          set: (_values: Record<string, unknown>) => ({
+            where: (_expr: unknown) => Promise.resolve(),
+          }),
+        }),
+      },
+    }
+    const auditLog = { record: vi.fn(async () => undefined) }
+    const hrAccess = new HrAccessService(db as never)
+    const approvals = {
+      getPendingApproverIds: vi.fn(async (_subjectType: string, ids: string[]) => {
+        const map = new Map<string, Set<string>>()
+        if (ids.includes(PROJECT_ID)) map.set(PROJECT_ID, new Set([SENIOR_ID, DROP_ID]))
+        return map
+      }),
+    }
+    const service = new ProjectsService(
+      db as never,
+      auditLog as never,
+      {} as never,
+      hrAccess,
+      approvals as never,
+    )
+    return { service, approvals }
+  }
+
+  it('ADMIN patches a DRAFT project (e.g. renames it before anyone confirmed) — the response carries the live pending booleans, called with exactly [id]', async () => {
+    const { service, approvals } = buildService(draftProject())
+
+    const result = await service.update(
+      PROJECT_ID,
+      { name: 'Renamed while still DRAFT' },
+      sessionFor(ADMIN_ID, 'ADMIN'),
+    )
+
+    expect(approvals.getPendingApproverIds).toHaveBeenCalledWith('PROJECT', [PROJECT_ID])
+    expect(result.seniorApprovalPending).toBe(true)
+    expect(result.dropApprovalPending).toBe(true)
+  })
+
+  it('getPendingApproverIds is never called when the patched project is ACTIVE (same guard as findOne/findAll)', async () => {
+    const { service, approvals } = buildService({ ...draftProject(), status: 'ACTIVE' as const })
+
+    await service.update(PROJECT_ID, { name: 'Renamed' }, sessionFor(ADMIN_ID, 'ADMIN'))
+
     expect(approvals.getPendingApproverIds).not.toHaveBeenCalled()
   })
 })

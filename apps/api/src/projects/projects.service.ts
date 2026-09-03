@@ -316,7 +316,7 @@ export class ProjectsService {
       // only ever meaningful for a DRAFT project.
       seniorApprovalPending:
         project.status === 'DRAFT' &&
-        (pendingApproverIdsByProjectId.get(project.id)?.has(project.seniorId ?? '') ?? false),
+        (pendingApproverIdsByProjectId.get(project.id)?.has(project.seniorId) ?? false),
       dropApprovalPending:
         project.status === 'DRAFT' &&
         !!project.dropId &&

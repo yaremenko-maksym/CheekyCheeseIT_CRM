@@ -212,6 +212,9 @@ describe('ProjectsService.approveDraft / rejectDraft — applyApprovalAggregate 
     // dismiss-fix and `ProjectRow`'s pendingCaption both build on.
     expect(result.seniorApprovalPending).toBe(false)
     expect(result.dropApprovalPending).toBe(true)
+    // SPEC-M-2: pins the exact call args loadForResponse's own guard makes
+    // — mutating `[project.id]` to `[]` in that call must fail this.
+    expect(approvals.getPendingApproverIds).toHaveBeenCalledWith('PROJECT', [PROJECT_ID])
   })
 
   it('APPROVED aggregate (every invited approver confirmed) flips the project to ACTIVE', async () => {
