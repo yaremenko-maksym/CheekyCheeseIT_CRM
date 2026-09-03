@@ -1,10 +1,12 @@
 import { Link } from '@tanstack/react-router'
+import { Clock, XCircle } from 'lucide-react'
 import type { ProjectDto } from '@crm/shared'
 import type { Role } from '@/lib/route-access'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLogo } from './ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { ProjectApprovalActions } from './ProjectApprovalActions'
 
 export type ProjectRowProps = {
   project: ProjectDto
@@ -15,6 +17,15 @@ export type ProjectRowProps = {
    * Omitted / other roles → no change to the existing layout.
    */
   viewerRole?: Role | undefined
+  /**
+   * task-project-status-filter-ui. The current viewer's own user id — used
+   * ONLY to decide whether to render the inline Confirm/Reject actions on a
+   * DRAFT project (`viewerId === project.seniorId || project.dropId`, both
+   * already role-masked by the backend, so this can never light up for a
+   * viewer who isn't actually the invited approver). Omitted → actions
+   * never render (defensive default, matches `viewerRole` above).
+   */
+  viewerId?: string | undefined
 }
 
 function getInitials(name: string) {
@@ -46,8 +57,34 @@ const DATE_FORMAT_OPTS: Intl.DateTimeFormatOptions = {
  *    `project-card-${id}` testid via the wrapper in the parent route so
  *    existing specs don't break.
  */
-export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
+export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
   const isArchived = !!project.archivedAt
+  // task-project-status-filter-ui (design spec §2/§7/§8). Draft/rejected are
+  // a SEPARATE axis from archival (business spec §4.2 — never mixed): a
+  // DRAFT/REJECTED project is never archived, so these three are mutually
+  // exclusive with `isArchived` in practice, but `isArchived` is still
+  // checked first below (defensive — matches this component's existing
+  // priority for the badge column).
+  const isPending = project.status === 'DRAFT'
+  const isRejected = project.status === 'REJECTED'
+  // Design spec §7: whoever the viewer is, show it — showing it for the
+  // approver's OWN pending project too is redundant per the design's own
+  // note ("можно не показывать вовсе") but not wrong, and keeping ONE
+  // unconditional render path (no viewerRole branch) is simpler to reason
+  // about and test than suppressing it for exactly one audience.
+  const pendingCaption = isPending
+    ? project.dropId
+      ? `от ${project.seniorName} и дропа`
+      : `от ${project.seniorName}`
+    : null
+  // §Что сделать item 3: the card's own Confirm/Reject — for whoever reaches
+  // this row AND is actually the invited approver (identity check, not role
+  // check — correctly covers the admin-as-senior edge case too). Both ids
+  // are already backend-masked per viewer (null for JUNIOR, null for a
+  // non-privileged viewer of an admin-owned project), so this can never
+  // light up for someone who isn't genuinely the approver.
+  const canAct =
+    isPending && !!viewerId && (viewerId === project.seniorId || viewerId === project.dropId)
   // §2b: effective share % for SENIOR viewer.
   const seniorSharePct =
     viewerRole === 'SENIOR'
@@ -63,10 +100,17 @@ export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
       data-testid={`project-row-${project.id}`}
       data-project-id={project.id}
       data-archived={isArchived ? 'true' : undefined}
+      data-project-status={project.status}
       className={cn(
         'group/row relative rounded-md border border-transparent transition-colors',
         'hover:bg-muted/40 hover:border-border/40',
-        isArchived && 'opacity-60 hover:opacity-80',
+        // §8: REJECTED reads the same "historical, awaiting manual cleanup"
+        // treatment archived already has. §7: DRAFT is the opposite —
+        // requires attention NOW, so it stays full-opacity and gets a thin
+        // accent ring instead (same pattern as invoice-card.tsx's
+        // "ожидается ваша подпись").
+        (isArchived || isRejected) && 'opacity-60 hover:opacity-80',
+        isPending && 'ring-1 ring-amber-500/20',
       )}
     >
       <div
@@ -88,7 +132,15 @@ export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
                 aria-hidden
                 className={cn(
                   'h-1.5 w-1.5 rounded-full shrink-0',
-                  isArchived ? 'bg-muted-foreground/40' : 'bg-emerald-500',
+                  // §7/§8: DRAFT/REJECTED are a third/fourth dot value —
+                  // same priority order as the row-level opacity/ring above.
+                  isArchived
+                    ? 'bg-muted-foreground/40'
+                    : isPending
+                      ? 'bg-amber-500'
+                      : isRejected
+                        ? 'bg-destructive/60'
+                        : 'bg-emerald-500',
                 )}
               />
               {/* Stretched-link pattern: ::before fills the row so any click in
@@ -229,7 +281,7 @@ export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
         </div>
 
         {/* Status / badges column */}
-        <div className="flex flex-col items-end gap-1">
+        <div className="flex max-w-full flex-col items-end gap-1">
           {isArchived ? (
             <Badge
               variant="outline"
@@ -237,6 +289,52 @@ export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
             >
               В архиве
             </Badge>
+          ) : isPending ? (
+            <>
+              <Badge
+                variant="outline"
+                className="gap-1 border-amber-500/30 bg-amber-500/20 text-[10px] text-amber-300"
+                data-testid={`project-row-${project.id}-status-pending`}
+              >
+                <Clock className="h-3 w-3" aria-hidden />
+                Ждёт подтверждения
+              </Badge>
+              {pendingCaption && (
+                <p
+                  className="max-w-full truncate text-[11px] text-amber-300/80"
+                  title={pendingCaption}
+                >
+                  {pendingCaption}
+                </p>
+              )}
+              {canAct && (
+                <div className="mt-1">
+                  <ProjectApprovalActions
+                    projectId={project.id}
+                    companyName={project.companyName}
+                  />
+                </div>
+              )}
+            </>
+          ) : isRejected ? (
+            <>
+              <Badge
+                variant="outline"
+                className="gap-1 border-destructive/30 bg-destructive/10 text-[10px] text-destructive"
+                data-testid={`project-row-${project.id}-status-rejected`}
+              >
+                <XCircle className="h-3 w-3" aria-hidden />
+                Отклонено
+              </Badge>
+              {project.rejectionReason && (
+                <p
+                  className="max-w-full truncate text-[11px] text-destructive/90"
+                  title={project.rejectionReason}
+                >
+                  «{project.rejectionReason}»
+                </p>
+              )}
+            </>
           ) : (
             <Badge variant="outline" className="text-[10px]">
               {project.domain}
