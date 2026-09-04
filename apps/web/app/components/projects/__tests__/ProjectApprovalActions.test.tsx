@@ -101,6 +101,20 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(reject).toHaveTextContent('Отклонить')
   })
 
+  it('mutation-gate (ProjectApprovalActions.tsx:179/183): the error paragraph is ABSENT in the normal, at-rest state — approveError/rejectError must actually gate on isError, not render unconditionally', () => {
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+
+    // Both `approve.isError && !isAlreadyRespondedError(approve.error)` (and
+    // the reject-side twin) collapse to the SAME wrong value — true — under
+    // either a forced-true condition or a `&&`→`||` swap, because with
+    // `error: null` (this file's own beforeEach default)
+    // `isAlreadyRespondedError(null)` is false, so `!false` is already true
+    // on its own; only the `isError` operand tells the two states apart.
+    // This is the one assertion that distinguishes "correctly gated" from
+    // "always shows a fallback error nobody asked for".
+    expect(screen.queryByText(getUserFacingErrorMessage(null))).not.toBeInTheDocument()
+  })
+
   it('clicking Confirm calls approve.mutate with the project id', async () => {
     const user = userEvent.setup()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
@@ -292,6 +306,15 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
 
     expect(await screen.findByText('Отклонить проект «Acme Corp»')).toBeInTheDocument()
+  })
+
+  it('mutation-gate (ProjectApprovalActions.tsx:183): with the dialog open and no error, the error paragraph is ABSENT — rejectError must actually gate on isError, not render unconditionally', async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+    await screen.findByText('Отклонить проект «Acme»')
+
+    expect(screen.queryByText(getUserFacingErrorMessage(null))).not.toBeInTheDocument()
   })
 
   it("SR-L-2 (PR #646 fix-round 1): the reason field has maxLength=500, matching the schema's own .max(500) — caught at the field, not only as a post-send 400", async () => {

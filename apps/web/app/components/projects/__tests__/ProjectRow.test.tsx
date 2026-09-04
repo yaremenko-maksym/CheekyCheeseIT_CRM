@@ -220,6 +220,15 @@ describe('ProjectRow — clickable senior/junior names', () => {
 const DROP_ID = '00000000-0000-0000-0000-0000000000e1'
 
 describe('ProjectRow — status badge (design spec §7/§8)', () => {
+  it('mutation-gate (COPY-H-3 overlap-test testids): senior-column and rate-column carry the templated project id, not an empty string — these two testids exist ONLY for the E2E overlap spec, invisible to the mutation gate per mutation-gate-integration-specs.md, so this unit double is what actually kills a StringLiteral mutant on either line', async () => {
+    const project = makeProject({ status: 'ACTIVE' })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}`)
+    expect(screen.getByTestId(`project-row-${project.id}-senior-column`)).toBeInTheDocument()
+    expect(screen.getByTestId(`project-row-${project.id}-rate-column`)).toBeInTheDocument()
+  })
+
   it('ACTIVE, non-archived: renders the domain badge, amber/destructive branches absent', async () => {
     const project = makeProject({ status: 'ACTIVE', domain: 'FinTech' })
     renderProjectRow(project)

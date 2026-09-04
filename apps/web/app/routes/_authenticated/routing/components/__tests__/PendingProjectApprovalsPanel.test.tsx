@@ -380,6 +380,54 @@ describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY
     expect(screen.getByText('Ваша доля: 15% · синьор: Senior Alpha')).toBeInTheDocument()
   })
 
+  it('mutation-gate (visiblePending, line ~129/133): a DROP viewer who is neither senior NOR the invited drop on a project stays fail-open VISIBLE, even when that OTHER drop is done deciding — proves viewerIsDrop is an actual identity check, not always-true', () => {
+    mockUser = { id: 'drop-1' }
+    // dropApprovalPending: false would HIDE this item if viewerIsDrop wrongly
+    // matched (dropStillPending gate) — the viewer is neither this project's
+    // senior (default fixture senior is 'senior-1') nor its drop ('drop-2'),
+    // so the only correct outcome is the fail-open `return true` at the
+    // bottom of the filter, independent of this project's approval state.
+    const p1 = project({
+      id: 'p1',
+      dropId: 'drop-2',
+      dropName: 'Someone Else',
+      seniorApprovalPending: true,
+      dropApprovalPending: false,
+    })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    renderPanel()
+
+    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
+    // mutation-gate (COPY-M-6 caption, line ~207): the second ternary's own
+    // condition (`user?.id === project.seniorId`) is only ever reached when
+    // the FIRST one is false — a viewer who is neither role must see NEITHER
+    // caption, not the senior one by default.
+    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
+  })
+
+  it('mutation-gate (COPY-M-6 caption, line ~209): effectiveSeniorSharePercent null renders the em-dash fallback, not an empty string', () => {
+    mockUser = { id: SENIOR_ID }
+    const p1 = project({ id: 'p1', effectiveSeniorSharePercent: null, seniorApprovalPending: true })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    renderPanel()
+
+    expect(screen.getByText('Ваша доля: —%')).toBeInTheDocument()
+  })
+
+  it('mutation-gate (visiblePending, line ~130/131): seniorApprovalPending/dropApprovalPending genuinely undefined (old cached DTO, fields never fetched) falls back to "still pending" — stays visible, same as ProjectRow.tsx\'s own `?? true` fallback', () => {
+    mockUser = { id: SENIOR_ID }
+    const p1 = project({ id: 'p1' })
+    // The `project()` fixture itself does not set these two fields — using
+    // it as-is (no override) is what makes them `undefined`, not `false`,
+    // distinguishing "?? true" (correct) from "&& true" or "?? false"
+    // (both of which would collapse `undefined` to a falsy/hidden result).
+    expect(p1.seniorApprovalPending).toBeUndefined()
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    renderPanel()
+
+    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
+  })
+
   it('COPY-M-6: a visible item for a SENIOR viewer shows their resolved share %, WITHOUT naming the drop (stays RBAC-masked either way)', () => {
     mockUser = { id: SENIOR_ID }
     const p1 = project({

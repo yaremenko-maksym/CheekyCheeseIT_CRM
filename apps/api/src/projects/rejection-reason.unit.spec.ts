@@ -378,6 +378,30 @@ describe('ProjectsService.rejectDraft — rejectionReason on the response (task-
     expect(result.status).toBe('REJECTED')
     expect(result.rejectionReason).toBeNull()
   })
+
+  it("mutation-gate (projects.service.ts:1068): the single-entry Map built from the reason this call just wrote is what loadForResponse actually reads — an ADMIN-role viewer (mechanism check: SR-M-5's ADMIN-only gate does NOT apply here, so a correctly- vs incorrectly-populated Map is finally observable) sees the EXACT reason text back, proving the Map, not an empty fallback, reached mapProject", async () => {
+    const projectRow = { ...rejectedProject(), status: 'DRAFT' as const }
+    const { service } = buildService(projectRow)
+
+    // ADMIN never actually calls rejectDraft as the deciding approver in
+    // production (rejectInTx would refuse a non-invited caller on a real
+    // DB) — this test's `approvals.rejectInTx` is mocked and accepts any
+    // caller, which is exactly what makes it a clean mechanism check: does
+    // `new Map([[id, reason]])` (projects.service.ts:1068) actually reach
+    // `mapProject` intact? A Stryker `ArrayDeclaration` mutant emptying that
+    // Map (`new Map([])` or the malformed `new Map([[]])`) is invisible to
+    // the SR-M-5 test above (SENIOR/DROP get null either way), but NOT to
+    // an ADMIN viewer, who passes the ADMIN-only gate and would see
+    // `undefined` instead of the real text if the Map lookup missed.
+    const result = await service.rejectDraft(
+      PROJECT_ID,
+      'Бюджет не подтверждён',
+      sessionFor(ADMIN_ID, 'ADMIN'),
+    )
+
+    expect(result.status).toBe('REJECTED')
+    expect(result.rejectionReason).toBe('Бюджет не подтверждён')
+  })
 })
 
 // CR-M-1 (PR #646 fix-round 1): update() was the one call site of the five
