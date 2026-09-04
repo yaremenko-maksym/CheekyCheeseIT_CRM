@@ -52,4 +52,6 @@ def test_verify_release_signature_shell_suite():
     # The money case from SR-H-2 must actually have RUN, not just "the
     # script happened to exit 0" (e.g. because every case silently no-opted).
     assert "revoked key's signature is rejected" in result.stdout
-    assert "5 passed, 0 failed" in result.stdout
+    # SR-L-6 (round 3)'s own money case, same reasoning.
+    assert "does NOT match via regex metacharacter" in result.stdout
+    assert "6 passed, 0 failed" in result.stdout

@@ -40,14 +40,20 @@
 #    (README.md "Деплой и линковка") can type plain `signal-cli link ...`
 #    / `signal-cli listGroups` instead of the full volume path.
 #
-# 4. Create $TMPDIR (default /data/tmp, see the Dockerfile's ENV) — SR-M-8
-#    (security review round 2, id 5107124812): the native-image binary's
-#    bundled sqlite-jdbc extracts+dlopen's a native .so there at startup,
-#    and docker-compose.yml's tmpfs /tmp is noexec (Docker's own default),
-#    which a dlopen from a noexec filesystem cannot survive. Created here,
-#    unconditionally (unlike step 1, which only runs when SIGNAL_DATA_DIR
-#    is configured) — the daemon needs a working native-lib extraction
-#    directory regardless of whether auto-update itself is set up.
+# 4. Create $TMPDIR/$SQLITE_TMPDIR/$SIGNAL_TMPDIR (default /data/tmp each,
+#    see the Dockerfile's ENV) — SR-M-8 (security review round 2, id
+#    5107124812), corrected by SR-H-4 (round 3, id 5108694371): the
+#    native-image binary extracts+dlopen's native .so files at startup
+#    (libsignal_jni for signal-cli itself, via the -Djava.io.tmpdir= argv
+#    flag signal_plus/signal.py now always passes; sqlite-jdbc's own via
+#    SQLITE_TMPDIR), and docker-compose.yml's tmpfs /tmp is noexec
+#    (Docker's own default), which a dlopen from a noexec filesystem cannot
+#    survive. Created here, unconditionally (unlike step 1, which only
+#    runs when SIGNAL_DATA_DIR is configured) — the daemon needs a working
+#    native-lib extraction directory regardless of whether auto-update
+#    itself is set up. All three env vars default to the same path, so
+#    this is usually one directory in practice, but each is created
+#    explicitly rather than assuming they coincide.
 set -eu
 
 GNUPGHOME="${GNUPGHOME:-/data/gnupg}"
@@ -56,7 +62,7 @@ mkdir -p "$GNUPGHOME"
 chmod 700 "$GNUPGHOME"
 gpg --batch --quiet --import /opt/signal-cli-pinned/asamk.gpg >/dev/null 2>&1 || true
 
-mkdir -p "${TMPDIR:-/data/tmp}"
+mkdir -p "${TMPDIR:-/data/tmp}" "${SQLITE_TMPDIR:-/data/tmp}" "${SIGNAL_TMPDIR:-/data/tmp}"
 
 if [ -n "${SIGNAL_DATA_DIR:-}" ]; then
   # SR-M-2 (PR #650 security review, id 5105061153): SIGNAL_DATA_DIR was

@@ -73,7 +73,13 @@ if [ "$GOOD_SIG_FOUND" -ne 1 ]; then
   exit 1
 fi
 
-if ! grep -q "^\[GNUPG:\] VALIDSIG ${FINGERPRINT} " "$STATUS_LOG"; then
+# SR-L-6 (PR #650 security review round 3, id 5108694371): ${FINGERPRINT}
+# used to be interpolated into a BRE grep PATTERN (no -F). A real 40-hex
+# fingerprint has no regex metacharacters, but "." IS one and IS in the
+# allowed alphabet nothing here validates against -- `-F` makes this an
+# exact fixed-string match regardless of what ends up in $3, instead of
+# relying on the value happening to be regex-safe by convention.
+if ! grep -qF -- "[GNUPG:] VALIDSIG ${FINGERPRINT} " "$STATUS_LOG"; then
   echo "signature is valid but NOT from the expected key ${FINGERPRINT}:" >&2
   cat "$STATUS_LOG" >&2
   exit 1

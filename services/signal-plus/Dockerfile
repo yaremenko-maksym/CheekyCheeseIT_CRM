@@ -199,26 +199,44 @@ ENV XDG_DATA_HOME=/data
 # specifically so it survives container recreation and stays writable even
 # under docker-compose.yml's `read_only: true`.
 ENV GNUPGHOME=/data/gnupg
-# SR-M-8 (PR #650 security review round 2, id 5107124812): docker-compose.yml's
-# `tmpfs: /tmp` is `noexec` (Docker's own default for `--tmpfs`; confirmed by
-# reproduction: mmap(PROT_EXEC)/dlopen of a file placed there fails with
-# EPERM/"Operation not permitted", not just direct script execution). The
-# native-image binary bundles sqlite-jdbc, which extracts and dlopen's a
-# native `libsqlitejdbc.so` at startup (confirmed by inspecting the real
-# v0.14.7 binary's own embedded strings: `SQLITE_TMPDIR`, `org.sqlite.tmpdir`,
-# and the resource path `org/sqlite/native/Linux/x86_64/libsqlitejdbc.so` are
-# all present) — that extraction target must NOT be the noexec `/tmp`.
-# SQLITE_TMPDIR is sqlite-jdbc's own, most specific override; TMPDIR is the
-# generic JVM/POSIX fallback (java.io.tmpdir defaults to reading it), set
-# too in case any other native-image component reads the generic variable
-# instead. Both point at the persistent volume, which carries no `noexec`
-# restriction anywhere in this project's compose config. This directory is
-# created by docker-entrypoint.sh on every boot (parallel to $GNUPGHOME).
-# NOT a substitute for /tmp itself staying noexec — see that finding's "не
-# ставить exec на весь /tmp" instruction; this redirects the ONE thing that
-# needs exec, nothing else moves off tmpfs.
+# SR-M-8 (PR #650 security review round 2, id 5107124812), CORRECTED by
+# SR-H-4 (round 3, id 5108694371): docker-compose.yml's `tmpfs: /tmp` is
+# `noexec` (Docker's own default for `--tmpfs`; confirmed by reproduction:
+# mmap(PROT_EXEC)/dlopen of a file placed there fails with EPERM/"Operation
+# not permitted", not just direct script execution). The native-image
+# binary extracts and dlopen's native `.so` files at startup under a
+# temp-directory convention -- that extraction target must NOT be the
+# noexec `/tmp`.
+#
+# SR-M-8's own premise here was WRONG: "java.io.tmpdir defaults to reading
+# TMPDIR" does not hold for this binary. Reproduced against the REAL
+# v0.14.7 binary in this exact hardening profile: with only TMPDIR/
+# SQLITE_TMPDIR set (no -D flag), signal-cli still failed with "Can't load
+# library: /tmp/libsignal.../libsignal_jni_amd64.so" -- it tried (and had
+# to fail) to extract libsignal_jni under noexec /tmp regardless of these
+# two env vars. The fix that actually works is signal_plus/signal.py
+# passing `-Djava.io.tmpdir=<SIGNAL_TMPDIR>` as the FIRST argv argument to
+# every signal-cli invocation (proven: the failure then changes to "User
+# ... is not registered", i.e. the library loaded and the process reached
+# the network) -- see that module's _run_signal_cli for the argv construction
+# and signal_plus/config.py for where SIGNAL_TMPDIR is read.
+#
+# TMPDIR/SQLITE_TMPDIR are kept below as a supplementary, narrower-scoped
+# redirect (sqlite-jdbc's OWN startup extraction, confirmed present by
+# inspecting the real v0.14.7 binary's embedded strings: `SQLITE_TMPDIR`,
+# `org.sqlite.tmpdir`, `org/sqlite/native/Linux/x86_64/libsqlitejdbc.so`)
+# -- genuinely useful for THAT specific extraction, just never the
+# mechanism for java.io.tmpdir/libsignal_jni the earlier comment claimed.
+# SIGNAL_TMPDIR is the one that matters for the argv flag above; all three
+# point at the same persistent-volume path by default, which carries no
+# `noexec` restriction anywhere in this project's compose config, and all
+# three directories are created by docker-entrypoint.sh on every boot
+# (parallel to $GNUPGHOME). NOT a substitute for /tmp itself staying
+# noexec — see that finding's "не ставить exec на весь /tmp" instruction;
+# this redirects the things that need exec, nothing else moves off tmpfs.
 ENV TMPDIR=/data/tmp
 ENV SQLITE_TMPDIR=/data/tmp
+ENV SIGNAL_TMPDIR=/data/tmp
 ENV PYTHONUNBUFFERED=1
 # Under docker-compose.yml's `read_only: true`, Python's default attempt to
 # cache .pyc bytecode alongside the installed package in site-packages would

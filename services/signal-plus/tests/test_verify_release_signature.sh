@@ -103,6 +103,22 @@ run_case "" 1 1 "$FPR" \
 run_case "$NO_GOODSIG_STATUS" 0 1 "$FPR" \
   "[RED  ] VALIDSIG present but GOODSIG absent (no bad tag either) is rejected -> red"
 
+# SR-L-6 (PR #650 security review round 3, id 5108694371): the fingerprint
+# argument used to be interpolated into a BRE grep PATTERN, not matched as a
+# fixed string. "." is a valid character in a hex fingerprint's alphabet as
+# far as this script ever checked, and in a BRE "." matches ANY single
+# character -- so a configured fingerprint that is NOT actually the real
+# one (last hex digit replaced by ".") would still grep-match the real
+# VALIDSIG line's actual last digit. THE money case: a wrong/mistyped
+# fingerprint arg is accepted as if it were correct.
+DOT_INSTEAD_OF_LAST_DIGIT="${FPR%?}."
+[ "$DOT_INSTEAD_OF_LAST_DIGIT" != "$FPR" ] || {
+  echo "test setup bug: DOT_INSTEAD_OF_LAST_DIGIT must differ from \$FPR" >&2
+  exit 2
+}
+run_case "$GOOD_STATUS" 0 1 "$DOT_INSTEAD_OF_LAST_DIGIT" \
+  "[RED  ] a fingerprint arg with a literal '.' where a digit should be does NOT match via regex metacharacter -> red"
+
 echo
 echo "== test_verify_release_signature.sh: $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
