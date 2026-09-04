@@ -1,0 +1,13 @@
+# Keeps the build context small AND stops any locally-created secret/state
+# file from ever being copied into an image layer, even if `docker build` is
+# run from a dirty local checkout. Mirrors the exclusions in .gitignore for
+# this directory.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.env
+state*.json
+data/
+.git/
