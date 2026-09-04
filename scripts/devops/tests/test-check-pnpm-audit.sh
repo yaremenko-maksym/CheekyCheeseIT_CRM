@@ -172,22 +172,40 @@ assert_red "an advisory with an unrecognized severity string fails loud, not sil
 
 # ── Cases: registry unreachable — retries, and gives up with a DISTINCT ──────
 # ── message from "output shape unrecognized" (security-review PR #536 ────────
-# ── round 3, MED-B). These invoke the guard with NO fixture args, so it goes ──
-# ── through the real `runRealAudit()` retry path — PNPM_AUDIT_CMD points that ──
-# ── path at fake-pnpm-audit.mjs (offline, deterministic) instead of a real ───
-# ── network call. PNPM_AUDIT_RETRY_DELAY_MS shrinks the backoff from seconds ──
-# ── to milliseconds so this test suite stays fast. ───────────────────────────
+# ── round 3, MED-B; budget widened by task-audit-gate-tolerance, ────────────
+# ── 2026-09-04 — 3 attempts -> 5, flat 5s delay -> growing 15/30/60/120s). ───
+# ── These invoke the guard with NO fixture args, so it goes through the real ──
+# ── `runRealAudit()` retry path — PNPM_AUDIT_CMD points that path at ────────
+# ── fake-pnpm-audit.mjs (offline, deterministic) instead of a real network ──
+# ── call. PNPM_AUDIT_RETRY_DELAY_MS shrinks the backoff from seconds to ─────
+# ── milliseconds (uniformly) so this test suite stays fast. ─────────────────
 FAKE_AUDIT="$SELF_DIR/lib/fake-pnpm-audit.mjs"
 
 # A registry that is down for the first 2 attempts and recovers on the 3rd
-# (this guard's own AUDIT_MAX_ATTEMPTS) must still succeed — retrying IS the
+# (well within the 5-attempt budget) must still succeed — retrying IS the
 # point, not merely detecting failure.
 RECOVERS_STATE="$WS/recovers-state"
 assert_green "registry down for 2 attempts, recovers on the 3rd (within retry budget) -> still succeeds" \
-  --contains "attempt 1/3" \
-  --contains "attempt 2/3" \
+  --contains "attempt 1/5" \
+  --contains "attempt 2/5" \
   --contains "OK: no unaccepted advisory" \
   -- env "PNPM_AUDIT_CMD=node $FAKE_AUDIT --state-file $RECOVERS_STATE --fail-count 2" \
+     "PNPM_AUDIT_RETRY_DELAY_MS=10" \
+     node "$GUARD"
+
+# A registry that is down for 4 attempts and only recovers on the 5th (the
+# LAST attempt in the widened budget) must still succeed — this is the exact
+# case the old 3-attempt budget could never have reached at all, and the
+# reason task-audit-gate-tolerance widened it: a registry this slow used to
+# be indistinguishable from a dead one.
+RecoversLateState="$WS/recovers-late-state"
+assert_green "registry down for 4 attempts, recovers on the 5th (last attempt of the widened budget) -> still succeeds" \
+  --contains "attempt 1/5" \
+  --contains "attempt 2/5" \
+  --contains "attempt 3/5" \
+  --contains "attempt 4/5" \
+  --contains "OK: no unaccepted advisory" \
+  -- env "PNPM_AUDIT_CMD=node $FAKE_AUDIT --state-file $RecoversLateState --fail-count 4" \
      "PNPM_AUDIT_RETRY_DELAY_MS=10" \
      node "$GUARD"
 
@@ -195,7 +213,7 @@ assert_green "registry down for 2 attempts, recovers on the 3rd (within retry bu
 # proves the retry loop does not waste time/attempts on the happy path.
 HEALTHY_STATE="$WS/healthy-state"
 assert_green "healthy registry on the first attempt is not retried at all" \
-  --not-contains "attempt 1/3" \
+  --not-contains "attempt 1/5" \
   --contains "OK: no unaccepted advisory" \
   -- env "PNPM_AUDIT_CMD=node $FAKE_AUDIT --state-file $HEALTHY_STATE --fail-count 0" \
      "PNPM_AUDIT_RETRY_DELAY_MS=10" \
@@ -206,11 +224,29 @@ assert_green "healthy registry on the first attempt is not retried at all" \
 # wording, which means something different (got JSON, wrong shape).
 DEAD_STATE="$WS/dead-state"
 assert_red "registry never recovers -> gives up after the retry budget with the DISTINCT 'could not reach' message" \
-  --contains "could not reach the package registry after 3 attempts" \
+  --contains "could not reach the package registry after 5 attempts" \
   --contains "NOT an unrecognized output shape" \
   --not-contains "no \`advisories\` object" \
   -- env "PNPM_AUDIT_CMD=node $FAKE_AUDIT --state-file $DEAD_STATE --always-fail" \
      "PNPM_AUDIT_RETRY_DELAY_MS=10" \
+     node "$GUARD"
+
+# ── Case: the DEFAULT (un-overridden) backoff actually GROWS across attempts ──
+# ── — 15s, 30s, 60s, 120s — not the flat 5s this guard shipped with ─────────
+# ── originally (task-audit-gate-tolerance, 2026-09-04). PNPM_AUDIT_RETRY_DELAY_MS ──
+# ── is deliberately left UNSET here so the guard computes its REAL production ──
+# ── delay values; PNPM_AUDIT_SKIP_SLEEP=1 skips actually waiting on them so ──
+# ── this stays a fast, deterministic assertion on the log output instead of ──
+# ── a ~3.75-minute sleep. ─────────────────────────────────────────────────────
+GROWTH_STATE="$WS/growth-state"
+assert_red "default (un-overridden) backoff grows 15000 -> 30000 -> 60000 -> 120000ms across the 5-attempt budget" \
+  --contains "retrying in 15000ms" \
+  --contains "retrying in 30000ms" \
+  --contains "retrying in 60000ms" \
+  --contains "retrying in 120000ms" \
+  --contains "could not reach the package registry after 5 attempts" \
+  -- env "PNPM_AUDIT_CMD=node $FAKE_AUDIT --state-file $GROWTH_STATE --always-fail" \
+     "PNPM_AUDIT_SKIP_SLEEP=1" \
      node "$GUARD"
 
 # ── Sanity: the REAL exceptions file this repo ships must itself be well-formed ──
