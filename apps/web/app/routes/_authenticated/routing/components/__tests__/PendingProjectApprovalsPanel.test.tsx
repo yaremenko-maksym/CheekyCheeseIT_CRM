@@ -428,6 +428,16 @@ describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY
     expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
   })
 
+  it("mutation-gate (visiblePending, line ~131): the SAME undefined-fallback check, but for a DROP viewer specifically — `viewerIsSenior` is checked FIRST (line 132) and short-circuits before dropStillPending is ever returned, so the senior-viewer test above never actually observes line 131's own `?? true` at all", () => {
+    mockUser = { id: 'drop-1' }
+    const p1 = project({ id: 'p1', dropId: 'drop-1', dropName: 'Drop One' })
+    expect(p1.dropApprovalPending).toBeUndefined()
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    renderPanel()
+
+    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
+  })
+
   it('COPY-M-6: a visible item for a SENIOR viewer shows their resolved share %, WITHOUT naming the drop (stays RBAC-masked either way)', () => {
     mockUser = { id: SENIOR_ID }
     const p1 = project({
