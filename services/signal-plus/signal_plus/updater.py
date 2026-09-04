@@ -497,6 +497,33 @@ def run_auto_update(
 
         new_current = install_release(archive_path, config.signal_data_dir, release.version)
 
+        def _roll_back_the_swap() -> None:
+            # Factored out (round 4, SR-L-10, id 5109138286): now called
+            # from TWO failure branches below (version mismatch, native
+            # library failing to load), not just one -- one place for the
+            # symlink-restore + extraction cleanup means they cannot drift
+            # apart from each other.
+            if previous_target is not None:
+                tmp_link = current_link.parent / ".current.tmp"
+                if tmp_link.is_symlink() or tmp_link.exists():
+                    tmp_link.unlink()
+                tmp_link.symlink_to(previous_target)
+                os.replace(tmp_link, current_link)
+            else:
+                current_link.unlink(missing_ok=True)
+            # SR-L-7 (PR #650 security review round 3, id 5108694371):
+            # install_release() already extracted the mismatched release
+            # into bin/<release.version>/ before either check below ran --
+            # rolling the `current` symlink back (above) does not remove
+            # those files, so a bad/mismatched extraction would otherwise
+            # accumulate on disk forever, one directory per failed attempt.
+            # Nothing points at it any more after the roll-back above (or
+            # ever did, in the first-install branch), so it is always safe
+            # to remove here.
+            shutil.rmtree(
+                Path(config.signal_data_dir) / "bin" / release.version, ignore_errors=True
+            )
+
         # SR-H-3 part 2 (task-650-fix-round-1.md, fix-round 2): the GPG
         # signature just verified proves AsamK signed THESE BYTES -- it says
         # nothing about whether those bytes are truthfully the version they
@@ -510,32 +537,59 @@ def run_auto_update(
         )
         actual_version = ((version_check.stdout or "") + (version_check.stderr or "")).strip()
         if release.version not in actual_version:
-            if previous_target is not None:
-                tmp_link = current_link.parent / ".current.tmp"
-                if tmp_link.is_symlink() or tmp_link.exists():
-                    tmp_link.unlink()
-                tmp_link.symlink_to(previous_target)
-                os.replace(tmp_link, current_link)
-            else:
-                current_link.unlink(missing_ok=True)
-            # SR-L-7 (PR #650 security review round 3, id 5108694371):
-            # install_release() already extracted the mismatched release
-            # into bin/<release.version>/ before this check ran -- rolling
-            # the `current` symlink back (above) does not remove those
-            # files, so a bad/mismatched extraction would otherwise
-            # accumulate on disk forever, one directory per failed attempt.
-            # Nothing points at it any more after the roll-back above (or
-            # ever did, in the first-install branch), so it is always safe
-            # to remove here.
-            shutil.rmtree(
-                Path(config.signal_data_dir) / "bin" / release.version, ignore_errors=True
-            )
+            _roll_back_the_swap()
             return UpdateOutcome(
                 attempted=True,
                 success=False,
                 reason=(
                     f"installed binary reports {actual_version!r}, expected "
                     f"{release.version!r} -- rolled back"
+                ),
+            )
+
+        # SR-L-10 (PR #650 security review round 4, id 5109138286): the
+        # --version check above proves the binary REPORTS the right
+        # version, but --version alone never proves it can actually LOAD
+        # its native libraries under this environment's hardening --
+        # --version does not need to (SR-H-4, round 3, id 5108694371, is
+        # exactly why the OLD CI smoke test using --version could not catch
+        # a native-library-loading regression there either, until SR-M-9
+        # rewrote it). `listGroups` against the CONFIGURED account
+        # (config.signal_account -- the real one, not a fake CI-only
+        # number) does load the library, with the same
+        # -Djava.io.tmpdir=<SIGNAL_TMPDIR> flag signal_plus/signal.py's
+        # _run_signal_cli always adds -- run here against new_current
+        # specifically (not config.signal_cli_bin, which only
+        # coincidentally already points at the same file by convention,
+        # see .env.example's SIGNAL_CLI_BIN comment -- this must prove the
+        # ACTUAL new binary loads, regardless of whether that convention is
+        # followed). "is not registered" is an ACCEPTABLE outcome here (it
+        # proves the library loaded and the process reached the network --
+        # the ordinary signal every real invocation of this account would
+        # produce if it were not linked yet); "Can't load library" is not,
+        # and rolls back exactly like a version mismatch.
+        load_check = run(
+            [
+                str(new_current),
+                f"-Djava.io.tmpdir={config.signal_tmpdir}",
+                "-a",
+                config.signal_account,
+                "listGroups",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        load_output = (load_check.stdout or "") + (load_check.stderr or "")
+        if "Can't load library" in load_output:
+            _roll_back_the_swap()
+            return UpdateOutcome(
+                attempted=True,
+                success=False,
+                reason=(
+                    f"installed binary reports the correct version "
+                    f"({actual_version!r}) but failed to load its native "
+                    f"library -- rolled back: {load_output.strip()!r}"
                 ),
             )
 

@@ -126,10 +126,22 @@ jobs:
       #      signal_plus/signal.py's own module docstring cites
       #      App.java's `initManagerFromAccount`), so a failure to load is
       #      now something this step can actually observe.
-      # The -Djava.io.tmpdir=<SIGNAL_TMPDIR value> flag is included
-      # explicitly here, matching (not reimplementing) the exact argv shape
-      # signal_plus/signal.py's _run_signal_cli always constructs -- this
-      # smoke test is exercising that real shape, not a hand-rolled one.
+      #
+      # SR-L-9 (PR #650 security review round 4, id 5109138286): the round-3
+      # version above hand-typed `signal-cli -Djava.io.tmpdir=/data/tmp -a
+      # +15550000000 listGroups`, which this comment claimed "matches, does
+      # not reimplement" signal_plus/signal.py's own argv construction --
+      # but a hand-typed copy is exactly a reimplementation, and could
+      # silently drift from the real one (e.g. if SIGNAL_TMPDIR's default
+      # ever changed, this literal `/data/tmp` would not). Runs the actual
+      # application entry point instead -- `signal-plus --groups` (the
+      # `signal_plus.cli:main` console script from pyproject.toml, same one
+      # `CMD ["signal-plus"]` in the Dockerfile launches for the real
+      # daemon) -- against SIGNAL_ACCOUNT/SIGNAL_GROUP_ID's own placeholder
+      # values from `.env.example`. This makes signal_plus/signal.py's
+      # `_run_signal_cli` build the ENTIRE argv itself, flag included, so
+      # this step now genuinely exercises the real code path, not a parallel
+      # one that merely looks like it.
       - name: Smoke-test under the real hardening profile (docker compose run)
         working-directory: services/signal-plus
         env:
@@ -138,8 +150,8 @@ jobs:
           cp .env.example .env
 
           SMOKE_OUTPUT="$(docker compose -p signal-plus-ci run --rm signal-plus \
-            signal-cli -Djava.io.tmpdir=/data/tmp -a +15550000000 listGroups 2>&1)" || true
-          echo "signal-cli listGroups, fake account (under read_only+tmpfs+cap_drop:ALL+no-new-privileges, via the REAL entrypoint): $SMOKE_OUTPUT"
+            signal-plus --groups 2>&1)" || true
+          echo "signal-plus --groups, placeholder account from .env.example (under read_only+tmpfs+cap_drop:ALL+no-new-privileges, via the REAL entrypoint and the REAL application argv construction): $SMOKE_OUTPUT"
 
           if printf '%s' "$SMOKE_OUTPUT" | grep -qF "Can't load library"; then
             echo "::error::native library failed to load under the hardening profile -- $SMOKE_OUTPUT"
@@ -147,7 +159,7 @@ jobs:
             exit 1
           fi
           if ! printf '%s' "$SMOKE_OUTPUT" | grep -qF "is not registered"; then
-            echo "::error::expected the fake account to reach signal-cli's own 'is not registered' check (proof the native library loaded and the process reached the network) -- got: $SMOKE_OUTPUT"
+            echo "::error::expected the placeholder account (.env.example's SIGNAL_ACCOUNT) to reach signal-cli's own 'is not registered' check (proof the native library loaded and the process reached the network) -- got: $SMOKE_OUTPUT"
             docker compose -p signal-plus-ci down -v
             exit 1
           fi

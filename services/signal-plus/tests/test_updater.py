@@ -693,9 +693,12 @@ def _fake_http_get_factory(archive_bytes: bytes, sig_stdout: str):
 
 
 def _fake_run_gpg_and_version(expected_version: str):
-    """Routes `gpg --verify` to a passing status and any `<binary> --version`
-    call (SR-H-3's post-install check) to a matching version string --
-    shared by tests where the update is expected to actually succeed.
+    """Routes `gpg --verify` to a passing status, any `<binary> --version`
+    call (SR-H-3's post-install check) to a matching version string, and
+    any `listGroups` call (SR-L-10's post-install native-library-load
+    check, round 4 id 5109138286) to a successful-load shape ("is not
+    registered" -- an accepted proof of loading, not a failure) -- shared
+    by tests where the update is expected to actually succeed.
     """
 
     def fake_run(argv, **kwargs):
@@ -703,6 +706,10 @@ def _fake_run_gpg_and_version(expected_version: str):
             return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
         if "--version" in argv:
             return subprocess.CompletedProcess(argv, 0, f"signal-cli {expected_version}\n", "")
+        if "listGroups" in argv:
+            return subprocess.CompletedProcess(
+                argv, 1, "", "User +380501234567 is not registered.\n"
+            )
         raise AssertionError(f"unexpected run() call: {argv}")
 
     return fake_run
@@ -900,6 +907,121 @@ def test_run_auto_update_removes_current_when_version_mismatch_on_first_ever_ins
     # above -- the mismatched extraction under bin/0.14.7/ must not survive
     # a version-mismatch rollback either, first-ever-install or not.
     assert not (config.signal_data_dir / "bin" / "0.14.7").exists()
+
+
+# ---------------------------------------------------------------------------
+# SR-L-10 (PR #650 security review round 4, id 5109138286): the --version
+# check above proves the swapped-in binary REPORTS the right version, but
+# --version never needs to load libsignal_jni at all (SR-H-4, round 3, id
+# 5108694371) -- so on its own it never actually proved the update is safe
+# to trust in THIS environment's hardening. A second, separate check now
+# runs a real subcommand (listGroups) that DOES load the library.
+# ---------------------------------------------------------------------------
+
+
+def test_run_auto_update_rolls_back_when_the_new_binary_reports_the_right_version_but_cannot_load_its_library(
+    config, tmp_path
+):
+    old_archive = tmp_path / "old.tar.gz"
+    _make_native_archive(old_archive, content=b"trusted-old-binary")
+    old_current = install_release(old_archive, config.signal_data_dir, "0.14.7")
+    assert old_current.resolve().read_bytes() == b"trusted-old-binary"
+
+    new_archive_bytes = tmp_path.joinpath("scratch.tar.gz")
+    _make_native_archive(new_archive_bytes, content=b"cannot-load-library-binary")
+    payload = _releases_api_payload(**{"tag_name": "v0.15.0"})
+    for asset in payload["assets"]:
+        asset["name"] = asset["name"].replace("0.14.7", "0.15.0")
+        asset["browser_download_url"] = asset["browser_download_url"].replace("0.14.7", "0.15.0")
+
+    def fake_http_get(url):
+        if "releases/latest" in url:
+            return json.dumps(payload).encode()
+        if url.endswith(".asc"):
+            return b"signature-bytes"
+        return new_archive_bytes.read_bytes()
+
+    def fake_run(argv, **kwargs):
+        if argv[0] == "gpg":
+            return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+        if "--version" in argv:
+            # Version check PASSES -- the announced version is what the
+            # binary reports. Isolates this test from SR-H-3 part 2's own
+            # (already-covered) version-mismatch rollback path.
+            return subprocess.CompletedProcess(argv, 0, "signal-cli 0.15.0\n", "")
+        if "listGroups" in argv:
+            # The reviewer's own reproduction shape (SR-H-4): the native
+            # library cannot be dlopen'd under this hardening profile.
+            return subprocess.CompletedProcess(
+                argv,
+                1,
+                "",
+                "Can't load library: /tmp/libsignal16589052033302797295/libsignal_jni_amd64.so\n",
+            )
+        raise AssertionError(f"unexpected run() call: {argv}")
+
+    state = State(installed_version="0.14.7")
+    outcome = run_auto_update(
+        config,
+        state,
+        today=date(2026, 9, 3),
+        http_get=fake_http_get,
+        run=fake_run,
+        tmp_dir=tmp_path / "downloads",
+    )
+
+    assert outcome.attempted is True
+    assert outcome.success is False
+    assert "load" in outcome.reason
+    # Rolled back exactly like a version mismatch: `current` points at the
+    # TRUSTED old binary again, and the bad extraction is not left behind.
+    current = config.signal_data_dir / "bin" / "current"
+    assert current.resolve().read_bytes() == b"trusted-old-binary"
+    assert not (config.signal_data_dir / "bin" / "0.15.0").exists()
+
+
+def test_run_auto_update_load_check_argv_matches_signal_py_exactly(config, tmp_path):
+    # "Тест на argv" (task file, round 4): the load-check must run the
+    # SAME argv shape signal_plus/signal.py's _run_signal_cli always
+    # builds -- flag first, then -a <account>, then the subcommand -- not
+    # a close-but-not-quite hand-rolled version (see SR-L-9, same round,
+    # for why "close but hand-rolled" is itself the class of bug here).
+    archive_bytes = tmp_path.joinpath("scratch.tar.gz")
+    _make_native_archive(archive_bytes, content=b"new-version-binary")
+    http_get = _fake_http_get_factory(archive_bytes.read_bytes(), _gpg_status_output(FINGERPRINT))
+
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        if argv[0] == "gpg":
+            return subprocess.CompletedProcess(argv, 0, _gpg_status_output(FINGERPRINT), "")
+        if "--version" in argv:
+            return subprocess.CompletedProcess(argv, 0, "signal-cli 0.14.7\n", "")
+        if "listGroups" in argv:
+            return subprocess.CompletedProcess(argv, 0, "group.abc123==  A Group\n", "")
+        raise AssertionError(f"unexpected run() call: {argv}")
+
+    outcome = run_auto_update(
+        config,
+        State(installed_version="0.14.6"),
+        today=date(2026, 9, 3),
+        http_get=http_get,
+        run=fake_run,
+        tmp_dir=tmp_path / "downloads",
+    )
+    assert outcome.success is True
+
+    load_calls = [c for c in calls if "listGroups" in c]
+    assert len(load_calls) == 1
+    new_current = str(config.signal_data_dir / "bin" / "current")
+    assert load_calls[0] == [
+        new_current,
+        f"-Djava.io.tmpdir={config.signal_tmpdir}",
+        "-a",
+        config.signal_account,
+        "listGroups",
+    ]
 
 
 def test_run_auto_update_skips_when_already_attempted_today(config, tmp_path):

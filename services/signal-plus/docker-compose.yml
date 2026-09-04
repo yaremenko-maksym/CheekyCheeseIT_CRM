@@ -67,19 +67,36 @@ services:
     cap_drop:
       - ALL
     tmpfs:
-      # SR-M-8 (security review round 2, id 5107124812) corrected this
-      # comment's earlier claim: this /tmp is `noexec` (Docker's own
-      # default for `--tmpfs`, reproduced by direct test — mmap(PROT_EXEC)/
-      # dlopen of a file placed here fails with EPERM), and the
-      # native-image binary DOES need to dlopen a native .so at startup
-      # (sqlite-jdbc's bundled libsqlitejdbc.so — confirmed by inspecting
-      # the real binary's own embedded strings, not assumed). That
-      # extraction is redirected to the persistent volume instead
-      # (Dockerfile's `TMPDIR`/`SQLITE_TMPDIR` ENV, created by
-      # docker-entrypoint.sh) — /tmp itself stays writable+noexec here for
-      # whatever ordinary temp-file use the process (Python's own, or
-      # signal-cli's non-executable scratch files) still needs, without
-      # being a code-execution surface for anything landing on it.
+      # SR-M-8 (round 2, id 5107124812) corrected this comment's earlier
+      # claim: this /tmp is `noexec` (Docker's own default for `--tmpfs`,
+      # reproduced by direct test — mmap(PROT_EXEC)/dlopen of a file placed
+      # here fails with EPERM), and the native-image binary DOES need to
+      # dlopen native .so files at startup — TWO of them, not one:
+      # sqlite-jdbc's bundled libsqlitejdbc.so, AND signal-cli's own
+      # libsignal_jni (confirmed by inspecting the real binary's own
+      # embedded strings, not assumed).
+      #
+      # SR-M-12 (round 4, id 5109138286) corrected round 2's own mechanism
+      # claim in turn: sqlite-jdbc's extraction genuinely IS redirected by
+      # the plain `TMPDIR`/`SQLITE_TMPDIR` env vars below (Dockerfile's
+      # ENV, created by docker-entrypoint.sh) — but libsignal_jni's is NOT.
+      # It is controlled by the JVM's `java.io.tmpdir` SYSTEM PROPERTY,
+      # which this binary does not read from `TMPDIR` (reproduced against
+      # the real binary in this exact profile: with only the env vars set,
+      # it still failed `Can't load library: /tmp/libsignal.../
+      # libsignal_jni_amd64.so` — see SR-H-4, round 3, id 5108694371).
+      # signal_plus/signal.py fixes this the only way that actually works:
+      # by always passing `-Djava.io.tmpdir=<SIGNAL_TMPDIR>` as the first
+      # argument to every signal-cli invocation, not through any env var
+      # this compose file or the Dockerfile could set.
+      #
+      # Both extraction targets are redirected to the persistent volume
+      # (same default path, `/data/tmp`) — /tmp itself stays writable+
+      # noexec here for whatever ordinary temp-file use the process still
+      # needs, without being a code-execution surface for anything landing
+      # on it. Do NOT drop `noexec` from this tmpfs entry to "simplify"
+      # this — that would undo the hardening this finding chain exists to
+      # keep, not fix a real gap.
       - /tmp:size=256m
       - /run:size=16m
     # No ports published — this service never accepts inbound connections;

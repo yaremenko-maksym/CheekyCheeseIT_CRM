@@ -156,7 +156,13 @@ After install, the binary that actually landed is run with `--version` and
 must report the announced version, or the symlink swap is rolled back and
 the attempt fails, and the mismatched extraction directory is removed —
 the GPG signature only proves AsamK signed those bytes, not that they are
-what they claim to be.
+what they claim to be. A second, separate check (fix-round 4, SR-L-10)
+then runs `listGroups` against the configured account, with the same
+`-Djava.io.tmpdir` flag every other invocation gets — `--version` alone
+never proves the binary can actually load its native libraries under this
+container's hardening (that is exactly why the pre-round-3 smoke test
+could not catch SR-H-4 either), so the swap is not trusted until something
+that DOES load them has been run against the binary that actually landed.
 
 **Native library extraction, and where it actually goes (fix-round 3,
 SR-H-4).** signal-cli's native-image binary extracts and `dlopen`s its own

@@ -559,6 +559,7 @@ def test_outdated_client_error_triggers_update_then_resends(config, tmp_path):
             (1, "", f"Error loading state file for user x: {OUTDATED_CLIENT_MESSAGE} (IOException)"),  # send fails, outdated
             gpg_ok,  # gpg --verify
             (0, "signal-cli 0.14.7\n", ""),  # SR-H-3 part 2: post-install --version check
+            _ok("group.abc123==  A Group\n"),  # SR-L-10 (round 4): post-install listGroups load check
             _ok(),  # receive again (post-update)
             _ok(),  # send again -- succeeds
         ]
