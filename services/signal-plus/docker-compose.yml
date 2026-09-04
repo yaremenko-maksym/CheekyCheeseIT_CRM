@@ -1,0 +1,130 @@
+# ============================================================
+# docker-compose.yml — signal-plus, standalone compose project on the VPS.
+#
+# Deliberately its OWN compose project (`name: signal-plus`, deployed to
+# /opt/signal-plus), NOT added as another service in the CRM's own
+# docker-compose.prod.yml: the CRM deploy pipeline (deploy.yml) runs
+# `docker compose ... up -d --remove-orphans` against /opt/crm on every
+# deploy, and `--remove-orphans` tears down any container the CURRENT
+# compose file doesn't declare — a signal-plus service defined only in this
+# file would be treated as an orphan of the CRM project and killed on the
+# CRM's own next deploy. Two separate projects means the CRM's
+# `--remove-orphans` never sees this container at all. (Verified: CRM's own
+# `docker compose ls` reports exactly one project, `crm`, before this file
+# — see the task's "Проверенные факты" section.)
+#
+# Usage (on the VPS, via .github/workflows/deploy-signal-plus.yml):
+#   docker compose -p signal-plus pull
+#   docker compose -p signal-plus up -d
+#
+# Local build/test (see README.md "Testing" / this PR's local-verification
+# notes for the full command list):
+#   docker build --platform linux/amd64 -t signal-plus:local .
+# ============================================================
+
+services:
+  signal-plus:
+    image: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-signal-plus:${IMAGE_TAG:-latest}
+    # `always` (not `unless-stopped`): this is a single-purpose daily cron-like
+    # daemon with no human expected to `docker stop` it deliberately outside a
+    # deploy — if the Docker daemon itself restarts (host reboot, `systemctl
+    # restart docker`), this should come back unconditionally, same as the
+    # rest of the stack's `restart: always` expectation for unattended
+    # recovery (see the task's server facts: `docker` is `systemctl
+    # is-enabled` == enabled).
+    restart: always
+    env_file:
+      - .env
+    # Named volume — signal-cli's own linked-device identity (via
+    # XDG_DATA_HOME, see Dockerfile), this project's state.json, and the
+    # GPG trust-anchor keyring all live under here. A normal disk-backed
+    # volume (verified: /opt/signal-plus will sit on the same /dev/sda1 the
+    # task's "Проверенные факты" section confirmed for /opt/crm — not
+    # tmpfs), so it survives container recreation AND host reboots.
+    volumes:
+      - signal_data:/data
+    # Hardening — this container has no other process depending on its
+    # filesystem shape, so it can run read-only with a minimal, explicit
+    # writable surface instead of the default writable-everywhere container
+    # root. Verified locally: `docker run --read-only --tmpfs /tmp --tmpfs
+    # /run -v ...:/data ... docker-entrypoint.sh true` exits 0 against a
+    # fresh volume (seeds the pinned signal-cli binary + imports the GPG
+    # trust anchor, both onto /data, which stays writable regardless of
+    # `read_only` since it's an explicit volume mount, not part of the
+    # container's own root filesystem).
+    read_only: true
+    # SR-M-3 (PR #650 security review, id 5105061153): `read_only` alone
+    # does not defang the base image's own setuid-root binaries (verified:
+    # `python:3.12-slim` ships eight -- passwd, chsh, mount, umount,
+    # newgrp, gpasswd, su, chfn -- rootfs is mounted WITHOUT `nosuid`, so
+    # `read_only: true` does not neutralise them). For a process whose job
+    # is executing a binary it downloads from the internet
+    # (signal_plus.updater's auto-update), these two lines close local
+    # privilege escalation via any of them as a class, rather than chasing
+    # individual binaries in the Dockerfile.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      # SR-M-8 (round 2, id 5107124812) corrected this comment's earlier
+      # claim: this /tmp is `noexec` (Docker's own default for `--tmpfs`,
+      # reproduced by direct test — mmap(PROT_EXEC)/dlopen of a file placed
+      # here fails with EPERM), and the native-image binary DOES need to
+      # dlopen native .so files at startup — TWO of them, not one:
+      # sqlite-jdbc's bundled libsqlitejdbc.so, AND signal-cli's own
+      # libsignal_jni (confirmed by inspecting the real binary's own
+      # embedded strings, not assumed).
+      #
+      # SR-M-12 (round 4, id 5109138286) corrected round 2's own mechanism
+      # claim in turn: sqlite-jdbc's extraction genuinely IS redirected by
+      # the plain `TMPDIR`/`SQLITE_TMPDIR` env vars below (Dockerfile's
+      # ENV, created by docker-entrypoint.sh) — but libsignal_jni's is NOT.
+      # It is controlled by the JVM's `java.io.tmpdir` SYSTEM PROPERTY,
+      # which this binary does not read from `TMPDIR` (reproduced against
+      # the real binary in this exact profile: with only the env vars set,
+      # it still failed `Can't load library: /tmp/libsignal.../
+      # libsignal_jni_amd64.so` — see SR-H-4, round 3, id 5108694371).
+      # signal_plus/signal.py fixes this the only way that actually works:
+      # by always passing `-Djava.io.tmpdir=<SIGNAL_TMPDIR>` as the first
+      # argument to every signal-cli invocation, not through any env var
+      # this compose file or the Dockerfile could set.
+      #
+      # Both extraction targets are redirected to the persistent volume
+      # (same default path, `/data/tmp`) — /tmp itself stays writable+
+      # noexec here for whatever ordinary temp-file use the process still
+      # needs, without being a code-execution surface for anything landing
+      # on it. Do NOT drop `noexec` from this tmpfs entry to "simplify"
+      # this — that would undo the hardening this finding chain exists to
+      # keep, not fix a real gap.
+      - /tmp:size=256m
+      - /run:size=16m
+    # No ports published — this service never accepts inbound connections;
+    # everything it does is outbound (Signal servers via signal-cli, GitHub
+    # Releases/API for auto-update, Resend for the handover email).
+    #
+    # Resource caps — this is a small, low-traffic daemon; one signal-cli
+    # subprocess and occasional gpg/python activity, nothing concurrent by
+    # design (one roll-call per day). Numbers are a conservative starting
+    # point, not a measured ceiling (the GraalVM native binary's actual
+    # resident memory under load was not something this step's local
+    # verification could measure — running the real x86_64 binary was not
+    # possible on the amd64-via-emulation dev environment this Dockerfile
+    # was built on, see the Dockerfile's own comment on that). Revisit with
+    # `docker stats` after this has run for real on the VPS.
+    mem_limit: 768m
+    pids_limit: 128
+    # Bounded log growth — same rationale and same shape as CRM's own
+    # services in docker-compose.prod.yml (security-review PR #423, MED-5):
+    # an unbounded json-file driver is how a hot logging bug turns into an
+    # unrelated incident (disk fills up). This daemon logs at most a
+    # handful of lines a day in the healthy case, so this cap is generous
+    # headroom for a failure loop, not a routine-usage estimate.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+volumes:
+  signal_data:

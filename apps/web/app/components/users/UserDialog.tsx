@@ -508,6 +508,9 @@ export function UserDialog(props: UserDialogProps) {
   const form = useForm({
     defaultValues: {
       email: editingUser?.email ?? '',
+      // §4.4 — ADMIN-entered at creation only (no edit-mode default: the
+      // spec's decision 7 restricts this field to the create flow).
+      personalEmail: '',
       displayName: editingUser?.displayName ?? '',
       role: initialRole,
       telegram: editingUser?.telegram ?? '',
@@ -701,6 +704,20 @@ export function UserDialog(props: UserDialogProps) {
 
         const payload: CreateUserDto = {
           email: value.email.trim(),
+          // §4.4 — optional, ADMIN-entered at creation only. Both `.trim()`
+          // calls are defensive-only for `type="email"`: the HTML value
+          // sanitization algorithm for the email state (WHATWG HTML §4.10.5.1.4)
+          // strips leading/trailing whitespace before `onChange` ever sees the
+          // value — confirmed empirically in jsdom, and it is spec behavior,
+          // not a jsdom quirk, so real browsers behave the same. No typed
+          // input can make `value.personalEmail` differ from its own
+          // `.trim()`, so no interaction test can distinguish either call
+          // being dropped. Kept for the same reason `email.trim()` above is
+          // kept: defense if this value is ever populated from something
+          // other than typing into this input (e.g. a future paste-from-
+          // clipboard-object path, or a programmatic `setFieldValue`).
+          // Stryker disable next-line MethodExpression: see the paragraph above — unreachable via any typed input on a type="email" field
+          ...(value.personalEmail.trim() && { personalEmail: value.personalEmail.trim() }),
           displayName: value.displayName.trim(),
           role: value.role,
           telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
@@ -867,6 +884,19 @@ export function UserDialog(props: UserDialogProps) {
       const role = editingUser.role as Role
       form.reset({
         email: editingUser.email,
+        // §4.4 — create-only field, always blank on re-seed for Edit mode.
+        // This instance is mounted with `mode="edit"` HARDCODED at its call
+        // site (routes/_authenticated/users/index.tsx renders a SEPARATE
+        // `<UserDialog mode="create" .../>` for creation) — `isCreate` is
+        // therefore always false for the lifetime of this component, the
+        // personalEmail `form.Field` above is gated on `isCreate &&` and so
+        // never renders here, and the only reader of `value.personalEmail`
+        // is the CREATE submit handler's payload builder, which this
+        // instance's onSubmit branch never reaches either. The VALUE here
+        // cannot become observable through any path — kept only because
+        // `form.reset()`'s argument is the full form-values shape.
+        // Stryker disable next-line StringLiteral: see the paragraph above — unobservable in this mode-locked instance
+        personalEmail: '',
         displayName: editingUser.displayName,
         role,
         telegram: editingUser.telegram ?? '',
@@ -1054,6 +1084,98 @@ export function UserDialog(props: UserDialogProps) {
                     )
                   }}
                 </form.Field>
+
+                {/* §4.4 — personal address, ADMIN-entered at creation only.
+                    Not a login method until an invite is accepted (separate
+                    task) — the label says so, so the admin doesn't read this
+                    as "second working login" by mistake. */}
+                {isCreate && (
+                  <form.Field
+                    name="personalEmail"
+                    validators={{
+                      // No `!isDirty` early-return here (unlike the `email` /
+                      // `displayName` fields above, which need one — see their
+                      // ut-8 comments): THIS field's defaultValue is always ''
+                      // (create-only, decision 7 — never pre-filled from an
+                      // edit-mode value the way `email` can be), so "untouched"
+                      // and "trimmed value is empty" are the exact same state.
+                      // The `!trimmed` check two lines down already covers it —
+                      // a separate dirty-gate here would be unreachable-distinct
+                      // complexity, not a second real guard (mutation-gate
+                      // closure, PR #623: three survived mutants at a guard that
+                      // provably cannot change behavior for THIS field).
+                      onBlur: ({ value, fieldApi }) => {
+                        // `.trim()` here (and on `getFieldValue('email')`
+                        // below) is defensive-only, same reasoning as the
+                        // submit payload builder above: both source inputs
+                        // are `type="email"`, whose HTML value-sanitization
+                        // algorithm already strips leading/trailing
+                        // whitespace before any typed value reaches this
+                        // code — verified empirically in jsdom, and it is
+                        // spec behavior (WHATWG HTML §4.10.5.1.4), not a
+                        // jsdom-only quirk.
+                        // Stryker disable next-line MethodExpression: unreachable via any typed input on a type="email" field — see the paragraph above
+                        const trimmed = value.trim()
+                        if (!trimmed) return undefined
+                        const r = z.string().email('Некорректный email').safeParse(trimmed)
+                        // zod's SafeParseError.error.issues is never empty on a
+                        // failed parse (verified: packages/shared, `zod`'s own
+                        // contract) — `issues[0]` cannot be undefined here.
+                        // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
+                        if (!r.success) return r.error.issues[0]?.message
+                        if (
+                          trimmed.toLowerCase() ===
+                          // Stryker disable next-line MethodExpression: `email` is also type="email" — same unreachable-via-typing reasoning as this validator's own `trimmed` above
+                          fieldApi.form.getFieldValue('email').trim().toLowerCase()
+                        ) {
+                          return 'Личный email должен отличаться от рабочего'
+                        }
+                        return undefined
+                      },
+                    }}
+                  >
+                    {(field) => {
+                      // Same reasoning as the validator's dropped isDirty-gate
+                      // above: `errors` only ever populates via the onBlur
+                      // validator, which cannot run before a blur — so
+                      // `isTouched` is already true in every state where
+                      // `errors[0]` is non-empty. Gating render on
+                      // isTouched/isDirty on top of that can't hide anything
+                      // the validator itself doesn't already gate.
+                      const err = field.state.meta.errors[0]
+                      return (
+                        <Field
+                          label="Личный email (необязательно)"
+                          error={err}
+                          // COPY-M-6 (copy-review PR #623 round 4): the OLD
+                          // hint repeated "входа" twice and, more
+                          // importantly, didn't say the one thing the admin
+                          // needs to know BEFORE clicking «Создать» — the
+                          // invite email goes out immediately on save
+                          // (UsersService.createUser calls sendInvite in the
+                          // same request).
+                          hint="На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес."
+                        >
+                          <Input
+                            type="email"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            placeholder="ivan.petrov@gmail.com"
+                            value={field.state.value}
+                            onChange={(e) => field.handleChange(e.target.value)}
+                            onBlur={field.handleBlur}
+                            className={cn(
+                              err && 'border-destructive focus-visible:ring-destructive/30',
+                            )}
+                            autoComplete="off"
+                            data-testid="user-dialog-personal-email"
+                          />
+                        </Field>
+                      )
+                    }}
+                  </form.Field>
+                )}
 
                 <form.Field
                   name="displayName"

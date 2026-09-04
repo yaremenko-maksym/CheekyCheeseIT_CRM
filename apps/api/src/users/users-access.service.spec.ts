@@ -77,6 +77,10 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).not.toContain('audit')
     expect(p.tabs).toHaveLength(7)
+    // §4.4 (SR-M-4, mutation-gate closure PR #623): personalContact is its
+    // OWN flag, separate from realContacts — ADMIN viewing another user is
+    // one of the two viewers ever allowed to see personalEmail.
+    expect(p.fields.personalContact).toBe(true)
   })
 
   it('ADMIN viewing SENIOR has 8 tabs — contract + resume, interviews moved to header link, no audit', async () => {
@@ -132,6 +136,9 @@ describe('UsersAccessService.getViewPermissions', () => {
     // Contract is surfaced: (a) ADMIN viewing another user, or (b) DROP self-view
     // (UT finding 3a: DROP has a signed employee_contract). SENIOR self = neither case.
     expect(p.tabs).not.toContain('contract')
+    // §4.4 (SR-M-4, mutation-gate closure PR #623): self is the OTHER of the
+    // two viewers ever allowed to see their own personalEmail.
+    expect(p.fields.personalContact).toBe(true)
   })
 
   it('SELF — HR sees own tabs without contract (contract only for ADMIN-viewing-others and DROP self)', async () => {
@@ -154,7 +161,7 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).not.toContain('audit')
   })
 
-  it('ADMIN has all 6 actions on others (manage-team / reassign-project removed)', async () => {
+  it('ADMIN has all 8 actions on others (manage-team / reassign-project removed; task-user-emails-invite adds resend-personal-invite + change-personal-email)', async () => {
     const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
     const p = await service.getViewPermissions(admin, target)
@@ -166,11 +173,13 @@ describe('UsersAccessService.getViewPermissions', () => {
         'change-requisites',
         'set-note',
         'archive',
+        'resend-personal-invite',
+        'change-personal-email',
       ]),
     )
     expect(p.actions).not.toContain('manage-team')
     expect(p.actions).not.toContain('reassign-project')
-    expect(p.actions).toHaveLength(6)
+    expect(p.actions).toHaveLength(8)
   })
 
   it('ADMIN cannot archive themselves', async () => {
@@ -563,6 +572,14 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBe(false)
     expect(p.fields.adminNote).toBe(false)
     expect(p.fields.realContacts).toBe(true)
+    // SR-M-7 (security-review PR #623 round 2, MED): personalContact (SR-M-4)
+    // only had its POSITIVE berth fixed — ADMIN / self returning true. Nothing
+    // pinned the negative one, so a future `fields.personalContact = true`
+    // slipped into this branch (the exact regression SR-M-4 exists to
+    // prevent) would pass the whole suite silently. ACCOUNTANT is never one
+    // of the two allowed viewers (ADMIN, self) — see the isAccountant branch
+    // in users-access.service.ts, which never touches this flag.
+    expect(p.fields.personalContact).toBeFalsy()
   })
 
   // ── Pre-deploy MEDIUM: ACCOUNTANT must not see another ADMIN's payout wallet ──
@@ -594,6 +611,11 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBe(false)
     expect(p.fields.adminNote).toBe(false)
     expect(p.fields.realContacts).toBe(true)
+    // SR-M-7 — see the ACCOUNTANT test above for the full reasoning. HR is
+    // deliberately barred from ever SETTING personalEmail (UsersController.
+    // createUser forces it null for an HR actor); nothing enforced the READ
+    // side until now.
+    expect(p.fields.personalContact).toBeFalsy()
   })
 
   // ── task-junior-ut-round2 §6 — projectCredentials / editCredentials flags ──
@@ -755,6 +777,10 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.realContacts).toBe(true)
     expect(p.fields.techStack).toBe(true)
     expect(p.fields.registrationDate).toBe(true)
+    // SR-M-7 — realContacts and personalContact are deliberately SEPARATE
+    // gates (SR-M-4): a teammate's ordinary email is visible, their personal
+    // address is not.
+    expect(p.fields.personalContact).toBeFalsy()
     // HR has no mutating actions on anyone
     expect(p.actions).toEqual([])
   })
@@ -771,6 +797,8 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBeFalsy()
     expect(p.fields.legalName).toBeFalsy()
     expect(p.fields.realContacts).toBe(true)
+    // SR-M-7 — same separate-gate reasoning as the ACCOUNTANT-teammate case above.
+    expect(p.fields.personalContact).toBeFalsy()
   })
 
   // Out-of-team: helper returns false → HR gets zero tabs → 403 at route level.

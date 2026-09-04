@@ -413,6 +413,21 @@ pnpm mutation:full                       # everything (long)
 MUTATION_ONLY_FILES=apps/api/src/auth/jwt.guard.ts pnpm mutation:changed
 ```
 
+**A point run is for debugging ONE mutant, never proof before a push.**
+PR #623 ran the gate scoped to each round's own files/lines
+(`MUTATION_ONLY_FILES`, or a diff base narrowed to that round) seven separate
+rounds, and every round reported `survived 0`. CI, running `--changed`
+against the FULL branch diff vs `origin/main` with no `MUTATION_ONLY_FILES`,
+found **34 surviving mutants** on the same branch. Broken down: **20** were
+in files that round's changes never touched at all, and the other **14**
+were in files a round DID touch, but on different lines than that round's
+own edit. Seven point runs saw zero of the thirty-four between them — not
+because the gate missed them, but because a scoped run's "changed" is
+whatever you told it to look at, not what the branch actually changed.
+Before a push: `pnpm mutation:changed` with NOTHING narrowing it — the
+`MUTATION_ONLY_FILES` line above is for iterating on one finding after the
+full run already told you where it is, never a substitute for running it.
+
 `reports/mutation/*.report.json` holds the full machine-readable result
 (gitignored; uploaded as a CI artifact).
 
@@ -457,6 +472,109 @@ be one more check that cannot fail.
 
 A tally of "all legs green, zero reports produced" is **red**, not green — see
 the header of `check-mutation-tally.mjs`.
+
+**The alert text depends on WHETHER the sweep ran, not only on WHAT it found**
+(task-mutation-gate nightly-alert-fidelity, 2026-09-03). Before this, every
+`KIND=mutation` failure — a leg crashing before Stryker even started, a
+corrupt report, zero reports produced, OR real survivors — produced the SAME
+issue body ("выжившие мутанты — вот что делать"). The nightly was red on
+every single scheduled run from its first trigger (2026-08-12) through at
+least 2026-09-03, and for most of that window the cause was a leg failing
+before any mutant ran — yet the open issue read, every night, as ordinary
+accumulated mutant debt to work through later. `check-mutation-tally.mjs` now
+also prints `reason=incomplete|survivors|cancelled|clean` and
+`missing_packages=<comma list>`; `post-merge-alert.sh` uses `reason` to pick
+between two genuinely different bodies (see its own header comment on
+`MUTATION_REASON` for the exact split) — the `incomplete` one names which
+package(s) produced no report, says explicitly that static mutants were not
+checked that night, and points at fixing the RUN, not at closing mutants.
+Verify both bodies with `DRY_RUN=1 ... MUTATION_REASON=incomplete|survivors
+./scripts/devops/post-merge-alert.sh` — pattern and worked example in
+`scripts/devops/post-merge-ci-runbook.md` §4.1 (that file, not this one; this
+runbook has no numbered sections of its own).
+
+## PR gate vs nightly (`ignoreStatic` — considered and rejected)
+
+**Read `mutation-gate.mjs`'s own header section "PR GATE vs NIGHTLY" first;
+this is the runbook-side pointer, not a duplicate.** `ignoreStatic`
+(Stryker's flag to skip load-time-only mutants — a module-level constant, a
+Zod schema default) was proposed for `--changed` only, prototyped, and
+**rejected by the owner, 2026-09-03**, after the self-check itself
+demonstrated the cost: it hides module-level constants — the exact class of
+the 2026-08-07 incident. It is OFF, unconditionally, in both `--changed` and
+`--full`.
+
+**The case for it was real — 61 static mutants on PR #623 were 11% of the
+mutant count and 84% of the wall time — and that cost is unresolved, not
+eliminated by rejecting it.** Until the `api` leg is file-sharded
+(`.claude/tasks/BACKLOG-followups.md` #135, promoted to priority the same
+day — the only remaining lever after this rejection), a heavy diff on
+`--changed` runs 25-47 minutes — the same 8-CI-run measurement
+`BACKLOG-followups.md` #135 itself cites (`shared` ~10s, `web` ~230s, `api`
+typically 250s, max 2489s), not re-measured after the revert since
+`ignoreStatic` never actually shipped. Knowingly accepted: the measured price of
+keeping the gate honest instead of fast.
+
+**What the prototype broke, verified by running `mutation-gate-vacuum-proof.sh`
+itself, not by reasoning about it:** with `ignoreStatic` active, 4 of the
+self-check's 5 XSS-defence mutants (`MARKDOWN_URL_TRANSFORM` and
+`MARKDOWN_COMPONENTS` in `JobSuggestionDialog.tsx`, both module-level
+`export const`s) came back `Ignored` (static) and were never exercised.
+`arm 1`'s "the real test kills the defence mutants (>= 4)" assertion — true
+since this file was written — dropped to 1, and the gate reported PASS for a
+diff that deletes the render-side XSS defence. The self-check's assertions
+were never weakened to accommodate this; the failure stood, and it was the
+finding that ended the prototype.
+
+**Current status of each leg, verified live after the revert:**
+
+- `@crm/shared` — green every night since 2026-08-12; its statics have been
+  verified throughout.
+- `@crm/web` — the self-check's `arm 4` crash (frozen vacuum fixture
+  predating `matchScore`/`matchedKeywords` and `SourceBudgetPanel`/
+  `useJobSources` from PR #515) is fixed, AND with `ignoreStatic` reverted,
+  the whole self-check passes end to end again: `mutation-gate-vacuum-proof.sh`
+  run fresh — 9/9 assertions, all 4 arms, 5/5 reference mutants in arm 4
+  actually exercised (0 skipped as static). The `Gate self-check` step no
+  longer blocks `Full mutation sweep` for this leg.
+- `@crm/api` — still blocked, for a third, unrelated reason: Stryker's
+  initial dry run is red on `resume-text-extraction.service.spec.ts`'s 250ms
+  stall-ceiling assertion (observed ~1.6s on a shared runner). `*.spec.ts` is
+  AutoTest's zone; being fixed in a separate PR as of this writing, not this
+  one.
+  **Update, Fix-round 1 (review #647 CR-M-1):** the 250ms assertion was
+  never actually the wrong number — it fails specifically under Stryker's own
+  coverage instrumentation (a real ~1.6s under instrumentation vs. the true,
+  uninstrumented cost), so no threshold in the spec file could ever have been
+  "right" for both contexts at once. `resume-perf-guard`, a separate job in
+  `mutation-nightly.yml` (not inside `sweep`), runs exactly that one test
+  on plain `vitest` with `RESUME_PERF=1`, no Stryker — genuine, uninstrumented
+  signal on the actual guard, routed through `post-merge-alert.sh`'s
+  `KIND=resume-perf`. The `api` leg's Stryker dry run itself is unaffected by
+  this and remains red until AutoTest's separate fix lands; `resume-perf-guard`
+  is what makes that redness no longer load-bearing for verifying the guard.
+
+So after this revert, a green full nightly needs exactly one thing it did
+not need before: AutoTest's `api`-leg fix landing. `@crm/shared` and
+`@crm/web` are no longer blockers.
+
+`.claude/tasks/BACKLOG-followups.md` #137 covers a related, separate finding:
+even the (previously miscategorized) nightly alert issue went three-plus
+weeks and 22 comments without anyone reading it, which is why none of this
+was noticed sooner.
+
+**What got a full, non-scoped local verification, and what that does and
+does not prove:** the complete local `.husky/pre-push` sequence —
+`pnpm typecheck` + `pnpm --filter @crm/shared|@crm/api|@crm/web|@crm/landing
+test`, unscoped, not the point-scoped runs §"Running it yourself" warns
+against above — ran clean on the commit that reverted `ignoreStatic`: 391
+test files, 6616 tests, 0 failures (identical file/test counts to the
+pre-revert run — expected, since this revert touches only
+`scripts/devops/**` and docs, nothing any of those four suites imports).
+That is evidence this repo's OWN test suites are sound on this branch; it is
+not, and does not claim to be, evidence about the nightly `--full` sweep's
+own survivor count, which is a different question (see "The alert text
+depends on WHETHER the sweep ran, not only on WHAT it found" above).
 
 ## Tuning
 

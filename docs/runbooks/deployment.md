@@ -38,7 +38,9 @@ Cookie-auth работает same-origin: `app.cheekycheese.tech/api/...` → ng
 ### 1.1 Hetzner VPS
 
 1. Создать сервер: **CX33** (4 vCPU, 8 GB RAM), локация **Нюрнберг или Хельсинки** (EU).
-2. ОС: **Ubuntu 22.04 LTS**.
+2. ОС: **Ubuntu 24.04.3 LTS** (ядро 6.8, x86_64; факт снят с прод-хоста `ubuntu-8gb-hel1-5`
+   2026-09-03 — при создании нового сервера сверяться с актуальным LTS-релизом Ubuntu на момент
+   создания, а не с этой строкой).
 3. Добавить SSH-ключ при создании — это будет ключ деплоя (см. §1.4).
 4. Запомнить выданный IP-адрес VPS — понадобится для DNS A-записей (§1.2).
 
@@ -923,7 +925,9 @@ SHA всё равно пересобирал текущий `main` HEAD и пу�
     apps/api/drizzle/manual/2026-08-22_settled_amount_snapshot.sql \
     apps/api/drizzle/manual/2026-08-22_invoice_signature_void_and_snapshot.sql \
     apps/api/drizzle/manual/2026-09-01_approvals.sql \
+    apps/api/drizzle/manual/2026-09-01_user_emails.sql \
     apps/api/drizzle/manual/2026-09-02_project_status.sql \
+    apps/api/drizzle/manual/2026-09-02_user_email_invites.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

@@ -175,7 +175,17 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(page.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
       const chip = page.getByTestId('user-dialog-accountant-chip')
       const trigger = page.getByTestId('user-dialog-accountant-trigger')
-      await expect((await chip.count()) + (await trigger.count())).toBeGreaterThan(0)
+      // The multiselect container renders unconditionally; the chip/trigger
+      // only mount once GET /users (allUsers, `enabled: open`) resolves and
+      // `accountantUsers` is derived — a second render pass after the one
+      // that mounts the multiselect. `.count()` is a single DOM snapshot with
+      // no auto-wait, so it can read 0/0 in the gap between those two commits
+      // (observed CI-flaky, unrelated to this PR's diff — neither this
+      // component nor the /team|/users mocks were touched here). `.poll`
+      // retries the same snapshot until the second commit lands.
+      await expect
+        .poll(async () => (await chip.count()) + (await trigger.count()))
+        .toBeGreaterThan(0)
     })
 
     test('Edit SENIOR PATCH includes hrIds + accountantId', async ({ asAdmin: page }) => {
@@ -400,6 +410,12 @@ test.describe('Users page refactor (PR 2)', () => {
       const emailInput = page.getByTestId('user-dialog-email')
       await emailInput.focus()
       await expect(emailInput).toBeFocused()
+
+      // Tab → personal-email input (§4.4 — create-only, cross-checked
+      // against the work email right above it; deliberately placed between
+      // the two email fields so the two are visually and tab-order adjacent).
+      await page.keyboard.press('Tab')
+      await expect(page.getByTestId('user-dialog-personal-email')).toBeFocused()
 
       // Tab → Name input (next focusable field in source order).
       await page.keyboard.press('Tab')

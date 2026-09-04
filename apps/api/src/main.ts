@@ -10,6 +10,7 @@ import { parseCorsOrigins } from './config/cors'
 import { registerCspReportContentTypeParser } from './csp-reports/csp-report-content-type-parser'
 import { assertJwtAuthGuardsWired } from './auth/jwt-guard-wiring'
 import { TelemetryExceptionFilter } from './telemetry/telemetry-exception.filter'
+import { createRedactingReqSerializer } from './config/http-logger-serializers'
 
 async function bootstrap() {
   const isProd = process.env['NODE_ENV'] === 'production'
@@ -18,7 +19,15 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({
-      logger: process.env['NODE_ENV'] !== 'test',
+      // SR-M-10 (security-review PR #623 round 4): a bare `true` here uses
+      // Fastify's default `req` serializer, which logs `req.url` verbatim —
+      // including the raw invite token GET /api/auth/invite/:token carries
+      // in its PATH. `http-logger-serializers.ts` redacts ONLY that one
+      // path shape; every other route's URL still logs unchanged.
+      logger:
+        process.env['NODE_ENV'] !== 'test'
+          ? { serializers: { req: createRedactingReqSerializer() } }
+          : false,
       // When behind nginx TLS-termination, trust X-Forwarded-For/X-Forwarded-Proto
       // so rate-limiters and logs see the real client IP and protocol.
       // Set TRUST_PROXY=true in production (reverse-proxy deployment).

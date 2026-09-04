@@ -91,6 +91,50 @@ describe('jwtPayloadSchema — impersonatorId', () => {
   })
 })
 
+// CR-M-2 (security-review PR #623 closing round): `userEmailId` (SR-H-6) and
+// `impersonatorUserEmailId` (SR-M-13) both carry `.uuid()` in the schema
+// (see jwtPayloadSchema's own doc for why — a per-`user_emails`-row
+// revocation check keyed on this id) but neither had a test pinning that
+// bound the way `impersonatorId` above already does — a mutant that widened
+// either back to a bare `z.string()` would have gone uncaught by all four
+// unit spec files that import `jwtPayloadSchema`
+// (auth.spec.ts/auth.service.spec.ts/jwt.guard.spec.ts/auth.controller.spec.ts).
+describe('jwtPayloadSchema — userEmailId / impersonatorUserEmailId (SR-H-6 / SR-M-13)', () => {
+  const base = {
+    id: '123e4567-e89b-12d3-a456-426614174000',
+    email: 'admin@example.com',
+    role: 'ADMIN' as const,
+  }
+
+  it('accepts payload without userEmailId / impersonatorUserEmailId (both optional)', () => {
+    const result = jwtPayloadSchema.parse(base)
+    expect(result.userEmailId).toBeUndefined()
+    expect(result.impersonatorUserEmailId).toBeUndefined()
+  })
+
+  it('accepts payload with a valid userEmailId', () => {
+    const withRow = { ...base, userEmailId: '11111111-2222-4333-8444-555555555555' }
+    const result = jwtPayloadSchema.parse(withRow)
+    expect(result.userEmailId).toBe('11111111-2222-4333-8444-555555555555')
+  })
+
+  it('rejects userEmailId that is not a UUID', () => {
+    expect(() => jwtPayloadSchema.parse({ ...base, userEmailId: 'not-a-uuid' })).toThrow()
+  })
+
+  it('accepts payload with a valid impersonatorUserEmailId', () => {
+    const withRow = { ...base, impersonatorUserEmailId: '11111111-2222-4333-8444-555555555555' }
+    const result = jwtPayloadSchema.parse(withRow)
+    expect(result.impersonatorUserEmailId).toBe('11111111-2222-4333-8444-555555555555')
+  })
+
+  it('rejects impersonatorUserEmailId that is not a UUID', () => {
+    expect(() =>
+      jwtPayloadSchema.parse({ ...base, impersonatorUserEmailId: 'not-a-uuid' }),
+    ).toThrow()
+  })
+})
+
 describe('impersonateSchema', () => {
   it('accepts a valid UUID userId', () => {
     const result = impersonateSchema.parse({ userId: '123e4567-e89b-12d3-a456-426614174000' })

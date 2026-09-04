@@ -22,6 +22,18 @@ export const actionKeySchema = z.enum([
   'change-requisites',
   'set-note',
   'archive',
+  // task-user-emails-invite: ADMIN-only "resend invite" action
+  // (AdminActionsMenu) — the frontend additionally gates its render on
+  // `user.personalEmail && user.personalEmailCanLogin === false`
+  // (UsersService.buildProfileView), so this key alone does not mean the
+  // button is always visible, only that the viewer is ALLOWED to use it.
+  'resend-personal-invite',
+  // security-review PR #623 round 4, owner decision: ADMIN-only "change/
+  // remove personal email" action (AdminActionsMenu) — unlike
+  // 'resend-personal-invite' this is NOT further gated on canLogin state:
+  // it must be usable both before AND after an invite is accepted (the
+  // whole point is a fast, unconditional fix for a mistyped address).
+  'change-personal-email',
 ])
 
 export const viewPermissionsSchema = z.object({

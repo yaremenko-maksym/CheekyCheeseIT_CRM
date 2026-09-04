@@ -124,3 +124,19 @@ apps/web/vite.qa.config.ts
 # .claude/skills/claude-design-workflow/.
 .ds-sync/
 ds-bundle/
+
+# signal-plus (services/signal-plus/, Python — not a pnpm workspace member):
+# secrets, mutable local state and the signal-cli data volume never belong in
+# git, per task-signal-plus-service.md step 1.
+services/signal-plus/.env
+services/signal-plus/state*.json
+services/signal-plus/data/
+# SPEC-L-1 (spec review, PR #650): four lines beyond the three the task
+# literally asked for -- kept, one-line justification: without them
+# __pycache__/.pytest_cache/*.egg-info show up as untracked cruft on every
+# local test run of this one Python package in an otherwise all-TS repo;
+# narrowly scoped to this directory, no risk to any other package.
+services/signal-plus/**/__pycache__/
+services/signal-plus/**/*.pyc
+services/signal-plus/.pytest_cache/
+services/signal-plus/*.egg-info/

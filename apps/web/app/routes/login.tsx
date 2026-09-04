@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { AuthProvider, useAuth } from '@/context/auth'
@@ -9,8 +9,97 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BrandMark } from '@/components/brand-mark'
 
-const searchSchema = z.object({
-  error: z.enum(['unauthorized', 'google_error', 'invalid_state']).optional(),
+// copy-review PR #623 round 4 (COPY-M-8): `ERROR_MESSAGES` is now the ONE
+// source of truth for which `?error=` codes this page understands —
+// `searchSchema` below DERIVES its accepted values from these keys instead
+// of maintaining a second, hand-written list. Before this, the two lists
+// were independent: `AuthController.googleCallback`'s ordinary login path
+// (NOT the invite branch) started emitting `account_mismatch` /
+// `account_disabled`, nobody added them here, and `z.enum([...])` — which
+// `validateSearch` calls `.parse()` on internally — threw `SearchParamError`
+// on a REAL redirect, crashing to the generic error boundary. That is the
+// exact same crash class `?invited=1` hit (see the coercion comment below) —
+// this time from the accepted-values list going stale, not the value shape.
+// A single source of truth makes that specific divergence impossible: a
+// code cannot be "in ERROR_MESSAGES but not in the schema" or vice versa,
+// because the schema no longer HAS an independent list to fall behind.
+//
+// Exported for `__tests__/login.search-schema.spec.ts` — every entry here
+// was a `[Survived] StringLiteral` mutant (Stryker mutated e.g.
+// `'unauthorized'` → `''`) until that file pinned each one individually:
+// only Playwright E2E (which Stryker cannot execute) previously exercised
+// these exact strings end-to-end — see
+// `.claude/rules/common/mutation-gate-integration-specs.md`.
+export const ERROR_MESSAGES = {
+  unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
+  google_error: 'Ошибка Google OAuth. Попробуйте снова.',
+  invalid_state: 'Сессия истекла. Пожалуйста, попробуйте снова.',
+  // task-user-emails-invite (spec §2, §3) + copy-review PR #623 round 4
+  // (COPY-H-3): the invite-accept branch of GET /auth/google/callback
+  // (AuthController) redirects here on failure — see `mapInviteAcceptError`
+  // in that file for the exception → code mapping. Names the most likely
+  // next action (open the link again and pick the right Google account —
+  // the link stays valid, `acceptPersonalEmailInvite` does not consume the
+  // token on a mismatch) instead of only naming the diagnosis; the account
+  // chooser this relies on is forced open by `prompt=select_account`
+  // (`AuthService.buildGoogleAuthUrl`, invite round only).
+  invite_email_mismatch:
+    'Вы вошли в другой аккаунт Google. Откройте ссылку из письма ещё раз и выберите аккаунт того адреса, на который оно пришло. Если аккаунта Google на этом адресе нет — войти по нему нельзя, напишите администратору.',
+  invite_expired: 'Срок действия приглашения истёк. Попросите администратора отправить его заново.',
+  // COPY-M-2: `usedAt` and `canLogin=true` are set in the SAME transaction
+  // (UsersService.acceptPersonalEmailInvite) — "already used" always means
+  // "already works as a login method", so the next action is the ordinary
+  // Google button below, not a dead end.
+  invite_used:
+    'Приглашение уже использовано — личный адрес подтверждён. Войдите через Google кнопкой ниже.',
+  // COPY-M-3: the most common real path to this code is a resend, which
+  // OVERWRITES the old token hash (issuePersonalEmailInviteTx) — the old
+  // link the person may still have open genuinely stops matching anything,
+  // and the fix is the newer email, not retrying the same link.
+  invite_invalid:
+    'Ссылка не работает. Откройте ссылку из последнего письма, а если его нет — попросите администратора прислать приглашение заново.',
+  // LOW-1 (security-review PR #623 round 4): distinct from invite_used —
+  // this Google account is already the login method for a DIFFERENT
+  // address, not the one this link was for.
+  invite_account_taken:
+    'Этот аккаунт Google уже используется для входа с другого адреса. Обратитесь к администратору.',
+  // COPY-M-8: both codes below are emitted by the ORDINARY (non-invite)
+  // login path (`AuthController.googleCallback`) and previously had no
+  // text at all — an unrecognised `error` value crashed `validateSearch`
+  // the same way `?invited=1` once did (see the module doc above).
+  account_mismatch:
+    'Этот адрес уже привязан к другому аккаунту Google. Войдите тем аккаунтом, которым входили раньше, или напишите администратору.',
+  // LOW-2 (security-review PR #623 round 4): also reachable from the
+  // invite-accept branch when the target was archived AFTER the invite was
+  // issued — same code, same text, same "nothing to retry" framing.
+  account_disabled: 'Доступ к CRM закрыт. Если это ошибка, напишите администратору.',
+} as const satisfies Record<string, string>
+
+/** Non-empty tuple `z.enum` requires — derived from `ERROR_MESSAGES`'s own
+ * keys so the two can never diverge (see the doc above). */
+const ERROR_CODES = Object.keys(ERROR_MESSAGES) as [
+  keyof typeof ERROR_MESSAGES,
+  ...(keyof typeof ERROR_MESSAGES)[],
+]
+
+// TanStack Router's default search-param parser treats a numeric-looking
+// query string (`?invited=1`) as the JSON number `1`, not the string `'1'`,
+// before this schema ever sees it (confirmed live: `z.enum(['1'])` threw
+// `SearchParamError` and crashed the route on a real `?invited=1` redirect —
+// no test caught it because nothing exercised the schema against the
+// router's actual parsed shape). `z.coerce.boolean()` is the same fix
+// already used for `archived` in `_authenticated/users/index.tsx` for the
+// identical reason.
+export const searchSchema = z.object({
+  error: z.enum(ERROR_CODES).optional(),
+  // Set on success by the SAME redirect — see AuthController.googleCallback's
+  // invite branch. Deliberately NOT an error: task §2 — "Токен НЕ выдаёт
+  // сессию", so the person still has to click "Войти с Google" below to
+  // actually sign in; this banner just confirms the accept step worked.
+  // `z.coerce.boolean()`, not `z.enum(['1'])`: the router's default search
+  // parser turns `?invited=1` into the NUMBER 1 before this schema runs
+  // (see the module doc comment above and `login.search-schema.spec.ts`).
+  invited: z.coerce.boolean().optional(),
 })
 
 export const Route = createFileRoute('/login')({
@@ -42,12 +131,6 @@ const SHOW_DEV_LOGIN = !import.meta.env.PROD
 // Rollup eliminates it from prod bundles alongside DevLoginSection because
 // SHOW_DEV_LOGIN = !import.meta.env.PROD is statically false in prod builds,
 // making all references inside DevLoginSection unreachable dead code.
-
-const ERROR_MESSAGES: Record<string, string> = {
-  unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
-  google_error: 'Ошибка Google OAuth. Попробуйте снова.',
-  invalid_state: 'Сессия истекла. Пожалуйста, попробуйте снова.',
-}
 
 // Dot access — hotfix (task-telemetry-env-gate): bracket access to
 // `import.meta.env.VITE_*` is NOT statically foldable by Vite (same pitfall
@@ -156,7 +239,7 @@ function DevLoginSection({
 function LoginPage() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
-  const { error } = Route.useSearch()
+  const { error, invited } = Route.useSearch()
   const [devLoading, setDevLoading] = useState<string | null>(null)
 
   // Redirect if already authenticated. `replace: true` prevents the browser
@@ -194,7 +277,14 @@ function LoginPage() {
           <BrandMark className="h-14 w-14 text-primary drop-shadow-lg" />
           <div>
             <h1 className="text-xl font-bold tracking-tight">CheekyCheeseIT CRM</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Войдите через корпоративный Google</p>
+            {/* copy-review PR #623 round 4 (COPY-H-2): "корпоративный" is now
+                actively wrong on this page — a just-confirmed PERSONAL address
+                sits right below this subtitle (the `invited` banner) and is
+                also a valid way to sign in via the SAME button. "Только для
+                сотрудников" (badge below) already carries the access
+                restriction; repeating it here as "corporate" contradicted the
+                banner it stands directly above. */}
+            <p className="mt-1 text-sm text-muted-foreground">Войдите через Google</p>
           </div>
           <Badge variant="outline" className="border-primary/30 text-primary text-xs">
             Только для сотрудников
@@ -212,6 +302,23 @@ function LoginPage() {
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{ERROR_MESSAGES[error]}</span>
+          </motion.div>
+        )}
+
+        {/* task-user-emails-invite (spec §2): invite accepted, but "Токен НЕ
+            выдаёт сессию" — this confirms the accept step worked, the person
+            still clicks the Google button below to actually sign in. */}
+        {invited && !error && (
+          <motion.div
+            className="mb-4 flex items-start gap-2.5 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary"
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            data-testid="login-invite-accepted-message"
+          >
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            {/* COPY-M-7 (copy-review PR #623 round 4): "войти им" read badly;
+                "теперь вы можете" was three words of nothing. */}
+            <span>Личный адрес подтверждён. Войдите через Google — выберите этот адрес.</span>
           </motion.div>
         )}
 
