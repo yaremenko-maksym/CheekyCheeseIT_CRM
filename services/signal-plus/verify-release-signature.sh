@@ -25,6 +25,17 @@ SIG="$1"
 ARCHIVE="$2"
 FINGERPRINT="$3"
 
+# SR-M-11 (PR #650 security review round 4, id 5109138286): a fingerprint
+# argument that is not the expected shape cannot possibly be the trusted
+# pin -- validated up front, exit 1 (not the usage-error exit 2 above: this
+# IS the right argument count, just not a fingerprint), per the finding's
+# own instruction. Also closes off feeding this value into the field-match
+# below with anything but the 40 plain hex characters it expects.
+if [[ ! "$FINGERPRINT" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+  echo "fingerprint argument is not exactly 40 hex characters: ${FINGERPRINT}" >&2
+  exit 1
+fi
+
 STATUS_LOG="$(mktemp)"
 STDERR_LOG="$(mktemp)"
 trap 'rm -f "$STATUS_LOG" "$STDERR_LOG"' EXIT
@@ -46,13 +57,33 @@ fi
 # which is the one mechanism a maintainer has to disown a compromised key.
 GOOD_SIG_FOUND=0
 BAD_TAG_FOUND=""
+# SR-M-11: the fingerprint gpg actually vouches for, read from the FIELD of
+# an actual VALIDSIG-tagged line -- never set from anywhere else.
+VALIDSIG_FPR=""
 while IFS= read -r line; do
   case "$line" in
     "[GNUPG:] "*)
-      tag="${line#"[GNUPG:] "}"
-      tag="${tag%% *}"
+      payload="${line#"[GNUPG:] "}"
+      tag="${payload%% *}"
       case "$tag" in
         GOODSIG) GOOD_SIG_FOUND=1 ;;
+        VALIDSIG)
+          # Field 2 of the status line (the fingerprint), by position --
+          # NOT a substring search over the whole file. SR-M-11 (round 4,
+          # id 5109138286): SR-L-6's `grep -qF` fix (round 3) matched the
+          # pin as a substring ANYWHERE in $STATUS_LOG, including inside
+          # gpg's own NOTATION_DATA tag -- notation content is chosen by
+          # the SIGNER and gpg reproduces it verbatim, so a signature from
+          # an untrusted key carrying "[GNUPG:] VALIDSIG <pinned-fpr> " as
+          # literal notation TEXT satisfied that grep even though the
+          # line ACTUALLY tagged VALIDSIG named a different key entirely
+          # (reproduced in tests/test_verify_release_signature.sh: exit 0
+          # on the round-3 code, on a status log whose real VALIDSIG is
+          # $OTHER_FPR). Only a real VALIDSIG line's own fingerprint FIELD
+          # can ever set this.
+          rest="${payload#"$tag" }"
+          VALIDSIG_FPR="${rest%% *}"
+          ;;
         REVKEYSIG | EXPKEYSIG | KEYREVOKED | KEYEXPIRED | EXPSIG | BADSIG | ERRSIG)
           BAD_TAG_FOUND="$tag"
           ;;
@@ -73,14 +104,12 @@ if [ "$GOOD_SIG_FOUND" -ne 1 ]; then
   exit 1
 fi
 
-# SR-L-6 (PR #650 security review round 3, id 5108694371): ${FINGERPRINT}
-# used to be interpolated into a BRE grep PATTERN (no -F). A real 40-hex
-# fingerprint has no regex metacharacters, but "." IS one and IS in the
-# allowed alphabet nothing here validates against -- `-F` makes this an
-# exact fixed-string match regardless of what ends up in $3, instead of
-# relying on the value happening to be regex-safe by convention.
-if ! grep -qF -- "[GNUPG:] VALIDSIG ${FINGERPRINT} " "$STATUS_LOG"; then
-  echo "signature is valid but NOT from the expected key ${FINGERPRINT}:" >&2
+# SR-L-6 (round 3, id 5108694371) made this a fixed-string match instead of
+# a BRE pattern; SR-M-11 (round 4, id 5109138286) made it a FIELD match
+# instead of a substring-anywhere-in-the-file match -- see VALIDSIG_FPR's
+# extraction above for why "-F" alone was not enough on its own.
+if [ -z "$VALIDSIG_FPR" ] || [ "$VALIDSIG_FPR" != "$FINGERPRINT" ]; then
+  echo "signature is valid but NOT from the expected key ${FINGERPRINT} (VALIDSIG field: ${VALIDSIG_FPR:-<none found>}):" >&2
   cat "$STATUS_LOG" >&2
   exit 1
 fi

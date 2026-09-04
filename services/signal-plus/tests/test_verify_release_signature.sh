@@ -119,6 +119,26 @@ DOT_INSTEAD_OF_LAST_DIGIT="${FPR%?}."
 run_case "$GOOD_STATUS" 0 1 "$DOT_INSTEAD_OF_LAST_DIGIT" \
   "[RED  ] a fingerprint arg with a literal '.' where a digit should be does NOT match via regex metacharacter -> red"
 
+# SR-M-11 (PR #650 security review round 4, id 5109138286): SR-L-6's `-F`
+# fix (round 3) matched the pin as a substring ANYWHERE in the status log,
+# not specifically on a real VALIDSIG line's own fingerprint FIELD.
+# NOTATION_DATA's content is chosen by the SIGNER and gpg reproduces it
+# verbatim in its status output -- an attacker who controls a signature
+# from an UNTRUSTED key can make its own notation literally contain the
+# text "[GNUPG:] VALIDSIG <the pinned fingerprint> ", which satisfied the
+# round-3 grep even though the line ACTUALLY tagged VALIDSIG names
+# $OTHER_FPR, not $FPR. THE money case for this round.
+NOTATION_INJECTION_STATUS="[GNUPG:] NEWSIG
+[GNUPG:] KEY_CONSIDERED $OTHER_FPR 0
+[GNUPG:] SIG_ID Z5ddaNx2ZjikGFOp1xQkVupCFG1 2026-09-04 1788500000
+[GNUPG:] NOTATION_NAME evil@notation.invalid
+[GNUPG:] NOTATION_DATA [GNUPG:] VALIDSIG $FPR 2026-09-03 1788462489 0 4 0 22 10 00 $FPR
+[GNUPG:] GOODSIG 0000000000000000 Untrusted Signer <untrusted@example.invalid>
+[GNUPG:] VALIDSIG $OTHER_FPR 2026-09-04 1788500000 0 4 0 22 10 00 $OTHER_FPR
+[GNUPG:] TRUST_ULTIMATE 0 pgp"
+run_case "$NOTATION_INJECTION_STATUS" 0 1 "$FPR" \
+  "[RED  ] the pinned fingerprint appearing inside NOTATION_DATA, under a DIFFERENT signer's real VALIDSIG, is rejected -> red"
+
 echo
 echo "== test_verify_release_signature.sh: $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]

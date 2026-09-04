@@ -54,4 +54,6 @@ def test_verify_release_signature_shell_suite():
     assert "revoked key's signature is rejected" in result.stdout
     # SR-L-6 (round 3)'s own money case, same reasoning.
     assert "does NOT match via regex metacharacter" in result.stdout
-    assert "6 passed, 0 failed" in result.stdout
+    # SR-M-11 (round 4)'s own money case, same reasoning.
+    assert "under a DIFFERENT signer's real VALIDSIG, is rejected" in result.stdout
+    assert "7 passed, 0 failed" in result.stdout
