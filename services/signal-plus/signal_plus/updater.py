@@ -233,6 +233,7 @@ def fetch_latest_release(*, http_get=_default_http_get) -> ReleaseAsset:
         raise UpdaterError(f"unexpected GitHub releases API response: {exc}") from exc
 
     _validate_safe_token(version, field="tag_name")
+    _validate_safe_token(raw_tag, field="tag_name (raw)")
     _validate_safe_token(archive_name, field="asset name")
     archive_url = _validate_download_url(assets[archive_name], field="archive_url")
     signature_url = _validate_download_url(signature_url, field="signature_url")
@@ -244,8 +245,22 @@ def fetch_latest_release(*, http_get=_default_http_get) -> ReleaseAsset:
             f"asset name {archive_name!r} does not match tag {raw_tag!r} "
             f"(expected {expected_archive!r})"
         )
+    # SR-M-10 (PR #650 security review round 3, id 5108694371): this used to
+    # be archive_url.startswith(expected_prefix) -- a PREFIX match on a
+    # field taken directly from the untrusted API response, so
+    # "<expected_prefix>/../../../evil/payload.tar.gz" (or a trailing
+    # "?query=string") satisfied it while not actually being a URL under
+    # this tag's real release directory once something resolves those
+    # segments. archive_name and raw_tag are both validated safe tokens at
+    # this point (`_validate_safe_token` rejects "/", ".." and anything
+    # else outside `[0-9A-Za-z._-]`), so the ONE correct URL for this tag+
+    # asset is fully reconstructible here -- compare for EXACT equality
+    # against that self-built string instead of trusting the response's
+    # shape at all.
     expected_prefix = _ALLOWED_DOWNLOAD_URL_PREFIX + raw_tag + "/"
-    if not archive_url.startswith(expected_prefix) or not signature_url.startswith(expected_prefix):
+    expected_archive_url = expected_prefix + archive_name
+    expected_signature_url = expected_prefix + signature_name
+    if archive_url != expected_archive_url or signature_url != expected_signature_url:
         raise UpdaterError(f"download URL does not belong to the announced tag {raw_tag!r}")
 
     return ReleaseAsset(
@@ -503,6 +518,18 @@ def run_auto_update(
                 os.replace(tmp_link, current_link)
             else:
                 current_link.unlink(missing_ok=True)
+            # SR-L-7 (PR #650 security review round 3, id 5108694371):
+            # install_release() already extracted the mismatched release
+            # into bin/<release.version>/ before this check ran -- rolling
+            # the `current` symlink back (above) does not remove those
+            # files, so a bad/mismatched extraction would otherwise
+            # accumulate on disk forever, one directory per failed attempt.
+            # Nothing points at it any more after the roll-back above (or
+            # ever did, in the first-install branch), so it is always safe
+            # to remove here.
+            shutil.rmtree(
+                Path(config.signal_data_dir) / "bin" / release.version, ignore_errors=True
+            )
             return UpdateOutcome(
                 attempted=True,
                 success=False,

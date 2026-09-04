@@ -746,7 +746,15 @@ def test_groups_mode_lists_groups(config, capsys):
     assert code == 0
     captured = capsys.readouterr()
     assert "My Group" in captured.out
-    assert run.calls == [[str(config.signal_cli_bin), "-a", config.signal_account, "listGroups"]]
+    assert run.calls == [
+        [
+            str(config.signal_cli_bin),
+            f"-Djava.io.tmpdir={config.signal_tmpdir}",
+            "-a",
+            config.signal_account,
+            "listGroups",
+        ]
+    ]
 
 
 def test_groups_mode_lists_all_groups_not_just_the_first(config, capsys):

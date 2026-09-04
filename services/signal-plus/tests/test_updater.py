@@ -292,6 +292,60 @@ def test_fetch_latest_release_accepts_when_all_three_fields_agree():
 
 
 # ---------------------------------------------------------------------------
+# SR-M-10 (PR #650 security review round 3, id 5108694371) -- SR-H-3's own
+# URL binding check above was `archive_url.startswith(expected_prefix)`, a
+# PREFIX match against a field taken directly from the untrusted API
+# response. "<real prefix for this tag>/../../../evil/payload.tar.gz"
+# satisfies that prefix check while not actually being a URL under this
+# tag's real release directory once something resolves the ".." segments.
+# archive_name and the tag are already validated safe tokens (no "..") by
+# this point, so the one correct URL for this tag+asset is fully
+# reconstructible here -- must be an EXACT match, not a prefix.
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_latest_release_rejects_dot_dot_traversal_after_the_tag_prefix():
+    payload = _releases_api_payload()
+    payload["assets"][0]["browser_download_url"] = (
+        _REAL_RELEASE_DOWNLOAD_PREFIX + "../../../evil/payload.tar.gz"
+    )
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+def test_fetch_latest_release_rejects_dot_dot_traversal_in_the_signature_url():
+    payload = _releases_api_payload()
+    payload["assets"][1]["browser_download_url"] = (
+        _REAL_RELEASE_DOWNLOAD_PREFIX + "../../../evil/payload.tar.gz.asc"
+    )
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+def test_fetch_latest_release_rejects_extra_query_string_on_the_url():
+    # Same class as the ".." case above: a field appended after the exact
+    # expected URL still satisfies a prefix/startswith check.
+    payload = _releases_api_payload()
+    payload["assets"][0]["browser_download_url"] = (
+        _REAL_RELEASE_DOWNLOAD_PREFIX + "signal-cli-0.14.7-Linux-native.tar.gz?evil=1"
+    )
+
+    def fake_http_get(url):
+        return json.dumps(payload).encode()
+
+    with pytest.raises(UpdaterError):
+        fetch_latest_release(http_get=fake_http_get)
+
+
+# ---------------------------------------------------------------------------
 # download_to
 # ---------------------------------------------------------------------------
 
@@ -805,6 +859,14 @@ def test_run_auto_update_rolls_back_when_installed_binary_reports_a_different_ve
     # the mislabeled one that just failed verification.
     current = config.signal_data_dir / "bin" / "current"
     assert current.resolve().read_bytes() == b"trusted-old-binary"
+    # SR-L-7 (PR #650 security review round 3, id 5108694371): install_release
+    # already extracted the mislabeled release into bin/0.15.0/ before the
+    # version check ran. Rolling `current` back does not, by itself, remove
+    # those files -- nothing points at that directory any more after the
+    # roll-back above, so a bad/mismatched extraction must not be left
+    # behind to accumulate on disk (one directory per failed attempt,
+    # forever, otherwise).
+    assert not (config.signal_data_dir / "bin" / "0.15.0").exists()
 
 
 def test_run_auto_update_removes_current_when_version_mismatch_on_first_ever_install(config, tmp_path):
@@ -834,6 +896,10 @@ def test_run_auto_update_removes_current_when_version_mismatch_on_first_ever_ins
     assert outcome.success is False
     current = config.signal_data_dir / "bin" / "current"
     assert not current.exists() and not current.is_symlink()
+    # SR-L-7: same cleanup as the "previous version exists" rollback case
+    # above -- the mismatched extraction under bin/0.14.7/ must not survive
+    # a version-mismatch rollback either, first-ever-install or not.
+    assert not (config.signal_data_dir / "bin" / "0.14.7").exists()
 
 
 def test_run_auto_update_skips_when_already_attempted_today(config, tmp_path):
