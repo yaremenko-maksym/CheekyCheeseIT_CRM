@@ -110,10 +110,22 @@ export function ProjectApprovalActions({
       // invited approver (still DRAFT) — two different facts, two
       // different sentences, not one generic "done".
       onSuccess: (project) => {
+        // COPY-M-8 (PR #646 fix-round 3): this used to say "Ждём решения
+        // второй стороны" while ProjectRow's own caption for the exact same
+        // fact says "Ждём дропа"/"Ждём синьора" — two names, one second
+        // apart, for one thing. "Сторона" is also already the CRM's word
+        // for an invoice's two signing parties (CONTEXT.md, «Инвойс»),
+        // giving it a third, unrelated meaning here would have been a new
+        // synonym the glossary explicitly warns against. The mutation
+        // response already carries which one is still pending — same
+        // fields ProjectRow reads for its own caption — so this can name
+        // the actual missing side instead of a generic placeholder.
         toast.success(
           project.status === 'ACTIVE'
             ? `Проект «${companyName}» подтверждён`
-            : 'Вы подтвердили. Ждём решения второй стороны',
+            : project.dropApprovalPending
+              ? 'Вы подтвердили. Ждём дропа'
+              : 'Вы подтвердили. Ждём синьора',
         )
         onActed?.()
       },
@@ -245,10 +257,20 @@ export function ProjectApprovalActions({
       >
         <CrmDialogContent maxWidth="sm:max-w-md">
           <CrmDialogHeader>
-            <DialogTitle>Отклонить проект «{companyName}»</DialogTitle>
-            <DialogDescription className="sr-only">
-              Форма причины отказа от подтверждения проекта
-            </DialogDescription>
+            {/* UX-L-1(r3) (PR #646 fix-round 3): an extreme companyName
+                (own test fixture ran ~70 chars) wrapped the title 4-5 lines
+                deep, pushing the reason field below the fold on 320px.
+                `line-clamp-2` caps it — real company names are nowhere near
+                this length, this is a defensive cap, not a truncation most
+                users will ever see. */}
+            <DialogTitle className="line-clamp-2">Отклонить проект «{companyName}»</DialogTitle>
+            {/* COPY-L-5 (PR #646 fix-round 3): "причины отказа от
+                подтверждения проекта" was four genitive nouns in a row — a
+                screen-reader-only string, so it is read aloud, never seen,
+                and this is exactly the register where a genitive chain
+                reads worst. Shortened to the same two words the visible
+                title already uses. */}
+            <DialogDescription className="sr-only">Форма отказа: причина</DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody className="space-y-3">
             {/* COPY-L-3 (PR #646 fix-round 2, optional): this paragraph's
@@ -258,12 +280,18 @@ export function ProjectApprovalActions({
                 makes this sentence accurate as written; no wording change
                 needed here, only the `*` on the label below (obligatory
                 field marked visually, matching the finance screens'
-                convention — "Чек / подтверждение *"). */}
+                convention — "Чек / подтверждение *").
+                COPY-L-5 (fix-round 3): the `*` on the label below already
+                says "obligatory" — this paragraph used to say it a second
+                time ("Причина обязательна —"), then repeat the same fact.
+                Trimmed to what the `*` doesn't already cover. */}
             <p className="text-sm text-muted-foreground">
-              Причина обязательна — админ увидит её и сможет предложить проект заново.
+              Админ увидит причину и сможет предложить проект заново.
             </p>
             <div className="space-y-1.5">
-              <Label className="text-xs">Причина отказа *</Label>
+              <Label className="text-xs" id="project-approval-reject-reason-label">
+                Причина отказа *
+              </Label>
               <Textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
@@ -274,14 +302,33 @@ export function ProjectApprovalActions({
                 // this, 500+ characters would type fine here and only fail
                 // as a 400 after Отклонить, with no hint at the field itself.
                 maxLength={500}
+                // UX-M-1 (PR #646 fix-round 3): links the counter below to
+                // this field so a screen-reader user tabbed INTO the
+                // Textarea also gets announced how much room is left,
+                // without having to navigate to the counter paragraph
+                // separately.
+                aria-describedby="project-approval-reject-reason-counter"
                 data-testid="project-approval-reject-reason"
               />
               {/* COPY-M-4 / QA-L-2 (PR #646 fix-round 2): maxLength alone is
                   silent — the field simply stops accepting input with no
                   sound or hint, and the schema's own "слишком длинная"
                   message becomes unreachable once this attribute is in
-                  place. A visible counter is the only remaining signal. */}
-              <p className="text-right text-[10px] text-muted-foreground">{reason.length}/500</p>
+                  place. A visible counter is the only remaining signal.
+                  UX-M-1 (fix-round 3): `aria-live="polite"` announces the
+                  updated count on ITS OWN, for a screen-reader user who is
+                  not focused on this paragraph (e.g. still typing in the
+                  Textarea) — `aria-describedby` above covers the
+                  focused-on-the-field case, this covers the ambient one;
+                  "polite" (not "assertive") queues the announcement after
+                  the current one instead of interrupting mid-keystroke. */}
+              <p
+                id="project-approval-reject-reason-counter"
+                aria-live="polite"
+                className="text-right text-[10px] text-muted-foreground"
+              >
+                {reason.length}/500
+              </p>
             </div>
             {rejectError && <p className="text-xs text-destructive">{rejectError}</p>}
           </CrmDialogBody>

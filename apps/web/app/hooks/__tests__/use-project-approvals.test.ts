@@ -23,6 +23,7 @@ import {
   useRejectProjectDraft,
   usePendingProjectApprovals,
   PROJECTS_DEFAULT_QUERY_KEY,
+  PENDING_APPROVALS_QUERY_KEY,
 } from '../use-project-approvals'
 
 const mockGet = api.get as ReturnType<typeof vi.fn>
@@ -150,6 +151,20 @@ describe('usePendingProjectApprovals', () => {
     expect(mockGet).not.toHaveBeenCalled()
     expect(result.current.pending).toEqual([])
   })
+
+  it('SR-M-6 (fix-round 3): caches under PENDING_APPROVALS_QUERY_KEY, NOT PROJECTS_DEFAULT_QUERY_KEY — a shared key would let this response reach IndexedDB for DROP under the /projects allow-list prefix (see the hook module doc)', async () => {
+    const draft = project({ id: 'p-draft', status: 'DRAFT' })
+    mockGet.mockResolvedValue({ data: [draft] })
+    const qc = makeQC()
+    const { result } = renderHook(() => usePendingProjectApprovals(), {
+      wrapper: makeWrapper(qc),
+    })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(qc.getQueryData(PENDING_APPROVALS_QUERY_KEY)).toEqual([draft])
+    expect(qc.getQueryData(PROJECTS_DEFAULT_QUERY_KEY)).toBeUndefined()
+  })
 })
 
 describe('useApproveProjectDraft / useRejectProjectDraft', () => {
@@ -179,7 +194,7 @@ describe('useApproveProjectDraft / useRejectProjectDraft', () => {
     expect(result.current.data).toEqual(rejected)
   })
 
-  it('a successful approve invalidates the shared projects query (both surfaces refresh)', async () => {
+  it('a successful approve invalidates BOTH the card list and the widget query (SR-M-6, fix-round 3: no longer one shared key — see the hook module doc)', async () => {
     mockPost.mockResolvedValue({ data: project({ status: 'ACTIVE' }) })
     const qc = makeQC()
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
@@ -189,9 +204,10 @@ describe('useApproveProjectDraft / useRejectProjectDraft', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: PENDING_APPROVALS_QUERY_KEY })
   })
 
-  it('an "already responded" 409 on approve STILL invalidates — the list was stale, not the mutation broken', async () => {
+  it('an "already responded" 409 on approve STILL invalidates BOTH keys — the list was stale, not the mutation broken', async () => {
     mockPost.mockRejectedValue(
       Object.assign(new Error('Conflict'), { isAxiosError: true, response: { status: 409 } }),
     )
@@ -203,9 +219,10 @@ describe('useApproveProjectDraft / useRejectProjectDraft', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: PENDING_APPROVALS_QUERY_KEY })
   })
 
-  it('an "already responded" 409 on REJECT ALSO invalidates (the same onSettled logic, exercised on its own hook)', async () => {
+  it('an "already responded" 409 on REJECT ALSO invalidates BOTH keys (the same onSettled logic, exercised on its own hook)', async () => {
     mockPost.mockRejectedValue(
       Object.assign(new Error('Conflict'), { isAxiosError: true, response: { status: 409 } }),
     )
@@ -217,6 +234,7 @@ describe('useApproveProjectDraft / useRejectProjectDraft', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: PENDING_APPROVALS_QUERY_KEY })
   })
 
   it('SR-M-4 (PR #646 fix-round 1): a 404 on APPROVE does NOT invalidate — it is a real error now (possibly an unauthorized caller), not a stale-list signal', async () => {
@@ -269,5 +287,17 @@ describe('PROJECTS_DEFAULT_QUERY_KEY', () => {
     // would silently break cross-surface cache sharing without any test
     // failing anywhere else.
     expect(PROJECTS_DEFAULT_QUERY_KEY).toEqual(['projects', { archived: 'active' }])
+  })
+})
+
+describe('PENDING_APPROVALS_QUERY_KEY (SR-M-6, fix-round 3)', () => {
+  it('is NOT prefixed "projects" — must fall outside __root.tsx\'s PERSISTED_KEY_PREFIXES allow-list', () => {
+    // The allow-list check is `PERSISTED_KEY_PREFIXES.has(String(queryKey[0]))`
+    // (__root.tsx) — asserting the literal first element here is what makes a
+    // future accidental rename back to a 'projects'-prefixed key fail THIS
+    // test, instead of silently reopening the SR-M-6 data-at-rest gap for
+    // DROP with no test noticing.
+    expect(PENDING_APPROVALS_QUERY_KEY).toEqual(['approvals', 'pending'])
+    expect(PENDING_APPROVALS_QUERY_KEY[0]).not.toBe('projects')
   })
 })

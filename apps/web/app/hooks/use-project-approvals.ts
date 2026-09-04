@@ -4,19 +4,45 @@ import type { ProjectDto } from '@crm/shared'
 import { api } from '@/lib/axios'
 
 /**
- * task-project-status-filter-ui. Shared cache key for the "default" (non-
- * archived) project list — the SAME fetch backs the /projects page's
- * Активные/На подтверждении/Отклонённые tabs (bucketed client-side by
- * `project.status`, see routes/_authenticated/projects/index.tsx) AND
- * `usePendingProjectApprovals` below. Sharing the key means a mutation on
- * either surface (approve/reject) invalidates both at once, and switching
- * between them never re-fetches data the other already has warm.
+ * task-project-status-filter-ui. Cache key for the "default" (non-archived)
+ * project list — backs the /projects page's Активные/На подтверждении/
+ * Отклонённые tabs (bucketed client-side by `project.status`, see
+ * routes/_authenticated/projects/index.tsx).
  *
  * `'active'` (not `'false'`) matches the label the /projects page has used
  * for this exact query since before this task — kept identical on purpose,
  * not reinvented.
+ *
+ * SR-M-6 (fix-round 3): `usePendingProjectApprovals` used to share this key
+ * too — see `PENDING_APPROVALS_QUERY_KEY` below for why that stopped. Both
+ * mutations below now invalidate both keys explicitly to keep them in sync
+ * without sharing a cache entry.
  */
 export const PROJECTS_DEFAULT_QUERY_KEY = ['projects', { archived: 'active' }] as const
+
+/**
+ * SR-M-6 (PR #646 fix-round 3). `usePendingProjectApprovals` used to share
+ * `PROJECTS_DEFAULT_QUERY_KEY` (see that constant's own doc) — cheap for
+ * ADMIN/SENIOR, who already had `'projects'`-keyed data persisted before
+ * this task, but this task is what FIRST mounts `PendingProjectApprovalsPanel`
+ * (and therefore this hook) for DROP, on `DropDashboard` — a role that
+ * previously had NO project data on disk at all (its only prior fetch was
+ * the narrow, 5-field `DropProjectDto` via `useDropProjects`, whose
+ * `['drop','projects']` key was never in the persist allow-list either).
+ * Sharing the key meant DROP's IndexedDB started filling with the FULL
+ * `ProjectDto` — `rate`, `notesGeneral`, share percentages, every
+ * `members[].email` — the instant this widget mounted for them, since
+ * `'projects'` IS allow-listed (`PERSISTED_KEY_PREFIXES`, __root.tsx).
+ *
+ * Query-key-based, not field-level (`SENSITIVE_PERSISTED_FIELDS`), on
+ * purpose: this is data-at-rest for a role that had NONE before, on a
+ * widget-only fetch — excluding the whole query costs nothing this hook's
+ * own callers need persisted (the widget always wants fresh, "is someone
+ * waiting on me right now" data, never a stale offline copy), whereas
+ * stripping fields would touch the SAME 'projects' key ADMIN/SENIOR's
+ * `/projects` list page still legitimately relies on for offline-resume.
+ */
+export const PENDING_APPROVALS_QUERY_KEY = ['approvals', 'pending'] as const
 
 /**
  * task-project-status-filter-ui. `POST /projects/:id/approve` and `/reject`
@@ -41,9 +67,16 @@ export function useApproveProjectDraft() {
     // now stale, so the card AND the dashboard widget self-correct on the
     // very next render instead of continuing to show a resolved item as
     // still awaiting a decision.
+    //
+    // SR-M-6 (fix-round 3): the card (`['projects']`) and the widget
+    // (`PENDING_APPROVALS_QUERY_KEY`, deliberately a SEPARATE key now — see
+    // that constant's own doc) no longer share one cache entry, so a
+    // mutation from EITHER surface has to invalidate BOTH explicitly or the
+    // other one goes stale silently.
     onSettled: (_data, error) => {
       if (!error || isAlreadyRespondedError(error)) {
         void qc.invalidateQueries({ queryKey: ['projects'] })
+        void qc.invalidateQueries({ queryKey: PENDING_APPROVALS_QUERY_KEY })
       }
     },
   })
@@ -57,6 +90,7 @@ export function useRejectProjectDraft() {
     onSettled: (_data, error) => {
       if (!error || isAlreadyRespondedError(error)) {
         void qc.invalidateQueries({ queryKey: ['projects'] })
+        void qc.invalidateQueries({ queryKey: PENDING_APPROVALS_QUERY_KEY })
       }
     },
   })
@@ -102,6 +136,13 @@ export function isAlreadyRespondedError(err: unknown): boolean {
  * (`ProjectsService.findAll`'s "узкий путь к черновику" gate) — this hook
  * only buckets that response down to `status === 'DRAFT'` client-side.
  *
+ * SR-M-6 (fix-round 3): queried under `PENDING_APPROVALS_QUERY_KEY`, NOT
+ * `PROJECTS_DEFAULT_QUERY_KEY` — see that constant's own doc for why this
+ * hook deliberately does NOT share the persisted `/projects` list-page
+ * cache entry anymore. Same endpoint, same response shape, different key
+ * only — `PendingProjectApprovalsPanel` never needed the sharing (it
+ * always wants a fresh fetch, not an offline-resumed one).
+ *
  * This hook itself does NOT try to distinguish "still pending on me" from
  * "I already approved, waiting on the other party" — SPEC-M-2 (PR #646
  * fix-round 1) DID add the backend fields that make that distinction
@@ -118,7 +159,7 @@ export function isAlreadyRespondedError(err: unknown): boolean {
  */
 export function usePendingProjectApprovals(enabled = true) {
   const query = useQuery({
-    queryKey: PROJECTS_DEFAULT_QUERY_KEY,
+    queryKey: PENDING_APPROVALS_QUERY_KEY,
     queryFn: () => api.get<ProjectDto[]>('/projects').then((r) => r.data),
     enabled,
   })

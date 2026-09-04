@@ -488,6 +488,70 @@ test.describe('Project status filter — AC5 (responsive)', () => {
     }
   })
 
+  /**
+   * CR-H-2 = COPY-H-4 (PR #646 fix-round 3). copy-reviewer's own attached
+   * screenshot: at 320/375 the "Синьор"/"Джун" micro-labels above each
+   * column's name rendered with no `truncate`/`overflow-hidden` at all,
+   * an un-breakable Cyrillic uppercase run with no valid word-break point,
+   * and spilled past their own ~6.4px-wide box straight into the neighbor
+   * column's text — reading as one merged word, "СИНЬОРДЖУН". The fix is
+   * `hidden lg:block` on all three label instances (ProjectRow.tsx), not a
+   * grid refactor (orchestrator's explicit instruction, spec §11 stays
+   * intact at md+) — so the correct regression guard is TWO-SIDED: the
+   * labels render NOTHING at 320/375 (nothing to merge into anything), and
+   * they DO reappear, non-overlapping, from 1024px up where the fix
+   * intentionally stops hiding them. Same rect-intersection method as
+   * QA-H-1's own test above, applied at the ONE breakpoint where the labels
+   * actually paint.
+   */
+  test('CR-H-2 = COPY-H-4: Синьор/Джун micro-labels are hidden at 320/375 (no "СИНЬОРДЖУН" merge possible when nothing renders) and reappear without overlapping at 1024+', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { projectId } = await createSeniorProjectViaAPI(page, {
+      name: `CR-H-2 Label ${suffix}`,
+      companyName: `CR-H-2 Label Co ${suffix}`,
+    })
+
+    try {
+      await page.goto('/projects')
+      const row = page.getByTestId(`project-row-${projectId}`)
+      await expect(row).toBeVisible()
+
+      const seniorLabel = row.getByText('Синьор', { exact: true })
+      const juniorLabel = row.getByText('Джун', { exact: true })
+
+      for (const width of [320, 375]) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(50)
+        await expect(seniorLabel, `Синьор label hidden at ${width}px`).toBeHidden()
+        await expect(juniorLabel, `Джун label hidden at ${width}px`).toBeHidden()
+      }
+
+      await page.setViewportSize({ width: 1024, height: 900 })
+      await page.waitForTimeout(50)
+      await expect(seniorLabel, 'Синьор label visible again at 1024px').toBeVisible()
+      await expect(juniorLabel, 'Джун label visible again at 1024px').toBeVisible()
+
+      const seniorBox = await seniorLabel.boundingBox()
+      const juniorBox = await juniorLabel.boundingBox()
+      expect(seniorBox, 'senior label box at 1024px').not.toBeNull()
+      expect(juniorBox, 'junior label box at 1024px').not.toBeNull()
+
+      const intersects = (
+        a: { x: number; y: number; width: number; height: number },
+        b: { x: number; y: number; width: number; height: number },
+      ) =>
+        a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+
+      expect(intersects(seniorBox!, juniorBox!), 'Синьор/Джун labels overlap at 1024px').toBe(false)
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await deleteProjectViaAPI(page, projectId)
+    }
+  })
+
   test('mobile (375): tab buttons meet the 44px touch-target minimum', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.setViewportSize({ width: 375, height: 800 })

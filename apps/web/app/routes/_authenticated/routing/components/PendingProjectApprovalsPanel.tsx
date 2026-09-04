@@ -158,8 +158,12 @@ export function PendingProjectApprovalsPanel() {
   // pending) still renders nothing, that IS the correct "all clear" state.
   if (isError) {
     return (
+      // COPY-L-6 (PR #646 fix-round 3): the card's own header four lines
+      // below says "решения" ("Ждёт вашего решения") — this error used a
+      // second word ("подтверждения") for the same object. One name per
+      // concept in one card.
       <p className="text-xs text-muted-foreground" data-testid="pending-project-approvals-error">
-        Не удалось проверить, ждут ли вас подтверждения. Обновите страницу.
+        Не удалось проверить, ждёт ли вас решение по проекту. Обновите страницу.
       </p>
     )
   }
@@ -199,15 +203,35 @@ export function PendingProjectApprovalsPanel() {
                     default `dropSharePercent`) — the resolved value,
                     accounting for a project-level override, is what
                     actually applies to THIS decision. */}
+                {/* COPY-L-4 (PR #646 fix-round 3): a bare "Ваша доля: —%"
+                    reads as a real value (an em-dash where a number usually
+                    sits, still followed by a "%" sign) rather than as "this
+                    is missing" — genuinely reachable only for a stale/cached
+                    DTO predating these fields (same `?? true` precedent as
+                    the approval-pending booleans elsewhere in this file),
+                    but when it happens the sentence itself is wrong, not
+                    just one token in it. Whole-sentence fallback instead of
+                    a dash substituted into the normal template. */}
                 {user?.id === project.dropId ? (
-                  <p className="truncate text-[11px] text-amber-300/70">
-                    Ваша доля: {project.effectiveDropSharePercent ?? '—'}% · синьор:{' '}
-                    {project.seniorName}
-                  </p>
+                  project.effectiveDropSharePercent != null ? (
+                    <p className="truncate text-[11px] text-amber-300/70">
+                      Ваша доля: {project.effectiveDropSharePercent}% · синьор: {project.seniorName}
+                    </p>
+                  ) : (
+                    <p className="truncate text-[11px] text-amber-300/70">
+                      Долю не удалось определить — обновите страницу.
+                    </p>
+                  )
                 ) : user?.id === project.seniorId ? (
-                  <p className="truncate text-[11px] text-amber-300/70">
-                    Ваша доля: {project.effectiveSeniorSharePercent ?? '—'}%
-                  </p>
+                  project.effectiveSeniorSharePercent != null ? (
+                    <p className="truncate text-[11px] text-amber-300/70">
+                      Ваша доля: {project.effectiveSeniorSharePercent}%
+                    </p>
+                  ) : (
+                    <p className="truncate text-[11px] text-amber-300/70">
+                      Долю не удалось определить — обновите страницу.
+                    </p>
+                  )
                 ) : null}
               </div>
               <ProjectApprovalActions

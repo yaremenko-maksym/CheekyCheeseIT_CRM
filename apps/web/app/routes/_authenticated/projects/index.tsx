@@ -459,11 +459,20 @@ function ProjectsPage() {
     ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects', icon: Archive } : {}),
     ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
   }))
+  // COPY-M-10 (PR #646 fix-round 3): the mobile ARCHIVED option does NOT
+  // carry `icon: Archive` (unlike the desktop one two lines up) — measured
+  // budget at 320px with 4 ADMIN tabs is ~47px per button; "Архив" alone is
+  // 36.4px, but + the icon's 14px + 8px gap (`SegmentedToggle` renders icon
+  // inline before the label) is 58.4px, an ~11px overflow with no
+  // `truncate` or its own `overflow` to catch it (the row's `overflow-hidden`
+  // is on the strip, not the button) — it would spill into the next tab's
+  // track. The word alone is unambiguous; the icon adds nothing on mobile
+  // that the label doesn't already say.
   const tabOptionsMobile: ReadonlyArray<SegmentedToggleOption<StatusTab>> = allowedTabs.map(
     (value) => ({
       value,
       label: STATUS_FILTER_LABELS_MOBILE[value],
-      ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects-mobile', icon: Archive } : {}),
+      ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects-mobile' } : {}),
       ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
     }),
   )

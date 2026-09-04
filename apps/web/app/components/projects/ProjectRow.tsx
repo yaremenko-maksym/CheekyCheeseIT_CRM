@@ -248,7 +248,23 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">
+                {/* CR-H-2 = COPY-H-4 (PR #646 fix-round 3). At 320px this
+                    column's own grid track is ~42.4px (1.4/7 of ~212px
+                    content width) — the shrink-0 avatar (28px) + gap-2 (8px)
+                    already consume 36px of that, leaving ~6.4px for this
+                    div. The NAME below already clips correctly there
+                    (`truncate` on the Link) — this LABEL never had that
+                    class, and un-breakable Cyrillic uppercase text with no
+                    `overflow-hidden` does not wrap (no valid break point
+                    inside one word) — it renders past its own box, visibly
+                    into the neighboring Джун column ("СИНЬОРДЖУН" on the
+                    copy-reviewer's own attached screenshot). `hidden
+                    lg:block` — not `truncate` — because the role is already
+                    readable from the avatar + column position alone below
+                    `lg`, matching the orchestrator's own minimal-text-axis
+                    instruction (not a grid refactor, spec §11 stays intact
+                    at md+). */}
+                <p className="hidden text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:block">
                   Синьор
                 </p>
                 {/* Inner link sits above the row-level stretched-link (z-[2] > z-[1]).
@@ -287,7 +303,11 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">
+                {/* CR-H-2 = COPY-H-4: same fix as the Синьор label above,
+                    same mechanism (own grid track ~42.4px at 320px, no
+                    truncate on this label, un-breakable Cyrillic overflows
+                    into the neighbor instead of wrapping). */}
+                <p className="hidden text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:block">
                   Джун
                 </p>
                 {/* `<div>` (not `<p>`) used as the truncate parent because we
@@ -321,7 +341,11 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 aria-hidden
               />
               <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">
+                {/* CR-H-2 = COPY-H-4: same fix as the Синьор label above,
+                    same mechanism (own grid track ~42.4px at 320px, no
+                    truncate on this label, un-breakable Cyrillic overflows
+                    into the neighbor instead of wrapping). */}
+                <p className="hidden text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:block">
                   Джун
                 </p>
                 <p className="text-xs font-medium text-destructive/80 flex items-center gap-1.5 truncate">
@@ -410,8 +434,16 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 // (`viewerAlreadyActedCaption`) takes priority over the
                 // generic "who's still pending" one when the viewer is the
                 // invited approver who already acted.
+                // COPY-M-9 = UX-L-2(r3) (PR #646 fix-round 3): `max-w-40`
+                // (160px) was sized for the OLD narrow status column — below
+                // `lg:` this now lives in a full-width second row with ~230px
+                // available, capping at 160px regardless leaves real idle
+                // space while still truncating a caption one character
+                // longer. `max-w-full` below `lg:`, back to the original
+                // `max-w-40` at `lg:`+ where the column really is narrow
+                // again (byte-for-byte the pre-fix-round-2 layout).
                 <p
-                  className="max-w-40 truncate text-[11px] text-amber-300/80"
+                  className="max-w-full truncate text-[11px] text-amber-300/80 lg:max-w-40"
                   title={viewerAlreadyActedCaption ?? pendingCaption ?? undefined}
                 >
                   {viewerAlreadyActedCaption ?? pendingCaption}
@@ -444,8 +476,22 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
               </Badge>
               {project.rejectionReason && (
                 // UX-H-1: same fixed max-w-40 fix as pendingCaption above.
+                // COPY-M-9 = UX-L-2(r3): same widen-below-lg fix as the
+                // caption above, but SR-M-5 (fix-round 2) made this the
+                // ONLY place ADMIN ever sees this text at all (not just a
+                // convenience copy) — `line-clamp-2` instead of a single
+                // truncated line below `lg:` uses the full-width row's real
+                // estate to show meaningfully more of it (roughly the first
+                // ~40 chars at 160px single-line vs ~2 lines' worth at
+                // full width); `title` still carries the untruncated text
+                // for the cases where even two lines isn't enough.
+                // `lg:line-clamp-1` (not `lg:truncate`) — mixing `truncate`
+                // (nowrap-based) with `line-clamp` (webkit-box-based) at a
+                // breakpoint boundary leaves stale `display`/`-webkit-*`
+                // properties from the smaller breakpoint active; staying on
+                // the clamp mechanism at both sizes avoids that.
                 <p
-                  className="max-w-40 truncate text-[11px] text-destructive/90"
+                  className="line-clamp-2 max-w-full text-[11px] text-destructive/90 lg:line-clamp-1 lg:max-w-40"
                   title={project.rejectionReason}
                 >
                   «{project.rejectionReason}»

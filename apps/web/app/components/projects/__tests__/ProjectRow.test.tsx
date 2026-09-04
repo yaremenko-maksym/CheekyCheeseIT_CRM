@@ -266,13 +266,19 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(row.className).toContain('ring-amber-500/20')
   })
 
-  it('UX-H-1 / SPEC-M-1 (PR #646 fix-round 1): DRAFT with a long approver name — caption is width-capped (max-w-40), not max-w-full', async () => {
+  it('UX-H-1 / SPEC-M-1 (PR #646 fix-round 1, width-cap widened COPY-M-9 fix-round 3): DRAFT with a long approver name — caption is width-capped ONLY at lg: (max-w-full below it, where the second row is full-width)', async () => {
     // The finding SPEC-M-1 flagged: the one overflow E2E test only ever grew
     // companyName, never the approver name, so this half of AC4 ("длинные
     // имена не переполняют") had zero coverage. jsdom has no real layout
     // engine, so this pins the FIX (the class that actually caps the width)
     // rather than a pixel measurement — same style as this file's existing
     // `dot.className.toContain(...)` assertions.
+    //
+    // COPY-M-9 (fix-round 3): a FIXED max-w-40 was itself the bug below
+    // `lg:` — the caption sits in a full-width second row there (68px idle),
+    // not the cramped `lg:` column this cap was originally sized for. Now
+    // `max-w-full` at base, `lg:max-w-40` only once the column is narrow
+    // again — pin BOTH halves, not just "a cap exists somewhere".
     const longSeniorName = 'Oleksandr Verylongsurnamovych Kovalenkovskyi-Tretiakov'
     const project = makeProject({
       status: 'DRAFT',
@@ -282,8 +288,9 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     const caption = await screen.findByText(`от ${longSeniorName}`)
-    expect(caption.className).toContain('max-w-40')
-    expect(caption.className).not.toContain('max-w-full')
+    expect(caption.className).toContain('max-w-full')
+    expect(caption.className).toContain('lg:max-w-40')
+    expect(caption.className).toContain('truncate')
     expect(caption).toHaveAttribute('title', `от ${longSeniorName}`)
   })
 
@@ -368,7 +375,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(row.className).not.toContain('ring-amber-500/20')
   })
 
-  it('UX-H-1 (PR #646 fix-round 1): REJECTED with a realistic ~90-char reason — reason text is width-capped, status column shrinks (min-w-0)', async () => {
+  it('UX-H-1 (PR #646 fix-round 1, mechanism switched COPY-M-9/UX-L-2(r3) fix-round 3): REJECTED with a realistic ~90-char reason — width-capped + line-clamped ONLY at lg:, status column shrinks (min-w-0)', async () => {
     // Exact class of text the designer's live repro used (Mode B comment):
     // a normal-length rejection reason, not an edge case. Before the fix
     // this blew out the status column and collapsed columns 0-2 on
@@ -376,14 +383,26 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     // happens on an intermediate ancestor, not the document), which is why
     // this is pinned at the className level, not via a layout measurement
     // jsdom cannot produce anyway.
+    //
+    // COPY-M-9 = UX-L-2(r3) (fix-round 3): a FIXED `truncate` + `max-w-40`
+    // clipped this to ~20 characters even in the full-width second row below
+    // `lg:` (68px idle there) — now `line-clamp-2` + `max-w-full` at base,
+    // `lg:line-clamp-1` + `lg:max-w-40` only once the column is narrow again.
+    // Pinning `truncate`'s ABSENCE too: mixing `truncate` (nowrap-based) with
+    // `line-clamp` (webkit-box-based) across a breakpoint leaves stale
+    // `display`/`-webkit-line-clamp` active at the larger size — the exact
+    // hazard this fix was written to avoid, see the component's own comment.
     const longReason =
       'Нет бюджета на Q3, вернёмся к вопросу в начале следующего квартала после пересмотра плана'
     const project = makeProject({ status: 'REJECTED', rejectionReason: longReason })
     renderProjectRow(project)
 
     const reason = await screen.findByText(`«${longReason}»`)
-    expect(reason.className).toContain('max-w-40')
-    expect(reason.className).not.toContain('max-w-full')
+    expect(reason.className).toContain('max-w-full')
+    expect(reason.className).toContain('lg:max-w-40')
+    expect(reason.className).toContain('line-clamp-2')
+    expect(reason.className).toContain('lg:line-clamp-1')
+    expect(reason.className).not.toContain('truncate')
     expect(reason).toHaveAttribute('title', longReason)
     // Container symmetry with column 1 (ProjectRow.tsx's own "Project info
     // column" div) — without it, a CSS grid item's default min-width: auto

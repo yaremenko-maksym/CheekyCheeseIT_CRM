@@ -140,19 +140,34 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(mockToastSuccess).toHaveBeenCalledWith('Проект «Acme» подтверждён')
   })
 
-  it('COPY-H-2: a successful approve that leaves the project DRAFT (partial agreement — the other invited approver has not decided) toasts the "waiting on the other side" message, not the "confirmed" one', async () => {
+  it('COPY-M-8 (PR #646 fix-round 3): a successful approve that leaves the project DRAFT with dropApprovalPending=true names the drop specifically ("Ждём дропа"), not a generic "the other side"', async () => {
     const user = userEvent.setup()
     const onActed = vi.fn()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
 
     await user.click(screen.getByTestId(`project-approval-approve-${PROJECT_ID}`))
     const opts = mockApprove.mock.calls[0]?.[1] as {
-      onSuccess: (project: { status: string }) => void
+      onSuccess: (project: { status: string; dropApprovalPending?: boolean }) => void
+    }
+    act(() => opts.onSuccess({ status: 'DRAFT', dropApprovalPending: true }))
+
+    expect(onActed).toHaveBeenCalledTimes(1)
+    expect(mockToastSuccess).toHaveBeenCalledWith('Вы подтвердили. Ждём дропа')
+  })
+
+  it("COPY-M-8 (PR #646 fix-round 3): the same DRAFT outcome with dropApprovalPending falsy (senior still pending, or a 2-party-less project) names the senior instead — the ternary's OTHER branch, not a shared fallback string", async () => {
+    const user = userEvent.setup()
+    const onActed = vi.fn()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
+
+    await user.click(screen.getByTestId(`project-approval-approve-${PROJECT_ID}`))
+    const opts = mockApprove.mock.calls[0]?.[1] as {
+      onSuccess: (project: { status: string; dropApprovalPending?: boolean }) => void
     }
     act(() => opts.onSuccess({ status: 'DRAFT' }))
 
     expect(onActed).toHaveBeenCalledTimes(1)
-    expect(mockToastSuccess).toHaveBeenCalledWith('Вы подтвердили. Ждём решения второй стороны')
+    expect(mockToastSuccess).toHaveBeenCalledWith('Вы подтвердили. Ждём синьора')
   })
 
   it('an "already responded" 409 on approve calls onActed too — no error surfaced, no toast', async () => {
@@ -324,6 +339,40 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
 
     const textarea = await screen.findByTestId('project-approval-reject-reason')
     expect(textarea).toHaveAttribute('maxLength', '500')
+  })
+
+  it('UX-M-1 (PR #646 fix-round 3): the {n}/500 counter is wired to the Textarea via aria-describedby, and announces itself via aria-live="polite" — a screen-reader user gets the remaining-room signal both while focused on the field and ambiently', async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+
+    const textarea = await screen.findByTestId('project-approval-reject-reason')
+    expect(textarea).toHaveAttribute('aria-describedby', 'project-approval-reject-reason-counter')
+
+    const counter = screen.getByText('0/500')
+    expect(counter).toHaveAttribute('id', 'project-approval-reject-reason-counter')
+    expect(counter).toHaveAttribute('aria-live', 'polite')
+  })
+
+  it('UX-L-1(r3) (PR #646 fix-round 3): the dialog title is line-clamp-2 — an extreme companyName must not push the reason field below the fold on 320px', async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+
+    const title = await screen.findByText('Отклонить проект «Acme»')
+    expect(title.className).toContain('line-clamp-2')
+  })
+
+  it('COPY-L-5 (PR #646 fix-round 3): the reject dialog\'s body paragraph and sr-only description are the trimmed text — no double-stating "обязательна" (the label\'s own "*" already says it), no genitive chain in the sr-only string', async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+
+    expect(
+      await screen.findByText('Админ увидит причину и сможет предложить проект заново.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/обязательна/)).not.toBeInTheDocument()
+    expect(screen.getByText('Форма отказа: причина')).toBeInTheDocument()
   })
 
   it('submit is disabled while the reason is empty or whitespace-only, enabled once typed', async () => {

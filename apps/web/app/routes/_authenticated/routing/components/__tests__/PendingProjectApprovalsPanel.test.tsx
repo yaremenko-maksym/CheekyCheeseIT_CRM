@@ -132,12 +132,15 @@ describe('PendingProjectApprovalsPanel', () => {
     expect(screen.queryByTestId('pending-project-approvals-panel')).not.toBeInTheDocument()
   })
 
-  it('COPY-M-7 (PR #646 fix-round 2): error: shows a one-line message instead of silently rendering nothing — a DROP who can never see /projects had no other way to learn the check failed', () => {
+  it('COPY-M-7 (PR #646 fix-round 2, wording fixed COPY-L-6 fix-round 3): error: shows a one-line message instead of silently rendering nothing — a DROP who can never see /projects had no other way to learn the check failed', () => {
     mockState = { pending: [], isLoading: false, isError: true, dataUpdatedAt: 0 }
     renderPanel()
 
+    // COPY-L-6 (fix-round 3): "решение" now matches the card header's own
+    // "Ждёт вашего решения" — the panel used to mix "решение" (header) and
+    // "подтверждение" (this error line) for the same fact.
     expect(screen.getByTestId('pending-project-approvals-error')).toHaveTextContent(
-      'Не удалось проверить, ждут ли вас подтверждения. Обновите страницу.',
+      'Не удалось проверить, ждёт ли вас решение по проекту. Обновите страницу.',
     )
   })
 
@@ -405,16 +408,17 @@ describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY
     expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
   })
 
-  it('mutation-gate (COPY-M-6 caption, line ~209): effectiveSeniorSharePercent null renders the em-dash fallback, not an empty string', () => {
+  it('COPY-L-4 (PR #646 fix-round 3, was mutation-gate COPY-M-6 line ~209): effectiveSeniorSharePercent null renders the whole-sentence fallback, not "Ваша доля: —%" — a bare em-dash percent reads like a real (zero-ish) share, not "we could not tell"', () => {
     mockUser = { id: SENIOR_ID }
     const p1 = project({ id: 'p1', effectiveSeniorSharePercent: null, seniorApprovalPending: true })
     mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
     renderPanel()
 
-    expect(screen.getByText('Ваша доля: —%')).toBeInTheDocument()
+    expect(screen.getByText('Долю не удалось определить — обновите страницу.')).toBeInTheDocument()
+    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
   })
 
-  it('mutation-gate (COPY-M-6 caption, line ~204): effectiveDropSharePercent null renders the em-dash fallback, not an empty string — same fix as the senior-side em-dash above, symmetric line', () => {
+  it('COPY-L-4 (PR #646 fix-round 3, was mutation-gate COPY-M-6 line ~204): effectiveDropSharePercent null renders the same whole-sentence fallback — symmetric with the senior-side branch above, not "Ваша доля: —% · синьор: …"', () => {
     mockUser = { id: 'drop-1' }
     const p1 = project({
       id: 'p1',
@@ -427,7 +431,8 @@ describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY
     mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
     renderPanel()
 
-    expect(screen.getByText('Ваша доля: —% · синьор: Senior Alpha')).toBeInTheDocument()
+    expect(screen.getByText('Долю не удалось определить — обновите страницу.')).toBeInTheDocument()
+    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
   })
 
   it('mutation-gate (visiblePending, line ~130/131): seniorApprovalPending/dropApprovalPending genuinely undefined (old cached DTO, fields never fetched) falls back to "still pending" — stays visible, same as ProjectRow.tsx\'s own `?? true` fallback', () => {
