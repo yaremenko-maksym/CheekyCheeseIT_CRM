@@ -407,7 +407,36 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
           // stack floating at the end of a full-width row reads as broken,
           // not fixed — "бейдж + подпись + кнопки" is also how the review
           // itself describes the second row, left-to-right.
-          className="col-span-4 flex min-w-0 max-w-full flex-row flex-wrap items-center justify-start gap-2 lg:col-span-1 lg:flex-col lg:items-end lg:justify-center lg:gap-1"
+          //
+          // QA-H-2 (PR #646 fix-round 3, HIGH). `flex-wrap` above is base
+          // (mobile: a horizontal badge+caption row that may need to wrap
+          // onto a second row on narrow screens) — it was never overridden
+          // at `lg:`, so it stayed ACTIVE inside `lg:flex-col` too, where it
+          // means something completely different: "start a NEW flex line
+          // (stacked in the CROSS axis — i.e. beside the first) whenever the
+          // current line's main-axis (height) content doesn't fit." A DRAFT
+          // project with BOTH approvers still pending gets a longer caption
+          // ("от <дроп> и <синьор>" — COPY-M-1) than a single-approver one;
+          // once that extra height pushed the [badge, caption] stack past
+          // whatever implicit height this flex-column had, `flex-wrap`
+          // pulled the BADGE into a second, empty flex line of its own —
+          // with no sibling to share the line's width, it rendered at its
+          // OWN max-content width (147.5625px measured), ignoring the
+          // column's real ~83.5px budget entirely and running off the page.
+          // A same-status project with only one approver pending (shorter
+          // caption, fits in one line) never triggered the second line, so
+          // its badge stayed correctly constrained (117.578px) — this is why
+          // the bug tracked "which project has the longer caption", not
+          // "which row is first" (verified directly: moving the drop-project
+          // to the LAST list position kept the badge broken; two ordinary
+          // single-approver projects showed zero asymmetry regardless of
+          // position — see the task's own investigation, not a guess).
+          // `lg:flex-nowrap` closes it: there is only ever [badge, caption]
+          // here, always meant to stack in ONE column — verified live
+          // (`element.style.flexWrap = 'nowrap'` on the broken instance
+          // before writing this fix) that nowrap alone drops the badge back
+          // to 117.578px with zero other changes.
+          className="col-span-4 flex min-w-0 max-w-full flex-row flex-wrap items-center justify-start gap-2 lg:col-span-1 lg:flex-col lg:flex-nowrap lg:items-end lg:justify-center lg:gap-1"
         >
           {isArchived ? (
             <Badge

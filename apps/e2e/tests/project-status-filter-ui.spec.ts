@@ -552,6 +552,114 @@ test.describe('Project status filter — AC5 (responsive)', () => {
     }
   })
 
+  /**
+   * QA-H-2 (PR #646 fix-round 3, HIGH). Root cause (found live, not guessed
+   * — see ProjectRow.tsx's own comment on the fix): the status-column's
+   * `flex-wrap` is a MOBILE-layout leftover (a horizontal badge+caption row
+   * that may need a second line on narrow screens) that was never
+   * overridden at `lg:`, where the layout switches to a VERTICAL stack —
+   * there `flex-wrap` means something else entirely: start a new flex LINE
+   * (rendered beside the first, unconstrained by the column's real width)
+   * whenever the [badge, caption] stack's height exceeds whatever implicit
+   * height the line had. A DRAFT project with BOTH approvers still pending
+   * gets a longer caption ("от <дроп> и <синьор>", COPY-M-1) than a
+   * single-approver one — long enough, at 1024-1249px, to push the badge
+   * into that second line and off the page.
+   *
+   * This is content-driven, NOT position-driven — proven directly (moving
+   * the both-pending project to the LAST list position kept its badge
+   * broken; ordinary single-approver projects showed zero asymmetry at any
+   * position) — so this test checks EVERY row's status badge, not just the
+   * first, and checks the actual clip condition the finding names
+   * (`rect.right <= container.clientWidth`, the `<main>` `overflow-hidden`
+   * ancestor from `_authenticated/route.tsx`) — neither `scrollWidth`
+   * (QA-H-2's own note 6: identical on every measurement here, the clip
+   * never creates a scrollbar) nor cell-to-cell intersection (QA-H-1's own
+   * test above; a lone badge with no sibling in its own flex line doesn't
+   * "intersect" anything, it just runs off the edge) can catch this class.
+   */
+  test('QA-H-2: a both-approvers-pending status badge never clips past the page edge at 1024/1100/1249 — the longer "от X и Y" caption used to push it into a second flex-line, unconstrained by its column', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    const dropEmail = `qah2-${suffix}@cheekycheese.dev`
+
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { dropId } = await createDropViaAPI(page, {
+      email: dropEmail,
+      displayName: `QA-H-2 Drop ${suffix}`,
+    })
+
+    let bothPendingId: string | undefined
+    let singleApproverId: string | undefined
+    try {
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+
+      // The trigger: BOTH senior and drop invited, neither approved — the
+      // longer caption that used to break the layout.
+      const bothPending = await createDropProjectViaAPI(page, {
+        dropId,
+        seniorEmail: SEED_EMAILS.seniorA,
+        companyName: `AAAA QA-H-2 Both Pending ${suffix}`,
+        skipApproval: true,
+      })
+      bothPendingId = bothPending.projectId
+
+      // The control: single approver, short caption — was NEVER broken, and
+      // must stay that way (this is what proves the fix targets the real
+      // mechanism, not just "shrink text until it fits").
+      const singleApprover = await createSeniorProjectViaAPI(page, {
+        seniorEmail: SEED_EMAILS.seniorB,
+        name: `QA-H-2 Single ${suffix}`,
+        companyName: `ZZZZ QA-H-2 Single Approver ${suffix}`,
+        skipApproval: true,
+      })
+      singleApproverId = singleApprover.projectId
+
+      await page.goto('/projects?status=PENDING')
+      await expect(page.getByTestId(`project-row-${bothPendingId}`)).toBeVisible()
+      await expect(page.getByTestId(`project-row-${singleApproverId}`)).toBeVisible()
+
+      for (const width of [1024, 1100, 1249]) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(100)
+
+        const clipped = await page.evaluate(() => {
+          const container = document.querySelector('main')
+          if (!container) return { error: 'no <main> container found' }
+          const containerRect = container.getBoundingClientRect()
+          const badges = Array.from(
+            document.querySelectorAll(
+              '[data-testid$="-status-pending"], [data-testid$="-status-rejected"]',
+            ),
+          )
+          return {
+            containerRight: containerRect.right,
+            rows: badges.map((b) => ({
+              testid: b.getAttribute('data-testid'),
+              right: b.getBoundingClientRect().right,
+            })),
+          }
+        })
+
+        expect(clipped.error, `at ${width}px`).toBeUndefined()
+        expect(clipped.rows!.length, `at least one badge rendered at ${width}px`).toBeGreaterThan(0)
+        for (const row of clipped.rows!) {
+          expect(
+            row.right <= clipped.containerRight! + 0.5, // sub-pixel float tolerance
+            `${row.testid} clips past the page edge at ${width}px (badge right=${row.right}, container right=${clipped.containerRight})`,
+          ).toBe(true)
+        }
+      }
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      if (bothPendingId) await deleteProjectViaAPI(page, bothPendingId)
+      if (singleApproverId) await deleteProjectViaAPI(page, singleApproverId)
+      await cleanupDropViaAPI(page, dropId)
+    }
+  })
+
   test('mobile (375): tab buttons meet the 44px touch-target minimum', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.setViewportSize({ width: 375, height: 800 })
