@@ -1,10 +1,73 @@
 # Non-blocking warn: lessons.md cap (RULES.md §6.4) — nudge к консолидации, не блокер.
 bash scripts/check-lessons-cap.sh || true
 
-pnpm typecheck
-# Run packages sequentially so each vitest worker gets full CPU budget.
-# Parallel fork-pools (shared + api + web) competed for CPU under load,
-# causing contract-pdf / compression / phone-input tests to time out even
-# though they pass in isolation. Sequential runs are ~30 s slower on an
-# idle machine but deterministic under any load. (2026-06-14 fix)
-pnpm --filter @crm/shared test && pnpm --filter @crm/api test && pnpm --filter @crm/web test && pnpm --filter @crm/landing test
+# Scoped by diff against the merge-base with origin/main (task-prepush-scope,
+# backlog item 140, 2026-09-04) — was: unconditional `pnpm typecheck` + four
+# FULL sequential test suites (~6600 tests) on every push, regardless of what
+# changed. Backlog 140's own incident: a one-line edit to ci.yml cost 5-10
+# minutes per attempt, and two of those attempts failed on OTHER packages'
+# tests timing out under concurrent-agent CPU load, not on anything the diff
+# touched. This hook stops paying for packages the diff never touched.
+#
+# CI remains the real, unscoped gate: required checks on the PR always run
+# the full suite (see .github/workflows/ci.yml), independent of what this
+# local hook decided. This is a local speed/contention optimization, not a
+# substitute for CI — a cross-package regression this hook's scoping misses
+# locally is still caught there before merge.
+#
+# Escape hatch for anyone who wants the old unscoped behavior locally (e.g.
+# to double-check a cross-package change before opening the PR):
+#   PREPUSH_FULL=1 git push
+if [ "${PREPUSH_FULL:-0}" = "1" ]; then
+  echo "pre-push: PREPUSH_FULL=1 — running the full unscoped suite (typecheck + shared/api/web/landing)"
+  pnpm typecheck
+  # Run packages sequentially so each vitest worker gets full CPU budget.
+  # Parallel fork-pools (shared + api + web) competed for CPU under load,
+  # causing contract-pdf / compression / phone-input tests to time out even
+  # though they pass in isolation. Sequential runs are ~30 s slower on an
+  # idle machine but deterministic under any load. (2026-06-14 fix, PR #206)
+  pnpm --filter @crm/shared test && pnpm --filter @crm/api test && pnpm --filter @crm/web test && pnpm --filter @crm/landing test
+  exit 0
+fi
+
+base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+if [ -z "$base" ]; then
+  echo "pre-push: could not resolve merge-base with origin/main (no origin/main ref locally?) — falling back to the full suite"
+  pnpm typecheck
+  pnpm --filter @crm/shared test && pnpm --filter @crm/api test && pnpm --filter @crm/web test && pnpm --filter @crm/landing test
+  exit 0
+fi
+
+changed="$(git diff --name-only "$base"...HEAD)"
+
+if ! printf '%s\n' "$changed" | grep -qE '^(apps|packages)/'; then
+  echo "pre-push: no product code in diff — tests skipped (CI runs the full suite)"
+  exit 0
+fi
+
+# --filter="...[$base]" — packages changed since $base PLUS their dependents
+# (turbo's own package-boundary-aware selection; the grep above is only a
+# cheap pre-check to decide whether to invoke turbo at all, not what it runs).
+# --concurrency=1 preserves the same "one package's vitest workers get the
+# full CPU budget" invariant PR #206 fixed above, now for however many
+# packages this diff selects (e.g. a packages/shared change selects all of
+# shared+api+web+landing — running those four in parallel would reproduce
+# the exact timeout class #206 fixed, just scoped to fewer packages).
+#
+# Two separate invocations, not one `turbo run typecheck test`: @crm/e2e's
+# own "test" script is `playwright test` (apps/e2e/package.json) -- a real
+# browser E2E run that this hook has never driven and cannot: no app stack
+# is up, so it would either hang/fail against nothing or (depending on
+# playwright.config.ts's webServer setting) try to BOOT one from a git push,
+# which is a much worse surprise than a slow push. E2E stays what it always
+# was here -- a deliberate separate step (`pnpm --filter @crm/e2e test`, or
+# CI's own e2e.yml) -- so the "test" turbo call carries an explicit
+# `--filter="!@crm/e2e"` on top of "...[$base]" (turbo unions positive
+# filters and then subtracts any `!`-prefixed one from that union, so this
+# removes e2e from "test" specifically, not from the diff-selection itself).
+# @crm/e2e's own "typecheck" script is plain `tsc --noEmit` -- no browser,
+# no server, same cost class as every other package's typecheck -- so it is
+# NOT excluded from the first call; a diff limited to apps/e2e/** still gets
+# typechecked, just never gets Playwright.
+pnpm exec turbo run typecheck --filter="...[$base]" --concurrency=1
+pnpm exec turbo run test --filter="...[$base]" --filter="!@crm/e2e" --concurrency=1
