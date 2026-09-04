@@ -53,4 +53,21 @@ fi
 # packages this diff selects (e.g. a packages/shared change selects all of
 # shared+api+web+landing — running those four in parallel would reproduce
 # the exact timeout class #206 fixed, just scoped to fewer packages).
-pnpm exec turbo run typecheck test --filter="...[$base]" --concurrency=1
+#
+# Two separate invocations, not one `turbo run typecheck test`: @crm/e2e's
+# own "test" script is `playwright test` (apps/e2e/package.json) -- a real
+# browser E2E run that this hook has never driven and cannot: no app stack
+# is up, so it would either hang/fail against nothing or (depending on
+# playwright.config.ts's webServer setting) try to BOOT one from a git push,
+# which is a much worse surprise than a slow push. E2E stays what it always
+# was here -- a deliberate separate step (`pnpm --filter @crm/e2e test`, or
+# CI's own e2e.yml) -- so the "test" turbo call carries an explicit
+# `--filter="!@crm/e2e"` on top of "...[$base]" (turbo unions positive
+# filters and then subtracts any `!`-prefixed one from that union, so this
+# removes e2e from "test" specifically, not from the diff-selection itself).
+# @crm/e2e's own "typecheck" script is plain `tsc --noEmit` -- no browser,
+# no server, same cost class as every other package's typecheck -- so it is
+# NOT excluded from the first call; a diff limited to apps/e2e/** still gets
+# typechecked, just never gets Playwright.
+pnpm exec turbo run typecheck --filter="...[$base]" --concurrency=1
+pnpm exec turbo run test --filter="...[$base]" --filter="!@crm/e2e" --concurrency=1
