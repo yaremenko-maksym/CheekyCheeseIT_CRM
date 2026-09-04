@@ -414,6 +414,22 @@ describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY
     expect(screen.getByText('Ваша доля: —%')).toBeInTheDocument()
   })
 
+  it('mutation-gate (COPY-M-6 caption, line ~204): effectiveDropSharePercent null renders the em-dash fallback, not an empty string — same fix as the senior-side em-dash above, symmetric line', () => {
+    mockUser = { id: 'drop-1' }
+    const p1 = project({
+      id: 'p1',
+      dropId: 'drop-1',
+      dropName: 'Drop One',
+      seniorName: 'Senior Alpha',
+      effectiveDropSharePercent: null,
+      dropApprovalPending: true,
+    })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    renderPanel()
+
+    expect(screen.getByText('Ваша доля: —% · синьор: Senior Alpha')).toBeInTheDocument()
+  })
+
   it('mutation-gate (visiblePending, line ~130/131): seniorApprovalPending/dropApprovalPending genuinely undefined (old cached DTO, fields never fetched) falls back to "still pending" — stays visible, same as ProjectRow.tsx\'s own `?? true` fallback', () => {
     mockUser = { id: SENIOR_ID }
     const p1 = project({ id: 'p1' })
