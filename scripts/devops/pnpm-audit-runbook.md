@@ -35,6 +35,67 @@ Every one of these colored the same required check on every open PR and on
 `main` itself, for a diff that, in all four cases, had nothing to do with the
 advisory.
 
+## Slow registry: what you'll see, and why the timeout is what it is
+
+This is a DIFFERENT failure signature from everything else in this runbook —
+a slow or unreachable registry never even produces a GHSA finding to reason
+about, because `pnpm audit --json` itself never returned usable output. You
+are in this section, not Step 0 onward, if the failed check's log reads:
+
+```
+== check-pnpm-audit.mjs ==
+
+FAIL: could not reach the package registry after 5 attempts.
+`pnpm audit` never produced parseable output — this looks like a transient network or
+registry problem, NOT an unrecognized output shape (that is a different, separate
+failure — see this guard's other message for it). Re-run the job; if this persists,
+check registry status before assuming the dependency tree itself is at fault.
+```
+
+— never `GATED (unaccepted, >= moderate): N`. If you see `GATED`, this
+section does not apply; go to Step 0 below instead.
+
+**What the gate already tried before giving up.** By the time you see this
+message, `check-pnpm-audit.mjs` has already retried the registry call 5
+times, each attempt allowed up to 180 seconds, with a GROWING delay between
+attempts (15s, then 30s, 60s, 120s) — a worst case of roughly 18-19 minutes
+before it reports red. It is not giving up on the first hiccup; a genuinely
+red run here means the registry stayed unreachable through that entire
+window, not just for a moment.
+
+**Why these specific numbers.** The gate originally retried only 3 times, 60s
+timeout each, flat 5s delay between them (~3.2 minutes worst case) — and on
+2026-09-04 that budget colored this required check red on four PRs in a row
+(#650 x3, #653), every one the exact same "could not reach ... after 3
+attempts" message, every one cleared by nothing more than a manual
+`gh run rerun --failed`. npm's own status page read "operational" throughout,
+and a local `pnpm audit` against the same lockfile also missed the old
+2-minute-ish budget that same afternoon — this was a slow endpoint, not an
+outage, and the old budget had been tuned to ride out a blip, not a slow
+afternoon. `check-pnpm-audit.mjs`'s own module header ("WIDER RETRY BUDGET")
+carries the full before/after if you need more than this summary.
+
+**What to actually do:**
+
+1. First time seeing it: usually nothing — the widened budget above exists
+   specifically so a merely-slow registry clears on its own, inside the same
+   run, without a human rerunning it.
+2. Still red after the full run finished (all 5 attempts logged, roughly
+   18-19 minutes elapsed): check the registry independently before assuming
+   anything about your diff — https://status.npmjs.org, and whether `main`
+   or another unrelated open PR shows the identical "could not reach"
+   signature at the same time (same commands as Step 0, below). Both red →
+   a genuine, shared outage; `gh run rerun --failed` once it clears, same as
+   before this widening.
+3. Do **not** treat a red run here as a reason to widen the timeout,
+   attempt count, or backoff again on your own PR. Those are repo-wide
+   constants in `check-pnpm-audit.mjs`, already tuned once from this exact
+   incident's data, in DevOps's zone
+   (`.claude/rules/common/zone-of-write.md`) — they are not per-PR
+   configurable, so touching them would not do anything for your branch even
+   if you were allowed to. A rerun once the registry recovers is the fix,
+   both before and after this widening.
+
 ## Step 0 — is this even about your diff?
 
 Check whether the SAME check is red on `main`, or on any other open PR whose
