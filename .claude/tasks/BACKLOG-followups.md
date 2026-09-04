@@ -2376,3 +2376,22 @@ non-required job с алертом (advisory по сути не свойство
 wait-loop'а содержит ту же подстроку. Найдено кодером #648 на 12-й попытке. Исправление — якорные паттерны
 (`\.husky/pre-push`, `vitest\.mjs run|vitest/dist/workers|@stryker-mutator`). Настоящее решение — пункт 140 (скоуп
 pre-push по диффу): очередь за окном исчезает вместе с полным прогоном. Пока 140 не сделан — паттерны в task-файлах.
+
+## 156. Вне диффа #648 — две находки manual-qa (OOS-1, OOS-2)
+
+Источник: issuecomment-5540201417 на PR #648. Выдержка:
+
+> - **OOS-1:** `ProjectShareInfo` (карточка «Обзор» проекта, `$projectId.tsx`) вычисляет отображаемый процент только из `seniorSharePercentOverr
+> - **OOS-2:** Диалог редактирования команды (`/team/:teamId`) — поле Telegram (`type="url"`, ждёт `https://t.me/...`) у \*\*всех 4 сидовых команд с
+
+## 157. `core.hooksPath` — абсолютный путь в основной чекаут: все worktree-push'и выполняют хук ОСНОВНОГО чекаута, а он отстаёт от main
+
+2026-09-04: после мержа #653 (скоупленный pre-push) push из worktree по-прежнему гонял полный набор — `git config core.hooksPath`
+= `/…/CheekyCheeseIT_CRM/.husky/_` (абсолютный), а `h` запускает `$(dirname $(dirname $0))/pre-push` — файл основного чекаута,
+который стоял на `main` в 83b27a1c (десятки коммитов позади). «Хук в main» ничего не включал, пока основной `main` не
+подтянули (`git merge --ff-only origin/main`). Смежно: `pnpm install` в любом worktree переписывает `hooksPath` на путь того
+worktree (husky), и после его удаления хуки ломаются у всех (память `project_worktree_provisioning_gotcha`).
+Направление: (а) хук-обёртка `h` должна брать `.husky/pre-push` из **текущего** worktree (`git rev-parse --show-toplevel`),
+а не из каталога `hooksPath`; либо `hooksPath` относительный (`.husky/_`) — проверить, как git резолвит относительный
+hooksPath в worktree; (б) в `light-track.md`/`agent-isolation.md` — шаг «обновить основной чекаут после мержа изменений
+хуков». Проверка: изменить хук в ветке, запушить из worktree — в логе строка нового хука без обновления основного чекаута.
