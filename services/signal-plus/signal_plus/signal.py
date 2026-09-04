@@ -81,7 +81,18 @@ def _sanitize_cli_text(raw: str, *, account: str) -> str:
             line = line.replace(account, mask_secret(account))
         return _PHONE_PATTERN.sub("<phone-redacted>", line)
 
-    return "\n".join(_mask_line(line) for line in raw.splitlines())
+    # SR-L-8 (PR #650 security review round 3, id 5108694371): `str.splitlines()`
+    # drops a trailing newline entirely (`"a\n".splitlines() == ["a"]`, not
+    # `["a", ""]`), so `"\n".join(...)` over its result can never put one
+    # back -- this silently ate the LAST character of any signal-cli output
+    # ending in a newline (nearly all of it; that's how process output
+    # normally looks). _mask_line only ever changes line CONTENT, never the
+    # number of lines or where the newlines are, so re-appending exactly one
+    # trailing "\n" when `raw` had one is a faithful round-trip, not a guess.
+    sanitized = "\n".join(_mask_line(line) for line in raw.splitlines())
+    if raw.endswith("\n"):
+        sanitized += "\n"
+    return sanitized
 
 
 @dataclass(frozen=True)
@@ -121,7 +132,28 @@ def _run_signal_cli(
     counting, `state.last_error`, alerting) — no separate handling needed
     at any call site.
     """
-    argv = [str(config.signal_cli_bin), "-a", config.signal_account, *args]
+    # SR-H-4 (PR #650 security review round 3, id 5108694371): SR-M-8's
+    # TMPDIR/SQLITE_TMPDIR env vars (round 2) do NOT control java.io.tmpdir
+    # for this native-image binary -- reproduced against the real v0.14.7
+    # binary in the exact hardening profile this PR ships: it still failed
+    # ("Can't load library: /tmp/libsignal.../libsignal_jni_amd64.so")
+    # trying to extract libsignal_jni under noexec /tmp regardless of what
+    # those env vars were set to. Only an explicit -Djava.io.tmpdir=<dir>
+    # JVM system property argument fixed it (proven: the failure changes to
+    # "User ... is not registered", i.e. the library loaded and the process
+    # reached the network). native-image accepts `-D` flags before the
+    # subcommand, so this must be the FIRST argument after the binary path,
+    # for every call site -- there is no invocation that does not need its
+    # native libraries to load. TMPDIR/SQLITE_TMPDIR stay set too (they
+    # still help e.g. sqlite-jdbc, see the Dockerfile), but this flag is
+    # the one thing that actually controls java.io.tmpdir.
+    argv = [
+        str(config.signal_cli_bin),
+        f"-Djava.io.tmpdir={config.signal_tmpdir}",
+        "-a",
+        config.signal_account,
+        *args,
+    ]
     try:
         completed = run(argv, capture_output=True, text=True, timeout=timeout)
     except (subprocess.SubprocessError, OSError) as exc:

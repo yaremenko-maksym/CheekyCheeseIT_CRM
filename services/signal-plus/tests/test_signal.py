@@ -64,7 +64,15 @@ class RecordingRun:
 def test_receive_invokes_correct_argv(config):
     fake = RecordingRun()
     receive(config, run=fake)
-    assert fake.calls == [["/opt/signal-cli/bin/signal-cli", "-a", "+380501234567", "receive"]]
+    assert fake.calls == [
+        [
+            "/opt/signal-cli/bin/signal-cli",
+            "-Djava.io.tmpdir=/data/tmp",
+            "-a",
+            "+380501234567",
+            "receive",
+        ]
+    ]
 
 
 def test_send_group_message_invokes_correct_argv(config):
@@ -73,6 +81,7 @@ def test_send_group_message_invokes_correct_argv(config):
     assert fake.calls == [
         [
             "/opt/signal-cli/bin/signal-cli",
+            "-Djava.io.tmpdir=/data/tmp",
             "-a",
             "+380501234567",
             "send",
@@ -90,6 +99,7 @@ def test_send_direct_message_invokes_correct_argv(config):
     assert fake.calls == [
         [
             "/opt/signal-cli/bin/signal-cli",
+            "-Djava.io.tmpdir=/data/tmp",
             "-a",
             "+380501234567",
             "send",
@@ -103,7 +113,57 @@ def test_send_direct_message_invokes_correct_argv(config):
 def test_list_groups_invokes_correct_argv(config):
     fake = RecordingRun()
     list_groups(config, run=fake)
-    assert fake.calls == [["/opt/signal-cli/bin/signal-cli", "-a", "+380501234567", "listGroups"]]
+    assert fake.calls == [
+        [
+            "/opt/signal-cli/bin/signal-cli",
+            "-Djava.io.tmpdir=/data/tmp",
+            "-a",
+            "+380501234567",
+            "listGroups",
+        ]
+    ]
+
+
+def test_java_io_tmpdir_flag_is_always_first_and_before_the_subcommand(config):
+    # SR-H-4 (PR #650 security review round 3, id 5108694371): SR-M-8's
+    # TMPDIR/SQLITE_TMPDIR env vars (round 2) do NOT control
+    # java.io.tmpdir for this native-image binary -- reproduced against the
+    # real v0.14.7 binary in the PR's own hardening profile: it still tried
+    # (and failed: "Can't load library") to extract libsignal_jni under
+    # /tmp, which docker-compose.yml's tmpfs mounts noexec, regardless of
+    # what TMPDIR/SQLITE_TMPDIR were set to. Only an explicit
+    # -Djava.io.tmpdir=<dir> JVM system property argument fixed it (proven
+    # against the real binary: the failure changes from "Can't load
+    # library" to "User ... is not registered", i.e. the library loaded and
+    # the process reached the network). native-image accepts `-D` flags
+    # before the subcommand, so this must be argv[1] -- the very first
+    # argument after the binary path, ahead of `-a`/the subcommand, for
+    # every single invocation (there is no signal-cli call site that does
+    # not need its native libraries to load).
+    fake = RecordingRun()
+    receive(config, run=fake)
+    assert fake.calls == [
+        [
+            "/opt/signal-cli/bin/signal-cli",
+            "-Djava.io.tmpdir=/data/tmp",
+            "-a",
+            "+380501234567",
+            "receive",
+        ]
+    ]
+
+
+def test_java_io_tmpdir_flag_value_follows_config_not_a_hardcoded_default(config):
+    # The flag's VALUE must come from config (SIGNAL_TMPDIR via
+    # Config.from_env), not a literal baked into signal.py -- otherwise a
+    # deployment that legitimately overrides SIGNAL_TMPDIR would silently
+    # keep pointing signal-cli's own extraction at the old, wrong path.
+    from dataclasses import replace
+
+    custom_config = replace(config, signal_tmpdir=Path("/custom/tmp"))
+    fake = RecordingRun()
+    receive(custom_config, run=fake)
+    assert fake.calls[0][1] == "-Djava.io.tmpdir=/custom/tmp"
 
 
 def test_result_ok_true_on_zero_returncode(config):
@@ -223,6 +283,25 @@ def test_multiline_output_masks_the_account_on_every_line(config):
     assert "line two mentions" in result.output
     assert config.signal_account not in result.output
     assert "***" in result.output
+
+
+def test_sanitized_output_preserves_a_trailing_newline(config):
+    # SR-L-8 (PR #650 security review round 3, id 5108694371):
+    # `raw.splitlines()` drops a trailing newline entirely
+    # (`"a\n".splitlines() == ["a"]`, not `["a", ""]`), so `"\n".join(...)`
+    # over that can never put it back -- the sanitizer silently ate the
+    # LAST character of any signal-cli output that (like nearly all real
+    # process output, including every fixture elsewhere in this file) ends
+    # in a newline.
+    fake = RecordingRun(returncode=0, stdout="first line\nsecond line\n", stderr="")
+    result = receive(config, run=fake)
+    assert result.stdout == "first line\nsecond line\n"
+
+
+def test_sanitized_output_does_not_add_a_newline_that_was_never_there(config):
+    fake = RecordingRun(returncode=0, stdout="no trailing newline here", stderr="")
+    result = receive(config, run=fake)
+    assert result.stdout == "no trailing newline here"
 
 
 def test_outdated_client_message_survives_sanitization(config):

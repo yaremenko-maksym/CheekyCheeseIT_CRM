@@ -65,6 +65,12 @@ def _parse_time(raw: str, *, env_name: str) -> time:
 
 DEFAULT_HANDOVER_TIME = time(8, 0)
 DEFAULT_ALERT_EMAIL_FROM = "site@cheekycheese.tech"
+# SR-H-4 (PR #650 security review round 3, id 5108694371): matches the
+# Dockerfile's ENV SIGNAL_TMPDIR default and docker-entrypoint.sh's mkdir --
+# see signal_plus/signal.py's _run_signal_cli for what this value is
+# actually used for (a -Djava.io.tmpdir=<value> argv flag, not an env var
+# the binary reads on its own).
+DEFAULT_SIGNAL_TMPDIR = Path("/data/tmp")
 
 
 @dataclass(frozen=True)
@@ -82,6 +88,7 @@ class Config:
     resend_api_key: str | None = None
     alert_email_from: str = DEFAULT_ALERT_EMAIL_FROM
     alert_email_to: str | None = None
+    signal_tmpdir: Path = DEFAULT_SIGNAL_TMPDIR
 
     def masked_account(self) -> str:
         return mask_secret(self.signal_account)
@@ -102,6 +109,7 @@ class Config:
 
         signal_data_dir_raw = optional("SIGNAL_DATA_DIR")
         handover_raw = optional("HANDOVER_TIME") or "08:00"
+        signal_tmpdir_raw = optional("SIGNAL_TMPDIR")
 
         return cls(
             signal_account=require("SIGNAL_ACCOUNT"),
@@ -115,4 +123,5 @@ class Config:
             resend_api_key=optional("RESEND_API_KEY"),
             alert_email_from=optional("ALERT_EMAIL_FROM") or DEFAULT_ALERT_EMAIL_FROM,
             alert_email_to=optional("ALERT_EMAIL_TO"),
+            signal_tmpdir=Path(signal_tmpdir_raw) if signal_tmpdir_raw else DEFAULT_SIGNAL_TMPDIR,
         )
