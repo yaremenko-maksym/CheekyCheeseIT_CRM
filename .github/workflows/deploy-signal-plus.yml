@@ -104,6 +104,32 @@ jobs:
       # does not apply (see the Dockerfile's own comment on that).
       # IMAGE_TAG points compose at the image `load: true` just placed in
       # this runner's local Docker daemon — nothing is pulled from GHCR.
+      #
+      # SR-M-9 (PR #650 security review round 3, id 5108694371) rewrote
+      # this step entirely -- the version above was STRUCTURALLY unable to
+      # catch SR-H-4 (a real HIGH finding), for two independent reasons,
+      # both fixed here:
+      #   1. `--entrypoint /opt/signal-cli-pinned/signal-cli` REPLACES
+      #      docker-entrypoint.sh outright -- the real container never
+      #      starts this way, so SIGNAL_TMPDIR/TMPDIR/SQLITE_TMPDIR never
+      #      get created and the binary-seed/PATH-symlink bootstrap never
+      #      runs either. No override here: the command below is the CMD
+      #      `docker compose run` passes to the REAL entrypoint, which
+      #      bootstraps first and then `exec`s it, exactly like production.
+      #   2. `--version` never initializes the account manager, so it never
+      #      loads libsignal_jni at all -- this smoke test passed on every
+      #      single run, including the one immediately before SR-H-4 was
+      #      found, despite the binary being unable to load its own native
+      #      library in this exact hardening profile. `listGroups` against
+      #      a fake, never-registered E.164 number does load it (same
+      #      manager-init path every real subcommand goes through --
+      #      signal_plus/signal.py's own module docstring cites
+      #      App.java's `initManagerFromAccount`), so a failure to load is
+      #      now something this step can actually observe.
+      # The -Djava.io.tmpdir=<SIGNAL_TMPDIR value> flag is included
+      # explicitly here, matching (not reimplementing) the exact argv shape
+      # signal_plus/signal.py's _run_signal_cli always constructs -- this
+      # smoke test is exercising that real shape, not a hand-rolled one.
       - name: Smoke-test under the real hardening profile (docker compose run)
         working-directory: services/signal-plus
         env:
@@ -111,17 +137,20 @@ jobs:
         run: |
           cp .env.example .env
 
-          VERSION_OUTPUT="$(docker compose -p signal-plus-ci run --rm \
-            --entrypoint /opt/signal-cli-pinned/signal-cli signal-plus --version)"
-          echo "signal-cli --version (under read_only+tmpfs+cap_drop:ALL+no-new-privileges): $VERSION_OUTPUT"
-          case "$VERSION_OUTPUT" in
-            *0.14.7*) ;;
-            *)
-              echo "::error::expected signal-cli 0.14.7, got: $VERSION_OUTPUT"
-              docker compose -p signal-plus-ci down -v
-              exit 1
-              ;;
-          esac
+          SMOKE_OUTPUT="$(docker compose -p signal-plus-ci run --rm signal-plus \
+            signal-cli -Djava.io.tmpdir=/data/tmp -a +15550000000 listGroups 2>&1)" || true
+          echo "signal-cli listGroups, fake account (under read_only+tmpfs+cap_drop:ALL+no-new-privileges, via the REAL entrypoint): $SMOKE_OUTPUT"
+
+          if printf '%s' "$SMOKE_OUTPUT" | grep -qF "Can't load library"; then
+            echo "::error::native library failed to load under the hardening profile -- $SMOKE_OUTPUT"
+            docker compose -p signal-plus-ci down -v
+            exit 1
+          fi
+          if ! printf '%s' "$SMOKE_OUTPUT" | grep -qF "is not registered"; then
+            echo "::error::expected the fake account to reach signal-cli's own 'is not registered' check (proof the native library loaded and the process reached the network) -- got: $SMOKE_OUTPUT"
+            docker compose -p signal-plus-ci down -v
+            exit 1
+          fi
 
           docker compose -p signal-plus-ci down -v
 

@@ -146,18 +146,40 @@ mount the volume.
 The tag announced by GitHub, the asset name, and both download URLs must
 all literally agree before anything downloads (fix-round 2, SR-H-3) — a
 release claiming to be `v9.9.9` while its assets are really the old,
-validly-signed `v0.9.0` is rejected before the network call, not after.
+validly-signed `v0.9.0` is rejected before the network call, not after. The
+URL check is an **exact** match against the one correct
+`.../releases/download/<tag>/<asset>` URL reconstructed from the
+already-validated tag and asset name (fix-round 3, SR-M-10) — not merely a
+prefix check, which a trailing `../../evil/payload.tar.gz` or `?query`
+could still satisfy without actually being a URL under that tag's release.
 After install, the binary that actually landed is run with `--version` and
 must report the announced version, or the symlink swap is rolled back and
-the attempt fails — the GPG signature only proves AsamK signed those
-bytes, not that they are what they claim to be.
+the attempt fails, and the mismatched extraction directory is removed —
+the GPG signature only proves AsamK signed those bytes, not that they are
+what they claim to be.
 
-Runs `TMPDIR`/`SQLITE_TMPDIR` pointed at `$SIGNAL_DATA_DIR`'s volume (fix-round
-2, SR-M-8) rather than the container's own `/tmp`, which
-`docker-compose.yml` mounts `noexec` — signal-cli's bundled sqlite-jdbc
-extracts and `dlopen`s a native library at startup, which a `noexec`
-filesystem cannot serve. `docker-entrypoint.sh` creates that directory on
-every boot.
+**Native library extraction, and where it actually goes (fix-round 3,
+SR-H-4).** signal-cli's native-image binary extracts and `dlopen`s its own
+native libraries (`libsignal_jni`, and separately sqlite-jdbc's own
+`libsqlitejdbc.so`) at startup — the container's own `/tmp`, which
+`docker-compose.yml` mounts `noexec`, cannot serve that. Fix-round 2
+(SR-M-8) tried to redirect this via the `TMPDIR`/`SQLITE_TMPDIR` env vars
+alone, on the premise that `java.io.tmpdir` (the JVM property that actually
+governs where `libsignal_jni` gets extracted) defaults to reading `TMPDIR`.
+**That premise was wrong** — reproduced against the real `signal-cli 0.14.7`
+binary in this exact hardening profile: with only the env vars set, it
+still failed with `Can't load library: /tmp/libsignal.../libsignal_jni_amd64.so`,
+i.e. it still tried (and had to fail) to use noexec `/tmp`. The fix that
+actually works: `signal_plus/signal.py` passes `-Djava.io.tmpdir=<value>`
+(from `SIGNAL_TMPDIR`, default `/data/tmp`) as the **first** argument to
+`signal-cli` on **every** invocation — native-image accepts `-D` system
+property flags before the subcommand, same as a plain `java` command line.
+Proven: with the flag, the same failure changes to `User ... is not
+registered` — the library loaded and the process reached the network.
+`TMPDIR`/`SQLITE_TMPDIR` are still set too (sqlite-jdbc's own extraction
+genuinely does respect them), but they are not what fixes `libsignal_jni`
+loading — `SIGNAL_TMPDIR` is. All three default to the same path, and
+`docker-entrypoint.sh` creates all three directories on every boot.
 
 ## Alerting
 
