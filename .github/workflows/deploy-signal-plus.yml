@@ -181,6 +181,16 @@ jobs:
       # For the alert step's `gh issue` calls when TELEMETRY_ISSUES_PAT is
       # absent/expired and resolve-alert-channel.sh falls back to this repo.
       issues: write
+    env:
+      # Same channel as ci.yml's `post_merge_alert` / deploy-alert.yml — the
+      # private repo the assistant actually watches. Deploy-failure alerts
+      # carry no PII (SHA, subject, failed legs, run URL), same as those, so
+      # the privacy constraint documented in post-merge-alert.sh is not at
+      # stake either way. Was missing here (run 33853234219): resolve-alert-channel.sh
+      # requires PRIVATE_REPO and PUBLIC_REPO both non-empty (see that
+      # script's own guard), so its absence failed "Resolve alert channel"
+      # outright and no KIND=signal-plus alert was ever opened.
+      PRIVATE_REPO: yaremenko-maksym/cheekycheese-telemetry
 
     steps:
       - uses: actions/checkout@v4
