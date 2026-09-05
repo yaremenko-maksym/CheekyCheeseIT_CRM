@@ -38,6 +38,7 @@ import { type ExchangeRates, fmtUsd } from '@/routes/_authenticated/finance/cons
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
+import { seniorShareErrorMessage } from '@/hooks/use-user-profile'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
@@ -650,26 +651,41 @@ function PendingShareApprovalBanner({
   }
 
   const approveMutation = useMutation({
-    mutationFn: () => api.post(`/projects/${projectId}/senior-share/approve`),
-    onSuccess: () => {
-      toast.success('Новый процент подтверждён')
+    mutationFn: () =>
+      api.post<ProjectDetailDto>(`/projects/${projectId}/senior-share/approve`).then((r) => r.data),
+    onSuccess: (data) => {
+      // task-648-fix-round-1 (COPY-M-3): names the ACTUAL confirmed value —
+      // see the identical comment on useApproveSeniorShareChange (base-share
+      // twin of this mutation) for the full reasoning.
+      toast.success(`Доля по проекту теперь ${data.effectiveSeniorSharePercent}%`)
       invalidate()
     },
     onError: (err: unknown) => {
-      toast.error(getApiErrorMessage(err as AxiosError, 'Не удалось подтвердить'))
+      // task-648-fix-round-1 (COPY-H-4, QA-MED-5): friendly 404/409 mapping
+      // (not the raw backend "Подтверждение не найдено или уже закрыто" —
+      // see seniorShareErrorMessage's own doc), AND refetch on failure so a
+      // stale banner from a resolved-elsewhere proposal doesn't stay
+      // clickable showing a number that no longer means anything.
+      toast.error(seniorShareErrorMessage(err))
+      invalidate()
     },
   })
 
   const rejectMutation = useMutation({
-    mutationFn: () => api.post(`/projects/${projectId}/senior-share/reject`, { reason }),
+    mutationFn: () =>
+      api.post(`/projects/${projectId}/senior-share/reject`, { reason }).then((r) => r.data),
     onSuccess: () => {
-      toast.success('Предложение отклонено')
+      // task-648-fix-round-1 (COPY-M-2): "предложение" was a third name for
+      // what this screen calls "подтверждение" elsewhere — see the
+      // identical comment on useRejectSeniorShareChange.
+      toast.success('Доля отклонена — действует прежний процент. Админ увидит причину')
       setRejectOpen(false)
       setReason('')
       invalidate()
     },
     onError: (err: unknown) => {
-      toast.error(getApiErrorMessage(err as AxiosError, 'Не удалось отклонить'))
+      toast.error(seniorShareErrorMessage(err))
+      invalidate()
     },
   })
 
@@ -703,7 +719,9 @@ function PendingShareApprovalBanner({
           disabled={approveMutation.isPending}
           data-testid="pending-share-approve-button"
         >
-          Подтвердить
+          {/* task-648-fix-round-1 (COPY-M-9): same in-flight convention as
+              OverviewTab.tsx's identical banner. */}
+          {approveMutation.isPending ? 'Подтверждение…' : 'Подтвердить'}
         </Button>
         <Button
           size="sm"
@@ -724,11 +742,19 @@ function PendingShareApprovalBanner({
             <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
+            {/* task-648-fix-round-1 (COPY-M-8): same fix as
+                OverviewTab.tsx's identical dialog — mirrors
+                ProjectApprovalActions.tsx (#646). */}
+            <Label htmlFor="pending-share-reject-reason" className="text-xs">
+              Причина отказа *
+            </Label>
             <Textarea
+              id="pending-share-reject-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Например: процент не согласован устно"
+              placeholder="Например: договаривались на 30%"
               maxLength={500}
+              rows={3}
               data-testid="pending-share-reject-reason"
             />
             <p className="text-xs text-muted-foreground text-right tabular-nums">
@@ -746,7 +772,7 @@ function PendingShareApprovalBanner({
               disabled={!reason.trim() || rejectMutation.isPending}
               data-testid="pending-share-reject-confirm"
             >
-              Отклонить
+              {rejectMutation.isPending ? 'Отклонение…' : 'Отклонить'}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>

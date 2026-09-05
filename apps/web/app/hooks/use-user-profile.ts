@@ -7,6 +7,32 @@ import type {
   UserWithPermissionsResponse,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
+
+/**
+ * task-648-fix-round-1 (COPY-H-4). `ApprovalsService.assertRespondable`'s two
+ * generic exceptions — 404 "нет живой строки" / 409 "уже получила ответ" —
+ * are shared across every subject type (project drafts, senior-share
+ * proposals, …), so their message is necessarily generic Russian, not
+ * senior-share-specific. This maps the STATUS to a message that names the
+ * actual next step for a caller sitting on a stale share-confirmation
+ * banner, rather than surfacing the backend's generic wording verbatim
+ * (`getApiErrorMessage`'s Priority 1 would otherwise do exactly that —
+ * `extractBackendMessage` treats it as a genuine business message, not a
+ * generic HTTP reason phrase). Exported so `$projectId.tsx`'s identical
+ * project-level mutations use the SAME two messages — one concept, one
+ * wording, on both surfaces.
+ */
+export function seniorShareErrorMessage(err: unknown): string {
+  const status = getAxiosStatus(err)
+  if (status === 404) {
+    return 'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.'
+  }
+  if (status === 409) {
+    return 'Решение по этому проценту уже принято. Обновите страницу.'
+  }
+  return getApiErrorMessage(err, 'Не удалось выполнить действие')
+}
 
 export function useUser(userId: string | undefined, enabled = true) {
   return useQuery({
@@ -165,14 +191,22 @@ export function useChangePersonalEmail(userId: string) {
 export function useApproveSeniorShareChange(userId: string) {
   const qc = useQueryClient()
   return useMutation({
-    // Stryker disable next-line ArrowFunction: `.then((r) => r.data)`'s resolved value is never consumed — PendingBaseShareBanner's `approveMutation.mutate()` call has no onSuccess capturing it, and nothing reads `approveMutation.data`. Verified by hand: forcing this callback to `() => undefined` still passes every test in OverviewTab.pending-share.test.tsx (the mutationFn call itself, and the toast/invalidateQueries side effects, are separately proven and DO fail without this exact line). The gate's own "COVERS MORE THAN ONE MUTANT" warning fires here (2 ArrowFunction variants on this one line) — checked by hand: forcing the WHOLE `mutationFn` to `() => undefined` (skipping the api.post call entirely) DOES fail 2 tests, so only the inner `.then()` callback is the genuinely-equivalent one this directive is meant to cover.
-    mutationFn: () => api.post(`/users/${userId}/senior-share/approve`).then((r) => r.data),
-    onSuccess: () => {
+    // Stryker disable next-line ArrowFunction: `.then((r) => r.data)`'s resolved value IS consumed now (onSuccess reads `data.user.seniorSharePercent` for the toast — task-648-fix-round-1 COPY-M-3), so this directive now only needs to cover the narrower "the callback identity itself" mutant, not "the value is never read" — kept because forcing the WHOLE `mutationFn` to `() => undefined` still independently fails the toast-text assertion in OverviewTab.pending-share.test.tsx.
+    mutationFn: () =>
+      api
+        .post<UserWithPermissionsResponse>(`/users/${userId}/senior-share/approve`)
+        .then((r) => r.data),
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
-      toast.success('Новый процент подтверждён')
+      // task-648-fix-round-1 (COPY-M-3): names the ACTUAL confirmed value
+      // ("новый процент подтверждён" stopped being new the instant it was
+      // confirmed, and was outright false for a clear-override proposal —
+      // nothing "new" was confirmed there) and uses "доля" as the primary
+      // noun (COPY-M-4 — CONTEXT.md's "Доля синьора" entry).
+      toast.success(`Ваша доля теперь ${data.user.seniorSharePercent}%`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: unknown) => toast.error(seniorShareErrorMessage(e)),
   })
 }
 
@@ -181,14 +215,20 @@ export function useRejectSeniorShareChange(userId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (reason: string) =>
-      // Stryker disable next-line ArrowFunction: same reasoning as useApproveSeniorShareChange's identical line above — the resolved value is never consumed.
-      api.post(`/users/${userId}/senior-share/reject`, { reason }).then((r) => r.data),
+      // Stryker disable next-line ArrowFunction: same reasoning as useApproveSeniorShareChange's identical line above.
+      api
+        .post<UserWithPermissionsResponse>(`/users/${userId}/senior-share/reject`, { reason })
+        .then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
-      toast.success('Предложение отклонено')
+      // task-648-fix-round-1 (COPY-M-2): "предложение" was a third name for
+      // what the rest of this screen calls "подтверждение" — see
+      // CONTEXT.md's glossary rule; names what happens to the money AND
+      // that the reason is visible, matching the dialog's own promise.
+      toast.success('Доля отклонена — действует прежний процент. Админ увидит причину')
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: unknown) => toast.error(seniorShareErrorMessage(e)),
   })
 }
 

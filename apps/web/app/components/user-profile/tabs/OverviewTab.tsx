@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
@@ -120,7 +121,10 @@ function PendingBaseShareBanner({
           disabled={approveMutation.isPending}
           data-testid="pending-base-share-approve-button"
         >
-          Подтвердить
+          {/* task-648-fix-round-1 (COPY-M-9): in-flight state names itself,
+              same convention as the other 8 process-labels in the repo
+              («Сохранение…», «Публикация…», …). */}
+          {approveMutation.isPending ? 'Подтверждение…' : 'Подтвердить'}
         </Button>
         <Button
           size="sm"
@@ -141,11 +145,19 @@ function PendingBaseShareBanner({
             <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
+            {/* task-648-fix-round-1 (COPY-M-8): a placeholder disappears on
+                the first keystroke and never reads as a field name —
+                mirrors ProjectApprovalActions.tsx's (#646) identical fix. */}
+            <Label htmlFor="pending-base-share-reject-reason" className="text-xs">
+              Причина отказа *
+            </Label>
             <Textarea
+              id="pending-base-share-reject-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Например: процент не согласован устно"
+              placeholder="Например: договаривались на 30%"
               maxLength={500}
+              rows={3}
               data-testid="pending-base-share-reject-reason"
             />
             <p className="text-xs text-muted-foreground text-right tabular-nums">
@@ -163,7 +175,9 @@ function PendingBaseShareBanner({
               disabled={!reason.trim() || rejectMutation.isPending}
               data-testid="pending-base-share-reject-confirm"
             >
-              Отклонить
+              {/* task-648-fix-round-1 (COPY-M-9): same in-flight convention
+                  as the approve button above. */}
+              {rejectMutation.isPending ? 'Отклонение…' : 'Отклонить'}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
@@ -395,14 +409,32 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                         className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400"
                         data-testid="user-senior-share-pending-badge"
                       >
-                        новый{' '}
-                        <span className="tabular-nums">{user.pendingSeniorShare.percent}</span>%
-                        ожидает подтверждения ({user.pendingSeniorShare.approverName})
+                        {/* task-648-fix-round-1 (COPY-M-7): this badge, unlike
+                            the actionable banner above (mode==='self' only),
+                            has no mode gate — a self-viewing SENIOR saw their
+                            OWN name in the third person here right below a
+                            banner addressing them as "вы". First person for
+                            the affected senior's own view; third person
+                            (with name) only when someone ELSE is looking. */}
+                        {mode === 'self' ? (
+                          <>
+                            новый{' '}
+                            <span className="tabular-nums">{user.pendingSeniorShare.percent}</span>%
+                            ждёт вашего подтверждения
+                          </>
+                        ) : (
+                          <>
+                            новый{' '}
+                            <span className="tabular-nums">{user.pendingSeniorShare.percent}</span>%
+                            ожидает подтверждения ({user.pendingSeniorShare.approverName})
+                          </>
+                        )}
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent>
-                      Действует прежний процент, пока {user.pendingSeniorShare.approverName} не
-                      подтвердит новый.
+                      {mode === 'self'
+                        ? 'Действует прежний процент, пока вы не подтвердите новый.'
+                        : `Действует прежний процент, пока ${user.pendingSeniorShare.approverName} не подтвердит новый.`}
                     </TooltipContent>
                   </Tooltip>
                 )}

@@ -1180,7 +1180,11 @@ export class ProjectsService {
         .where(eq(projects.id, id))
         .for('update')
         .limit(1)
-      if (!row) throw new NotFoundException('Project not found')
+      // task-648-fix-round-1 (COPY-H-1): Russian — defensive-only (approveInTx
+      // above already proved a live PENDING row exists; only a project
+      // deleted in the instant between that check and this re-select could
+      // reach here), but still user-facing text if it ever fires.
+      if (!row) throw new NotFoundException('Проект не найден')
       // `row.pendingSeniorSharePercentOverride` is read as-is (including
       // `null`, a legitimate "clear the override" outcome) — safe to trust
       // here because `approveInTx` above already threw for "no live PENDING

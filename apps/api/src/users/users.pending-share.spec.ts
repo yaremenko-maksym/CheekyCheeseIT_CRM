@@ -316,7 +316,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     const h = buildHarness()
     h.setSelectForUpdateRows([])
     await expect(h.service.approveSeniorShareChange('senior-1', seniorUser)).rejects.toThrow(
-      'User not found',
+      'Пользователь не найден',
     )
   })
 
@@ -335,7 +335,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     h.setEmptyReturning()
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'причина', seniorUser),
-    ).rejects.toThrow('User not found')
+    ).rejects.toThrow('Пользователь не найден')
   })
 })
 

@@ -149,9 +149,16 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
 describe('OverviewTab — pending base share banner, approve/reject interactions', () => {
   const USER_ID = 'a0000000-0000-4000-8000-000000000001'
 
+  // task-648-fix-round-1 (COPY-M-3): the approve success toast now names the
+  // CONFIRMED value from the response body (`data.user.seniorSharePercent`),
+  // so the mock response needs that shape, not an arbitrary `{ ok: true }`.
+  const CONFIRMED_PERCENT = 55
+
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { ok: true } })
+    ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { user: { seniorSharePercent: CONFIRMED_PERCENT }, permissions: {}, data: {} },
+    })
   })
 
   it("the exact copy names the pending percent, with the space JSX needs an explicit {' '} for", () => {
@@ -172,15 +179,42 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith(`/users/${USER_ID}/senior-share/approve`),
     )
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Новый процент подтверждён'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(`Ваша доля теперь ${CONFIRMED_PERCENT}%`),
+    )
   })
 
-  it('approve: a rejected request shows the exact error toast, prefixed "Ошибка: "', async () => {
+  it('approve: a rejected request (no axios .response — not a 404/409) shows the raw message with no "Ошибка: " prefix', async () => {
+    // task-648-fix-round-1 (COPY-M-1): the prefix added nothing (the toast
+    // is already red) and this exact test used to pin it as a "contract" —
+    // now pins its removal instead. `seniorShareErrorMessage` only special-
+    // cases 404/409 (getAxiosStatus reads `.response.status`, absent on a
+    // plain Error); everything else falls through getApiErrorMessage's
+    // Priority 3 (axios's own generic `.message`, unprefixed).
     ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Ошибка: network down'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('network down'))
+  })
+
+  it('approve: a 404 (stale/foreign proposal) shows the friendly "устарело" message, not the raw backend text', async () => {
+    // task-648-fix-round-1 (COPY-H-4/QA-MED-5): the backend's real 404 body
+    // for this endpoint is `ApprovalsService.assertRespondable`'s generic
+    // "Подтверждение не найдено или уже закрыто" — seniorShareErrorMessage
+    // maps the STATUS to a message that names the actual next step instead.
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 404, data: { message: 'Подтверждение не найдено или уже закрыто' } },
+    })
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-approve-button'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+      ),
+    )
   })
 
   it('approve: invalidates BOTH the userId-keyed and the "me"-keyed profile query on success', async () => {
@@ -243,7 +277,11 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
         reason: 'Слишком высокий процент',
       }),
     )
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Предложение отклонено'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        'Доля отклонена — действует прежний процент. Админ увидит причину',
+      ),
+    )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
     // Dialog closed (state.rejectOpen reset) — reopening shows an EMPTY
@@ -258,13 +296,30 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     expect(reopened.value).toBe('')
   })
 
-  it('reject: a rejected request shows the exact error toast, prefixed "Ошибка: "', async () => {
+  it('reject: a rejected request (no axios .response) shows the raw message with no "Ошибка: " prefix', async () => {
     ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('validation failed'))
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     await user.type(await screen.findByTestId('pending-base-share-reject-reason'), 'причина')
     await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Ошибка: validation failed'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('validation failed'))
+  })
+
+  it('reject: a 409 (already resolved elsewhere) shows the friendly "уже принято" message', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { message: 'Подтверждение уже получило ответ' } },
+    })
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    await user.type(await screen.findByTestId('pending-base-share-reject-reason'), 'причина')
+    await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Решение по этому проценту уже принято. Обновите страницу.',
+      ),
+    )
   })
 })

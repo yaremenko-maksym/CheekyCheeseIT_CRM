@@ -593,7 +593,7 @@ describe('ProjectsService.approveSeniorShareChange — guards + exact call shape
     const h = buildHarness()
     h.setSelectForUpdateRows([])
     await expect(h.service.approveSeniorShareChange('proj-1', seniorUser)).rejects.toThrow(
-      'Project not found',
+      'Проект не найден',
     )
   })
 

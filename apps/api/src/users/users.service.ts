@@ -348,7 +348,10 @@ export class UsersService {
         approverUserId: currentUser.id,
       })
       const [row] = await tx.select().from(users).where(eq(users.id, id)).for('update').limit(1)
-      if (!row) throw new NotFoundException('User not found')
+      // task-648-fix-round-1 (COPY-H-1): Russian — same defensive-only
+      // reasoning as ProjectsService.approveSeniorShareChange's identical
+      // check.
+      if (!row) throw new NotFoundException('Пользователь не найден')
       // `row.pendingSeniorSharePercent` is guaranteed non-null here: it is
       // only ever read after `approveInTx` above has already thrown for
       // "no live PENDING row" — reaching this line means a real proposal
@@ -396,7 +399,9 @@ export class UsersService {
         .set({ pendingSeniorSharePercent: null, updatedAt: new Date() })
         .where(eq(users.id, id))
         .returning()
-      if (!updated) throw new NotFoundException('User not found')
+      // task-648-fix-round-1 (COPY-H-1): Russian — same defensive-only
+      // reasoning as approveSeniorShareChange's identical check above.
+      if (!updated) throw new NotFoundException('Пользователь не найден')
     })
     // SR-M-3 (task-648-fix-round-1): same allow-list reasoning as
     // approveSeniorShareChange above.
