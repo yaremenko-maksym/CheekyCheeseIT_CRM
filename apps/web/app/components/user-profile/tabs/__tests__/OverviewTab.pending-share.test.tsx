@@ -134,6 +134,39 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: null }), 'view')
     expect(screen.queryByTestId('user-senior-share-pending-badge')).not.toBeInTheDocument()
   })
+
+  // task-648-fix-round-1 (COPY-M-7): first person, no name, when the
+  // affected SENIOR is looking at their OWN profile — kills the
+  // ConditionalExpression/EqualityOperator/StringLiteral mutants on
+  // `mode === 'self' ? <>...</> : <>...</>` (both the badge text and its
+  // tooltip carry an independent copy of the same ternary).
+  it('badge uses first person, no name, when mode=self', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const badge = screen.getByTestId('user-senior-share-pending-badge')
+    expect(badge).toHaveTextContent('новый 55% ждёт вашего подтверждения')
+    expect(badge).not.toHaveTextContent('Senior One')
+    // Radix Tooltip content is not in the DOM until hover-opened.
+    const user = userEvent.setup()
+    await user.hover(badge)
+    expect(
+      (await screen.findAllByText('Действует прежний процент, пока вы не подтвердите новый.'))[0],
+    ).toBeInTheDocument()
+  })
+
+  it('badge + tooltip name the approver, third person, when mode=view', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view')
+    const badge = screen.getByTestId('user-senior-share-pending-badge')
+    expect(badge).toHaveTextContent('новый 55% ожидает подтверждения (Senior One)')
+    const user = userEvent.setup()
+    await user.hover(badge)
+    expect(
+      (
+        await screen.findAllByText(
+          'Действует прежний процент, пока Senior One не подтвердит новый.',
+        )
+      )[0],
+    ).toBeInTheDocument()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -198,6 +231,19 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('network down'))
   })
 
+  it("approve: an error with neither .response nor a string .message falls through to seniorShareErrorMessage's own fallback text", async () => {
+    // Kills the StringLiteral mutant on `getApiErrorMessage(err, 'Не удалось
+    // выполнить действие')`'s fallback argument — every OTHER error test in
+    // this file has either a `.response` (404/409 branches) or a plain
+    // Error's `.message` (getApiErrorMessage's Priority 3), so none of them
+    // ever reach this specific fallback parameter.
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-approve-button'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось выполнить действие'))
+  })
+
   it('approve: a 404 (stale/foreign proposal) shows the friendly "устарело" message, not the raw backend text', async () => {
     // task-648-fix-round-1 (COPY-H-4/QA-MED-5): the backend's real 404 body
     // for this endpoint is `ApprovalsService.assertRespondable`'s generic
@@ -226,6 +272,51 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] }),
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
+  })
+
+  it('approve: button label switches to "Подтверждение…" while the mutation is in flight, back to "Подтвердить" after', async () => {
+    // task-648-fix-round-1 (COPY-M-9): kills the StringLiteral mutants on
+    // both branches of `approveMutation.isPending ? 'Подтверждение…' :
+    // 'Подтвердить'` — every OTHER approve test resolves/rejects
+    // synchronously enough that the button never observably sits in the
+    // pending state, so this is the only test that holds it open on
+    // purpose (an unresolved promise) to look at it mid-flight.
+    let resolvePost!: (value: unknown) => void
+    ;(api.post as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((resolve) => {
+        resolvePost = resolve
+      }),
+    )
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    const approveButton = screen.getByTestId('pending-base-share-approve-button')
+    expect(approveButton).toHaveTextContent('Подтвердить')
+    await user.click(approveButton)
+    await waitFor(() => expect(approveButton).toHaveTextContent('Подтверждение…'))
+    resolvePost({
+      data: { user: { seniorSharePercent: CONFIRMED_PERCENT }, permissions: {}, data: {} },
+    })
+    await waitFor(() => expect(approveButton).toHaveTextContent('Подтвердить'))
+  })
+
+  it('reject: confirm button label switches to "Отклонение…" while the mutation is in flight', async () => {
+    // task-648-fix-round-1 (COPY-M-9): same reasoning as the approve test
+    // above, for the reject-confirm button's own ternary.
+    let resolvePost!: (value: unknown) => void
+    ;(api.post as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((resolve) => {
+        resolvePost = resolve
+      }),
+    )
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    await user.type(await screen.findByTestId('pending-base-share-reject-reason'), 'причина')
+    const confirmButton = screen.getByTestId('pending-base-share-reject-confirm')
+    expect(confirmButton).toHaveTextContent('Отклонить')
+    await user.click(confirmButton)
+    await waitFor(() => expect(confirmButton).toHaveTextContent('Отклонение…'))
+    resolvePost({ data: { ok: true } })
   })
 
   it('reject dialog starts closed, with an empty reason field', () => {

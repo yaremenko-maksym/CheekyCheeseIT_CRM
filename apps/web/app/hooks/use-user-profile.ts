@@ -214,8 +214,18 @@ export function useApproveSeniorShareChange(userId: string) {
 export function useRejectSeniorShareChange(userId: string) {
   const qc = useQueryClient()
   return useMutation({
+    // Stryker disable next-line ArrowFunction: the mutated node here is the
+    // WHOLE `mutationFn` value (Stryker replaces it outright with
+    // `() => undefined`, not just the inner `.then()` callback) — same
+    // reasoning as useApproveSeniorShareChange's identical directive above,
+    // whose comment sits in the equivalent position (immediately before
+    // `mutationFn:`, not before the inner `.then()`). Unlike approve,
+    // reject's `onSuccess` never reads the resolved value at all (no
+    // confirmed-percent to name — see its own comment below), so this one
+    // covers the whole "value never consumed" case, not just "callback
+    // identity" — mutationFn resolving to `undefined` instead of the real
+    // response body is genuinely unobservable by any test here.
     mutationFn: (reason: string) =>
-      // Stryker disable next-line ArrowFunction: same reasoning as useApproveSeniorShareChange's identical line above.
       api
         .post<UserWithPermissionsResponse>(`/users/${userId}/senior-share/reject`, { reason })
         .then((r) => r.data),
