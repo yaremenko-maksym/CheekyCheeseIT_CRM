@@ -396,6 +396,16 @@ describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY
       dropName: 'Someone Else',
       seniorApprovalPending: true,
       dropApprovalPending: false,
+      // mutation-gate (PR #646 fix-round 3, caption ternary at ~line 225):
+      // a non-null value here is load-bearing. Without it,
+      // `effectiveSeniorSharePercent` is `undefined`, so the INNER ternary
+      // (`!= null ? … : …`) renders the SAME "could not determine" fallback
+      // text on both the real code and the `user?.id === project.seniorId`
+      // → `true` mutant — the assertion below would pass either way and the
+      // mutant would survive. A real percent makes the two branches actually
+      // print different text, so the mutant is only killed if the OUTER
+      // ternary picks the right branch for this viewer.
+      effectiveSeniorSharePercent: 26,
     })
     mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
     renderPanel()
