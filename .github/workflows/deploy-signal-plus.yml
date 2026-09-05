@@ -166,6 +166,61 @@ jobs:
 
           docker compose -p signal-plus-ci down -v
 
+      # ── "Pull it back like the VPS does" repro (task-signal-plus-pull-fix.md #3) ──
+      # The build above never leaves THIS runner's own Docker daemon --
+      # `load: true` hands BuildKit's finished image straight to the local
+      # image store, so it cannot exercise a bug that only shows up when a
+      # layer is PUSHED to a registry and then PULLED BACK, unpacked by
+      # containerd's overlayfs snapshotter. That exact round trip is what
+      # broke on the VPS (run 33946345307): "failed to Lchown
+      # .../opt/signal-cli-pinned/signal-cli for UID 0, GID 0: ... no such
+      # file or directory" during `docker compose -p signal-plus pull`,
+      # Ubuntu 24.04.3 x86_64, Docker with the containerd image store
+      # (`daemon.json`'s `features.containerd-snapshotter` -- the SAME key
+      # flipped below). No GHCR, no deploy secret: a throwaway `registry:2`
+      # container stands in for the registry, and this runner's OWN dockerd
+      # is switched onto the same snapshotter the VPS runs, first.
+      - name: Switch this runner's dockerd onto the containerd image store (matches the VPS)
+        run: |
+          # Merge, don't clobber -- ubuntu-latest already ships a
+          # daemon.json (log-driver settings etc.); overwriting it outright
+          # risks breaking something else later in this same job that reads
+          # one of those existing keys.
+          EXISTING="$(cat /etc/docker/daemon.json 2>/dev/null || echo '{}')"
+          echo "$EXISTING" | jq '. * {"features":{"containerd-snapshotter":true},"insecure-registries":["localhost:5000"]}' \
+            | sudo tee /etc/docker/daemon.json >/dev/null
+          cat /etc/docker/daemon.json
+          sudo systemctl restart docker
+          # Fail loudly here, not three steps down, if the daemon quietly
+          # stayed on the old graphdriver -- that would make every check
+          # below pass for the wrong reason (never touching the code path
+          # that actually broke on the VPS).
+          docker info --format '{{json .DriverStatus}}' | tee /tmp/driver-status.json
+          grep -q 'io.containerd.snapshotter.v1' /tmp/driver-status.json
+
+      - name: Start a throwaway local registry (stands in for GHCR)
+        run: docker run -d -p 5000:5000 --name local-registry registry:2
+
+      - name: 'Reproduce the VPS path: build, push to a registry, pull it back'
+        working-directory: services/signal-plus
+        run: |
+          # The builder docker/setup-buildx-action created above uses the
+          # `docker-container` driver (a separate BuildKit container) --
+          # pushing to `localhost:5000` from inside that container needs
+          # its own network+TLS-trust wiring. `default` is the builder
+          # that has existed since before that action ran, wired directly
+          # into THIS runner's own dockerd (the `docker` driver) -- it
+          # already inherits the daemon.json trust/snapshotter change above
+          # for free, because it IS that daemon, not a container next to it.
+          docker buildx use default
+          docker buildx build --platform linux/amd64 \
+            --push -t localhost:5000/signal-plus:pull-repro .
+          # Force an actual network pull+extract of what was just pushed --
+          # the point is to exercise containerd's overlayfs differ on a
+          # fresh snapshot, not to reuse the builder's own local cache.
+          docker rmi localhost:5000/signal-plus:pull-repro 2>/dev/null || true
+          docker pull localhost:5000/signal-plus:pull-repro
+
   deploy:
     name: Push & deploy signal-plus
     needs: build-and-test
@@ -322,7 +377,32 @@ jobs:
             trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
             echo "==> Pulling signal-plus image"
-            docker compose -p signal-plus pull
+            # infra/signal-plus-pull-fix (run 33946345307): `docker compose
+            # pull` here once failed on the VPS's containerd overlayfs
+            # snapshotter extracting the signal-cli-pinned layer ("failed to
+            # Lchown ... no such file or directory"). Forensics on the ACTUAL
+            # pushed bytes found them well-formed (see the Dockerfile's own
+            # comment + this PR's body for the full trail), and the same
+            # image extracted cleanly on every other containerd
+            # overlayfs-snapshotter setup this was tried against -- no
+            # deterministic, reproducible cause was found. With that as the
+            # honest state of the evidence, this retries a handful of times
+            # with backoff before giving up for real, the same shape as the
+            # pnpm-audit gate's "slow, not dead" registry fix (PR #654): ride
+            # out a one-off extraction hiccup, but a genuinely broken pull
+            # still fails loud, just not on the first attempt.
+            PULL_ATTEMPTS=4
+            attempt=1
+            until docker compose -p signal-plus pull; do
+              if [ "$attempt" -ge "$PULL_ATTEMPTS" ]; then
+                echo "::error::docker compose -p signal-plus pull failed after $PULL_ATTEMPTS attempts"
+                exit 1
+              fi
+              delay=$((10 * attempt))
+              echo "::warning::docker compose -p signal-plus pull failed (attempt $attempt/$PULL_ATTEMPTS) -- retrying in ${delay}s"
+              sleep "$delay"
+              attempt=$((attempt + 1))
+            done
 
             echo "==> Starting signal-plus (does NOT touch /opt/crm — separate compose project)"
             docker compose -p signal-plus up -d
