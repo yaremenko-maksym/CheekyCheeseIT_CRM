@@ -126,3 +126,98 @@ describe('persister — real library, content actually written to storage (SR-L-
     expect(written).toContain('"companyName":"Acme"')
   })
 })
+
+/**
+ * QA-H-3 (PR #646 fix-round 4, HIGH — manual-qa repro). Same "real library,
+ * not a mock of it" rationale as the SR-L-4 tests above, extended end to
+ * end: `persistClient` writes through the REAL serialize option, THEN
+ * `restoreClient` reads that exact written string back through the REAL
+ * deserialize (`JSON.parse`, unmodified) — a persist→restore ROUND TRIP,
+ * not two tests that separately assert on each half in isolation. Proves
+ * the write-time mark (`meta.strippedAt`) and the read-time force
+ * (`dataUpdatedAt = 0`) actually connect through an IndexedDB-shaped string
+ * in the middle, not just through two functions that happen to agree on an
+ * in-memory object shape.
+ */
+describe('persister — real library, persist→restore round trip forces staleness on a redacted query (QA-H-3)', () => {
+  it('a query rejectionReason was stripped from comes back from restoreClient with dataUpdatedAt === 0', async () => {
+    const originalUpdatedAt = Date.now()
+    const client = {
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects', { archived: 'active' }],
+            queryHash: 'irrelevant',
+            state: {
+              status: 'success' as const,
+              data: [{ id: 'p1', status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' }],
+              dataUpdatedAt: originalUpdatedAt,
+              error: null,
+              errorUpdatedAt: 0,
+              fetchFailureCount: 0,
+              fetchFailureReason: null,
+              fetchMeta: null,
+              isInvalidated: false,
+            },
+          },
+        ],
+        mutations: [],
+      },
+    }
+
+    // @ts-expect-error — deliberately loose PersistedClient shape (see the tests above).
+    await persister.persistClient(client)
+    const written = mockSet.mock.calls[0]?.[1] as string
+    mockGet.mockResolvedValueOnce(written)
+
+    const restored = (await persister.restoreClient()) as {
+      clientState: { queries: Array<{ state: { dataUpdatedAt: number; data: unknown } }> }
+    }
+
+    expect(restored.clientState.queries[0]?.state.dataUpdatedAt).toBe(0)
+    // Confirms this really is the same restored query (rejectionReason
+    // gone, everything else intact) — not an accidental pass-through of a
+    // differently-shaped fixture that happened to satisfy the assertion above.
+    expect(restored.clientState.queries[0]?.state.data).toEqual([{ id: 'p1', status: 'REJECTED' }])
+  })
+
+  it('a query nothing was stripped from keeps its ORIGINAL dataUpdatedAt after the same round trip — the control case (SENIOR/DROP never receive rejectionReason at all, SR-M-5)', async () => {
+    const originalUpdatedAt = Date.now() - 30_000
+    const client = {
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects', { archived: 'active' }],
+            queryHash: 'irrelevant',
+            state: {
+              status: 'success' as const,
+              data: [{ id: 'p1', status: 'ACTIVE' }],
+              dataUpdatedAt: originalUpdatedAt,
+              error: null,
+              errorUpdatedAt: 0,
+              fetchFailureCount: 0,
+              fetchFailureReason: null,
+              fetchMeta: null,
+              isInvalidated: false,
+            },
+          },
+        ],
+        mutations: [],
+      },
+    }
+
+    // @ts-expect-error — see the tests above.
+    await persister.persistClient(client)
+    const written = mockSet.mock.calls[0]?.[1] as string
+    mockGet.mockResolvedValueOnce(written)
+
+    const restored = (await persister.restoreClient()) as {
+      clientState: { queries: Array<{ state: { dataUpdatedAt: number } }> }
+    }
+    expect(restored.clientState.queries[0]?.state.dataUpdatedAt).toBe(originalUpdatedAt)
+  })
+})

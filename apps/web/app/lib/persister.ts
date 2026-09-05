@@ -61,28 +61,159 @@ export const SENSITIVE_PERSISTED_FIELDS = new Set<string>(['rejectionReason'])
  * is) — `serialize`'s signature below is typed from that library's own
  * options instead of importing the type directly, so this helper stays
  * structural rather than depending on a transitive package's types.
+ *
+ * QA-H-3 (PR #646 fix-round 4): `onStrip`, when given, is called once per
+ * key actually removed — this is how `markStrippedQueries` below knows,
+ * PER QUERY, whether this walk actually redacted anything (as opposed to
+ * walking a query that never had a sensitive field to begin with). Optional
+ * and side-effect-only so every existing direct call
+ * (`stripSensitiveFields(value)`, no second argument) keeps working
+ * unchanged.
  */
-export function stripSensitiveFields(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripSensitiveFields)
+export function stripSensitiveFields(value: unknown, onStrip?: () => void): unknown {
+  if (Array.isArray(value)) return value.map((v) => stripSensitiveFields(v, onStrip))
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => !SENSITIVE_PERSISTED_FIELDS.has(key))
-        .map(([key, v]) => [key, stripSensitiveFields(v)]),
+        .filter(([key]) => {
+          if (SENSITIVE_PERSISTED_FIELDS.has(key)) {
+            onStrip?.()
+            return false
+          }
+          return true
+        })
+        .map(([key, v]) => [key, stripSensitiveFields(v, onStrip)]),
     )
   }
   return value
 }
 
+/**
+ * QA-H-3 (PR #646 fix-round 4, HIGH — manual-qa repro on `/projects?status=
+ * REJECTED`). `stripSensitiveFields` above keeps `rejectionReason` out of
+ * IndexedDB — but a query WRITTEN with the field already gone is, from
+ * TanStack Query's point of view, an ordinary successful snapshot with a
+ * normal `dataUpdatedAt`. `staleTime` (60s, query-client.ts) has no way to
+ * know this particular snapshot is short a field: within that window,
+ * `useQuery` treats "restored from disk" identically to "freshly fetched"
+ * and never re-asks the server — an ADMIN who reloads `/projects` within
+ * 60s of their last visit silently loses the rejection reason until
+ * `staleTime` elapses on its own, with no loading state, no error, nothing
+ * to notice.
+ *
+ * Fix, in two halves:
+ *   1. HERE (write time) — `markStrippedQueries` marks every query
+ *      `stripQuery` actually redacted something from, via `meta.strippedAt`.
+ *      `DehydratedQuery.meta` (`@tanstack/query-core`'s own dehydrate/
+ *      hydrate contract) is a plain, arbitrary, JSON-serializable bag that
+ *      survives a restore untouched — exactly the kind of place a "this
+ *      snapshot is short a field" flag belongs, as opposed to inventing a
+ *      side-channel this file would also have to restore by hand.
+ *   2. `forceRefetchOfStrippedQueries` below (read time) — turns that mark
+ *      into `state.dataUpdatedAt = 0` on the SAME query, right before
+ *      `hydrate()` builds it. A query with `dataUpdatedAt = 0` is
+ *      unconditionally stale (`query-core`'s `isStaleByTime`: compares
+ *      `Date.now() - dataUpdatedAt` against `staleTime`, and `0` always
+ *      loses against a finite `staleTime`) — which is exactly what
+ *      `refetchOnMount`'s default (`true`, unset in query-client.ts) checks
+ *      on the very next `useQuery` mount for that key: it fetches in the
+ *      background, same as if the cache had been empty, and the real
+ *      `rejectionReason` comes back from the server. A query nothing was
+ *      stripped from (SENIOR/DROP never receive `rejectionReason` at all —
+ *      SR-M-5, fix-round 2) gets no mark and behaves exactly as before this
+ *      fix — no unnecessary refetch is introduced for the common case.
+ *
+ * Deliberately per-QUERY (via `state`, not `state.data` alone): the original
+ * `stripSensitiveFields(client)` call this replaces walked the ENTIRE
+ * client, including `query.state.error`/`fetchFailureReason` — walking
+ * `query.state` here (not just `.data`) keeps that same coverage while
+ * still being able to tell whether THIS query's data needed stripping at
+ * all. `clientState.mutations` (a paused/offline mutation carrying the same
+ * shape) goes through the original, tracking-free strip — no staleness
+ * marker is meaningful there since mutations are not restored through the
+ * `useQuery`/`staleTime` path this fix targets.
+ */
+function stripQuery(query: unknown): unknown {
+  if (query === null || typeof query !== 'object') return query
+  const q = query as { state?: unknown; meta?: Record<string, unknown> }
+  let strippedSomething = false
+  const state = stripSensitiveFields(q.state, () => {
+    strippedSomething = true
+  })
+  if (!strippedSomething) return { ...q, state }
+  return { ...q, state, meta: { ...(q.meta ?? {}), strippedAt: Date.now() } }
+}
+
+/** See `stripQuery`'s doc above — walks `clientState.{queries,mutations}`. */
+function markStrippedQueries(clientState: unknown): unknown {
+  if (clientState === null || typeof clientState !== 'object') return clientState
+  const cs = clientState as { queries?: unknown; mutations?: unknown; [k: string]: unknown }
+  return {
+    ...cs,
+    ...(cs.mutations !== undefined && { mutations: stripSensitiveFields(cs.mutations) }),
+    ...(Array.isArray(cs.queries) && { queries: cs.queries.map(stripQuery) }),
+  }
+}
+
 /** Extracted from createAsyncStoragePersister's own options — see stripSensitiveFields' doc for why not a direct PersistedClient import. */
 type Serialize = NonNullable<Parameters<typeof createAsyncStoragePersister>[0]['serialize']>
+/** Same pattern, for the RETURN side of the library's own `restoreClient` — a `PersistedClient | undefined` this file still never names directly. */
+type StoragePersister = ReturnType<typeof createAsyncStoragePersister>
+type RestoredClient = Awaited<ReturnType<StoragePersister['restoreClient']>>
 
-const serialize: Serialize = (client) => JSON.stringify(stripSensitiveFields(client))
+const serialize: Serialize = (client) => {
+  if (client === null || typeof client !== 'object') {
+    return JSON.stringify(stripSensitiveFields(client))
+  }
+  const c = client as unknown as { clientState?: unknown; [k: string]: unknown }
+  return JSON.stringify({ ...c, clientState: markStrippedQueries(c.clientState) })
+}
 
-export const persister = createAsyncStoragePersister({
+/**
+ * QA-H-3, read-time half — see `stripQuery`'s doc above for the full
+ * mechanism. Runs on whatever `baseAsyncPersister.restoreClient()` (below)
+ * returned, BEFORE `PersistQueryClientProvider` hands it to `hydrate()`.
+ * A query with no `meta.strippedAt` mark is returned byte-for-byte —
+ * `undefined` (nothing was ever persisted) passes straight through too.
+ */
+function forceRefetchOfStrippedQueries(client: RestoredClient): RestoredClient {
+  if (client === null || typeof client !== 'object') return client
+  const c = client as unknown as { clientState?: { queries?: unknown[]; [k: string]: unknown } }
+  const queries = c.clientState?.queries
+  if (!Array.isArray(queries)) return client
+  return {
+    ...c,
+    clientState: {
+      ...c.clientState,
+      queries: queries.map((query) => {
+        if (query === null || typeof query !== 'object') return query
+        const q = query as { meta?: { strippedAt?: unknown }; state?: Record<string, unknown> }
+        if (q.meta?.strippedAt === undefined) return q
+        return { ...q, state: { ...q.state, dataUpdatedAt: 0 } }
+      }),
+    },
+  } as RestoredClient
+}
+
+const baseAsyncPersister = createAsyncStoragePersister({
   storage: idbStorage,
   key: PERSIST_KEY,
   // Throttle writes: avoid IndexedDB spam on burst invalidations.
   throttleTime: 1000,
   serialize,
 })
+
+/**
+ * QA-H-3: same `persistClient`/`removeClient` as the underlying library
+ * instance (unwrapped — no query-level logic runs on write beyond
+ * `serialize` above, already wired into `baseAsyncPersister`) — only
+ * `restoreClient` is wrapped, to run `forceRefetchOfStrippedQueries` on
+ * whatever the real library restored before `PersistQueryClientProvider`
+ * hydrates the QueryClient with it.
+ */
+export const persister: StoragePersister = {
+  persistClient: baseAsyncPersister.persistClient,
+  removeClient: baseAsyncPersister.removeClient,
+  restoreClient: async () =>
+    forceRefetchOfStrippedQueries(await baseAsyncPersister.restoreClient()),
+}

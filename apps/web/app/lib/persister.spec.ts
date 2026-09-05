@@ -32,7 +32,17 @@ const hoisted = vi.hoisted(() => {
 
   return {
     capturedOptionsRef: { current: undefined as CapturedOptions | undefined },
-    mockPersisterInstance: { __brand: 'asyncStoragePersister' as const },
+    // QA-H-3 (PR #646 fix-round 4): real stub functions, not an opaque
+    // `{ __brand }` marker — persister.ts now wraps ONLY `restoreClient`
+    // (see its own doc), so `persistClient`/`removeClient` must be REAL
+    // functions for the "delegates to the base instance" tests below to
+    // mean anything, and `restoreClient` must be controllable per-test
+    // (`mockResolvedValueOnce`) for the staleness-marking tests.
+    mockPersisterInstance: {
+      persistClient: vi.fn().mockResolvedValue(undefined),
+      restoreClient: vi.fn().mockResolvedValue(undefined),
+      removeClient: vi.fn().mockResolvedValue(undefined),
+    },
     mockGet: vi.fn().mockResolvedValue(undefined),
     mockSet: vi.fn().mockResolvedValue(undefined),
     mockDel: vi.fn().mockResolvedValue(undefined),
@@ -85,8 +95,11 @@ describe('persister — PERSIST_KEY contract', () => {
     expect(hoisted.capturedOptionsRef.current?.key).toBe('crm-query-cache')
   })
 
-  it('persister is the instance returned by createAsyncStoragePersister', () => {
-    expect(persister).toBe(hoisted.mockPersisterInstance)
+  it('QA-H-3 (PR #646 fix-round 4): persistClient/removeClient delegate to the instance returned by createAsyncStoragePersister — persister is no longer that SAME object, only a wrapper around it (restoreClient is wrapped, see below)', () => {
+    expect(persister.persistClient).toBe(hoisted.mockPersisterInstance.persistClient)
+    expect(persister.removeClient).toBe(hoisted.mockPersisterInstance.removeClient)
+    expect(persister.restoreClient).not.toBe(hoisted.mockPersisterInstance.restoreClient)
+    expect(typeof persister.restoreClient).toBe('function')
   })
 })
 
@@ -211,5 +224,161 @@ describe('persister — serialize option is wired to strip sensitive fields befo
     expect(output).not.toContain('должно исчезнуть')
     expect(output).not.toContain('rejectionReason')
     expect(JSON.parse(output).clientState.queries[0].state.data[0].id).toBe('p1')
+  })
+})
+
+// QA-H-3 (PR #646 fix-round 4, HIGH — manual-qa repro). A query the strip
+// above actually redacted something from must be marked (`meta.strippedAt`)
+// at write time — the read-time half (`persister — restoreClient forces
+// dataUpdatedAt=0...` below) turns that mark into an unconditional refetch
+// on the query's next mount. Without the mark, a restored (redacted)
+// snapshot renders as if it were a normal fresh fetch for a full
+// `staleTime` window (60s, query-client.ts) — see persister.ts's own doc on
+// `stripQuery` for the full mechanism.
+describe('persister — serialize marks queries it actually redacted (QA-H-3)', () => {
+  function serializeFn(client: unknown): string {
+    const serialize = hoisted.capturedOptionsRef.current?.serialize
+    if (!serialize) throw new Error('serialize was not captured')
+    return serialize(client)
+  }
+
+  it('a query with rejectionReason gets meta.strippedAt set to a number', () => {
+    const output = serializeFn({
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects'],
+            state: { data: [{ id: 'p1', rejectionReason: 'секрет' }] },
+          },
+        ],
+      },
+    })
+    const query = JSON.parse(output).clientState.queries[0]
+    expect(typeof query.meta.strippedAt).toBe('number')
+  })
+
+  it('a query with NOTHING to strip (SENIOR/DROP never receive rejectionReason at all — SR-M-5) gets no meta.strippedAt mark', () => {
+    const output = serializeFn({
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects'],
+            state: { data: [{ id: 'p1', status: 'ACTIVE' }] },
+          },
+        ],
+      },
+    })
+    const query = JSON.parse(output).clientState.queries[0]
+    expect(query.meta).toBeUndefined()
+  })
+
+  it('marks each query independently — a redacted query and a clean query in the SAME client only mark the redacted one', () => {
+    const output = serializeFn({
+      clientState: {
+        queries: [
+          { queryKey: ['projects', 'p1'], state: { data: { id: 'p1', rejectionReason: 'x' } } },
+          { queryKey: ['projects', 'p2'], state: { data: { id: 'p2', status: 'ACTIVE' } } },
+        ],
+      },
+    })
+    const [redacted, clean] = JSON.parse(output).clientState.queries
+    expect(typeof redacted.meta.strippedAt).toBe('number')
+    expect(clean.meta).toBeUndefined()
+  })
+
+  it('preserves an existing meta bag on the query instead of replacing it', () => {
+    const output = serializeFn({
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects'],
+            state: { data: [{ id: 'p1', rejectionReason: 'секрет' }] },
+            meta: { someOtherFlag: true },
+          },
+        ],
+      },
+    })
+    const query = JSON.parse(output).clientState.queries[0]
+    expect(query.meta.someOtherFlag).toBe(true)
+    expect(typeof query.meta.strippedAt).toBe('number')
+  })
+})
+
+describe('persister — restoreClient forces dataUpdatedAt=0 on meta.strippedAt-marked queries (QA-H-3)', () => {
+  it('a query with meta.strippedAt gets state.dataUpdatedAt forced to 0', async () => {
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce({
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects'],
+            state: { data: [{ id: 'p1' }], dataUpdatedAt: Date.now() },
+            meta: { strippedAt: Date.now() - 5000 },
+          },
+        ],
+        mutations: [],
+      },
+    })
+
+    const restored = (await persister.restoreClient()) as {
+      clientState: { queries: Array<{ state: { dataUpdatedAt: number } }> }
+    }
+    expect(restored.clientState.queries[0]?.state.dataUpdatedAt).toBe(0)
+  })
+
+  it('a query with NO meta.strippedAt keeps its real dataUpdatedAt untouched', async () => {
+    const originalUpdatedAt = Date.now() - 1000
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce({
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects'],
+            state: { data: [{ id: 'p1' }], dataUpdatedAt: originalUpdatedAt },
+          },
+        ],
+        mutations: [],
+      },
+    })
+
+    const restored = (await persister.restoreClient()) as {
+      clientState: { queries: Array<{ state: { dataUpdatedAt: number } }> }
+    }
+    expect(restored.clientState.queries[0]?.state.dataUpdatedAt).toBe(originalUpdatedAt)
+  })
+
+  it('mixed client: only the marked query is forced stale, the clean one is untouched', async () => {
+    const cleanUpdatedAt = Date.now() - 2000
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce({
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects', 'p1'],
+            state: { data: { id: 'p1' }, dataUpdatedAt: Date.now() },
+            meta: { strippedAt: Date.now() },
+          },
+          {
+            queryKey: ['projects', 'p2'],
+            state: { data: { id: 'p2' }, dataUpdatedAt: cleanUpdatedAt },
+          },
+        ],
+        mutations: [],
+      },
+    })
+
+    const restored = (await persister.restoreClient()) as {
+      clientState: { queries: Array<{ state: { dataUpdatedAt: number } }> }
+    }
+    expect(restored.clientState.queries[0]?.state.dataUpdatedAt).toBe(0)
+    expect(restored.clientState.queries[1]?.state.dataUpdatedAt).toBe(cleanUpdatedAt)
+  })
+
+  it('nothing persisted yet (restoreClient resolves undefined) passes through as undefined, not a crash', async () => {
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce(undefined)
+    await expect(persister.restoreClient()).resolves.toBeUndefined()
   })
 })
