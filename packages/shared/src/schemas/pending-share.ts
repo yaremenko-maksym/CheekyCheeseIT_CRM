@@ -37,6 +37,24 @@ export const pendingSeniorShareSchema = z.object({
    * `users.seniorSharePercent`, is NOT NULL, so there is nothing to "clear").
    */
   percent: z.number().int().min(0).max(100).nullable(),
+  /**
+   * task-648-fix-round-1 (COPY-H-2/COPY-H-3). What the EFFECTIVE percent
+   * would become if this proposal is approved — resolved server-side by the
+   * SAME PROJECT → TEAM → USER_DEFAULT resolver
+   * (`senior-share-resolver.ts#resolveSeniorShare`) that computes
+   * `effectiveSeniorSharePercent`, substituting `percent` above for the
+   * live override. Always a concrete number, even when `percent` itself is
+   * `null` ("clear the override, fall back to team/user default") — the
+   * client must never compute this locally (`percent ?? 0` was the actual
+   * bug: it rendered "0%" for a clear-override proposal instead of the real
+   * fallback value) or re-derive it from `seniorSharePercentDefault` alone
+   * (that field ignores the TEAM level entirely — see OOS-1, out of this
+   * task's scope). For a base-share (USER-level) proposal this always
+   * equals `percent` itself (nothing else can override a person's own base
+   * default), but is still sent so the client has ONE field to read
+   * regardless of which level proposed the change.
+   */
+  effectivePercentAfterApproval: z.number().int().min(0).max(100),
   /** Who must confirm — the affected SENIOR (the person whose share this is). */
   approverId: z.string().uuid(),
   approverName: z.string(),

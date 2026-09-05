@@ -530,10 +530,12 @@ function InfoRow({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-start gap-2 text-sm">
+    <div className="flex min-w-0 items-start gap-2 text-sm">
       <span className="text-muted-foreground shrink-0 mt-0.5">{icon}</span>
       <span className="text-muted-foreground shrink-0 min-w-[80px]">{label}:</span>
-      <span className="min-w-0 break-words">{children}</span>
+      <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 break-words">
+        {children}
+      </div>
     </div>
   )
 }
@@ -600,7 +602,18 @@ function ProjectShareInfo({
               className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400"
               data-testid="project-senior-share-pending-badge"
             >
-              новый {pending.percent ?? fallback}% ожидает подтверждения ({pending.approverName})
+              {pending.percent === null ? (
+                <>
+                  будет действовать базовый/командный процент:{' '}
+                  <span className="tabular-nums">{pending.effectivePercentAfterApproval}</span>%
+                  (ожидает подтверждения, {pending.approverName})
+                </>
+              ) : (
+                <>
+                  новый <span className="tabular-nums">{pending.percent}</span>% ожидает
+                  подтверждения ({pending.approverName})
+                </>
+              )}
             </Badge>
           </TooltipTrigger>
           <TooltipContent>
@@ -666,13 +679,26 @@ function PendingShareApprovalBanner({
       data-testid="pending-share-approval-banner"
     >
       <p className="text-sm">
-        Новый процент по вашей доле:{' '}
-        <span className="font-medium tabular-nums">{pending.percent ?? 0}%</span>. Действующий
-        процент применяется, пока вы не подтвердите.
+        {pending.percent === null ? (
+          <>
+            Будет действовать базовый/командный процент:{' '}
+            <span className="font-medium tabular-nums">
+              {pending.effectivePercentAfterApproval}%
+            </span>
+            .{' '}
+          </>
+        ) : (
+          <>
+            Новый процент по вашей доле:{' '}
+            <span className="font-medium tabular-nums">{pending.percent}%</span>.{' '}
+          </>
+        )}
+        Действующий процент применяется, пока вы не подтвердите.
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
+          className="h-11 sm:h-8"
           onClick={() => approveMutation.mutate()}
           disabled={approveMutation.isPending}
           data-testid="pending-share-approve-button"
@@ -681,6 +707,7 @@ function PendingShareApprovalBanner({
         </Button>
         <Button
           size="sm"
+          className="h-11 sm:h-8"
           variant="outline"
           onClick={() => setRejectOpen(true)}
           disabled={approveMutation.isPending}
@@ -701,15 +728,20 @@ function PendingShareApprovalBanner({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Например: процент не согласован устно"
+              maxLength={500}
               data-testid="pending-share-reject-reason"
             />
+            <p className="text-xs text-muted-foreground text-right tabular-nums">
+              {reason.length}/500
+            </p>
           </CrmDialogBody>
           <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+            <Button variant="outline" className="h-11 sm:h-9" onClick={() => setRejectOpen(false)}>
               Отмена
             </Button>
             <Button
               variant="destructive"
+              className="h-11 sm:h-9"
               onClick={() => rejectMutation.mutate()}
               disabled={!reason.trim() || rejectMutation.isPending}
               data-testid="pending-share-reject-confirm"
@@ -1297,13 +1329,13 @@ function ProjectDetailPage() {
 
           {activeTab === 'overview' && (
             <motion.div
-              className="grid gap-4 lg:grid-cols-2"
+              className="grid grid-cols-1 gap-4 lg:grid-cols-2"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.08 }}
             >
               {/* Details card */}
-              <Card className="border-border/40">
+              <Card className="min-w-0 border-border/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Детали проекта

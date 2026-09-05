@@ -459,9 +459,75 @@ describe('ProjectsService.findOne — pendingSeniorShare (JUNIOR skip-the-lookup
     const result = await h.service.findOne('proj-1', adminUser)
     expect(result.pendingSeniorShare).toEqual({
       percent: 40,
+      // task-648-fix-round-1 (COPY-H-2/COPY-H-3): a concrete (non-null)
+      // proposed value becomes the project override outright if approved —
+      // no TEAM/USER_DEFAULT fallback needed, so this equals `percent`.
+      effectivePercentAfterApproval: 40,
       approverId: 'senior-1',
       approverName: 'Senior One',
     })
+  })
+
+  it('is ALSO populated for the affected SENIOR themselves (assertAccess guarantees a SENIOR viewer here IS the project senior)', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: null,
+      pendingSeniorSharePercentOverride: 40,
+    })
+    const result = await h.service.findOne('proj-1', seniorUser)
+    expect(result.pendingSeniorShare).toEqual({
+      percent: 40,
+      effectivePercentAfterApproval: 40,
+      approverId: 'senior-1',
+      approverName: 'Senior One',
+    })
+  })
+
+  // task-648-fix-round-1 (COPY-H-2/COPY-H-3): the actual bug this fix
+  // closes — a PROJECT-level proposal to CLEAR the override (`percent: null`)
+  // must resolve `effectivePercentAfterApproval` via the SAME PROJECT →
+  // TEAM → USER_DEFAULT resolver `effectiveSeniorSharePercent` uses, not
+  // render "0%" (the old `percent ?? 0` client-side bug) nor the raw
+  // `seniorSharePercentDefault` (which ignores the TEAM level — OOS-1, a
+  // separate, out-of-scope bug). This harness's `teamMembers.findMany`
+  // returns `[]` (no team override), so the resolver falls all the way
+  // through to `senior.seniorSharePercent` (26 — see `seniorUser`/`adminUser`
+  // fixtures' shared value and `buildHarness`'s default `senior` row).
+  it('resolves effectivePercentAfterApproval to the USER_DEFAULT fallback (26) for a null (clear-override) proposal, never "0"', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 55,
+      pendingSeniorSharePercentOverride: null,
+    })
+    const result = await h.service.findOne('proj-1', adminUser)
+    expect(result.pendingSeniorShare).toEqual({
+      percent: null,
+      effectivePercentAfterApproval: 26,
+      approverId: 'senior-1',
+      approverName: 'Senior One',
+    })
+  })
+
+  // task-648-fix-round-1 (QA-HIGH-1): ACCOUNTANT is the exact role QA caught
+  // seeing this field (it has unconditional `assertAccess`, unlike HR/DROP
+  // which need extra scope-membership mocking this harness does not set up —
+  // those two are covered instead in `projects.service.spec.ts`, which
+  // already has richer HR/DROP-access fixtures).
+  it('is null for an ACCOUNTANT viewer, and skips the approvals.getStatus lookup entirely (narrower than mapProject masking JUNIOR alone)', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: null,
+      pendingSeniorSharePercentOverride: 40,
+    })
+    const accountantUser: SessionUser = {
+      id: 'accountant-1',
+      role: 'ACCOUNTANT',
+      displayName: 'Accountant',
+      email: 'accountant-1@x.com',
+      avatarUrl: null,
+      avatarDocumentId: null,
+      seniorSharePercent: null,
+    }
+    const result = await h.service.findOne('proj-1', accountantUser)
+    expect(h.approvals.getStatus).not.toHaveBeenCalled()
+    expect(result.pendingSeniorShare).toBeNull()
   })
 
   it('skips the approvals.getStatus lookup entirely for a JUNIOR viewer (never just masks after the fact)', async () => {
@@ -518,7 +584,7 @@ describe('ProjectsService.approveSeniorShareChange — guards + exact call shape
     await expect(
       h.service.approveSeniorShareChange('proj-1', { ...seniorUser, impersonatorId: 'admin-1' }),
     ).rejects.toThrow(
-      'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
+      'Подтвердить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
     )
     expect(h.approvals.approveInTx).not.toHaveBeenCalled()
   })
@@ -576,7 +642,7 @@ describe('ProjectsService.rejectSeniorShareChange — impersonation guard', () =
         impersonatorId: 'admin-1',
       }),
     ).rejects.toThrow(
-      'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
+      'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
     )
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })

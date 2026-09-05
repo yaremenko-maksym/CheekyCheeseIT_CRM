@@ -115,6 +115,7 @@ function PendingBaseShareBanner({
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
+          className="h-11 sm:h-8"
           onClick={() => approveMutation.mutate()}
           disabled={approveMutation.isPending}
           data-testid="pending-base-share-approve-button"
@@ -123,6 +124,7 @@ function PendingBaseShareBanner({
         </Button>
         <Button
           size="sm"
+          className="h-11 sm:h-8"
           variant="outline"
           onClick={() => setRejectOpen(true)}
           disabled={approveMutation.isPending}
@@ -143,15 +145,20 @@ function PendingBaseShareBanner({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Например: процент не согласован устно"
+              maxLength={500}
               data-testid="pending-base-share-reject-reason"
             />
+            <p className="text-xs text-muted-foreground text-right tabular-nums">
+              {reason.length}/500
+            </p>
           </CrmDialogBody>
           <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+            <Button variant="outline" className="h-11 sm:h-9" onClick={() => setRejectOpen(false)}>
               Отмена
             </Button>
             <Button
               variant="destructive"
+              className="h-11 sm:h-9"
               onClick={handleReject}
               disabled={!reason.trim() || rejectMutation.isPending}
               data-testid="pending-base-share-reject-confirm"
@@ -388,8 +395,9 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                         className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400"
                         data-testid="user-senior-share-pending-badge"
                       >
-                        новый {user.pendingSeniorShare.percent}% ожидает подтверждения (
-                        {user.pendingSeniorShare.approverName})
+                        новый{' '}
+                        <span className="tabular-nums">{user.pendingSeniorShare.percent}</span>%
+                        ожидает подтверждения ({user.pendingSeniorShare.approverName})
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent>

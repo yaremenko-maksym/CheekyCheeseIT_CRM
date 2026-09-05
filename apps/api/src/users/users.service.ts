@@ -301,7 +301,10 @@ export class UsersService {
 
   async cancelSeniorShareChange(id: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException('Only ADMIN can cancel a senior share proposal')
+      // task-648-fix-round-1 (COPY-H-1): user-facing text is Russian
+      // (russian-language.md) — this exception's message reaches the caller
+      // verbatim through `getApiErrorMessage`'s backend-message priority.
+      throw new ForbiddenException('Отменить предложение по доле может только ADMIN')
     }
     await this.db.db.transaction((tx) => this.cancelSeniorShareChangeCore(tx, id))
     // SR-M-3 (task-648-fix-round-1): route through the allow-list, not a
@@ -331,8 +334,11 @@ export class UsersService {
    */
   async approveSeniorShareChange(id: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
+      // task-648-fix-round-1 (COPY-H-1): its own Russian string, distinct
+      // from the generic 403 fallback — see cancelSeniorShareChange's
+      // identical comment above.
       throw new ForbiddenException(
-        'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
+        'Подтвердить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
       )
     }
     await this.db.db.transaction(async (tx) => {
@@ -373,8 +379,9 @@ export class UsersService {
    */
   async rejectSeniorShareChange(id: string, reason: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
+      // task-648-fix-round-1 (COPY-H-1): same reasoning as approve above.
       throw new ForbiddenException(
-        'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
+        'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
       )
     }
     await this.db.db.transaction(async (tx) => {
@@ -1119,32 +1126,24 @@ export class UsersService {
     //
     // Role-gating (`effectiveRole === 'SENIOR'`) is proven by
     // `users.pending-share.spec.ts`'s "does not propose when the effective
-    // role is not SENIOR, even if seniorSharePercent IS present" test. The
-    // LEFT operand alone (`!== undefined`) forced to `true` is a SEPARATE,
-    // genuinely equivalent mutant: when `data.seniorSharePercent` really is
-    // undefined, the ternary's own TRUE branch just re-reads
-    // `data.seniorSharePercent` one line down — which is undefined either
-    // way — so `requestedSeniorSharePercent` ends up `undefined` regardless
-    // of which path this condition takes. No test, however written, can
-    // observe a difference (verified by hand, both branches derived above).
+    // role is not SENIOR, even if seniorSharePercent IS present" test.
     //
-    // The mutation gate's own "COVERS MORE THAN ONE MUTANT" warning fires on
-    // this line — checked by hand (temporarily removing the directive and
-    // re-running the gate scoped to @crm/api): the OTHER 3 ConditionalExpression
-    // variants Stryker generates here (whole-condition true/false, right
-    // operand alone) are already independently KILLED by other tests in this
-    // describe block and by the RBAC/no-op tests above `adminUpdateUser`
-    // itself — this directive silences 4 mutants but only 1 of them was ever
-    // a real survivor. NOT the same situation as `projects.service.ts`'s
-    // `overrideEffective !== undefined` sibling, which turned out to be a
-    // GENUINE gap on closer inspection (see that file's git history,
-    // task-pending-share follow-up 2026-09-03) — always re-verify by hand,
-    // this repo has been wrong about "equivalent" before in both directions.
+    // task-648-fix-round-1 (CR-M-1): this used to also gate on
+    // `data.seniorSharePercent !== undefined`, guarded by a
+    // `// Stryker disable next-line ConditionalExpression` covering the
+    // resulting 4-mutant combination. That left operand was ALWAYS
+    // redundant — algebraically, not just in practice: when
+    // `data.seniorSharePercent` is undefined, the ternary's TRUE branch
+    // just re-reads `data.seniorSharePercent` one line down, which is
+    // undefined either way, so the result is undefined regardless of which
+    // path the condition takes for EVERY value of `effectiveRole`. Removing
+    // the dead conjunct (rather than suppressing the mutants it created)
+    // both simplifies the code and needs no suppression at all: the two
+    // ConditionalExpression mutants left on the simpler ternary below
+    // (whole-condition true/false) are exactly the ones the
+    // `users.pending-share.spec.ts` test cited above already kills.
     const requestedSeniorSharePercent: number | undefined =
-      // Stryker disable next-line ConditionalExpression: see the comment above this statement.
-      data.seniorSharePercent !== undefined && effectiveRole === 'SENIOR'
-        ? data.seniorSharePercent
-        : undefined
+      effectiveRole === 'SENIOR' ? data.seniorSharePercent : undefined
     if (data.dropSharePercent !== undefined && effectiveRole === 'DROP')
       set.dropSharePercent = data.dropSharePercent
     if ('monthlySalary' in data)
@@ -2538,11 +2537,13 @@ export class UsersService {
         })
       : undefined
 
-    // task-pending-share (position 5): same `fields.share` gate as
-    // `seniorSharePercent` itself below — a viewer masked from the active
-    // value must not learn a change is even proposed. Only queried when that
-    // gate is open (avoids the round-trip, and avoids leaking "something is
-    // pending" via response-time side channel to a masked viewer).
+    // task-648-fix-round-1 (QA-HIGH-1): gated on `fields.sharePending`, NOT
+    // `fields.share` — the PENDING (unconfirmed) value is a narrower surface
+    // than the active one (task file: "только ADMIN и сам синьор"; ACCOUNTANT
+    // has `fields.share=true` for payroll need-to-know but must not learn a
+    // change is even proposed). Only queried when that gate is open (avoids
+    // the round-trip, and avoids leaking "something is pending" via
+    // response-time side channel to a masked viewer).
     // The 'NONE' fallback below is used ONLY as input to the `=== 'PENDING'`
     // check two lines down — any non-'PENDING' string (including `""`) is
     // behaviorally identical at every call site `pendingSeniorShareStatus`
@@ -2553,7 +2554,7 @@ export class UsersService {
     // attaches to the mutated node's own line, and for a ternary's second
     // branch that is THIS line, not the statement's opening line (see
     // env.ts's GIT_COMMIT_REGEX_MESSAGE comment for the same lesson).
-    const pendingSeniorShareStatus = permissions.fields.share
+    const pendingSeniorShareStatus = permissions.fields.sharePending
       ? await this.approvals.getStatus(UsersService.SENIOR_SHARE_SUBJECT_TYPE, target.id)
       : // Stryker disable next-line StringLiteral: see the comment above this statement.
         'NONE'
@@ -2564,6 +2565,14 @@ export class UsersService {
             // `proposeSeniorShareChangeInTx`'s doc (a base-share proposal is
             // always a concrete percent). `??` is a defensive fallback only.
             percent: target.pendingSeniorSharePercent ?? target.seniorSharePercent,
+            // task-648-fix-round-1 (COPY-H-2/COPY-H-3). A base-share (USER
+            // level) proposal has nothing above it in the resolver hierarchy
+            // that could override it, so the effective-after-approval value
+            // always equals `percent` itself — unlike the PROJECT-level DTO
+            // (`ProjectsService.loadPendingSeniorShare`), there is no
+            // PROJECT/TEAM fallback to resolve here.
+            effectivePercentAfterApproval:
+              target.pendingSeniorSharePercent ?? target.seniorSharePercent,
             approverId: target.id,
             approverName: target.displayName,
           }

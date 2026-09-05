@@ -292,11 +292,20 @@ export class ProjectsService {
       // the project's senior. Masked for JUNIOR.
       effectiveSeniorSharePercent: isJuniorViewer ? null : effectiveSeniorSharePercent,
       effectiveSeniorShareSource: isJuniorViewer ? null : effectiveSeniorShareSource,
-      // task-pending-share (position 5). Masked for JUNIOR exactly like
-      // `seniorSharePercentOverride` itself (same allowlist). `undefined`
-      // (list endpoint / create) collapses to `null` here too — the field
-      // is simply absent on those responses.
-      pendingSeniorShare: isJuniorViewer ? null : (pendingSeniorShare ?? null),
+      // task-648-fix-round-1 (QA-HIGH-1/QA-MED-2). Narrower allow-list than
+      // `seniorSharePercentOverride`/`effectiveSeniorSharePercent` above: a
+      // PENDING (unconfirmed) proposal is visible only to ADMIN and the
+      // affected SENIOR themselves — task file: "ожидающее значение — только
+      // ADMIN и сам синьор". `assertAccess` already guarantees a SENIOR
+      // viewer reaching this point IS `project.seniorId` (a SENIOR can only
+      // ever fetch their OWN project), so `viewerRole === 'SENIOR'` alone is
+      // exactly "the affected senior" here — no extra id comparison needed.
+      // ACCOUNTANT/HR/DROP see the ACTIVE `effectiveSeniorSharePercent`
+      // (payroll / team-management need-to-know) but must not learn a change
+      // is even proposed. `undefined` (list endpoint / create) collapses to
+      // `null` here too — the field is simply absent on those responses.
+      pendingSeniorShare:
+        viewerRole === 'ADMIN' || viewerRole === 'SENIOR' ? (pendingSeniorShare ?? null) : null,
       techStack: project.techStack ?? null,
       teamSize: project.teamSize ?? null,
       benefits: project.benefits ?? null,
@@ -350,8 +359,15 @@ export class ProjectsService {
    */
   private async loadPendingSeniorShare(
     projectId: string,
-    senior: { id: string; displayName: string } | null | undefined,
+    senior:
+      | { id: string; displayName: string; seniorSharePercent: number | null }
+      | null
+      | undefined,
     pendingValue: number | null | undefined,
+    teamOverridesBySeniorId?: Map<
+      string,
+      { id: string; seniorSharePercentOverride: number | null }[]
+    >,
   ): Promise<PendingSeniorShare | null> {
     if (!senior) return null
     const status = await this.approvals.getStatus(
@@ -359,8 +375,21 @@ export class ProjectsService {
       projectId,
     )
     if (status !== 'PENDING') return null
+    // task-648-fix-round-1 (COPY-H-2/COPY-H-3): resolve what the effective
+    // percent WOULD become if this proposal is approved, via the SAME
+    // resolver `mapProject` uses for the live value — substituting the
+    // PENDING value for the live project override. This is what makes
+    // `percent: null` ("clear the override") render as the real fallback
+    // number instead of the client falling back to `percent ?? 0`.
+    const applicableTeams = teamOverridesBySeniorId?.get(senior.id) ?? []
+    const effectivePercentAfterApproval = resolveSeniorShare(
+      { seniorSharePercentOverride: pendingValue },
+      { seniorSharePercent: senior.seniorSharePercent },
+      applicableTeams,
+    ).value
     return {
       percent: pendingValue ?? null,
+      effectivePercentAfterApproval,
       approverId: senior.id,
       approverName: senior.displayName,
     }
@@ -622,17 +651,19 @@ export class ProjectsService {
       currentUser.role === 'JUNIOR'
         ? undefined
         : await this.computeEffectiveTeam(project, currentUser.role)
-    // task-pending-share: skip the lookup for JUNIOR (masked anyway by
-    // mapProject, same "don't pay for a value nobody sees" reasoning as
-    // effectiveTeam immediately above).
+    // task-648-fix-round-1 (QA-HIGH-1): skip the lookup for anyone who is not
+    // ADMIN or the affected SENIOR — `mapProject` masks the field for every
+    // other role now (not just JUNIOR), same "don't pay for a value nobody
+    // sees" reasoning as effectiveTeam immediately above.
     const pendingSeniorShare =
-      currentUser.role === 'JUNIOR'
-        ? null
-        : await this.loadPendingSeniorShare(
+      currentUser.role === 'ADMIN' || currentUser.role === 'SENIOR'
+        ? await this.loadPendingSeniorShare(
             project.id,
             project.senior,
             project.pendingSeniorSharePercentOverride,
+            teamOverridesBySeniorId,
           )
+        : null
     return {
       ...this.mapProject(project, teamOverridesBySeniorId, currentUser.role, pendingSeniorShare),
       effectiveTeam,
@@ -1049,6 +1080,7 @@ export class ProjectsService {
       project.id,
       project.senior,
       project.pendingSeniorSharePercentOverride,
+      teamOverridesBySeniorId,
     )
     return this.mapProject(project, teamOverridesBySeniorId, currentUser.role, pendingSeniorShare)
   }
@@ -1130,8 +1162,10 @@ export class ProjectsService {
    */
   async approveSeniorShareChange(id: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
+      // task-648-fix-round-1 (COPY-H-1): its own Russian string — see
+      // `UsersService.approveSeniorShareChange`'s identical comment.
       throw new ForbiddenException(
-        'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
+        'Подтвердить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
       )
     }
     await this.db.db.transaction(async (tx) => {
@@ -1190,8 +1224,9 @@ export class ProjectsService {
    */
   async rejectSeniorShareChange(id: string, reason: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
+      // task-648-fix-round-1 (COPY-H-1): same reasoning as approve above.
       throw new ForbiddenException(
-        'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
+        'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
       )
     }
     await this.db.db.transaction(async (tx) => {
@@ -1226,7 +1261,10 @@ export class ProjectsService {
    */
   async cancelSeniorShareChange(id: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException('Only ADMIN or ACCOUNTANT can cancel a senior share proposal')
+      // task-648-fix-round-1 (COPY-H-1): user-facing text is Russian
+      // (russian-language.md) — see `UsersService.cancelSeniorShareChange`'s
+      // identical comment.
+      throw new ForbiddenException('Отменить предложение по доле может только ADMIN или ACCOUNTANT')
     }
     await this.cancelSeniorShareChangeCore(id)
     return this.loadForResponse(id, currentUser)
@@ -1558,6 +1596,7 @@ export class ProjectsService {
       updated.id,
       updated.senior,
       updated.pendingSeniorSharePercentOverride,
+      teamOverridesBySeniorId,
     )
     // Pass currentUser.role so mapProject can apply SENIOR dropName masking
     // (defense-in-depth: callers of update are ADMIN/HR/ACCOUNTANT whose role

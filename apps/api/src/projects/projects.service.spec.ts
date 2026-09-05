@@ -258,7 +258,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     // open" (matches this harness's default getStatus: 'NONE'); tests that
     // DO have an open proposal override this per-case.
     cancelInTx: vi.fn(async () => {
-      throw new NotFoundException('Согласование не найдено или уже погашено')
+      throw new NotFoundException('Подтверждение не найдено или уже закрыто')
     }),
   }
 
@@ -583,10 +583,53 @@ describe('ProjectsService.update — DTO mapping', () => {
     expect(
       (
         result as {
-          pendingSeniorShare: { percent: number | null; approverId: string; approverName: string }
+          pendingSeniorShare: {
+            percent: number | null
+            effectivePercentAfterApproval: number
+            approverId: string
+            approverName: string
+          }
         }
       ).pendingSeniorShare,
-    ).toEqual({ percent: 30, approverId: 'senior-1', approverName: 'Senior One' })
+    ).toEqual({
+      percent: 30,
+      // task-648-fix-round-1 (COPY-H-2/COPY-H-3): concrete proposed value
+      // becomes the override outright if approved — equals `percent`.
+      effectivePercentAfterApproval: 30,
+      approverId: 'senior-1',
+      approverName: 'Senior One',
+    })
+  })
+
+  // task-648-fix-round-1 (QA-HIGH-1/QA-MED-2): ACCOUNTANT sees the ACTIVE
+  // override (payroll need-to-know — asserted by the sibling ACCOUNTANT PATCH
+  // test above in this file) but must not learn a change is even proposed.
+  it('pendingSeniorShare is null for an ACCOUNTANT viewer, even while a proposal is PENDING', async () => {
+    const h = buildHarness()
+    h.approvals.getStatus.mockResolvedValue('PENDING')
+    // ACCOUNTANT may only PATCH finance-scoped fields (RBAC above) — using
+    // one here so the PATCH itself succeeds; the response is built through
+    // the SAME `mapProject` this whole describe block tests, without
+    // needing `findOne`'s extra `computeEffectiveTeam` call (this file's
+    // harness does not mock `db.db.query.teamMembers`, only `update()`'s
+    // narrower read path).
+    const result = await h.service.update(
+      'proj-1',
+      { seniorSharePercentOverride: 30 },
+      accountantUser,
+    )
+    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).toBeNull()
+  })
+
+  // task-648-fix-round-1 (QA-MED-2): HR sees the ACTIVE override (RBAC
+  // above — HR may PATCH non-share fields) but must not learn a base-share
+  // change is even proposed, closing the exact inconsistency QA found
+  // between this (PROJECT) surface and the already-correct PROFILE surface.
+  it('pendingSeniorShare is null for an HR viewer (same team as the senior), even while a proposal is PENDING', async () => {
+    const h = buildHarness()
+    h.approvals.getStatus.mockResolvedValue('PENDING')
+    const result = await h.service.update('proj-1', { rate: 5000 }, hrUser)
+    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).toBeNull()
   })
 })
 
@@ -802,7 +845,7 @@ function buildHrScopingHarness({
     // open" (matches this harness's default getStatus: 'NONE'); tests that
     // DO have an open proposal override this per-case.
     cancelInTx: vi.fn(async () => {
-      throw new NotFoundException('Согласование не найдено или уже погашено')
+      throw new NotFoundException('Подтверждение не найдено или уже закрыто')
     }),
   }
 

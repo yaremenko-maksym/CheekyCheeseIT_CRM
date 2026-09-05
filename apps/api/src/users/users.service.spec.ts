@@ -71,7 +71,7 @@ const makeApprovalsService = () =>
     // a live proposal override this per-case.
     cancelInTx: vi
       .fn()
-      .mockRejectedValue(new NotFoundException('Согласование не найдено или уже погашено')),
+      .mockRejectedValue(new NotFoundException('Подтверждение не найдено или уже закрыто')),
   }) as never
 
 // `auditLogService` is injectable (defaults to a fresh stub) — SR-M-12 /
@@ -2909,19 +2909,26 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
 describe('UsersService.buildProfileView — pendingSeniorShare', () => {
   const seniorTarget = makeSenior({ id: 'target-id', pendingSeniorSharePercent: 55 })
   const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+  // task-648-fix-round-1 (QA-HIGH-1): `sharePending` is the field that
+  // actually gates this method now — `share` alone (kept here at `true` too,
+  // matching a real ADMIN's permissions shape) is no longer sufficient. See
+  // the masked-viewer test below for the decoupled case this fix exists for.
   const permissions = {
     tabs: ['overview', 'finance'],
     actions: [],
-    fields: { share: true },
+    fields: { share: true, sharePending: true },
   }
 
-  it('is populated (percent/approverId/approverName) when approvals.getStatus reports PENDING', async () => {
+  it('is populated (percent/effectivePercentAfterApproval/approverId/approverName) when approvals.getStatus reports PENDING', async () => {
     const approvals = makeApprovalsService() as { getStatus: ReturnType<typeof vi.fn> }
     approvals.getStatus.mockResolvedValue('PENDING')
     const { service } = makeServiceForProfileViewWithAudit(seniorTarget, permissions, approvals)
     const result = await service.buildProfileView(viewer as never, 'target-id')
     expect((result.user as Record<string, unknown>).pendingSeniorShare).toEqual({
       percent: 55,
+      // task-648-fix-round-1 (COPY-H-2/COPY-H-3): a base-share proposal
+      // always equals `percent` itself — see PendingSeniorShare's own doc.
+      effectivePercentAfterApproval: 55,
       approverId: 'target-id',
       approverName: 'Senior Dev',
     })
@@ -2938,9 +2945,13 @@ describe('UsersService.buildProfileView — pendingSeniorShare', () => {
     },
   )
 
-  it('does not call approvals.getStatus at all when fields.share is false (masked viewer)', async () => {
+  it('does not call approvals.getStatus at all when fields.sharePending is false (masked viewer)', async () => {
     const approvals = makeApprovalsService() as { getStatus: ReturnType<typeof vi.fn> }
-    const maskedPermissions = { tabs: ['overview'], actions: [], fields: { share: false } }
+    const maskedPermissions = {
+      tabs: ['overview'],
+      actions: [],
+      fields: { share: false, sharePending: false },
+    }
     const { service } = makeServiceForProfileViewWithAudit(
       seniorTarget,
       maskedPermissions,
@@ -2949,6 +2960,32 @@ describe('UsersService.buildProfileView — pendingSeniorShare', () => {
     const result = await service.buildProfileView(viewer as never, 'target-id')
     expect(approvals.getStatus).not.toHaveBeenCalled()
     expect((result.user as Record<string, unknown>).pendingSeniorShare).toBeNull()
+  })
+
+  // task-648-fix-round-1 (QA-HIGH-1): the exact bug this fix closes — a
+  // viewer (ACCOUNTANT-shaped) who sees the ACTIVE share (`share: true`,
+  // payroll need-to-know) must NOT learn a change is even proposed. Before
+  // this fix, both flags were the same underlying `fields.share` value, so
+  // this exact combination was unreachable and the leak went unnoticed.
+  it('does not call approvals.getStatus, and returns null, when share=true but sharePending=false (ACCOUNTANT-shaped viewer)', async () => {
+    const approvals = makeApprovalsService() as { getStatus: ReturnType<typeof vi.fn> }
+    const accountantShapedPermissions = {
+      tabs: ['overview', 'finance'],
+      actions: [],
+      fields: { share: true, sharePending: false },
+    }
+    const { service } = makeServiceForProfileViewWithAudit(
+      seniorTarget,
+      accountantShapedPermissions,
+      approvals,
+    )
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    expect(approvals.getStatus).not.toHaveBeenCalled()
+    expect((result.user as Record<string, unknown>).pendingSeniorShare).toBeNull()
+    // The ACTIVE value stays visible — only the PENDING one is masked.
+    expect((result.user as Record<string, unknown>).seniorSharePercent).toBe(
+      seniorTarget.seniorSharePercent,
+    )
   })
 })
 

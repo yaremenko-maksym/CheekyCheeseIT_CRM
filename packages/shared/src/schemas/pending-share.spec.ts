@@ -15,7 +15,16 @@ import { describe, expect, it } from 'vitest'
 import { pendingSeniorShareSchema, rejectPendingShareSchema } from './pending-share'
 
 describe('pendingSeniorShareSchema', () => {
-  const base = { approverId: 'a0000000-0000-4000-8000-000000000001', approverName: 'Senior One' }
+  // task-648-fix-round-1 (COPY-H-2/COPY-H-3): `effectivePercentAfterApproval`
+  // added as a required field alongside `percent` — see the schema's own
+  // doc comment. A distinct value from `percent` here (55 vs the 42/0/100
+  // used for `percent` below) so a test that accidentally read the wrong
+  // field would fail loudly instead of coincidentally passing.
+  const base = {
+    approverId: 'a0000000-0000-4000-8000-000000000001',
+    approverName: 'Senior One',
+    effectivePercentAfterApproval: 55,
+  }
 
   it('accepts a mid-range percent', () => {
     expect(pendingSeniorShareSchema.parse({ ...base, percent: 42 })).toEqual({
@@ -51,6 +60,52 @@ describe('pendingSeniorShareSchema', () => {
   it('rejects a non-UUID approverId', () => {
     expect(() =>
       pendingSeniorShareSchema.parse({ ...base, percent: 30, approverId: 'not-a-uuid' }),
+    ).toThrow()
+  })
+
+  // task-648-fix-round-1: `effectivePercentAfterApproval` boundary coverage,
+  // mirroring `percent`'s own edge tests above — same 0-100 int constraint,
+  // but NEVER nullable (unlike `percent`, there is always a concrete
+  // resolved value, even for a clear-override proposal).
+  it('accepts the boundary values 0 and 100 for effectivePercentAfterApproval', () => {
+    expect(
+      pendingSeniorShareSchema.parse({ ...base, percent: null, effectivePercentAfterApproval: 0 })
+        .effectivePercentAfterApproval,
+    ).toBe(0)
+    expect(
+      pendingSeniorShareSchema.parse({
+        ...base,
+        percent: null,
+        effectivePercentAfterApproval: 100,
+      }).effectivePercentAfterApproval,
+    ).toBe(100)
+  })
+
+  it('rejects a null effectivePercentAfterApproval (unlike percent, never nullable)', () => {
+    expect(() =>
+      pendingSeniorShareSchema.parse({ ...base, percent: 42, effectivePercentAfterApproval: null }),
+    ).toThrow()
+  })
+
+  it('rejects -1 for effectivePercentAfterApproval (below the 0 floor)', () => {
+    expect(() =>
+      pendingSeniorShareSchema.parse({ ...base, percent: 42, effectivePercentAfterApproval: -1 }),
+    ).toThrow()
+  })
+
+  it('rejects 101 for effectivePercentAfterApproval (above the 100 ceiling)', () => {
+    expect(() =>
+      pendingSeniorShareSchema.parse({ ...base, percent: 42, effectivePercentAfterApproval: 101 }),
+    ).toThrow()
+  })
+
+  it('rejects a non-integer effectivePercentAfterApproval', () => {
+    expect(() =>
+      pendingSeniorShareSchema.parse({
+        ...base,
+        percent: 42,
+        effectivePercentAfterApproval: 42.5,
+      }),
     ).toThrow()
   })
 })

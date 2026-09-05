@@ -261,7 +261,7 @@ describe('ApprovalsService.approve', () => {
       }),
     )
     expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
+    expect((err as Error).message).toBe('Подтверждение не найдено или уже закрыто')
     expect(txHandle.update).not.toHaveBeenCalled()
     // The row lookup must lock FOR UPDATE, not for an empty/mutated mode
     // (kills the StringLiteral→"" mutant on .for('update')).
@@ -281,7 +281,7 @@ describe('ApprovalsService.approve', () => {
       }),
     )
     expect(err).toBeInstanceOf(ConflictException)
-    expect((err as Error).message).toBe('Согласование уже получило ответ')
+    expect((err as Error).message).toBe('Подтверждение уже получило ответ')
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 
@@ -384,7 +384,7 @@ describe('ApprovalsService.reject', () => {
       }),
     )
     expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
+    expect((err as Error).message).toBe('Подтверждение не найдено или уже закрыто')
     expect(txHandle.update).not.toHaveBeenCalled()
     expect(selectChain.orderBy).toHaveBeenCalledTimes(1)
     expect(selectChain.for).toHaveBeenCalledWith('update')
@@ -407,7 +407,7 @@ describe('ApprovalsService.reject', () => {
       }),
     )
     expect(err).toBeInstanceOf(ConflictException)
-    expect((err as Error).message).toBe('Согласование уже получило ответ')
+    expect((err as Error).message).toBe('Подтверждение уже получило ответ')
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 
@@ -486,7 +486,7 @@ describe('ApprovalsService.cancel', () => {
 
     const err = await catchRejection(() => service.cancel(SUBJECT_TYPE, SUBJECT_ID))
     expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
+    expect((err as Error).message).toBe('Подтверждение не найдено или уже закрыто')
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 
@@ -505,7 +505,7 @@ describe('ApprovalsService.cancel', () => {
 
     const err = await catchRejection(() => service.cancel(SUBJECT_TYPE, SUBJECT_ID))
     expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
+    expect((err as Error).message).toBe('Подтверждение не найдено или уже закрыто')
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 

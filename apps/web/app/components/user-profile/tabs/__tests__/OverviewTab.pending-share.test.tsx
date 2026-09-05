@@ -42,6 +42,9 @@ import { toast } from 'sonner'
 
 const PENDING: PendingSeniorShare = {
   percent: 55,
+  // task-648-fix-round-1 (COPY-H-2/COPY-H-3): a base-share proposal always
+  // equals `percent` itself — see PendingSeniorShare's own doc comment.
+  effectivePercentAfterApproval: 55,
   approverId: 'a0000000-0000-4000-8000-000000000001',
   approverName: 'Senior One',
 }

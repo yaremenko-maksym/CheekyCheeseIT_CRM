@@ -308,7 +308,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     await expect(
       h.service.approveSeniorShareChange('senior-1', impersonatedSenior),
     ).rejects.toThrow(
-      'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
+      'Подтвердить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
     )
   })
 
@@ -325,7 +325,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'причина', impersonatedSenior),
     ).rejects.toThrow(
-      'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
+      'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
     )
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })

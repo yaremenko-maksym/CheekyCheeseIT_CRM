@@ -233,7 +233,12 @@ export class ApprovalsService {
     const liveRows = await this.lockLiveRows(tx, subjectType, subjectId)
     const pendingRows = liveRows.filter((r) => r.status === 'PENDING')
     if (pendingRows.length === 0) {
-      throw new NotFoundException('Согласование не найдено или уже погашено')
+      // task-648-fix-round-1 (COPY-H-4): "подтверждение" is the ONE
+      // user-facing name for this concept across the whole feature — never
+      // "согласование" (internal/comment vocabulary only) or "погашено"
+      // (jargon a caller cannot act on). Same wording as `assertRespondable`
+      // below, for the same reason.
+      throw new NotFoundException('Подтверждение не найдено или уже закрыто')
     }
 
     await tx
@@ -458,10 +463,15 @@ export class ApprovalsService {
     return rows[0] ?? null
   }
 
-  /** Throws the two ways a response can legitimately fail to apply. */
+  /**
+   * Throws the two ways a response can legitimately fail to apply.
+   *
+   * task-648-fix-round-1 (COPY-H-4): "подтверждение" throughout — see
+   * `cancelInTx`'s identical comment above for the full reasoning.
+   */
   private assertRespondable(row: ApprovalRow | null): asserts row is ApprovalRow {
-    if (!row) throw new NotFoundException('Согласование не найдено или уже погашено')
-    if (row.status !== 'PENDING') throw new ConflictException('Согласование уже получило ответ')
+    if (!row) throw new NotFoundException('Подтверждение не найдено или уже закрыто')
+    if (row.status !== 'PENDING') throw new ConflictException('Подтверждение уже получило ответ')
   }
 }
 
