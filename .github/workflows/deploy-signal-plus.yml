@@ -377,7 +377,32 @@ jobs:
             trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
             echo "==> Pulling signal-plus image"
-            docker compose -p signal-plus pull
+            # infra/signal-plus-pull-fix (run 33946345307): `docker compose
+            # pull` here once failed on the VPS's containerd overlayfs
+            # snapshotter extracting the signal-cli-pinned layer ("failed to
+            # Lchown ... no such file or directory"). Forensics on the ACTUAL
+            # pushed bytes found them well-formed (see the Dockerfile's own
+            # comment + this PR's body for the full trail), and the same
+            # image extracted cleanly on every other containerd
+            # overlayfs-snapshotter setup this was tried against -- no
+            # deterministic, reproducible cause was found. With that as the
+            # honest state of the evidence, this retries a handful of times
+            # with backoff before giving up for real, the same shape as the
+            # pnpm-audit gate's "slow, not dead" registry fix (PR #654): ride
+            # out a one-off extraction hiccup, but a genuinely broken pull
+            # still fails loud, just not on the first attempt.
+            PULL_ATTEMPTS=4
+            attempt=1
+            until docker compose -p signal-plus pull; do
+              if [ "$attempt" -ge "$PULL_ATTEMPTS" ]; then
+                echo "::error::docker compose -p signal-plus pull failed after $PULL_ATTEMPTS attempts"
+                exit 1
+              fi
+              delay=$((10 * attempt))
+              echo "::warning::docker compose -p signal-plus pull failed (attempt $attempt/$PULL_ATTEMPTS) -- retrying in ${delay}s"
+              sleep "$delay"
+              attempt=$((attempt + 1))
+            done
 
             echo "==> Starting signal-plus (does NOT touch /opt/crm — separate compose project)"
             docker compose -p signal-plus up -d
