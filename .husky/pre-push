@@ -1,3 +1,16 @@
+# set -e, explicit (code review 5113333031, CR-M-3): this used to rely ENTIRELY
+# on husky's own wrapper (.husky/_/h) invoking every hook via `sh -e "$s"` --
+# correct in production, but invisible to anyone testing this file directly.
+# `bash .husky/pre-push` (exactly the command this file's own PR body used for
+# manual verification) runs WITHOUT -e unless the file declares it itself, so a
+# failing `pnpm typecheck` could be silently outrun by the `&&`-chain after it
+# and still exit 0 -- which is precisely why a reviewer could not reproduce a
+# claimed "Exit status 1": the reproduction command and the production
+# invocation were not exercising the same semantics. Declaring it here makes
+# `bash script`, `sh script`, and husky's `sh -e script` all behave identically
+# -- the correctness property no longer depends on which one somebody used.
+set -e
+
 # Non-blocking warn: lessons.md cap (RULES.md §6.4) — nudge к консолидации, не блокер.
 bash scripts/check-lessons-cap.sh || true
 
@@ -18,8 +31,13 @@ bash scripts/check-lessons-cap.sh || true
 # Escape hatch for anyone who wants the old unscoped behavior locally (e.g.
 # to double-check a cross-package change before opening the PR):
 #   PREPUSH_FULL=1 git push
-if [ "${PREPUSH_FULL:-0}" = "1" ]; then
-  echo "pre-push: PREPUSH_FULL=1 — running the full unscoped suite (typecheck + shared/api/web/landing)"
+#
+# run_full_suite (code review 5112543557, CR-M-1): this body used to be
+# duplicated byte-for-byte at every call site below (PREPUSH_FULL=1,
+# merge-base unresolvable, and now the dependency/build-config case a diff
+# below adds) — one function, three callers, instead of three copies that
+# could drift out of sync with each other.
+run_full_suite() {
   pnpm typecheck
   # Run packages sequentially so each vitest worker gets full CPU budget.
   # Parallel fork-pools (shared + api + web) competed for CPU under load,
@@ -27,18 +45,44 @@ if [ "${PREPUSH_FULL:-0}" = "1" ]; then
   # though they pass in isolation. Sequential runs are ~30 s slower on an
   # idle machine but deterministic under any load. (2026-06-14 fix, PR #206)
   pnpm --filter @crm/shared test && pnpm --filter @crm/api test && pnpm --filter @crm/web test && pnpm --filter @crm/landing test
+}
+
+if [ "${PREPUSH_FULL:-0}" = "1" ]; then
+  echo "pre-push: PREPUSH_FULL=1 — running the full unscoped suite (typecheck + shared/api/web/landing)"
+  run_full_suite
   exit 0
 fi
 
 base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
 if [ -z "$base" ]; then
   echo "pre-push: could not resolve merge-base with origin/main (no origin/main ref locally?) — falling back to the full suite"
-  pnpm typecheck
-  pnpm --filter @crm/shared test && pnpm --filter @crm/api test && pnpm --filter @crm/web test && pnpm --filter @crm/landing test
+  run_full_suite
   exit 0
 fi
 
 changed="$(git diff --name-only "$base"...HEAD)"
+
+# CR-M-2 (code review 5112543557): the apps/**|packages/** check below only
+# looks at where a file LIVES, not at what it can AFFECT. A dependency/build
+# -config file changes behavior for every package that reads it, regardless
+# of which directory it happens to sit in -- pnpm-lock.yaml (or any
+# package.json, root or per-package) can move a version every package
+# resolves against; turbo.json and tsconfig.base.json are globalDependencies
+# for every task's cache hash (see turbo.json's own comment on that); a
+# package's vitest.config.* changes what that package's OWN "test" task
+# actually runs; pnpm-workspace.yaml (CR-M-4, review 5113333031) is the
+# workspace's own package glob ('apps/*', 'packages/*') -- changing it can
+# add or remove packages from the whole monorepo, which no per-package
+# `--filter` could ever see either. None of that is visible to a per-package
+# `--filter`, so scoping here would be silently wrong, not just
+# slower-than-ideal -- this check runs BEFORE the apps/packages skip-check
+# below and, on a match, goes straight to the same full run PREPUSH_FULL=1
+# uses.
+if printf '%s\n' "$changed" | grep -qE '(^|/)(pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json|turbo\.json|tsconfig[^/]*\.json|vitest\.config\.[^/]+|\.npmrc)$'; then
+  echo "pre-push: dependency/build-config file changed — running the full suite (per-package scoping cannot see its effect)"
+  run_full_suite
+  exit 0
+fi
 
 if ! printf '%s\n' "$changed" | grep -qE '^(apps|packages)/'; then
   echo "pre-push: no product code in diff — tests skipped (CI runs the full suite)"
