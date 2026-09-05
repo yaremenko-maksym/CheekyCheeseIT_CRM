@@ -32,7 +32,18 @@ export type ApprovalSubjectType = z.infer<typeof approvalSubjectTypeSchema>
 // Status
 // ---------------------------------------------------------------------------
 
-export const approvalStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED'])
+/**
+ * `CANCELLED` — task-648-fix-round-1 (SR-H-1). Distinct from `REJECTED`:
+ * REJECTED is the invited APPROVER declining, with a reason, on their own
+ * row. CANCELLED is the proposal's OWNER (the ADMIN/ACCOUNTANT who opened
+ * it) withdrawing it outright, before the approver has answered — no
+ * reason required, and it is never the approver's own decision. Keeping
+ * these as two distinct terminal values (rather than reusing REJECTED with
+ * a system-authored reason string) is what lets the approval history say
+ * WHO ended the generation and WHY, instead of making a cancelled proposal
+ * indistinguishable from a declined one.
+ */
+export const approvalStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'])
 export type ApprovalStatus = z.infer<typeof approvalStatusSchema>
 
 /**

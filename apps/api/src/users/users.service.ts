@@ -239,9 +239,23 @@ export class UsersService {
     existing: Pick<User, 'id' | 'archivedAt' | 'seniorSharePercent'>,
     requestedPercent: number,
     actorId: string,
-  ): Promise<boolean> {
+  ): Promise<{ pendingSeniorSharePercent: number | null } | null> {
     if (changedEntitlementFields(existing, { seniorSharePercent: requestedPercent }).length === 0) {
-      return false
+      // task-648-fix-round-1 (SR-H-1): requested == active. If there's a
+      // live PENDING proposal for a DIFFERENT value, this is "I changed my
+      // mind" — cancel it instead of silently leaving it open (the ORIGINAL
+      // bug: an admin's typo, proposed then explicitly undone this way,
+      // stayed live until the senior confirmed it anyway).
+      // `cancelSeniorShareChangeCore` 404s when there's nothing open — the
+      // EXPECTED majority case (a routine resubmit), returned as `null`
+      // (true no-op) rather than surfaced as an error.
+      try {
+        await this.cancelSeniorShareChangeCore(tx, existing.id)
+      } catch (err) {
+        if (err instanceof NotFoundException) return null
+        throw err
+      }
+      return { pendingSeniorSharePercent: null }
     }
     if (existing.archivedAt) {
       throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
@@ -262,7 +276,39 @@ export class UsersService {
       proposedPercent: requestedPercent,
       previousPercent: existing.seniorSharePercent,
     })
-    return true
+    return { pendingSeniorSharePercent: requestedPercent }
+  }
+
+  /**
+   * task-648-fix-round-1 (SR-H-1). ADMIN withdraws an open base-share
+   * proposal outright — the counterpart to the propose path above. Core
+   * (transaction-scoped) + public endpoint pair, same split as
+   * `ProjectsService.cancelSeniorShareChangeCore`/`cancelSeniorShareChange`
+   * and for the same reason: `proposeSeniorShareChangeInTx`'s own no-op
+   * branch above needs the atomic cancel-then-clear-pending-column write
+   * WITHOUT the full profile-view reload the public endpoint returns.
+   */
+  private async cancelSeniorShareChangeCore(tx: DrizzleTx, userId: string): Promise<void> {
+    await this.approvals.cancelInTx(tx, UsersService.SENIOR_SHARE_SUBJECT_TYPE, userId)
+    // Reaching this line means `cancelInTx` found a real PENDING proposal —
+    // same "no separate existence check needed" reasoning
+    // `approveSeniorShareChange` below documents.
+    await tx
+      .update(users)
+      .set({ pendingSeniorSharePercent: null, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+  }
+
+  async cancelSeniorShareChange(id: string, currentUser: SessionUser) {
+    if (currentUser.role !== 'ADMIN') {
+      throw new ForbiddenException('Only ADMIN can cancel a senior share proposal')
+    }
+    await this.db.db.transaction((tx) => this.cancelSeniorShareChangeCore(tx, id))
+    // SR-M-3 (task-648-fix-round-1): route through the allow-list, not a
+    // raw row — same reasoning as approve/reject below.
+    const viewer = await this.findById(currentUser.id)
+    if (!viewer) throw new ForbiddenException()
+    return this.buildProfileView(viewer, id, currentUser.impersonatorId)
   }
 
   /**
@@ -283,13 +329,13 @@ export class UsersService {
    * the swap instead of silently minting a new entitlement for someone who
    * no longer works here.
    */
-  async approveSeniorShareChange(id: string, currentUser: SessionUser): Promise<User> {
+  async approveSeniorShareChange(id: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
       throw new ForbiddenException(
         'Impersonated sessions cannot confirm a share change — consent must come from the invited approver themselves',
       )
     }
-    return this.db.db.transaction(async (tx) => {
+    await this.db.db.transaction(async (tx) => {
       await this.approvals.approveInTx(tx, {
         subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
         subjectId: id,
@@ -302,12 +348,20 @@ export class UsersService {
       // "no live PENDING row" — reaching this line means a real proposal
       // existed, and a base-share proposal is always a concrete percent
       // (proposeSeniorShareChangeInTx never writes null there).
-      return this.updateUserRow(tx, id, row, {
+      await this.updateUserRow(tx, id, row, {
         seniorSharePercent: row.pendingSeniorSharePercent ?? row.seniorSharePercent,
         pendingSeniorSharePercent: null,
         updatedAt: new Date(),
       })
     })
+    // SR-M-3 (task-648-fix-round-1): route through the allow-list DTO
+    // (buildProfileView), not the raw `users` row `updateUserRow` returns —
+    // approve is called by the SENIOR themselves (self-view), and the raw
+    // row includes `adminNote`/`googleId`, neither ever meant to reach a
+    // non-admin caller (users-access.service.ts / SEC-09's own inventory).
+    const viewer = await this.findById(currentUser.id)
+    if (!viewer) throw new ForbiddenException()
+    return this.buildProfileView(viewer, id, currentUser.impersonatorId)
   }
 
   /**
@@ -317,17 +371,13 @@ export class UsersService {
    * "При отказе ожидающее отбрасывается, действующее не трогается" (task
    * file, "Что сделать" §1).
    */
-  async rejectSeniorShareChange(
-    id: string,
-    reason: string,
-    currentUser: SessionUser,
-  ): Promise<User> {
+  async rejectSeniorShareChange(id: string, reason: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
       throw new ForbiddenException(
         'Impersonated sessions cannot reject a share change — the decision must come from the invited approver themselves',
       )
     }
-    return this.db.db.transaction(async (tx) => {
+    await this.db.db.transaction(async (tx) => {
       await this.approvals.rejectInTx(tx, {
         subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
         subjectId: id,
@@ -340,8 +390,12 @@ export class UsersService {
         .where(eq(users.id, id))
         .returning()
       if (!updated) throw new NotFoundException('User not found')
-      return updated
     })
+    // SR-M-3 (task-648-fix-round-1): same allow-list reasoning as
+    // approveSeniorShareChange above.
+    const viewer = await this.findById(currentUser.id)
+    if (!viewer) throw new ForbiddenException()
+    return this.buildProfileView(viewer, id, currentUser.impersonatorId)
   }
 
   findByEmail(email: string): Promise<User | undefined> {
@@ -1153,7 +1207,7 @@ export class UsersService {
         if (!actorId) {
           throw new BadRequestException('Смена доли требует определённого инициатора запроса')
         }
-        const proposed = await this.proposeSeniorShareChangeInTx(
+        const shareChangeResult = await this.proposeSeniorShareChangeInTx(
           tx,
           existing,
           requestedSeniorSharePercent,
@@ -1163,7 +1217,11 @@ export class UsersService {
         // BEFORE this call ran its own write, in the SAME transaction — patch
         // it here so the HTTP response reflects what the DB now actually
         // holds, not a stale pre-propose snapshot (see this method's own doc).
-        if (proposed) u.pendingSeniorSharePercent = requestedSeniorSharePercent
+        // task-648-fix-round-1 (SR-H-1): `shareChangeResult` is non-null for
+        // BOTH propose and cancel outcomes now — either way, its
+        // `pendingSeniorSharePercent` is what the DB now holds.
+        if (shareChangeResult)
+          u.pendingSeniorSharePercent = shareChangeResult.pendingSeniorSharePercent
       }
 
       // §4.4: keep the WORK row in `user_emails` in sync — login now reads
@@ -1642,14 +1700,16 @@ export class UsersService {
     }
     return this.db.db.transaction(async (tx) => {
       const updated = await this.updateUserRow(tx, id, existing, set)
-      const proposed = await this.proposeSeniorShareChangeInTx(
+      const shareChangeResult = await this.proposeSeniorShareChangeInTx(
         tx,
         existing,
         data.seniorSharePercent!,
         actorId,
       )
       // Same stale-response fix as adminUpdateUser — see proposeSeniorShareChangeInTx's own doc.
-      if (proposed) updated.pendingSeniorSharePercent = data.seniorSharePercent!
+      // task-648-fix-round-1 (SR-H-1): non-null for BOTH propose/cancel now.
+      if (shareChangeResult)
+        updated.pendingSeniorSharePercent = shareChangeResult.pendingSeniorSharePercent
       return updated
     })
   }

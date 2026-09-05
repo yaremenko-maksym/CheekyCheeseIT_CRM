@@ -137,15 +137,21 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       const accessService = new UsersAccessService(dbSvc)
-      // buildProfileView only uses db + accessService + tosService (tosService is
-      // called only for ADMIN/self viewers — not on the DROP→teammate path).
+      // buildProfileView uses db + accessService + tosService (tosService is
+      // called only for ADMIN/self viewers — not on the DROP→teammate path)
+      // plus, as of task-pending-share fix-round-1 (CR-H-1/SPEC-H-1),
+      // unconditionally calls `this.approvals.getStatus(...)` whenever
+      // `permissions.fields.share` is true — which it is on this file's own
+      // DROP-self-view scenario (B-INT-3). A working stub is required.
       const tosService = {
         getLatestAcceptanceForUser: () => Promise.resolve(null),
       } as never
+      const approvals = { getStatus: async () => 'NONE' as const } as never
       usersService = Object.assign(Object.create(UsersService.prototype) as UsersService, {
         db: dbSvc,
         accessService,
         tosService,
+        approvals,
       })
 
       // ── Seed ──────────────────────────────────────────────────────────────────

@@ -209,6 +209,10 @@ function buildHarness(overrides: Partial<ProjectRow> = {}) {
     approveInTx: vi.fn(async () => undefined),
     rejectInTx: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => 'PENDING' as const),
+    // task-648-fix-round-1 (SR-H-1): default succeeds, matching this
+    // harness's own `getStatus: 'PENDING'` default (a live proposal exists
+    // to cancel in most of this file's scenarios).
+    cancelInTx: vi.fn(async () => undefined),
   }
 
   const service = new ProjectsService(

@@ -66,6 +66,12 @@ const makeApprovalsService = () =>
     proposeInTx: vi.fn().mockResolvedValue(undefined),
     approveInTx: vi.fn().mockResolvedValue(undefined),
     rejectInTx: vi.fn().mockResolvedValue(undefined),
+    // task-648-fix-round-1 (SR-H-1): default "nothing open to cancel"
+    // (matches this harness's own `getStatus: 'NONE'` default) — tests with
+    // a live proposal override this per-case.
+    cancelInTx: vi
+      .fn()
+      .mockRejectedValue(new NotFoundException('Согласование не найдено или уже погашено')),
   }) as never
 
 // `auditLogService` is injectable (defaults to a fresh stub) — SR-M-12 /
@@ -780,6 +786,7 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
       makeProjectAuditLogService(),
       makeTeamsService(),
       inviteMailer as never,
+      makeApprovalsService() as never,
     )
 
     const before = Date.now()
@@ -964,6 +971,7 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
       makeProjectAuditLogService(),
       makeTeamsService(),
       inviteMailer as never,
+      makeApprovalsService() as never,
     )
 
     // 1st `.returning()` call (inside makeDb) already resolves [createdUser]

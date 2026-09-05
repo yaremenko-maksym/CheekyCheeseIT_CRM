@@ -380,8 +380,15 @@ export class UsersController {
    * was never the subject of a live proposal simply gets 404 from
    * `ApprovalsService` (no live row for them), so a role check would be
    * redundant, not protective.
+   *
+   * `@AuditLog('salary_change')` (task-648-fix-round-1, SR-M-1): before this
+   * PR, `seniorSharePercent` only ever moved via `PATCH /:id` /
+   * `PATCH /:id/salary`, both already decorated — this route is a THIRD
+   * writer of the same column that had no audit coverage at all. The
+   * interceptor reads `targetId` from `params.id`, present here.
    */
   @Post(':id/senior-share/approve')
+  @AuditLog('salary_change')
   approveSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() currentUser: SessionUser,
@@ -392,8 +399,10 @@ export class UsersController {
   /**
    * task-pending-share, design spec §3 decision 3 — rejection requires a
    * reason. Same no-`@Roles` reasoning as the approve endpoint above.
+   * `@AuditLog('salary_change')` — SR-M-1, same reasoning as approve above.
    */
   @Post(':id/senior-share/reject')
+  @AuditLog('salary_change')
   rejectSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
@@ -401,6 +410,19 @@ export class UsersController {
   ) {
     const { reason } = rejectPendingShareSchema.parse(body)
     return this.usersService.rejectSeniorShareChange(id, reason, currentUser)
+  }
+
+  /**
+   * task-648-fix-round-1 (SR-H-1). ADMIN withdraws an open base-share
+   * proposal outright. No `@Roles(...)` — the service checks ADMIN
+   * explicitly, same as the approve/reject pair above check impersonation.
+   */
+  @Post(':id/senior-share/cancel')
+  cancelSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: SessionUser,
+  ) {
+    return this.usersService.cancelSeniorShareChange(id, currentUser)
   }
 
   @Patch(':id/requisites')

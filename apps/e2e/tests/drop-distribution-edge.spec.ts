@@ -45,6 +45,7 @@ import {
   listPayoutRequestTransactionsViaAPI,
   findUserByEmailViaApi,
   patchUserSharePercentViaAPI,
+  approveUserSeniorShareViaAPI,
   REAL_API_BASE,
 } from './fixtures'
 
@@ -69,6 +70,12 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
 
     // Bump senior to 50%.
     await patchUserSharePercentViaAPI(page, senior.id, { seniorSharePercent: 50 })
+    // task-pending-share fix-round-1 (CR-H-2): PATCH now only PROPOSES —
+    // confirm as the senior so 50% is LIVE by pay-time (see the 60/50 test
+    // below for the full explanation of why this step is now required).
+    await loginViaApi(page, SEED_EMAILS.seniorA)
+    await approveUserSeniorShareViaAPI(page, senior.id)
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     // Drop with 50% share.
     const { dropId } = await createDropViaAPI(page, {
@@ -143,6 +150,9 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       await patchUserSharePercentViaAPI(page, senior.id, {
         seniorSharePercent: SEED_DEFAULT_SHARE,
       }).catch(() => undefined)
+      await loginViaApi(page, SEED_EMAILS.seniorA).catch(() => undefined)
+      await approveUserSeniorShareViaAPI(page, senior.id).catch(() => undefined)
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)
     }
   })
@@ -165,6 +175,21 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
     await signContractAndAcceptTosViaAPI(page, SEED_EMAILS.seniorB)
 
     await patchUserSharePercentViaAPI(page, senior.id, { seniorSharePercent: 60 })
+
+    // task-pending-share fix-round-1 (CR-H-2). The PATCH above now only
+    // PROPOSES the new base share (task-pending-share, position 5) — it no
+    // longer takes effect until the senior confirms. This test's whole
+    // premise is that 60% is the LIVE senior share by pay-time (60 + drop's
+    // 50 > 100%), so confirm it here, as the senior — `approveInTx` matches
+    // the live proposal row on the caller's OWN session, not on a param.
+    // Decision (task-648-fix-round-1, CR-H-2): fix the missing STEP, not the
+    // expected status code — the ≤100% invariant is still real and still
+    // enforced at pay-time once the share is actually live; this scenario
+    // now exercises exactly that, propose → approve → pay, matching how an
+    // admin's share change actually reaches production after this PR.
+    await loginViaApi(page, SEED_EMAILS.seniorB)
+    await approveUserSeniorShareViaAPI(page, senior.id)
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     const { dropId } = await createDropViaAPI(page, {
       email: dropEmail,
@@ -225,6 +250,9 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       await patchUserSharePercentViaAPI(page, senior.id, {
         seniorSharePercent: SEED_DEFAULT_SHARE,
       }).catch(() => undefined)
+      await loginViaApi(page, SEED_EMAILS.seniorB).catch(() => undefined)
+      await approveUserSeniorShareViaAPI(page, senior.id).catch(() => undefined)
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)
     }
   })
@@ -240,6 +268,12 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
     if (!senior) throw new Error('Seed senior not found')
 
     await patchUserSharePercentViaAPI(page, senior.id, { seniorSharePercent: 0 })
+    // task-pending-share fix-round-1 (CR-H-2): PATCH now only PROPOSES —
+    // confirm as the senior so 0% is LIVE by pay-time (see the 60/50 test
+    // above for the full explanation of why this step is now required).
+    await loginViaApi(page, SEED_EMAILS.seniorA)
+    await approveUserSeniorShareViaAPI(page, senior.id)
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     const { dropId } = await createDropViaAPI(page, {
       email: dropEmail,
@@ -300,6 +334,9 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       await patchUserSharePercentViaAPI(page, senior.id, {
         seniorSharePercent: SEED_DEFAULT_SHARE,
       }).catch(() => undefined)
+      await loginViaApi(page, SEED_EMAILS.seniorA).catch(() => undefined)
+      await approveUserSeniorShareViaAPI(page, senior.id).catch(() => undefined)
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)
     }
   })

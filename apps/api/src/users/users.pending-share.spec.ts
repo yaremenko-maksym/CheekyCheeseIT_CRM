@@ -132,13 +132,26 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
     approveInTx: vi.fn(async () => undefined),
     rejectInTx: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => 'PENDING' as const),
+    cancelInTx: vi.fn(async () => undefined),
   }
+  // task-648-fix-round-1 (SR-M-3): approve/reject/cancel now route their
+  // response through `buildProfileView` (allow-list), not a raw row — it
+  // needs a working `getViewPermissions` so the "empty tabs → 403" guard
+  // doesn't fire; this file's own assertions are all on the WRITE side
+  // (txUpdateCalls / approvals calls), not on the returned view shape.
+  const accessService = {
+    getViewPermissions: vi.fn().mockResolvedValue({
+      tabs: ['overview'],
+      fields: { share: true, personalContact: false, adminNote: false, googleId: false },
+    }),
+  }
+  const tosService = { getLatestAcceptanceForUser: vi.fn().mockResolvedValue(null) }
 
   const service = new UsersService(
     db as never,
-    {} as never,
+    accessService as never,
     { record: vi.fn(async () => undefined) } as never,
-    {} as never,
+    tosService as never,
     {} as never,
     {} as never,
     {} as never,
@@ -180,7 +193,12 @@ describe('UsersService.approveSeniorShareChange — AC3 (one atomic swap)', () =
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
     const updated = await h.service.approveSeniorShareChange('senior-1', seniorUser)
 
-    expect(updated.seniorSharePercent).toBe(80)
+    expect(updated.user.seniorSharePercent).toBe(80) // task-648-fix-round-1 (SR-M-3): now buildProfileView's { user, permissions, data } shape
+    // SR-M-3: the response is the allow-list DTO, not the raw `users` row —
+    // `googleId` (SEC-09) does not exist as a key at all; `adminNote` exists
+    // but is null-gated by `fields.adminNote` (false for this SENIOR self-view).
+    expect(updated.user).not.toHaveProperty('googleId')
+    expect(updated.user.adminNote).toBeNull()
     expect(h.userRow.seniorSharePercent).toBe(80)
     expect(h.userRow.pendingSeniorSharePercent).toBeNull()
     // The write went through `tx` (via updateUserRow's choke point), never
@@ -213,7 +231,7 @@ describe('UsersService.rejectSeniorShareChange — AC4 (reason required, active 
       'Слишком большой скачок',
       seniorUser,
     )
-    expect(updated.seniorSharePercent).toBe(26)
+    expect(updated.user.seniorSharePercent).toBe(26) // task-648-fix-round-1 (SR-M-3): now buildProfileView's { user, permissions, data } shape
     expect(h.userRow.seniorSharePercent).toBe(26)
     expect(h.userRow.pendingSeniorSharePercent).toBeNull()
     expect(h.approvals.rejectInTx).toHaveBeenCalledWith(

@@ -1210,6 +1210,52 @@ export class ProjectsService {
   }
 
   /**
+   * task-648-fix-round-1 (SR-H-1). ADMIN/ACCOUNTANT withdraws an open
+   * proposal for this project's senior share outright — the counterpart to
+   * `proposeSeniorShareChange` above, called either directly (the "Отменить
+   * предложение" button next to the pending indicator) or from `update()`'s
+   * own "requested == active" branch below (returning the slider to its
+   * current value while a proposal is open IS a cancel, not a silent no-op
+   * — see that branch's own comment).
+   *
+   * RBAC mirrors the PROPOSE gate in `update()` (ADMIN/ACCOUNTANT), not the
+   * approve/reject pair above — cancelling a proposal you opened is the
+   * proposer's prerogative, never the invited approver's (they get reject()
+   * for that, which requires a reason; this doesn't, because withdrawing
+   * your own draft answers to nobody).
+   */
+  async cancelSeniorShareChange(id: string, currentUser: SessionUser) {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException('Only ADMIN or ACCOUNTANT can cancel a senior share proposal')
+    }
+    await this.cancelSeniorShareChangeCore(id)
+    return this.loadForResponse(id, currentUser)
+  }
+
+  /**
+   * Core of `cancelSeniorShareChange` above — shared with `update()`'s own
+   * "requested == active" branch, which needs the SAME atomic
+   * cancel-then-clear-pending-column write but NOT the full response reload
+   * (`update()` already reloads the row itself, once, at its own end — a
+   * second `loadForResponse` here would be a wasted round-trip). RBAC is
+   * the caller's responsibility: `cancelSeniorShareChange` checks it before
+   * calling in; `update()`'s field-scoped RBAC at its own top already
+   * guarantees ADMIN/ACCOUNTANT by the time its branch reaches this.
+   */
+  private async cancelSeniorShareChangeCore(id: string): Promise<void> {
+    await this.db.db.transaction(async (tx) => {
+      await this.approvals.cancelInTx(tx, ProjectsService.SENIOR_SHARE_SUBJECT_TYPE, id)
+      // Reaching this line means `cancelInTx` found a real PENDING proposal
+      // for `id` (it throws otherwise) — same "no separate existence check
+      // needed" reasoning `approveSeniorShareChange` documents above.
+      await tx
+        .update(projects)
+        .set({ pendingSeniorSharePercentOverride: null, updatedAt: new Date() })
+        .where(eq(projects.id, id))
+    })
+  }
+
+  /**
    * Upsert the projects.senior_share_percent_override mirror into
    * project_finance_settings. Keeps the existing finance path (which reads
    * from financeSettings only) in sync with the new direct column.
@@ -1453,9 +1499,29 @@ export class ProjectsService {
         id,
         project.seniorId,
         overrideEffective,
-        currentUser.id,
+        // task-648-fix-round-1 (SR-M-2): attribute to the real operator
+        // under impersonation, not the impersonated identity — regression
+        // of the same fix `update()`'s OWN audit-log calls already apply a
+        // few lines below (security-review round 2, authz-hardening).
+        currentUser.impersonatorId ?? currentUser.id,
         project.seniorSharePercentOverride ?? null,
       )
+    } else if (overrideEffective !== undefined) {
+      // task-648-fix-round-1 (SR-H-1). The requested value equals what's
+      // already ACTIVE — but if there's a live PENDING proposal for a
+      // DIFFERENT value, returning the slider to the active value is the
+      // natural "I changed my mind" gesture, and the ORIGINAL bug here was
+      // treating this as a silent no-op: an admin's typo, proposed and then
+      // explicitly undone this way, stayed live until the senior confirmed
+      // it anyway. Cancel it. `cancelSeniorShareChangeCore` 404s
+      // (`NotFoundException`) when there's nothing open to cancel — the
+      // EXPECTED, majority-case outcome (a routine resubmit with no live
+      // proposal at all), swallowed here rather than surfaced as an error.
+      try {
+        await this.cancelSeniorShareChangeCore(id)
+      } catch (err) {
+        if (!(err instanceof NotFoundException)) throw err
+      }
     }
 
     // task-drop-share-override-and-receiver (D6). Audit the drop override change

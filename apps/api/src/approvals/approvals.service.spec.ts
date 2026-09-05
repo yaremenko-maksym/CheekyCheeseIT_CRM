@@ -475,6 +475,84 @@ describe('ApprovalsService.reject', () => {
 })
 
 // ---------------------------------------------------------------------------
+// cancel() — task-648-fix-round-1 (SR-H-1)
+// ---------------------------------------------------------------------------
+
+describe('ApprovalsService.cancel', () => {
+  it('throws NotFoundException with the exact user-facing message when there is no live row at all', async () => {
+    const selectChain = makeSelectAllForUpdateChain([])
+    const txHandle = { select: vi.fn(() => selectChain), update: vi.fn() }
+    const service = makeService(txHandle)
+
+    const err = await catchRejection(() => service.cancel(SUBJECT_TYPE, SUBJECT_ID))
+    expect(err).toBeInstanceOf(NotFoundException)
+    expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
+    expect(txHandle.update).not.toHaveBeenCalled()
+  })
+
+  // This is the test that must fail RED before the `pendingRows.filter(...)`
+  // guard exists: a version of cancelInTx that only checked "any live row"
+  // (matching lockLiveRows' own liveRows.length, the same shape reject()
+  // uses) would happily cancel an ALREADY-APPROVED single-approver row here
+  // — misrepresenting a real, already-applied decision as withdrawn.
+  it('throws NotFoundException (nothing OPEN to cancel) when the only live row already left PENDING', async () => {
+    const approvedRow = makeRow({ status: 'APPROVED', decidedAt: new Date() })
+    const txHandle = {
+      select: vi.fn(() => makeSelectAllForUpdateChain([approvedRow])),
+      update: vi.fn(),
+    }
+    const service = makeService(txHandle)
+
+    const err = await catchRejection(() => service.cancel(SUBJECT_TYPE, SUBJECT_ID))
+    expect(err).toBeInstanceOf(NotFoundException)
+    expect((err as Error).message).toBe('Согласование не найдено или уже погашено')
+    expect(txHandle.update).not.toHaveBeenCalled()
+  })
+
+  it('sets status=CANCELLED + decidedAt + supersededAt on the PENDING row, in ONE update (no per-row .returning() round-trip)', async () => {
+    const pendingRow = makeRow()
+    const updateChain = makeUpdateChain([])
+    const txHandle = {
+      select: vi.fn(() => makeSelectAllForUpdateChain([pendingRow])),
+      update: vi.fn(() => updateChain),
+    }
+    const service = makeService(txHandle)
+
+    await service.cancel(SUBJECT_TYPE, SUBJECT_ID)
+
+    expect(txHandle.update).toHaveBeenCalledTimes(1)
+    const setArg = updateChain.set.mock.calls[0]![0] as Record<string, unknown>
+    expect(setArg['status']).toBe('CANCELLED')
+    expect(setArg['decidedAt']).toBeInstanceOf(Date)
+    expect(setArg['supersededAt']).toBeInstanceOf(Date)
+    // Cancel never asks for or writes a reason — distinct from reject().
+    expect(setArg).not.toHaveProperty('rejectionReason')
+  })
+
+  it('a mix of one APPROVED sibling + one PENDING row still cancels (the PENDING one) instead of 404ing', async () => {
+    // Hypothetical multi-approver subject: proves the guard is "at least one
+    // PENDING row", not "every live row is PENDING" — a partially-approved
+    // generation can still have its remaining open ask withdrawn.
+    const approvedSibling = makeRow({
+      id: 'b1000000-0000-4000-a000-000000000301',
+      approverUserId: DROP_ID,
+      status: 'APPROVED',
+      decidedAt: new Date(),
+    })
+    const pendingRow = makeRow({ id: 'b1000000-0000-4000-a000-000000000302' })
+    const updateChain = makeUpdateChain([])
+    const txHandle = {
+      select: vi.fn(() => makeSelectAllForUpdateChain([approvedSibling, pendingRow])),
+      update: vi.fn(() => updateChain),
+    }
+    const service = makeService(txHandle)
+
+    await service.cancel(SUBJECT_TYPE, SUBJECT_ID)
+    expect(txHandle.update).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // getStatus() — pure aggregation logic, listLive() stubbed
 // ---------------------------------------------------------------------------
 

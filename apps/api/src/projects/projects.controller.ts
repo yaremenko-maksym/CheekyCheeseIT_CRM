@@ -136,6 +136,22 @@ export class ProjectsController {
     return this.projectsService.rejectSeniorShareChange(id, reason, user)
   }
 
+  /**
+   * task-648-fix-round-1 (SR-H-1). ADMIN/ACCOUNTANT withdraws an open
+   * senior-share proposal outright — the counterpart to the propose gate
+   * inside `update()`. No `@Roles(...)` here, same reasoning as `update()`
+   * itself (field-scoped, not role-gated at the controller): the service
+   * checks ADMIN/ACCOUNTANT explicitly and throws `ForbiddenException`
+   * otherwise.
+   */
+  @Post(':id/senior-share/cancel')
+  cancelSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.projectsService.cancelSeniorShareChange(id, user)
+  }
+
   @Delete(':id')
   @Roles('ADMIN')
   archive(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {

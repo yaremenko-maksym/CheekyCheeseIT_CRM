@@ -2180,7 +2180,17 @@ export const notifications = pgTable(
 // migration now costs nothing and removes a hand-off nobody would be forced
 // to remember later. `scripts/devops/check-prod-ddl-wiring.py` verifies the
 // file is wired into `.github/workflows/deploy.yml`.
-export const approvalStatusEnum = pgEnum('approval_status', ['PENDING', 'APPROVED', 'REJECTED'])
+// `CANCELLED` — task-648-fix-round-1 (SR-H-1): added via
+// `drizzle/manual/2026-09-04_approval_status_cancelled.sql` (`ALTER TYPE …
+// ADD VALUE`, a Postgres enum extension — never `DROP`-able, see that
+// file's own header). Distinct from `REJECTED` — see the shared Zod schema
+// (`packages/shared/src/schemas/approvals.ts`) for the reasoning.
+export const approvalStatusEnum = pgEnum('approval_status', [
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+])
 
 export const approvals = pgTable(
   'approvals',

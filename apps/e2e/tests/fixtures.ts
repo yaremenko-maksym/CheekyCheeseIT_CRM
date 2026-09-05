@@ -2547,6 +2547,30 @@ export async function patchUserSharePercentViaAPI(
 }
 
 /**
+ * task-pending-share fix-round-1 (CR-H-2). Confirms a PENDING base-share
+ * proposal (opened by `patchUserSharePercentViaAPI` above, which now only
+ * proposes — it doesn't apply `seniorSharePercent` immediately any more) on
+ * behalf of the SENIOR whose share it is.
+ *
+ * `POST /users/:id/senior-share/approve` requires the caller to BE the
+ * invited approver — `ApprovalsService.approveInTx` matches the live row on
+ * `approverUserId` taken from the SESSION, not from the request body — so
+ * the caller of this helper must already be logged in (`loginViaApi`) as
+ * that same senior before calling it. Default NestJS POST status is 201
+ * (no `@HttpCode` override on this route, same as its `approveDraft`
+ * sibling), asserted here rather than left implicit so a future
+ * `@HttpCode(200)` change fails loudly instead of silently.
+ */
+export async function approveUserSeniorShareViaAPI(page: Page, userId: string): Promise<void> {
+  const res = await page.request.post(`${REAL_API_BASE}/api/users/${userId}/senior-share/approve`)
+  if (res.status() !== 201) {
+    throw new Error(
+      `approveUserSeniorShareViaAPI failed for ${userId}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+}
+
+/**
  * Fetch a single transaction by id via GET /api/transactions/:id. Used
  * by helpers that need to read the status mutation after validation/pay.
  */

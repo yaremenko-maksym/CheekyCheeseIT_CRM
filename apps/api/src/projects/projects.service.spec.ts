@@ -253,6 +253,13 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
   const approvals = {
     proposeInTx: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => 'NONE' as const),
+    // task-648-fix-round-1 (SR-H-1): update()'s "requested == active"
+    // branch now tries to cancel any open proposal — defaults to "nothing
+    // open" (matches this harness's default getStatus: 'NONE'); tests that
+    // DO have an open proposal override this per-case.
+    cancelInTx: vi.fn(async () => {
+      throw new NotFoundException('Согласование не найдено или уже погашено')
+    }),
   }
 
   const service = new ProjectsService(
@@ -790,6 +797,13 @@ function buildHrScopingHarness({
   const approvals = {
     proposeInTx: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => 'NONE' as const),
+    // task-648-fix-round-1 (SR-H-1): update()'s "requested == active"
+    // branch now tries to cancel any open proposal — defaults to "nothing
+    // open" (matches this harness's default getStatus: 'NONE'); tests that
+    // DO have an open proposal override this per-case.
+    cancelInTx: vi.fn(async () => {
+      throw new NotFoundException('Согласование не найдено или уже погашено')
+    }),
   }
 
   const service = new ProjectsService(
