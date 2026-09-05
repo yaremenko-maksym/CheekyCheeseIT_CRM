@@ -424,7 +424,14 @@ describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY
     mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
     renderPanel()
 
-    expect(screen.getByText('Долю не удалось определить — обновите страницу.')).toBeInTheDocument()
+    const fallback = screen.getByText('Доля неизвестна. Обновите страницу.')
+    expect(fallback).toBeInTheDocument()
+    // COPY-L-7 (PR #646 fix-round 4): `truncate` (single-line, ellipsis)
+    // used to cut this sentence off on a 320px viewport before "Обновите
+    // страницу." — the instruction — ever rendered. `line-clamp-2` wraps
+    // instead of clipping.
+    expect(fallback.className).toContain('line-clamp-2')
+    expect(fallback.className).not.toContain('truncate')
     expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
   })
 
@@ -441,7 +448,9 @@ describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY
     mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
     renderPanel()
 
-    expect(screen.getByText('Долю не удалось определить — обновите страницу.')).toBeInTheDocument()
+    const fallback = screen.getByText('Доля неизвестна. Обновите страницу.')
+    expect(fallback).toBeInTheDocument()
+    expect(fallback.className).toContain('line-clamp-2')
     expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
   })
 

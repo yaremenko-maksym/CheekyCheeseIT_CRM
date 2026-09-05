@@ -289,10 +289,20 @@ export function ProjectApprovalActions({
               Админ увидит причину и сможет предложить проект заново.
             </p>
             <div className="space-y-1.5">
-              <Label className="text-xs" id="project-approval-reject-reason-label">
+              {/* CR-bm-1 (PR #646 fix-round 4). This `id` sat unused since
+                  fix-round 1 — no `htmlFor`/`aria-labelledby` ever pointed at
+                  it, so it was a Label in name only (a sighted user reads it
+                  by proximity; a screen-reader user tabbing straight into
+                  the Textarea below got no programmatic name at all).
+                  `htmlFor` on the actual caption for this field closes that:
+                  clicking the label now also focuses the Textarea (a second,
+                  free correctness signal that "the pairing is real" this
+                  attribute wasn't previously providing either). */}
+              <Label className="text-xs" htmlFor="project-approval-reject-reason-input">
                 Причина отказа *
               </Label>
               <Textarea
+                id="project-approval-reject-reason-input"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Например: нет бюджета на Q3"

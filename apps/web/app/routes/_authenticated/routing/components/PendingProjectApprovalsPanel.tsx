@@ -218,8 +218,15 @@ export function PendingProjectApprovalsPanel() {
                       Ваша доля: {project.effectiveDropSharePercent}% · синьор: {project.seniorName}
                     </p>
                   ) : (
-                    <p className="truncate text-[11px] text-amber-300/70">
-                      Долю не удалось определить — обновите страницу.
+                    // COPY-L-7 (PR #646 fix-round 4): this single-line
+                    // `truncate` sentence gets cut off at ~208px on a 320px
+                    // viewport — "Доля неизвестна." (the fact) can survive
+                    // that width fully; "Обновите страницу." (the fix, i.e.
+                    // "reload") is the part `truncate` was dropping. Renamed
+                    // shorter AND switched to `line-clamp-2` so the whole
+                    // sentence fits without either.
+                    <p className="line-clamp-2 text-[11px] text-amber-300/70">
+                      Доля неизвестна. Обновите страницу.
                     </p>
                   )
                 ) : user?.id === project.seniorId ? (
@@ -228,8 +235,10 @@ export function PendingProjectApprovalsPanel() {
                       Ваша доля: {project.effectiveSeniorSharePercent}%
                     </p>
                   ) : (
-                    <p className="truncate text-[11px] text-amber-300/70">
-                      Долю не удалось определить — обновите страницу.
+                    // COPY-L-7: same rename + line-clamp-2 fix, symmetric
+                    // with the drop-side branch above.
+                    <p className="line-clamp-2 text-[11px] text-amber-300/70">
+                      Доля неизвестна. Обновите страницу.
                     </p>
                   )
                 ) : null}

@@ -354,6 +354,15 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     expect(counter).toHaveAttribute('aria-live', 'polite')
   })
 
+  it('CR-bm-1 (PR #646 fix-round 4): the "Причина отказа" Label is actually linked to the Textarea — it carried an id nobody referenced (no htmlFor/aria-labelledby) since fix-round 1, a Label in visual proximity only; getByLabelText only resolves through a REAL association, not just matching text near the field', async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+
+    const textarea = await screen.findByTestId('project-approval-reject-reason')
+    expect(screen.getByLabelText('Причина отказа *')).toBe(textarea)
+  })
+
   it('UX-L-1(r3) (PR #646 fix-round 3): the dialog title is line-clamp-2 — an extreme companyName must not push the reason field below the fold on 320px', async () => {
     const user = userEvent.setup()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
