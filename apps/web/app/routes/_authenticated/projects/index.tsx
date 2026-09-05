@@ -15,7 +15,7 @@ import {
   UsersRound,
   XCircle,
 } from 'lucide-react'
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { z } from 'zod'
 import type { CreateProjectDto, ProjectDto, ProjectMemberDto, ItDomain } from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
@@ -200,6 +200,22 @@ function ProjectsPage() {
   const urlStatus: StatusTab | undefined =
     search.status ?? (search.archived === true ? 'ARCHIVED' : undefined)
   const currentTab: StatusTab = urlStatus && allowedTabs.includes(urlStatus) ? urlStatus : 'ACTIVE'
+
+  // QA-L-3 (PR #646 fix-round 4). The line above already falls back the
+  // CONTENT to ACTIVE for a tab this viewer's role cannot see (e.g. a
+  // SENIOR who manually types/bookmarks `?status=REJECTED` — `allowedTabs`
+  // excludes REJECTED for them) — but the URL itself used to stay exactly
+  // what they typed, so a bookmarked/shared link to that URL silently kept
+  // showing Active with no visible sign the requested tab does not apply to
+  // this viewer. `replace: true` (not a push) so the back button does not
+  // return to the same disallowed URL. `search: {}` matches the SAME
+  // "default tab, clean URL" convention `handleTabChange` below already
+  // uses for ACTIVE — not a new canonicalization.
+  useEffect(() => {
+    if (urlStatus && !allowedTabs.includes(urlStatus)) {
+      navigate({ to: '/projects', search: {}, replace: true })
+    }
+  }, [urlStatus, allowedTabs, navigate])
 
   // ut-32 / ut-44: keepPreviousData + useTransition keep the previous list
   // visible during the tab switch + refetch so the SegmentedToggle's

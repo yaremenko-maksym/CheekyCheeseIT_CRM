@@ -258,13 +258,17 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                     `overflow-hidden` does not wrap (no valid break point
                     inside one word) — it renders past its own box, visibly
                     into the neighboring Джун column ("СИНЬОРДЖУН" on the
-                    copy-reviewer's own attached screenshot). `hidden
-                    lg:block` — not `truncate` — because the role is already
-                    readable from the avatar + column position alone below
-                    `lg`, matching the orchestrator's own minimal-text-axis
-                    instruction (not a grid refactor, spec §11 stays intact
-                    at md+). */}
-                <p className="hidden text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:block">
+                    copy-reviewer's own attached screenshot).
+                    COPY-M-11 (PR #646 fix-round 4, MED): `hidden` (below)
+                    removed this label from the accessibility tree too, not
+                    just the viewport — a mobile screen-reader user got two
+                    bare names with no role at all. `sr-only lg:not-sr-only`
+                    keeps the same VISUAL result (role readable from avatar +
+                    column position alone below `lg`, matching the
+                    orchestrator's own minimal-text-axis instruction — not a
+                    grid refactor, spec §11 stays intact at md+) while
+                    leaving the text in the DOM/AX tree at every width. */}
+                <p className="sr-only text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:not-sr-only">
                   Синьор
                 </p>
                 {/* Inner link sits above the row-level stretched-link (z-[2] > z-[1]).
@@ -306,8 +310,11 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 {/* CR-H-2 = COPY-H-4: same fix as the Синьор label above,
                     same mechanism (own grid track ~42.4px at 320px, no
                     truncate on this label, un-breakable Cyrillic overflows
-                    into the neighbor instead of wrapping). */}
-                <p className="hidden text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:block">
+                    into the neighbor instead of wrapping).
+                    COPY-M-11 (PR #646 fix-round 4): same sr-only fix as the
+                    Синьор label above — same reason (accessible below `lg`,
+                    not just visually hidden). */}
+                <p className="sr-only text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:not-sr-only">
                   Джун
                 </p>
                 {/* `<div>` (not `<p>`) used as the truncate parent because we
@@ -344,8 +351,10 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 {/* CR-H-2 = COPY-H-4: same fix as the Синьор label above,
                     same mechanism (own grid track ~42.4px at 320px, no
                     truncate on this label, un-breakable Cyrillic overflows
-                    into the neighbor instead of wrapping). */}
-                <p className="hidden text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:block">
+                    into the neighbor instead of wrapping).
+                    COPY-M-11 (PR #646 fix-round 4): same sr-only fix as the
+                    other two labels — same reason. */}
+                <p className="sr-only text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:not-sr-only">
                   Джун
                 </p>
                 <p className="text-xs font-medium text-destructive/80 flex items-center gap-1.5 truncate">
@@ -447,13 +456,41 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
             </Badge>
           ) : isPending ? (
             <>
+              {/* COPY-H-5 (PR #646 fix-round 4, HIGH). At `lg:` (1024px+) the
+                  status column is a `1fr` track out of the row's 8fr total
+                  (~86px at 1024px content width) — this badge's own
+                  intrinsic content (icon + "Ждёт подтверждения", ~118px)
+                  was WIDER than that track. `lg:items-end` (container,
+                  above) aligns the badge flush to the column's RIGHT edge,
+                  so the overflow pushed LEFT, into the rate/amount column's
+                  text ("USDT" read as "USD" — copy-reviewer's own
+                  pixel-measured repro). QA-H-2's own clip test only checks
+                  `rect.right <= containerRight`, which stays true here (the
+                  badge's right edge sits at the row's own right edge either
+                  way) — it cannot see a LEFT-ward overlap into a sibling
+                  column, a different defect class from the one it fixed.
+                  Three changes, from cheapest to most defensive: (1) the
+                  wording — "Ждёт решения" is already the name this exact
+                  fact uses elsewhere (empty-state copy, one line above in
+                  this same file's history) and is shorter; (2) the icon
+                  hides below `xl` (1280px) — a color dot to its LEFT
+                  already carries this same "needs attention" signal
+                  (`status-dot`, above) at every width, so the icon is
+                  decorative reinforcement, not the only proof state, safe
+                  to drop where space is tight; (3) `truncate`/`min-w-0` as
+                  a hard floor — overlapping a neighbor must never be
+                  possible at ANY width, even one narrower than tested,
+                  whereas a mid-word ellipsis on "Ждёт решения" is merely
+                  ugly. See the E2E test's own rect-intersection check
+                  (project-status-filter-ui.spec.ts) for the six widths this
+                  was actually measured at. */}
               <Badge
                 variant="outline"
-                className="gap-1 border-amber-500/30 bg-amber-500/20 text-[10px] text-amber-300"
+                className="min-w-0 max-w-full gap-1 truncate border-amber-500/30 bg-amber-500/20 text-[10px] text-amber-300"
                 data-testid={`project-row-${project.id}-status-pending`}
               >
-                <Clock className="h-3 w-3" aria-hidden />
-                Ждёт подтверждения
+                <Clock className="hidden h-3 w-3 xl:inline" aria-hidden />
+                Ждёт решения
               </Badge>
               {(viewerAlreadyActedCaption ?? pendingCaption) && (
                 // UX-H-1: fixed max-w-40 (TransactionRow.tsx:666 precedent),

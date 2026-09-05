@@ -134,6 +134,24 @@ test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
     }
   })
 
+  test('QA-L-3 (PR #646 fix-round 4): SENIOR deep-linking to a tab they cannot see (?status=REJECTED) falls back to Active in the URL too, not just the rendered content', async ({
+    page,
+  }) => {
+    // No project fixture needed — this proves the URL/content fallback
+    // itself (index.tsx's allowedTabs gate), independent of what the list
+    // actually contains for this viewer.
+    await loginViaApi(page, SEED_EMAILS.seniorA)
+    await page.goto('/projects?status=REJECTED')
+
+    // Before this fix: content already fell back to Active (the allowedTabs
+    // gate already existed), but the URL stayed exactly `?status=REJECTED`
+    // — a bookmarked/copy-pasted link a SENIOR could never resolve silently
+    // kept showing Active with no visible sign why.
+    await expect(page).toHaveURL(/\/projects$/)
+    const tabs = page.getByTestId('projects-status-tabs')
+    await expect(tabs.getByRole('tab', { name: 'Активные', selected: true })).toBeVisible()
+  })
+
   test("AC2: HR (not an invited approver) never sees the status tabs, and the draft never leaks into HR's active list", async ({
     page,
   }) => {
@@ -266,6 +284,66 @@ test.describe('Project status filter — AC3 (confirm/reject) + AC4 (badge/reaso
         'Отклонено',
       )
       await expect(row.getByText('«нет бюджета на Q3»')).toBeVisible()
+    } finally {
+      await deleteProjectViaAPI(page, projectId)
+    }
+  })
+
+  /**
+   * QA-H-3 (PR #646 fix-round 4, HIGH — manual-qa repro). `stripSensitiveFields`
+   * (SR-M-1, persister.ts) keeps `rejectionReason` out of IndexedDB — but a
+   * query WRITTEN that way is an ordinary successful snapshot as far as
+   * TanStack Query's own `staleTime` (60s, query-client.ts) is concerned.
+   * Reloading within that window used to restore the REDACTED snapshot and
+   * never refetch (nothing marks it as needing one) — an ADMIN silently lost
+   * the rejection reason with no loading state, no error, nothing to notice.
+   * Confirmed by manual-qa via network log (0 requests to /api/projects in
+   * the window) and timing (reason returns only after >60s).
+   *
+   * This test does NOT need to wait out that 60s window — the fix makes the
+   * marked query unconditionally stale on restore, independent of elapsed
+   * time (persister.ts's own `meta.strippedAt` → `dataUpdatedAt = 0`), so a
+   * reload seconds after the first view already exercises the exact same
+   * code path the original 60s repro did.
+   */
+  test('QA-H-3: ADMIN reloading /projects?status=REJECTED still sees the rejection reason — a persisted (redacted) snapshot must trigger an immediate background refetch, not stay silently redacted', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { projectId } = await createSeniorProjectViaAPI(page, {
+      name: `QA-H-3 ${suffix}`,
+      companyName: `QA-H-3 Co ${suffix}`,
+      skipApproval: true,
+    })
+
+    try {
+      await rejectProjectViaAPI(page, projectId, SEED_EMAILS.seniorA, 'нет бюджета на Q3')
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+
+      await page.goto('/projects?status=REJECTED')
+      const row = page.getByTestId(`project-row-${projectId}`)
+      await expect(row).toBeVisible()
+      await expect(row.getByText('«нет бюджета на Q3»')).toBeVisible()
+
+      // Give the persister's throttled write (1000ms, persister.ts) time to
+      // actually flush the (now-redacted) snapshot to IndexedDB before
+      // reloading — the same wait persist-query.spec.ts uses for the
+      // identical "let the write settle" concern.
+      await page.waitForTimeout(1500)
+
+      await page.reload()
+
+      // Before the fix: the restored snapshot's dataUpdatedAt was the
+      // ORIGINAL (recent) fetch time — well inside the 1-minute staleTime —
+      // so useQuery never refetched on this mount and the redacted
+      // (reason-less) snapshot rendered indefinitely. After the fix:
+      // meta.strippedAt (persister.ts) forces dataUpdatedAt=0 on restore
+      // for exactly this query, so it is unconditionally stale and
+      // refetches in the background on this very mount.
+      const reloadedRow = page.getByTestId(`project-row-${projectId}`)
+      await expect(reloadedRow).toBeVisible()
+      await expect(reloadedRow.getByText('«нет бюджета на Q3»')).toBeVisible({ timeout: 10_000 })
     } finally {
       await deleteProjectViaAPI(page, projectId)
     }
@@ -522,11 +600,36 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       const seniorLabel = row.getByText('Синьор', { exact: true })
       const juniorLabel = row.getByText('Джун', { exact: true })
 
+      const intersects = (
+        a: { x: number; y: number; width: number; height: number },
+        b: { x: number; y: number; width: number; height: number },
+      ) =>
+        a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+
       for (const width of [320, 375]) {
         await page.setViewportSize({ width, height: 900 })
         await page.waitForTimeout(50)
-        await expect(seniorLabel, `Синьор label hidden at ${width}px`).toBeHidden()
-        await expect(juniorLabel, `Джун label hidden at ${width}px`).toBeHidden()
+        // COPY-M-11 (PR #646 fix-round 4, MED). `sr-only` (not `hidden`)
+        // keeps this label reachable to a mobile screen reader at this
+        // width — but Playwright's OWN `toBeVisible()`/`toBeHidden()`
+        // treats an `sr-only` element (1x1px, clipped, not `display:none`)
+        // as VISIBLE, so the old `toBeHidden()` assertion here would now be
+        // a false-red on CORRECT markup. Assert what actually matters
+        // instead: the text is attached (screen-reader reachable) AND its
+        // (now 1x1px) box does not overlap its sibling — the same
+        // non-intersection check already written below for 1024px+,
+        // reused here instead of invented twice.
+        await expect(seniorLabel, `Синьор label attached (sr-only) at ${width}px`).toBeAttached()
+        await expect(juniorLabel, `Джун label attached (sr-only) at ${width}px`).toBeAttached()
+
+        const seniorBoxNarrow = await seniorLabel.boundingBox()
+        const juniorBoxNarrow = await juniorLabel.boundingBox()
+        expect(seniorBoxNarrow, `senior label box at ${width}px`).not.toBeNull()
+        expect(juniorBoxNarrow, `junior label box at ${width}px`).not.toBeNull()
+        expect(
+          intersects(seniorBoxNarrow!, juniorBoxNarrow!),
+          `Синьор/Джун sr-only labels overlap at ${width}px`,
+        ).toBe(false)
       }
 
       await page.setViewportSize({ width: 1024, height: 900 })
@@ -538,12 +641,6 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       const juniorBox = await juniorLabel.boundingBox()
       expect(seniorBox, 'senior label box at 1024px').not.toBeNull()
       expect(juniorBox, 'junior label box at 1024px').not.toBeNull()
-
-      const intersects = (
-        a: { x: number; y: number; width: number; height: number },
-        b: { x: number; y: number; width: number; height: number },
-      ) =>
-        a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
       expect(intersects(seniorBox!, juniorBox!), 'Синьор/Джун labels overlap at 1024px').toBe(false)
     } finally {
@@ -657,6 +754,132 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       if (bothPendingId) await deleteProjectViaAPI(page, bothPendingId)
       if (singleApproverId) await deleteProjectViaAPI(page, singleApproverId)
       await cleanupDropViaAPI(page, dropId)
+    }
+  })
+
+  /**
+   * COPY-H-5 (PR #646 fix-round 4, HIGH). QA-H-2's own clip test above only
+   * checks `rect.right <= containerRight` — true here regardless, because
+   * `lg:items-end` aligns the badge to the status column's OWN right edge,
+   * which happens to sit at the row's own right edge too. It cannot see a
+   * LEFT-ward overlap into the PREVIOUS column: at `lg:` (1024px+) the
+   * status column is a lone `1fr` track out of the row's `8fr` total
+   * (~86px at 1024px) — narrower than this badge's own intrinsic content
+   * (icon + "Ждёт подтверждения", ~118px, before the fix), so the overflow
+   * pushed LEFT into the rate/amount column's text ("USDT" read as "USD",
+   * copy-reviewer's own pixel-measured repro) — a real overlap that never
+   * touches the page's right edge at all. Checked on EVERY pending row (not
+   * just one), under BOTH a viewer who only sees the badge (ADMIN, not an
+   * invited approver here) and a viewer who ALSO sees the Confirm/Reject
+   * buttons in the same column (SENIOR, the invited approver on their own
+   * draft) — the finding's own note that the buttons (~110px) sit in the
+   * same narrow track.
+   */
+  test('COPY-H-5: the pending status badge (and, for the invited approver, the Confirm/Reject buttons) never overlaps the rate/amount column at 1024-1280', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { projectId: id1 } = await createSeniorProjectViaAPI(page, {
+      seniorEmail: SEED_EMAILS.seniorA,
+      name: `AAAA COPY-H-5 A ${suffix}`,
+      companyName: `AAAA COPY-H-5 A Co ${suffix}`,
+      skipApproval: true,
+    })
+    const { projectId: id2 } = await createSeniorProjectViaAPI(page, {
+      seniorEmail: SEED_EMAILS.seniorA,
+      name: `ZZZZ COPY-H-5 B ${suffix}`,
+      companyName: `ZZZZ COPY-H-5 B Co ${suffix}`,
+      skipApproval: true,
+    })
+    const projectIds = [id1, id2]
+    const WIDTHS = [1024, 1056, 1100, 1176, 1249, 1280]
+
+    const intersects = (
+      a: { x: number; y: number; width: number; height: number },
+      b: { x: number; y: number; width: number; height: number },
+    ) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+
+    // Shared per-row badge-vs-rate check, returning the rate box so the
+    // actions-vs-rate check below (SENIOR only) can reuse it without
+    // re-measuring. Split into TWO separate top-level loops below (rather
+    // than one loop branching on a boolean) so no `expect()` call ever sits
+    // inside an `if`/`else` — `playwright/no-conditional-expect` flags that
+    // shape unconditionally, independent of whether the branch depends on
+    // runtime test data or (as here) a fact already known at the call site.
+    async function assertBadgeNoOverlap(id: string, label: string, width: number) {
+      const row = page.getByTestId(`project-row-${id}`)
+      await expect(row).toBeVisible()
+      const badgeBox = await row.getByTestId(`project-row-${id}-status-pending`).boundingBox()
+      const rateBox = await row.getByTestId(`project-row-${id}-rate-column`).boundingBox()
+      expect(badgeBox, `${label}: badge box for ${id} at ${width}px`).not.toBeNull()
+      expect(rateBox, `${label}: rate column box for ${id} at ${width}px`).not.toBeNull()
+      expect(
+        intersects(badgeBox!, rateBox!),
+        `${label}: status badge overlaps rate/amount column for ${id} at ${width}px`,
+      ).toBe(false)
+      return { row, rateBox: rateBox! }
+    }
+
+    // ADMIN: is never the invited approver on either fixture project — no
+    // Confirm/Reject buttons render on this row at all (see `canAct` in
+    // ProjectRow.tsx). Asserts their absence too, not just skips checking
+    // them — a stray button set appearing for the wrong viewer would be its
+    // own RBAC regression, worth catching here rather than silently ignored.
+    async function assertNoOverlapAdmin() {
+      for (const width of WIDTHS) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(50)
+        for (const id of projectIds) {
+          const { row } = await assertBadgeNoOverlap(id, 'ADMIN', width)
+          await expect(
+            row.getByTestId(`project-approval-actions-${id}`),
+            `ADMIN: actions must NOT render for ${id} at ${width}px`,
+          ).toHaveCount(0)
+        }
+      }
+    }
+
+    // SENIOR (the invited approver on BOTH fixture projects): the SAME row
+    // now also renders the Confirm/Reject buttons directly in the status
+    // column — the finding's own note ("кнопки... сидят в той же колонке").
+    // Asserts the buttons actually render before trusting the overlap
+    // check — same "confirms fullest-content case actually rendered"
+    // precedent as the QA-H-1 test above (a hidden button set would make
+    // "doesn't overlap" a vacuous pass).
+    async function assertNoOverlapSenior() {
+      for (const width of WIDTHS) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(50)
+        for (const id of projectIds) {
+          const { row, rateBox } = await assertBadgeNoOverlap(id, 'SENIOR', width)
+          const actions = row.getByTestId(`project-approval-actions-${id}`)
+          await expect(actions, `SENIOR: actions visible for ${id} at ${width}px`).toBeVisible()
+          const actionsBox = await actions.boundingBox()
+          expect(actionsBox, `SENIOR: actions box for ${id} at ${width}px`).not.toBeNull()
+          expect(
+            intersects(rateBox, actionsBox!),
+            `SENIOR: Confirm/Reject buttons overlap rate/amount column for ${id} at ${width}px`,
+          ).toBe(false)
+        }
+      }
+    }
+
+    try {
+      await page.goto('/projects?status=PENDING')
+      await expect(page.getByTestId(`project-row-${id1}`)).toBeVisible()
+      await expect(page.getByTestId(`project-row-${id2}`)).toBeVisible()
+      await assertNoOverlapAdmin()
+
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      await page.goto('/projects?status=PENDING')
+      await expect(page.getByTestId(`project-row-${id1}`)).toBeVisible()
+      await expect(page.getByTestId(`project-row-${id2}`)).toBeVisible()
+      await assertNoOverlapSenior()
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await deleteProjectViaAPI(page, id1)
+      await deleteProjectViaAPI(page, id2)
     }
   })
 

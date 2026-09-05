@@ -246,12 +246,12 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(row.className).not.toContain('ring-amber-500/20')
   })
 
-  it('DRAFT: renders the "Ждёт подтверждения" badge, amber dot, ring — no opacity dimming', async () => {
+  it('DRAFT: renders the "Ждёт решения" badge (COPY-H-5, PR #646 fix-round 4 — was "Ждёт подтверждения"), amber dot, ring — no opacity dimming', async () => {
     const project = makeProject({ status: 'DRAFT', dropId: null })
     renderProjectRow(project)
 
     const badge = await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(badge).toHaveTextContent('Ждёт подтверждения')
+    expect(badge).toHaveTextContent('Ждёт решения')
     // .tagName check (not just getByText) — kills the `pendingCaption && <p>`
     // -> `pendingCaption || <p>` mutant, which getByText alone cannot see
     // (both render the same visible text, just not wrapped in a <p>).
