@@ -561,4 +561,21 @@ describe('UsersService.cancelSeniorShareChange — RBAC + actual effect', () => 
       'db connection lost',
     )
   })
+
+  // CI mutation-gate finding (this round, caught on a fresh runner — NOT
+  // reproduced by the same gate run locally, a coverage-analysis ordering
+  // difference, not a reason to trust the local run over CI's): the write
+  // itself succeeds (real proposal existed, real cancel ran) — this is the
+  // SEPARATE defensive guard on the re-fetch used to build the allow-listed
+  // response (`buildProfileView`'s own subject), same reasoning as
+  // approve's/reject's identical tests above. Missed when
+  // `cancelSeniorShareChange`'s own describe block was first written this
+  // round — the sibling methods already had this test, this one didn't.
+  it('throws (generic) ForbiddenException if the post-write viewer re-fetch comes back empty', async () => {
+    const h = buildHarness({ pendingSeniorSharePercent: 55 })
+    vi.spyOn(h.service, 'findById').mockResolvedValue(undefined)
+    await expect(h.service.cancelSeniorShareChange('senior-1', adminUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
 })
