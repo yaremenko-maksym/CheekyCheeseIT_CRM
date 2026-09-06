@@ -16,6 +16,10 @@ Not a pnpm workspace member — plain Python, `python -m pytest`, stdlib-first.
 - **Window:** a uniformly-random moment in **07:00-07:45 Europe/Kyiv**
   (`signal_plus/slot.py`, `zoneinfo`-based — correct across both DST
   transitions, never naive `datetime`).
+- **No roll-call on Sunday:** the automatic cycle (`--once` and the daemon)
+  does nothing at all on Sunday (Kyiv-local day of week) — no slot, no send,
+  no alert, no state write; `SIGNAL_SKIP_WEEKDAYS` below can widen this.
+  `--now` is an explicit manual action and always ignores this.
 - **Idempotent:** the date of the last successful send lives in a JSON state
   file, written atomically (temp file + `os.replace`). A restart after a
   successful send today does not send a second `+`.
@@ -45,7 +49,7 @@ cp .env.example .env   # then fill in real values
 
 ```bash
 signal-plus --groups   # list Signal groups with their ids, then exit
-signal-plus --now       # send immediately, skipping the slot wait (idempotency still respected)
+signal-plus --now       # send immediately, skipping the slot wait AND the Sunday/weekday skip (idempotency still respected)
 signal-plus --once      # run a single cycle (wait for the slot, send, exit)
 signal-plus              # daemon: repeats forever, one cycle per day
 ```
@@ -55,19 +59,20 @@ signal-plus              # daemon: repeats forever, one cycle per day
 Everything is env-driven (`signal_plus/config.py`) — nothing is hardcoded,
 no secret is ever in source. Full reference: `.env.example`.
 
-| Variable                     | Required | Purpose                                                            |
-| ---------------------------- | -------- | ------------------------------------------------------------------ |
-| `SIGNAL_ACCOUNT`             | yes      | the sending account (masked in logs)                               |
-| `SIGNAL_GROUP_ID`            | yes      | target group                                                       |
-| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                         |
-| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                            |
-| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)              |
-| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off)   |
-| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)           |
-| `HANDOVER_TIME`              | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                     |
-| `RESEND_API_KEY`             | no       | Resend API key for the handover email (unset = that layer skipped) |
-| `ALERT_EMAIL_FROM`           | no       | sender, default `site@cheekycheese.tech`                           |
-| `ALERT_EMAIL_TO`             | no       | handover email recipient (unset = that layer skipped)              |
+| Variable                     | Required | Purpose                                                                    |
+| ---------------------------- | -------- | -------------------------------------------------------------------------- |
+| `SIGNAL_ACCOUNT`             | yes      | the sending account (masked in logs)                                       |
+| `SIGNAL_GROUP_ID`            | yes      | target group                                                               |
+| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                                 |
+| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                                    |
+| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)                      |
+| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off)           |
+| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)                   |
+| `HANDOVER_TIME`              | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                             |
+| `SIGNAL_SKIP_WEEKDAYS`       | no       | ISO weekdays (1=Mon..7=Sun) to skip entirely, comma-separated, default `7` |
+| `RESEND_API_KEY`             | no       | Resend API key for the handover email (unset = that layer skipped)         |
+| `ALERT_EMAIL_FROM`           | no       | sender, default `site@cheekycheese.tech`                                   |
+| `ALERT_EMAIL_TO`             | no       | handover email recipient (unset = that layer skipped)                      |
 
 ## Testing
 

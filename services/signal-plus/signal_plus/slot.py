@@ -26,6 +26,12 @@ WINDOW_START = time(7, 0)
 WINDOW_END = time(7, 45)
 DEFAULT_CUTOFF = time(8, 0)
 
+# task-signal-plus-sunday-skip.md requirement 1: "по воскресеньям перекличка
+# не проводится" -- ISO weekday numbering (Monday=1 ... Sunday=7). Overridable
+# via config.Config.skip_weekdays (SIGNAL_SKIP_WEEKDAYS env var); this is only
+# the built-in default.
+SKIP_ISO_WEEKDAYS: frozenset[int] = frozenset({7})
+
 
 def pick_slot(
     target_date: date,
@@ -79,3 +85,17 @@ def is_past_cutoff(
     """
     local_time = now.astimezone(tz).timetz().replace(tzinfo=None)
     return local_time >= cutoff
+
+
+def is_skipped_weekday(day: date, *, skip_weekdays: frozenset[int] = SKIP_ISO_WEEKDAYS) -> bool:
+    """True if ``day``'s ISO weekday (Monday=1 ... Sunday=7) is one the
+    roll-call is not held on (task-signal-plus-sunday-skip.md requirement 1).
+
+    ``day`` must already be the Kyiv-local calendar date — unlike
+    :func:`is_late`/:func:`is_past_cutoff` this function does no tz
+    conversion itself, because every caller (``cli.run_cycle``,
+    ``docker-healthcheck.py``) already computes ``today`` via
+    ``now.astimezone(TIMEZONE).date()`` for other reasons (idempotency
+    checks) before it would need this check too.
+    """
+    return day.isoweekday() in skip_weekdays
