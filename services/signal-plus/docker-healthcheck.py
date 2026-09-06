@@ -28,6 +28,12 @@ ends. So:
 This intentionally never fires "unhealthy" during the many-hours-long
 ordinary idle stretches (pre-slot wait, post-success rest-of-day) that a
 plain state-file-mtime-freshness check would misfire on.
+
+task-signal-plus-sunday-skip.md AC6: on a skipped weekday (Sunday by
+default, ``config.skip_weekdays``) ``signal_plus.cli.run_cycle`` no-ops
+entirely and never writes EITHER ``last_success_date`` or ``handover_date``
+-- so without the check below, this script would misreport UNHEALTHY every
+single skipped day once past the cutoff, despite nothing being wrong.
 """
 from __future__ import annotations
 
@@ -56,6 +62,8 @@ def check(now: datetime) -> tuple[bool, str]:
 
     today = now.astimezone(slot.TIMEZONE).date()
 
+    if slot.is_skipped_weekday(today, skip_weekdays=config.skip_weekdays):
+        return True, f"{today} ({today.strftime('%A')}) is a skipped weekday; no roll-call expected"
     if st.last_success_date == today:
         return True, f"already sent today ({today})"
     if st.handover_date == today:

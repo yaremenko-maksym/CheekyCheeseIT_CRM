@@ -119,6 +119,15 @@ COPY tests ./tests
 # actually building this stage, not assumed OK because the standalone
 # script runs fine from a real checkout, where the layout differs).
 COPY verify-release-signature.sh ./
+# task-signal-plus-sunday-skip.md AC6: same gotcha as the COPY above, this
+# time for tests/test_docker_healthcheck.py, which loads
+# ../docker-healthcheck.py BY FILE PATH (importlib -- the filename has a
+# hyphen, so it cannot be a normal import) relative to itself. Without this
+# COPY, this stage's `python -m pytest` fails collection entirely
+# (FileNotFoundError: /src/docker-healthcheck.py) -- caught by actually
+# building this stage on PR #660, not assumed OK from a real checkout, where
+# the file is one directory up and present.
+COPY docker-healthcheck.py ./
 RUN pip install --no-cache-dir '.[dev]'
 # AC6 (task-signal-plus-service.md): the suite itself refuses real
 # signal-cli/network access (tests/conftest.py empties PATH and forbids
