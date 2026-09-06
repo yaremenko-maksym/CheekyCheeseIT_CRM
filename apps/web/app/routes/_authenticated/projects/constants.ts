@@ -40,7 +40,22 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
  * (two-line tab strip) on 640-749px viewports, a width range this repo's
  * E2E suite does not test (only 320/375/768+), which is why the mechanical
  * gate stayed green through it. 'На подтверждении' (113.5px) drops the
- * requirement to 538px, fitting from 640px up.
+ * requirement to 538px.
+ *
+ * UX-M-3(r5) (PR #646 fix-round 5, MED — design review). "Fitting from
+ * 640px up" (this comment's own prior claim) was never true: the desktop
+ * `<aside>` sidebar (nav-sidebar.tsx, `hidden md:flex` + `w-52` = 208px)
+ * does not exist below `md:` (768px) at all, so 640-767px genuinely has
+ * the full viewport width to spare — but the SAME 538px toggle, sharing a
+ * row with that sidebar from exactly 768px on, only has
+ * `768 − 208(sidebar) − ~48(page padding) ≈ 512px` left, ~26px short —
+ * confirmed to wrap in that band and to stop wrapping again once viewport
+ * width outgrows the sidebar tax (≈795px, where the same arithmetic
+ * clears 538px again). These full labels are therefore only guaranteed
+ * single-line at `sm:` (640-767, no sidebar yet) and `lg:`+ (1024+, sidebar
+ * present but the row has grown enough to absorb it) — the 768-1023px band
+ * uses `STATUS_FILTER_LABELS_MOBILE` instead (index.tsx's third toggle
+ * instance, `tabOptionsMd`), not these.
  */
 export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
   ACTIVE: 'Активные',

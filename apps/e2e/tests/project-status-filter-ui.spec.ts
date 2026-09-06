@@ -910,6 +910,59 @@ test.describe('Project status filter — AC5 (responsive)', () => {
     }
   })
 
+  /**
+   * UX-M-3(r5) (PR #646 fix-round 5, MED — design review). The desktop
+   * status-tabs toggle (`w-fit sm:grid`, index.tsx) sizes itself to its own
+   * longest label ("На подтверждении", constants.ts) starting at `sm:`
+   * (640px) — but the desktop `<aside>` sidebar (nav-sidebar.tsx, `md:flex`
+   * + `w-52` = 208px) does not exist below `md:` (768px). At exactly 768px
+   * the sidebar snaps into existence and eats 208px of the SAME available
+   * width the toggle's `w-fit` sizing has to share — a budget the
+   * constants.ts comment's own "fits from 640px up" claim never accounted
+   * for. Confirmed (design review) to wrap specifically in the ~768-795px
+   * band, unwrapping again once viewport width outgrows the sidebar tax.
+   * Reference height is measured live (1024px, already screenshot-confirmed
+   * single-line by fix-round 4) rather than a guessed pixel constant.
+   *
+   * The fix adds a THIRD toggle instance (`projects-status-tabs-md`,
+   * abbreviated labels) visible ONLY in this exact band — this test locates
+   * whichever toggle is ACTUALLY on screen at each width (the desktop
+   * `projects-status-tabs` instance is `display:none` there by design, and
+   * `boundingBox()` on a hidden element returns `null`) rather than
+   * assuming which testid answers, so it keeps proving the OBSERVABLE
+   * fact (no tab wraps) independent of which instance renders it.
+   */
+  test('UX-M-3(r5): ADMIN status tabs stay single-line at 768/780/795 — the sidebar appearing at md: used to wrap "На подтверждении" onto a second line', async ({
+    page,
+  }) => {
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await page.goto('/projects')
+
+    const visibleTabs = () =>
+      page.locator('[role="tablist"][aria-label="Фильтр проектов по статусу"]:visible')
+
+    await page.setViewportSize({ width: 1024, height: 900 })
+    await page.waitForTimeout(50)
+    const desktopButtons = visibleTabs().locator('button')
+    const singleLineHeight = (await desktopButtons.first().boundingBox())!.height
+
+    for (const width of [768, 780, 795]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.waitForTimeout(50)
+      const buttons = visibleTabs().locator('button')
+      const count = await buttons.count()
+      expect(count, `visible tab count at ${width}px`).toBeGreaterThan(0)
+      for (let i = 0; i < count; i++) {
+        const box = await buttons.nth(i).boundingBox()
+        expect(box, `tab ${i} box at ${width}px`).not.toBeNull()
+        expect(
+          box!.height,
+          `tab ${i} height at ${width}px wraps to 2 lines (single-line reference ${singleLineHeight}px)`,
+        ).toBeLessThanOrEqual(singleLineHeight + 2)
+      }
+    }
+  })
+
   test('mobile (375): tab buttons meet the 44px touch-target minimum', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.setViewportSize({ width: 375, height: 800 })

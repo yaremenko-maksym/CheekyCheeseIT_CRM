@@ -504,6 +504,24 @@ function ProjectsPage() {
       ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
     }),
   )
+  // UX-M-3(r5) (PR #646 fix-round 5, MED — design review). A THIRD option
+  // set, for a THIRD toggle instance visible ONLY in the exact band the
+  // desktop sidebar's `md:` appearance breaks (768-1023px — see
+  // constants.ts's own corrected comment on `STATUS_FILTER_LABELS` for the
+  // mechanism). Reuses the SAME abbreviated wording the mobile instance
+  // already carries (already measured to fit a far tighter 320px budget)
+  // rather than inventing a fourth wording for the same four facts — own
+  // testId suffix (`-md`, not `-mobile`) so a duplicate, permanently-hidden
+  // `toggle-archived-projects-mobile` never sits in the DOM alongside the
+  // real mobile instance (strict-mode hazard for any future selector).
+  const tabOptionsMd: ReadonlyArray<SegmentedToggleOption<StatusTab>> = allowedTabs.map(
+    (value) => ({
+      value,
+      label: STATUS_FILTER_LABELS_MOBILE[value],
+      ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects-md' } : {}),
+      ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
+    }),
+  )
 
   // task-project-status-filter-ui §6/§10. Per-tab (and, for PENDING/
   // REJECTED — which only ADMIN/SENIOR ever see per `allowedTabs` — per
@@ -552,13 +570,19 @@ function ProjectsPage() {
         {/* task-project-status-filter-ui (design spec §2/§5): status tabs —
             ADMIN (4 values) or SENIOR (2 values); hidden for every other
             role (unchanged from the old ADMIN-only gate for THEM, ut-25 +
-            ut-26 + ut-33 + ut-44's original AC1-AC2). Two instances, swapped
-            by breakpoint (not just width) — same convention as
-            vacancies/index.tsx's status filter: the mobile instance uses
-            shortened labels (STATUS_FILTER_LABELS_MOBILE), not a different
-            control, and adds `[&>button]:min-h-11` so each tab button meets
-            the 44px mobile touch-target minimum (§5/§8/§10 a11y — the
-            desktop instance is unaffected). */}
+            ut-26 + ut-33 + ut-44's original AC1-AC2). THREE instances,
+            swapped by breakpoint (not just width) — same convention as
+            vacancies/index.tsx's status filter, extended by one band
+            (UX-M-3(r5), PR #646 fix-round 5): mobile (<640) and md-only
+            (768-1023, `tabOptionsMd`) share the SAME shortened labels
+            (STATUS_FILTER_LABELS_MOBILE) — the desktop `<aside>` sidebar
+            (nav-sidebar.tsx, `w-52` from `md:` up) eats 208px of the exact
+            width the full-label instance's `w-fit` sizing has to share,
+            which used to wrap "На подтверждении" onto a second line
+            specifically in that band (constants.ts has the full mechanism).
+            `[&>button]:min-h-11` (mobile only) meets the 44px mobile
+            touch-target minimum (§5/§8/§10 a11y) — the md/desktop instances
+            are unaffected (mouse-driven widths). */}
         {(isAdmin || isSenior) && (
           <>
             <SegmentedToggle<StatusTab>
@@ -575,12 +599,23 @@ function ProjectsPage() {
             <SegmentedToggle<StatusTab>
               value={currentTab}
               onChange={handleTabChange}
+              options={tabOptionsMd}
+              ariaLabel="Фильтр проектов по статусу"
+              variant="tabs"
+              size="sm"
+              layoutId="projects-status-tabs-md"
+              className="hidden w-fit md:grid lg:hidden"
+              testId="projects-status-tabs-md"
+            />
+            <SegmentedToggle<StatusTab>
+              value={currentTab}
+              onChange={handleTabChange}
               options={tabOptions}
               ariaLabel="Фильтр проектов по статусу"
               variant="tabs"
               size="sm"
               layoutId="projects-status-tabs"
-              className="hidden w-fit sm:grid"
+              className="hidden w-fit sm:grid md:hidden lg:grid"
               testId="projects-status-tabs"
             />
             {/* §10 (SC 4.1.3): the tab switch itself is announced natively
