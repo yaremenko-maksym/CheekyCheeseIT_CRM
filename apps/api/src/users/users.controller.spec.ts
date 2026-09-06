@@ -383,3 +383,81 @@ describe('UsersController.changePersonalEmail', () => {
     expect(inviteMailer.sendInvite).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------------------
+// task-648-fix-round-1 (mutation-gate NoCoverage gap-fill). The three
+// senior-share routes are thin `return this.usersService.<method>(...)`
+// wrappers — a mutant replacing the WHOLE body with `{}` returns `undefined`
+// instead of the service's result, a real regression (the HTTP caller would
+// get an empty response body). `senior-share-guard-stack.controller.
+// integration.spec.ts` (SR-M-4) proves the surrounding guard stack against a
+// REAL app, but it is an `*.integration.spec.ts` file the mutation gate
+// cannot execute (mutation-gate-integration-specs.md) — these three tests
+// give the gate something to run for the exact three lines it flagged.
+// ---------------------------------------------------------------------------
+
+describe('UsersController — senior-share approve/reject/cancel delegate to the service', () => {
+  const senior = session(makeUser({ id: 'senior-1', role: 'SENIOR' }))
+  const admin = session(makeUser({ id: 'admin-id-1', role: 'ADMIN' }))
+
+  function makeController(usersService: Record<string, ReturnType<typeof vi.fn>>): UsersController {
+    return new UsersController(
+      usersService as never,
+      { list: vi.fn() } as never,
+      {} as never,
+      undefined,
+      undefined,
+    )
+  }
+
+  it('approveSeniorShareChange: calls the service with (id, currentUser) and returns its result verbatim', async () => {
+    const resolved = { user: { seniorSharePercent: 55 } }
+    const usersService = { approveSeniorShareChange: vi.fn().mockResolvedValue(resolved) }
+    const controller = makeController(usersService)
+
+    const result = await controller.approveSeniorShareChange('senior-1', senior)
+
+    expect(usersService.approveSeniorShareChange).toHaveBeenCalledWith('senior-1', senior)
+    expect(result).toBe(resolved)
+  })
+
+  it('rejectSeniorShareChange: parses the body, calls the service with (id, reason, currentUser), returns its result verbatim', async () => {
+    const resolved = { user: { seniorSharePercent: 26 } }
+    const usersService = { rejectSeniorShareChange: vi.fn().mockResolvedValue(resolved) }
+    const controller = makeController(usersService)
+
+    const result = await controller.rejectSeniorShareChange(
+      'senior-1',
+      { reason: 'не согласовано' },
+      senior,
+    )
+
+    expect(usersService.rejectSeniorShareChange).toHaveBeenCalledWith(
+      'senior-1',
+      'не согласовано',
+      senior,
+    )
+    expect(result).toBe(resolved)
+  })
+
+  it('rejectSeniorShareChange: an empty reason never reaches the service (schema-level 400)', () => {
+    const usersService = { rejectSeniorShareChange: vi.fn() }
+    const controller = makeController(usersService)
+
+    // `.parse()` throws SYNCHRONOUSLY inside this non-`async` method, before
+    // any promise exists to reject — `.rejects` would not observe it.
+    expect(() => controller.rejectSeniorShareChange('senior-1', { reason: '' }, senior)).toThrow()
+    expect(usersService.rejectSeniorShareChange).not.toHaveBeenCalled()
+  })
+
+  it('cancelSeniorShareChange: calls the service with (id, currentUser) and returns its result verbatim', async () => {
+    const resolved = { user: { pendingSeniorSharePercent: null } }
+    const usersService = { cancelSeniorShareChange: vi.fn().mockResolvedValue(resolved) }
+    const controller = makeController(usersService)
+
+    const result = await controller.cancelSeniorShareChange('senior-1', admin)
+
+    expect(usersService.cancelSeniorShareChange).toHaveBeenCalledWith('senior-1', admin)
+    expect(result).toBe(resolved)
+  })
+})

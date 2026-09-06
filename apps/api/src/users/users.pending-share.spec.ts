@@ -29,6 +29,18 @@ const seniorUser: SessionUser = {
   seniorSharePercent: 26,
 }
 const impersonatedSenior: SessionUser = { ...seniorUser, impersonatorId: 'admin-1' }
+// task-648-fix-round-1 (AC9 mutation-gate gap-fill): only used by the
+// `cancelSeniorShareChange` RBAC block below — every other describe in this
+// file is scoped to the affected SENIOR's own session.
+const adminUser: SessionUser = {
+  id: 'admin-1',
+  role: 'ADMIN',
+  displayName: 'Admin',
+  email: 'a@x.com',
+  avatarUrl: null,
+  avatarDocumentId: null,
+  seniorSharePercent: 26,
+}
 
 interface UserRow {
   id: string
@@ -511,5 +523,42 @@ describe('UsersService.changeSalary — proposeSeniorShareChangeInTx branch', ()
     )
     const updated = await h.service.changeSalary('senior-1', { seniorSharePercent: 26 }, 'admin-1')
     expect(updated.pendingSeniorSharePercent).toBeNull()
+  })
+})
+
+// task-648-fix-round-1 (mutation-gate NoCoverage gap-fill, mirrors the
+// identical `ProjectsService.cancelSeniorShareChange` block in
+// projects.pending-share.spec.ts). NOTHING previously called the PUBLIC
+// `cancelSeniorShareChange` directly — every existing test above reaches
+// `cancelSeniorShareChangeCore` only through the private no-op branch inside
+// `proposeSeniorShareChangeInTx`, which never exercises this method's own
+// RBAC gate (`role !== 'ADMIN'`) or its post-write `findById`/`!viewer`
+// guard. The mutation gate's own report flagged this exact span
+// (users.service.ts:302-313) as NoCoverage with no integration-spec hint.
+describe('UsersService.cancelSeniorShareChange — RBAC + actual effect', () => {
+  it('rejects a SENIOR caller (RBAC: only ADMIN may cancel a base-share proposal)', async () => {
+    const h = buildHarness()
+    await expect(h.service.cancelSeniorShareChange('senior-1', seniorUser)).rejects.toThrow(
+      'Отменить предложение по доле может только ADMIN',
+    )
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN: calls approvals.cancelInTx with the exact subject, and clears pendingSeniorSharePercent on the user row', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 55 })
+    await h.service.cancelSeniorShareChange('senior-1', adminUser)
+    expect(h.approvals.cancelInTx).toHaveBeenCalledWith(h.txHandle, 'USER_SENIOR_SHARE', 'senior-1')
+    expect(h.userRow.pendingSeniorSharePercent).toBeNull()
+    // The ACTIVE value is untouched — cancel withdraws the PROPOSAL, never
+    // the percent that is already live.
+    expect(h.userRow.seniorSharePercent).toBe(26)
+  })
+
+  it('a genuine cancelInTx failure (not NotFoundException) propagates instead of being swallowed', async () => {
+    const h = buildHarness({ pendingSeniorSharePercent: 55 })
+    h.approvals.cancelInTx.mockRejectedValue(new Error('db connection lost'))
+    await expect(h.service.cancelSeniorShareChange('senior-1', adminUser)).rejects.toThrow(
+      'db connection lost',
+    )
   })
 })
