@@ -636,9 +636,15 @@ function ProjectShareInfo({
  */
 function PendingShareApprovalBanner({
   projectId,
+  currentPercent,
   pending,
 }: {
   projectId: string
+  /** task-648-fix-round-1 (COPY-M-6): the ACTIVE override/default, shown
+   * alongside the proposed value — same fallback `ProjectShareInfo` already
+   * uses (`seniorSharePercentOverride ?? seniorSharePercentDefault`), so the
+   * number here always agrees with the badge on the same page. */
+  currentPercent: number
   pending: NonNullable<ProjectDetailDto['pendingSeniorShare']>
 }) {
   const qc = useQueryClient()
@@ -694,10 +700,18 @@ function PendingShareApprovalBanner({
       className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-3"
       data-testid="pending-share-approval-banner"
     >
+      {/* task-648-fix-round-1 (COPY-H-2/COPY-M-6): both branches now name
+          "сейчас"/"предлагают" — the decision this banner asks for is a
+          comparison, and until now only the proposed side was on screen.
+          The `null` branch still never guesses the resolved fallback
+          number — it comes from the server's own resolver
+          (`effectivePercentAfterApproval`), same as before this fix. */}
       <p className="text-sm">
         {pending.percent === null ? (
           <>
-            Будет действовать базовый/командный процент:{' '}
+            По проекту предлагают снять индивидуальную долю — сейчас{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, останется базовый
+            или командный процент:{' '}
             <span className="font-medium tabular-nums">
               {pending.effectivePercentAfterApproval}%
             </span>
@@ -705,7 +719,8 @@ function PendingShareApprovalBanner({
           </>
         ) : (
           <>
-            Новый процент по вашей доле:{' '}
+            Вашу долю по проекту предлагают изменить: сейчас{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, предлагают{' '}
             <span className="font-medium tabular-nums">{pending.percent}%</span>.{' '}
           </>
         )}
@@ -1303,6 +1318,9 @@ function ProjectDetailPage() {
           <div className="px-4 sm:px-6">
             <PendingShareApprovalBanner
               projectId={project.id}
+              currentPercent={
+                project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
+              }
               pending={project.pendingSeniorShare}
             />
           </div>

@@ -206,7 +206,15 @@ export function useApproveSeniorShareChange(userId: string) {
       // noun (COPY-M-4 — CONTEXT.md's "Доля синьора" entry).
       toast.success(`Ваша доля теперь ${data.user.seniorSharePercent}%`)
     },
-    onError: (e: unknown) => toast.error(seniorShareErrorMessage(e)),
+    // task-648-fix-round-1 (QA-MED-5): refetch on failure too — the OverviewTab
+    // twin of $projectId.tsx's identical fix. Without this a stale banner from
+    // a proposal already resolved elsewhere (409/404) stayed fully clickable,
+    // showing a number that no longer meant anything.
+    onError: (e: unknown) => {
+      toast.error(seniorShareErrorMessage(e))
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+    },
   })
 }
 
@@ -238,7 +246,13 @@ export function useRejectSeniorShareChange(userId: string) {
       // that the reason is visible, matching the dialog's own promise.
       toast.success('Доля отклонена — действует прежний процент. Админ увидит причину')
     },
-    onError: (e: unknown) => toast.error(seniorShareErrorMessage(e)),
+    // task-648-fix-round-1 (QA-MED-5): same refetch-on-failure fix as
+    // useApproveSeniorShareChange above.
+    onError: (e: unknown) => {
+      toast.error(seniorShareErrorMessage(e))
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+    },
   })
 }
 

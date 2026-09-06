@@ -194,15 +194,21 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     })
   })
 
-  it("the exact copy names the pending percent, with the space JSX needs an explicit {' '} for", () => {
+  it("the exact copy names BOTH the active and the pending percent, with the spaces JSX needs an explicit {' '} for", () => {
+    // task-648-fix-round-1 (COPY-M-5/COPY-M-6): "доля по умолчанию" (no
+    // "базов*"), and BOTH numbers on screen — the default fixture's
+    // `seniorSharePercent: 26` is the ACTIVE value shown alongside the
+    // PENDING 55.
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     const banner = screen.getByTestId('pending-base-share-approval-banner')
-    // A single assertion spanning the JSX text node AND the `{' '}` spacer
-    // AND the <span> — `.toContain('...доли')` +
-    // `.toContain('55%')` SEPARATELY would not notice `{' '}` collapsing to
-    // `{''}` (both substrings would still individually be present, just
-    // run together as "...доли:55%").
-    expect(banner.textContent).toContain('Новый базовый процент вашей доли: 55%')
+    // A single assertion spanning the JSX text nodes AND the `{' '}` spacers
+    // AND the <span>s — `.toContain(...)` on the individual pieces
+    // separately would not notice a `{' '}` collapsing to `{''}` (the
+    // substrings would still individually be present, just run together).
+    expect(banner.textContent).toContain(
+      'Вашу долю по умолчанию предлагают изменить: сейчас 26%, предлагают 55%',
+    )
+    expect(banner.textContent).toContain('действует 26%')
   })
 
   it('approve: POSTs to the approve endpoint with no body and shows the exact success toast', async () => {

@@ -84,9 +84,14 @@ function RequisitesMissingBanner({ onGoToRequisites }: { onGoToRequisites: () =>
  */
 function PendingBaseShareBanner({
   userId,
+  currentPercent,
   pending,
 }: {
   userId: string
+  /** task-648-fix-round-1 (COPY-M-6): the ACTIVE value, shown alongside the
+   * proposed one so the reader can compare — the resolver still returns
+   * this (AC2), unchanged, for as long as this banner is visible. */
+  currentPercent: number
   pending: NonNullable<UserProfileDto['pendingSeniorShare']>
 }) {
   const [rejectOpen, setRejectOpen] = useState(false)
@@ -108,10 +113,16 @@ function PendingBaseShareBanner({
       className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-3"
       data-testid="pending-base-share-approval-banner"
     >
+      {/* task-648-fix-round-1 (COPY-M-5/COPY-M-6): "доля по умолчанию" — same
+          term CONTEXT.md's "Доля синьора" entry uses, no "базов*" (that word
+          appears nowhere else in apps/web). Shows BOTH numbers — the reader
+          decides by comparing "сейчас" against "предлагают", and until now
+          only one of the two was on screen. */}
       <p className="text-sm">
-        Новый базовый процент вашей доли:{' '}
-        <span className="font-medium tabular-nums">{pending.percent}%</span>. Действующий процент
-        применяется, пока вы не подтвердите.
+        Вашу долю по умолчанию предлагают изменить: сейчас{' '}
+        <span className="font-medium tabular-nums">{currentPercent}%</span>, предлагают{' '}
+        <span className="font-medium tabular-nums">{pending.percent}%</span>. Пока вы не
+        подтвердите, действует {currentPercent}%.
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -367,7 +378,11 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
           share (ADMIN, or the senior viewed by ACCOUNTANT/HR-with-access)
           only gets the informational badge inside the "Доля" card below. */}
       {mode === 'self' && user.role === 'SENIOR' && user.pendingSeniorShare && (
-        <PendingBaseShareBanner userId={user.id} pending={user.pendingSeniorShare} />
+        <PendingBaseShareBanner
+          userId={user.id}
+          currentPercent={user.seniorSharePercent ?? 0}
+          pending={user.pendingSeniorShare}
+        />
       )}
 
       {kpiCards > 0 && (
