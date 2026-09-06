@@ -237,12 +237,17 @@ describe('UsersService — SR-M-6: uniform lock order (users → approvals) on e
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
     await h.service.rejectSeniorShareChange('senior-1', 'Слишком много', seniorUser)
     expect(h.lockOrder).toEqual(['users:for-update', 'approvals:rejectInTx'])
+    // ...and it is a real row LOCK, not a plain read. Order alone would be
+    // satisfied by `.for('')` — which locks nothing and so prevents nothing.
+    expect(h.selectForCalls).toEqual(['update'])
   })
 
   it('cancel locks the user row BEFORE approvals.cancelInTx', async () => {
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
     await h.service.cancelSeniorShareChange('senior-1', adminUser)
     expect(h.lockOrder).toEqual(['users:for-update', 'approvals:cancelInTx'])
+    // Same reasoning as the reject twin above.
+    expect(h.selectForCalls).toEqual(['update'])
   })
 
   // task-648-fix-round-2 (AC9): the not-found guard that now sits on each of
@@ -252,12 +257,16 @@ describe('UsersService — SR-M-6: uniform lock order (users → approvals) on e
   it('cancel: throws NotFoundException with the exact message when the row vanished before the lock', async () => {
     const h = buildHarness({ pendingSeniorSharePercent: 80 })
     h.setSelectForUpdateRows([])
-    // `.toThrow('x')` is substring containment, so a BLANKED message would
-    // still satisfy it (every string contains ''). Matched exactly instead —
-    // this is user-facing copy (russian-language.md), not a log line.
-    await expect(h.service.cancelSeniorShareChange('senior-1', adminUser)).rejects.toMatchObject({
-      message: 'Пользователь не найден',
-    })
+    // `toThrow(string)` is substring containment, which sounds too weak for a
+    // blanked message — but `new NotFoundException('')` does not produce an
+    // empty message, it produces Nest's default 'Not Found', which does NOT
+    // contain this Russian string. (`toMatchObject({ message })` would be the
+    // weaker choice here: `Error.prototype.message` is non-enumerable, so it
+    // matches vacuously — verified by the mutation gate, which kept reporting
+    // this line as surviving until the assertion was put back.)
+    await expect(h.service.cancelSeniorShareChange('senior-1', adminUser)).rejects.toThrow(
+      'Пользователь не найден',
+    )
     // The guard runs BEFORE approvals is touched.
     expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
   })
@@ -265,10 +274,10 @@ describe('UsersService — SR-M-6: uniform lock order (users → approvals) on e
   it('reject: throws NotFoundException with the exact message when the row vanished before the lock', async () => {
     const h = buildHarness({ pendingSeniorSharePercent: 80 })
     h.setSelectForUpdateRows([])
-    // Exact match, not substring — see the cancel twin above.
+    // See the cancel twin above for why substring containment is enough here.
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'Слишком много', seniorUser),
-    ).rejects.toMatchObject({ message: 'Пользователь не найден' })
+    ).rejects.toThrow('Пользователь не найден')
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })
 })
