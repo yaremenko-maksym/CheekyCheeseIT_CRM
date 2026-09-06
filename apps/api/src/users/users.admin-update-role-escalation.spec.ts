@@ -41,6 +41,15 @@ const makeUsersService = (db: DrizzleDb): UsersService =>
     makeAccessService() as never,
     makeAuditLogService() as never,
     makeTosService(),
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    // task-pending-share fix-round-1 (CR-H-1): working `getStatus` stub —
+    // none of this file's role-escalation scenarios pass `seniorSharePercent`
+    // (so `proposeSeniorShareChangeInTx` is never reached), but
+    // `buildProfileView` still needs `this.approvals` to exist.
+    { getStatus: async () => 'NONE' as const } as never,
   )
 
 /** Full user DB row */

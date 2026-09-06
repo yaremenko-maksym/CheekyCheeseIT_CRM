@@ -1605,6 +1605,38 @@ export async function dismissDialog(page: Page) {
  * occupied by a concurrent worktree's dev stack) without touching every
  * call-site. Defaults to the standard dev/CI port — existing specs are
  * unaffected.
+ *
+ * task-pending-share (2026-09-04): running the FULL suite against a
+ * self-provisioned scratch DB + scratch API/web pair (never the live
+ * `crm_db` or the live :3000/:3001 pair — see live-db-access.md /
+ * light-track.md's port list) needs FOUR env vars set together, none of
+ * which are collected in one place anywhere else in this repo:
+ *   - `PLAYWRIGHT_BASE_URL` (playwright.config.ts) — drives BROWSER
+ *     navigation only.
+ *   - `E2E_REAL_API_BASE` (this constant) — drives the DIRECT
+ *     `apiRequestContext` calls (`dev-login` and most setup/teardown
+ *     helpers) in this file. Separate from the two below because neither
+ *     of them is read by a Node test process at all — they configure the
+ *     WEB DEV SERVER, started as its own separate command.
+ *   - `VITE_PROXY_API_TARGET` (apps/web/vite.config.ts) — the web dev
+ *     server's OWN `/api` proxy target for same-origin requests made BY
+ *     THE BROWSER (i.e. the app under test, not this fixture file).
+ *     Distinct from `VITE_API_URL` (the frontend axios client's base URL);
+ *     both default to :3001 independently and neither is driven by the
+ *     other — setting only one leaves the other silently pointed at the
+ *     live pair, or (worse) creates a self-proxy loop if the web dev
+ *     server was also given a non-default `--port` matching that default.
+ *   - `THROTTLE_RELAXED=true` (apps/api/src/config/env.ts, non-production
+ *     only) on the scratch API — the suite's own parallel workers calling
+ *     `dev-login` from `127.0.0.1` comfortably exceed the default
+ *     `THROTTLER_LIMIT` (100 req/60s), which 429s cascade into failures
+ *     across spec files that have nothing to do with whatever the actual
+ *     change under test touches.
+ * Also start the web dev server with `--strictPort` (`vite --port <port>
+ * --strictPort`, not `pnpm dev -- --port <port>` — a literal `--` can
+ * reach vite's own arg parser and get silently ignored, falling back to
+ * vite's default port search) so a port collision fails loudly instead of
+ * silently binding elsewhere.
  */
 export const REAL_API_BASE = process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'
 
@@ -2510,6 +2542,30 @@ export async function patchUserSharePercentViaAPI(
   if (res.status() !== 200) {
     throw new Error(
       `patchUserSharePercentViaAPI failed for ${userId}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+}
+
+/**
+ * task-pending-share fix-round-1 (CR-H-2). Confirms a PENDING base-share
+ * proposal (opened by `patchUserSharePercentViaAPI` above, which now only
+ * proposes — it doesn't apply `seniorSharePercent` immediately any more) on
+ * behalf of the SENIOR whose share it is.
+ *
+ * `POST /users/:id/senior-share/approve` requires the caller to BE the
+ * invited approver — `ApprovalsService.approveInTx` matches the live row on
+ * `approverUserId` taken from the SESSION, not from the request body — so
+ * the caller of this helper must already be logged in (`loginViaApi`) as
+ * that same senior before calling it. Default NestJS POST status is 201
+ * (no `@HttpCode` override on this route, same as its `approveDraft`
+ * sibling), asserted here rather than left implicit so a future
+ * `@HttpCode(200)` change fails loudly instead of silently.
+ */
+export async function approveUserSeniorShareViaAPI(page: Page, userId: string): Promise<void> {
+  const res = await page.request.post(`${REAL_API_BASE}/api/users/${userId}/senior-share/approve`)
+  if (res.status() !== 201) {
+    throw new Error(
+      `approveUserSeniorShareViaAPI failed for ${userId}: HTTP ${res.status()} — ${await res.text()}`,
     )
   }
 }

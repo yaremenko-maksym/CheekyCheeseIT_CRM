@@ -189,6 +189,75 @@ export class ApprovalsService {
   }
 
   /**
+   * task-648-fix-round-1 (SR-H-1). The proposal's OWNER (whoever is allowed
+   * to propose for this subject — an ADMIN, not the approver) withdraws an
+   * open proposal outright, before the approver has answered it. Distinct
+   * from `rejectInTx` in every dimension that matters for an audit trail:
+   * WHO acts (the proposer's side, not the invited approver), WHETHER a
+   * reason exists (none — withdrawing your own mistake needs no
+   * justification to anyone), and the resulting row STATUS (`CANCELLED`,
+   * never `REJECTED` — so history never misattributes an admin's own
+   * withdrawal to the approver declining).
+   *
+   * Only rows still `PENDING` are cancelled — a row that already transitioned
+   * to `APPROVED` (the swap already ran, in the SAME transaction as
+   * `approveInTx`) is a real, live decision, not an open ask, and cancelling
+   * it after the fact would misrepresent history as if the value change had
+   * never happened when it demonstrably did. For every subject this PR
+   * wires (`PROJECT_SENIOR_SHARE`, `USER_SENIOR_SHARE` — exactly one
+   * approver each), this distinction only matters in the race between an
+   * admin's cancel and the senior's approve; for a hypothetical
+   * multi-approver subject it also means a PARTIALLY-approved generation
+   * cannot be cancelled out from under the approver who already said yes.
+   *
+   * Same 404 shape as approve()/reject() when there is nothing open to
+   * cancel — "already resolved" is not a caller error to silently swallow.
+   */
+  async cancel(subjectType: string, subjectId: string): Promise<void> {
+    return this.db.db.transaction((tx) => this.cancelInTx(tx, subjectType, subjectId))
+  }
+
+  /**
+   * task-648-fix-round-1 (SR-H-1). Same logic as `cancel()`, running inside
+   * a transaction the caller already opened — this is the PRIMARY entry
+   * point in practice, and since round 2 the ONLY one: the two cancel
+   * endpoints (`ProjectsService.cancelSeniorShareChange` /
+   * `UsersService.cancelSeniorShareChange`) need the cancel to be atomic
+   * with their own writes — clearing the pending column and inserting the
+   * audit row that names who withdrew it.
+   *
+   * task-648-fix-round-2 (SR-M-7): this doc used to also name a
+   * "revert-the-slider no-op branch" as a caller. That branch was removed in
+   * round 2 (SR-H-2) — cancelling is explicit only. Corrected here rather
+   * than left to describe a caller that no longer exists.
+   */
+  async cancelInTx(tx: DrizzleTx, subjectType: string, subjectId: string): Promise<void> {
+    const now = new Date()
+    const liveRows = await this.lockLiveRows(tx, subjectType, subjectId)
+    const pendingRows = liveRows.filter((r) => r.status === 'PENDING')
+    if (pendingRows.length === 0) {
+      // task-648-fix-round-1 (COPY-H-4): "подтверждение" is the ONE
+      // user-facing name for this concept across the whole feature — never
+      // "согласование" (internal/comment vocabulary only) or "погашено"
+      // (jargon a caller cannot act on). Same wording as `assertRespondable`
+      // below, for the same reason.
+      throw new NotFoundException('Подтверждение не найдено или уже закрыто')
+    }
+
+    await tx
+      .update(approvals)
+      .set({ status: 'CANCELLED', decidedAt: now, supersededAt: now })
+      .where(
+        and(
+          eq(approvals.subjectType, subjectType),
+          eq(approvals.subjectId, subjectId),
+          eq(approvals.status, 'PENDING'),
+          isNull(approvals.supersededAt),
+        ),
+      )
+  }
+
+  /**
    * The current generation's rows for a subject — a quenched (superseded)
    * row never appears here, whatever its `status` says (§4.1: "погашенная
    * строка не участвует в подсчёте"). Ordered by proposal order.
@@ -397,10 +466,15 @@ export class ApprovalsService {
     return rows[0] ?? null
   }
 
-  /** Throws the two ways a response can legitimately fail to apply. */
+  /**
+   * Throws the two ways a response can legitimately fail to apply.
+   *
+   * task-648-fix-round-1 (COPY-H-4): "подтверждение" throughout — see
+   * `cancelInTx`'s identical comment above for the full reasoning.
+   */
   private assertRespondable(row: ApprovalRow | null): asserts row is ApprovalRow {
-    if (!row) throw new NotFoundException('Согласование не найдено или уже погашено')
-    if (row.status !== 'PENDING') throw new ConflictException('Согласование уже получило ответ')
+    if (!row) throw new NotFoundException('Подтверждение не найдено или уже закрыто')
+    if (row.status !== 'PENDING') throw new ConflictException('Подтверждение уже получило ответ')
   }
 }
 

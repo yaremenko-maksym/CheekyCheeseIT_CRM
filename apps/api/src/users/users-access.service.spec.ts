@@ -557,6 +557,33 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.realContacts).toBe(true)
   })
 
+  // task-648-fix-round-1 (QA-HIGH-1): `sharePending` — ADMIN branch. Three
+  // cases needed to kill every ConditionalExpression/LogicalOperator/
+  // BooleanLiteral mutant on `fields.sharePending = !isSelf && targetIsShareRole`:
+  // non-self + share-role (true), self (false, regardless of share-role),
+  // non-self + non-share-role (false) — the third is what `fields.share`'s
+  // OWN "ADMIN viewing another user" test above never separately covers for
+  // sharePending, since it only exercises a SENIOR target.
+  it('ADMIN viewing a SENIOR (non-self, share-role) — sharePending true', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(admin, target)
+    expect(p.fields.sharePending).toBe(true)
+  })
+
+  it('ADMIN viewing self (own role IS a share-role) — sharePending false', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const p = await service.getViewPermissions(admin, admin)
+    expect(p.fields.sharePending).toBe(false)
+  })
+
+  it('ADMIN viewing an HR target (non-self, NOT a share-role) — sharePending false', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const target = makeUser({ id: 'hr1', role: 'HR' })
+    const p = await service.getViewPermissions(admin, target)
+    expect(p.fields.sharePending).toBe(false)
+  })
+
   it('SELF (SENIOR) — fopPii/realContacts true, adminNote false', async () => {
     const senior = makeUser({ id: 'sr1', role: 'SENIOR' })
     const p = await service.getViewPermissions(senior, senior)

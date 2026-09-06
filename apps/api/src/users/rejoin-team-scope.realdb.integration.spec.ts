@@ -105,6 +105,10 @@ describe.skipIf(!hasDatabaseUrl())(
         teamAuditLogService,
         {} as never,
         teamsService,
+        {} as never,
+        // task-pending-share fix-round-1 (CR-H-1): working stub, see the
+        // sibling comment in archived-entitlement.realdb.integration.spec.ts.
+        { getStatus: async () => 'NONE' as const } as never,
       )
       ;(teamsService as unknown as { usersService: UsersService }).usersService = usersService
 

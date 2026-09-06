@@ -14,16 +14,18 @@
  *     info-row «Доля синьора» в Обзоре, секцию ShareSlider в edit-форме.
  *
  * Scenarios:
- *   A) ADMIN can edit → переопределение сохраняется → "Override" badge.
+ *   A) ADMIN can edit → PATCH opens a proposal → pending badge appears
+ *      (task-pending-share, position 5 — the active value does NOT move).
  *   B) HR не видит секцию ShareSlider в edit-форме (DOM целиком отсутствует).
- *   C) ACCOUNTANT может редактировать → бэйдж появляется.
+ *   C) ACCOUNTANT может редактировать → proposal open → pending badge.
  *   D) Snapshot honored: SENIOR_INCOME row показывает Доля% из tx snapshot.
  *   E) PayoutDialog preview читает snapshot ("Ваша доля 30%", "К оплате 70%").
- *   F) Boundary 0 / 100 (ADMIN).
+ *   F) Boundary 0 / 100 (ADMIN) → proposal opens, active value untouched.
  *   G) ShareSlider клиентский clamp (0..100).
  *   H) Implicit null: ADMIN ставит value === default → PATCH carries default,
- *      и в read-view после save показывается "(по умолчанию)" + badge скрыт.
- *   I) Cross-screen consistency (live invalidation без reload).
+ *      opening a proposal to CLEAR the override (still pending, not applied).
+ *   I) Cross-screen consistency (live invalidation без reload) — the PENDING
+ *      badge appears without reload; the active value is unchanged.
  *   J) MyProjectShares widget (SENIOR-only).
  *   K) Legacy tx без snapshot → "approx" badge в PayoutDialog.
  *   L) Backend RBAC negative path: HR не отправляет override field.
@@ -32,9 +34,28 @@
  *   P) HR не видит info-row «Доля синьора» на табе «Обзор» (новый round-2 scenario).
  *   Q) ADMIN/SENIOR всё ещё видят табу «Финансы» + info-row (regression check).
  *
+ * task-pending-share (position 5, 2026-09-03): a changed
+ * seniorSharePercentOverride no longer applies immediately — it opens a
+ * proposal the project's SENIOR must confirm (`pendingSeniorShare` on the
+ * DTO), and the ACTIVE `seniorSharePercentOverride` is untouched until they
+ * do. `mockProjectDetail`'s PATCH handler below simulates exactly that:
+ * an incoming `seniorSharePercentOverride` field populates
+ * `pendingSeniorShare` instead of overwriting the active column. Scenarios
+ * A/C/F/H/I were updated to assert the PENDING outcome, not an immediate
+ * value change — see each scenario's own comment for what changed and why.
+ *
  * All scenarios run against the mocked /api/* responses defined in fixtures.ts.
  */
-import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB } from './fixtures'
+import {
+  test,
+  expect,
+  USERS,
+  PROJECTS,
+  mockAuthAs,
+  API_GLOB,
+  API_RE,
+  buildAdminViewingUser,
+} from './fixtures'
 
 // Helper — register a one-off override of the /api/projects/:id response so
 // each scenario can present the project in whatever override state it needs.
@@ -42,9 +63,15 @@ function mockProjectDetail(
   page: import('@playwright/test').Page,
   overrides: Partial<(typeof PROJECTS)[number]> & { effectiveTeam?: unknown } = {},
 ) {
-  const detail = {
+  const detail: Record<string, unknown> = {
     ...PROJECTS[0],
     ...overrides,
+    pendingSeniorShare: null as {
+      percent: number | null
+      effectivePercentAfterApproval: number
+      approverId: string
+      approverName: string
+    } | null,
     effectiveTeam: {
       senior: {
         id: USERS.senior.id,
@@ -63,8 +90,32 @@ function mockProjectDetail(
   // route handlers in reverse-registration order.
   return page.route(`**/api/projects/${PROJECTS[0]!.id}`, (r) => {
     if (r.request().method() === 'PATCH') {
-      const body = JSON.parse(r.request().postData() ?? '{}') as Partial<typeof detail>
-      Object.assign(detail, body)
+      const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
+      // task-pending-share: a `seniorSharePercentOverride` field in the PATCH
+      // body no longer overwrites the active value — it opens a proposal
+      // (mirrors ProjectsService.update/proposeSeniorShareChange). Every
+      // OTHER field still applies immediately (unaffected by this task).
+      const { seniorSharePercentOverride, ...rest } = body
+      Object.assign(detail, rest)
+      if ('seniorSharePercentOverride' in body) {
+        // task-648-fix-round-1 (COPY-H-2/COPY-H-3): the real backend always
+        // resolves `effectivePercentAfterApproval` server-side (PROJECT →
+        // TEAM → USER_DEFAULT, substituting the PENDING value for the live
+        // override) — it is NEVER left for the client to guess, which is
+        // the exact bug those findings closed (a `percent ?? 0`/`?? default`
+        // fallback rendering a wrong number). This fixture has no team
+        // override, so PROJECT → USER_DEFAULT is the whole chain: a
+        // concrete percent resolves to itself, `null` (clearing the
+        // override) falls back to `seniorSharePercentDefault`.
+        const percent = seniorSharePercentOverride as number | null
+        detail['pendingSeniorShare'] = {
+          percent,
+          effectivePercentAfterApproval:
+            percent ?? (detail['seniorSharePercentDefault'] as number | null) ?? 26,
+          approverId: (detail['seniorId'] as string) ?? USERS.senior.id,
+          approverName: (detail['seniorName'] as string) ?? USERS.senior.displayName,
+        }
+      }
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -81,7 +132,9 @@ function mockProjectDetail(
 
 test.describe('per-project SENIOR share override', () => {
   test.describe('Scenario A — ADMIN can edit', () => {
-    test('saves new override → badge appears after reload', async ({ asAdmin: page }) => {
+    test('saves new override → opens a proposal, active value untouched (task-pending-share)', async ({
+      asAdmin: page,
+    }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
@@ -107,11 +160,31 @@ test.describe('per-project SENIOR share override', () => {
       await page.getByRole('button', { name: 'Сохранить' }).click()
       const req = await patchReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
+      // The FRONTEND still sends the same field — the backend is what now
+      // routes it through a proposal instead of applying it directly.
       expect(body['seniorSharePercentOverride']).toBe(30)
 
-      // After save, the read view reflects the new value.
-      await expect(page.getByTestId('project-senior-share')).toContainText('30%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // task-pending-share AC2: the active value does NOT move — no reload
+      // needed to see this, it's the same response that never changed it.
+      await expect(page.getByTestId('project-senior-share')).toContainText('26%')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      // The PENDING indicator appears instead, naming the proposed value.
+      // task-648-fix-round-1 (COPY-M-10): the approver's name is NOT in the
+      // pill's own text (a 55-character string wrapped awkwardly next to
+      // shorter neighbors).
+      // task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): it is no longer behind
+      // a hover either — Radix Tooltip ignores touch pointers outright, and
+      // `Badge` renders a non-focusable `div`, so on a phone or a keyboard
+      // the name was simply unreachable. It is plain text next to the pill
+      // now, asserted WITHOUT hovering.
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('30%')
+      await expect(pendingBadge).not.toContainText(USERS.senior.displayName)
+      await expect(page.getByTestId('project-senior-share')).toContainText(
+        `Подтверждает ${USERS.senior.displayName}`,
+      )
     })
   })
 
@@ -146,7 +219,9 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario C — ACCOUNTANT can edit override', () => {
-    test('ACCOUNTANT opens edit, sets override = 35, saves', async ({ page }) => {
+    test('ACCOUNTANT opens edit, sets override = 35, saves → opens a proposal (task-pending-share)', async ({
+      page,
+    }) => {
       await mockAuthAs(page, USERS.accountant)
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
@@ -167,8 +242,13 @@ test.describe('per-project SENIOR share override', () => {
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       expect(body['seniorSharePercentOverride']).toBe(35)
 
-      await expect(page.getByTestId('project-senior-share')).toContainText('35%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // Active value unchanged; the ACCOUNTANT sees the same pending
+      // indicator an ADMIN would (both are gated on `fields.share`, not role).
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('35%')
     })
   })
 
@@ -237,7 +317,9 @@ test.describe('per-project SENIOR share override', () => {
   //
 
   test.describe('Scenario F — boundary values 0 and 100', () => {
-    test('ADMIN saves override = 0 → badge shows "0%" + Override', async ({ asAdmin: page }) => {
+    test('ADMIN saves override = 0 → opens a proposal for "0%", active value untouched', async ({
+      asAdmin: page,
+    }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
@@ -253,11 +335,16 @@ test.describe('per-project SENIOR share override', () => {
       // Numeric coercion in the form → backend receives 0, not the empty string.
       expect(body['seniorSharePercentOverride']).toBe(0)
 
-      await expect(page.getByTestId('project-senior-share')).toContainText('0%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // 0 is a legitimate PROPOSED value, distinct from "nothing proposed" —
+      // the pending badge must render it, and the active value must not move.
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('0%')
     })
 
-    test('ADMIN saves override = 100 → badge shows "100%" + Override', async ({
+    test('ADMIN saves override = 100 → opens a proposal for "100%", active value untouched', async ({
       asAdmin: page,
     }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
@@ -274,8 +361,11 @@ test.describe('per-project SENIOR share override', () => {
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
       expect(body['seniorSharePercentOverride']).toBe(100)
 
-      await expect(page.getByTestId('project-senior-share')).toContainText('100%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('100%')
     })
   })
 
@@ -314,16 +404,23 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario H — implicit null when value === default', () => {
-    test('ADMIN с активным override (30) → выставляет slider на default (26) → save → backend пишет null, badge скрыт', async ({
+    test('ADMIN с активным override (30) → выставляет slider на default (26) → save → proposes CLEARING the override (still pending, task-pending-share)', async ({
       asAdmin: page,
     }) => {
-      // Mock project с активным override = 30. Backend (мокаем тут как
-      // прокси: при PATCH с body.value === senior_default=26 ответ возвращает
-      // override=null) — implicit null применился.
-      const detail = {
+      // Mock project с активным override = 30. Backend implicit-null
+      // transform still runs (unchanged by task-pending-share — it decides
+      // WHAT is proposed, not whether it applies immediately): a slider
+      // value === the senior's default proposes null (clear), not 26.
+      const detail: Record<string, unknown> = {
         ...PROJECTS[0],
         seniorSharePercentOverride: 30,
         seniorSharePercentDefault: 26,
+        pendingSeniorShare: null as {
+          percent: number | null
+          effectivePercentAfterApproval: number
+          approverId: string
+          approverName: string
+        } | null,
         effectiveTeam: {
           senior: {
             id: USERS.senior.id,
@@ -340,14 +437,25 @@ test.describe('per-project SENIOR share override', () => {
       await page.route(`**/api/projects/${PROJECTS[0]!.id}`, (r) => {
         if (r.request().method() === 'PATCH') {
           const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
-          // Эмулируем implicit-null detection в backend: если override === default → null.
-          const overrideRaw = body['seniorSharePercentOverride']
-          if (overrideRaw === 26) {
-            detail.seniorSharePercentOverride = null as unknown as number
-          } else if (typeof overrideRaw === 'number') {
-            detail.seniorSharePercentOverride = overrideRaw
-          } else if (overrideRaw === null) {
-            detail.seniorSharePercentOverride = null as unknown as number
+          if ('seniorSharePercentOverride' in body) {
+            // Эмулируем implicit-null detection: если override === default →
+            // proposed value is null. The ACTIVE column (seniorSharePercentOverride)
+            // is never touched here — that is exactly what task-pending-share changed.
+            const overrideRaw = body['seniorSharePercentOverride']
+            const proposedPercent = overrideRaw === 26 ? null : (overrideRaw as number | null)
+            detail['pendingSeniorShare'] = {
+              percent: proposedPercent,
+              // task-648-fix-round-1 (COPY-H-2/COPY-H-3): the real backend
+              // always resolves this server-side — see mockProjectDetail's
+              // identical comment above for the full reasoning. Clearing the
+              // override here has nothing above it in the mock's resolver
+              // chain (no team override in this fixture), so it falls
+              // straight back to `seniorSharePercentDefault` (26).
+              effectivePercentAfterApproval:
+                proposedPercent ?? (detail['seniorSharePercentDefault'] as number),
+              approverId: USERS.senior.id,
+              approverName: USERS.senior.displayName,
+            }
           }
           return r.fulfill({
             status: 200,
@@ -363,7 +471,7 @@ test.describe('per-project SENIOR share override', () => {
       })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      // Sanity — badge изначально виден (override = 30).
+      // Sanity — badge изначально виден (active override = 30).
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
 
       await page.getByTestId('project-edit-button').click()
@@ -384,23 +492,34 @@ test.describe('per-project SENIOR share override', () => {
       expect('seniorSharePercentOverride' in body).toBe(true)
       expect(body['seniorSharePercentOverride']).toBe(26)
 
-      // После save read-view синхронизируется: badge исчезает,
-      // показывается "(по умолчанию)".
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
+      // task-pending-share AC2: the ACTIVE override (30%) is still what
+      // resolves — read-view keeps showing it, badge stays visible, because
+      // nothing has been confirmed yet.
+      await expect(page.getByTestId('project-senior-share')).toContainText('30%')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // The pending indicator shows the RESOLVED outcome — clearing the
+      // override falls back to the default (26%), read from the server-
+      // resolved `effectivePercentAfterApproval` field (task-648-fix-
+      // round-1 COPY-H-2/COPY-H-3), never guessed client-side via
+      // `pending.percent ?? fallback` (that guess was the bug those
+      // findings closed).
+      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(pendingBadge).toBeVisible()
+      await expect(pendingBadge).toContainText('26%')
     })
   })
 
   test.describe('Scenario I — cross-screen consistency without reload', () => {
-    test('saving override updates badge on the detail page without page reload', async ({
+    test('saving override updates the PENDING badge on the detail page without page reload', async ({
       asAdmin: page,
     }) => {
-      // Project starts with default — no badge.
+      // Project starts with default — no badge, nothing pending.
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
+      await expect(page.getByTestId('project-senior-share-pending-badge')).toHaveCount(0)
 
       // Edit → set 42 (different from default 26).
       await page.getByTestId('project-edit-button').click()
@@ -408,11 +527,13 @@ test.describe('per-project SENIOR share override', () => {
       await input.fill('42')
       await page.getByRole('button', { name: 'Сохранить' }).click()
 
-      // No reload — the TanStack Query cache invalidation should re-paint the badge.
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
-      await expect(page.getByTestId('project-senior-share')).toContainText('42%')
-      // The fallback text should be gone.
-      await expect(page.getByTestId('project-senior-share')).not.toContainText('(по умолчанию)')
+      // No reload — the TanStack Query cache invalidation should re-paint the
+      // PENDING badge (task-pending-share: the "Override" badge stays absent,
+      // the active value is still the default — only the proposal is new).
+      await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
+      await expect(page.getByTestId('project-senior-share-pending-badge')).toContainText('42%')
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
     })
   })
 
@@ -722,5 +843,323 @@ test.describe('login auth-guard', () => {
     expect(new URL(page.url()).pathname).toBe('/login')
     // The login UI is rendered (header copy serves as a fingerprint).
     await expect(page.getByText('CheekyCheeseIT CRM')).toBeVisible()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-648-fix-round-2 — withdrawing a pending proposal, and the two
+// text/geometry defects the second review round measured on a live stand.
+//
+// Five review axes independently reported the same hole (SR-H-2, SPEC-H-2,
+// CR-H-3, UX-H-3(r2), QA-HIGH-2): round 1 shipped
+// `POST …/senior-share/cancel` and nothing in `apps/web` ever called it, while
+// the documented alternative — "return the slider to the active value" — was
+// unreachable on the project form and destructive on the user form. Manual QA
+// reproduced the destructive half live: one phone edit flipped a proposal
+// `PENDING → CANCELLED`.
+//
+// The base-share (profile) scenarios live here too, not in a file of their
+// own: they are the twin of the same feature, and this file is already gated
+// by the `projects` CI shard — a new file would have needed a shard entry in
+// `.github/workflows/ci.yml`, which is not this agent's zone, and the
+// alternative (`KNOWN_UNSHARDED`) is debt, i.e. tests CI never runs.
+//
+// Mocked `/api/*` like the rest of this suite. The REAL guard chain on the two
+// cancel routes is proven separately, against a booted Nest app, by
+// `senior-share-guard-stack.controller.integration.spec.ts` — a mocked E2E is
+// structurally blind to global guards (`security-review` skill, pattern 4), so
+// the block below deliberately asserts UI contract only.
+// ---------------------------------------------------------------------------
+
+const PROJECT_ID = PROJECTS[0]!.id
+const PENDING_PERCENT = 55
+
+type PendingShare = {
+  percent: number | null
+  effectivePercentAfterApproval: number
+  approverId: string
+  approverName: string
+}
+
+const PENDING: PendingShare = {
+  percent: PENDING_PERCENT,
+  effectivePercentAfterApproval: PENDING_PERCENT,
+  approverId: USERS.senior.id,
+  approverName: USERS.senior.displayName,
+}
+
+/** Project detail carrying a live proposal, plus a spy on the cancel POST. */
+function mockProjectWithPending(page: import('@playwright/test').Page) {
+  const cancelCalls: string[] = []
+  const detail: Record<string, unknown> = {
+    ...PROJECTS[0],
+    seniorSharePercentOverride: 30,
+    pendingSeniorShare: PENDING,
+    effectiveTeam: {
+      senior: {
+        id: USERS.senior.id,
+        displayName: USERS.senior.displayName,
+        email: USERS.senior.email,
+        avatar: null,
+        role: 'SENIOR' as const,
+      },
+      hrs: [],
+      accountants: [],
+      juniors: [],
+    },
+  }
+
+  const routes = Promise.all([
+    page.route(`${API_GLOB}/projects/${PROJECT_ID}/senior-share/cancel`, (r) => {
+      cancelCalls.push(r.request().method())
+      detail['pendingSeniorShare'] = null
+      return r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(detail),
+      })
+    }),
+    page.route(`**/api/projects/${PROJECT_ID}`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(detail),
+      }),
+    ),
+  ])
+
+  return { cancelCalls, ready: routes }
+}
+
+/** Profile view of the senior, carrying a live proposal + a cancel spy. */
+function mockProfileWithPending(page: import('@playwright/test').Page) {
+  const cancelCalls: string[] = []
+  const view = buildAdminViewingUser(USERS.senior) as {
+    user: Record<string, unknown>
+    permissions: unknown
+    data: unknown
+  }
+  view.user['seniorSharePercent'] = 26
+  view.user['pendingSeniorShare'] = PENDING
+
+  const routes = Promise.all([
+    page.route(new RegExp(`${API_RE}/users/${USERS.senior.id}/senior-share/cancel$`), (r) => {
+      cancelCalls.push(r.request().method())
+      view.user['pendingSeniorShare'] = null
+      return r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(view),
+      })
+    }),
+    page.route(new RegExp(`${API_RE}/users/${USERS.senior.id}$`), (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(view),
+      })
+    }),
+  ])
+
+  return { cancelCalls, ready: routes }
+}
+
+// ---------------------------------------------------------------------------
+// R / S — the withdraw button itself
+// ---------------------------------------------------------------------------
+
+test.describe('R — ADMIN can withdraw a pending proposal', () => {
+  test('project page: the button sits next to the indicator and POSTs to cancel', async ({
+    asAdmin: page,
+  }) => {
+    const { cancelCalls, ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
+
+    const cancelButton = page.getByTestId('cancel-pending-share-project').first()
+    await expect(cancelButton).toBeVisible()
+    await cancelButton.click()
+
+    await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
+    expect(cancelCalls[0]).toBe('POST')
+  })
+
+  test('profile page: the button sits next to the indicator and POSTs to cancel', async ({
+    asAdmin: page,
+  }) => {
+    const { cancelCalls, ready } = mockProfileWithPending(page)
+    await ready
+
+    await page.goto(`/profile/${USERS.senior.id}`)
+    await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
+
+    const cancelButton = page.getByTestId('cancel-pending-share-user').first()
+    await expect(cancelButton).toBeVisible()
+    await cancelButton.click()
+
+    await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
+    expect(cancelCalls[0]).toBe('POST')
+  })
+
+  test('the withdraw button is a ≥44px touch target at 320', async ({ asAdmin: page }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 720 })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    const box = await page.getByTestId('cancel-pending-share-project').first().boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(box!.width).toBeGreaterThanOrEqual(44)
+  })
+})
+
+test.describe('S — the approver is not offered the withdraw control', () => {
+  test('SENIOR sees the actionable banner, never the withdraw button', async ({
+    asSenior: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    // The senior's own control is reject-with-a-reason, not a silent withdraw.
+    await expect(page.getByTestId('pending-share-approve-button')).toBeVisible()
+    await expect(page.getByTestId('cancel-pending-share-project')).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T — the edit dialogs stop hiding the live proposal
+// ---------------------------------------------------------------------------
+
+test.describe('T — an edit dialog announces the live proposal', () => {
+  test('project edit dialog names the proposed value, the approver, and offers to withdraw', async ({
+    asAdmin: page,
+  }) => {
+    const { cancelCalls, ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.getByTestId('project-edit-button').click()
+
+    const notice = page.getByTestId('pending-share-edit-notice-project')
+    await expect(notice).toBeVisible()
+    await expect(notice).toContainText(`${PENDING_PERCENT}%`)
+    await expect(notice).toContainText(USERS.senior.displayName)
+
+    await page.getByTestId('cancel-pending-share-project-in-dialog').click()
+    await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
+  })
+
+  test('profile edit dialog names the proposed value, the approver, and offers to withdraw', async ({
+    asAdmin: page,
+  }) => {
+    const { cancelCalls, ready } = mockProfileWithPending(page)
+    await ready
+
+    await page.goto(`/profile/${USERS.senior.id}`)
+    // `AdminActionsMenu` has a test-id on its trigger; the individual items
+    // carry one only where a spec already needed it, so «Редактировать» is
+    // addressed by role+name (the menu is a Radix DropdownMenu).
+    await page.getByTestId('admin-actions-trigger').click()
+    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
+
+    const notice = page.getByTestId('pending-share-edit-notice-user')
+    await expect(notice).toBeVisible()
+    await expect(notice).toContainText(`${PENDING_PERCENT}%`)
+    await expect(notice).toContainText(USERS.senior.displayName)
+
+    await page.getByTestId('cancel-pending-share-user-in-dialog').click()
+    await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// U — COPY-H-5: the space that `inline-flex` was eating
+// ---------------------------------------------------------------------------
+
+test.describe('U — the pending badge reads correctly on screen', () => {
+  for (const width of [320, 375, 1280]) {
+    test(`project badge: rendered text has the space, at ${width}`, async ({ asAdmin: page }) => {
+      const { ready } = mockProjectWithPending(page)
+      await ready
+      await page.setViewportSize({ width, height: 800 })
+
+      await page.goto(`/projects/${PROJECT_ID}`)
+      const badge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(badge).toBeVisible()
+
+      // `innerText` reflects what is RENDERED. `textContent` (what
+      // `toContainText` reads) kept the whitespace node that `inline-flex`
+      // dropped, which is why round 1's assertions were green while the
+      // screen said «Ждёт подтверждения:55%».
+      const rendered = await badge.evaluate((el) => (el as HTMLElement).innerText)
+      expect(rendered).toMatch(/Ждёт подтверждения: \d+%/)
+    })
+  }
+
+  for (const width of [320, 375]) {
+    test(`project badge stays on ONE line at ${width}`, async ({ asAdmin: page }) => {
+      const { ready } = mockProjectWithPending(page)
+      await ready
+      await page.setViewportSize({ width, height: 800 })
+
+      await page.goto(`/projects/${PROJECT_ID}`)
+      const badge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(badge).toBeVisible()
+
+      // Round 1 measured 35px (two lines) vs 20px (one) at 320 — the number
+      // broke away from its label as an independent flex item.
+      const { height, lineHeight } = await badge.evaluate((el) => ({
+        height: el.getBoundingClientRect().height,
+        lineHeight: parseFloat(getComputedStyle(el).lineHeight || '16'),
+      }))
+      expect(height).toBeLessThan(lineHeight * 2)
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// V — COPY-M-12 / UX-M-3(r2): the name, on a phone, without hovering
+// ---------------------------------------------------------------------------
+
+test.describe('V — the approver name is readable without hover', () => {
+  test('project page at 320: the name is in the visible text, and tapping overflows nothing', async ({
+    asAdmin: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 800 })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    const shareWidget = page.getByTestId('project-senior-share')
+    await expect(shareWidget).toBeVisible()
+
+    const rendered = await shareWidget.evaluate((el) => (el as HTMLElement).innerText)
+    expect(rendered).toContain(USERS.senior.displayName)
+
+    // Radix ignores touch pointers for tooltips, so a tap opens nothing — the
+    // point is that nothing it MIGHT open can push the page sideways either.
+    await page.getByTestId('project-senior-share-pending-badge').click()
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }))
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+  })
+
+  test('profile page at 320: the name is in the visible text', async ({ asAdmin: page }) => {
+    const { ready } = mockProfileWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 800 })
+
+    await page.goto(`/profile/${USERS.senior.id}`)
+    await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
+
+    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    expect(rendered).toContain(`Подтверждает ${USERS.senior.displayName}`)
   })
 })

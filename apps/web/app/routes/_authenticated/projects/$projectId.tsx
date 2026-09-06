@@ -38,6 +38,7 @@ import { type ExchangeRates, fmtUsd } from '@/routes/_authenticated/finance/cons
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
+import { seniorShareErrorMessage } from '@/hooks/use-user-profile'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
@@ -46,6 +47,10 @@ import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection
 import { ProjectCredentialsSection } from '@/components/projects/ProjectCredentialsSection'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
+import {
+  CancelPendingShareButton,
+  PendingShareEditNotice,
+} from '@/components/pending-share/cancel-pending-share'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -59,6 +64,7 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -169,6 +175,7 @@ export function ProjectEditFields({
   dropId,
   viewerRole,
   projectId,
+  pendingShare,
 }: {
   form: AnyForm
   mode: 'info' | 'members'
@@ -184,6 +191,13 @@ export function ProjectEditFields({
   // ut-fix-round2: HR теряет видимость секции с долей синьора целиком (не disabled).
   viewerRole: string | undefined
   projectId?: string | undefined
+  /**
+   * task-648-fix-round-2 (UX-H-3(r2)). The live proposal, so the edit form
+   * can say it exists instead of letting the operator overwrite it blind.
+   * `undefined`/`null` = nothing pending. Passed in rather than re-fetched:
+   * the parent already has it on the same page.
+   */
+  pendingShare?: ProjectDetailDto['pendingSeniorShare'] | undefined
 }) {
   if (mode === 'info') {
     return (
@@ -441,10 +455,37 @@ export function ProjectEditFields({
                     error={!!err}
                     inputTestId="project-edit-senior-share-override"
                   />
+                  {/* task-648-fix-round-2 (COPY-H-6): the form where the
+                      change STARTS never said the change does not take
+                      effect on save. It does now — one sentence, next to the
+                      control it describes.
+
+                      The round-1 wording promising that the same value also
+                      CANCELS an open proposal is gone with the branch it
+                      described (SR-H-2): withdrawing is the explicit button
+                      below, and no text may promise a gesture that no longer
+                      does anything. */}
                   <p className="text-xs text-muted-foreground">
-                    По умолчанию: {defaultSharePercent}%. Установите то же значение, чтобы сбросить
-                    переопределение.
+                    По умолчанию: {defaultSharePercent}%. То же значение сбрасывает переопределение.
+                    Новая доля начнёт действовать после подтверждения синьора.
                   </p>
+                  {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN who opens
+                      this form to "fix" the percent saw a slider holding the
+                      ACTIVE value and nothing about the proposal already
+                      awaiting an answer — so the natural gesture silently
+                      superseded it. */}
+                  {canEditOverride && pendingShare && projectId && (
+                    <PendingShareEditNotice
+                      scope="project"
+                      id={projectId}
+                      pendingPercent={
+                        pendingShare.percent === null
+                          ? pendingShare.effectivePercentAfterApproval
+                          : pendingShare.percent
+                      }
+                      approverName={pendingShare.approverName}
+                    />
+                  )}
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
                       Менять может только ADMIN или ACCOUNTANT.
@@ -529,10 +570,12 @@ function InfoRow({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-start gap-2 text-sm">
+    <div className="flex min-w-0 items-start gap-2 text-sm">
       <span className="text-muted-foreground shrink-0 mt-0.5">{icon}</span>
       <span className="text-muted-foreground shrink-0 min-w-[80px]">{label}:</span>
-      <span className="min-w-0 break-words">{children}</span>
+      <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 break-words">
+        {children}
+      </div>
     </div>
   )
 }
@@ -552,20 +595,33 @@ function ProjectShareInfo({
   variant = 'block',
   testId = 'project-senior-share',
   badgeTestId = 'project-senior-share-override-badge',
+  canCancelPendingShare = false,
 }: {
-  project: Pick<ProjectDetailDto, 'seniorSharePercentOverride' | 'seniorSharePercentDefault'>
+  project: Pick<
+    ProjectDetailDto,
+    'id' | 'seniorSharePercentOverride' | 'seniorSharePercentDefault' | 'pendingSeniorShare'
+  >
   variant?: 'block' | 'inline'
   /** Override the default `data-testid` so multiple instances can coexist on the same page. */
   testId?: string
   badgeTestId?: string
+  /**
+   * task-648-fix-round-2 (UX-H-3(r2)). ADMIN/ACCOUNTANT — the same pair the
+   * propose gate uses (`canEditOverride` at the page level) — get the
+   * withdraw control next to the indicator. Defaults to `false` so a caller
+   * that forgets it renders the read-only widget it always did, rather than
+   * a button the backend would 403.
+   */
+  canCancelPendingShare?: boolean
 }) {
   const overrideRaw = project.seniorSharePercentOverride
   const hasOverride = overrideRaw !== null && overrideRaw !== undefined
   const fallback = project.seniorSharePercentDefault ?? 26
   const effective = hasOverride ? overrideRaw : fallback
+  const pending = project.pendingSeniorShare ?? null
   return (
     <span
-      className={cn('inline-flex items-center gap-2', variant === 'inline' && 'text-sm')}
+      className={cn('inline-flex flex-wrap items-center gap-2', variant === 'inline' && 'text-sm')}
       data-testid={testId}
     >
       {variant === 'inline' && <span className="text-muted-foreground">Доля синьора:</span>}
@@ -584,7 +640,231 @@ function ProjectShareInfo({
       ) : (
         <span className="text-xs text-muted-foreground">(по умолчанию)</span>
       )}
+      {/* task-pending-share (position 5): значение выше — ДЕЙСТВУЮЩЕЕ, не
+          меняется пока согласование открыто (AC2). Индикатор — отдельная
+          пометка рядом, а не подмена цифры. */}
+      {pending && (
+        <span className="inline-flex min-w-0 items-start gap-1">
+          <span className="min-w-0 space-y-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* task-648-fix-round-2 (COPY-H-5): ONE text node, and
+                    `tabular-nums`/`whitespace-nowrap` on the badge itself.
+                    `Badge` is `inline-flex`, so the `{' '}` this used to
+                    carry sat BETWEEN flex items and never rendered — the
+                    screen read «Ждёт подтверждения:40%» on every width — and
+                    on 320 the number broke away from its label onto a second
+                    line as an independent flex item. `textContent`-based
+                    assertions could not see either symptom. */}
+                <Badge
+                  variant="outline"
+                  className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums"
+                  data-testid="project-senior-share-pending-badge"
+                >
+                  {`Ждёт подтверждения: ${pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent}%`}
+                </Badge>
+              </TooltipTrigger>
+              {/* task-648-fix-round-2 (UX-M-3(r2)): capped + wrapping.
+                  Measured at 468px (ordinary name) and 709px (long name)
+                  against a 320px viewport before this cap. */}
+              <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
+                Действует прежний процент, пока новый не подтверждён.
+              </TooltipContent>
+            </Tooltip>
+            {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): name and the
+                "prior percent still applies" fact as plain text. Radix
+                Tooltip returns early on `pointerType === 'touch'` and `Badge`
+                renders a non-focusable `div`, so in the tooltip these two
+                facts were unreachable by touch AND by keyboard. */}
+            <span className="block text-xs text-muted-foreground break-words">
+              Подтверждает {pending.approverName} — пока действует{' '}
+              <span className="tabular-nums">{effective}%</span>
+            </span>
+          </span>
+          {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw control lives
+              next to the only indicator that the proposal exists at all. */}
+          {canCancelPendingShare && <CancelPendingShareButton scope="project" id={project.id} />}
+        </span>
+      )}
     </span>
+  )
+}
+
+/**
+ * task-pending-share (position 5, design spec §4.3/§8.3). Shown ONLY to the
+ * person the pending proposal is actually waiting on (the affected SENIOR —
+ * `pendingSeniorShare.approverId === viewerId`). Everyone else who can see
+ * the share (ADMIN/ACCOUNTANT/the senior's own view) already gets the
+ * informational badge from `ProjectShareInfo` above; this banner is the
+ * ACTIONABLE surface, deliberately separate from that read-only indicator.
+ */
+function PendingShareApprovalBanner({
+  projectId,
+  currentPercent,
+  pending,
+}: {
+  projectId: string
+  /** task-648-fix-round-1 (COPY-M-6): the ACTIVE override/default, shown
+   * alongside the proposed value — same fallback `ProjectShareInfo` already
+   * uses (`seniorSharePercentOverride ?? seniorSharePercentDefault`), so the
+   * number here always agrees with the badge on the same page. */
+  currentPercent: number
+  pending: NonNullable<ProjectDetailDto['pendingSeniorShare']>
+}) {
+  const qc = useQueryClient()
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [reason, setReason] = useState('')
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['projects', projectId] })
+    void qc.invalidateQueries({ queryKey: ['projects'] })
+  }
+
+  const approveMutation = useMutation({
+    mutationFn: () =>
+      api.post<ProjectDetailDto>(`/projects/${projectId}/senior-share/approve`).then((r) => r.data),
+    onSuccess: (data) => {
+      // task-648-fix-round-1 (COPY-M-3): names the ACTUAL confirmed value —
+      // see the identical comment on useApproveSeniorShareChange (base-share
+      // twin of this mutation) for the full reasoning.
+      toast.success(`Доля по проекту теперь ${data.effectiveSeniorSharePercent}%`)
+      invalidate()
+    },
+    onError: (err: unknown) => {
+      // task-648-fix-round-1 (COPY-H-4, QA-MED-5): friendly 404/409 mapping
+      // (not the raw backend "Подтверждение не найдено или уже закрыто" —
+      // see seniorShareErrorMessage's own doc), AND refetch on failure so a
+      // stale banner from a resolved-elsewhere proposal doesn't stay
+      // clickable showing a number that no longer means anything.
+      toast.error(seniorShareErrorMessage(err))
+      invalidate()
+    },
+  })
+
+  const rejectMutation = useMutation({
+    mutationFn: () =>
+      api.post(`/projects/${projectId}/senior-share/reject`, { reason }).then((r) => r.data),
+    onSuccess: () => {
+      // task-648-fix-round-1 (COPY-M-2): "предложение" was a third name for
+      // what this screen calls "подтверждение" elsewhere — see the
+      // identical comment on useRejectSeniorShareChange.
+      toast.success('Доля отклонена — действует прежний процент. Админ увидит причину')
+      setRejectOpen(false)
+      setReason('')
+      invalidate()
+    },
+    onError: (err: unknown) => {
+      toast.error(seniorShareErrorMessage(err))
+      invalidate()
+    },
+  })
+
+  return (
+    <div
+      className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-3"
+      data-testid="pending-share-approval-banner"
+    >
+      {/* task-648-fix-round-1 (COPY-H-2/COPY-M-6): both branches now name
+          "сейчас"/"предлагают" — the decision this banner asks for is a
+          comparison, and until now only the proposed side was on screen.
+          The `null` branch still never guesses the resolved fallback
+          number — it comes from the server's own resolver
+          (`effectivePercentAfterApproval`), same as before this fix. */}
+      {/* task-648-fix-round-2 (COPY-M-11), three defects in one sentence:
+          «базовый» had crept back into the null branch (the word appears
+          nowhere else in the UI — the same level is labelled «(по
+          умолчанию)»); «базовый ИЛИ командный» made the reader do taxonomy
+          the system had already resolved one clause later; and the shared
+          tail landed after TWO numbers, so which one is live was a guessing
+          game. Both branches now end the same way, naming the live number —
+          the wording the profile twin already used. */}
+      <p className="text-sm">
+        {pending.percent === null ? (
+          <>
+            По проекту предлагают снять индивидуальную долю: сейчас{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, станет{' '}
+            <span className="font-medium tabular-nums">
+              {pending.effectivePercentAfterApproval}%
+            </span>
+            .{' '}
+          </>
+        ) : (
+          <>
+            Вашу долю по проекту предлагают изменить: сейчас{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, предлагают{' '}
+            <span className="font-medium tabular-nums">{pending.percent}%</span>.{' '}
+          </>
+        )}
+        Пока вы не подтвердите, действует{' '}
+        <span className="font-medium tabular-nums">{currentPercent}%</span>.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          className="h-11 sm:h-8"
+          onClick={() => approveMutation.mutate()}
+          disabled={approveMutation.isPending}
+          data-testid="pending-share-approve-button"
+        >
+          {/* task-648-fix-round-1 (COPY-M-9): same in-flight convention as
+              OverviewTab.tsx's identical banner. */}
+          {approveMutation.isPending ? 'Подтверждение…' : 'Подтвердить'}
+        </Button>
+        <Button
+          size="sm"
+          className="h-11 sm:h-8"
+          variant="outline"
+          onClick={() => setRejectOpen(true)}
+          disabled={approveMutation.isPending}
+          data-testid="pending-share-reject-button"
+        >
+          Отклонить
+        </Button>
+      </div>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <CrmDialogContent>
+          <CrmDialogHeader>
+            <DialogTitle>Отклонить новый процент</DialogTitle>
+            <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
+          </CrmDialogHeader>
+          <CrmDialogBody>
+            {/* task-648-fix-round-1 (COPY-M-8): same fix as
+                OverviewTab.tsx's identical dialog — mirrors
+                ProjectApprovalActions.tsx (#646). */}
+            <Label htmlFor="pending-share-reject-reason" className="text-xs">
+              Причина отказа *
+            </Label>
+            <Textarea
+              id="pending-share-reject-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Например: договаривались на 30%"
+              maxLength={500}
+              rows={3}
+              data-testid="pending-share-reject-reason"
+            />
+            <p className="text-xs text-muted-foreground text-right tabular-nums">
+              {reason.length}/500
+            </p>
+          </CrmDialogBody>
+          <CrmDialogFooter>
+            <Button variant="outline" className="h-11 sm:h-9" onClick={() => setRejectOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              className="h-11 sm:h-9"
+              onClick={() => rejectMutation.mutate()}
+              disabled={!reason.trim() || rejectMutation.isPending}
+              data-testid="pending-share-reject-confirm"
+            >
+              {rejectMutation.isPending ? 'Отклонение…' : 'Отклонить'}
+            </Button>
+          </CrmDialogFooter>
+        </CrmDialogContent>
+      </Dialog>
+    </div>
   )
 }
 
@@ -1103,6 +1383,20 @@ function ProjectDetailPage() {
             </div>
           </div>
         </motion.div>
+        {/* task-pending-share (position 5): actionable banner, ONLY for the
+            viewer the proposal is waiting on — everyone else sees the
+            read-only badge via ProjectShareInfo instead. */}
+        {project.pendingSeniorShare && user?.id === project.pendingSeniorShare.approverId && (
+          <div className="px-4 sm:px-6">
+            <PendingShareApprovalBanner
+              projectId={project.id}
+              currentPercent={
+                project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
+              }
+              pending={project.pendingSeniorShare}
+            />
+          </div>
+        )}
         {/* ── Post-hero content — horizontal padding (px-0 removed from outer wrapper, Вариант Б) ── */}
         <div className="space-y-5 px-4 sm:px-6">
           {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
@@ -1151,13 +1445,13 @@ function ProjectDetailPage() {
 
           {activeTab === 'overview' && (
             <motion.div
-              className="grid gap-4 lg:grid-cols-2"
+              className="grid grid-cols-1 gap-4 lg:grid-cols-2"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.08 }}
             >
               {/* Details card */}
-              <Card className="border-border/40">
+              <Card className="min-w-0 border-border/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Детали проекта
@@ -1234,7 +1528,7 @@ function ProjectDetailPage() {
                 API layer; UI ut-fix-round2 also hides this row for HR. */}
                   {canSeeProjectFinance && (
                     <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
-                      <ProjectShareInfo project={project} />
+                      <ProjectShareInfo project={project} canCancelPendingShare={canEditOverride} />
                     </InfoRow>
                   )}
                   {/* task-drop-share-override-and-receiver (Surface A). Same
@@ -1467,6 +1761,7 @@ function ProjectDetailPage() {
                     dropId={project.dropId}
                     viewerRole={user?.role}
                     projectId={projectId}
+                    pendingShare={project.pendingSeniorShare}
                   />
                 )}
               </div>
@@ -1821,6 +2116,11 @@ function ProjectTransactions({
   project: ProjectDetailDto
 }) {
   const { user } = useAuth()
+  // task-648-fix-round-2 (UX-H-3(r2)): same ADMIN/ACCOUNTANT gate the page
+  // computes for its own copy of this widget — the backend's cancel endpoint
+  // allows exactly this pair. Derived here rather than threaded through a new
+  // prop: this component already has the session it needs.
+  const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
   const [selected, setSelected] = useState<TransactionDto | null>(null)
 
   const { data: transactions, isLoading } = useQuery({
@@ -1871,6 +2171,7 @@ function ProjectTransactions({
                 variant="inline"
                 testId="project-transactions-senior-share"
                 badgeTestId="project-transactions-senior-share-override-badge"
+                canCancelPendingShare={canEditOverride}
               />
             </div>
           </div>

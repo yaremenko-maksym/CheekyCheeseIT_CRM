@@ -81,12 +81,20 @@ function Harness({
   dropId,
   viewerRole,
   defaultDropSharePercent = 5,
+  pendingShare,
 }: {
   onSubmit: (values: HarnessValues) => void
   canEditOverride: boolean
   dropId: string | null
   viewerRole: string | undefined
   defaultDropSharePercent?: number
+  /** task-648-fix-round-2 (UX-H-3(r2)): the live proposal, if any. */
+  pendingShare?: {
+    percent: number | null
+    effectivePercentAfterApproval: number
+    approverId: string
+    approverName: string
+  } | null
 }) {
   const form = useForm({
     defaultValues: defaultHarnessValues,
@@ -103,6 +111,7 @@ function Harness({
         dropId={dropId}
         viewerRole={viewerRole}
         projectId="project-1"
+        pendingShare={pendingShare ?? null}
       />
       <button type="button" data-testid="harness-submit" onClick={() => void form.handleSubmit()}>
         Submit
@@ -201,5 +210,121 @@ describe('ProjectEditFields — Surface C (paymentType Select)', () => {
     fireEvent.click(screen.getByTestId('harness-submit'))
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
     expect(onSubmit.mock.calls[0]![0]).toMatchObject({ paymentType: 'GIG_CONTRACT' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-648-fix-round-2 (UX-H-3(r2)) — the project edit form stops hiding a
+// live proposal. The designer opened this dialog against a project with a
+// live proposal and found the full dialog text mentioned it nowhere: the
+// slider simply showed the ACTIVE value, so an ADMIN typing a new number
+// superseded a proposal they had no way of knowing existed.
+// ---------------------------------------------------------------------------
+
+const PENDING = {
+  percent: 55,
+  effectivePercentAfterApproval: 55,
+  approverId: 'senior-1',
+  approverName: 'Олексій Коваленко',
+}
+
+describe('ProjectEditFields — live proposal notice', () => {
+  it('names the proposed percent and the approver when a proposal is live', () => {
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId={null}
+        viewerRole="ADMIN"
+        pendingShare={PENDING}
+      />,
+    )
+    const notice = screen.getByTestId('pending-share-edit-notice-project')
+    expect(notice).toHaveTextContent('55%')
+    expect(notice).toHaveTextContent('Олексій Коваленко')
+  })
+
+  it('is absent when no proposal is live', () => {
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId={null}
+        viewerRole="ADMIN"
+        pendingShare={null}
+      />,
+    )
+    expect(screen.getByTestId('project-edit-senior-share-section')).toBeInTheDocument()
+    expect(screen.queryByTestId('pending-share-edit-notice-project')).toBeNull()
+  })
+
+  it('is absent for a viewer who cannot edit the override — the backend would 403 the withdraw', () => {
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={false}
+        dropId={null}
+        viewerRole="SENIOR"
+        pendingShare={PENDING}
+      />,
+    )
+    expect(screen.getByTestId('project-edit-senior-share-section')).toBeInTheDocument()
+    expect(screen.queryByTestId('pending-share-edit-notice-project')).toBeNull()
+  })
+
+  it('a "clear the override" proposal shows the RESOLVED fallback percent, never null', () => {
+    // `percent === null` is a real proposal ("drop the project override, fall
+    // back to team/default") — the server resolves what that would become
+    // (`effectivePercentAfterApproval`) so the client never has to guess. The
+    // round-1 findings COPY-H-2/H-3 were exactly this branch printing a wrong
+    // number; here it must print the resolved one.
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId={null}
+        viewerRole="ADMIN"
+        pendingShare={{ ...PENDING, percent: null, effectivePercentAfterApproval: 26 }}
+      />,
+    )
+    const notice = screen.getByTestId('pending-share-edit-notice-project')
+    expect(notice).toHaveTextContent('Предложено 26%')
+    expect(notice).not.toHaveTextContent('null')
+  })
+
+  it('a concrete proposal shows the proposed percent, not the resolved one', () => {
+    // The mirror case: when `percent` is a number the two fields can differ
+    // (a team override could change what "effective" resolves to), and the
+    // notice must name what was PROPOSED.
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId={null}
+        viewerRole="ADMIN"
+        pendingShare={{ ...PENDING, percent: 55, effectivePercentAfterApproval: 26 }}
+      />,
+    )
+    const notice = screen.getByTestId('pending-share-edit-notice-project')
+    expect(notice).toHaveTextContent('Предложено 55%')
+    expect(notice).not.toHaveTextContent('Предложено 26%')
+  })
+
+  it('the slider hint tells the reader the new value is not live until confirmed', () => {
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId={null}
+        viewerRole="ADMIN"
+        pendingShare={null}
+      />,
+    )
+    // task-648-fix-round-2 (COPY-H-6). Also pins the removal of round 1's
+    // promise that the same value CANCELS an open proposal — that gesture
+    // no longer does anything (SR-H-2), and text must not promise it.
+    const section = screen.getByTestId('project-edit-senior-share-section')
+    expect(section).toHaveTextContent('Новая доля начнёт действовать после подтверждения синьора')
+    expect(section).not.toHaveTextContent('отменить отправленное предложение')
   })
 })
