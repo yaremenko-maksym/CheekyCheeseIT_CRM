@@ -46,7 +46,16 @@
  *
  * All scenarios run against the mocked /api/* responses defined in fixtures.ts.
  */
-import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB } from './fixtures'
+import {
+  test,
+  expect,
+  USERS,
+  PROJECTS,
+  mockAuthAs,
+  API_GLOB,
+  API_RE,
+  buildAdminViewingUser,
+} from './fixtures'
 
 // Helper — register a one-off override of the /api/projects/:id response so
 // each scenario can present the project in whatever override state it needs.
@@ -162,15 +171,20 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
       // The PENDING indicator appears instead, naming the proposed value.
       // task-648-fix-round-1 (COPY-M-10): the approver's name is NOT in the
-      // pill's own text any more (a 55-character string wrapped awkwardly
-      // next to shorter neighbors) — it surfaces on hover, via the Tooltip
-      // this badge is wrapped in.
+      // pill's own text (a 55-character string wrapped awkwardly next to
+      // shorter neighbors).
+      // task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): it is no longer behind
+      // a hover either — Radix Tooltip ignores touch pointers outright, and
+      // `Badge` renders a non-focusable `div`, so on a phone or a keyboard
+      // the name was simply unreachable. It is plain text next to the pill
+      // now, asserted WITHOUT hovering.
       const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
       await expect(pendingBadge).toBeVisible()
       await expect(pendingBadge).toContainText('30%')
       await expect(pendingBadge).not.toContainText(USERS.senior.displayName)
-      await pendingBadge.hover()
-      await expect(page.getByRole('tooltip')).toContainText(USERS.senior.displayName)
+      await expect(page.getByTestId('project-senior-share')).toContainText(
+        `Подтверждает ${USERS.senior.displayName}`,
+      )
     })
   })
 
@@ -829,5 +843,323 @@ test.describe('login auth-guard', () => {
     expect(new URL(page.url()).pathname).toBe('/login')
     // The login UI is rendered (header copy serves as a fingerprint).
     await expect(page.getByText('CheekyCheeseIT CRM')).toBeVisible()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-648-fix-round-2 — withdrawing a pending proposal, and the two
+// text/geometry defects the second review round measured on a live stand.
+//
+// Five review axes independently reported the same hole (SR-H-2, SPEC-H-2,
+// CR-H-3, UX-H-3(r2), QA-HIGH-2): round 1 shipped
+// `POST …/senior-share/cancel` and nothing in `apps/web` ever called it, while
+// the documented alternative — "return the slider to the active value" — was
+// unreachable on the project form and destructive on the user form. Manual QA
+// reproduced the destructive half live: one phone edit flipped a proposal
+// `PENDING → CANCELLED`.
+//
+// The base-share (profile) scenarios live here too, not in a file of their
+// own: they are the twin of the same feature, and this file is already gated
+// by the `projects` CI shard — a new file would have needed a shard entry in
+// `.github/workflows/ci.yml`, which is not this agent's zone, and the
+// alternative (`KNOWN_UNSHARDED`) is debt, i.e. tests CI never runs.
+//
+// Mocked `/api/*` like the rest of this suite. The REAL guard chain on the two
+// cancel routes is proven separately, against a booted Nest app, by
+// `senior-share-guard-stack.controller.integration.spec.ts` — a mocked E2E is
+// structurally blind to global guards (`security-review` skill, pattern 4), so
+// the block below deliberately asserts UI contract only.
+// ---------------------------------------------------------------------------
+
+const PROJECT_ID = PROJECTS[0]!.id
+const PENDING_PERCENT = 55
+
+type PendingShare = {
+  percent: number | null
+  effectivePercentAfterApproval: number
+  approverId: string
+  approverName: string
+}
+
+const PENDING: PendingShare = {
+  percent: PENDING_PERCENT,
+  effectivePercentAfterApproval: PENDING_PERCENT,
+  approverId: USERS.senior.id,
+  approverName: USERS.senior.displayName,
+}
+
+/** Project detail carrying a live proposal, plus a spy on the cancel POST. */
+function mockProjectWithPending(page: import('@playwright/test').Page) {
+  const cancelCalls: string[] = []
+  const detail: Record<string, unknown> = {
+    ...PROJECTS[0],
+    seniorSharePercentOverride: 30,
+    pendingSeniorShare: PENDING,
+    effectiveTeam: {
+      senior: {
+        id: USERS.senior.id,
+        displayName: USERS.senior.displayName,
+        email: USERS.senior.email,
+        avatar: null,
+        role: 'SENIOR' as const,
+      },
+      hrs: [],
+      accountants: [],
+      juniors: [],
+    },
+  }
+
+  const routes = Promise.all([
+    page.route(`${API_GLOB}/projects/${PROJECT_ID}/senior-share/cancel`, (r) => {
+      cancelCalls.push(r.request().method())
+      detail['pendingSeniorShare'] = null
+      return r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(detail),
+      })
+    }),
+    page.route(`**/api/projects/${PROJECT_ID}`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(detail),
+      }),
+    ),
+  ])
+
+  return { cancelCalls, ready: routes }
+}
+
+/** Profile view of the senior, carrying a live proposal + a cancel spy. */
+function mockProfileWithPending(page: import('@playwright/test').Page) {
+  const cancelCalls: string[] = []
+  const view = buildAdminViewingUser(USERS.senior) as {
+    user: Record<string, unknown>
+    permissions: unknown
+    data: unknown
+  }
+  view.user['seniorSharePercent'] = 26
+  view.user['pendingSeniorShare'] = PENDING
+
+  const routes = Promise.all([
+    page.route(new RegExp(`${API_RE}/users/${USERS.senior.id}/senior-share/cancel$`), (r) => {
+      cancelCalls.push(r.request().method())
+      view.user['pendingSeniorShare'] = null
+      return r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(view),
+      })
+    }),
+    page.route(new RegExp(`${API_RE}/users/${USERS.senior.id}$`), (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(view),
+      })
+    }),
+  ])
+
+  return { cancelCalls, ready: routes }
+}
+
+// ---------------------------------------------------------------------------
+// R / S — the withdraw button itself
+// ---------------------------------------------------------------------------
+
+test.describe('R — ADMIN can withdraw a pending proposal', () => {
+  test('project page: the button sits next to the indicator and POSTs to cancel', async ({
+    asAdmin: page,
+  }) => {
+    const { cancelCalls, ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
+
+    const cancelButton = page.getByTestId('cancel-pending-share-project').first()
+    await expect(cancelButton).toBeVisible()
+    await cancelButton.click()
+
+    await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
+    expect(cancelCalls[0]).toBe('POST')
+  })
+
+  test('profile page: the button sits next to the indicator and POSTs to cancel', async ({
+    asAdmin: page,
+  }) => {
+    const { cancelCalls, ready } = mockProfileWithPending(page)
+    await ready
+
+    await page.goto(`/profile/${USERS.senior.id}`)
+    await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
+
+    const cancelButton = page.getByTestId('cancel-pending-share-user').first()
+    await expect(cancelButton).toBeVisible()
+    await cancelButton.click()
+
+    await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
+    expect(cancelCalls[0]).toBe('POST')
+  })
+
+  test('the withdraw button is a ≥44px touch target at 320', async ({ asAdmin: page }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 720 })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    const box = await page.getByTestId('cancel-pending-share-project').first().boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(box!.width).toBeGreaterThanOrEqual(44)
+  })
+})
+
+test.describe('S — the approver is not offered the withdraw control', () => {
+  test('SENIOR sees the actionable banner, never the withdraw button', async ({
+    asSenior: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    // The senior's own control is reject-with-a-reason, not a silent withdraw.
+    await expect(page.getByTestId('pending-share-approve-button')).toBeVisible()
+    await expect(page.getByTestId('cancel-pending-share-project')).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T — the edit dialogs stop hiding the live proposal
+// ---------------------------------------------------------------------------
+
+test.describe('T — an edit dialog announces the live proposal', () => {
+  test('project edit dialog names the proposed value, the approver, and offers to withdraw', async ({
+    asAdmin: page,
+  }) => {
+    const { cancelCalls, ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.getByTestId('project-edit-button').click()
+
+    const notice = page.getByTestId('pending-share-edit-notice-project')
+    await expect(notice).toBeVisible()
+    await expect(notice).toContainText(`${PENDING_PERCENT}%`)
+    await expect(notice).toContainText(USERS.senior.displayName)
+
+    await page.getByTestId('cancel-pending-share-project-in-dialog').click()
+    await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
+  })
+
+  test('profile edit dialog names the proposed value, the approver, and offers to withdraw', async ({
+    asAdmin: page,
+  }) => {
+    const { cancelCalls, ready } = mockProfileWithPending(page)
+    await ready
+
+    await page.goto(`/profile/${USERS.senior.id}`)
+    // `AdminActionsMenu` has a test-id on its trigger; the individual items
+    // carry one only where a spec already needed it, so «Редактировать» is
+    // addressed by role+name (the menu is a Radix DropdownMenu).
+    await page.getByTestId('admin-actions-trigger').click()
+    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
+
+    const notice = page.getByTestId('pending-share-edit-notice-user')
+    await expect(notice).toBeVisible()
+    await expect(notice).toContainText(`${PENDING_PERCENT}%`)
+    await expect(notice).toContainText(USERS.senior.displayName)
+
+    await page.getByTestId('cancel-pending-share-user-in-dialog').click()
+    await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// U — COPY-H-5: the space that `inline-flex` was eating
+// ---------------------------------------------------------------------------
+
+test.describe('U — the pending badge reads correctly on screen', () => {
+  for (const width of [320, 375, 1280]) {
+    test(`project badge: rendered text has the space, at ${width}`, async ({ asAdmin: page }) => {
+      const { ready } = mockProjectWithPending(page)
+      await ready
+      await page.setViewportSize({ width, height: 800 })
+
+      await page.goto(`/projects/${PROJECT_ID}`)
+      const badge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(badge).toBeVisible()
+
+      // `innerText` reflects what is RENDERED. `textContent` (what
+      // `toContainText` reads) kept the whitespace node that `inline-flex`
+      // dropped, which is why round 1's assertions were green while the
+      // screen said «Ждёт подтверждения:55%».
+      const rendered = await badge.evaluate((el) => (el as HTMLElement).innerText)
+      expect(rendered).toMatch(/Ждёт подтверждения: \d+%/)
+    })
+  }
+
+  for (const width of [320, 375]) {
+    test(`project badge stays on ONE line at ${width}`, async ({ asAdmin: page }) => {
+      const { ready } = mockProjectWithPending(page)
+      await ready
+      await page.setViewportSize({ width, height: 800 })
+
+      await page.goto(`/projects/${PROJECT_ID}`)
+      const badge = page.getByTestId('project-senior-share-pending-badge')
+      await expect(badge).toBeVisible()
+
+      // Round 1 measured 35px (two lines) vs 20px (one) at 320 — the number
+      // broke away from its label as an independent flex item.
+      const { height, lineHeight } = await badge.evaluate((el) => ({
+        height: el.getBoundingClientRect().height,
+        lineHeight: parseFloat(getComputedStyle(el).lineHeight || '16'),
+      }))
+      expect(height).toBeLessThan(lineHeight * 2)
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// V — COPY-M-12 / UX-M-3(r2): the name, on a phone, without hovering
+// ---------------------------------------------------------------------------
+
+test.describe('V — the approver name is readable without hover', () => {
+  test('project page at 320: the name is in the visible text, and tapping overflows nothing', async ({
+    asAdmin: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 800 })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    const shareWidget = page.getByTestId('project-senior-share')
+    await expect(shareWidget).toBeVisible()
+
+    const rendered = await shareWidget.evaluate((el) => (el as HTMLElement).innerText)
+    expect(rendered).toContain(USERS.senior.displayName)
+
+    // Radix ignores touch pointers for tooltips, so a tap opens nothing — the
+    // point is that nothing it MIGHT open can push the page sideways either.
+    await page.getByTestId('project-senior-share-pending-badge').click()
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }))
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+  })
+
+  test('profile page at 320: the name is in the visible text', async ({ asAdmin: page }) => {
+    const { ready } = mockProfileWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 800 })
+
+    await page.goto(`/profile/${USERS.senior.id}`)
+    await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
+
+    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    expect(rendered).toContain(`Подтверждает ${USERS.senior.displayName}`)
   })
 })
