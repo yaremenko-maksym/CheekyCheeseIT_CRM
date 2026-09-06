@@ -558,31 +558,38 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                 // needs ~230-340px on one line — the plain `truncate` here
                 // cuts the SECOND name entirely at `lg:` (1024-1279, ~86px
                 // track), reading as if only one side is still pending.
-                // `lg:line-clamp-2` (same mechanism the rejectionReason
-                // paragraph a few lines down already uses) wraps onto a
-                // second line instead of cutting content; `lg:whitespace-normal`
-                // undoes `truncate`'s own `white-space: nowrap` (the two
-                // utilities target the SAME property — Tailwind's `lg:`
-                // variant, generated later, wins at this breakpoint). At
-                // `xl:` (1280+) the column has grown enough that this was
-                // never observed to clip (design review's own live check) —
-                // `xl:truncate` (re-applies all three of `truncate`'s
-                // declarations, including `white-space: nowrap`) and
-                // `xl:line-clamp-none` (undoes the `-webkit-box` display
-                // `line-clamp` needs) restore the ORIGINAL single-line
-                // behaviour there, matching ProjectRow's own precedent
-                // against mixing `truncate` and `line-clamp` active at the
-                // same breakpoint (see the rejectionReason paragraph's own
-                // comment on this exact hazard).
+                //
+                // First attempt was `lg:line-clamp-2` + an `xl:truncate`
+                // revert (matching the ORIGINAL decision for this finding)
+                // — measured live and REJECTED: at 1024-1176px the real
+                // both-pending string needs 3-4 lines (scrollHeight up to
+                // 2x the 2-line clientHeight), so line-clamp-2 was STILL
+                // silently dropping the second name behind an ellipsis —
+                // the exact defect this fix exists to close, just moved
+                // one word later. Worse, the `xl:` revert to `truncate`
+                // at 1280+ reintroduced single-line clipping just as bad
+                // as the original bug (scrollWidth 212px vs clientWidth
+                // 116px measured) — the "never observed to clip at xl+"
+                // premise held for the single-approver caption COPY-H-5
+                // measured, not for this both-pending one, which nobody
+                // had measured there before.
+                //
+                // Fix: no line-clamp cap at all. `lg:whitespace-normal` +
+                // `lg:break-words` let the box wrap onto AS MANY lines as
+                // the content needs at the current width — verified live
+                // to render the FULL string, uncut, at every one of
+                // 1024/1056/1100/1176/1249/1280 (3-4 lines at the
+                // narrowest, 1 line by 1280 once the column is wide
+                // enough) — "the row grows taller" is the same trade this
+                // PR's own badge/button fixes already made, not a new one.
+                // No `xl:` override needed either: `white-space: normal`
+                // never FORCES a wrap — a caption that already fits one
+                // line (the common single-approver case) renders on one
+                // line at any width, exactly as `truncate` did, without
+                // needing a second breakpoint to say so.
                 <p
                   data-testid={`project-row-${project.id}-status-caption`}
-                  // `lg:break-words`: a name like "Kovalenko"/"Drozhzhyn" is
-                  // one unbreakable Latin/Cyrillic run — same reasoning as
-                  // ProjectApprovalActions's own buttons, a few px of
-                  // residual overflow (measured live) closed by allowing a
-                  // break WITHIN a word that would otherwise overflow its
-                  // wrapped line.
-                  className="max-w-full truncate text-[11px] text-amber-300/80 lg:line-clamp-2 lg:whitespace-normal lg:break-words xl:line-clamp-none xl:truncate"
+                  className="max-w-full truncate text-[11px] text-amber-300/80 lg:whitespace-normal lg:break-words"
                   title={viewerAlreadyActedCaption ?? pendingCaption ?? undefined}
                 >
                   {viewerAlreadyActedCaption ?? pendingCaption}

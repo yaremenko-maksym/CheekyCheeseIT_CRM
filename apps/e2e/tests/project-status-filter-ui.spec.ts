@@ -996,16 +996,31 @@ test.describe('Project status filter — AC5 (responsive)', () => {
    * far more than that on one line, so the single-line `truncate` COPY-H-5
    * left in place (after dropping its `lg:max-w-40` override, fix-round 4)
    * now cuts the SECOND name entirely — a two-sided project reads as if
-   * only one approver is still pending. Fix: `lg:line-clamp-2` (wraps onto
-   * 2 lines, same mechanism the rejectionReason paragraph already uses for
-   * its own mobile full-width row) at `lg:` specifically; reverts to the
-   * existing single-line `truncate` at `xl:` (1280+), where this was never
-   * observed to clip. `innerText` containing both names is a REGRESSION
-   * guard (CSS truncation never removes DOM text, so it cannot itself
-   * prove the visual fix) — `scrollWidth`, the same signal COPY-L-8's own
-   * test above uses, is what actually proves the single-line clip is gone.
+   * only one approver is still pending.
+   *
+   * First attempt was `lg:line-clamp-2` + an `xl:truncate` revert (the
+   * ORIGINAL decision text for this finding) — measured live and
+   * REJECTED: at 1024-1176px the real string needs 3-4 lines
+   * (`scrollHeight` up to 2x the 2-line `clientHeight`), so line-clamp-2
+   * was STILL silently dropping the second name behind an ellipsis, and
+   * the `xl:truncate` revert at 1280+ reintroduced single-line clipping
+   * just as bad as the original bug (212px content in a 116px box,
+   * measured). Fix: no line-clamp cap at all — `lg:whitespace-normal` +
+   * `lg:break-words` wrap onto as many lines as the content needs,
+   * verified to fully fit (`scrollHeight === clientHeight`, not just
+   * `<=`) at every one of the six widths below.
+   *
+   * `innerText` containing both names is a REGRESSION guard (CSS
+   * truncation/clamping never removes DOM text, so it cannot itself prove
+   * the visual fix) — `scrollWidth`/`scrollHeight` vs `clientWidth`/
+   * `clientHeight` is what actually proves NEITHER a horizontal
+   * single-line clip NOR a vertical line-clamp clip is silently eating
+   * content. The vertical half of this check is the one that would have
+   * caught the rejected line-clamp-2 attempt above — a horizontal-only
+   * check (COPY-L-8's own, reused unchanged for the badge/buttons, which
+   * never wrap past what fits) would have stayed green through it.
    */
-  test('COPY-M-12 = UX-L-3(r5): a both-approvers-pending caption stays fully readable (both names present, no single-line clip) at 1024/1100', async ({
+  test('COPY-M-12 = UX-L-3(r5): a both-approvers-pending caption stays fully readable (both names present, no clip in either dimension) at 1024/1056/1100/1176/1249/1280', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -1036,7 +1051,7 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       const caption = page.getByTestId(`project-row-${projectId}-status-caption`)
       await expect(caption).toBeVisible()
 
-      for (const width of [1024, 1100]) {
+      for (const width of [1024, 1056, 1100, 1176, 1249, 1280]) {
         await page.setViewportSize({ width, height: 900 })
         await page.waitForTimeout(50)
         const text = await caption.innerText()
@@ -1045,11 +1060,17 @@ test.describe('Project status filter — AC5 (responsive)', () => {
         const overflow = await caption.evaluate((node) => ({
           scrollWidth: node.scrollWidth,
           clientWidth: node.clientWidth,
+          scrollHeight: node.scrollHeight,
+          clientHeight: node.clientHeight,
         }))
         expect(
           overflow.scrollWidth,
-          `caption clips onto one line at ${width}px (scrollWidth=${overflow.scrollWidth}, clientWidth=${overflow.clientWidth})`,
+          `caption clips horizontally at ${width}px (scrollWidth=${overflow.scrollWidth}, clientWidth=${overflow.clientWidth})`,
         ).toBeLessThanOrEqual(overflow.clientWidth + 1)
+        expect(
+          overflow.scrollHeight,
+          `caption clips vertically (line-clamp hides a line) at ${width}px (scrollHeight=${overflow.scrollHeight}, clientHeight=${overflow.clientHeight})`,
+        ).toBeLessThanOrEqual(overflow.clientHeight + 1)
       }
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
