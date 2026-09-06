@@ -101,6 +101,30 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(reject).toHaveTextContent('Отклонить')
   })
 
+  /**
+   * COPY-L-8 = UX-M-2(r5) (PR #646 fix-round 5, mutation-gate closure). The
+   * visible label span is `lg:hidden` (1024-1279px, ProjectApprovalActions.tsx)
+   * — `aria-label` is what keeps the button's accessible name unchanged in
+   * that band, so its VALUE (not just its presence) has to be pinned.
+   * `toHaveAccessibleName` is the WRONG matcher for this: happy-dom applies
+   * no real layout, so the ARIA accessible-name algorithm's OWN fallback
+   * step (an aria-label mutated to `""` counts as absent per the spec, so
+   * computation falls through to the button's TEXT CONTENT) still finds the
+   * same visible span text regardless of `lg:hidden` — the exact reason
+   * both `aria-label` StringLiteral mutants at line 257 survived even with
+   * a `toHaveAccessibleName` assertion in place (verified live). Reading
+   * the RAW `aria-label` attribute directly is what actually distinguishes
+   * "the attribute holds the real string" from "the attribute is empty and
+   * something else happens to produce the same name".
+   */
+  it('COPY-L-8 = UX-M-2(r5): the aria-label attribute itself carries the visible label exactly, in both states — Confirm at rest, Reject always static', () => {
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    const approve = screen.getByTestId(`project-approval-approve-${PROJECT_ID}`)
+    const reject = screen.getByTestId(`project-approval-reject-${PROJECT_ID}`)
+    expect(approve).toHaveAttribute('aria-label', 'Подтвердить')
+    expect(reject).toHaveAttribute('aria-label', 'Отклонить')
+  })
+
   it('mutation-gate (ProjectApprovalActions.tsx:179/183): the error paragraph is ABSENT in the normal, at-rest state — approveError/rejectError must actually gate on isError, not render unconditionally', () => {
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
 
@@ -266,6 +290,10 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(button).toBeDisabled()
     expect(button).toHaveTextContent('Подтверждение…')
     expect(button).not.toHaveTextContent('Подтвердить')
+    // COPY-L-8 = UX-M-2(r5): aria-label's OTHER ternary branch — the visible
+    // label swaps to the in-flight text, and so must the raw attribute (see
+    // the "at rest" test above for why toHaveAccessibleName cannot see this).
+    expect(button).toHaveAttribute('aria-label', 'Подтверждение…')
   })
 
   it('UX-H-2 (PR #646 fix-round 1): both buttons are h-11 (44px, responsive-design.md hard-gate) on mobile and revert to h-7 from sm: (640px+) up — same pattern as SegmentedToggle', () => {
