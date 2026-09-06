@@ -497,10 +497,29 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                   whereas a mid-word ellipsis on "Ждёт решения" is merely
                   ugly. See the E2E test's own rect-intersection check
                   (project-status-filter-ui.spec.ts) for the six widths this
-                  was actually measured at. */}
+                  was actually measured at.
+
+                  COPY-L-8 = UX-M-2(r5) (PR #646 fix-round 5, MED). `truncate`
+                  above never actually produced the "mid-word ellipsis" this
+                  comment expected — `Badge` is `inline-flex` (badge.tsx),
+                  and `text-overflow: ellipsis` has no effect on an
+                  inline-flex box's own content (the CSS algorithm needs a
+                  block container); the ~86px `lg:` track against this
+                  badge's ~94px content (measured: E2E's own scrollWidth
+                  check) instead cut the last glyph in half against the
+                  border with no ellipsis at all. `lg:whitespace-normal`
+                  lets the text wrap onto its OWN second line inside the
+                  badge instead — same "row height growing is acceptable"
+                  trade the orchestrator's decision made for the identical
+                  symptom on the Confirm/Reject buttons below. No `xl:`
+                  reversion needed (unlike the caption a few lines down):
+                  once there is enough room the text renders on one line
+                  under `white-space: normal` too, so this is safe to leave
+                  active from `lg:` up rather than needing a second
+                  breakpoint to undo it. */}
               <Badge
                 variant="outline"
-                className="min-w-0 max-w-full gap-1 truncate border-amber-500/30 bg-amber-500/20 text-[10px] text-amber-300"
+                className="min-w-0 max-w-full gap-1 truncate border-amber-500/30 bg-amber-500/20 text-[10px] text-amber-300 lg:whitespace-normal lg:text-center lg:leading-tight"
                 data-testid={`project-row-${project.id}-status-pending`}
               >
                 <Clock className="hidden h-3 w-3 xl:inline" aria-hidden />
@@ -531,9 +550,39 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                 // after, the box now tracks the column's own available
                 // width at every one of the six widths this file tests
                 // (83.5-115.5px), with no overlap at any of them.
+                //
+                // COPY-M-12 = UX-L-3(r5) (PR #646 fix-round 5). Removing the
+                // ceiling fixed the OVERLAP but exposed a different bug the
+                // narrower single-approver caption above never triggered: a
+                // BOTH-pending caption ("от <дроп> и <синьор>", COPY-M-1)
+                // needs ~230-340px on one line — the plain `truncate` here
+                // cuts the SECOND name entirely at `lg:` (1024-1279, ~86px
+                // track), reading as if only one side is still pending.
+                // `lg:line-clamp-2` (same mechanism the rejectionReason
+                // paragraph a few lines down already uses) wraps onto a
+                // second line instead of cutting content; `lg:whitespace-normal`
+                // undoes `truncate`'s own `white-space: nowrap` (the two
+                // utilities target the SAME property — Tailwind's `lg:`
+                // variant, generated later, wins at this breakpoint). At
+                // `xl:` (1280+) the column has grown enough that this was
+                // never observed to clip (design review's own live check) —
+                // `xl:truncate` (re-applies all three of `truncate`'s
+                // declarations, including `white-space: nowrap`) and
+                // `xl:line-clamp-none` (undoes the `-webkit-box` display
+                // `line-clamp` needs) restore the ORIGINAL single-line
+                // behaviour there, matching ProjectRow's own precedent
+                // against mixing `truncate` and `line-clamp` active at the
+                // same breakpoint (see the rejectionReason paragraph's own
+                // comment on this exact hazard).
                 <p
                   data-testid={`project-row-${project.id}-status-caption`}
-                  className="max-w-full truncate text-[11px] text-amber-300/80"
+                  // `lg:break-words`: a name like "Kovalenko"/"Drozhzhyn" is
+                  // one unbreakable Latin/Cyrillic run — same reasoning as
+                  // ProjectApprovalActions's own buttons, a few px of
+                  // residual overflow (measured live) closed by allowing a
+                  // break WITHIN a word that would otherwise overflow its
+                  // wrapped line.
+                  className="max-w-full truncate text-[11px] text-amber-300/80 lg:line-clamp-2 lg:whitespace-normal lg:break-words xl:line-clamp-none xl:truncate"
                   title={viewerAlreadyActedCaption ?? pendingCaption ?? undefined}
                 >
                   {viewerAlreadyActedCaption ?? pendingCaption}

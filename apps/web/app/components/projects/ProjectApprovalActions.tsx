@@ -231,9 +231,30 @@ export function ProjectApprovalActions({
           // (640px+) up — same responsive-height pattern index.tsx's
           // SegmentedToggle mobile instance already uses
           // ([&>button]:min-h-11) for the same 44px requirement.
+          //
+          // COPY-L-8 = UX-M-2(r5) (PR #646 fix-round 5, MED). `Button` is
+          // `inline-flex` + `whitespace-nowrap` (button.tsx base variant) —
+          // `text-overflow: ellipsis` has no effect there (the CSS
+          // algorithm needs a block container), so the fixed `sm:h-7` box
+          // against this exact text ("Подтвердить") at the `lg:` (1024px+)
+          // ~86px track cut the last glyph in half against the border, with
+          // no ellipsis at all (E2E's own scrollWidth check). Tried
+          // wrap+break-word first (matching the badge's own fix a few lines
+          // up in ProjectRow.tsx) — measured live, it left a stubborn ~5px
+          // residual: "Подтвердить"/"Отклонить" are each ONE unbreakable
+          // word, and the CSS flex sizing spec's own "automatic minimum
+          // size" step explicitly excludes break points `overflow-wrap`
+          // adds from the calculation, so the flex item never actually
+          // shrank far enough for the wrap to matter. Icon-only (this fix)
+          // sidesteps the mechanism entirely: `aria-label` carries the SAME
+          // string the visible label would (no accessible-name change),
+          // the label span hides only in the exact band that broke
+          // (`lg:hidden xl:inline` — back to icon+label from 1280px, where
+          // this was never observed to clip).
           className="h-11 min-w-11 gap-1 border-emerald-500/30 px-2 text-[11px] text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 sm:h-7"
           onClick={handleApprove}
           disabled={approve.isPending}
+          aria-label={approve.isPending ? 'Подтверждение…' : 'Подтвердить'}
           data-testid={`project-approval-approve-${projectId}`}
         >
           <Check className="h-3 w-3" aria-hidden />
@@ -241,23 +262,29 @@ export function ProjectApprovalActions({
               deverbal noun ("Сохранение…", "Создание…", "Публикация…" — 15
               instances) over first-person plural ("Сохраняем…" — 4) —
               matches the majority. */}
-          {approve.isPending ? 'Подтверждение…' : 'Подтвердить'}
+          <span className="lg:hidden xl:inline">
+            {approve.isPending ? 'Подтверждение…' : 'Подтвердить'}
+          </span>
         </Button>
         <Button
           type="button"
           size="sm"
           variant="outline"
           // UX-H-2: same responsive-height fix as the Confirm button above.
+          // COPY-L-8 = UX-M-2(r5): same icon-only-at-lg fix as the Confirm
+          // button above, same reasoning ("Отклонить" is equally one
+          // unbreakable word the wrap approach could not close).
           className="h-11 min-w-11 gap-1 border-destructive/30 px-2 text-[11px] text-destructive hover:bg-destructive/10 sm:h-7"
           onClick={(e) => {
             stop(e)
             setRejectOpen(true)
           }}
           disabled={reject.isPending}
+          aria-label="Отклонить"
           data-testid={`project-approval-reject-${projectId}`}
         >
           <X className="h-3 w-3" aria-hidden />
-          Отклонить
+          <span className="lg:hidden xl:inline">Отклонить</span>
         </Button>
       </div>
       {approveError && (

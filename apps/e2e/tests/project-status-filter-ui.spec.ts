@@ -33,6 +33,7 @@ import {
   createSeniorProjectViaAPI,
   rejectProjectViaAPI,
   approveProjectViaAPI,
+  findUserByEmailViaApi,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -907,6 +908,153 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await deleteProjectViaAPI(page, id1)
       await deleteProjectViaAPI(page, id2)
+    }
+  })
+
+  /**
+   * COPY-L-8 = UX-M-2(r5) (PR #646 fix-round 5, MED — copy + design
+   * review). QA-H-2's own clip test (`rect.right <= container.right`) and
+   * COPY-H-5's own overlap test (rect-intersection with the neighbor
+   * column) both only ever see the badge/button's OUTER box — neither can
+   * see the box's OWN content overflowing ITS OWN bounds. `Badge`/`Button`
+   * are `inline-flex` containers (badge.tsx / button.tsx); `truncate`'s
+   * `text-overflow: ellipsis` never actually renders on an inline-flex box
+   * (the CSS algorithm needs a block container) — a track narrower than
+   * the FIXED text ("Ждёт решения", "Подтвердить", "Отклонить") cuts the
+   * last glyph in half against the border with no ellipsis, no visible
+   * "…", nothing `rect.right`/intersection can distinguish from a
+   * perfectly-fitting box. `element.scrollWidth > element.clientWidth` is
+   * the correct signal for exactly this: a `white-space: nowrap` box whose
+   * own content needs more horizontal room than the box itself has.
+   */
+  test('COPY-L-8 = UX-M-2(r5): status badge and Confirm/Reject buttons never overflow their OWN box at 1024/1056/1100/1176 (no clipped glyph) — ADMIN and SENIOR', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { projectId } = await createSeniorProjectViaAPI(page, {
+      seniorEmail: SEED_EMAILS.seniorA,
+      name: `COPY-L-8 ${suffix}`,
+      companyName: `COPY-L-8 Co ${suffix}`,
+      skipApproval: true,
+    })
+    const WIDTHS = [1024, 1056, 1100, 1176]
+
+    async function assertNoOwnOverflow(testId: string, label: string, width: number) {
+      const el = page.getByTestId(testId)
+      await expect(el, `${label}: present at ${width}px`).toBeVisible()
+      const overflow = await el.evaluate((node) => ({
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+      }))
+      expect(
+        overflow.scrollWidth,
+        `${label}: clips its own content at ${width}px (scrollWidth=${overflow.scrollWidth}, clientWidth=${overflow.clientWidth})`,
+      ).toBeLessThanOrEqual(overflow.clientWidth + 1)
+    }
+
+    try {
+      // ADMIN is never the invited approver here — only the badge renders.
+      await page.goto('/projects?status=PENDING')
+      await expect(page.getByTestId(`project-row-${projectId}`)).toBeVisible()
+      for (const width of WIDTHS) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(50)
+        await assertNoOwnOverflow(`project-row-${projectId}-status-pending`, 'ADMIN badge', width)
+      }
+
+      // SENIOR (the invited approver): the SAME row also renders Confirm/Reject.
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      await page.goto('/projects?status=PENDING')
+      await expect(page.getByTestId(`project-row-${projectId}`)).toBeVisible()
+      for (const width of WIDTHS) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(50)
+        await assertNoOwnOverflow(`project-row-${projectId}-status-pending`, 'SENIOR badge', width)
+        await assertNoOwnOverflow(
+          `project-approval-approve-${projectId}`,
+          'SENIOR Подтвердить button',
+          width,
+        )
+        await assertNoOwnOverflow(
+          `project-approval-reject-${projectId}`,
+          'SENIOR Отклонить button',
+          width,
+        )
+      }
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await deleteProjectViaAPI(page, projectId)
+    }
+  })
+
+  /**
+   * COPY-M-12 = UX-L-3(r5) (PR #646 fix-round 5, MED/LOW — copy + design
+   * review). At `lg:` (1024-1279) the status column is a `1fr` track out
+   * of the row's 8fr total (~86-91px measured) — a both-approvers-pending
+   * caption ("от <дроп> и <синьор>", COPY-M-1's own drop-first order) needs
+   * far more than that on one line, so the single-line `truncate` COPY-H-5
+   * left in place (after dropping its `lg:max-w-40` override, fix-round 4)
+   * now cuts the SECOND name entirely — a two-sided project reads as if
+   * only one approver is still pending. Fix: `lg:line-clamp-2` (wraps onto
+   * 2 lines, same mechanism the rejectionReason paragraph already uses for
+   * its own mobile full-width row) at `lg:` specifically; reverts to the
+   * existing single-line `truncate` at `xl:` (1280+), where this was never
+   * observed to clip. `innerText` containing both names is a REGRESSION
+   * guard (CSS truncation never removes DOM text, so it cannot itself
+   * prove the visual fix) — `scrollWidth`, the same signal COPY-L-8's own
+   * test above uses, is what actually proves the single-line clip is gone.
+   */
+  test('COPY-M-12 = UX-L-3(r5): a both-approvers-pending caption stays fully readable (both names present, no single-line clip) at 1024/1100', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    const dropEmail = `copy-m-12-${suffix}@cheekycheese.dev`
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { dropId } = await createDropViaAPI(page, {
+      email: dropEmail,
+      displayName: `COPY-M-12 Drop ${suffix}`,
+    })
+
+    let projectId: string | undefined
+    try {
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorA)
+      if (!senior) throw new Error(`Senior seed user not found: ${SEED_EMAILS.seniorA}`)
+      const created = await createDropProjectViaAPI(page, {
+        dropId,
+        seniorEmail: SEED_EMAILS.seniorA,
+        companyName: `COPY-M-12 Co ${suffix}`,
+        skipApproval: true,
+      })
+      projectId = created.projectId
+      const drop = await findUserByEmailViaApi(page, dropEmail)
+      if (!drop) throw new Error(`Drop user not found: ${dropEmail}`)
+
+      await page.goto('/projects?status=PENDING')
+      const caption = page.getByTestId(`project-row-${projectId}-status-caption`)
+      await expect(caption).toBeVisible()
+
+      for (const width of [1024, 1100]) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(50)
+        const text = await caption.innerText()
+        expect(text, `caption at ${width}px names the drop`).toContain(drop.displayName)
+        expect(text, `caption at ${width}px names the senior`).toContain(senior.displayName)
+        const overflow = await caption.evaluate((node) => ({
+          scrollWidth: node.scrollWidth,
+          clientWidth: node.clientWidth,
+        }))
+        expect(
+          overflow.scrollWidth,
+          `caption clips onto one line at ${width}px (scrollWidth=${overflow.scrollWidth}, clientWidth=${overflow.clientWidth})`,
+        ).toBeLessThanOrEqual(overflow.clientWidth + 1)
+      }
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      if (projectId) await deleteProjectViaAPI(page, projectId)
+      await cleanupDropViaAPI(page, dropId)
     }
   })
 
