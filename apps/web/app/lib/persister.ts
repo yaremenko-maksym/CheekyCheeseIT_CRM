@@ -123,25 +123,39 @@ export function stripSensitiveFields(value: unknown, onStrip?: () => void): unkn
  *      SR-M-5, fix-round 2) gets no mark and behaves exactly as before this
  *      fix — no unnecessary refetch is introduced for the common case.
  *
- * Deliberately per-QUERY (via `state`, not `state.data` alone): the original
- * `stripSensitiveFields(client)` call this replaces walked the ENTIRE
- * client, including `query.state.error`/`fetchFailureReason` — walking
- * `query.state` here (not just `.data`) keeps that same coverage while
- * still being able to tell whether THIS query's data needed stripping at
- * all. `clientState.mutations` (a paused/offline mutation carrying the same
- * shape) goes through the original, tracking-free strip — no staleness
- * marker is meaningful there since mutations are not restored through the
- * `useQuery`/`staleTime` path this fix targets.
+ * Deliberately per-QUERY (via `state` AND `meta`, not `state.data` alone):
+ * the original `stripSensitiveFields(client)` call this replaces walked the
+ * ENTIRE client, including `query.state.error`/`fetchFailureReason` —
+ * walking `query.state` here (not just `.data`) keeps that same coverage
+ * while still being able to tell whether THIS query's data needed
+ * stripping at all. `clientState.mutations` (a paused/offline mutation
+ * carrying the same shape) goes through the original, tracking-free strip
+ * — no staleness marker is meaningful there since mutations are not
+ * restored through the `useQuery`/`staleTime` path this fix targets.
+ *
+ * SR-M-8 (PR #646 fix-round 5, MED). `query.meta` is walked through the
+ * SAME strip as `state`, for the same "keep that same coverage" reason —
+ * this file's own doc used to claim `query.state` alone matched the old
+ * whole-client walk's coverage, which was never true for `meta`: the old
+ * walk was fully generic and would have recursed into it like any other
+ * nested object, but `stripQuery` only ever WROTE `meta` (the `strippedAt`
+ * mark below), never READ it for stripping. Not exploitable today (no
+ * `useQuery({ meta })` call in apps/web puts anything sensitive there, and
+ * `dehydrate()` never invents a `meta` value on its own) — this closes the
+ * gap for the day one does, and for `SENSITIVE_PERSISTED_FIELDS`'s own
+ * documented SR-M-2 extension point.
  */
 function stripQuery(query: unknown): unknown {
   if (query === null || typeof query !== 'object') return query
-  const q = query as { state?: unknown; meta?: Record<string, unknown> }
+  const q = query as { state?: unknown; meta?: unknown }
   let strippedSomething = false
-  const state = stripSensitiveFields(q.state, () => {
+  const onStrip = () => {
     strippedSomething = true
-  })
+  }
+  const state = stripSensitiveFields(q.state, onStrip)
+  const meta = stripSensitiveFields(q.meta, onStrip) as Record<string, unknown> | undefined
   if (!strippedSomething) return { ...q, state }
-  return { ...q, state, meta: { ...(q.meta ?? {}), strippedAt: Date.now() } }
+  return { ...q, state, meta: { ...(meta ?? {}), strippedAt: Date.now() } }
 }
 
 /**
@@ -162,14 +176,29 @@ function stripQuery(query: unknown): unknown {
  * mutants at once (two equivalent, but ALSO the one genuinely-killed `false`
  * variant sitting on the same line — Stryker's suppression directive cannot
  * be more specific than "this mutator, this line").
+ *
+ * SR-M-8 (PR #646 fix-round 5, MED). `queries` is destructured OUT of `cs`
+ * before the spread below, not left inside it. The previous shape —
+ * `...cs, ...(Array.isArray(cs.queries) && { queries: ... })` — failed
+ * CLOSED only by accident: when `cs.queries` is not an array, the
+ * conditional spread contributes nothing, but `...cs` a few characters
+ * earlier had ALREADY put the original, unstripped `queries` value into
+ * the result. A malformed `clientState.queries` (never produced by a real
+ * `dehydrate()`, per this file's own "defensive guards" doc below, but not
+ * provably impossible either — a crashed tab's partial write, a schema
+ * left over from an older app version) used to be written to disk
+ * completely unstripped. Destructuring it out of `rest` means the ONLY way
+ * `queries` reaches the output at all is the explicit, stripped re-add
+ * below — the malformed case is OMITTED, not passed through raw.
  */
 export function markStrippedQueries(clientState: unknown): unknown {
   if (clientState === null || typeof clientState !== 'object') return clientState
   const cs = clientState as { queries?: unknown; mutations?: unknown; [k: string]: unknown }
+  const { queries, ...rest } = cs
   return {
-    ...cs,
+    ...rest,
     ...(cs.mutations !== undefined && { mutations: stripSensitiveFields(cs.mutations) }),
-    ...(Array.isArray(cs.queries) && { queries: cs.queries.map(stripQuery) }),
+    ...(Array.isArray(queries) && { queries: queries.map(stripQuery) }),
   }
 }
 

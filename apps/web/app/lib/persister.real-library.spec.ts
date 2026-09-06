@@ -221,3 +221,126 @@ describe('persister — real library, persist→restore round trip forces stalen
     expect(restored.clientState.queries[0]?.state.dataUpdatedAt).toBe(originalUpdatedAt)
   })
 })
+
+/**
+ * SR-M-8 (PR #646 fix-round 5, MED — security review). Round 4's rewrite
+ * (QA-H-3 above) narrowed WHAT gets walked before a write from "the whole
+ * client" (round 2's plain `stripSensitiveFields(client)` call) down to
+ * `query.state` + `clientState.mutations` — two fail-OPEN gaps followed
+ * from that narrowing, both closed here:
+ *
+ *   1. `query.meta` was only ever WRITTEN by this file (the `strippedAt`
+ *      mark) and never READ for stripping — a sensitive field placed
+ *      there rode through `{ ...q, state }` untouched. Not exploitable
+ *      TODAY (no `useQuery({ meta })` call in apps/web puts anything
+ *      sensitive there, and `dehydrate()` never invents a `meta` value on
+ *      its own) — this test pins the FAIL-CLOSED contract for the day one
+ *      does, not today's reachability.
+ *   2. `clientState.queries` that is not an array fails the
+ *      `Array.isArray` guard — but because the override was a conditional
+ *      SPREAD (`...cs, ...(Array.isArray(cs.queries) && {...})`) rather
+ *      than a destructure-then-omit, the FALSE branch contributed nothing
+ *      while `...cs` a few characters earlier had ALREADY put the
+ *      original, unstripped `queries` value into the result. A shape a
+ *      real `dehydrate()` never produces (see this file's own "defensive
+ *      guards" doc below) but not provably impossible either — a crashed
+ *      tab's partial write, a schema left over from an older app version.
+ *
+ * Same verification shape as SR-L-4/QA-H-3 above: real library, only
+ * `idb-keyval` mocked, assert on the actual bytes reaching
+ * `storage.setItem` — not persister.ts's `serialize` OPTION in isolation.
+ */
+describe('persister — real library, fail-closed strip (SR-M-8)', () => {
+  it('a sensitive field placed in query.meta (not query.state) never reaches idb-keyval.set', async () => {
+    const client = {
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects', { archived: 'active' }],
+            queryHash: 'irrelevant',
+            state: {
+              status: 'success' as const,
+              data: [{ id: 'p1', status: 'ACTIVE', companyName: 'Acme' }],
+              dataUpdatedAt: Date.now(),
+              error: null,
+              errorUpdatedAt: 0,
+              fetchFailureCount: 0,
+              fetchFailureReason: null,
+              fetchMeta: null,
+              isInvalidated: false,
+            },
+            meta: { rejectionReason: 'СЕКРЕТ-В-META' },
+          },
+        ],
+        mutations: [],
+      },
+    }
+
+    // @ts-expect-error — deliberately loose PersistedClient shape (see the tests above).
+    await persister.persistClient(client)
+
+    const written = mockSet.mock.calls[0]?.[1] as string
+    expect(written).not.toContain('СЕКРЕТ-В-META')
+    expect(written).not.toContain('rejectionReason')
+    // Not a wipe of the whole meta bag — only the sensitive key inside it
+    // is gone, and the query is correctly marked (same contract as every
+    // OTHER strippedAt case above, now also reachable via meta).
+    expect(JSON.parse(written).clientState.queries[0].meta).toEqual({
+      strippedAt: expect.any(Number),
+    })
+  })
+
+  it('clientState.queries that is not an array is written WITHOUT a queries key at all (fail-closed) — never spread through raw and unstripped', async () => {
+    const client = {
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: {
+        queries: { rogue: { rejectionReason: 'СЕКРЕТ-В-QUERIES' } },
+        mutations: [],
+      },
+    }
+
+    // @ts-expect-error — deliberately loose PersistedClient shape (see the tests above).
+    await persister.persistClient(client)
+
+    const written = mockSet.mock.calls[0]?.[1] as string
+    expect(written).not.toContain('СЕКРЕТ-В-QUERIES')
+    expect('queries' in JSON.parse(written).clientState).toBe(false)
+  })
+
+  it('control case: a well-formed array of queries is unaffected by the fail-closed guard — still stripped and written normally', async () => {
+    const client = {
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: {
+        queries: [
+          {
+            queryKey: ['projects'],
+            queryHash: 'irrelevant',
+            state: {
+              status: 'success' as const,
+              data: [{ id: 'p1', status: 'ACTIVE' }],
+              dataUpdatedAt: Date.now(),
+              error: null,
+              errorUpdatedAt: 0,
+              fetchFailureCount: 0,
+              fetchFailureReason: null,
+              fetchMeta: null,
+              isInvalidated: false,
+            },
+          },
+        ],
+        mutations: [],
+      },
+    }
+
+    // @ts-expect-error — deliberately loose PersistedClient shape (see the tests above).
+    await persister.persistClient(client)
+
+    const written = mockSet.mock.calls[0]?.[1] as string
+    expect(JSON.parse(written).clientState.queries).toHaveLength(1)
+    expect(JSON.parse(written).clientState.queries[0].state.data[0].id).toBe('p1')
+  })
+})
