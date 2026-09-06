@@ -144,8 +144,26 @@ function stripQuery(query: unknown): unknown {
   return { ...q, state, meta: { ...(q.meta ?? {}), strippedAt: Date.now() } }
 }
 
-/** See `stripQuery`'s doc above — walks `clientState.{queries,mutations}`. */
-function markStrippedQueries(clientState: unknown): unknown {
+/**
+ * See `stripQuery`'s doc above — walks `clientState.{queries,mutations}`.
+ *
+ * Exported (mutation-gate closure, PR #646 fix-round 4) purely for
+ * testability, alongside `stripSensitiveFields` above: `serialize`'s only
+ * PUBLIC output is a JSON string, and `JSON.stringify` unconditionally drops
+ * an `undefined`-valued object property — so a mutant that turns "the
+ * `mutations` key is conditionally spread in" into "always spread in (as
+ * `{ mutations: undefined }` when `cs.mutations` was never defined)" is
+ * byte-identical after `JSON.stringify` and invisible to any test that only
+ * ever sees `serialize`'s string output. Exporting this function lets
+ * `persister.spec.ts` assert on the PRE-stringify object directly (`'mutations'
+ * in result`, which — unlike `JSON.stringify` — DOES distinguish "key absent"
+ * from "key present with value `undefined`"), closing the gap with a real
+ * assertion instead of a suppression that would have had to excuse three
+ * mutants at once (two equivalent, but ALSO the one genuinely-killed `false`
+ * variant sitting on the same line — Stryker's suppression directive cannot
+ * be more specific than "this mutator, this line").
+ */
+export function markStrippedQueries(clientState: unknown): unknown {
   if (clientState === null || typeof clientState !== 'object') return clientState
   const cs = clientState as { queries?: unknown; mutations?: unknown; [k: string]: unknown }
   return {

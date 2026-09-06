@@ -77,6 +77,7 @@ import {
   persister,
   stripSensitiveFields,
   SENSITIVE_PERSISTED_FIELDS,
+  markStrippedQueries,
 } from './persister'
 
 // ---------------------------------------------------------------------------
@@ -380,5 +381,118 @@ describe('persister — restoreClient forces dataUpdatedAt=0 on meta.strippedAt-
   it('nothing persisted yet (restoreClient resolves undefined) passes through as undefined, not a crash', async () => {
     hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce(undefined)
     await expect(persister.restoreClient()).resolves.toBeUndefined()
+  })
+})
+
+// Mutation-gate closure (PR #646 fix-round 4). Every function QA-H-3 added
+// (stripQuery, markStrippedQueries, serialize's own wrapper,
+// forceRefetchOfStrippedQueries) opens with a `=== null || typeof !==
+// 'object'` guard — defensive against a shape a REAL TanStack Query
+// PersistedClient never actually produces (a well-formed client always has
+// an object clientState with an array queries), but one a CORRUPTED write
+// could (a crashed tab's partial IndexedDB write, a schema left over from an
+// older app version). Each test below exercises exactly one guard with a
+// value that violates it: with the guard removed or inverted, the malformed
+// value either crashes on a property access `null`/`undefined` cannot have,
+// or serializes to a visibly wrong shape — either way, something this exact
+// test notices went missing or changed, rather than a suppression asserting
+// (unverified) that the branch cannot be observed.
+describe('persister — defensive guards for malformed/legacy persisted shapes (QA-H-3, mutation-gate closure)', () => {
+  function serializeFn(client: unknown): string {
+    const serialize = hoisted.capturedOptionsRef.current?.serialize
+    if (!serialize) throw new Error('serialize was not captured')
+    return serialize(client)
+  }
+
+  it('serialize: a client that is null or a non-object primitive falls back to the pre-QA-H-3 stripSensitiveFields(client) path unchanged', () => {
+    expect(serializeFn(null)).toBe(JSON.stringify(null))
+    expect(serializeFn(42)).toBe(JSON.stringify(42))
+  })
+
+  it('markStrippedQueries: a clientState that is null or a non-object primitive passes through unchanged, not coerced to "{}"', () => {
+    expect(JSON.parse(serializeFn({ clientState: null })).clientState).toBeNull()
+    expect(JSON.parse(serializeFn({ clientState: 42 })).clientState).toBe(42)
+  })
+
+  it('stripQuery: a queries-array entry that is null or a non-object primitive passes through unchanged, not crashed or coerced', () => {
+    const output = serializeFn({
+      clientState: {
+        queries: [
+          null,
+          42,
+          { queryKey: ['projects'], state: { data: { id: 'p1', rejectionReason: 'секрет' } } },
+        ],
+      },
+    })
+    const queries = JSON.parse(output).clientState.queries
+    expect(queries[0]).toBeNull()
+    expect(queries[1]).toBe(42)
+    // The one well-formed entry alongside the two malformed ones still gets
+    // its real work done — the guard must not swallow the whole array.
+    expect(typeof queries[2].meta.strippedAt).toBe('number')
+  })
+
+  it('markStrippedQueries: a REAL populated mutations array is preserved (with its own sensitive fields stripped), not silently dropped', () => {
+    const output = serializeFn({
+      clientState: {
+        queries: [],
+        mutations: [
+          {
+            mutationKey: ['rejectProjectDraft'],
+            state: { data: { id: 'p1', rejectionReason: 'нет бюджета на Q3' } },
+          },
+        ],
+      },
+    })
+    const mutations = JSON.parse(output).clientState.mutations
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0].state.data.rejectionReason).toBeUndefined()
+    expect(mutations[0].mutationKey).toEqual(['rejectProjectDraft'])
+  })
+
+  it("markStrippedQueries: a clientState with no mutations key at all does not grow one out of thin air (via serialize's string output)", () => {
+    const output = serializeFn({ clientState: { queries: [] } })
+    expect('mutations' in JSON.parse(output).clientState).toBe(false)
+  })
+
+  // Calls markStrippedQueries DIRECTLY (not through serialize + JSON.parse)
+  // on purpose: `JSON.stringify` drops an `undefined`-valued property
+  // unconditionally, so "no mutations key at all" and "a mutations key set
+  // to undefined" are INDISTINGUISHABLE through the test above alone — a
+  // mutant that turns the conditional spread into an unconditional one
+  // (`cs.mutations !== undefined && {...}` → always truthy) would still
+  // pass it, because `{ mutations: stripSensitiveFields(undefined) }` is
+  // `{ mutations: undefined }`, which stringifies identically to `{}`. The
+  // `in` operator, unlike JSON.stringify, DOES see the difference — this is
+  // what actually closes the mutation-gate finding at that line, not a
+  // suppression (see markStrippedQueries's own doc for why it is exported).
+  it('markStrippedQueries (direct call, pre-stringify): a clientState with no mutations key at all produces a result with NO mutations key — not one explicitly set to undefined', () => {
+    const result = markStrippedQueries({ queries: [] }) as Record<string, unknown>
+    expect('mutations' in result).toBe(false)
+  })
+
+  it('forceRefetchOfStrippedQueries: restoreClient resolving null (library types only ever promise undefined, but the guard exists) passes through as null, not a crash', async () => {
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce(null as unknown as undefined)
+    await expect(persister.restoreClient()).resolves.toBeNull()
+  })
+
+  it('forceRefetchOfStrippedQueries: a restored client with no clientState at all does not crash (optional chaining, not a direct property read)', async () => {
+    const clientWithoutState = { timestamp: Date.now(), buster: 'v1' }
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce(
+      clientWithoutState as unknown as undefined,
+    )
+    await expect(persister.restoreClient()).resolves.toEqual(clientWithoutState)
+  })
+
+  it('forceRefetchOfStrippedQueries: a restored client whose clientState.queries is not an array passes through unchanged (Array.isArray guard, not just falsy-check)', async () => {
+    const clientWithBadQueries = {
+      timestamp: Date.now(),
+      buster: 'v1',
+      clientState: { queries: null, mutations: [] },
+    }
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce(
+      clientWithBadQueries as unknown as undefined,
+    )
+    await expect(persister.restoreClient()).resolves.toEqual(clientWithBadQueries)
   })
 })
