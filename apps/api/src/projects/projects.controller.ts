@@ -19,6 +19,7 @@ import {
   type SessionUser,
   updateProjectSchema,
 } from '@crm/shared'
+import { SENIOR_SHARE_ROUTES } from '../approvals/senior-share-routes'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -114,7 +115,7 @@ export class ProjectsController {
    * live proposal simply gets 404 from `ApprovalsService` (no live row for
    * them), so a role check would be redundant, not protective.
    */
-  @Post(':id/senior-share/approve')
+  @Post(SENIOR_SHARE_ROUTES.approve)
   approveSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: SessionUser,
@@ -126,7 +127,7 @@ export class ProjectsController {
    * task-pending-share, design spec §3 decision 3 — rejection requires a
    * reason. Same no-`@Roles` reasoning as the approve endpoint above.
    */
-  @Post(':id/senior-share/reject')
+  @Post(SENIOR_SHARE_ROUTES.reject)
   rejectSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
@@ -144,7 +145,7 @@ export class ProjectsController {
    * checks ADMIN/ACCOUNTANT explicitly and throws `ForbiddenException`
    * otherwise.
    */
-  @Post(':id/senior-share/cancel')
+  @Post(SENIOR_SHARE_ROUTES.cancel)
   cancelSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: SessionUser,

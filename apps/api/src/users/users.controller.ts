@@ -38,6 +38,7 @@ import { CurrentUser } from '../auth/current-user.decorator'
 import { AdminWriteThrottle } from '../config/throttle-decorators'
 import { Roles } from '../common/decorators/roles.decorator'
 import { AuditLog } from '../common/decorators/audit-log.decorator'
+import { SENIOR_SHARE_ROUTES } from '../approvals/senior-share-routes'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { AuditLogService } from './audit-log.service'
@@ -387,7 +388,7 @@ export class UsersController {
    * writer of the same column that had no audit coverage at all. The
    * interceptor reads `targetId` from `params.id`, present here.
    */
-  @Post(':id/senior-share/approve')
+  @Post(SENIOR_SHARE_ROUTES.approve)
   @AuditLog('salary_change')
   approveSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,
@@ -401,7 +402,7 @@ export class UsersController {
    * reason. Same no-`@Roles` reasoning as the approve endpoint above.
    * `@AuditLog('salary_change')` — SR-M-1, same reasoning as approve above.
    */
-  @Post(':id/senior-share/reject')
+  @Post(SENIOR_SHARE_ROUTES.reject)
   @AuditLog('salary_change')
   rejectSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,
@@ -425,7 +426,7 @@ export class UsersController {
    * so the decorator alone is the whole fix — no hand-rolled `record()` call
    * that could drift from what approve/reject log.
    */
-  @Post(':id/senior-share/cancel')
+  @Post(SENIOR_SHARE_ROUTES.cancel)
   @AuditLog('salary_change')
   cancelSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,

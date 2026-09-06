@@ -7,6 +7,7 @@ import cookie from '@fastify/cookie'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
+import { SENIOR_SHARE_ROUTES, seniorShareRoutePath } from '../approvals/senior-share-routes'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { OnboardingGuard } from '../auth/onboarding.guard'
 import { OnboardingService } from '../onboarding/onboarding.service'
@@ -124,17 +125,17 @@ class UsersSentinelController {
     return { ok: true }
   }
 
-  @Post(':id/senior-share/approve')
+  @Post(SENIOR_SHARE_ROUTES.approve)
   approve(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.approveSeniorShareChange(id, user)
   }
 
-  @Post(':id/senior-share/reject')
+  @Post(SENIOR_SHARE_ROUTES.reject)
   reject(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.rejectSeniorShareChange(id, (body as { reason?: string })?.reason, user)
   }
 
-  @Post(':id/senior-share/cancel')
+  @Post(SENIOR_SHARE_ROUTES.cancel)
   cancel(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.cancelSeniorShareChange(id, user)
   }
@@ -144,17 +145,17 @@ class UsersSentinelController {
 class ProjectsSentinelController {
   constructor(@Inject('ProjectsServiceMock') private readonly svc: typeof projectsServiceMock) {}
 
-  @Post(':id/senior-share/approve')
+  @Post(SENIOR_SHARE_ROUTES.approve)
   approve(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.approveSeniorShareChange(id, user)
   }
 
-  @Post(':id/senior-share/reject')
+  @Post(SENIOR_SHARE_ROUTES.reject)
   reject(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.rejectSeniorShareChange(id, (body as { reason?: string })?.reason, user)
   }
 
-  @Post(':id/senior-share/cancel')
+  @Post(SENIOR_SHARE_ROUTES.cancel)
   cancel(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.cancelSeniorShareChange(id, user)
   }
@@ -213,6 +214,17 @@ describe('Senior-share approve/reject/cancel — guard-stack integration (SR-M-4
     return jwt.sign(user)
   }
 
+  // task-648-fix-round-2 (CR-bm-1): the two `cancel` routes are in this list
+  // now, not only in the smaller `CANCEL_ROUTES` block below. The blanket
+  // guards (JWT, onboarding) know nothing about which of the six routes they
+  // are protecting, so leaving two of them out of the 401/403/onboarding
+  // sweep was an untested asymmetry — not a suspected hole, but the kind of
+  // asymmetry that becomes one the moment someone adds a per-route
+  // `@Public()` or a bypass entry. All six are now swept identically.
+  //
+  // task-648-fix-round-2 (SR-bm-2): paths come from `seniorShareRoutePath`,
+  // the same constant the real controllers' decorators use — the spec can no
+  // longer prove the guard stack of a URL that has been renamed away.
   const ROUTES: Array<{
     label: string
     method: 'POST'
@@ -223,28 +235,40 @@ describe('Senior-share approve/reject/cancel — guard-stack integration (SR-M-4
     {
       label: 'users approve',
       method: 'POST',
-      path: `/api/users/${TARGET_USER_ID}/senior-share/approve`,
+      path: seniorShareRoutePath('users', 'approve', TARGET_USER_ID),
       mock: usersServiceMock.approveSeniorShareChange,
     },
     {
       label: 'users reject',
       method: 'POST',
-      path: `/api/users/${TARGET_USER_ID}/senior-share/reject`,
+      path: seniorShareRoutePath('users', 'reject', TARGET_USER_ID),
       mock: usersServiceMock.rejectSeniorShareChange,
       body: { reason: 'Не согласовано' },
     },
     {
+      label: 'users cancel',
+      method: 'POST',
+      path: seniorShareRoutePath('users', 'cancel', TARGET_USER_ID),
+      mock: usersServiceMock.cancelSeniorShareChange,
+    },
+    {
       label: 'projects approve',
       method: 'POST',
-      path: `/api/projects/${PROJECT_ID}/senior-share/approve`,
+      path: seniorShareRoutePath('projects', 'approve', PROJECT_ID),
       mock: projectsServiceMock.approveSeniorShareChange,
     },
     {
       label: 'projects reject',
       method: 'POST',
-      path: `/api/projects/${PROJECT_ID}/senior-share/reject`,
+      path: seniorShareRoutePath('projects', 'reject', PROJECT_ID),
       mock: projectsServiceMock.rejectSeniorShareChange,
       body: { reason: 'Не согласовано' },
+    },
+    {
+      label: 'projects cancel',
+      method: 'POST',
+      path: seniorShareRoutePath('projects', 'cancel', PROJECT_ID),
+      mock: projectsServiceMock.cancelSeniorShareChange,
     },
   ]
 
@@ -350,12 +374,12 @@ describe('Senior-share approve/reject/cancel — guard-stack integration (SR-M-4
   const CANCEL_ROUTES = [
     {
       label: 'users cancel',
-      path: `/api/users/${TARGET_USER_ID}/senior-share/cancel`,
+      path: seniorShareRoutePath('users', 'cancel', TARGET_USER_ID),
       mock: usersServiceMock.cancelSeniorShareChange,
     },
     {
       label: 'projects cancel',
-      path: `/api/projects/${PROJECT_ID}/senior-share/cancel`,
+      path: seniorShareRoutePath('projects', 'cancel', PROJECT_ID),
       mock: projectsServiceMock.cancelSeniorShareChange,
     },
   ]
