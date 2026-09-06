@@ -134,3 +134,48 @@ def test_from_env_defaults_to_os_environ(monkeypatch):
         monkeypatch.setenv(key, value)
     cfg = Config.from_env()
     assert cfg.signal_account == REQUIRED_ENV["SIGNAL_ACCOUNT"]
+
+
+# ---------------------------------------------------------------------------
+# SIGNAL_SKIP_WEEKDAYS (task-signal-plus-sunday-skip.md requirement 3, AC5):
+# optional, comma-separated ISO weekday numbers (Monday=1 ... Sunday=7),
+# default {7} (Sunday only). Validation: 1-7, no duplicates; garbage ->
+# ConfigError naming the variable.
+# ---------------------------------------------------------------------------
+
+
+def test_skip_weekdays_defaults_to_sunday_only_when_unset():
+    cfg = Config.from_env(dict(REQUIRED_ENV))
+    assert cfg.skip_weekdays == frozenset({7})
+
+
+def test_skip_weekdays_defaults_to_sunday_only_when_blank():
+    env = dict(REQUIRED_ENV, SIGNAL_SKIP_WEEKDAYS="")
+    cfg = Config.from_env(env)
+    assert cfg.skip_weekdays == frozenset({7})
+
+
+def test_skip_weekdays_parses_comma_separated_list():
+    env = dict(REQUIRED_ENV, SIGNAL_SKIP_WEEKDAYS="6,7")
+    cfg = Config.from_env(env)
+    assert cfg.skip_weekdays == frozenset({6, 7})
+
+
+def test_skip_weekdays_tolerates_surrounding_whitespace():
+    env = dict(REQUIRED_ENV, SIGNAL_SKIP_WEEKDAYS=" 6 , 7 ")
+    cfg = Config.from_env(env)
+    assert cfg.skip_weekdays == frozenset({6, 7})
+
+
+def test_skip_weekdays_single_value():
+    env = dict(REQUIRED_ENV, SIGNAL_SKIP_WEEKDAYS="7")
+    cfg = Config.from_env(env)
+    assert cfg.skip_weekdays == frozenset({7})
+
+
+@pytest.mark.parametrize("bad_value", ["0", "8", "a", "7,7", "7,", ",7", "7, a"])
+def test_skip_weekdays_rejects_invalid_values(bad_value):
+    env = dict(REQUIRED_ENV, SIGNAL_SKIP_WEEKDAYS=bad_value)
+    with pytest.raises(ConfigError) as exc_info:
+        Config.from_env(env)
+    assert "SIGNAL_SKIP_WEEKDAYS" in str(exc_info.value)

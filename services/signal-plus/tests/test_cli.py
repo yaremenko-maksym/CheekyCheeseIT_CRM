@@ -491,6 +491,123 @@ def test_full_retry_exhaustion_before_cutoff_alerts_and_keeps_looping(config, tm
 
 
 # ---------------------------------------------------------------------------
+# Weekday skip (task-signal-plus-sunday-skip.md requirement 1): "по
+# воскресеньям перекличка не проводится" -- Kyiv-local day of week, ISO
+# numbering. Applies only to wait_for_slot=True (--once / daemon); --now
+# (wait_for_slot=False) is unaffected -- see the "Modes: --groups / --now"
+# section below (AC4).
+# ---------------------------------------------------------------------------
+
+
+def test_sunday_wait_for_slot_skips_entirely_zero_calls(config):
+    # AC1: Sunday in Kyiv -- zero signal-cli calls, sent=False, a stable
+    # skip reason.
+    clock = FakeClock(_kyiv(2026, 9, 6, 6, 0))  # Sunday, well before the window
+    run = ScriptedRun([])  # any call is an error
+    outcome = cli.run_cycle(config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+    assert outcome.sent is False
+    assert outcome.reason == "weekday-skipped"
+    assert run.calls == []
+    assert clock.sleep_calls == []  # no slot was even picked, so nothing to sleep for
+
+
+def test_sunday_wait_for_slot_writes_no_state(config):
+    # AC1: "не пишет state" -- state file stays exactly as blank as it
+    # started (no last_success_date, no handover_date, nothing).
+    clock = FakeClock(_kyiv(2026, 9, 6, 6, 0))
+    run = ScriptedRun([])
+    cli.run_cycle(config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+    assert load_state(config.state_file) == State()
+
+
+def test_sunday_boundary_utc_saturday_evening_is_kyiv_sunday(config):
+    # AC1's explicit boundary example: Sat 22:30 UTC == Sun 01:30 Kyiv (Kyiv
+    # is UTC+3 in September) -- must be classified and skipped as Sunday,
+    # not Saturday. Uses FakeClock (not a static now_fn) so that even before
+    # the skip check exists, a fall-through into _sleep_until advances
+    # instead of spinning forever against an unmoving "now".
+    from datetime import timezone as tz
+
+    clock = FakeClock(datetime(2026, 9, 5, 22, 30, tzinfo=tz.utc))
+    run = ScriptedRun([])
+    outcome = cli.run_cycle(config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+    assert outcome.sent is False
+    assert outcome.reason == "weekday-skipped"
+    assert run.calls == []
+
+
+def test_sunday_skip_logs_the_exact_owner_specified_line(config, caplog):
+    # Task file requirement 1, literal text: "Sunday (Europe/Kyiv) --
+    # roll-call is not held on this weekday, skipping".
+    import logging
+
+    clock = FakeClock(_kyiv(2026, 9, 6, 6, 0))
+    run = ScriptedRun([])
+    with caplog.at_level(logging.INFO, logger="signal_plus"):
+        cli.run_cycle(config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+    assert any(
+        "Sunday (Europe/Kyiv)" in r.message and "roll-call is not held on this weekday" in r.message
+        for r in caplog.records
+    )
+
+
+def test_sunday_after_handover_time_raises_no_handover_alert(config, tmp_path):
+    # AC2: Sunday after HANDOVER_TIME -- no handover alert, handover_date
+    # stays unset.
+    clock = FakeClock(_kyiv(2026, 9, 6, 9, 0))  # past the default 08:00 cutoff
+    run = ScriptedRun([])
+
+    def fail_http_post(url, *, headers, body):
+        raise AssertionError("must not send a handover email on a skipped Sunday")
+
+    outcome = cli.run_cycle(
+        _with_email(config),
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=ZERO_RNG,
+        run=run,
+        http_post=fail_http_post,
+        alert_script_path=tmp_path / "post-merge-alert.sh",
+    )
+    assert outcome.sent is False
+    assert outcome.reason == "weekday-skipped"
+    assert run.calls == []
+    assert load_state(config.state_file).handover_date is None
+
+
+def test_monday_0700_kyiv_works_as_before(config):
+    # AC3: Monday -- normal send, unaffected by the default Sunday-only skip.
+    clock = FakeClock(_kyiv(2026, 9, 7, 6, 0))  # Monday, well before the window
+    run = ScriptedRun([_ok(), _ok()])
+    outcome = cli.run_cycle(config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+    assert outcome.sent is True
+    assert load_state(config.state_file).last_success_date == date(2026, 9, 7)
+
+
+def test_monday_boundary_utc_sunday_night_is_kyiv_monday(config):
+    # AC3's explicit boundary example: Sun 23:30 UTC == Mon 02:30 Kyiv --
+    # must resolve to (and behave as) Monday, not skipped Sunday.
+    from datetime import timezone as tz
+
+    clock = FakeClock(datetime(2026, 9, 6, 23, 30, tzinfo=tz.utc))
+    run = ScriptedRun([_ok(), _ok()])
+    outcome = cli.run_cycle(config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+    assert outcome.sent is True
+    assert load_state(config.state_file).last_success_date == date(2026, 9, 7)
+
+
+def test_skip_weekdays_config_can_also_skip_saturday(config):
+    # AC5 wired end-to-end through run_cycle: SIGNAL_SKIP_WEEKDAYS=6,7.
+    config = replace(config, skip_weekdays=frozenset({6, 7}))
+    clock = FakeClock(_kyiv(2026, 9, 5, 6, 0))  # Saturday
+    run = ScriptedRun([])
+    outcome = cli.run_cycle(config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+    assert outcome.sent is False
+    assert outcome.reason == "weekday-skipped"
+    assert run.calls == []
+
+
+# ---------------------------------------------------------------------------
 # Auto-update integration inside the retry loop
 # ---------------------------------------------------------------------------
 
@@ -798,6 +915,42 @@ def test_now_mode_respects_idempotency(config):
     )
     assert outcome.sent is False
     assert run.calls == []
+
+
+def test_now_mode_sends_on_sunday_despite_weekday_skip(config):
+    # AC4: "--now — явное ручное действие — правило НЕ применяет" -- the
+    # owner explicitly invoking --now on a Sunday still gets a send. Uses
+    # 03:00, well before the (unrelated, pre-existing) handover cutoff --
+    # is_past_cutoff() is checked unconditionally of wait_for_slot, same as
+    # every other --now test in this file (e.g.
+    # test_now_mode_sends_immediately_without_waiting_for_slot picks 03:00
+    # for the same reason), so this isolates the ONE thing this test is
+    # about: the weekday skip must not apply to --now.
+    clock = FakeClock(_kyiv(2026, 9, 6, 3, 0))  # Sunday
+    run = ScriptedRun([_ok(), _ok()])
+    outcome = cli.run_cycle(
+        config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run, wait_for_slot=False
+    )
+    assert outcome.sent is True
+    assert load_state(config.state_file).last_success_date == date(2026, 9, 6)
+
+
+def test_now_mode_on_sunday_still_respects_idempotency_on_second_call(config):
+    # AC4 parenthetical: "идемпотентность по-прежнему уважается" -- a second
+    # --now the same Sunday must not send twice.
+    clock = FakeClock(_kyiv(2026, 9, 6, 3, 0))
+    run1 = ScriptedRun([_ok(), _ok()])
+    cli.run_cycle(
+        config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run1, wait_for_slot=False
+    )
+
+    run2 = ScriptedRun([])
+    outcome = cli.run_cycle(
+        config, now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run2, wait_for_slot=False
+    )
+    assert outcome.sent is False
+    assert outcome.reason == "already-sent"
+    assert run2.calls == []
 
 
 # ---------------------------------------------------------------------------
