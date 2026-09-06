@@ -522,7 +522,25 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 // (`<lg`), where it reads as an oversized gap before the
                 // buttons rather than the small vertical breathing room it
                 // was for in the original column layout.
-                <div className="lg:mt-1">
+                //
+                // COPY-H-5 follow-up (PR #646 fix-round 4, found live testing
+                // the finding's own fix): `max-w-full` on THIS div, not just
+                // on ProjectApprovalActions's own root (which it also has —
+                // see that component's doc). A percentage max-width resolves
+                // against the CONTAINING BLOCK, i.e. this wrapper's box — but
+                // this wrapper itself was never given a width, so in the
+                // parent's `lg:flex-col lg:items-end` layout (flex items
+                // size to their own content, not stretched to the column,
+                // by design — see the badge's identical `max-w-full` need a
+                // few lines up) it was ALSO sized to fit its child, making
+                // "100% of me" resolve to "however wide my child already
+                // wants to be": a no-op, measured live (adding max-w-full to
+                // ProjectApprovalActions ALONE left the actions box at the
+                // exact same 109.6px, still overlapping the rate column by
+                // ~14px). The badge has no such wrapper — it is a direct
+                // child of the actual column — which is why its OWN
+                // `max-w-full` alone was already enough.
+                <div className="max-w-full lg:mt-1">
                   <ProjectApprovalActions
                     projectId={project.id}
                     companyName={project.companyName}

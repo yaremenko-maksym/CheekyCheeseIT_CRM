@@ -200,7 +200,27 @@ export function ProjectApprovalActions({
     <>
       <div
         data-testid={`project-approval-actions-${projectId}`}
-        className={cn('relative z-[2] flex flex-wrap items-center justify-end gap-1.5', className)}
+        // COPY-H-5 follow-up (PR #646 fix-round 4, found live testing the
+        // finding's own fix). ProjectRow's status column (`lg:items-end`,
+        // ~86px content width at 1024px) sizes each flex child to its OWN
+        // intrinsic content, not to the column — same reason the badge
+        // needed `max-w-full` in ProjectRow.tsx. This container never had
+        // that cap: two `Button`s (`gap-1.5` between them) measure ~110px
+        // side by side, ~24px WIDER than the column, and — with no width
+        // constraint — `flex-wrap` above never triggers (there is nothing
+        // to wrap AGAINST), so the pair renders past the column's left
+        // edge, over the rate/amount column's text (measured live: actions
+        // box at x=864-974px vs the rate column ending at x=878px, a real
+        // ~14px overlap, on the SAME row COPY-H-5 fixed the badge for).
+        // `max-w-full` gives `flex-wrap` an actual boundary to wrap
+        // against: the two buttons now stack (Подтвердить above Отклонить)
+        // whenever they do not both fit, which is every width this file's
+        // own E2E test measures (1024-1280) — see its rect-intersection
+        // check on `project-approval-actions-${projectId}` for the proof.
+        className={cn(
+          'relative z-[2] flex max-w-full flex-wrap items-center justify-end gap-1.5',
+          className,
+        )}
       >
         <Button
           type="button"
