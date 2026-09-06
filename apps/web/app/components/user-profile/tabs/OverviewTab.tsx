@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { CancelPendingShareButton } from '@/components/pending-share/cancel-pending-share'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -362,6 +363,17 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
   const isDropSelfView = mode === 'self' && user.role === 'DROP'
   const goToRequisites = () => onGoToTab?.('requisites')
 
+  // task-648-fix-round-2. `showsPendingBanner` is the banner's own render
+  // condition, hoisted so the badge below can stand down when the banner is
+  // already saying the same thing (COPY-L-7) instead of duplicating it.
+  const showsPendingBanner = mode === 'self' && user.role === 'SENIOR' && !!user.pendingSeniorShare
+  // UX-H-3(r2): who may withdraw a proposal. Reuses the SAME ADMIN-viewing-
+  // someone-else signal `canSeeAdminNote` above already relies on (see
+  // UsersAccessService) rather than inventing a second way to ask — the
+  // users-half backend gate is `role !== 'ADMIN' → 403`, which is exactly
+  // this.
+  const isAdminViewer = permissions.actions.includes('set-note')
+
   return (
     <div className="space-y-6">
       {/* task-drop-phase3-frontend: requisites section for DROP self-view (Q3 owner decision).
@@ -377,7 +389,7 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
           profile, sees the actionable banner. Everyone else who can see the
           share (ADMIN, or the senior viewed by ACCOUNTANT/HR-with-access)
           only gets the informational badge inside the "Доля" card below. */}
-      {mode === 'self' && user.role === 'SENIOR' && user.pendingSeniorShare && (
+      {showsPendingBanner && user.pendingSeniorShare && (
         <PendingBaseShareBanner
           userId={user.id}
           currentPercent={user.seniorSharePercent ?? 0}
@@ -416,45 +428,62 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                     see this card (admin / accountant / the senior's own
                     view) — the actionable version is the banner above,
                     self-view only. */}
-                {user.pendingSeniorShare && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400"
-                        data-testid="user-senior-share-pending-badge"
-                      >
-                        {/* task-648-fix-round-1 (COPY-M-7): this badge, unlike
-                            the actionable banner above (mode==='self' only),
-                            has no mode gate — a self-viewing SENIOR saw their
-                            OWN name in the third person here right below a
-                            banner addressing them as "вы". First person for
-                            the affected senior's own view; third person only
-                            when someone ELSE is looking — and even then,
-                            without the name (COPY-M-10: a 55-character pill
-                            wraps awkwardly next to shorter neighbors; the
-                            name is still one hover away, in the tooltip
-                            below). */}
-                        {mode === 'self' ? (
-                          <>
-                            новый{' '}
-                            <span className="tabular-nums">{user.pendingSeniorShare.percent}</span>%
-                            ждёт вашего подтверждения
-                          </>
-                        ) : (
-                          <>
-                            Ждёт подтверждения:{' '}
-                            <span className="tabular-nums">{user.pendingSeniorShare.percent}</span>%
-                          </>
-                        )}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {mode === 'self'
-                        ? 'Действует прежний процент, пока вы не подтвердите новый.'
-                        : `Действует прежний процент, пока ${user.pendingSeniorShare.approverName} не подтвердит новый.`}
-                    </TooltipContent>
-                  </Tooltip>
+                {/* task-648-fix-round-2 (COPY-L-7): not rendered when the
+                    actionable banner is on the same screen — after COPY-M-7
+                    and COPY-M-10 the pill carried nothing the banner two
+                    centimetres above did not already say, and on 320 both
+                    were visible at once. Gated on the banner's OWN condition
+                    rather than on `mode` alone, so a self-view that somehow
+                    has a pending value without a banner still shows it. */}
+                {user.pendingSeniorShare && !showsPendingBanner && (
+                  <div className="flex items-start gap-1">
+                    <div className="min-w-0 space-y-0.5">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          {/* task-648-fix-round-2 (COPY-H-5): ONE text node.
+                              `Badge` is `inline-flex`, so a `{' '}` between a
+                              text node and a `<span>` becomes whitespace
+                              BETWEEN flex items and is not rendered at all —
+                              the screen read «Ждёт подтверждения:40%» on every
+                              width, while `toHaveTextContent` stayed green
+                              because `textContent` keeps the node the layout
+                              drops. `tabular-nums` moves onto the badge, and
+                              `whitespace-nowrap` keeps the number attached to
+                              its label instead of being flung to the next line
+                              as a separate flex item on 320. */}
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums"
+                            data-testid="user-senior-share-pending-badge"
+                          >
+                            {`Ждёт подтверждения: ${user.pendingSeniorShare.percent}%`}
+                          </Badge>
+                        </TooltipTrigger>
+                        {/* task-648-fix-round-2 (UX-M-3(r2)): width-capped and
+                            wrapping. Measured at 468–709px against a 320px
+                            viewport before this cap. */}
+                        <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
+                          Действует прежний процент, пока новый не подтверждён.
+                        </TooltipContent>
+                      </Tooltip>
+                      {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): the
+                          approver's name and the "prior percent still
+                          applies" fact used to live ONLY in the tooltip —
+                          which Radix never opens on touch
+                          (`pointerType === 'touch'` returns early) and which
+                          no keyboard can reach (`Badge` renders a
+                          non-focusable `div`). Both facts are now plain text,
+                          on every device, no hover required. */}
+                      <p className="text-xs text-muted-foreground break-words">
+                        Подтверждает {user.pendingSeniorShare.approverName} — пока действует{' '}
+                        <span className="tabular-nums">{user.seniorSharePercent ?? 0}%</span>
+                      </p>
+                    </div>
+                    {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw
+                        control, next to the indicator that is the only place
+                        an ADMIN learns the proposal exists. */}
+                    {isAdminViewer && <CancelPendingShareButton scope="user" id={user.id} />}
+                  </div>
                 )}
               </CardContent>
             </Card>

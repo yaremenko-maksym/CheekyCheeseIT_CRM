@@ -140,36 +140,40 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
   // ConditionalExpression/EqualityOperator/StringLiteral mutants on
   // `mode === 'self' ? <>...</> : <>...</>` (both the badge text and its
   // tooltip carry an independent copy of the same ternary).
-  it('badge uses first person, no name, when mode=self', async () => {
+  // task-648-fix-round-2 (COPY-L-7): in self-view the badge is gone. After
+  // COPY-M-7 and COPY-M-10 stripped it down it carried nothing the
+  // actionable banner two centimetres above did not already say, and on 320
+  // both were on screen at once.
+  it('self-view shows the actionable banner and NOT a second, redundant badge', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
-    const badge = screen.getByTestId('user-senior-share-pending-badge')
-    expect(badge).toHaveTextContent('новый 55% ждёт вашего подтверждения')
-    expect(badge).not.toHaveTextContent('Senior One')
-    // Radix Tooltip content is not in the DOM until hover-opened.
-    const user = userEvent.setup()
-    await user.hover(badge)
-    expect(
-      (await screen.findAllByText('Действует прежний процент, пока вы не подтвердите новый.'))[0],
-    ).toBeInTheDocument()
+    expect(screen.getByTestId('pending-base-share-approval-banner')).toBeInTheDocument()
+    expect(screen.queryByTestId('user-senior-share-pending-badge')).toBeNull()
   })
 
-  it('badge is name-free (COPY-M-10) and the tooltip names the approver, third person, when mode=view', async () => {
+  it('view-mode badge renders its label and number as ONE text node, with the space intact', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view')
     const badge = screen.getByTestId('user-senior-share-pending-badge')
-    // task-648-fix-round-1 (COPY-M-10): the name moved OUT of the pill
-    // (a 55-character string wrapped awkwardly next to shorter neighbors)
-    // — it surfaces on hover instead, in the tooltip below.
-    expect(badge).toHaveTextContent('Ждёт подтверждения: 55%')
+    // task-648-fix-round-2 (COPY-H-5). `toHaveTextContent` alone CANNOT see
+    // this defect and was green all through round 1: `textContent`
+    // concatenates a whitespace text node that `inline-flex` never renders,
+    // so the assertion read «Ждёт подтверждения: 55%» while the screen said
+    // «Ждёт подтверждения:55%». The structural assertion below is the one
+    // that fails if a `{' '}` between elements ever comes back.
+    expect(badge.childNodes).toHaveLength(1)
+    expect(badge.childNodes[0]?.nodeType).toBe(Node.TEXT_NODE)
+    expect(badge.textContent).toBe('Ждёт подтверждения: 55%')
     expect(badge).not.toHaveTextContent('Senior One')
-    const user = userEvent.setup()
-    await user.hover(badge)
-    expect(
-      (
-        await screen.findAllByText(
-          'Действует прежний процент, пока Senior One не подтвердит новый.',
-        )
-      )[0],
-    ).toBeInTheDocument()
+  })
+
+  // task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): the approver's name and
+  // the "prior percent still applies" fact used to be reachable ONLY by
+  // hovering the badge — impossible on touch (Radix returns early for
+  // `pointerType === 'touch'`) and impossible from a keyboard (`Badge`
+  // renders a non-focusable `div`). Asserted WITHOUT any hover.
+  it('view-mode shows the approver name and the live percent without hovering anything', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view')
+    expect(screen.getByText(/Подтверждает Senior One/)).toBeInTheDocument()
+    expect(screen.getByText(/пока действует/)).toBeInTheDocument()
   })
 })
 
@@ -251,7 +255,8 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось выполнить действие'))
+    // task-648-fix-round-2 (COPY-L-6): the fallback names the action again.
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось подтвердить'))
   })
 
   it('approve: a 404 (stale/foreign proposal) shows the friendly "устарело" message, not the raw backend text', async () => {
@@ -386,7 +391,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     )
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Доля отклонена — действует прежний процент. Админ увидит причину',
+        'Новый процент отклонён — действует прежний. Админ увидит причину',
       ),
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })

@@ -344,8 +344,15 @@ export class UsersService {
       // task-648-fix-round-1 (COPY-H-1): its own Russian string, distinct
       // from the generic 403 fallback — see cancelSeniorShareChange's
       // identical comment above.
+      // task-648-fix-round-2 (COPY-M-13): neither «приглашённый» nor
+      // «имперсонация» exists anywhere in the interface — the reader seeing
+      // this 403 has `ImpersonationBanner`'s «Вы вошли как «X»» across the
+      // top of the same screen, so that is the phrasing used here. This
+      // string reaches the browser verbatim (`getApiErrorMessage` gives the
+      // backend message priority 1), which is what makes it copy and not a
+      // log line.
       throw new ForbiddenException(
-        'Подтвердить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
+        'Пока вы вошли как другой сотрудник, подтвердить его долю нельзя — это должен сделать он сам',
       )
     }
     await this.db.db.transaction(async (tx) => {
@@ -393,7 +400,7 @@ export class UsersService {
     if (currentUser.impersonatorId) {
       // task-648-fix-round-1 (COPY-H-1): same reasoning as approve above.
       throw new ForbiddenException(
-        'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
+        'Пока вы вошли как другой сотрудник, отклонить его долю нельзя — это должен сделать он сам',
       )
     }
     await this.db.db.transaction(async (tx) => {

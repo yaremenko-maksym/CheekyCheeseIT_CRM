@@ -23,7 +23,7 @@ import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
  * project-level mutations use the SAME two messages — one concept, one
  * wording, on both surfaces.
  */
-export function seniorShareErrorMessage(err: unknown): string {
+export function seniorShareErrorMessage(err: unknown, fallback?: string): string {
   const status = getAxiosStatus(err)
   if (status === 404) {
     return 'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.'
@@ -31,7 +31,12 @@ export function seniorShareErrorMessage(err: unknown): string {
   if (status === 409) {
     return 'Решение по этому проценту уже принято. Обновите страницу.'
   }
-  return getApiErrorMessage(err, 'Не удалось выполнить действие')
+  // task-648-fix-round-2 (COPY-L-6): merging four call sites onto one helper
+  // in round 1 also merged their four named fallbacks into one anonymous
+  // "Не удалось выполнить действие". The 404/409 mapping is genuinely shared;
+  // the last-resort wording is not — each caller knows which action it was
+  // attempting and now says so.
+  return getApiErrorMessage(err, fallback ?? 'Не удалось выполнить действие')
 }
 
 export function useUser(userId: string | undefined, enabled = true) {
@@ -211,7 +216,7 @@ export function useApproveSeniorShareChange(userId: string) {
     // a proposal already resolved elsewhere (409/404) stayed fully clickable,
     // showing a number that no longer meant anything.
     onError: (e: unknown) => {
-      toast.error(seniorShareErrorMessage(e))
+      toast.error(seniorShareErrorMessage(e, 'Не удалось подтвердить'))
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
     },
@@ -246,16 +251,18 @@ export function useRejectSeniorShareChange(userId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
-      // task-648-fix-round-1 (COPY-M-2): "предложение" was a third name for
-      // what the rest of this screen calls "подтверждение" — see
-      // CONTEXT.md's glossary rule; names what happens to the money AND
+      // task-648-fix-round-1 (COPY-M-2): names what happens to the money AND
       // that the reason is visible, matching the dialog's own promise.
-      toast.success('Доля отклонена — действует прежний процент. Админ увидит причину')
+      // task-648-fix-round-2 (COPY-L-5): what is rejected is the PROPOSED
+      // percent, not the доля — the доля stays, that is the whole point. The
+      // dialog two screens up already said it correctly («Отклонить новый
+      // процент»); this now agrees with it.
+      toast.success('Новый процент отклонён — действует прежний. Админ увидит причину')
     },
     // task-648-fix-round-1 (QA-MED-5): same refetch-on-failure fix as
     // useApproveSeniorShareChange above.
     onError: (e: unknown) => {
-      toast.error(seniorShareErrorMessage(e))
+      toast.error(seniorShareErrorMessage(e, 'Не удалось отклонить'))
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
     },

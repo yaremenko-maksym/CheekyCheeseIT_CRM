@@ -683,7 +683,7 @@ describe('ProjectsService.approveSeniorShareChange — guards + exact call shape
     await expect(
       h.service.approveSeniorShareChange('proj-1', { ...seniorUser, impersonatorId: 'admin-1' }),
     ).rejects.toThrow(
-      'Подтвердить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
+      'Пока вы вошли как другой сотрудник, подтвердить его долю нельзя — это должен сделать он сам',
     )
     expect(h.approvals.approveInTx).not.toHaveBeenCalled()
   })
@@ -741,7 +741,7 @@ describe('ProjectsService.rejectSeniorShareChange — impersonation guard', () =
         impersonatorId: 'admin-1',
       }),
     ).rejects.toThrow(
-      'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
+      'Пока вы вошли как другой сотрудник, отклонить его долю нельзя — это должен сделать он сам',
     )
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })

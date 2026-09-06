@@ -1196,8 +1196,10 @@ export class ProjectsService {
     if (currentUser.impersonatorId) {
       // task-648-fix-round-1 (COPY-H-1): its own Russian string — see
       // `UsersService.approveSeniorShareChange`'s identical comment.
+      // task-648-fix-round-2 (COPY-M-13): wording matches
+      // `ImpersonationBanner`'s «Вы вошли как …» — see the users-half twin.
       throw new ForbiddenException(
-        'Подтвердить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
+        'Пока вы вошли как другой сотрудник, подтвердить его долю нельзя — это должен сделать он сам',
       )
     }
     await this.db.db.transaction(async (tx) => {
@@ -1262,7 +1264,7 @@ export class ProjectsService {
     if (currentUser.impersonatorId) {
       // task-648-fix-round-1 (COPY-H-1): same reasoning as approve above.
       throw new ForbiddenException(
-        'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
+        'Пока вы вошли как другой сотрудник, отклонить его долю нельзя — это должен сделать он сам',
       )
     }
     await this.db.db.transaction(async (tx) => {

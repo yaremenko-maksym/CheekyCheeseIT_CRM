@@ -415,7 +415,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     await expect(
       h.service.approveSeniorShareChange('senior-1', impersonatedSenior),
     ).rejects.toThrow(
-      'Подтвердить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
+      'Пока вы вошли как другой сотрудник, подтвердить его долю нельзя — это должен сделать он сам',
     )
   })
 
@@ -447,7 +447,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'причина', impersonatedSenior),
     ).rejects.toThrow(
-      'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
+      'Пока вы вошли как другой сотрудник, отклонить его долю нельзя — это должен сделать он сам',
     )
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })

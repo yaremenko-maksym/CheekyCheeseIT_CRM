@@ -38,6 +38,7 @@ import {
   updateProfileSchema,
 } from '@crm/shared'
 import { toast } from 'sonner'
+import { PendingShareEditNotice } from '@/components/pending-share/cancel-pending-share'
 import { useAuth } from '@/context/auth'
 import { useUser } from '@/hooks/use-user-profile'
 import { Badge } from '@/components/ui/badge'
@@ -486,12 +487,25 @@ export function UserDialog(props: UserDialogProps) {
   const updateMutation = useMutation({
     mutationFn: (data: AdminUpdateUserDto) =>
       api.patch<UserProfileDto>(`/users/${editingUser!.id}`, data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['user-profile', editingUser?.id] })
-      toast.success('Пользователь обновлён')
+      // task-648-fix-round-2 (COPY-H-6): «Пользователь обновлён» is a lie for
+      // the one field this whole PR exists for — the live column was NOT
+      // updated, a proposal was opened. Every other field on the same form
+      // did apply, so the old string was not wholly false; it was silent
+      // about exactly the thing the operator needs to know. The response
+      // already carries the opened proposal — no extra round-trip.
+      const pending = response.data?.pendingSeniorShare
+      if (pending) {
+        toast.success(
+          `Сохранено. Новая доля ${pending.percent}% ждёт подтверждения синьора — пока действует ${response.data.seniorSharePercent}%`,
+        )
+      } else {
+        toast.success('Пользователь обновлён')
+      }
       props.onClose()
     },
     onError: (err: AxiosError<{ message?: string }>) => {
@@ -794,6 +808,9 @@ export function UserDialog(props: UserDialogProps) {
             value.bankUahRnokpp.trim() !== (editingUser.bankUahRnokpp ?? '') ||
             value.bankUahBankName.trim() !== (editingUser.bankUahBankName ?? ''))
 
+        // task-648-fix-round-2 (SR-M-5): see the payload comment below.
+        const shareChanged = value.seniorSharePercent !== (editingUser?.seniorSharePercent ?? 26)
+
         // ut-17: normalize team telegram channel value. Strip leading @ before
         // sending — the backend stores the bare handle, UI re-adds @ on display.
         const normalizedTeamChannel = (() => {
@@ -812,8 +829,19 @@ export function UserDialog(props: UserDialogProps) {
           telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
           phone: (value.phone as string) || null,
           techStack: value.techStack.length > 0 ? value.techStack : null,
+          // task-648-fix-round-2 (SR-M-5 / QA-HIGH-3): the share % goes on
+          // the wire ONLY when the operator actually moved it. It used to be
+          // included on every save of a SENIOR — so an admin editing a phone
+          // number sent `seniorSharePercent` too, and the backend's
+          // "requested == active" branch (removed this round) read that as an
+          // explicit "cancel the live proposal". Manual QA reproduced the
+          // full path: one phone edit, `PENDING → CANCELLED`, no signal.
+          // Same rule the project form has always used (`overrideChanged` in
+          // `$projectId.tsx`): compare against the SERVER snapshot, not
+          // against the form's own initial value, so a value typed and typed
+          // back also counts as unchanged.
           ...(isSenior && {
-            seniorSharePercent: value.seniorSharePercent,
+            ...(shareChanged && { seniorSharePercent: value.seniorSharePercent }),
             hrIds,
             accountantId: accountantId || null,
             teamTelegramChannel: normalizedTeamChannel,
@@ -1463,7 +1491,10 @@ export function UserDialog(props: UserDialogProps) {
                           return (
                             <Field
                               label="Доля синьора (%)"
-                              hint="То, что синьор оставляет себе"
+                              /* task-648-fix-round-2 (COPY-H-6): the form
+                                 where the change starts now says the change
+                                 does not take effect on save. */
+                              hint="То, что синьор оставляет себе. Новое значение начнёт действовать после его подтверждения"
                               error={err}
                               required={isCreate}
                             >
@@ -1473,6 +1504,20 @@ export function UserDialog(props: UserDialogProps) {
                                 onBlur={field.handleBlur}
                                 error={!!err}
                               />
+                              {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN
+                                  who opens this dialog to "fix" the percent
+                                  saw a slider holding the ACTIVE value and
+                                  nothing about a proposal already awaiting an
+                                  answer — so the natural gesture silently
+                                  superseded it. */}
+                              {!isCreate && editingUser?.pendingSeniorShare && (
+                                <PendingShareEditNotice
+                                  scope="user"
+                                  id={editingUser.id}
+                                  pendingPercent={editingUser.pendingSeniorShare.percent ?? 0}
+                                  approverName={editingUser.pendingSeniorShare.approverName}
+                                />
+                              )}
                             </Field>
                           )
                         }}
