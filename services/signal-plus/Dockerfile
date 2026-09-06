@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ============================================================
 # signal-plus — daily morning "+" roll-call to a Signal group via signal-cli.
 #
@@ -118,6 +119,15 @@ COPY tests ./tests
 # actually building this stage, not assumed OK because the standalone
 # script runs fine from a real checkout, where the layout differs).
 COPY verify-release-signature.sh ./
+# task-signal-plus-sunday-skip.md AC6: same gotcha as the COPY above, this
+# time for tests/test_docker_healthcheck.py, which loads
+# ../docker-healthcheck.py BY FILE PATH (importlib -- the filename has a
+# hyphen, so it cannot be a normal import) relative to itself. Without this
+# COPY, this stage's `python -m pytest` fails collection entirely
+# (FileNotFoundError: /src/docker-healthcheck.py) -- caught by actually
+# building this stage on PR #660, not assumed OK from a real checkout, where
+# the file is one directory up and present.
+COPY docker-healthcheck.py ./
 RUN pip install --no-cache-dir '.[dev]'
 # AC6 (task-signal-plus-service.md): the suite itself refuses real
 # signal-cli/network access (tests/conftest.py empties PATH and forbids
@@ -151,12 +161,40 @@ WORKDIR /app
 # executes this path directly (config.py's SIGNAL_CLI_BIN points at the
 # volume's bin/current symlink instead); this is only ever a source to copy
 # from. Path matches signal_plus.updater.DEFAULT_IMAGE_PINNED_BIN_DIR.
-COPY --from=signal-cli-fetch /build/signal-cli /opt/signal-cli-pinned/signal-cli
-# Public key only (not the whole scratch keyring) — docker-entrypoint.sh
-# imports this into $GNUPGHOME on every boot so the auto-updater's runtime
-# `gpg --verify` calls have a key to check against. See that script's
-# header comment for why this is baked in once rather than re-fetched.
-COPY --from=signal-cli-fetch /build/asamk.gpg /opt/signal-cli-pinned/asamk.gpg
+#
+# A bind-mounted RUN, not two COPY --from instructions (infra/signal-plus-
+# pull-fix, run 33946345307): the pushed image's `/opt/signal-cli-pinned/
+# signal-cli` layer failed to extract on the VPS — Ubuntu 24.04, Docker's
+# containerd image store — with "failed to Lchown
+# .../opt/signal-cli-pinned/signal-cli ... no such file or directory"
+# during `docker compose pull`. Forensics on the ACTUAL pushed layer
+# (downloaded straight from GHCR by digest and parsed with Python's
+# tarfile, not assumed) found it well-formed: a directory entry, its
+# subdirectory, then one plain regular file, in that order — no symlink,
+# no hardlink, no PAX/sparse markers. The exact same bytes, replayed
+# through two independently-built containerd overlayfs-snapshotter setups
+# (Docker 27.5.1 in a nested dind, and a fresh build+push+pull on GitHub's
+# own ubuntu-latest runner, Docker 28.0.4), extracted cleanly every time —
+# see this PR's body for both full transcripts. So this is not a proven
+# fix for a confirmed structural defect; it is a hedge against the one
+# thing forensics COULD point at as a real, if narrow, difference: COPY
+# --from is BuildKit's own specialized copy op, with its own layer-diff
+# shortcuts (cross-stage content matching, hardlink de-duplication).
+# `RUN --mount=type=bind` + a plain `cp` produces this file the exact same
+# way every OTHER instruction in this Dockerfile already does — diff the
+# filesystem before/after an ordinary shell command ran, nothing
+# COPY-specific for any consumer to special-case. Final image content is
+# unchanged (same two files, same paths, same mode — the explicit `chmod`
+# below does not rely on umask coincidentally matching signal-cli-fetch's
+# own `chmod 755`). See README.md's "Деплой и линковка" for what to check
+# if this recurs after this change — most likely the VPS's own, never
+# version-pinned `docker-ce`/`containerd.io` package (docs/runbooks/
+# deployment.md's install command has no version pin).
+RUN --mount=type=bind,from=signal-cli-fetch,source=/build,target=/mnt/signal-cli-fetch \
+    mkdir -p /opt/signal-cli-pinned \
+    && cp /mnt/signal-cli-fetch/signal-cli /opt/signal-cli-pinned/signal-cli \
+    && chmod 755 /opt/signal-cli-pinned/signal-cli \
+    && cp /mnt/signal-cli-fetch/asamk.gpg /opt/signal-cli-pinned/asamk.gpg
 
 # ---- signal_plus package (from the TESTED stage, not the raw context) ----
 COPY --from=test /src/pyproject.toml ./

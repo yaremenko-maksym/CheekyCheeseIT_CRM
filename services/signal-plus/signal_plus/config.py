@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from datetime import time
 from pathlib import Path
 
+from signal_plus import slot
+
 
 class ConfigError(ValueError):
     """Raised when required configuration is missing or malformed."""
@@ -63,6 +65,34 @@ def _parse_time(raw: str, *, env_name: str) -> time:
         raise ConfigError(f"{env_name}={raw!r} is not HH:MM") from exc
 
 
+def _parse_skip_weekdays(raw: str | None, *, env_name: str = "SIGNAL_SKIP_WEEKDAYS") -> frozenset[int]:
+    """task-signal-plus-sunday-skip.md requirement 3 / AC5: comma-separated
+    ISO weekday numbers (Monday=1 ... Sunday=7), default
+    :data:`slot.SKIP_ISO_WEEKDAYS` (Sunday only) when unset/blank. Rejects
+    out-of-range numbers, non-numeric entries, and duplicates -- all with a
+    message naming the variable, matching :func:`_parse_time`'s convention.
+    """
+    if not raw:
+        return slot.SKIP_ISO_WEEKDAYS
+    seen: list[int] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            raise ConfigError(f"{env_name}={raw!r} contains an empty weekday entry")
+        try:
+            value = int(token)
+        except ValueError as exc:
+            raise ConfigError(
+                f"{env_name}={raw!r} must be comma-separated ISO weekday numbers (1-7)"
+            ) from exc
+        if not 1 <= value <= 7:
+            raise ConfigError(f"{env_name}={raw!r}: {value} is not a valid ISO weekday (1-7)")
+        if value in seen:
+            raise ConfigError(f"{env_name}={raw!r}: duplicate weekday {value}")
+        seen.append(value)
+    return frozenset(seen)
+
+
 DEFAULT_HANDOVER_TIME = time(8, 0)
 DEFAULT_ALERT_EMAIL_FROM = "site@cheekycheese.tech"
 # SR-H-4 (PR #650 security review round 3, id 5108694371): matches the
@@ -89,6 +119,7 @@ class Config:
     alert_email_from: str = DEFAULT_ALERT_EMAIL_FROM
     alert_email_to: str | None = None
     signal_tmpdir: Path = DEFAULT_SIGNAL_TMPDIR
+    skip_weekdays: frozenset[int] = slot.SKIP_ISO_WEEKDAYS
 
     def masked_account(self) -> str:
         return mask_secret(self.signal_account)
@@ -110,6 +141,7 @@ class Config:
         signal_data_dir_raw = optional("SIGNAL_DATA_DIR")
         handover_raw = optional("HANDOVER_TIME") or "08:00"
         signal_tmpdir_raw = optional("SIGNAL_TMPDIR")
+        skip_weekdays_raw = optional("SIGNAL_SKIP_WEEKDAYS")
 
         return cls(
             signal_account=require("SIGNAL_ACCOUNT"),
@@ -124,4 +156,5 @@ class Config:
             alert_email_from=optional("ALERT_EMAIL_FROM") or DEFAULT_ALERT_EMAIL_FROM,
             alert_email_to=optional("ALERT_EMAIL_TO"),
             signal_tmpdir=Path(signal_tmpdir_raw) if signal_tmpdir_raw else DEFAULT_SIGNAL_TMPDIR,
+            skip_weekdays=_parse_skip_weekdays(skip_weekdays_raw),
         )

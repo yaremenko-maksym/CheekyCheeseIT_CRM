@@ -103,19 +103,44 @@
  *     merge path — a single registry blip used to fail the WHOLE repo's CI on
  *     the first hiccup, with a message ("output shape unrecognized") that
  *     diagnoses the wrong problem for the far more likely cause. Now
- *     `runRealAudit()` retries up to AUDIT_MAX_ATTEMPTS times (with a fixed
- *     delay) before giving up, and ONLY treats an attempt as a genuine
- *     network/registry failure — not as "got JSON, shape is wrong" — when the
- *     command produced no parseable JSON at all (empty stdout, a timeout, a
- *     non-JSON error page, etc.). A `pnpm audit` invocation that legitimately
- *     exits non-zero BECAUSE it found vulnerabilities still returns
- *     immediately on the first attempt — that is real data, not a failure to
- *     retry away.
+ *     `runRealAudit()` retries up to AUDIT_MAX_ATTEMPTS times (with a
+ *     backoff delay between them) before giving up, and ONLY treats an
+ *     attempt as a genuine network/registry failure — not as "got JSON,
+ *     shape is wrong" — when the command produced no parseable JSON at all
+ *     (empty stdout, a timeout, a non-JSON error page, etc.). A `pnpm audit`
+ *     invocation that legitimately exits non-zero BECAUSE it found
+ *     vulnerabilities still returns immediately on the first attempt — that
+ *     is real data, not a failure to retry away.
  *   - If every attempt is exhausted without ever getting parseable JSON, the
  *     message says "could not reach" — a transient/network problem — never
  *     the MED-2 "shape unrecognized" wording, which is reserved for the case
  *     where a `pnpm audit` invocation DID succeed and DID return JSON, but
  *     that JSON does not have the `advisories` shape this guard expects.
+ *
+ * WIDER RETRY BUDGET (task-audit-gate-tolerance, 2026-09-04) — the original
+ * MED-B budget (3 attempts x 60s timeout, flat 5s delay between them, ~3.2min
+ * worst case) proved too tight for a registry that is merely SLOW, not dead:
+ * this required check went red on four PRs in a row (#650 x3, #653) on the
+ * exact same "could not reach the package registry after 3 attempts"
+ * message, each time cleared by nothing more than a manual
+ * `gh run rerun --failed`. npm's status page read "operational" throughout,
+ * and a local `pnpm audit` against the same lockfile also missed the old
+ * budget that same afternoon — evidence of a slow endpoint, not an outage,
+ * against a budget tuned for the latter. Deliberately NOT fail-open (a
+ * separate question the owner has not answered — the policy is unchanged):
+ *   - AUDIT_TIMEOUT_MS: 60_000 -> 180_000ms, so a slow-but-alive attempt has
+ *     room to actually finish instead of being killed mid-response.
+ *   - AUDIT_MAX_ATTEMPTS: 3 -> 5.
+ *   - Retry delay: flat 5s -> a growing backoff (15s, 30s, 60s, 120s — see
+ *     DEFAULT_AUDIT_RETRY_DELAYS_MS) so a genuinely dead registry is not
+ *     hammered every 5s for the whole budget, while a merely-slow one still
+ *     gets its next attempt soon.
+ *   - Worst case is now ~18-19 minutes (5 x 180s + 15+30+60+120s of delay)
+ *     against the previous ~3.2 minutes. At genuine, sustained
+ *     unavailability the gate is still red — same distinct "could not reach"
+ *     message, same non-zero exit — it just tries harder, longer, before
+ *     saying so. See scripts/devops/pnpm-audit-runbook.md's "slow registry"
+ *     section for what a red run like this should make you check first.
  *
  * The real command is configurable via `PNPM_AUDIT_CMD` (space-separated,
  * default `pnpm audit --json`) ONLY so this guard's own test can point the
@@ -140,15 +165,30 @@ const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 }
 const DEFAULT_AUDIT_LEVEL = 'moderate'
 const MIN_REASON_LENGTH = 20
 
-// MED-B: retry budget for the network call. 3 attempts with a 5s delay is
-// enough to ride out a short registry blip without turning a required merge
-// check into a multi-minute wait on a genuinely dead registry. The delay is
-// env-overridable ONLY so this guard's own test can shrink it from seconds to
-// milliseconds — the retry COUNT and the failure classification are what the
-// test verifies, not real wall-clock backoff timing.
-const AUDIT_MAX_ATTEMPTS = 3
-const AUDIT_RETRY_DELAY_MS = Number(process.env.PNPM_AUDIT_RETRY_DELAY_MS ?? 5_000)
-const AUDIT_TIMEOUT_MS = 60_000
+// Retry budget for the network call — see the module header's "WIDER RETRY
+// BUDGET" section for why these numbers, not the ones this guard shipped
+// with originally.
+const AUDIT_MAX_ATTEMPTS = 5
+const AUDIT_TIMEOUT_MS = 180_000
+
+// Growing backoff between attempts: 15s, 30s, 60s, 120s — index 0 is the
+// delay after attempt 1 (before attempt 2), and so on; AUDIT_MAX_ATTEMPTS - 1
+// entries for AUDIT_MAX_ATTEMPTS attempts. PNPM_AUDIT_RETRY_DELAY_MS, when
+// set, overrides EVERY entry uniformly — used ONLY by this guard's own test
+// to shrink the whole sequence from seconds to milliseconds. The retry
+// COUNT, the growth SHAPE (asserted separately, see the "default backoff
+// grows" test case), and the failure classification are what the tests
+// verify, never real wall-clock backoff timing.
+const DEFAULT_AUDIT_RETRY_DELAYS_MS = [15_000, 30_000, 60_000, 120_000]
+
+function retryDelayMs(attempt) {
+  const override = process.env.PNPM_AUDIT_RETRY_DELAY_MS
+  if (override !== undefined) return Number(override)
+  // Clamp to the last configured delay if there were ever more attempts than
+  // delays — keeps this safe against AUDIT_MAX_ATTEMPTS growing again later
+  // without a matching entry added here.
+  return DEFAULT_AUDIT_RETRY_DELAYS_MS[attempt - 1] ?? DEFAULT_AUDIT_RETRY_DELAYS_MS.at(-1)
+}
 
 const AUDIT_FIXTURE_ARG = process.argv[2]
 const EXCEPTIONS_FIXTURE_ARG = process.argv[3]
@@ -171,7 +211,15 @@ function looksLikeJson(str) {
 // this script has no event loop work to yield to in between retries. The
 // SharedArrayBuffer + Atomics.wait idiom is the standard way to block
 // synchronously in Node without a busy-wait loop.
+//
+// PNPM_AUDIT_SKIP_SLEEP, when set, skips the actual wait — used ONLY by this
+// guard's own test to observe the real, un-overridden DEFAULT_AUDIT_RETRY_DELAYS_MS
+// values in the "retrying in Xms" log line (proving the backoff GROWS: 15000
+// -> 30000 -> 60000 -> 120000) without paying real wall-clock time for it.
+// Distinct from PNPM_AUDIT_RETRY_DELAY_MS above, which changes the computed
+// delay itself (for tests that only care about retry COUNT, not shape).
 function sleepSync(ms) {
+  if (process.env.PNPM_AUDIT_SKIP_SLEEP === '1') return
   const sab = new SharedArrayBuffer(4)
   Atomics.wait(new Int32Array(sab), 0, 0, ms)
 }
@@ -204,10 +252,11 @@ function runRealAudit() {
         ? `killed by ${err.signal} (timeout after ${AUDIT_TIMEOUT_MS}ms)`
         : (err.message ?? String(err))
       if (attempt < AUDIT_MAX_ATTEMPTS) {
+        const delay = retryDelayMs(attempt)
         console.log(
-          `   pnpm audit attempt ${attempt}/${AUDIT_MAX_ATTEMPTS} produced no usable output (${reason}) — retrying in ${AUDIT_RETRY_DELAY_MS}ms...`,
+          `   pnpm audit attempt ${attempt}/${AUDIT_MAX_ATTEMPTS} produced no usable output (${reason}) — retrying in ${delay}ms...`,
         )
-        sleepSync(AUDIT_RETRY_DELAY_MS)
+        sleepSync(delay)
       }
     }
   }

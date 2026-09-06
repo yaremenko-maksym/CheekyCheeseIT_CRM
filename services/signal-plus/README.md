@@ -16,6 +16,10 @@ Not a pnpm workspace member — plain Python, `python -m pytest`, stdlib-first.
 - **Window:** a uniformly-random moment in **07:00-07:45 Europe/Kyiv**
   (`signal_plus/slot.py`, `zoneinfo`-based — correct across both DST
   transitions, never naive `datetime`).
+- **No roll-call on Sunday:** the automatic cycle (`--once` and the daemon)
+  does nothing at all on Sunday (Kyiv-local day of week) — no slot, no send,
+  no alert, no state write; `SIGNAL_SKIP_WEEKDAYS` below can widen this.
+  `--now` is an explicit manual action and always ignores this.
 - **Idempotent:** the date of the last successful send lives in a JSON state
   file, written atomically (temp file + `os.replace`). A restart after a
   successful send today does not send a second `+`.
@@ -45,7 +49,7 @@ cp .env.example .env   # then fill in real values
 
 ```bash
 signal-plus --groups   # list Signal groups with their ids, then exit
-signal-plus --now       # send immediately, skipping the slot wait (idempotency still respected)
+signal-plus --now       # send immediately, skipping the slot wait AND the Sunday/weekday skip (idempotency still respected)
 signal-plus --once      # run a single cycle (wait for the slot, send, exit)
 signal-plus              # daemon: repeats forever, one cycle per day
 ```
@@ -55,19 +59,20 @@ signal-plus              # daemon: repeats forever, one cycle per day
 Everything is env-driven (`signal_plus/config.py`) — nothing is hardcoded,
 no secret is ever in source. Full reference: `.env.example`.
 
-| Variable                     | Required | Purpose                                                            |
-| ---------------------------- | -------- | ------------------------------------------------------------------ |
-| `SIGNAL_ACCOUNT`             | yes      | the sending account (masked in logs)                               |
-| `SIGNAL_GROUP_ID`            | yes      | target group                                                       |
-| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                         |
-| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                            |
-| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)              |
-| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off)   |
-| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)           |
-| `HANDOVER_TIME`              | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                     |
-| `RESEND_API_KEY`             | no       | Resend API key for the handover email (unset = that layer skipped) |
-| `ALERT_EMAIL_FROM`           | no       | sender, default `site@cheekycheese.tech`                           |
-| `ALERT_EMAIL_TO`             | no       | handover email recipient (unset = that layer skipped)              |
+| Variable                     | Required | Purpose                                                                    |
+| ---------------------------- | -------- | -------------------------------------------------------------------------- |
+| `SIGNAL_ACCOUNT`             | yes      | the sending account (masked in logs)                                       |
+| `SIGNAL_GROUP_ID`            | yes      | target group                                                               |
+| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                                 |
+| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                                    |
+| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)                      |
+| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off)           |
+| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)                   |
+| `HANDOVER_TIME`              | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                             |
+| `SIGNAL_SKIP_WEEKDAYS`       | no       | ISO weekdays (1=Mon..7=Sun) to skip entirely, comma-separated, default `7` |
+| `RESEND_API_KEY`             | no       | Resend API key for the handover email (unset = that layer skipped)         |
+| `ALERT_EMAIL_FROM`           | no       | sender, default `site@cheekycheese.tech`                                   |
+| `ALERT_EMAIL_TO`             | no       | handover email recipient (unset = that layer skipped)                      |
 
 ## Testing
 
@@ -291,6 +296,90 @@ runs `docker compose -p signal-plus up -d` on the VPS — on every push to
 the account: linking needs an interactive QR scan on the owner's phone,
 which no CI job can do. Everything below is **step 3**, run by the owner
 directly on the VPS after step 2 has deployed at least once.
+
+### Если `docker compose pull` падает на `lchown` — что это и как проверять
+
+Run 33946345307 (первый реальный `workflow_dispatch` деплой на VPS) упал
+именно на этом шаге, с точным текстом:
+
+```
+failed to extract layer (application/vnd.oci.image.layer.v1.tar+gzip sha256:76f191...) to overlayfs as "extract-... sha256:3cad0c43...":
+failed to Lchown ".../opt/signal-cli-pinned/signal-cli" for UID 0, GID 0:
+lchown .../opt/signal-cli-pinned/signal-cli: no such file or directory
+```
+
+`sha256:76f191...` — это слой, который добавляет `signal-cli` (372 МБ,
+единственный большой бинарь в образе — самый крупный слой с большим
+отрывом). `sha256:3cad0c43...` — НЕ другой слой: это chain ID (хеш всей
+цепочки слоёв ДО и ВКЛЮЧАЯ этот), под которым containerd именует временный
+снапшот на время распаковки именно ЭТОГО слоя — совпадает у всех, кто тянет
+тот же тег. `UID 0, GID 0` тоже ни на что не намекает — это просто root,
+владелец файла в образе (весь `/opt/signal-cli-pinned` root:root).
+
+**Что уже проверено фактом (infra/signal-plus-pull-fix, эта же ветка/PR)** —
+не повторять расследование заново, если это всплывёт снова:
+
+1. **Слой сам по себе — не битый.** Скачан напрямую из GHCR по digest
+   (`docker login ghcr.io` + `curl` на `/v2/.../blobs/sha256:76f191...`,
+   БЕЗ `docker save`/`docker load` — они умеют перепаковывать слой и
+   маскировать реальную структуру) и разобран Python'овским `tarfile`
+   (авторитетный парсер, не полагается на то, что показывает `tar -tv` в
+   конкретной реализации). Ровно 3 записи, в правильном порядке: каталог
+   `opt`, каталог `opt/signal-cli-pinned`, обычный файл (`type='0'`)
+   `opt/signal-cli-pinned/signal-cli`, 372377528 байт. **Ни symlink, ни
+   hardlink, ни PAX/sparse-заголовков нет.** Гипотеза «hardlink на
+   отсутствующую в этом слое цель» (типичная причина именно такой ошибки)
+   этим фактом опровергнута для данного конкретного образа.
+2. **Те же самые байты извлекаются чисто на containerd overlayfs
+   snapshotter в двух независимых окружениях**, которые умеют то же самое
+   `driver-type: io.containerd.snapshotter.v1`, что и VPS:
+   - вложенный `docker:27-dind` (Docker 27.5.1) с
+     `daemon.json`: `{"features":{"containerd-snapshotter":true}}`;
+   - `ubuntu-latest` в GitHub Actions (Docker 28.0.4) — тем же способом,
+     плюс отдельно свежая пересборка ЭТОГО Dockerfile, запушенная в
+     одноразовый локальный `registry:2` и вытянутая обратно (см. шаг "Reproduce the VPS path" в `build-and-test`, `.github/workflows/deploy-signal-plus.yml` — это ПОСТОЯННЫЙ регресс-гвард, гоняется на каждом PR, трогающем этот сервис).
+3. **Вывод: детерминированного, воспроизводимого структурного дефекта в
+   Dockerfile не нашлось.** Самое вероятное объяснение из того, что
+   осталось непроверяемым без SSH на VPS — версия `docker-ce`/
+   `containerd.io`, которая туда ставилась: `docs/runbooks/deployment.md` ставит их БЕЗ фиксации версии (`apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin` — что было текущим в APT на момент провижининга VPS, то и встало). Это правдоподобно давно пофикшенный
+   баг конкретно в containerd overlayfs-снапшоттере, либо гонка,
+   чувствительная к задержкам конкретно виртуализованного диска Hetzner
+   (замер по прогрессу извлечения в упавшем логе: "Extracting" застряло
+   на 1-2 байтах ~1.3 сек и тут же упало — похоже на сбой в САМОМ начале
+   записи файла, а не посреди 372 МБ).
+
+**Что сделано, раз структурная причина не подтвердилась:**
+
+- Dockerfile всё равно защищён: два `COPY --from=signal-cli-fetch` заменены
+  на один `RUN --mount=type=bind` + `cp` (см. комментарий на месте) — не
+  подтверждённый фикс, а дешёвая страховка на случай, если дело было в
+  BuildKit-специфичной оптимизации самого `COPY`, которую обычный `RUN`
+  не делает. Итоговое содержимое образа не изменилось (тот же файл, тот же
+  путь, тот же режим — проверено `docker run --entrypoint ls`).
+- `docker compose -p signal-plus pull` на VPS (шаг "Pull and start
+  signal-plus" в `deploy` job) теперь повторяет попытку до 4 раз с
+  нарастающей паузой (10/20/30 сек) прежде чем считать деплой упавшим —
+  та же форма, что и у фикса pnpm-audit gate (PR #654) для «медленного, но
+  не мёртвого» реестра: если это была разовая заминка, повтор её
+  переживёт; если проблема настоящая — деплой всё равно красный, просто
+  не с первой попытки.
+
+**Если упадёт снова с ЭТОЙ ЖЕ ошибкой** (все 4 попытки исчерпаны) — значит
+дело либо не в разовой заминке, либо это Dockerfile-независимый баг
+containerd на VPS. Проверить фактом, не гадать:
+
+```bash
+# на VPS, вручную
+docker version --format '{{.Server.Version}}'
+docker info --format '{{json .DriverStatus}}'   # ожидаем io.containerd.snapshotter.v1
+containerd --version
+```
+
+Сравнить с подтверждённо-рабочими версиями выше (27.5.1 и 28.0.4). Если версия заметно старше — `apt update && apt install --only-upgrade docker-ce docker-ce-cli containerd.io` на VPS: единственное действие из
+всего расследования, которое реально меняет то, что стояло на момент
+падения run 33946345307, а не просто хеджирует вокруг него. Это ручной шаг
+владельца (нет SSH-доступа у агентов вне `deploy` job, а в нём — только
+секреты для деплоя, не для произвольного `apt upgrade`).
 
 ### Линковка (один раз)
 

@@ -240,6 +240,16 @@ def run_cycle(
     if st.handover_date == today:
         logger.info("already gave up for today (%s) at the handover cutoff; nothing to do", today)
         return CycleOutcome(sent=False, reason="already-given-up")
+    if wait_for_slot and slot.is_skipped_weekday(today, skip_weekdays=config.skip_weekdays):
+        # task-signal-plus-sunday-skip.md requirement 1: "по воскресеньям
+        # перекличка не проводится" -- gated on wait_for_slot so that --now
+        # (requirement/AC4: an explicit manual action) is never affected,
+        # same way --now already bypasses the slot wait below.
+        logger.info(
+            "%s (Europe/Kyiv) — roll-call is not held on this weekday, skipping",
+            today.strftime("%A"),
+        )
+        return CycleOutcome(sent=False, reason="weekday-skipped")
 
     if wait_for_slot:
         target = slot.pick_slot(today, rng=rng or random.Random())

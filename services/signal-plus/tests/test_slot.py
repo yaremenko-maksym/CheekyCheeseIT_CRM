@@ -32,11 +32,13 @@ import pytest
 
 from signal_plus.slot import (
     DEFAULT_CUTOFF,
+    SKIP_ISO_WEEKDAYS,
     TIMEZONE,
     WINDOW_END,
     WINDOW_START,
     is_late,
     is_past_cutoff,
+    is_skipped_weekday,
     pick_slot,
 )
 
@@ -163,3 +165,43 @@ def test_is_late_and_is_past_cutoff_accept_non_kyiv_aware_datetimes():
     utc_now = datetime(2026, 9, 3, 4, 50, tzinfo=timezone.utc)  # 07:50 Kyiv (UTC+3 in Sept)
     assert is_late(utc_now) is True
     assert is_past_cutoff(utc_now) is False
+
+
+# ---------------------------------------------------------------------------
+# Sunday skip (task-signal-plus-sunday-skip.md requirement 1): "по
+# воскресеньям перекличка не проводится" -- day-of-week considered in
+# Europe/Kyiv, ISO numbering (Monday=1 ... Sunday=7). ``is_skipped_weekday``
+# is a pure predicate on an already Kyiv-local calendar date; the tz
+# conversion itself is the caller's job (``cli.run_cycle`` /
+# ``docker-healthcheck.py`` both already compute ``today`` that way for
+# other reasons -- see the AC1/AC3 UTC-boundary tests in test_cli.py for
+# where that conversion is actually exercised).
+# ---------------------------------------------------------------------------
+
+
+def test_skip_iso_weekdays_default_is_sunday_only():
+    assert SKIP_ISO_WEEKDAYS == frozenset({7})
+
+
+def test_is_skipped_weekday_true_for_sunday():
+    assert is_skipped_weekday(date(2026, 9, 6)) is True  # Sunday
+
+
+def test_is_skipped_weekday_false_for_monday():
+    assert is_skipped_weekday(date(2026, 9, 7)) is False  # Monday
+
+
+def test_is_skipped_weekday_false_for_saturday_by_default():
+    assert is_skipped_weekday(date(2026, 9, 5)) is False  # Saturday -- not in default {7}
+
+
+def test_is_skipped_weekday_respects_custom_skip_set():
+    # AC5: SIGNAL_SKIP_WEEKDAYS=6,7 -- Saturday skipped too.
+    custom = frozenset({6, 7})
+    assert is_skipped_weekday(date(2026, 9, 5), skip_weekdays=custom) is True  # Saturday
+    assert is_skipped_weekday(date(2026, 9, 6), skip_weekdays=custom) is True  # Sunday
+    assert is_skipped_weekday(date(2026, 9, 7), skip_weekdays=custom) is False  # Monday
+
+
+def test_is_skipped_weekday_empty_skip_set_never_skips():
+    assert is_skipped_weekday(date(2026, 9, 6), skip_weekdays=frozenset()) is False
