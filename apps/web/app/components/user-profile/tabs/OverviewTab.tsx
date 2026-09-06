@@ -429,8 +429,12 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                             has no mode gate — a self-viewing SENIOR saw their
                             OWN name in the third person here right below a
                             banner addressing them as "вы". First person for
-                            the affected senior's own view; third person
-                            (with name) only when someone ELSE is looking. */}
+                            the affected senior's own view; third person only
+                            when someone ELSE is looking — and even then,
+                            without the name (COPY-M-10: a 55-character pill
+                            wraps awkwardly next to shorter neighbors; the
+                            name is still one hover away, in the tooltip
+                            below). */}
                         {mode === 'self' ? (
                           <>
                             новый{' '}
@@ -439,9 +443,8 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                           </>
                         ) : (
                           <>
-                            новый{' '}
+                            Ждёт подтверждения:{' '}
                             <span className="tabular-nums">{user.pendingSeniorShare.percent}</span>%
-                            ожидает подтверждения ({user.pendingSeniorShare.approverName})
                           </>
                         )}
                       </Badge>

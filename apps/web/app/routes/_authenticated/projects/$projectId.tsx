@@ -603,16 +603,19 @@ function ProjectShareInfo({
               className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400"
               data-testid="project-senior-share-pending-badge"
             >
+              {/* task-648-fix-round-1 (COPY-M-10): approverName deliberately
+                  left out of the pill — a 55-character string next to
+                  shorter neighboring badges ("Доля синьора: 30%",
+                  "(переопределение)") wrapped awkwardly; it is one hover
+                  away in the tooltip below instead. */}
               {pending.percent === null ? (
                 <>
-                  будет действовать базовый/командный процент:{' '}
+                  Ждёт подтверждения:{' '}
                   <span className="tabular-nums">{pending.effectivePercentAfterApproval}</span>%
-                  (ожидает подтверждения, {pending.approverName})
                 </>
               ) : (
                 <>
-                  новый <span className="tabular-nums">{pending.percent}</span>% ожидает
-                  подтверждения ({pending.approverName})
+                  Ждёт подтверждения: <span className="tabular-nums">{pending.percent}</span>%
                 </>
               )}
             </Badge>

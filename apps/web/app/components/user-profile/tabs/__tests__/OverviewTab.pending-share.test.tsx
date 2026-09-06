@@ -153,10 +153,14 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
     ).toBeInTheDocument()
   })
 
-  it('badge + tooltip name the approver, third person, when mode=view', async () => {
+  it('badge is name-free (COPY-M-10) and the tooltip names the approver, third person, when mode=view', async () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view')
     const badge = screen.getByTestId('user-senior-share-pending-badge')
-    expect(badge).toHaveTextContent('новый 55% ожидает подтверждения (Senior One)')
+    // task-648-fix-round-1 (COPY-M-10): the name moved OUT of the pill
+    // (a 55-character string wrapped awkwardly next to shorter neighbors)
+    // — it surfaces on hover instead, in the tooltip below.
+    expect(badge).toHaveTextContent('Ждёт подтверждения: 55%')
+    expect(badge).not.toHaveTextContent('Senior One')
     const user = userEvent.setup()
     await user.hover(badge)
     expect(

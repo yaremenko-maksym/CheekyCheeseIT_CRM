@@ -160,12 +160,17 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('26%')
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
-      // The PENDING indicator appears instead, naming the proposed value and
-      // who it is waiting on (the project's senior).
+      // The PENDING indicator appears instead, naming the proposed value.
+      // task-648-fix-round-1 (COPY-M-10): the approver's name is NOT in the
+      // pill's own text any more (a 55-character string wrapped awkwardly
+      // next to shorter neighbors) — it surfaces on hover, via the Tooltip
+      // this badge is wrapped in.
       const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
       await expect(pendingBadge).toBeVisible()
       await expect(pendingBadge).toContainText('30%')
-      await expect(pendingBadge).toContainText(USERS.senior.displayName)
+      await expect(pendingBadge).not.toContainText(USERS.senior.displayName)
+      await pendingBadge.hover()
+      await expect(page.getByRole('tooltip')).toContainText(USERS.senior.displayName)
     })
   })
 
