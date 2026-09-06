@@ -364,7 +364,15 @@ export class ProjectsService {
       | null
       | undefined,
     pendingValue: number | null | undefined,
-    teamOverridesBySeniorId?: Map<
+    // task-648-fix-round-1 (AC9 mutation-gate gap-fill): NOT optional — all
+    // three call sites already compute this via `loadTeamOverridesBySenior`
+    // before calling in (same as `mapProject`'s own identically-shaped
+    // parameter), so an optional-chaining `?.` here had no live path where
+    // it could ever short-circuit — genuinely dead defensiveness, not a
+    // real "caller might omit this" contract. `.get(senior.id)` returning
+    // `undefined` (this senior has no team override) is the real, exercised
+    // case the `?? []` below still covers.
+    teamOverridesBySeniorId: Map<
       string,
       { id: string; seniorSharePercentOverride: number | null }[]
     >,
@@ -381,7 +389,19 @@ export class ProjectsService {
     // PENDING value for the live project override. This is what makes
     // `percent: null` ("clear the override") render as the real fallback
     // number instead of the client falling back to `percent ?? 0`.
-    const applicableTeams = teamOverridesBySeniorId?.get(senior.id) ?? []
+    // `resolveSeniorShare`'s TEAM step (`senior-share-resolver.ts`) keeps
+    // only elements where `t.seniorSharePercentOverride !== null && !==
+    // undefined`. Stryker's canned replacement (a bare string) has no such
+    // property — reading it off a string yields `undefined`, so the element
+    // is filtered out exactly like an empty array would be. `[]` and any
+    // array holding one element that isn't `ResolverTeam`-shaped are
+    // indistinguishable through the ONLY consumer of this value (below); no
+    // legitimate test can tell them apart without fabricating malformed data
+    // the real caller (`loadTeamOverridesBySenior`, a typed Drizzle query)
+    // can never actually produce.
+    // Stryker disable next-line ArrayDeclaration: see comment above — the
+    // fallback value is unobservable through resolveSeniorShare's filter.
+    const applicableTeams = teamOverridesBySeniorId.get(senior.id) ?? []
     const effectivePercentAfterApproval = resolveSeniorShare(
       { seniorSharePercentOverride: pendingValue },
       { seniorSharePercent: senior.seniorSharePercent },

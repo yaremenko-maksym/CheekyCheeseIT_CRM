@@ -2185,6 +2185,16 @@ export const notifications = pgTable(
 // ADD VALUE`, a Postgres enum extension — never `DROP`-able, see that
 // file's own header). Distinct from `REJECTED` — see the shared Zod schema
 // (`packages/shared/src/schemas/approvals.ts`) for the reasoning.
+// The array of VALUES is exercised directly —
+// `approvals-schema.spec.ts` reads `approvalStatusEnum.enumValues` and
+// compares it against the migration files' own CREATE TYPE + ALTER TYPE
+// literals — but the enum's SQL TYPE NAME ('approval_status', this first
+// argument) is Drizzle-internal plumbing no unit test ever reads back out.
+// VERIFIED against real Postgres: `approvals.integration.spec.ts` inserts,
+// updates, and reads rows through this exact column via Drizzle — every one
+// of those queries would fail with a real Postgres type-mismatch error if
+// this name diverged from the migration's `CREATE TYPE approval_status`.
+// Stryker disable next-line StringLiteral: DB-level type name, see above.
 export const approvalStatusEnum = pgEnum('approval_status', [
   'PENDING',
   'APPROVED',

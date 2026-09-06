@@ -74,7 +74,17 @@ interface ProjectRow {
  * (AC3 — one atomic operation) an assertion the test can actually make,
  * rather than trusting that the code merely COULD be atomic.
  */
-function buildHarness(overrides: Partial<ProjectRow> = {}) {
+// task-648-fix-round-1 (AC9 mutation-gate gap-fill). `teamMembers.findMany`
+// defaults to `[]` below (no team override — the common case). A test that
+// needs `loadPendingSeniorShare`'s `effectivePercentAfterApproval` to
+// resolve via the TEAM level (not USER_DEFAULT) passes a row here instead.
+function buildHarness(
+  overrides: Partial<ProjectRow> = {},
+  teamMembershipRows: Array<{
+    userId: string
+    team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
+  }> = [],
+) {
   const projectRow: ProjectRow = {
     id: 'proj-1',
     name: 'Acme Project',
@@ -192,7 +202,7 @@ function buildHarness(overrides: Partial<ProjectRow> = {}) {
         // default and the common case for these fixtures.
         teamMembers: {
           findFirst: async () => undefined,
-          findMany: async () => [],
+          findMany: async () => teamMembershipRows,
         },
       },
       ...makeUpdateChain([], false),
@@ -425,6 +435,60 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
+  // task-648-fix-round-1 (SR-H-1, AC9 mutation-gate gap-fill): the test
+  // above only exercises the no-op branch with NOTHING pending (cancel 404s,
+  // early-swallowed). NOTHING previously covered the actual fix: requesting
+  // the CURRENT active value while a DIFFERENT value is genuinely pending —
+  // the "I changed my mind" gesture this whole finding exists for.
+  it('SR-H-1: requesting the ACTIVE value while a DIFFERENT value is pending CANCELS the open proposal', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 30,
+      pendingSeniorSharePercentOverride: 70,
+    })
+    await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
+    expect(h.approvals.cancelInTx).toHaveBeenCalledWith(
+      h.txHandle,
+      'PROJECT_SENIOR_SHARE',
+      'proj-1',
+    )
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
+    // The ACTIVE override is untouched by a cancel — only the proposal dies.
+    expect(h.projectRow.seniorSharePercentOverride).toBe(30)
+  })
+
+  it('SR-H-1: a genuine cancelInTx failure (not NotFoundException) propagates instead of being swallowed', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 30,
+      pendingSeniorSharePercentOverride: 70,
+    })
+    h.approvals.cancelInTx.mockRejectedValue(new Error('db connection lost'))
+    await expect(
+      h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser),
+    ).rejects.toThrow('db connection lost')
+  })
+
+  // task-648-fix-round-1 (SR-H-1, AC9 mutation-gate gap-fill round 2): the
+  // two SR-H-1 tests above both request the CURRENT active value (30) — so
+  // `overrideEffective` is genuinely `30` in both, never `undefined`. That
+  // makes them blind to `else if (overrideEffective !== undefined)` being
+  // mutated to `else if (true)`: in both existing tests the real condition
+  // and the mutant agree (both truthy). The mutant only diverges when the
+  // PATCH omits the field entirely — the routine "I changed something else
+  // on this project, the share slider was never touched" request — which
+  // this test is the first to exercise with a live pending proposal present.
+  it('SR-H-1: a PATCH that never mentions seniorSharePercentOverride leaves an open proposal untouched (overrideEffective genuinely undefined, not merely equal-to-active)', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 30,
+      pendingSeniorSharePercentOverride: 70,
+    })
+    await h.service.update('proj-1', { name: 'Renamed, share untouched' }, adminUser)
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    // The pending proposal from BEFORE this call is still exactly there.
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBe(70)
+  })
+
   it('previousPercent is the prior TRUTHY override, not null (?? vs && boundary, distinct from the audit-log one)', async () => {
     const h = buildHarness({
       seniorSharePercentOverride: 25,
@@ -504,6 +568,55 @@ describe('ProjectsService.findOne — pendingSeniorShare (JUNIOR skip-the-lookup
       approverId: 'senior-1',
       approverName: 'Senior One',
     })
+  })
+
+  // task-648-fix-round-1 (AC9 mutation-gate gap-fill): the test above's
+  // senior sits at the harness default (26) — the SAME number
+  // `resolveSeniorShare`'s own `?? 26` fallback would produce even if
+  // `{ seniorSharePercent: senior.seniorSharePercent }` were mutated to
+  // `{}` (undefined ?? 26 === 26). A senior at a NON-default percent is
+  // what makes passing the REAL value observably different from passing
+  // nothing.
+  it("resolves effectivePercentAfterApproval using the SENIOR's actual (non-default) percent, not the 26 fallback", async () => {
+    const h = buildHarness({
+      senior: { id: 'senior-1', displayName: 'Senior One', seniorSharePercent: 40 },
+      seniorSharePercentOverride: 55,
+      pendingSeniorSharePercentOverride: null,
+    })
+    const result = await h.service.findOne('proj-1', adminUser)
+    expect(
+      (result.pendingSeniorShare as { effectivePercentAfterApproval: number })
+        .effectivePercentAfterApproval,
+    ).toBe(40)
+  })
+
+  // task-648-fix-round-1 (AC9 mutation-gate gap-fill): with NO team
+  // override (every other test in this file), `teamOverridesBySeniorId.get(
+  // senior.id)` always resolves `undefined`, so its `?? []` fallback (and
+  // the fallback array's own CONTENTS) never differs observably from a
+  // mutated version — `resolveSeniorShare`'s `.filter(...)` step discards a
+  // garbage array entry the same way it discards a real non-matching one.
+  // A genuine team override is the one case where `.get(...)` returns a
+  // REAL, non-empty array, which is what actually exercises the resolver's
+  // TEAM level (not just its safety-net fallback).
+  it('resolves effectivePercentAfterApproval via the TEAM level when the senior has exactly one active team override', async () => {
+    const h = buildHarness(
+      {
+        seniorSharePercentOverride: 55,
+        pendingSeniorSharePercentOverride: null,
+      },
+      [
+        {
+          userId: 'senior-1',
+          team: { id: 'team-1', seniorSharePercentOverride: 33, archivedAt: null },
+        },
+      ],
+    )
+    const result = await h.service.findOne('proj-1', adminUser)
+    expect(
+      (result.pendingSeniorShare as { effectivePercentAfterApproval: number })
+        .effectivePercentAfterApproval,
+    ).toBe(33)
   })
 
   // task-648-fix-round-1 (QA-HIGH-1): ACCOUNTANT is the exact role QA caught
@@ -645,5 +758,67 @@ describe('ProjectsService.rejectSeniorShareChange — impersonation guard', () =
       'Отклонить изменение доли может только сам приглашённый — через имперсонацию это сделать нельзя',
     )
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
+  })
+})
+
+// task-648-fix-round-1 (SR-H-1, AC9 mutation-gate gap-fill): NOTHING
+// previously called `cancelSeniorShareChange` (public) or exercised
+// `cancelSeniorShareChangeCore`'s actual DB effect at all — the mutation
+// gate's own BlockStatement mutant (silencing the whole method body) went
+// unnoticed because no test observed a difference between "cancel actually
+// ran" and "cancel did nothing".
+describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () => {
+  it('rejects a SENIOR caller (RBAC: only ADMIN/ACCOUNTANT may cancel a proposal they did not open)', async () => {
+    const h = buildHarness()
+    await expect(h.service.cancelSeniorShareChange('proj-1', seniorUser)).rejects.toThrow(
+      'Отменить предложение по доле может только ADMIN или ACCOUNTANT',
+    )
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN: calls approvals.cancelInTx with the exact subject, and clears pendingSeniorSharePercentOverride on the project row', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 26,
+      pendingSeniorSharePercentOverride: 55,
+    })
+    await h.service.cancelSeniorShareChange('proj-1', adminUser)
+    expect(h.approvals.cancelInTx).toHaveBeenCalledWith(
+      h.txHandle,
+      'PROJECT_SENIOR_SHARE',
+      'proj-1',
+    )
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
+    // The ACTIVE override is untouched — cancel withdraws the PROPOSAL,
+    // never the value that is already live.
+    expect(h.projectRow.seniorSharePercentOverride).toBe(26)
+  })
+
+  it('ACCOUNTANT may also cancel (same RBAC as the propose-gate in update())', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    const accountantUser: SessionUser = {
+      id: 'acc-1',
+      role: 'ACCOUNTANT',
+      displayName: 'Accountant',
+      email: 'acc@x.com',
+      avatarUrl: null,
+      avatarDocumentId: null,
+      seniorSharePercent: null,
+    }
+    await h.service.cancelSeniorShareChange('proj-1', accountantUser)
+    expect(h.approvals.cancelInTx).toHaveBeenCalledOnce()
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
+  })
+
+  it('returns the reloaded project via mapProject (pendingSeniorShare is null in the response after cancel)', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    // The harness's `approvals.getStatus` defaults to 'PENDING' (most of
+    // this file's scenarios need a live proposal); the REAL ApprovalsService
+    // would report 'NONE' here once `cancelInTx` has actually superseded
+    // the row — simulate that real state transition explicitly, rather
+    // than letting the static default silently say something the real
+    // system never would immediately after a successful cancel.
+    h.approvals.getStatus.mockResolvedValue('NONE')
+    const result = await h.service.cancelSeniorShareChange('proj-1', adminUser)
+    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).toBeNull()
   })
 })

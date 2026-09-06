@@ -11,7 +11,7 @@
  * REAL, untouched `resolveSeniorShare` (a pure function), not against a
  * mock echoing back whatever the test configured.
  */
-import { ForbiddenException } from '@nestjs/common'
+import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { ARCHIVED_ENTITLEMENT_MESSAGE } from './archived-entitlement'
@@ -290,6 +290,43 @@ describe('UsersService — notification seam (position 6 hand-off)', () => {
     await h.service.adminUpdateUser('senior-1', { seniorSharePercent: 26 }, 'admin-1')
     expect(spy).not.toHaveBeenCalled()
   })
+
+  // task-648-fix-round-1 (SR-H-1, AC9 mutation-gate gap-fill): the tests
+  // above only ever exercise the no-op branch with `pendingSeniorSharePercent:
+  // null` — nothing to cancel, so `cancelSeniorShareChangeCore` 404s and the
+  // early-return-null path is all that ever ran. NOTHING previously covered
+  // the actual "I changed my mind" fix this task exists for: requesting the
+  // CURRENT active value while a DIFFERENT value is genuinely pending.
+  it('SR-H-1: requesting the ACTIVE value while a DIFFERENT value is pending CANCELS the open proposal (not a silent no-op)', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
+    const result = await h.service.adminUpdateUser(
+      'senior-1',
+      { seniorSharePercent: 26 },
+      'admin-1',
+    )
+    expect(h.approvals.cancelInTx).toHaveBeenCalledWith(h.txHandle, 'USER_SENIOR_SHARE', 'senior-1')
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    // The pending column is cleared by the cancel write — the stale-response
+    // patch (adminUpdateUser's own fix, documented on
+    // proposeSeniorShareChangeInTx) must reflect that in the SAME response,
+    // not the pre-cancel row `updateUserRow` already returned.
+    expect((result as { pendingSeniorSharePercent: unknown }).pendingSeniorSharePercent).toBeNull()
+    // AC9 gap-fill: the response check above only proves the STALE-RESPONSE
+    // PATCH's own hardcoded `{ pendingSeniorSharePercent: null }` literal —
+    // it says nothing about whether `cancelSeniorShareChangeCore`'s actual
+    // `.set({ pendingSeniorSharePercent: null, ... })` DB write happened.
+    // Reading the row the mock's update chain actually mutated is what
+    // makes that write itself observable.
+    expect(h.userRow.pendingSeniorSharePercent).toBeNull()
+  })
+
+  it('SR-H-1: a genuine cancelInTx failure (not NotFoundException) propagates instead of being swallowed as a no-op', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
+    h.approvals.cancelInTx.mockRejectedValue(new Error('db connection lost'))
+    await expect(
+      h.service.adminUpdateUser('senior-1', { seniorSharePercent: 26 }, 'admin-1'),
+    ).rejects.toThrow('db connection lost')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -320,6 +357,21 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     )
   })
 
+  // task-648-fix-round-1 (SR-M-3, AC9 mutation-gate gap-fill): the write
+  // itself succeeds (real proposal existed, real update ran) — this is the
+  // SEPARATE defensive guard on the re-fetch used to build the allow-listed
+  // response (`buildProfileView`'s own subject). Genuinely defensive
+  // (`findById(currentUser.id)` failing right after that same caller's
+  // write just succeeded is an edge case, not a normal path) but still a
+  // real branch the mutation gate expects a reason for, not a shrug.
+  it('approve: throws (generic) ForbiddenException if the post-write viewer re-fetch comes back empty', async () => {
+    const h = buildHarness()
+    vi.spyOn(h.service, 'findById').mockResolvedValue(undefined)
+    await expect(h.service.approveSeniorShareChange('senior-1', seniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
   it('reject: exact impersonation message', async () => {
     const h = buildHarness()
     await expect(
@@ -336,6 +388,16 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'причина', seniorUser),
     ).rejects.toThrow('Пользователь не найден')
+  })
+
+  // task-648-fix-round-1 (SR-M-3, AC9 mutation-gate gap-fill): same
+  // reasoning as approve's identical test above.
+  it('reject: throws (generic) ForbiddenException if the post-write viewer re-fetch comes back empty', async () => {
+    const h = buildHarness()
+    vi.spyOn(h.service, 'findById').mockResolvedValue(undefined)
+    await expect(
+      h.service.rejectSeniorShareChange('senior-1', 'причина', seniorUser),
+    ).rejects.toThrow(ForbiddenException)
   })
 })
 
@@ -430,5 +492,24 @@ describe('UsersService.changeSalary — proposeSeniorShareChangeInTx branch', ()
     expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
     expect(updated.pendingSeniorSharePercent).toBeNull()
     expect(h.userRow.pendingSeniorSharePercent).toBeNull()
+  })
+
+  // task-648-fix-round-1 (AC9 mutation-gate gap-fill): the test above's
+  // `cancelSeniorShareChangeCore` call SUCCEEDS by default (harness's
+  // `cancelInTx` mock has no state to check), so `proposeSeniorShareChangeInTx`
+  // returns the TRUTHY `{ pendingSeniorSharePercent: null }` object there —
+  // not the literal `null` early-return this test targets. Only forcing
+  // `cancelInTx` to genuinely throw NotFoundException (nothing open to
+  // cancel — the majority real-world case for a plain resubmit) reaches
+  // that branch, which is what makes `if (shareChangeResult)` vs
+  // `if (true)` an observable difference: the mutated version would try to
+  // read `.pendingSeniorSharePercent` off `null` and throw a TypeError.
+  it("changeSalary no-op with genuinely NOTHING pending: shareChangeResult is null, response keeps updateUserRow's own value untouched", async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
+    h.approvals.cancelInTx.mockRejectedValue(
+      new NotFoundException('Подтверждение не найдено или уже закрыто'),
+    )
+    const updated = await h.service.changeSalary('senior-1', { seniorSharePercent: 26 }, 'admin-1')
+    expect(updated.pendingSeniorSharePercent).toBeNull()
   })
 })
