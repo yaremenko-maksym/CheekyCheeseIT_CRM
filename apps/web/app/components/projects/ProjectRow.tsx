@@ -26,6 +26,20 @@ export type ProjectRowProps = {
    * never render (defensive default, matches `viewerRole` above).
    */
   viewerId?: string | undefined
+  /**
+   * SR-L-7 (PR #646 fix-round 5, LOW — security review). `true` while the
+   * `/projects` list query is a persisted snapshot that has not yet
+   * finished a background refetch (`fetchStatus !== 'idle'` on the
+   * `useQuery` call in `index.tsx` — see that call site's own comment).
+   * ADMIN is the ONLY role that ever receives `rejectionReason` at all
+   * (SR-M-5) — a REJECTED project reaching this component with `rejectionReason
+   * === null` for that viewer is never a genuine fact from the server (the
+   * backend always attaches one), it is what a stripped-and-not-yet-
+   * refetched IndexedDB restore looks like (QA-H-3/SR-M-8, persister.ts).
+   * Omitted (dashboards that never mount a REJECTED row anyway) → the old
+   * "no reason paragraph" behaviour, unchanged.
+   */
+  reasonPending?: boolean | undefined
 }
 
 function getInitials(name: string) {
@@ -57,7 +71,7 @@ const DATE_FORMAT_OPTS: Intl.DateTimeFormatOptions = {
  *    `project-card-${id}` testid via the wrapper in the parent route so
  *    existing specs don't break.
  */
-export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
+export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: ProjectRowProps) {
   const isArchived = !!project.archivedAt
   // task-project-status-filter-ui (design spec §2/§7/§8). Draft/rejected are
   // a SEPARATE axis from archival (business spec §4.2 — never mixed): a
@@ -589,6 +603,23 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                   title={project.rejectionReason}
                 >
                   «{project.rejectionReason}»
+                </p>
+              )}
+              {/* SR-L-7 (PR #646 fix-round 5, LOW). See `reasonPending`'s own
+                  doc above for why a null reason here, for ADMIN, while the
+                  list query hasn't finished a background refetch, means
+                  "still loading" rather than "the server has no reason" —
+                  QA's own repro (fix-round 4 discussion) needed a real
+                  service-worker'd prod build to reach the `fetchStatus:
+                  'paused'` case this covers; the unit test models that
+                  fetchStatus value directly rather than reproducing the
+                  offline/PWA setup live. */}
+              {!project.rejectionReason && viewerRole === 'ADMIN' && reasonPending && (
+                <p
+                  className="max-w-full text-[11px] italic text-muted-foreground/70"
+                  data-testid={`project-row-${project.id}-status-reason-loading`}
+                >
+                  Причина загружается…
                 </p>
               )}
             </>

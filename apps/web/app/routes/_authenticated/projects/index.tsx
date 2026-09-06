@@ -236,6 +236,7 @@ function ProjectsPage() {
     data: rawProjects,
     isLoading,
     isError,
+    fetchStatus,
   } = useQuery({
     queryKey: ['projects', { archived: needsArchivedFetch ? 'true' : 'active' }],
     queryFn: () =>
@@ -245,6 +246,17 @@ function ProjectsPage() {
     enabled: !!user,
     placeholderData: keepPreviousData,
   })
+  // SR-L-7 (PR #646 fix-round 5, LOW — security review). ADMIN is the only
+  // role `rejectionReason` is ever attached for (SR-M-5) — the backend
+  // ALWAYS supplies one for a REJECTED project, so a null value on an
+  // already-rendered row is never a genuine server fact for this viewer.
+  // It is what a persisted (stripped) snapshot looks like before its
+  // forced background refetch resolves (QA-H-3/SR-M-8, persister.ts):
+  // `fetchStatus` leaves `'idle'` (becomes `'fetching'` online or
+  // `'paused'` offline/PWA-cached) for exactly the window that refetch is
+  // outstanding, and returns to `'idle'` once it settles — success brings
+  // the real reason back with it. See ProjectRow's own `reasonPending` doc.
+  const reasonPending = fetchStatus !== 'idle'
 
   // AC1: the default (ACTIVE, status param absent) bucket must equal
   // today's list exactly — `status === 'ACTIVE' && archivedAt === null` is
@@ -714,6 +726,7 @@ function ProjectsPage() {
                             project={project}
                             viewerRole={user?.role}
                             viewerId={user?.id}
+                            reasonPending={reasonPending}
                           />
                         </motion.div>
                       )

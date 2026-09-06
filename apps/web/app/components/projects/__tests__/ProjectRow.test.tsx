@@ -99,12 +99,17 @@ function makeProject(overrides: Partial<ProjectDto> = {}): ProjectDto {
  */
 function renderProjectRow(
   project: ProjectDto,
-  opts: { viewerRole?: Role; viewerId?: string } = {},
+  opts: { viewerRole?: Role; viewerId?: string; reasonPending?: boolean } = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const rootRoute = createRootRoute({
     component: () => (
-      <ProjectRow project={project} viewerRole={opts.viewerRole} viewerId={opts.viewerId} />
+      <ProjectRow
+        project={project}
+        viewerRole={opts.viewerRole}
+        viewerId={opts.viewerId}
+        reasonPending={opts.reasonPending}
+      />
     ),
   })
 
@@ -435,6 +440,52 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
 
     await screen.findByTestId(`project-row-${project.id}-status-rejected`)
     expect(screen.queryByText(/«.*»/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId(`project-row-${project.id}-status-reason-loading`),
+    ).not.toBeInTheDocument()
+  })
+
+  /**
+   * SR-L-7 (PR #646 fix-round 5, LOW — security review). manual-qa's own
+   * repro needed a real prod build with a service worker to reach
+   * `fetchStatus: 'paused'` (persister.ts restores a stripped snapshot,
+   * `dataUpdatedAt` is forced to 0, `refetchOnMount` tries to refetch but
+   * the browser is offline) — this test models that EXACT `fetchStatus`
+   * value directly via the `reasonPending` prop `index.tsx` derives from it
+   * (`fetchStatus !== 'idle'`), rather than reproducing the offline/PWA
+   * setup live (which an E2E run cannot do either — see the task's own
+   * decision on this finding).
+   */
+  it('SR-L-7: REJECTED + null reason + ADMIN + reasonPending — shows a loading placeholder, not silence', async () => {
+    const project = makeProject({ status: 'REJECTED', rejectionReason: null })
+    renderProjectRow(project, { viewerRole: 'ADMIN', reasonPending: true })
+
+    await screen.findByTestId(`project-row-${project.id}-status-rejected`)
+    expect(screen.getByTestId(`project-row-${project.id}-status-reason-loading`)).toHaveTextContent(
+      'Причина загружается…',
+    )
+    // Not the same slot as a real reason — no quoted text renders at all.
+    expect(screen.queryByText(/«.*»/)).not.toBeInTheDocument()
+  })
+
+  it('SR-L-7: the loading placeholder never shows for a non-ADMIN viewer — SENIOR/DROP never receive rejectionReason at all (SR-M-5), so "loading" would be a permanent lie for them', async () => {
+    const project = makeProject({ status: 'REJECTED', rejectionReason: null })
+    renderProjectRow(project, { viewerRole: 'SENIOR', reasonPending: true })
+
+    await screen.findByTestId(`project-row-${project.id}-status-rejected`)
+    expect(
+      screen.queryByTestId(`project-row-${project.id}-status-reason-loading`),
+    ).not.toBeInTheDocument()
+  })
+
+  it('SR-L-7: a REAL reason wins over the loading placeholder even if reasonPending is still true (the refetch that just resolved is what supplied it)', async () => {
+    const project = makeProject({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' })
+    renderProjectRow(project, { viewerRole: 'ADMIN', reasonPending: true })
+
+    await screen.findByText('«нет бюджета на Q3»')
+    expect(
+      screen.queryByTestId(`project-row-${project.id}-status-reason-loading`),
+    ).not.toBeInTheDocument()
   })
 
   it('ARCHIVED still wins over the other branches (mutually exclusive in practice, but the priority order is defensive)', async () => {
