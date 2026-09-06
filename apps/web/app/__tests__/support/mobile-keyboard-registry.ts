@@ -405,6 +405,10 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'app/routes/_authenticated/projects/$projectId.tsx#4':
     'Общие заметки (edit form) — same free-text notes textarea as projects/index.tsx#6.',
 
+  // ---- components/projects/ProjectApprovalActions.tsx (task-project-status-filter-ui) ----
+  'testid:project-approval-reject-reason':
+    'Free-text rejection reason typed by a project approver (senior/drop) declining a draft — same shape as ValidateDialog#1 above.',
+
   // ---- routes/_authenticated/finance/index.tsx ----
   'testid:delete-tx-reason-input':
     'Free-text reason typed before deleting a transaction — a human-readable justification, not a data value.',

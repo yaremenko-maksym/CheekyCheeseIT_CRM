@@ -937,7 +937,32 @@ jobs:
           - name: team-users
             files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts
           - name: projects
-            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts
+            # tests/project-status-filter-ui.spec.ts (task-project-status-filter-ui,
+            # PR #646, feat/project-status-filter-ui, not yet merged as of this line
+            # landing): draft-status filter tabs/badges on the same /projects screen
+            # as the other three files here. NOT the same testing pattern as them,
+            # though — verified, not assumed: projects.spec.ts,
+            # projects-senior-share-override.spec.ts and drop-attach-project.spec.ts
+            # all mock the backend (page.route), zero live calls; this new spec is
+            # the opposite, zero page.route, seven REAL_API request.*() calls
+            # (project create/patch/delete against a real API) and no auth mocking.
+            # Grouped by SCREEN, not by strategy — the shard-coverage guard
+            # (scripts/devops/check-e2e-shard-coverage.py) only checks that a spec
+            # is listed in SOME shard's `files:` line, not what pattern it uses.
+            # Wired ahead of the merge on purpose, same precedent as
+            # tests/crm-tab-title.spec.ts in the auth-nav shard (PR #528): the guard
+            # parses `files:` as plain text regardless of whether the file exists on
+            # disk yet, so listing it here now is a no-op today and self-activates
+            # the moment #646 merges — no follow-up PR, no window where the spec
+            # lands on main unsharded.
+            #
+            # Timing checked, not assumed: across 3 recent main runs (gh run
+            # 33762104187/33754701786/33735368959) projects already runs 2:16-3:01,
+            # one of the lightest of the 8 shards, against misc's 5:31-6:28 critical
+            # path — a live-backend spec (real HTTP round-trips, no mocking) costs
+            # more per test than a mocked one, so this is watched, not assumed safe
+            # forever, but there is real headroom today.
+            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts tests/project-status-filter-ui.spec.ts
           - name: finance
             # company-share-cta.spec.ts (task-company-share-cta, PR #445): CTA
             # strip + two-step payout modal for the senior's company-share

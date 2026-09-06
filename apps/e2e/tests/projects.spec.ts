@@ -44,23 +44,24 @@ test.describe('Projects page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('Filters', () => {
-    // Round 5: tabs are «Все | Активные | Архив». The legacy CLOSED business
-    // contract state is gone — archived projects are hidden by default and
-    // only surface under the «Архив» tab (ADMIN-only).
+    // SPEC-M-5 (PR #646 fix-round 1): tabs are now «Активные | Ожидают
+    // подтверждения | Отклонённые | Архив» (task-project-status-filter-ui,
+    // design spec §2, «Почему уходит вкладка «Все»») — the old «Все» tab
+    // this comment used to describe (Round 5) is gone by design, not by
+    // accident: every project now has an unambiguous single status/archival
+    // bucket, so a fourth "everything, non-archived" view would just be a
+    // duplicate of «Активные» plus the two new statuses. The "Все" tab TEST
+    // that used to live here is removed for the same reason — there is no
+    // longer a tab named «Все» for `getByRole('tab', { name: 'Все' })` to
+    // find, and nothing else in this suite exercised. Archived projects are
+    // still hidden by default and still only surface under «Архив»
+    // (ADMIN-only) — that part of the old comment stays true.
     test('"Активные" tab shows only non-archived projects', async ({ asAdmin: page }) => {
       await page.goto('/projects')
       await page.getByRole('tab', { name: 'Активные' }).click()
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       // Archived fixture project is excluded by the API (?archived=false).
       await expect(page.getByText('EdTech Portal')).not.toBeVisible()
-    })
-
-    test('"Все" tab shows non-archived projects', async ({ asAdmin: page }) => {
-      await page.goto('/projects')
-      // Move away and back to «Все» to verify the toggle re-fetches.
-      await page.getByRole('tab', { name: 'Активные' }).click()
-      await page.getByRole('tab', { name: 'Все' }).click()
-      await expect(page.getByText('AI Platform v2')).toBeVisible()
     })
 
     test('"Архив" tab shows only archived projects', async ({ asAdmin: page }) => {

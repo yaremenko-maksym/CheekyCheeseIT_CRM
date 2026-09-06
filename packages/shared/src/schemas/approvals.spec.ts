@@ -205,4 +205,18 @@ describe('rejectApprovalInputSchema', () => {
     const parsed = rejectApprovalInputSchema.parse({ ...validReject, reason: '  Причина  ' })
     expect(parsed.reason).toBe('Причина')
   })
+
+  it('SR-L-1 (PR #646 fix-round 1): rejects a reason over 500 characters, with the exact Russian message', () => {
+    const tooLong = 'а'.repeat(501)
+    const result = rejectApprovalInputSchema.safeParse({ ...validReject, reason: tooLong })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toBe(
+      'Причина отказа слишком длинная (максимум 500 символов)',
+    )
+  })
+
+  it('SR-L-1: accepts a reason at exactly the 500-character bound', () => {
+    const atBound = 'а'.repeat(500)
+    expect(() => rejectApprovalInputSchema.parse({ ...validReject, reason: atBound })).not.toThrow()
+  })
 })

@@ -4,8 +4,18 @@ import { useForm, type FieldApi } from '@tanstack/react-form'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
-import { Archive, ArrowDown, ArrowUp, Briefcase, Plus, Search, UsersRound } from 'lucide-react'
-import { useMemo, useState, useTransition } from 'react'
+import {
+  Archive,
+  ArrowDown,
+  ArrowUp,
+  Briefcase,
+  Clock,
+  Plus,
+  Search,
+  UsersRound,
+  XCircle,
+} from 'lucide-react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { z } from 'zod'
 import type { CreateProjectDto, ProjectDto, ProjectMemberDto, ItDomain } from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
@@ -38,7 +48,13 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { ProjectRow } from '@/components/projects/ProjectRow'
 import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
-import { PAYMENT_TYPE_LABELS } from './constants'
+import {
+  PAYMENT_TYPE_LABELS,
+  PROJECT_STATUS_FILTERS,
+  STATUS_FILTER_LABELS,
+  STATUS_FILTER_LABELS_MOBILE,
+  type ProjectStatusFilter,
+} from './constants'
 import { useActiveTeam } from '@/hooks/use-active-team'
 
 /**
@@ -53,9 +69,15 @@ function useTeamlessSeniorGate(isSenior: boolean) {
   return { isTeamless, isLoading }
 }
 
-// `archived` may arrive as a query-string ("true"/"false") for deep-links —
-// `z.coerce.boolean()` accepts both `boolean` and string forms safely.
+// task-project-status-filter-ui (design spec §2). `status` is the new,
+// canonical filter — deep-linkable so ADMIN can send a colleague a direct
+// link to the «На подтверждении» queue. `archived=true` is kept
+// working (NOT removed) for old bookmarks/links — `?archived=true` resolves
+// to `status: 'ARCHIVED'` below, same behaviour as before this task shipped.
+// `z.coerce.boolean()` on `archived` accepts both `boolean` and string
+// query-string forms safely, matching the pre-existing contract.
 const projectsSearchSchema = z.object({
+  status: z.enum(PROJECT_STATUS_FILTERS).optional(),
   archived: z.coerce.boolean().optional(),
 })
 
@@ -64,11 +86,13 @@ export const Route = createFileRoute('/_authenticated/projects/')({
   component: ProjectsPage,
 })
 
-// Round 5: project lifecycle reduces to ACTIVE vs ARCHIVED — the legacy
-// CLOSED state is gone. Round 7 (ut-44): tabs are «Все | Активные | Архив»
-// for ADMIN; the «Все» tab fetches with `archived=all` and the «Архив»
-// tab continues to use `archived=true`.
-type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
+// task-project-status-filter-ui (design spec §2). The «Все» tab is REMOVED
+// (design spec §2: mixing confirmed/draft/rejected/archived into one bucket
+// is exactly the "не смешивать факты о проекте" business spec §4.2 forbids
+// extending to this new axis) — `ProjectStatusFilter` from constants.ts
+// (`ACTIVE | PENDING | REJECTED | ARCHIVED`) replaces the old
+// `'ALL' | 'ACTIVE' | 'ARCHIVED'` local type outright, not alongside it.
+type StatusTab = ProjectStatusFilter
 
 type ProjectSortKey = 'companyName' | 'rate' | 'startDate'
 type SortDir = 'asc' | 'desc'
@@ -120,7 +144,6 @@ function ProjectsPage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { user } = useAuth()
   const search = Route.useSearch()
-  const isArchivedView = search.archived === true
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
@@ -142,15 +165,20 @@ function ProjectsPage() {
   // them), kept symmetric with the edit-form gate per the design spec so the
   // two forms read identically.
   const canEditPaymentType = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const isSenior = user?.role === 'SENIOR'
 
-  // AC1-AC3: non-ADMIN roles always see active-only; tabs + ?archived URL are
-  // ADMIN-exclusive. For non-ADMIN we ignore `search.archived` entirely so a
-  // manually crafted ?archived=true URL silently falls back to the active list.
-  const effectiveIsArchivedView = isAdmin && isArchivedView
+  // task-project-status-filter-ui (design spec §2 table). ADMIN gets all
+  // four tabs; SENIOR gets the two that can ever apply to their own
+  // projects; every other role sees no tab bar at all (their list is always
+  // ACTIVE-only, same as today — the backend already only ever returns
+  // ACTIVE projects to them, see ProjectsService.findAll's invited-approver
+  // gate).
+  const allowedTabs: readonly StatusTab[] = isAdmin
+    ? PROJECT_STATUS_FILTERS
+    : isSenior
+      ? (['ACTIVE', 'PENDING'] as const)
+      : (['ACTIVE'] as const)
 
-  // ut-44: tri-state tab — local "ACTIVE" / "ALL" state plus URL-driven "ARCHIVED".
-  // We don't use URL for ALL/ACTIVE so deep-linking still defaults to active.
-  const [filter, setFilter] = useState<StatusTab>('ALL')
   const [showCreate, setShowCreate] = useState(false)
   // ut-27 + ut-38: archive and unarchive actions removed from list cards;
   // both flows (including cascade restore for paired senior/team) live on the
@@ -162,24 +190,95 @@ function ProjectsPage() {
   const [sortKey, setSortKey] = useState<ProjectSortKey>('companyName')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
+  // task-project-status-filter-ui (design spec §2). `status` is now the ONE
+  // URL-driven source for all four tabs (ADMIN can deep-link «На
+  // подтверждении» too, not just «Архив») — `archived=true` (the old
+  // link shape) resolves to the same ARCHIVED tab for back-compat. A role
+  // that can't see the resolved tab (a stale/crafted URL) silently falls
+  // back to ACTIVE, same defense-in-depth `effectiveIsArchivedView` used to
+  // provide.
+  const urlStatus: StatusTab | undefined =
+    search.status ?? (search.archived === true ? 'ARCHIVED' : undefined)
+  const currentTab: StatusTab = urlStatus && allowedTabs.includes(urlStatus) ? urlStatus : 'ACTIVE'
+
+  // QA-L-3 (PR #646 fix-round 4). The line above already falls back the
+  // CONTENT to ACTIVE for a tab this viewer's role cannot see (e.g. a
+  // SENIOR who manually types/bookmarks `?status=REJECTED` — `allowedTabs`
+  // excludes REJECTED for them) — but the URL itself used to stay exactly
+  // what they typed, so a bookmarked/shared link to that URL silently kept
+  // showing Active with no visible sign the requested tab does not apply to
+  // this viewer. `replace: true` (not a push) so the back button does not
+  // return to the same disallowed URL. `search: {}` matches the SAME
+  // "default tab, clean URL" convention `handleTabChange` below already
+  // uses for ACTIVE — not a new canonicalization.
+  useEffect(() => {
+    if (urlStatus && !allowedTabs.includes(urlStatus)) {
+      navigate({ to: '/projects', search: {}, replace: true })
+    }
+  }, [urlStatus, allowedTabs, navigate])
+
   // ut-32 / ut-44: keepPreviousData + useTransition keep the previous list
-  // visible during the URL switch + refetch so the SegmentedToggle's gold-pill
-  // layout animation isn't interrupted by a render that throws the list into
-  // a skeleton/empty state mid-flight. The `archivedQuery` derives the query
-  // param: ARCHIVED → `?archived=true`, ALL → `?archived=all`, ACTIVE → no
-  // param (default backend behaviour).
-  // AC1-AC3: non-ADMIN always resolves to ACTIVE regardless of URL or local filter.
-  const currentTab: StatusTab = isAdmin ? (effectiveIsArchivedView ? 'ARCHIVED' : filter) : 'ACTIVE'
-  const archivedQuery = currentTab === 'ARCHIVED' ? 'true' : currentTab === 'ALL' ? 'all' : ''
-  const { data: projects, isLoading } = useQuery({
-    queryKey: ['projects', { archived: archivedQuery || 'active' }],
+  // visible during the tab switch + refetch so the SegmentedToggle's
+  // gold-pill layout animation isn't interrupted by a render that throws the
+  // list into a skeleton/empty state mid-flight.
+  //
+  // ONE fetch backs THREE tabs (ACTIVE/PENDING/REJECTED): all three are
+  // "not archived" server-side (`archivedAt IS NULL` — a DRAFT/REJECTED
+  // project can never be archived, business spec §4.2), so they share the
+  // exact SAME `archived=false` (default) response and are bucketed by
+  // `project.status` client-side below — switching between them is instant,
+  // no new request. Only ARCHIVED needs its own `archived=true` fetch. This
+  // is the "техническое решение Coder'а" design spec §2 explicitly
+  // delegates (no new `?status=` backend query param was added — see PR
+  // «Допущения»).
+  const needsArchivedFetch = currentTab === 'ARCHIVED'
+  const {
+    data: rawProjects,
+    isLoading,
+    isError,
+    fetchStatus,
+  } = useQuery({
+    queryKey: ['projects', { archived: needsArchivedFetch ? 'true' : 'active' }],
     queryFn: () =>
       api
-        .get<ProjectDto[]>(`/projects${archivedQuery ? `?archived=${archivedQuery}` : ''}`)
+        .get<ProjectDto[]>(`/projects${needsArchivedFetch ? '?archived=true' : ''}`)
         .then((r) => r.data),
     enabled: !!user,
     placeholderData: keepPreviousData,
   })
+  // SR-L-7 (PR #646 fix-round 5, LOW — security review). ADMIN is the only
+  // role `rejectionReason` is ever attached for (SR-M-5) — the backend
+  // ALWAYS supplies one for a REJECTED project, so a null value on an
+  // already-rendered row is never a genuine server fact for this viewer.
+  // It is what a persisted (stripped) snapshot looks like before its
+  // forced background refetch resolves (QA-H-3/SR-M-8, persister.ts):
+  // `fetchStatus` leaves `'idle'` (becomes `'fetching'` online or
+  // `'paused'` offline/PWA-cached) for exactly the window that refetch is
+  // outstanding, and returns to `'idle'` once it settles — success brings
+  // the real reason back with it. See ProjectRow's own `reasonPending` doc.
+  const reasonPending = fetchStatus !== 'idle'
+
+  // AC1: the default (ACTIVE, status param absent) bucket must equal
+  // today's list exactly — `status === 'ACTIVE' && archivedAt === null` is
+  // the same set the backend already sent unfiltered before this task (a
+  // non-ADMIN/non-invited-approver caller never receives a DRAFT/REJECTED
+  // row at all); the filter is defensive/self-documenting, not new
+  // narrowing. ARCHIVED needs no client-side filter — `archived=true`
+  // already returns exactly that set server-side.
+  const projects = useMemo(() => {
+    if (!rawProjects) return undefined
+    switch (currentTab) {
+      case 'PENDING':
+        return rawProjects.filter((p) => p.status === 'DRAFT')
+      case 'REJECTED':
+        return rawProjects.filter((p) => p.status === 'REJECTED')
+      case 'ARCHIVED':
+        return rawProjects
+      case 'ACTIVE':
+      default:
+        return rawProjects.filter((p) => p.status === 'ACTIVE' && !p.archivedAt)
+    }
+  }, [rawProjects, currentTab])
 
   const [, startTransition] = useTransition()
 
@@ -368,31 +467,89 @@ function ProjectsPage() {
     // the previous page rendered while the new query resolves — otherwise
     // the toggle's layoutId pill animation gets cancelled by the suspended
     // render and the user sees a hard pop instead of a smooth slide.
+    //
+    // task-project-status-filter-ui: every tab is now URL-driven via
+    // `status` (ACTIVE omits the param — same "default tab, clean URL"
+    // convention the page already had for its old ACTIVE state).
     startTransition(() => {
-      if (next === 'ARCHIVED') {
-        navigate({ to: '/projects', search: { archived: true } })
-        return
-      }
-      if (effectiveIsArchivedView) {
-        navigate({ to: '/projects', search: {} })
-      }
-      // ALL or ACTIVE — both kept in local state.
-      setFilter(next === 'ALL' ? 'ALL' : 'ACTIVE')
+      navigate({ to: '/projects', search: next === 'ACTIVE' ? {} : { status: next } })
     })
   }
 
-  // Round 5: tabs row — «Все | Активные | Архив». The CLOSED business
-  // contract state is gone, so «Завершённые» is removed; «Архив» (ADMIN-only)
-  // keeps its `toggle-archived-projects` testId for existing E2E specs.
-  const tabs: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
-    { value: 'ALL', label: 'Все' },
-    { value: 'ACTIVE', label: 'Активные' },
-    ...(isAdmin
-      ? ([
-          { value: 'ARCHIVED', label: 'Архив', testId: 'toggle-archived-projects', icon: Archive },
-        ] as const)
-      : []),
-  ]
+  // task-project-status-filter-ui (design spec §2/§3/§4). «Архив» keeps its
+  // `toggle-archived-projects` testId for existing E2E specs. «Отклонённые»
+  // gets `activeVariant: 'destructive'` (design spec §3 token-map — same
+  // pattern as CandidateCard's REJECTED tab) so its active pill reads as a
+  // warning, not just another neutral choice.
+  const tabOptions: ReadonlyArray<SegmentedToggleOption<StatusTab>> = allowedTabs.map((value) => ({
+    value,
+    label: STATUS_FILTER_LABELS[value],
+    ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects', icon: Archive } : {}),
+    ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
+  }))
+  // COPY-M-10 (PR #646 fix-round 3): the mobile ARCHIVED option does NOT
+  // carry `icon: Archive` (unlike the desktop one two lines up) — measured
+  // budget at 320px with 4 ADMIN tabs is ~47px per button; "Архив" alone is
+  // 36.4px, but + the icon's 14px + 8px gap (`SegmentedToggle` renders icon
+  // inline before the label) is 58.4px, an ~11px overflow with no
+  // `truncate` or its own `overflow` to catch it (the row's `overflow-hidden`
+  // is on the strip, not the button) — it would spill into the next tab's
+  // track. The word alone is unambiguous; the icon adds nothing on mobile
+  // that the label doesn't already say.
+  const tabOptionsMobile: ReadonlyArray<SegmentedToggleOption<StatusTab>> = allowedTabs.map(
+    (value) => ({
+      value,
+      label: STATUS_FILTER_LABELS_MOBILE[value],
+      ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects-mobile' } : {}),
+      ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
+    }),
+  )
+  // UX-M-3(r5) (PR #646 fix-round 5, MED — design review). A THIRD option
+  // set, for a THIRD toggle instance visible ONLY in the exact band the
+  // desktop sidebar's `md:` appearance breaks (768-1023px — see
+  // constants.ts's own corrected comment on `STATUS_FILTER_LABELS` for the
+  // mechanism). Reuses the SAME abbreviated wording the mobile instance
+  // already carries (already measured to fit a far tighter 320px budget)
+  // rather than inventing a fourth wording for the same four facts — own
+  // testId suffix (`-md`, not `-mobile`) so a duplicate, permanently-hidden
+  // `toggle-archived-projects-mobile` never sits in the DOM alongside the
+  // real mobile instance (strict-mode hazard for any future selector).
+  const tabOptionsMd: ReadonlyArray<SegmentedToggleOption<StatusTab>> = allowedTabs.map(
+    (value) => ({
+      value,
+      label: STATUS_FILTER_LABELS_MOBILE[value],
+      ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects-md' } : {}),
+      ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
+    }),
+  )
+
+  // task-project-status-filter-ui §6/§10. Per-tab (and, for PENDING/
+  // REJECTED — which only ADMIN/SENIOR ever see per `allowedTabs` — per
+  // role) empty-state copy + icon, design spec §6 table. `filtered.length`
+  // already excludes search/senior-filter/sort from ever mattering here —
+  // this only fires when the TAB itself is empty, matching every existing
+  // empty-state's semantics unchanged for ACTIVE/ARCHIVED.
+  const emptyState: { text: string; icon: typeof Briefcase } =
+    currentTab === 'ARCHIVED'
+      ? { text: 'Архив пуст', icon: Briefcase }
+      : currentTab === 'PENDING'
+        ? {
+            // COPY-M-5 (PR #646 fix-round 2): "черновик" is already the
+            // name of a DIFFERENT concept in this CRM — contract drafts
+            // ("Вернуть в черновик", "Сохранить как черновик", "Контракт
+            // сохранён как черновик"). This tab and its badge both say
+            // "подтверждение"; the empty state used to be the one place on
+            // this exact screen using a third, already-taken word for the
+            // same object.
+            text: isAdmin
+              ? 'Проектов на подтверждении нет'
+              : 'Нет проектов, ожидающих вашего решения',
+            icon: Clock,
+          }
+        : currentTab === 'REJECTED'
+          ? { text: 'Отклонённых проектов нет', icon: XCircle }
+          : { text: 'Проектов пока нет', icon: Briefcase }
+  const EmptyStateIcon = emptyState.icon
 
   return (
     <div className="flex flex-col h-full">
@@ -410,19 +567,66 @@ function ProjectsPage() {
           </div>
         </div>
 
-        {/* ut-25 + ut-26 + ut-33 + ut-44: status tabs row — ADMIN only (AC1-AC2) */}
-        {isAdmin && (
-          <SegmentedToggle<StatusTab>
-            value={currentTab}
-            onChange={handleTabChange}
-            options={tabs}
-            ariaLabel="Фильтр проектов"
-            variant="tabs"
-            size="sm"
-            layoutId="projects-status-tabs"
-            className="w-fit"
-            testId="projects-status-tabs"
-          />
+        {/* task-project-status-filter-ui (design spec §2/§5): status tabs —
+            ADMIN (4 values) or SENIOR (2 values); hidden for every other
+            role (unchanged from the old ADMIN-only gate for THEM, ut-25 +
+            ut-26 + ut-33 + ut-44's original AC1-AC2). THREE instances,
+            swapped by breakpoint (not just width) — same convention as
+            vacancies/index.tsx's status filter, extended by one band
+            (UX-M-3(r5), PR #646 fix-round 5): mobile (<640) and md-only
+            (768-1023, `tabOptionsMd`) share the SAME shortened labels
+            (STATUS_FILTER_LABELS_MOBILE) — the desktop `<aside>` sidebar
+            (nav-sidebar.tsx, `w-52` from `md:` up) eats 208px of the exact
+            width the full-label instance's `w-fit` sizing has to share,
+            which used to wrap "На подтверждении" onto a second line
+            specifically in that band (constants.ts has the full mechanism).
+            `[&>button]:min-h-11` (mobile only) meets the 44px mobile
+            touch-target minimum (§5/§8/§10 a11y) — the md/desktop instances
+            are unaffected (mouse-driven widths). */}
+        {(isAdmin || isSenior) && (
+          <>
+            <SegmentedToggle<StatusTab>
+              value={currentTab}
+              onChange={handleTabChange}
+              options={tabOptionsMobile}
+              ariaLabel="Фильтр проектов по статусу"
+              variant="tabs"
+              size="sm"
+              layoutId="projects-status-tabs-mobile"
+              className="w-full sm:hidden [&>button]:min-h-11"
+              testId="projects-status-tabs-mobile"
+            />
+            <SegmentedToggle<StatusTab>
+              value={currentTab}
+              onChange={handleTabChange}
+              options={tabOptionsMd}
+              ariaLabel="Фильтр проектов по статусу"
+              variant="tabs"
+              size="sm"
+              layoutId="projects-status-tabs-md"
+              className="hidden w-fit md:grid lg:hidden"
+              testId="projects-status-tabs-md"
+            />
+            <SegmentedToggle<StatusTab>
+              value={currentTab}
+              onChange={handleTabChange}
+              options={tabOptions}
+              ariaLabel="Фильтр проектов по статусу"
+              variant="tabs"
+              size="sm"
+              layoutId="projects-status-tabs"
+              className="hidden w-fit sm:grid md:hidden lg:grid"
+              testId="projects-status-tabs"
+            />
+            {/* §10 (SC 4.1.3): the tab switch itself is announced natively
+                via aria-selected on the focused/clicked button — this extra
+                region announces the RESULT (list re-rendered outside the
+                user's focus), which is not otherwise observable to a
+                screen-reader user. */}
+            <p className="sr-only" aria-live="polite" aria-atomic="true">
+              {STATUS_FILTER_LABELS[currentTab]}. Показано проектов: {filtered.length}.
+            </p>
+          </>
         )}
 
         {/* ut-43: unified toolbar — search + senior filter (ADMIN) + sort key + direction */}
@@ -493,14 +697,30 @@ function ProjectsPage() {
         style={{ scrollbarGutter: 'stable' }}
       >
         <div className="space-y-6">
-          {/* Empty state */}
-          {filtered.length === 0 && (
+          {/* task-project-status-filter-ui §6 "Ошибка": same admin-KPI-block
+              pattern as routes/_authenticated/index.tsx's AdminDashboard
+              (`admin-kpi-error`) — placed after isError, before the empty-
+              state check, so it wins over "Проектов пока нет" when the
+              fetch itself failed (an empty list is a fact, a failed fetch
+              is not one). */}
+          {isError && (
+            <Card data-testid="projects-fetch-error">
+              <CardContent className="flex flex-col items-center justify-center gap-2 py-10">
+                <p className="text-sm text-destructive">Не удалось загрузить проекты</p>
+                <p className="text-xs text-muted-foreground">
+                  Обновите страницу или попробуйте позже
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Empty state — task-project-status-filter-ui §6: per-tab (and,
+              for PENDING, per-role) copy/icon, see `emptyState` above. */}
+          {!isError && filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
-              <Briefcase className="h-10 w-10 text-muted-foreground/30" />
-              <p className="mt-4 text-sm font-medium">
-                {effectiveIsArchivedView ? 'Архив пуст' : 'Проектов пока нет'}
-              </p>
-              {canManage && !effectiveIsArchivedView && (
+              <EmptyStateIcon className="h-10 w-10 text-muted-foreground/30" />
+              <p className="mt-4 text-sm font-medium">{emptyState.text}</p>
+              {canManage && currentTab === 'ACTIVE' && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -518,7 +738,7 @@ function ProjectsPage() {
           `project-card-${id}` testid is preserved on the outer wrapper so
           existing E2E specs keep working; new `project-row-${id}` lives on
           the inner ProjectRow. */}
-          {filtered.length > 0 && (
+          {!isError && filtered.length > 0 && (
             <Card>
               <CardContent className="p-3">
                 <motion.div className="space-y-1" data-testid="projects-list">
@@ -537,7 +757,12 @@ function ProjectsPage() {
                           data-testid={`project-card-${project.id}`}
                           data-archived={isArchived ? 'true' : 'false'}
                         >
-                          <ProjectRow project={project} viewerRole={user?.role} />
+                          <ProjectRow
+                            project={project}
+                            viewerRole={user?.role}
+                            viewerId={user?.id}
+                            reasonPending={reasonPending}
+                          />
                         </motion.div>
                       )
                     })}

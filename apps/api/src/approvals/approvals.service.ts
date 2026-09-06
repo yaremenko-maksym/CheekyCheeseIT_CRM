@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, asc, eq, isNull, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import type {
   Approval,
   ApproveApprovalInput,
@@ -302,6 +302,82 @@ export class ApprovalsService {
       .from(approvals)
       .where(and(eq(approvals.subjectType, subjectType), eq(approvals.approverUserId, userId)))
     return new Set(rows.map((r) => r.subjectId))
+  }
+
+  /**
+   * task-project-status-filter-ui. Batched read of "why was this subject's
+   * live generation declined" — the reason on the one live REJECTED row per
+   * subject (decision #5, "отказ одного гасит предложение целиком": every
+   * sibling was superseded in the SAME transaction as the reject, see
+   * `rejectInTx`'s own comment, so exactly one live row can be REJECTED).
+   *
+   * Used by a subject module's LIST/DETAIL read (e.g.
+   * `ProjectsService.findAll`/`findOne`) to show the reason without a
+   * per-row query. Callers pass ONLY ids they already know are REJECTED
+   * (e.g. `project.status === 'REJECTED'`) — an id that is not, or whose
+   * rejecting generation has since been superseded by a re-proposal, simply
+   * has no entry in the returned map. `subjectIds: []` short-circuits
+   * before touching the DB — the caller's own gate (only call this when
+   * there is at least one REJECTED id) stays a no-op, not a query, for the
+   * common case where nothing in the batch was ever rejected.
+   */
+  async getRejectionReasons(
+    subjectType: string,
+    subjectIds: string[],
+  ): Promise<Map<string, string>> {
+    const map = new Map<string, string>()
+    if (subjectIds.length === 0) return map
+    const rows = await this.db.db
+      .select({ subjectId: approvals.subjectId, rejectionReason: approvals.rejectionReason })
+      .from(approvals)
+      .where(
+        and(
+          eq(approvals.subjectType, subjectType),
+          inArray(approvals.subjectId, subjectIds),
+          eq(approvals.status, 'REJECTED'),
+          isNull(approvals.supersededAt),
+        ),
+      )
+    for (const row of rows) {
+      if (row.rejectionReason) map.set(row.subjectId, row.rejectionReason)
+    }
+    return map
+  }
+
+  /**
+   * SPEC-M-2 (PR #646 fix-round 1). Batched read of "which approver(s) still
+   * owe a decision" — every live PENDING row's `approverUserId`, grouped by
+   * subject. Same batching contract as `getRejectionReasons`: callers pass
+   * only ids already known to be in a live-decision state (project
+   * `status === 'DRAFT'`), empty input short-circuits before touching the
+   * DB. An id with no live PENDING row at all (every approver has decided,
+   * or the subject was never proposed) simply has no entry in the returned
+   * map — callers read that as "nobody left pending" (empty set), same as a
+   * present-but-empty `Set`.
+   */
+  async getPendingApproverIds(
+    subjectType: string,
+    subjectIds: string[],
+  ): Promise<Map<string, Set<string>>> {
+    const map = new Map<string, Set<string>>()
+    if (subjectIds.length === 0) return map
+    const rows = await this.db.db
+      .select({ subjectId: approvals.subjectId, approverUserId: approvals.approverUserId })
+      .from(approvals)
+      .where(
+        and(
+          eq(approvals.subjectType, subjectType),
+          inArray(approvals.subjectId, subjectIds),
+          eq(approvals.status, 'PENDING'),
+          isNull(approvals.supersededAt),
+        ),
+      )
+    for (const row of rows) {
+      const set = map.get(row.subjectId) ?? new Set<string>()
+      set.add(row.approverUserId)
+      map.set(row.subjectId, set)
+    }
+    return map
   }
 
   // ---------------------------------------------------------------------------

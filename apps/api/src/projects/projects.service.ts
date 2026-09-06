@@ -130,6 +130,35 @@ export class ProjectsService {
       | Map<string, { id: string; seniorSharePercentOverride: number | null }[]>
       | undefined,
     viewerRole: SessionUser['role'],
+    /**
+     * task-project-status-filter-ui. Pre-computed (batched, never queried
+     * per-row here — `mapProject` stays synchronous) rejection-reason
+     * lookup, keyed by project id. No entry for a given id → `null` on the
+     * DTO. Defaults to an empty map (not `undefined`) so every call site —
+     * including the ones that structurally never carry a REJECTED project
+     * (`approveDraft`'s response) — can omit the argument without an
+     * optional-chaining fallback that would never be exercised.
+     * Callers: `findAll`/`findOne` pass a batch built via
+     * `ApprovalsService.getRejectionReasons`; `rejectDraft` (via
+     * `loadForResponse`) passes a single-entry map built from the reason it
+     * already has in scope (no query needed for "the project I just
+     * rejected").
+     */
+    rejectionReasonByProjectId: Map<string, string> = new Map(),
+    /**
+     * SPEC-M-2 (PR #646 fix-round 1). Same batched-lookup contract as
+     * `rejectionReasonByProjectId` immediately above, for "which invited
+     * approver(s) still owe a decision" (`ApprovalsService.
+     * getPendingApproverIds`) — keyed by project id, value is the RAW
+     * (pre-mask) set of still-pending approver user ids, checked below
+     * against `project.seniorId`/`project.dropId` (also raw) to produce the
+     * two DTO booleans — see `seniorApprovalPending`'s schema doc for why
+     * booleans, not the raw ids, cross the mapping boundary. Defaults to an
+     * empty map for the same reason as its REJECTED sibling: call sites
+     * that structurally never carry a DRAFT project (e.g. `rejectDraft`'s
+     * response, always REJECTED) can omit the argument.
+     */
+    pendingApproverIdsByProjectId: Map<string, Set<string>> = new Map(),
   ) {
     // task-team-senior-share-override. Compute effective share + source for
     // the UI. The resolver mirrors the snapshot logic in
@@ -274,6 +303,39 @@ export class ProjectsService {
       // confirmed is ADMIN or an invited approver, so there is nobody left to
       // mask this field FROM.
       status: project.status,
+      // SR-M-5 (PR #646 fix-round 2). ADMIN ONLY — narrower than the
+      // "REJECTED project" access gate above. Design spec §1/§2/§6 say
+      // three times that the rejection reason is an ADMIN-only view; the
+      // reason text is free-form and AUTHORED BY an invited approver
+      // (senior or drop), so showing it to the OTHER invited approver would
+      // let that free text identify the author regardless of the identity
+      // masking this same method already does elsewhere (`dropName: null`
+      // for a SENIOR viewer, RBAC rule #2) — a drop's rejection reason
+      // reaching the senior it is deliberately hidden from is exactly the
+      // "DTO itself carries no sensitive data" violation the JUNIOR-masking
+      // comments a few lines up describe for finance fields. The reject
+      // dialog's own copy ("причину увидит админ") is what makes this
+      // narrowing correct, not just a policy choice, so viewer identity is
+      // used as-is, not the project's `assertAccess` outcome — an invited
+      // approver reading their OWN rejected project gets `null` here even
+      // though they legitimately see everything else about the row.
+      rejectionReason:
+        project.status === 'REJECTED' && viewerRole === 'ADMIN'
+          ? (rejectionReasonByProjectId.get(project.id) ?? null)
+          : null,
+      // SPEC-M-2. Checked against `project.seniorId`/`project.dropId` —
+      // the RAW, pre-mask columns on this method's own `project` param, not
+      // the (possibly-masked-to-null) `effectiveSeniorId` local above — see
+      // the schema doc for why a masked id here would silently misreport.
+      // Same "nobody left to mask this FROM" reasoning as `rejectionReason`:
+      // only ever meaningful for a DRAFT project.
+      seniorApprovalPending:
+        project.status === 'DRAFT' &&
+        (pendingApproverIdsByProjectId.get(project.id)?.has(project.seniorId) ?? false),
+      dropApprovalPending:
+        project.status === 'DRAFT' &&
+        !!project.dropId &&
+        (pendingApproverIdsByProjectId.get(project.id)?.has(project.dropId) ?? false),
       archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
@@ -465,7 +527,42 @@ export class ProjectsService {
     // senior referenced by the filtered set so `mapProject` resolves the
     // effective share + source without N+1 queries.
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior(filtered)
-    return filtered.map((p) => this.mapProject(p, teamOverridesBySeniorId, currentUser.role))
+    // task-project-status-filter-ui. Batch-load rejection reasons for every
+    // REJECTED project in the filtered set — one round trip for the whole
+    // list, not one per row. The `.length` guard here (not just inside
+    // `getRejectionReasons`) is deliberate: it keeps `this.approvals` free
+    // of a call at all — not just a cheap one — for the common case where
+    // nothing in the list was ever rejected, same reasoning as the
+    // `listSubjectIdsForApprover` ADMIN-skip a few lines up.
+    const rejectedIds = filtered.filter((p) => p.status === 'REJECTED').map((p) => p.id)
+    const rejectionReasonByProjectId =
+      rejectedIds.length > 0
+        ? await this.approvals.getRejectionReasons(
+            ProjectsService.APPROVAL_SUBJECT_TYPE,
+            rejectedIds,
+          )
+        : new Map<string, string>()
+    // SPEC-M-2 (PR #646 fix-round 1). Same batched-lookup, same zero-cost
+    // guard, for the DRAFT side (see mapProject's own doc for why this
+    // exists — the caption needs "who's STILL pending", not "does the
+    // project have a drop at all").
+    const draftIds = filtered.filter((p) => p.status === 'DRAFT').map((p) => p.id)
+    const pendingApproverIdsByProjectId =
+      draftIds.length > 0
+        ? await this.approvals.getPendingApproverIds(
+            ProjectsService.APPROVAL_SUBJECT_TYPE,
+            draftIds,
+          )
+        : new Map<string, Set<string>>()
+    return filtered.map((p) =>
+      this.mapProject(
+        p,
+        teamOverridesBySeniorId,
+        currentUser.role,
+        rejectionReasonByProjectId,
+        pendingApproverIdsByProjectId,
+      ),
+    )
   }
 
   /**
@@ -550,6 +647,23 @@ export class ProjectsService {
     await this.assertAccess(project, currentUser)
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
+    // task-project-status-filter-ui. Same batched lookup as `findAll`,
+    // narrowed to this one project — the call is skipped outright (not just
+    // internally short-circuited) for every project that isn't REJECTED.
+    const rejectionReasonByProjectId =
+      project.status === 'REJECTED'
+        ? await this.approvals.getRejectionReasons(ProjectsService.APPROVAL_SUBJECT_TYPE, [
+            project.id,
+          ])
+        : new Map<string, string>()
+    // SPEC-M-2 (PR #646 fix-round 1). Same guarded shape as the REJECTED
+    // lookup just above, for the DRAFT side.
+    const pendingApproverIdsByProjectId =
+      project.status === 'DRAFT'
+        ? await this.approvals.getPendingApproverIds(ProjectsService.APPROVAL_SUBJECT_TYPE, [
+            project.id,
+          ])
+        : new Map<string, Set<string>>()
     // JUNIOR must not see effectiveTeam — it contains senior/HR/accountant
     // identity. We skip the computation entirely (saves DB round-trip) and
     // return undefined so the field is absent from the JUNIOR DTO.
@@ -557,7 +671,16 @@ export class ProjectsService {
       currentUser.role === 'JUNIOR'
         ? undefined
         : await this.computeEffectiveTeam(project, currentUser.role)
-    return { ...this.mapProject(project, teamOverridesBySeniorId, currentUser.role), effectiveTeam }
+    return {
+      ...this.mapProject(
+        project,
+        teamOverridesBySeniorId,
+        currentUser.role,
+        rejectionReasonByProjectId,
+        pendingApproverIdsByProjectId,
+      ),
+      effectiveTeam,
+    }
   }
 
   /**
@@ -843,10 +966,26 @@ export class ProjectsService {
     })) as ProjectWithRelations
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([created])
+    // SPEC-M-2 (PR #646 fix-round 1). Unlike rejectionReason (structurally
+    // impossible here — a project this method just inserted is always
+    // DRAFT, never REJECTED), a fresh DRAFT's pendingApproverIds is NOT
+    // empty: every one of `approverUserIds` (built just above, right before
+    // `proposeInTx`) is PENDING the instant `propose` inserts their row — no
+    // DB round-trip needed, we already know the answer from what THIS call
+    // just proposed.
+    const pendingApproverIdsByProjectId = new Map<string, Set<string>>([
+      [created.id, new Set(approverUserIds)],
+    ])
     // Pass currentUser.role so mapProject can apply SENIOR dropName masking
     // (defense-in-depth: callers of create are ADMIN/HR whose role never triggers
     // the mask, but the contract is explicit and mirrors findOne/findAll).
-    return this.mapProject(created, teamOverridesBySeniorId, currentUser.role)
+    return this.mapProject(
+      created,
+      teamOverridesBySeniorId,
+      currentUser.role,
+      undefined,
+      pendingApproverIdsByProjectId,
+    )
   }
 
   /**
@@ -922,7 +1061,11 @@ export class ProjectsService {
       })
       await this.applyApprovalAggregate(tx, id)
     })
-    return this.loadForResponse(id, currentUser)
+    // task-project-status-filter-ui. `reason` is already in scope — pass it
+    // straight through instead of re-querying `approvals` for the row this
+    // very call just wrote (also keeps this path clear of the new
+    // `getRejectionReasons` query entirely, see `loadForResponse`'s doc).
+    return this.loadForResponse(id, currentUser, new Map([[id, reason]]))
   }
 
   /**
@@ -953,15 +1096,52 @@ export class ProjectsService {
     }
   }
 
-  /** Re-fetches + maps a project for the approve/reject response. */
-  private async loadForResponse(id: string, currentUser: SessionUser) {
+  /**
+   * Re-fetches + maps a project for the approve/reject response.
+   *
+   * `rejectionReasonByProjectId` — task-project-status-filter-ui: the caller
+   * builds this directly instead of this method deriving it, because the
+   * two callers need it built two different ways: `rejectDraft` already has
+   * the reason it just wrote in scope (no query needed — passes a
+   * single-entry map); `approveDraft` omits it — its result is never
+   * REJECTED, so `mapProject`'s default empty map is exactly right, and
+   * deliberately NOT the same "batch-query `getRejectionReasons`" path
+   * `findAll`/`findOne` use (would be a DB round trip for a value that can
+   * never matter here).
+   */
+  private async loadForResponse(
+    id: string,
+    currentUser: SessionUser,
+    rejectionReasonByProjectId?: Map<string, string>,
+  ) {
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations | undefined
     if (!project) throw new NotFoundException('Project not found')
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    return this.mapProject(project, teamOverridesBySeniorId, currentUser.role)
+    // SPEC-M-2 (PR #646 fix-round 1). Computed HERE (not by the caller, unlike
+    // rejectionReasonByProjectId above) because it needs the SAME guard for
+    // BOTH callers: `rejectDraft`'s result is always REJECTED (never needs
+    // it — mapProject's own status check already yields `[]`), but
+    // `approveDraft`'s result can legitimately still be DRAFT (business
+    // spec §4.1 partial agreement — the other invited approver hasn't
+    // decided yet), and in that case the response SHOULD carry the
+    // remaining pending approver, not an empty array from a caller that
+    // never asked.
+    const pendingApproverIdsByProjectId =
+      project.status === 'DRAFT'
+        ? await this.approvals.getPendingApproverIds(ProjectsService.APPROVAL_SUBJECT_TYPE, [
+            project.id,
+          ])
+        : new Map<string, Set<string>>()
+    return this.mapProject(
+      project,
+      teamOverridesBySeniorId,
+      currentUser.role,
+      rejectionReasonByProjectId,
+      pendingApproverIdsByProjectId,
+    )
   }
 
   /**
@@ -1047,6 +1227,22 @@ export class ProjectsService {
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
+
+    // SR-H-1 (PR #646 fix-round 2). update() is a WRITE path, and predates
+    // the draft-visibility gate (task-project-draft-status) — it never
+    // asserted DRAFT/REJECTED visibility because at the time it was written
+    // there was nothing draft-shaped to hide. Fix-round 1 (CR-M-1, SPEC-M-2)
+    // started returning rejectionReason and the two ApprovalPending booleans
+    // from its response WITHOUT adding this gate, so HR/ACCOUNTANT — who
+    // findOne already 404s on any non-ACTIVE project, per assertAccess's own
+    // "INCLUDING ACCOUNTANT" comment below — could PATCH a field they are
+    // allowed to touch (e.g. `name`) on a REJECTED project and get the full
+    // rejection reason back in the response, despite never being able to
+    // GET that project at all. Same gate, same place in the call order,
+    // same reasoning as findOne: MUST run before any role-specific
+    // early-return so a DRAFT/REJECTED project is never visible-by-write
+    // even to a role that would otherwise pass.
+    await this.assertAccess(project, currentUser)
 
     // HR cross-team scoping: HR may only update projects for seniors in their own teams.
     // ACCOUNTANT doing a hasOnlyOverride patch is exempted (their patch is finance-scoped,
@@ -1232,10 +1428,37 @@ export class ProjectsService {
     })) as ProjectWithRelations
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([updated])
+    // CR-M-1 (PR #646 fix-round 1): update() is reachable on a REJECTED
+    // project too — ProjectRow's row-Link is unconditional for isRejected,
+    // same as isArchived — so a PATCH here must not silently answer
+    // rejectionReason: null for the one project status where AC4 requires
+    // it to render. Same guarded batch-lookup as findOne (skipped outright,
+    // not just internally short-circuited, for every non-REJECTED project).
+    const rejectionReasonByProjectId =
+      updated.status === 'REJECTED'
+        ? await this.approvals.getRejectionReasons(ProjectsService.APPROVAL_SUBJECT_TYPE, [
+            updated.id,
+          ])
+        : new Map<string, string>()
+    // SPEC-M-2 (PR #646 fix-round 1). update() is reachable on a DRAFT
+    // project too (ADMIN/HR editing a draft's name/company before anyone
+    // has confirmed it) — same guarded batch-lookup as findOne, DRAFT side.
+    const pendingApproverIdsByProjectId =
+      updated.status === 'DRAFT'
+        ? await this.approvals.getPendingApproverIds(ProjectsService.APPROVAL_SUBJECT_TYPE, [
+            updated.id,
+          ])
+        : new Map<string, Set<string>>()
     // Pass currentUser.role so mapProject can apply SENIOR dropName masking
     // (defense-in-depth: callers of update are ADMIN/HR/ACCOUNTANT whose role
     // never triggers the mask, but the contract is explicit and mirrors findOne/findAll).
-    return this.mapProject(updated, teamOverridesBySeniorId, currentUser.role)
+    return this.mapProject(
+      updated,
+      teamOverridesBySeniorId,
+      currentUser.role,
+      rejectionReasonByProjectId,
+      pendingApproverIdsByProjectId,
+    )
   }
 
   /**

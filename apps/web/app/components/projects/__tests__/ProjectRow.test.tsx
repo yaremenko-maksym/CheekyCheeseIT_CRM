@@ -17,6 +17,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
   createMemoryHistory,
@@ -24,6 +25,7 @@ import {
   createRouter,
 } from '@tanstack/react-router'
 import type { ProjectDto, ProjectMemberDto } from '@crm/shared'
+import type { Role } from '@/lib/route-access'
 
 import { ProjectRow } from '../ProjectRow'
 
@@ -87,10 +89,28 @@ function makeProject(overrides: Partial<ProjectDto> = {}): ProjectDto {
  * Render the row inside a minimal TanStack Router context so `<Link>` resolves.
  * The root route renders the `ProjectRow` directly — we never navigate; we
  * just need a valid router instance so `<Link>` can build href values.
+ *
+ * task-project-status-filter-ui: also wraps a `QueryClientProvider` —
+ * unconditionally, not just when a test expects the Confirm/Reject actions
+ * to render — because `ProjectApprovalActions` calls `useMutation()`
+ * INTERNALLY the moment it mounts (even before any click), and React throws
+ * synchronously without a QueryClient in the tree. Harmless when `canAct`
+ * is false (the actions component never mounts at all in that case).
  */
-function renderProjectRow(project: ProjectDto) {
+function renderProjectRow(
+  project: ProjectDto,
+  opts: { viewerRole?: Role; viewerId?: string; reasonPending?: boolean } = {},
+) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const rootRoute = createRootRoute({
-    component: () => <ProjectRow project={project} />,
+    component: () => (
+      <ProjectRow
+        project={project}
+        viewerRole={opts.viewerRole}
+        viewerId={opts.viewerId}
+        reasonPending={opts.reasonPending}
+      />
+    ),
   })
 
   const router = createRouter({
@@ -98,7 +118,11 @@ function renderProjectRow(project: ProjectDto) {
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
 
-  return render(<RouterProvider router={router} />)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 describe('ProjectRow — clickable senior/junior names', () => {
@@ -188,5 +212,391 @@ describe('ProjectRow — clickable senior/junior names', () => {
     const link = await screen.findByTestId(`project-row-${project.id}-junior-link`)
     expect(link).toHaveAttribute('href', `/profile/00000000-0000-0000-0000-0000000000c2`)
     expect(link).toHaveTextContent('Junior Two')
+  })
+})
+
+/**
+ * task-project-status-filter-ui — the 4-branch status badge (§7/§8) and the
+ * Confirm/Reject action gate. Each test targets ONE mutant class the
+ * mutation gate reported on `ProjectRow.tsx`'s `isPending`/`isRejected`/
+ * `canAct` computation and the row's opacity/ring classes — see the coder's
+ * final report for the exact survivor list this suite closes.
+ */
+const DROP_ID = '00000000-0000-0000-0000-0000000000e1'
+
+describe('ProjectRow — status badge (design spec §7/§8)', () => {
+  it('mutation-gate (COPY-H-3 overlap-test testids): senior-column and rate-column carry the templated project id, not an empty string — these two testids exist ONLY for the E2E overlap spec, invisible to the mutation gate per mutation-gate-integration-specs.md, so this unit double is what actually kills a StringLiteral mutant on either line', async () => {
+    const project = makeProject({ status: 'ACTIVE' })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}`)
+    expect(screen.getByTestId(`project-row-${project.id}-senior-column`)).toBeInTheDocument()
+    expect(screen.getByTestId(`project-row-${project.id}-rate-column`)).toBeInTheDocument()
+  })
+
+  it('ACTIVE, non-archived: renders the domain badge, amber/destructive branches absent', async () => {
+    const project = makeProject({ status: 'ACTIVE', domain: 'FinTech' })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}`)
+    expect(screen.getByText('FinTech')).toBeInTheDocument()
+    expect(screen.queryByTestId(`project-row-${project.id}-status-pending`)).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId(`project-row-${project.id}-status-rejected`),
+    ).not.toBeInTheDocument()
+    const dot = screen.getByTestId(`project-row-${project.id}-status-dot`)
+    expect(dot.className).toContain('bg-emerald-500')
+    const row = screen.getByTestId(`project-row-${project.id}`)
+    expect(row.className).not.toContain('opacity-60')
+    expect(row.className).not.toContain('ring-amber-500/20')
+  })
+
+  it('DRAFT: renders the "Ждёт решения" badge (COPY-H-5, PR #646 fix-round 4 — was "Ждёт подтверждения"), amber dot, ring — no opacity dimming', async () => {
+    const project = makeProject({ status: 'DRAFT', dropId: null })
+    renderProjectRow(project)
+
+    const badge = await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(badge).toHaveTextContent('Ждёт решения')
+    // .tagName check (not just getByText) — kills the `pendingCaption && <p>`
+    // -> `pendingCaption || <p>` mutant, which getByText alone cannot see
+    // (both render the same visible text, just not wrapped in a <p>).
+    const caption = screen.getByText(`от ${project.seniorName}`)
+    expect(caption.tagName).toBe('P')
+    expect(caption).toHaveAttribute('title', `от ${project.seniorName}`)
+    const dot = screen.getByTestId(`project-row-${project.id}-status-dot`)
+    expect(dot.className).toContain('bg-amber-500')
+    const row = screen.getByTestId(`project-row-${project.id}`)
+    expect(row.className).not.toContain('opacity-60')
+    expect(row.className).toContain('ring-1')
+    expect(row.className).toContain('ring-amber-500/20')
+  })
+
+  it('UX-H-1 / SPEC-M-1 (PR #646 fix-round 1): DRAFT with a long approver name — caption is width-capped by max-w-full at every width (no lg: override)', async () => {
+    // The finding SPEC-M-1 flagged: the one overflow E2E test only ever grew
+    // companyName, never the approver name, so this half of AC4 ("длинные
+    // имена не переполняют") had zero coverage. jsdom has no real layout
+    // engine, so this pins the FIX (the class that actually caps the width)
+    // rather than a pixel measurement — same style as this file's existing
+    // `dot.className.toContain(...)` assertions.
+    //
+    // COPY-H-5 follow-up (PR #646 fix-round 4): the `lg:max-w-40` (160px)
+    // this test used to pin was ITSELF a real overlap into the rate/amount
+    // column at 1024/1100px — measured live (project-status-filter-ui.spec.ts
+    // COPY-H-5 test), confirmed with an A/B re-measurement of the SAME
+    // fixture before/after removing it. `max-w-full` (already the base-width
+    // rule below `lg:`, per COPY-M-9 fix-round 3) now applies unconditionally
+    // — the same plain, no-`lg:`-exception pattern the sibling status badge
+    // has always used. Pin the absence of the removed class, not just the
+    // presence of the one that remains — a regression that reintroduces
+    // `lg:max-w-40` would otherwise still pass this test.
+    const longSeniorName = 'Oleksandr Verylongsurnamovych Kovalenkovskyi-Tretiakov'
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: null,
+      seniorName: longSeniorName,
+    })
+    renderProjectRow(project)
+
+    const caption = await screen.findByText(`от ${longSeniorName}`)
+    expect(caption.className).toContain('max-w-full')
+    expect(caption.className).not.toContain('lg:max-w-40')
+    expect(caption.className).toContain('truncate')
+    expect(caption).toHaveAttribute('title', `от ${longSeniorName}`)
+
+    // COPY-H-5 follow-up (PR #646 fix-round 4, mutation-gate closure). The
+    // caption's `data-testid` (project-status-filter-ui.spec.ts's COPY-H-5
+    // test relies on it to measure this exact element's box) had zero unit
+    // coverage of its own — `findByText` above resolves the element by its
+    // CONTENT, never touching the testid attribute, so a mutant that empties
+    // out the whole template literal (`` `project-row-${id}-status-caption`
+    // `` → `` `` ``) left every existing assertion unaffected. Resolving the
+    // SAME element a second way and asserting it IS the same node closes
+    // that gap without duplicating the E2E test's own real-browser overlap
+    // check (mutation-gate-integration-specs.md: a unit double for the
+    // mutation gate to see, not a replacement for the real thing).
+    expect(screen.getByTestId(`project-row-${project.id}-status-caption`)).toBe(caption)
+  })
+
+  it('DRAFT drop-project, BOTH still pending: caption names both, drop FIRST (COPY-M-1, PR #646 fix-round 2 — the senior name is the one safe to lose to truncation, since it repeats untruncated in the Синьор column)', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: true,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText(`от ${project.dropName} и ${project.seniorName}`)).toBeInTheDocument()
+  })
+
+  it('COPY-M-1: DRAFT drop-project, BOTH still pending, dropName is null (old cached DTO) — falls back to generic "дропа", still drop-first', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: null,
+      seniorApprovalPending: true,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText(`от дропа и ${project.seniorName}`)).toBeInTheDocument()
+  })
+
+  it('SPEC-M-2 (PR #646 fix-round 1): DRAFT drop-project, drop ALREADY approved — caption names only the senior, not "и дропа"', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: true,
+      dropApprovalPending: false,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText(`от ${project.seniorName}`)).toBeInTheDocument()
+    expect(screen.queryByText(/и дропа/)).not.toBeInTheDocument()
+  })
+
+  it('SPEC-M-2: DRAFT drop-project, senior ALREADY approved — caption names only "дропа", not the senior', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: false,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText('от дропа')).toBeInTheDocument()
+    expect(screen.queryByText(new RegExp(`^от ${project.seniorName}`))).not.toBeInTheDocument()
+  })
+
+  it('DRAFT drop-project, approval fields absent (old cached DTO, pre SPEC-M-2): defaults to "both still pending", drop-first order (COPY-M-1)', async () => {
+    const project = makeProject({ status: 'DRAFT', dropId: DROP_ID, dropName: 'Drop One' })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText(`от ${project.dropName} и ${project.seniorName}`)).toBeInTheDocument()
+  })
+
+  it('REJECTED: renders the "Отклонено" badge + reason text, destructive dot, opacity dimming (same treatment as archived)', async () => {
+    const project = makeProject({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' })
+    renderProjectRow(project)
+
+    const badge = await screen.findByTestId(`project-row-${project.id}-status-rejected`)
+    expect(badge).toHaveTextContent('Отклонено')
+    const reason = screen.getByText('«нет бюджета на Q3»')
+    expect(reason).toHaveAttribute('title', 'нет бюджета на Q3')
+    const dot = screen.getByTestId(`project-row-${project.id}-status-dot`)
+    expect(dot.className).toContain('bg-destructive/60')
+    const row = screen.getByTestId(`project-row-${project.id}`)
+    expect(row.className).toContain('opacity-60')
+    expect(row.className).not.toContain('ring-amber-500/20')
+  })
+
+  it('UX-H-1 (PR #646 fix-round 1, mechanism switched COPY-M-9/UX-L-2(r3) fix-round 3): REJECTED with a realistic ~90-char reason — width-capped + line-clamped ONLY at lg:, status column shrinks (min-w-0)', async () => {
+    // Exact class of text the designer's live repro used (Mode B comment):
+    // a normal-length rejection reason, not an edge case. Before the fix
+    // this blew out the status column and collapsed columns 0-2 on
+    // 768/1024px — unobservable via `document.scrollWidth` (the clip
+    // happens on an intermediate ancestor, not the document), which is why
+    // this is pinned at the className level, not via a layout measurement
+    // jsdom cannot produce anyway.
+    //
+    // COPY-M-9 = UX-L-2(r3) (fix-round 3): a FIXED `truncate` + `max-w-40`
+    // clipped this to ~20 characters even in the full-width second row below
+    // `lg:` (68px idle there) — now `line-clamp-2` + `max-w-full` at base,
+    // `lg:line-clamp-1` + `lg:max-w-40` only once the column is narrow again.
+    // Pinning `truncate`'s ABSENCE too: mixing `truncate` (nowrap-based) with
+    // `line-clamp` (webkit-box-based) across a breakpoint leaves stale
+    // `display`/`-webkit-line-clamp` active at the larger size — the exact
+    // hazard this fix was written to avoid, see the component's own comment.
+    const longReason =
+      'Нет бюджета на Q3, вернёмся к вопросу в начале следующего квартала после пересмотра плана'
+    const project = makeProject({ status: 'REJECTED', rejectionReason: longReason })
+    renderProjectRow(project)
+
+    const reason = await screen.findByText(`«${longReason}»`)
+    expect(reason.className).toContain('max-w-full')
+    expect(reason.className).toContain('lg:max-w-40')
+    expect(reason.className).toContain('line-clamp-2')
+    expect(reason.className).toContain('lg:line-clamp-1')
+    expect(reason.className).not.toContain('truncate')
+    expect(reason).toHaveAttribute('title', longReason)
+    // Container symmetry with column 1 (ProjectRow.tsx's own "Project info
+    // column" div) — without it, a CSS grid item's default min-width: auto
+    // is what let the column blow out in the first place.
+    const statusColumn = screen.getByTestId(`project-row-${project.id}-status-column`)
+    expect(statusColumn.className).toContain('min-w-0')
+  })
+
+  it('REJECTED with no reason on the DTO: the badge still renders, no reason paragraph', async () => {
+    const project = makeProject({ status: 'REJECTED', rejectionReason: null })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-rejected`)
+    expect(screen.queryByText(/«.*»/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId(`project-row-${project.id}-status-reason-loading`),
+    ).not.toBeInTheDocument()
+  })
+
+  /**
+   * SR-L-7 (PR #646 fix-round 5, LOW — security review). manual-qa's own
+   * repro needed a real prod build with a service worker to reach
+   * `fetchStatus: 'paused'` (persister.ts restores a stripped snapshot,
+   * `dataUpdatedAt` is forced to 0, `refetchOnMount` tries to refetch but
+   * the browser is offline) — this test models that EXACT `fetchStatus`
+   * value directly via the `reasonPending` prop `index.tsx` derives from it
+   * (`fetchStatus !== 'idle'`), rather than reproducing the offline/PWA
+   * setup live (which an E2E run cannot do either — see the task's own
+   * decision on this finding).
+   */
+  it('SR-L-7: REJECTED + null reason + ADMIN + reasonPending — shows a loading placeholder, not silence', async () => {
+    const project = makeProject({ status: 'REJECTED', rejectionReason: null })
+    renderProjectRow(project, { viewerRole: 'ADMIN', reasonPending: true })
+
+    await screen.findByTestId(`project-row-${project.id}-status-rejected`)
+    expect(screen.getByTestId(`project-row-${project.id}-status-reason-loading`)).toHaveTextContent(
+      'Причина загружается…',
+    )
+    // Not the same slot as a real reason — no quoted text renders at all.
+    expect(screen.queryByText(/«.*»/)).not.toBeInTheDocument()
+  })
+
+  it('SR-L-7: the loading placeholder never shows for a non-ADMIN viewer — SENIOR/DROP never receive rejectionReason at all (SR-M-5), so "loading" would be a permanent lie for them', async () => {
+    const project = makeProject({ status: 'REJECTED', rejectionReason: null })
+    renderProjectRow(project, { viewerRole: 'SENIOR', reasonPending: true })
+
+    await screen.findByTestId(`project-row-${project.id}-status-rejected`)
+    expect(
+      screen.queryByTestId(`project-row-${project.id}-status-reason-loading`),
+    ).not.toBeInTheDocument()
+  })
+
+  it('SR-L-7: a REAL reason wins over the loading placeholder even if reasonPending is still true (the refetch that just resolved is what supplied it)', async () => {
+    const project = makeProject({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' })
+    renderProjectRow(project, { viewerRole: 'ADMIN', reasonPending: true })
+
+    await screen.findByText('«нет бюджета на Q3»')
+    expect(
+      screen.queryByTestId(`project-row-${project.id}-status-reason-loading`),
+    ).not.toBeInTheDocument()
+  })
+
+  it('ARCHIVED still wins over the other branches (mutually exclusive in practice, but the priority order is defensive)', async () => {
+    const project = makeProject({ status: 'ACTIVE', archivedAt: '2026-02-01T00:00:00.000Z' })
+    renderProjectRow(project)
+
+    await screen.findByText('В архиве')
+    expect(screen.queryByTestId(`project-row-${project.id}-status-pending`)).not.toBeInTheDocument()
+    const row = screen.getByTestId(`project-row-${project.id}`)
+    expect(row.className).toContain('opacity-60')
+    const dot = screen.getByTestId(`project-row-${project.id}-status-dot`)
+    expect(dot.className).toContain('bg-muted-foreground/40')
+  })
+})
+
+describe('ProjectRow — Confirm/Reject actions gate (canAct, §Что сделать item 3)', () => {
+  it('DRAFT + viewer IS the senior: actions render', async () => {
+    const project = makeProject({ status: 'DRAFT' })
+    renderProjectRow(project, { viewerRole: 'SENIOR', viewerId: SENIOR_ID })
+
+    expect(await screen.findByTestId(`project-approval-approve-${project.id}`)).toBeInTheDocument()
+    expect(screen.getByTestId(`project-approval-reject-${project.id}`)).toBeInTheDocument()
+  })
+
+  it('DRAFT + viewer IS the drop: actions render (identity check, not a SENIOR-only gate)', async () => {
+    const project = makeProject({ status: 'DRAFT', dropId: DROP_ID, dropName: 'Drop One' })
+    renderProjectRow(project, { viewerRole: 'DROP', viewerId: DROP_ID })
+
+    expect(await screen.findByTestId(`project-approval-approve-${project.id}`)).toBeInTheDocument()
+  })
+
+  it('DRAFT drop-project + viewer IS the senior (not the drop): actions still render — matching EITHER id is enough, not both', async () => {
+    // dropId set + viewerId matches ONLY seniorId (not dropId) — the one
+    // combination that distinguishes `a === x || a === y` from a wrongly
+    // AND-ed version of the same check.
+    const project = makeProject({ status: 'DRAFT', dropId: DROP_ID, dropName: 'Drop One' })
+    renderProjectRow(project, { viewerRole: 'SENIOR', viewerId: SENIOR_ID })
+
+    expect(await screen.findByTestId(`project-approval-approve-${project.id}`)).toBeInTheDocument()
+  })
+
+  it("DRAFT + viewer is neither senior nor drop (e.g. ADMIN viewing someone else's draft): no actions", async () => {
+    const project = makeProject({ status: 'DRAFT' })
+    renderProjectRow(project, {
+      viewerRole: 'ADMIN',
+      viewerId: '00000000-0000-0000-0000-0000000000ff',
+    })
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
+  })
+
+  it('DRAFT + no viewerId supplied: no actions (defensive default)', async () => {
+    const project = makeProject({ status: 'DRAFT' })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
+  })
+
+  it('ACTIVE project, viewer IS the senior: still no actions — isPending gates canAct regardless of identity', async () => {
+    const project = makeProject({ status: 'ACTIVE' })
+    renderProjectRow(project, { viewerRole: 'SENIOR', viewerId: SENIOR_ID })
+
+    await screen.findByTestId(`project-row-${project.id}`)
+    expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
+  })
+
+  // COPY-H-2 (PR #646 fix-round 2). Every test above either has BOTH
+  // approval flags pending (the fixture default via `?? true`) or has the
+  // viewer NOT be an invited approver at all — none of them puts the VIEWER
+  // specifically on the "already decided, other side still owes a decision"
+  // side, which is exactly the shape the old `viewerIsInvitedApprover`-only
+  // gate got wrong (button stayed live for a second click that only ever
+  // produced a silent 409). These two are the "Тест на оба" the review asked
+  // for — one per role.
+  it('COPY-H-2: senior already confirmed (their own seniorApprovalPending is false), drop still owes a decision — no actions for the senior, first-person caption instead', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: false,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project, { viewerRole: 'SENIOR', viewerId: SENIOR_ID })
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
+    expect(screen.queryByTestId(`project-approval-reject-${project.id}`)).not.toBeInTheDocument()
+    const caption = screen.getByText('Вы подтвердили. Ждём дропа')
+    expect(caption.tagName).toBe('P')
+    // The generic third-party caption ("от дропа") must NOT also be present
+    // — the first-person one replaces it, not sits alongside it.
+    expect(screen.queryByText('от дропа')).not.toBeInTheDocument()
+  })
+
+  it('COPY-H-2: drop already confirmed (their own dropApprovalPending is false), senior still owes a decision — no actions for the drop, first-person caption instead', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: 'Drop One',
+      seniorApprovalPending: true,
+      dropApprovalPending: false,
+    })
+    renderProjectRow(project, { viewerRole: 'DROP', viewerId: DROP_ID })
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
+    expect(screen.queryByTestId(`project-approval-reject-${project.id}`)).not.toBeInTheDocument()
+    const caption = screen.getByText('Вы подтвердили. Ждём синьора')
+    expect(caption.tagName).toBe('P')
+    expect(screen.queryByText(`от ${project.seniorName}`)).not.toBeInTheDocument()
   })
 })
