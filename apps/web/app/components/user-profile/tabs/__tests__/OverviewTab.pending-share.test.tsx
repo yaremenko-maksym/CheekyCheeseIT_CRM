@@ -259,7 +259,8 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
       isAxiosError: true,
       response: { status: 404, data: { message: 'Подтверждение не найдено или уже закрыто' } },
     })
-    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const { qc } = renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
     await waitFor(() =>
@@ -267,6 +268,11 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
         'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
       ),
     )
+    // QA-MED-5: a stale banner (proposal already resolved elsewhere) must
+    // refetch on failure too, not just on success — otherwise it stays
+    // clickable showing a number that no longer means anything.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
   })
 
   it('approve: invalidates BOTH the userId-keyed and the "me"-keyed profile query on success', async () => {
@@ -403,12 +409,13 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('validation failed'))
   })
 
-  it('reject: a 409 (already resolved elsewhere) shows the friendly "уже принято" message', async () => {
+  it('reject: a 409 (already resolved elsewhere) shows the friendly "уже принято" message and refetches (QA-MED-5)', async () => {
     ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({
       isAxiosError: true,
       response: { status: 409, data: { message: 'Подтверждение уже получило ответ' } },
     })
-    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const { qc } = renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     await user.type(await screen.findByTestId('pending-base-share-reject-reason'), 'причина')
@@ -418,5 +425,9 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
         'Решение по этому проценту уже принято. Обновите страницу.',
       ),
     )
+    // QA-MED-5: same refetch-on-failure fix as the approve test above — a
+    // stale banner must not stay clickable after a 409 from elsewhere.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
   })
 })

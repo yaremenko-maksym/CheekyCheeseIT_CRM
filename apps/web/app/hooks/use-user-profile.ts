@@ -224,19 +224,25 @@ export function useRejectSeniorShareChange(userId: string) {
   return useMutation({
     // Stryker disable next-line ArrowFunction: the mutated node here is the
     // WHOLE `mutationFn` value (Stryker replaces it outright with
-    // `() => undefined`, not just the inner `.then()` callback) — same
-    // reasoning as useApproveSeniorShareChange's identical directive above,
-    // whose comment sits in the equivalent position (immediately before
-    // `mutationFn:`, not before the inner `.then()`). Unlike approve,
-    // reject's `onSuccess` never reads the resolved value at all (no
-    // confirmed-percent to name — see its own comment below), so this one
-    // covers the whole "value never consumed" case, not just "callback
-    // identity" — mutationFn resolving to `undefined` instead of the real
-    // response body is genuinely unobservable by any test here.
-    mutationFn: (reason: string) =>
-      api
-        .post<UserWithPermissionsResponse>(`/users/${userId}/senior-share/reject`, { reason })
-        .then((r) => r.data),
+    // `() => undefined`) — same reasoning as
+    // useApproveSeniorShareChange's identical directive above, whose comment
+    // sits in the equivalent position (immediately before `mutationFn:`).
+    // A chained `.then((r) => r.data)` here USED to create a SECOND, nested
+    // ArrowFunction node this directive did NOT cover — verified by running
+    // the gate (suppressing only this line left that inner one Surviving).
+    // Rewritten as a block-bodied async function instead of a `.then()`
+    // chain specifically to remove that second node: `reject`'s `onSuccess`
+    // (below) takes no argument — no confirmed-percent to name, unlike
+    // approve's identical shape — so the resolved response body is never
+    // read by anything downstream, and there is now only the one arrow-
+    // function node this comment already accounts for.
+    mutationFn: async (reason: string) => {
+      const response = await api.post<UserWithPermissionsResponse>(
+        `/users/${userId}/senior-share/reject`,
+        { reason },
+      )
+      return response.data
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
