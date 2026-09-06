@@ -220,13 +220,16 @@ export class ApprovalsService {
   /**
    * task-648-fix-round-1 (SR-H-1). Same logic as `cancel()`, running inside
    * a transaction the caller already opened — this is the PRIMARY entry
-   * point in practice: both the standalone cancel endpoint AND the
-   * revert-the-slider no-op branch (`ProjectsService.update` /
-   * `UsersService.proposeSeniorShareChangeInTx`) need the cancel to be
-   * atomic with their own write (the standalone endpoint's audit-log
-   * insert; the no-op branch's own early return has nothing else to write,
-   * but stays inside the SAME transaction as the rest of that method for
-   * consistency, not because it strictly needs to be).
+   * point in practice, and since round 2 the ONLY one: the two cancel
+   * endpoints (`ProjectsService.cancelSeniorShareChange` /
+   * `UsersService.cancelSeniorShareChange`) need the cancel to be atomic
+   * with their own writes — clearing the pending column and inserting the
+   * audit row that names who withdrew it.
+   *
+   * task-648-fix-round-2 (SR-M-7): this doc used to also name a
+   * "revert-the-slider no-op branch" as a caller. That branch was removed in
+   * round 2 (SR-H-2) — cancelling is explicit only. Corrected here rather
+   * than left to describe a caller that no longer exists.
    */
   async cancelInTx(tx: DrizzleTx, subjectType: string, subjectId: string): Promise<void> {
     const now = new Date()

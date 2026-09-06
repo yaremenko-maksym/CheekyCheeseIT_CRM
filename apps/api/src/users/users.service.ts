@@ -241,21 +241,17 @@ export class UsersService {
     actorId: string,
   ): Promise<{ pendingSeniorSharePercent: number | null } | null> {
     if (changedEntitlementFields(existing, { seniorSharePercent: requestedPercent }).length === 0) {
-      // task-648-fix-round-1 (SR-H-1): requested == active. If there's a
-      // live PENDING proposal for a DIFFERENT value, this is "I changed my
-      // mind" — cancel it instead of silently leaving it open (the ORIGINAL
-      // bug: an admin's typo, proposed then explicitly undone this way,
-      // stayed live until the senior confirmed it anyway).
-      // `cancelSeniorShareChangeCore` 404s when there's nothing open — the
-      // EXPECTED majority case (a routine resubmit), returned as `null`
-      // (true no-op) rather than surfaced as an error.
-      try {
-        await this.cancelSeniorShareChangeCore(tx, existing.id)
-      } catch (err) {
-        if (err instanceof NotFoundException) return null
-        throw err
-      }
-      return { pendingSeniorSharePercent: null }
+      // task-648-fix-round-2 (SR-H-2 / SR-M-5 / QA-HIGH-3): requested ==
+      // active is a plain no-op. Round 1 made this branch CANCEL any live
+      // proposal ("вернул слайдер к действующему = отмена"); round 2 revokes
+      // that decision. An implicit cancel through a side effect is exactly
+      // what let an unrelated edit kill a live proposal: `UserDialog` sends
+      // `seniorSharePercent` on EVERY save of a SENIOR, so changing a phone
+      // number silently flipped a live proposal `PENDING → CANCELLED` with
+      // no signal anywhere (reproduced live by manual QA). Withdrawing a
+      // proposal is now EXPLICIT only — `cancelSeniorShareChange` behind a
+      // named "Отменить предложение" button.
+      return null
     }
     if (existing.archivedAt) {
       throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
@@ -281,14 +277,25 @@ export class UsersService {
 
   /**
    * task-648-fix-round-1 (SR-H-1). ADMIN withdraws an open base-share
-   * proposal outright — the counterpart to the propose path above. Core
-   * (transaction-scoped) + public endpoint pair, same split as
-   * `ProjectsService.cancelSeniorShareChangeCore`/`cancelSeniorShareChange`
-   * and for the same reason: `proposeSeniorShareChangeInTx`'s own no-op
-   * branch above needs the atomic cancel-then-clear-pending-column write
-   * WITHOUT the full profile-view reload the public endpoint returns.
+   * proposal outright — the counterpart to the propose path above, and
+   * since round 2 (SR-H-2) the ONLY way to withdraw one: the propose path's
+   * no-op branch no longer cancels anything.
+   *
+   * Kept as a transaction-scoped core + public endpoint pair so the lock
+   * order below is stated in one place; the public method adds the RBAC gate
+   * and the profile-view reload.
    */
   private async cancelSeniorShareChangeCore(tx: DrizzleTx, userId: string): Promise<void> {
+    // task-648-fix-round-2 (SR-M-6): `users` BEFORE `approvals`, the same
+    // order the propose path takes (`updateUserRow` → `proposeInTx`). See
+    // the lock-order note on `approveSeniorShareChange` below.
+    const [locked] = await tx
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .for('update')
+      .limit(1)
+    if (!locked) throw new NotFoundException('Пользователь не найден')
     await this.approvals.cancelInTx(tx, UsersService.SENIOR_SHARE_SUBJECT_TYPE, userId)
     // Reaching this line means `cancelInTx` found a real PENDING proposal —
     // same "no separate existence check needed" reasoning
@@ -342,16 +349,18 @@ export class UsersService {
       )
     }
     await this.db.db.transaction(async (tx) => {
-      await this.approvals.approveInTx(tx, {
-        subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
-        subjectId: id,
-        approverUserId: currentUser.id,
-      })
+      // task-648-fix-round-2 (SR-M-6): the row lock comes FIRST, before any
+      // `approvals` row is touched — see this method's own lock-order note.
       const [row] = await tx.select().from(users).where(eq(users.id, id)).for('update').limit(1)
       // task-648-fix-round-1 (COPY-H-1): Russian — same defensive-only
       // reasoning as ProjectsService.approveSeniorShareChange's identical
       // check.
       if (!row) throw new NotFoundException('Пользователь не найден')
+      await this.approvals.approveInTx(tx, {
+        subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
+        subjectId: id,
+        approverUserId: currentUser.id,
+      })
       // `row.pendingSeniorSharePercent` is guaranteed non-null here: it is
       // only ever read after `approveInTx` above has already thrown for
       // "no live PENDING row" — reaching this line means a real proposal
@@ -388,6 +397,10 @@ export class UsersService {
       )
     }
     await this.db.db.transaction(async (tx) => {
+      // task-648-fix-round-2 (SR-M-6): `users` before `approvals` — see the
+      // lock-order note on `approveSeniorShareChange` above.
+      const [locked] = await tx.select().from(users).where(eq(users.id, id)).for('update').limit(1)
+      if (!locked) throw new NotFoundException('Пользователь не найден')
       await this.approvals.rejectInTx(tx, {
         subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
         subjectId: id,

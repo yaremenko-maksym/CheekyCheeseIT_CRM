@@ -253,10 +253,11 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
   const approvals = {
     proposeInTx: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => 'NONE' as const),
-    // task-648-fix-round-1 (SR-H-1): update()'s "requested == active"
-    // branch now tries to cancel any open proposal — defaults to "nothing
-    // open" (matches this harness's default getStatus: 'NONE'); tests that
-    // DO have an open proposal override this per-case.
+    // task-648-fix-round-2 (SR-H-2): `update()` no longer cancels anything —
+    // withdrawing a proposal is explicit only. Kept on the mock (the
+    // constructor's `ApprovalsService` shape is structural) and made to
+    // throw, so any accidental re-introduction of an implicit cancel from
+    // this file's `update()` tests fails loudly instead of passing silently.
     cancelInTx: vi.fn(async () => {
       throw new NotFoundException('Подтверждение не найдено или уже закрыто')
     }),
@@ -840,10 +841,11 @@ function buildHrScopingHarness({
   const approvals = {
     proposeInTx: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => 'NONE' as const),
-    // task-648-fix-round-1 (SR-H-1): update()'s "requested == active"
-    // branch now tries to cancel any open proposal — defaults to "nothing
-    // open" (matches this harness's default getStatus: 'NONE'); tests that
-    // DO have an open proposal override this per-case.
+    // task-648-fix-round-2 (SR-H-2): `update()` no longer cancels anything —
+    // withdrawing a proposal is explicit only. Kept on the mock (the
+    // constructor's `ApprovalsService` shape is structural) and made to
+    // throw, so any accidental re-introduction of an implicit cancel from
+    // this file's `update()` tests fails loudly instead of passing silently.
     cancelInTx: vi.fn(async () => {
       throw new NotFoundException('Подтверждение не найдено или уже закрыто')
     }),

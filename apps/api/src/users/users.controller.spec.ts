@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { ForbiddenException } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { UsersController } from './users.controller'
+import { AUDIT_LOG_KEY } from '../common/decorators/audit-log.decorator'
 import type { User } from '../database/schema'
 
 /**
@@ -460,4 +461,21 @@ describe('UsersController — senior-share approve/reject/cancel delegate to the
     expect(usersService.cancelSeniorShareChange).toHaveBeenCalledWith('senior-1', admin)
     expect(result).toBe(resolved)
   })
+
+  // task-648-fix-round-2 (SR-M-7 / CR-M-2): withdrawing a proposal moves
+  // `users.pendingSeniorSharePercent` and left NO trace of who did it, while
+  // its approve/reject siblings both carried `@AuditLog('salary_change')`.
+  // Asserted through the SAME reflector key the interceptor reads, so the
+  // test fails if the decorator is removed OR renamed — not merely if the
+  // source text changes.
+  it.each([['approveSeniorShareChange'], ['rejectSeniorShareChange'], ['cancelSeniorShareChange']])(
+    '%s is decorated with @AuditLog(salary_change) — the actor is recorded',
+    (method) => {
+      const action = Reflect.getMetadata(
+        AUDIT_LOG_KEY,
+        UsersController.prototype[method as keyof UsersController] as object,
+      )
+      expect(action).toBe('salary_change')
+    },
+  )
 })

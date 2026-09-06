@@ -416,8 +416,17 @@ export class UsersController {
    * task-648-fix-round-1 (SR-H-1). ADMIN withdraws an open base-share
    * proposal outright. No `@Roles(...)` — the service checks ADMIN
    * explicitly, same as the approve/reject pair above check impersonation.
+   *
+   * `@AuditLog('salary_change')` (task-648-fix-round-2, SR-M-7 / CR-M-2):
+   * withdrawing moves `users.pendingSeniorSharePercent` and used to leave no
+   * trace of WHO did it, while both its siblings above were decorated. The
+   * interceptor's own before/after diff over the `users` row records
+   * `pendingSeniorSharePercent` automatically (it is not in `IGNORE_FIELDS`),
+   * so the decorator alone is the whole fix — no hand-rolled `record()` call
+   * that could drift from what approve/reject log.
    */
   @Post(':id/senior-share/cancel')
+  @AuditLog('salary_change')
   cancelSeniorShareChange(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() currentUser: SessionUser,

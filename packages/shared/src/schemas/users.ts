@@ -54,11 +54,18 @@ export const userProfileSchema = z.object({
   /**
    * task-pending-share (position 5, design spec §4.3). A proposed new value
    * for `seniorSharePercent` above, awaiting THIS person's own confirmation
-   * — `null` when nothing is pending. Gated by the same `fields.share`
-   * permission as `seniorSharePercent` itself (see `UsersService.
-   * buildProfileView`). Always `.percent` non-null when present — the
-   * column it targets is NOT NULL, so a base-share proposal never proposes
-   * "clear".
+   * — `null` when nothing is pending.
+   *
+   * task-648-fix-round-2 (SR-bm-1): gated by `fields.sharePending`, NOT by
+   * `fields.share` as this doc previously claimed. The two differ on purpose
+   * and the difference is the whole point of QA-HIGH-1: ACCOUNTANT and HR
+   * DO get `fields.share` (payroll need-to-know for the ACTIVE percent) but
+   * must NOT learn that a change is even proposed. See
+   * `UsersAccessService.getViewPermissions` and `UsersService.
+   * buildProfileView`.
+   *
+   * Always `.percent` non-null when present — the column it targets is NOT
+   * NULL, so a base-share proposal never proposes "clear".
    */
   pendingSeniorShare: pendingSeniorShareSchema.nullable().optional(),
   /**

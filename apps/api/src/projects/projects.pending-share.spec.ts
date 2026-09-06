@@ -435,49 +435,35 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
-  // task-648-fix-round-1 (SR-H-1, AC9 mutation-gate gap-fill): the test
-  // above only exercises the no-op branch with NOTHING pending (cancel 404s,
-  // early-swallowed). NOTHING previously covered the actual fix: requesting
-  // the CURRENT active value while a DIFFERENT value is genuinely pending —
-  // the "I changed my mind" gesture this whole finding exists for.
-  it('SR-H-1: requesting the ACTIVE value while a DIFFERENT value is pending CANCELS the open proposal', async () => {
+  // task-648-fix-round-2 (SR-H-2). Round 1 turned "slider back to the active
+  // value" into an implicit cancel. Round 2 revokes that: an implicit cancel
+  // through a side effect is unreachable from the product on this surface
+  // anyway (the form only sends `seniorSharePercentOverride` when it DIFFERS
+  // from the active value, so the branch could never fire here), while on the
+  // user half the same branch let an unrelated phone edit kill a live
+  // proposal (SR-M-5 / QA-HIGH-3). Cancelling is EXPLICIT only now, via
+  // `POST /projects/:id/senior-share/cancel` behind a named button.
+  it('SR-H-2: requesting the ACTIVE value while a DIFFERENT value is pending leaves the proposal ALIVE (no implicit cancel)', async () => {
     const h = buildHarness({
       seniorSharePercentOverride: 30,
       pendingSeniorSharePercentOverride: 70,
     })
     await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
-    expect(h.approvals.cancelInTx).toHaveBeenCalledWith(
-      h.txHandle,
-      'PROJECT_SENIOR_SHARE',
-      'proj-1',
-    )
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
     expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
-    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
-    // The ACTIVE override is untouched by a cancel — only the proposal dies.
+    // Both columns survive: the proposal still waits for its approver, and
+    // the active override is untouched (AC2 — the money still resolves to 30).
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBe(70)
     expect(h.projectRow.seniorSharePercentOverride).toBe(30)
   })
 
-  it('SR-H-1: a genuine cancelInTx failure (not NotFoundException) propagates instead of being swallowed', async () => {
-    const h = buildHarness({
-      seniorSharePercentOverride: 30,
-      pendingSeniorSharePercentOverride: 70,
-    })
-    h.approvals.cancelInTx.mockRejectedValue(new Error('db connection lost'))
-    await expect(
-      h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser),
-    ).rejects.toThrow('db connection lost')
-  })
-
-  // task-648-fix-round-1 (SR-H-1, AC9 mutation-gate gap-fill round 2): the
-  // two SR-H-1 tests above both request the CURRENT active value (30) — so
-  // `overrideEffective` is genuinely `30` in both, never `undefined`. That
-  // makes them blind to `else if (overrideEffective !== undefined)` being
-  // mutated to `else if (true)`: in both existing tests the real condition
-  // and the mutant agree (both truthy). The mutant only diverges when the
-  // PATCH omits the field entirely — the routine "I changed something else
-  // on this project, the share slider was never touched" request — which
-  // this test is the first to exercise with a live pending proposal present.
-  it('SR-H-1: a PATCH that never mentions seniorSharePercentOverride leaves an open proposal untouched (overrideEffective genuinely undefined, not merely equal-to-active)', async () => {
+  // task-648-fix-round-1 (SR-H-1, AC9 mutation-gate gap-fill round 2), kept
+  // in round 2 for the SAME mutant it was written for: the propose gate's
+  // `overrideEffective !== undefined` degenerating to always-true against a
+  // PATCH that omits the field entirely — the routine "I changed something
+  // else on this project, the share slider was never touched" request, with
+  // a live pending proposal present.
+  it('a PATCH that never mentions seniorSharePercentOverride leaves an open proposal untouched (overrideEffective genuinely undefined, not merely equal-to-active)', async () => {
     const h = buildHarness({
       seniorSharePercentOverride: 30,
       pendingSeniorSharePercentOverride: 70,
@@ -807,6 +793,71 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
     await h.service.cancelSeniorShareChange('proj-1', accountantUser)
     expect(h.approvals.cancelInTx).toHaveBeenCalledOnce()
     expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
+  })
+
+  // task-648-fix-round-2 (SR-M-7 / CR-M-2). Withdrawing a proposal moved
+  // `projects.pendingSeniorSharePercentOverride` and left no trace of WHO
+  // did it, while `approveSeniorShareChange` on the same service already
+  // recorded a `project_edited` entry. The project half has no `@AuditLog`
+  // interceptor equivalent (that one diffs the `users` table), so the record
+  // is written explicitly, inside the SAME transaction as the write.
+  it('SR-M-7: records a project_edited audit entry naming the actor and the withdrawn value', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 26,
+      pendingSeniorSharePercentOverride: 55,
+    })
+    await h.service.cancelSeniorShareChange('proj-1', adminUser)
+    expect(h.auditRecord).toHaveBeenCalledWith(
+      {
+        actorId: adminUser.id,
+        targetId: 'proj-1',
+        action: 'project_edited',
+        changes: {
+          pendingSeniorSharePercentOverride: { before: 55, after: null },
+        },
+      },
+      h.txHandle,
+    )
+  })
+
+  it('SR-M-7: attributes the withdrawal to the REAL operator under impersonation, not the impersonated identity', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    await h.service.cancelSeniorShareChange('proj-1', {
+      ...adminUser,
+      impersonatorId: 'real-admin-9',
+    })
+    expect(h.auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ actorId: 'real-admin-9' }),
+      h.txHandle,
+    )
+  })
+
+  // task-648-fix-round-2 (SR-bm-3). `loadForResponse` resolved the pending
+  // proposal for EVERY caller, including an ACCOUNTANT — whose DTO
+  // `mapProject` then zeroes out one line later. A wasted `approvals`
+  // round-trip is the small half; the real point is that `findOne` already
+  // gates this exact lookup by role and `loadForResponse` silently did not,
+  // so the two response paths disagreed about who may even ASK.
+  it('SR-bm-3: does not resolve the pending proposal for a role that cannot see it (ACCOUNTANT)', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    const accountantUser: SessionUser = {
+      id: 'acc-1',
+      role: 'ACCOUNTANT',
+      displayName: 'Accountant',
+      email: 'acc@x.com',
+      avatarUrl: null,
+      avatarDocumentId: null,
+      seniorSharePercent: null,
+    }
+    const result = await h.service.cancelSeniorShareChange('proj-1', accountantUser)
+    expect(h.approvals.getStatus).not.toHaveBeenCalled()
+    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).toBeNull()
+  })
+
+  it('SR-bm-3: still resolves it for ADMIN, who can', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    await h.service.cancelSeniorShareChange('proj-1', adminUser)
+    expect(h.approvals.getStatus).toHaveBeenCalledWith('PROJECT_SENIOR_SHARE', 'proj-1')
   })
 
   it('returns the reloaded project via mapProject (pendingSeniorShare is null in the response after cancel)', async () => {

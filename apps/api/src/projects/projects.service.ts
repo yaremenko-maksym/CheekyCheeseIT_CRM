@@ -1092,16 +1092,28 @@ export class ProjectsService {
     if (!project) throw new NotFoundException('Project not found')
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
     // task-pending-share: this response path is shared by approveDraft /
-    // rejectDraft / approveSeniorShareChange / rejectSeniorShareChange — the
-    // caller may just have resolved a share proposal (or a draft proposal
-    // while a share proposal ALSO happens to be live), so it always resolves
-    // this rather than trusting which action got it here.
-    const pendingSeniorShare = await this.loadPendingSeniorShare(
-      project.id,
-      project.senior,
-      project.pendingSeniorSharePercentOverride,
-      teamOverridesBySeniorId,
-    )
+    // rejectDraft / approveSeniorShareChange / rejectSeniorShareChange /
+    // cancelSeniorShareChange — the caller may just have resolved a share
+    // proposal (or a draft proposal while a share proposal ALSO happens to
+    // be live), so it resolves this rather than trusting which action got it
+    // here.
+    //
+    // task-648-fix-round-2 (SR-bm-3): but only for a viewer who may SEE it.
+    // `mapProject` (below) masks the field for every role except ADMIN and
+    // the affected SENIOR, so resolving it for an ACCOUNTANT — who reaches
+    // this method through `cancelSeniorShareChange` — was a round-trip whose
+    // result was thrown away one line later. `findOne` already applied this
+    // exact gate; the two response paths silently disagreed about who may
+    // even ask.
+    const pendingSeniorShare =
+      currentUser.role === 'ADMIN' || currentUser.role === 'SENIOR'
+        ? await this.loadPendingSeniorShare(
+            project.id,
+            project.senior,
+            project.pendingSeniorSharePercentOverride,
+            teamOverridesBySeniorId,
+          )
+        : null
     return this.mapProject(project, teamOverridesBySeniorId, currentUser.role, pendingSeniorShare)
   }
 
@@ -1269,19 +1281,24 @@ export class ProjectsService {
   }
 
   /**
-   * task-648-fix-round-1 (SR-H-1). ADMIN/ACCOUNTANT withdraws an open
-   * proposal for this project's senior share outright — the counterpart to
-   * `proposeSeniorShareChange` above, called either directly (the "Отменить
-   * предложение" button next to the pending indicator) or from `update()`'s
-   * own "requested == active" branch below (returning the slider to its
-   * current value while a proposal is open IS a cancel, not a silent no-op
-   * — see that branch's own comment).
+   * task-648-fix-round-1 (SR-H-1), revised in round 2 (SR-H-2).
+   * ADMIN/ACCOUNTANT withdraws an open proposal for this project's senior
+   * share outright — the counterpart to `proposeSeniorShareChange` above.
+   * This is the ONLY way to withdraw one: the "Отменить предложение" button
+   * next to the pending indicator (and inside the edit dialog) posts here.
+   * Round 1 additionally treated "slider returned to the active value" as an
+   * implicit cancel; round 2 removed that branch — see `update()`'s own note
+   * for why an implicit cancel through a side effect was the wrong shape.
    *
    * RBAC mirrors the PROPOSE gate in `update()` (ADMIN/ACCOUNTANT), not the
    * approve/reject pair above — cancelling a proposal you opened is the
    * proposer's prerogative, never the invited approver's (they get reject()
    * for that, which requires a reason; this doesn't, because withdrawing
    * your own draft answers to nobody).
+   *
+   * The core/public split this method used to have died with the implicit
+   * cancel: with `update()` no longer calling in, there was exactly one
+   * caller left and the indirection bought nothing.
    */
   async cancelSeniorShareChange(id: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
@@ -1290,22 +1307,14 @@ export class ProjectsService {
       // identical comment.
       throw new ForbiddenException('Отменить предложение по доле может только ADMIN или ACCOUNTANT')
     }
-    await this.cancelSeniorShareChangeCore(id)
-    return this.loadForResponse(id, currentUser)
-  }
-
-  /**
-   * Core of `cancelSeniorShareChange` above — shared with `update()`'s own
-   * "requested == active" branch, which needs the SAME atomic
-   * cancel-then-clear-pending-column write but NOT the full response reload
-   * (`update()` already reloads the row itself, once, at its own end — a
-   * second `loadForResponse` here would be a wasted round-trip). RBAC is
-   * the caller's responsibility: `cancelSeniorShareChange` checks it before
-   * calling in; `update()`'s field-scoped RBAC at its own top already
-   * guarantees ADMIN/ACCOUNTANT by the time its branch reaches this.
-   */
-  private async cancelSeniorShareChangeCore(id: string): Promise<void> {
     await this.db.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(projects)
+        .where(eq(projects.id, id))
+        .for('update')
+        .limit(1)
+      if (!row) throw new NotFoundException('Проект не найден')
       await this.approvals.cancelInTx(tx, ProjectsService.SENIOR_SHARE_SUBJECT_TYPE, id)
       // Reaching this line means `cancelInTx` found a real PENDING proposal
       // for `id` (it throws otherwise) — same "no separate existence check
@@ -1314,7 +1323,28 @@ export class ProjectsService {
         .update(projects)
         .set({ pendingSeniorSharePercentOverride: null, updatedAt: new Date() })
         .where(eq(projects.id, id))
+      // task-648-fix-round-2 (SR-M-7 / CR-M-2): a withdrawal is an
+      // administrative act on a money field and now names its actor, exactly
+      // like `approveSeniorShareChange` above already did. Same transaction
+      // as the write it describes, so the log can never claim a withdrawal
+      // that rolled back. `impersonatorId ?? id` — the REAL operator, the
+      // convention every other audit call on this service follows.
+      await this.projectAuditLogService.record(
+        {
+          actorId: currentUser.impersonatorId ?? currentUser.id,
+          targetId: id,
+          action: 'project_edited',
+          changes: {
+            pendingSeniorSharePercentOverride: {
+              before: row.pendingSeniorSharePercentOverride ?? null,
+              after: null,
+            },
+          },
+        },
+        tx,
+      )
     })
+    return this.loadForResponse(id, currentUser)
   }
 
   /**
@@ -1568,23 +1598,16 @@ export class ProjectsService {
         currentUser.impersonatorId ?? currentUser.id,
         project.seniorSharePercentOverride ?? null,
       )
-    } else if (overrideEffective !== undefined) {
-      // task-648-fix-round-1 (SR-H-1). The requested value equals what's
-      // already ACTIVE — but if there's a live PENDING proposal for a
-      // DIFFERENT value, returning the slider to the active value is the
-      // natural "I changed my mind" gesture, and the ORIGINAL bug here was
-      // treating this as a silent no-op: an admin's typo, proposed and then
-      // explicitly undone this way, stayed live until the senior confirmed
-      // it anyway. Cancel it. `cancelSeniorShareChangeCore` 404s
-      // (`NotFoundException`) when there's nothing open to cancel — the
-      // EXPECTED, majority-case outcome (a routine resubmit with no live
-      // proposal at all), swallowed here rather than surfaced as an error.
-      try {
-        await this.cancelSeniorShareChangeCore(id)
-      } catch (err) {
-        if (!(err instanceof NotFoundException)) throw err
-      }
     }
+    // task-648-fix-round-2 (SR-H-2): there is deliberately NO `else` branch
+    // here. Round 1 made "requested == active" cancel a live proposal;
+    // round 2 revokes that. On this surface the branch was unreachable from
+    // the product anyway (the edit form only sends
+    // `seniorSharePercentOverride` when it DIFFERS from the active value —
+    // `$projectId.tsx`'s `overrideChanged` gate), and on the user half the
+    // same shape let an unrelated field edit kill a live proposal
+    // (SR-M-5 / QA-HIGH-3). Withdrawing a proposal is EXPLICIT only, via
+    // `cancelSeniorShareChange` behind the "Отменить предложение" button.
 
     // task-drop-share-override-and-receiver (D6). Audit the drop override change
     // (no project_finance_settings mirror sync — the canonical value lives on

@@ -111,6 +111,11 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
   // comment for why both exist.
   const selectForCalls: unknown[] = []
   let selectForUpdateOverride: UserRow[] | undefined
+  // task-648-fix-round-2 (SR-M-6): ordered log of the two lock families this
+  // transaction touches (`users` rows vs `approvals` rows). The ABBA
+  // deadlock the finding describes is invisible to per-call assertions —
+  // only the ORDER distinguishes a safe path from a deadlocking one.
+  const lockOrder: string[] = []
 
   const txHandle = {
     ...makeUpdateChain(txUpdateCalls, true),
@@ -119,6 +124,7 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
         where: () => ({
           for: (mode: unknown) => {
             selectForCalls.push(mode)
+            lockOrder.push('users:for-update')
             return {
               limit: async () => (selectForUpdateOverride ?? [userRow]).map((r) => ({ ...r })),
             }
@@ -140,11 +146,19 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
   }
 
   const approvals = {
-    proposeInTx: vi.fn(async () => undefined),
-    approveInTx: vi.fn(async () => undefined),
-    rejectInTx: vi.fn(async () => undefined),
+    proposeInTx: vi.fn(async () => {
+      lockOrder.push('approvals:proposeInTx')
+    }),
+    approveInTx: vi.fn(async () => {
+      lockOrder.push('approvals:approveInTx')
+    }),
+    rejectInTx: vi.fn(async () => {
+      lockOrder.push('approvals:rejectInTx')
+    }),
     getStatus: vi.fn(async () => 'PENDING' as const),
-    cancelInTx: vi.fn(async () => undefined),
+    cancelInTx: vi.fn(async () => {
+      lockOrder.push('approvals:cancelInTx')
+    }),
   }
   // task-648-fix-round-1 (SR-M-3): approve/reject/cancel now route their
   // response through `buildProfileView` (allow-list), not a raw row — it
@@ -179,6 +193,7 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
     topLevelUpdateCalls,
     txHandle,
     selectForCalls,
+    lockOrder,
     setSelectForUpdateRows: (rows: UserRow[]) => {
       selectForUpdateOverride = rows
     },
@@ -187,6 +202,49 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// task-648-fix-round-2 (SR-M-6). The propose path locks `users` first (the
+// `updateUserRow` write inside `adminUpdateUser`/`changeSalary`'s own
+// transaction) and only THEN `approvals` (`proposeInTx` → `lockLiveRows`).
+// The three RESPONSE paths used to do the reverse — `approvals` first, then
+// `users` — which is a textbook ABBA inversion: an admin re-proposing while
+// the senior confirms can deadlock (Postgres `40P01`, surfaced as a 500).
+// The project half has never had this (it locks `approvals` first
+// EVERYWHERE), so the fix is to make the user half equally uniform, in the
+// direction its propose path already dictates: `users` → `approvals`.
+//
+// Asserted as ORDER, not as presence: every one of these calls already
+// happened before this round: only their sequence was wrong.
+// ---------------------------------------------------------------------------
+describe('UsersService — SR-M-6: uniform lock order (users → approvals) on every path', () => {
+  it('propose (adminUpdateUser) locks the user row before touching approvals', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
+    await h.service.adminUpdateUser('senior-1', { seniorSharePercent: 80 }, 'admin-1')
+    expect(h.lockOrder.indexOf('approvals:proposeInTx')).toBeGreaterThan(-1)
+    // `updateUserRow` writes `users` before `proposeInTx` runs — the
+    // reference order every other path must now match.
+    expect(h.txUpdateCalls.length).toBeGreaterThan(0)
+  })
+
+  it('approve locks the user row BEFORE approvals.approveInTx', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
+    await h.service.approveSeniorShareChange('senior-1', seniorUser)
+    expect(h.lockOrder).toEqual(['users:for-update', 'approvals:approveInTx'])
+  })
+
+  it('reject locks the user row BEFORE approvals.rejectInTx', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
+    await h.service.rejectSeniorShareChange('senior-1', 'Слишком много', seniorUser)
+    expect(h.lockOrder).toEqual(['users:for-update', 'approvals:rejectInTx'])
+  })
+
+  it('cancel locks the user row BEFORE approvals.cancelInTx', async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
+    await h.service.cancelSeniorShareChange('senior-1', adminUser)
+    expect(h.lockOrder).toEqual(['users:for-update', 'approvals:cancelInTx'])
+  })
+})
 
 describe('UsersService — pending base share AC2 (resolver returns previous value while pending)', () => {
   it('resolveSeniorShare, called with the LIVE column, is unaffected by a pending proposal', () => {
@@ -303,41 +361,41 @@ describe('UsersService — notification seam (position 6 hand-off)', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
-  // task-648-fix-round-1 (SR-H-1, AC9 mutation-gate gap-fill): the tests
-  // above only ever exercise the no-op branch with `pendingSeniorSharePercent:
-  // null` — nothing to cancel, so `cancelSeniorShareChangeCore` 404s and the
-  // early-return-null path is all that ever ran. NOTHING previously covered
-  // the actual "I changed my mind" fix this task exists for: requesting the
-  // CURRENT active value while a DIFFERENT value is genuinely pending.
-  it('SR-H-1: requesting the ACTIVE value while a DIFFERENT value is pending CANCELS the open proposal (not a silent no-op)', async () => {
+  // task-648-fix-round-2 (SR-H-2 / SR-M-5 / QA-HIGH-3). Round 1 made this
+  // branch CANCEL an open proposal ("вернул слайдер к действующему = отмена").
+  // Round 2 revokes that decision: an implicit cancel through a side effect
+  // is what let `UserDialog`'s unconditional `seniorSharePercent` (SR-M-5)
+  // silently kill a live proposal while an admin was editing a PHONE NUMBER
+  // — reproduced live by manual QA (QA-HIGH-3: `PENDING → CANCELLED`, no
+  // signal anywhere). Cancelling is now EXPLICIT only, through the
+  // `senior-share/cancel` endpoint behind a named button. Requesting the
+  // value that is already active is a plain no-op again.
+  it('SR-H-2: requesting the ACTIVE value while a DIFFERENT value is pending leaves the proposal ALIVE (no implicit cancel)', async () => {
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
     const result = await h.service.adminUpdateUser(
       'senior-1',
       { seniorSharePercent: 26 },
       'admin-1',
     )
-    expect(h.approvals.cancelInTx).toHaveBeenCalledWith(h.txHandle, 'USER_SENIOR_SHARE', 'senior-1')
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
     expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
-    // The pending column is cleared by the cancel write — the stale-response
-    // patch (adminUpdateUser's own fix, documented on
-    // proposeSeniorShareChangeInTx) must reflect that in the SAME response,
-    // not the pre-cancel row `updateUserRow` already returned.
-    expect((result as { pendingSeniorSharePercent: unknown }).pendingSeniorSharePercent).toBeNull()
-    // AC9 gap-fill: the response check above only proves the STALE-RESPONSE
-    // PATCH's own hardcoded `{ pendingSeniorSharePercent: null }` literal —
-    // it says nothing about whether `cancelSeniorShareChangeCore`'s actual
-    // `.set({ pendingSeniorSharePercent: null, ... })` DB write happened.
-    // Reading the row the mock's update chain actually mutated is what
-    // makes that write itself observable.
-    expect(h.userRow.pendingSeniorSharePercent).toBeNull()
+    // The live proposal's column survives untouched — the row still carries
+    // the pending 80 the senior has yet to answer.
+    expect(h.userRow.pendingSeniorSharePercent).toBe(80)
+    // ...and the response does not claim otherwise (the stale-response patch
+    // must not fire for a branch that wrote nothing).
+    expect((result as { pendingSeniorSharePercent: unknown }).pendingSeniorSharePercent).toBe(80)
   })
 
-  it('SR-H-1: a genuine cancelInTx failure (not NotFoundException) propagates instead of being swallowed as a no-op', async () => {
+  it('SR-M-5/QA-HIGH-3: a PATCH that changes only the phone, re-sending the unchanged share, leaves the proposal ALIVE', async () => {
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
-    h.approvals.cancelInTx.mockRejectedValue(new Error('db connection lost'))
-    await expect(
-      h.service.adminUpdateUser('senior-1', { seniorSharePercent: 26 }, 'admin-1'),
-    ).rejects.toThrow('db connection lost')
+    await h.service.adminUpdateUser(
+      'senior-1',
+      { phone: '+380501112233', seniorSharePercent: 26 },
+      'admin-1',
+    )
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
+    expect(h.userRow.pendingSeniorSharePercent).toBe(80)
   })
 })
 
@@ -506,23 +564,19 @@ describe('UsersService.changeSalary — proposeSeniorShareChangeInTx branch', ()
     expect(h.userRow.pendingSeniorSharePercent).toBeNull()
   })
 
-  // task-648-fix-round-1 (AC9 mutation-gate gap-fill): the test above's
-  // `cancelSeniorShareChangeCore` call SUCCEEDS by default (harness's
-  // `cancelInTx` mock has no state to check), so `proposeSeniorShareChangeInTx`
-  // returns the TRUTHY `{ pendingSeniorSharePercent: null }` object there —
-  // not the literal `null` early-return this test targets. Only forcing
-  // `cancelInTx` to genuinely throw NotFoundException (nothing open to
-  // cancel — the majority real-world case for a plain resubmit) reaches
-  // that branch, which is what makes `if (shareChangeResult)` vs
-  // `if (true)` an observable difference: the mutated version would try to
-  // read `.pendingSeniorSharePercent` off `null` and throw a TypeError.
-  it("changeSalary no-op with genuinely NOTHING pending: shareChangeResult is null, response keeps updateUserRow's own value untouched", async () => {
-    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
-    h.approvals.cancelInTx.mockRejectedValue(
-      new NotFoundException('Подтверждение не найдено или уже закрыто'),
-    )
+  // task-648-fix-round-2 (SR-H-2): with the implicit-cancel branch gone,
+  // the unchanged-value path returns the literal `null` early — which is
+  // what makes `if (shareChangeResult)` vs `if (true)` an observable
+  // difference: the mutated version would read `.pendingSeniorSharePercent`
+  // off `null` and throw a TypeError. Round 1 had to force `cancelInTx` to
+  // reject with NotFoundException to reach this branch at all; now it is
+  // simply the ordinary resubmit, with a LIVE proposal in flight to prove
+  // the early return is taken while something really is pending.
+  it("changeSalary no-op: shareChangeResult is null and the response keeps updateUserRow's own value untouched", async () => {
+    const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: 80 })
     const updated = await h.service.changeSalary('senior-1', { seniorSharePercent: 26 }, 'admin-1')
-    expect(updated.pendingSeniorSharePercent).toBeNull()
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
+    expect(updated.pendingSeniorSharePercent).toBe(80)
   })
 })
 
