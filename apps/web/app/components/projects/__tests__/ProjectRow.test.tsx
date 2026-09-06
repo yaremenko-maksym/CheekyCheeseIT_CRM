@@ -266,7 +266,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(row.className).toContain('ring-amber-500/20')
   })
 
-  it('UX-H-1 / SPEC-M-1 (PR #646 fix-round 1, width-cap widened COPY-M-9 fix-round 3): DRAFT with a long approver name — caption is width-capped ONLY at lg: (max-w-full below it, where the second row is full-width)', async () => {
+  it('UX-H-1 / SPEC-M-1 (PR #646 fix-round 1): DRAFT with a long approver name — caption is width-capped by max-w-full at every width (no lg: override)', async () => {
     // The finding SPEC-M-1 flagged: the one overflow E2E test only ever grew
     // companyName, never the approver name, so this half of AC4 ("длинные
     // имена не переполняют") had zero coverage. jsdom has no real layout
@@ -274,11 +274,16 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     // rather than a pixel measurement — same style as this file's existing
     // `dot.className.toContain(...)` assertions.
     //
-    // COPY-M-9 (fix-round 3): a FIXED max-w-40 was itself the bug below
-    // `lg:` — the caption sits in a full-width second row there (68px idle),
-    // not the cramped `lg:` column this cap was originally sized for. Now
-    // `max-w-full` at base, `lg:max-w-40` only once the column is narrow
-    // again — pin BOTH halves, not just "a cap exists somewhere".
+    // COPY-H-5 follow-up (PR #646 fix-round 4): the `lg:max-w-40` (160px)
+    // this test used to pin was ITSELF a real overlap into the rate/amount
+    // column at 1024/1100px — measured live (project-status-filter-ui.spec.ts
+    // COPY-H-5 test), confirmed with an A/B re-measurement of the SAME
+    // fixture before/after removing it. `max-w-full` (already the base-width
+    // rule below `lg:`, per COPY-M-9 fix-round 3) now applies unconditionally
+    // — the same plain, no-`lg:`-exception pattern the sibling status badge
+    // has always used. Pin the absence of the removed class, not just the
+    // presence of the one that remains — a regression that reintroduces
+    // `lg:max-w-40` would otherwise still pass this test.
     const longSeniorName = 'Oleksandr Verylongsurnamovych Kovalenkovskyi-Tretiakov'
     const project = makeProject({
       status: 'DRAFT',
@@ -289,9 +294,22 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
 
     const caption = await screen.findByText(`от ${longSeniorName}`)
     expect(caption.className).toContain('max-w-full')
-    expect(caption.className).toContain('lg:max-w-40')
+    expect(caption.className).not.toContain('lg:max-w-40')
     expect(caption.className).toContain('truncate')
     expect(caption).toHaveAttribute('title', `от ${longSeniorName}`)
+
+    // COPY-H-5 follow-up (PR #646 fix-round 4, mutation-gate closure). The
+    // caption's `data-testid` (project-status-filter-ui.spec.ts's COPY-H-5
+    // test relies on it to measure this exact element's box) had zero unit
+    // coverage of its own — `findByText` above resolves the element by its
+    // CONTENT, never touching the testid attribute, so a mutant that empties
+    // out the whole template literal (`` `project-row-${id}-status-caption`
+    // `` → `` `` ``) left every existing assertion unaffected. Resolving the
+    // SAME element a second way and asserting it IS the same node closes
+    // that gap without duplicating the E2E test's own real-browser overlap
+    // check (mutation-gate-integration-specs.md: a unit double for the
+    // mutation gate to see, not a replacement for the real thing).
+    expect(screen.getByTestId(`project-row-${project.id}-status-caption`)).toBe(caption)
   })
 
   it('DRAFT drop-project, BOTH still pending: caption names both, drop FIRST (COPY-M-1, PR #646 fix-round 2 — the senior name is the one safe to lose to truncation, since it repeats untruncated in the Синьор column)', async () => {

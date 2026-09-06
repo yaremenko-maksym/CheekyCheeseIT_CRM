@@ -493,23 +493,33 @@ export function ProjectRow({ project, viewerRole, viewerId }: ProjectRowProps) {
                 Ждёт решения
               </Badge>
               {(viewerAlreadyActedCaption ?? pendingCaption) && (
-                // UX-H-1: fixed max-w-40 (TransactionRow.tsx:666 precedent),
-                // not max-w-full — see the container comment above for why
-                // max-w-full alone never actually caps this text's width.
-                // COPY-H-2: the viewer's own first-person caption
-                // (`viewerAlreadyActedCaption`) takes priority over the
-                // generic "who's still pending" one when the viewer is the
-                // invited approver who already acted.
-                // COPY-M-9 = UX-L-2(r3) (PR #646 fix-round 3): `max-w-40`
-                // (160px) was sized for the OLD narrow status column — below
-                // `lg:` this now lives in a full-width second row with ~230px
-                // available, capping at 160px regardless leaves real idle
-                // space while still truncating a caption one character
-                // longer. `max-w-full` below `lg:`, back to the original
-                // `max-w-40` at `lg:`+ where the column really is narrow
-                // again (byte-for-byte the pre-fix-round-2 layout).
+                // UX-H-1 / COPY-H-2 / COPY-M-9 = UX-L-2(r3): see git history
+                // for the original max-w-40 (TransactionRow.tsx:666
+                // precedent) reasoning.
+                //
+                // COPY-H-5 follow-up (PR #646 fix-round 4, found live
+                // testing the finding's own fix, same symptom as the
+                // ProjectApprovalActions overlap a few lines down, confirmed
+                // with an A/B measurement — not assumed from the badge's
+                // fix alone): with `lg:max-w-40` (160px), a real caption
+                // ("от Oleksiy Kovalenko", short enough that the 160px cap
+                // never actually engaged truncation) measured at a fixed
+                // 109.7px wide at 1024 AND 1100px specifically — wider than
+                // this column's real budget there (~100-112px) — so it read
+                // 4-14px into the rate/amount column at exactly those two
+                // widths (863px/940px caption start vs 878px/945px column
+                // end); at 1249/1280 the column is wide enough that the
+                // same 109.7px already cleared it, which is why this went
+                // unnoticed until a viewport-by-viewport measurement.
+                // Dropping the `lg:` override (matching the badge just
+                // above, which has always been plain `max-w-full`, no `lg:`
+                // exception) removed the fixed 160px ceiling; re-measured
+                // after, the box now tracks the column's own available
+                // width at every one of the six widths this file tests
+                // (83.5-115.5px), with no overlap at any of them.
                 <p
-                  className="max-w-full truncate text-[11px] text-amber-300/80 lg:max-w-40"
+                  data-testid={`project-row-${project.id}-status-caption`}
+                  className="max-w-full truncate text-[11px] text-amber-300/80"
                   title={viewerAlreadyActedCaption ?? pendingCaption ?? undefined}
                 >
                   {viewerAlreadyActedCaption ?? pendingCaption}

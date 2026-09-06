@@ -773,7 +773,10 @@ test.describe('Project status filter — AC5 (responsive)', () => {
    * invited approver here) and a viewer who ALSO sees the Confirm/Reject
    * buttons in the same column (SENIOR, the invited approver on their own
    * draft) — the finding's own note that the buttons (~110px) sit in the
-   * same narrow track.
+   * same narrow track. Also covers the "от <name>" pending caption directly
+   * below the badge (found live producing this round's screenshots — same
+   * column, same overlap symptom, same fix; see `assertBadgeNoOverlap`'s
+   * own doc and ProjectRow.tsx's comment on that caption).
    */
   test('COPY-H-5: the pending status badge (and, for the invited approver, the Confirm/Reject buttons) never overlaps the rate/amount column at 1024-1280', async ({
     page,
@@ -807,6 +810,20 @@ test.describe('Project status filter — AC5 (responsive)', () => {
     // inside an `if`/`else` — `playwright/no-conditional-expect` flags that
     // shape unconditionally, independent of whether the branch depends on
     // runtime test data or (as here) a fact already known at the call site.
+    //
+    // Also checks the "от <name>" caption below the badge (COPY-H-5
+    // follow-up, PR #646 fix-round 4) — found live while producing this
+    // round's "after" screenshots: `lg:max-w-40` on that caption measured a
+    // fixed 109.7px wide (its content never long enough to need the 160px
+    // cap), which read 4-14px into this same rate/amount column at 1024
+    // and 1100px specifically (confirmed with an A/B re-measurement, not
+    // just inferred from the badge's own fix) — a second sibling with the
+    // identical symptom and the identical fix (drop the `lg:` override, see
+    // ProjectRow.tsx's own doc on the caption). Both fixture projects here
+    // are senior-only and still pending, so `pendingCaption` ("от
+    // <seniorName>") always renders for both ADMIN and SENIOR viewers —
+    // asserting its presence first, not just skipping when absent, keeps
+    // this from silently passing if that ever stops being true.
     async function assertBadgeNoOverlap(id: string, label: string, width: number) {
       const row = page.getByTestId(`project-row-${id}`)
       await expect(row).toBeVisible()
@@ -818,6 +835,19 @@ test.describe('Project status filter — AC5 (responsive)', () => {
         intersects(badgeBox!, rateBox!),
         `${label}: status badge overlaps rate/amount column for ${id} at ${width}px`,
       ).toBe(false)
+
+      const caption = row.getByTestId(`project-row-${id}-status-caption`)
+      await expect(
+        caption,
+        `${label}: pending caption visible for ${id} at ${width}px`,
+      ).toBeVisible()
+      const captionBox = await caption.boundingBox()
+      expect(captionBox, `${label}: caption box for ${id} at ${width}px`).not.toBeNull()
+      expect(
+        intersects(captionBox!, rateBox!),
+        `${label}: "от <name>" caption overlaps rate/amount column for ${id} at ${width}px`,
+      ).toBe(false)
+
       return { row, rateBox: rateBox! }
     }
 
