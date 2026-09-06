@@ -92,15 +92,7 @@ export function useCancelPendingShare(scope: PendingShareScope, id: string) {
  * same 44px floor UX-H-1 established for the approve/reject pair in round 1 —
  * this button sits next to the same badge on the same 320px screens.
  */
-export function CancelPendingShareButton({
-  scope,
-  id,
-  className,
-}: {
-  scope: PendingShareScope
-  id: string
-  className?: string
-}) {
+export function CancelPendingShareButton({ scope, id }: { scope: PendingShareScope; id: string }) {
   const cancelMutation = useCancelPendingShare(scope, id)
   return (
     <Button
@@ -108,7 +100,9 @@ export function CancelPendingShareButton({
       variant="ghost"
       aria-label="Отменить предложение"
       title="Отменить предложение"
-      className={`h-11 w-11 shrink-0 p-0 sm:h-8 sm:w-8 ${className ?? ''}`}
+      // No `className` escape hatch: neither call site needs one, and an
+      // unused prop is a branch no test can reach.
+      className="h-11 w-11 shrink-0 p-0 sm:h-8 sm:w-8"
       disabled={cancelMutation.isPending}
       onClick={() => cancelMutation.mutate()}
       data-testid={`cancel-pending-share-${scope}`}

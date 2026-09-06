@@ -498,7 +498,9 @@ export function UserDialog(props: UserDialogProps) {
       // did apply, so the old string was not wholly false; it was silent
       // about exactly the thing the operator needs to know. The response
       // already carries the opened proposal — no extra round-trip.
-      const pending = response.data?.pendingSeniorShare
+      // `AxiosResponse.data` is non-optional — an `?.` here would be dead
+      // defensiveness, and the mutation gate is right to call that out.
+      const pending = response.data.pendingSeniorShare
       if (pending) {
         toast.success(
           `Сохранено. Новая доля ${pending.percent}% ждёт подтверждения синьора — пока действует ${response.data.seniorSharePercent}%`,
@@ -808,8 +810,14 @@ export function UserDialog(props: UserDialogProps) {
             value.bankUahRnokpp.trim() !== (editingUser.bankUahRnokpp ?? '') ||
             value.bankUahBankName.trim() !== (editingUser.bankUahBankName ?? ''))
 
-        // task-648-fix-round-2 (SR-M-5): see the payload comment below.
-        const shareChanged = value.seniorSharePercent !== (editingUser?.seniorSharePercent ?? 26)
+        // task-648-fix-round-2 (SR-M-5): see the payload comment below. Same
+        // `!!editingUser &&` shape as `paymentChanged` directly above — with
+        // no server snapshot to compare against there is no evidence the
+        // operator changed anything, so the field stays off the wire.
+        // `seniorSharePercent` is a non-nullable `number` on `UserProfileDto`,
+        // so no `?? 26` fallback: it would be unreachable.
+        const shareChanged =
+          !!editingUser && value.seniorSharePercent !== editingUser.seniorSharePercent
 
         // ut-17: normalize team telegram channel value. Strip leading @ before
         // sending — the backend stores the bare handle, UI re-adds @ on display.
@@ -1510,7 +1518,11 @@ export function UserDialog(props: UserDialogProps) {
                                   nothing about a proposal already awaiting an
                                   answer — so the natural gesture silently
                                   superseded it. */}
-                              {!isCreate && editingUser?.pendingSeniorShare && (
+                              {/* `editingUser` is null in create mode
+                                  (see its own `useMemo`), so an extra
+                                  `!isCreate` guard here would be unreachable
+                                  by construction. */}
+                              {editingUser?.pendingSeniorShare && (
                                 <PendingShareEditNotice
                                   scope="user"
                                   id={editingUser.id}

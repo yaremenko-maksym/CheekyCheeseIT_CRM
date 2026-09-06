@@ -88,12 +88,28 @@ const SHARE_PERMS: ViewPermissions = {
 
 const EMPTY_DATA = { overview: {} }
 
-function renderTab(user: UserProfileDto, mode: 'self' | 'view') {
+/**
+ * task-648-fix-round-2 (UX-H-3(r2)): the withdraw control is ADMIN-only, and
+ * the component reads that off the SAME `set-note` action key `canSeeAdminNote`
+ * already uses (see `UsersAccessService` — it means "ADMIN viewing someone
+ * else"). An ACCOUNTANT/HR viewer has `fields.share` but not that action.
+ */
+const ADMIN_SHARE_PERMS: ViewPermissions = {
+  tabs: ['overview'],
+  actions: ['set-note'],
+  fields: { share: true },
+}
+
+function renderTab(
+  user: UserProfileDto,
+  mode: 'self' | 'view',
+  permissions: ViewPermissions = SHARE_PERMS,
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={qc}>
       <TooltipProvider>
-        <OverviewTab user={user} mode={mode} permissions={SHARE_PERMS} data={EMPTY_DATA} />
+        <OverviewTab user={user} mode={mode} permissions={permissions} data={EMPTY_DATA} />
       </TooltipProvider>
     </QueryClientProvider>,
   )
@@ -171,9 +187,55 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
   // `pointerType === 'touch'`) and impossible from a keyboard (`Badge`
   // renders a non-focusable `div`). Asserted WITHOUT any hover.
   it('view-mode shows the approver name and the live percent without hovering anything', () => {
+    renderTab(
+      makeUser({ role: 'SENIOR', seniorSharePercent: 26, pendingSeniorShare: PENDING }),
+      'view',
+    )
+    // The WHOLE sentence, both facts and the live number — a partial match
+    // would survive the name or the percent being dropped.
+    const line = screen.getByText(/Подтверждает Senior One/)
+    expect(line.textContent).toBe('Подтверждает Senior One — пока действует 26%')
+  })
+
+  it('the live percent in that line is the ACTIVE one, not the proposed one', () => {
+    // PENDING proposes 55; the sentence must say 26 — naming the proposed
+    // value here would tell the reader the change already happened.
+    renderTab(
+      makeUser({ role: 'SENIOR', seniorSharePercent: 26, pendingSeniorShare: PENDING }),
+      'view',
+    )
+    expect(screen.getByText(/Подтверждает Senior One/).textContent).toContain('26%')
+    expect(screen.getByText(/Подтверждает Senior One/).textContent).not.toContain('55%')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-648-fix-round-2 (UX-H-3(r2) / SR-H-2 / CR-H-3 / SPEC-H-2 / QA-HIGH-2):
+// the withdraw control. Round 1 shipped the endpoint with no way to reach it.
+// ---------------------------------------------------------------------------
+
+describe('OverviewTab — withdraw ("Отменить предложение") control', () => {
+  it('an ADMIN viewer gets it next to the indicator', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view', ADMIN_SHARE_PERMS)
+    expect(screen.getByTestId('cancel-pending-share-user')).toBeInTheDocument()
+  })
+
+  it('a viewer who can see the share but is NOT an admin does not get it', () => {
+    // ACCOUNTANT/HR shape: `fields.share` yes, `set-note` action no. The
+    // backend would 403 them on the cancel endpoint, so offering the button
+    // would be a promise the server refuses to keep.
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view')
-    expect(screen.getByText(/Подтверждает Senior One/)).toBeInTheDocument()
-    expect(screen.getByText(/пока действует/)).toBeInTheDocument()
+    expect(screen.queryByTestId('cancel-pending-share-user')).toBeNull()
+  })
+
+  it('is absent when nothing is pending, even for an ADMIN viewer', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: null }), 'view', ADMIN_SHARE_PERMS)
+    expect(screen.queryByTestId('cancel-pending-share-user')).toBeNull()
+  })
+
+  it('carries an accessible name — it is icon-only', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view', ADMIN_SHARE_PERMS)
+    expect(screen.getByRole('button', { name: 'Отменить предложение' })).toBeInTheDocument()
   })
 })
 
@@ -243,6 +305,20 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('network down'))
+  })
+
+  it("reject: an error with neither .response nor a string .message falls through to REJECT's own fallback text", async () => {
+    // task-648-fix-round-2 (COPY-L-6): approve and reject now carry DIFFERENT
+    // last-resort strings again (round 1 merged them into one anonymous "Не
+    // удалось выполнить действие"). Asserting only approve's would let
+    // reject's be blanked without a single test noticing.
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    await user.type(screen.getByTestId('pending-base-share-reject-reason'), 'нет')
+    await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось отклонить'))
   })
 
   it("approve: an error with neither .response nor a string .message falls through to seniorShareErrorMessage's own fallback text", async () => {

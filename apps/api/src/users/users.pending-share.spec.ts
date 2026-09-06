@@ -244,6 +244,33 @@ describe('UsersService — SR-M-6: uniform lock order (users → approvals) on e
     await h.service.cancelSeniorShareChange('senior-1', adminUser)
     expect(h.lockOrder).toEqual(['users:for-update', 'approvals:cancelInTx'])
   })
+
+  // task-648-fix-round-2 (AC9): the not-found guard that now sits on each of
+  // those newly-added locks. Nothing reached it — every other test in this
+  // file has a user row present — so a guard deleted outright, or one whose
+  // message was blanked, was indistinguishable from the real thing.
+  it('cancel: throws NotFoundException with the exact message when the row vanished before the lock', async () => {
+    const h = buildHarness({ pendingSeniorSharePercent: 80 })
+    h.setSelectForUpdateRows([])
+    // `.toThrow('x')` is substring containment, so a BLANKED message would
+    // still satisfy it (every string contains ''). Matched exactly instead —
+    // this is user-facing copy (russian-language.md), not a log line.
+    await expect(h.service.cancelSeniorShareChange('senior-1', adminUser)).rejects.toMatchObject({
+      message: 'Пользователь не найден',
+    })
+    // The guard runs BEFORE approvals is touched.
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
+  })
+
+  it('reject: throws NotFoundException with the exact message when the row vanished before the lock', async () => {
+    const h = buildHarness({ pendingSeniorSharePercent: 80 })
+    h.setSelectForUpdateRows([])
+    // Exact match, not substring — see the cancel twin above.
+    await expect(
+      h.service.rejectSeniorShareChange('senior-1', 'Слишком много', seniorUser),
+    ).rejects.toMatchObject({ message: 'Пользователь не найден' })
+    expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
+  })
 })
 
 describe('UsersService — pending base share AC2 (resolver returns previous value while pending)', () => {

@@ -476,7 +476,12 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                           on every device, no hover required. */}
                       <p className="text-xs text-muted-foreground break-words">
                         Подтверждает {user.pendingSeniorShare.approverName} — пока действует{' '}
-                        <span className="tabular-nums">{user.seniorSharePercent ?? 0}%</span>
+                        {/* `seniorSharePercent` is a non-nullable `number`
+                            on `UserProfileDto` — no `?? 0` fallback, it
+                            would be unreachable. (The KPI card above needs
+                            one because it also renders `dropSharePercent`,
+                            which IS nullable.) */}
+                        <span className="tabular-nums">{user.seniorSharePercent}%</span>
                       </p>
                     </div>
                     {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw

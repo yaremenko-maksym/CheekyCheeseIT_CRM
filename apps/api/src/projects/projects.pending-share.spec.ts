@@ -854,10 +854,46 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
     expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).toBeNull()
   })
 
+  // task-648-fix-round-2 (SR-bm-3): the gate names TWO roles, and only one of
+  // them was exercised — an assertion covering ADMIN alone leaves "or SENIOR"
+  // free to be deleted. The SENIOR reaches `loadForResponse` through
+  // approve/reject of their own share proposal (and through approve/rejectDraft
+  // while a share proposal is separately live — that method's own comment).
+  it('SR-bm-3: resolves it for the affected SENIOR too, not only for ADMIN', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    const result = await h.service.rejectSeniorShareChange('proj-1', 'Слишком мало', seniorUser)
+    expect(h.approvals.getStatus).toHaveBeenCalledWith('PROJECT_SENIOR_SHARE', 'proj-1')
+    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).not.toBeNull()
+  })
+
   it('SR-bm-3: still resolves it for ADMIN, who can', async () => {
     const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
-    await h.service.cancelSeniorShareChange('proj-1', adminUser)
+    const result = await h.service.cancelSeniorShareChange('proj-1', adminUser)
     expect(h.approvals.getStatus).toHaveBeenCalledWith('PROJECT_SENIOR_SHARE', 'proj-1')
+    // Asserted on the RESPONSE too, not only on the lookup: the gate's job is
+    // to decide what the caller RECEIVES, and a gate stuck at "nobody" would
+    // still satisfy a call-count assertion elsewhere in the suite.
+    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).not.toBeNull()
+  })
+
+  // task-648-fix-round-2 (SR-M-7 / AC9): the row lock and its not-found guard
+  // are the first two statements of the cancel transaction, and nothing
+  // reached them — every other cancel test has a project row present.
+  it('throws NotFoundException with the exact message when the project vanished before the lock', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    h.setSelectForUpdateRows([])
+    await expect(h.service.cancelSeniorShareChange('proj-1', adminUser)).rejects.toThrow(
+      'Проект не найден',
+    )
+    // The guard runs BEFORE approvals is touched — a vanished project must
+    // not leave a cancelled approval behind for a row that no longer exists.
+    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
+  })
+
+  it('locks the project row FOR UPDATE before cancelling (not a plain select)', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    await h.service.cancelSeniorShareChange('proj-1', adminUser)
+    expect(h.selectForCalls).toContain('update')
   })
 
   it('returns the reloaded project via mapProject (pendingSeniorShare is null in the response after cancel)', async () => {

@@ -251,3 +251,66 @@ describe('UserDialog — COPY-H-6: saving a share change says the change is not 
     expect(toastSuccess).toHaveBeenCalledWith('Пользователь обновлён')
   })
 })
+
+// ---------------------------------------------------------------------------
+// task-648-fix-round-2 (UX-H-3(r2)) — the edit dialog stops hiding a live
+// proposal. The designer's finding: an ADMIN who opens this form to "fix" the
+// percent saw a slider holding the ACTIVE value and nothing at all about the
+// proposal already awaiting an answer, so the natural gesture (type a new
+// number, save) silently superseded it.
+// ---------------------------------------------------------------------------
+
+const seniorWithPending: UserProfileDto = {
+  ...seniorUser,
+  pendingSeniorShare: {
+    percent: 40,
+    effectivePercentAfterApproval: 40,
+    approverId: 'senior-1',
+    approverName: 'Синьйор Тест',
+  },
+} as unknown as UserProfileDto
+
+describe('UserDialog — edit dialog announces a live proposal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+    mockPost.mockResolvedValue({ data: { ...seniorUser, pendingSeniorShare: null } })
+  })
+
+  it('names the proposed percent and the person who must answer it', async () => {
+    render(<UserDialog mode="edit" user={seniorWithPending} onClose={vi.fn()} />)
+    const notice = await screen.findByTestId('pending-share-edit-notice-user')
+    expect(notice).toHaveTextContent('40%')
+    expect(notice).toHaveTextContent('Синьйор Тест')
+  })
+
+  it('offers to withdraw it, and the button POSTs to the cancel endpoint', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="edit" user={seniorWithPending} onClose={vi.fn()} />)
+    await user.click(await screen.findByTestId('cancel-pending-share-user-in-dialog'))
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/users/senior-1/senior-share/cancel'),
+    )
+  })
+
+  it('is absent when nothing is pending', async () => {
+    render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
+    // Wait for the share field itself so "absent" is a real absence, not a
+    // race against the dialog rendering at all.
+    await screen.findByRole('spinbutton', { name: 'Доля синьора в процентах' })
+    expect(screen.queryByTestId('pending-share-edit-notice-user')).toBeNull()
+  })
+
+  it('is absent in create mode, where the share field renders against a null editingUser', async () => {
+    // Also the only test that renders the share field with `editingUser ===
+    // null` — the `?.` in `editingUser?.pendingSeniorShare` is load-bearing
+    // exactly here, and without this case a plain `.` would throw only in
+    // production.
+    // `hrOnly` starts the wizard on role SENIOR (see `initialRole`), which
+    // is what puts the share field on screen with no `editingUser` behind it.
+    render(<UserDialog mode="create" open={true} hrOnly onClose={vi.fn()} />)
+    await screen.findByTestId('user-dialog-name')
+    expect(screen.getByRole('spinbutton', { name: 'Доля синьора в процентах' })).toBeInTheDocument()
+    expect(screen.queryByTestId('pending-share-edit-notice-user')).toBeNull()
+  })
+})
