@@ -45,6 +45,20 @@ async function deleteProjectViaAPI(page: import('@playwright/test').Page, projec
   await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)
 }
 
+/**
+ * CR-M-5 (PR #646 fix-round 5, MED). AABB rect-intersection — same three
+ * call sites this file already had (QA-H-1's overlap test, CR-H-2's label
+ * test, COPY-H-5's badge test), each with its OWN byte-identical copy
+ * (fix-round 4 added the third). Module-scope, one definition, three
+ * callers — behavior unchanged, only the duplication removed.
+ */
+function intersects(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+}
+
 test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
   test('ADMIN: 4 tabs, default Active matches today, Pending/Rejected show only their own projects', async ({
     page,
@@ -542,12 +556,6 @@ test.describe('Project status filter — AC5 (responsive)', () => {
         expect(rateBox, `rate column content box at ${width}px`).not.toBeNull()
         expect(seniorBox, `senior column content box at ${width}px`).not.toBeNull()
 
-        const intersects = (
-          a: { x: number; y: number; width: number; height: number },
-          b: { x: number; y: number; width: number; height: number },
-        ) =>
-          a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
-
         expect(
           intersects(statusBox!, rateBox!),
           `status column content overlaps rate/date column content at ${width}px`,
@@ -599,12 +607,6 @@ test.describe('Project status filter — AC5 (responsive)', () => {
 
       const seniorLabel = row.getByText('Синьор', { exact: true })
       const juniorLabel = row.getByText('Джун', { exact: true })
-
-      const intersects = (
-        a: { x: number; y: number; width: number; height: number },
-        b: { x: number; y: number; width: number; height: number },
-      ) =>
-        a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
       for (const width of [320, 375]) {
         await page.setViewportSize({ width, height: 900 })
@@ -797,11 +799,6 @@ test.describe('Project status filter — AC5 (responsive)', () => {
     })
     const projectIds = [id1, id2]
     const WIDTHS = [1024, 1056, 1100, 1176, 1249, 1280]
-
-    const intersects = (
-      a: { x: number; y: number; width: number; height: number },
-      b: { x: number; y: number; width: number; height: number },
-    ) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
     // Shared per-row badge-vs-rate check, returning the rate box so the
     // actions-vs-rate check below (SENIOR only) can reuse it without
