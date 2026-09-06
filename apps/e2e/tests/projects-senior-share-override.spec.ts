@@ -59,6 +59,7 @@ function mockProjectDetail(
     ...overrides,
     pendingSeniorShare: null as {
       percent: number | null
+      effectivePercentAfterApproval: number
       approverId: string
       approverName: string
     } | null,
@@ -88,8 +89,20 @@ function mockProjectDetail(
       const { seniorSharePercentOverride, ...rest } = body
       Object.assign(detail, rest)
       if ('seniorSharePercentOverride' in body) {
+        // task-648-fix-round-1 (COPY-H-2/COPY-H-3): the real backend always
+        // resolves `effectivePercentAfterApproval` server-side (PROJECT →
+        // TEAM → USER_DEFAULT, substituting the PENDING value for the live
+        // override) — it is NEVER left for the client to guess, which is
+        // the exact bug those findings closed (a `percent ?? 0`/`?? default`
+        // fallback rendering a wrong number). This fixture has no team
+        // override, so PROJECT → USER_DEFAULT is the whole chain: a
+        // concrete percent resolves to itself, `null` (clearing the
+        // override) falls back to `seniorSharePercentDefault`.
+        const percent = seniorSharePercentOverride as number | null
         detail['pendingSeniorShare'] = {
-          percent: seniorSharePercentOverride as number | null,
+          percent,
+          effectivePercentAfterApproval:
+            percent ?? (detail['seniorSharePercentDefault'] as number | null) ?? 26,
           approverId: (detail['seniorId'] as string) ?? USERS.senior.id,
           approverName: (detail['seniorName'] as string) ?? USERS.senior.displayName,
         }
@@ -385,6 +398,7 @@ test.describe('per-project SENIOR share override', () => {
         seniorSharePercentDefault: 26,
         pendingSeniorShare: null as {
           percent: number | null
+          effectivePercentAfterApproval: number
           approverId: string
           approverName: string
         } | null,
@@ -412,6 +426,14 @@ test.describe('per-project SENIOR share override', () => {
             const proposedPercent = overrideRaw === 26 ? null : (overrideRaw as number | null)
             detail['pendingSeniorShare'] = {
               percent: proposedPercent,
+              // task-648-fix-round-1 (COPY-H-2/COPY-H-3): the real backend
+              // always resolves this server-side — see mockProjectDetail's
+              // identical comment above for the full reasoning. Clearing the
+              // override here has nothing above it in the mock's resolver
+              // chain (no team override in this fixture), so it falls
+              // straight back to `seniorSharePercentDefault` (26).
+              effectivePercentAfterApproval:
+                proposedPercent ?? (detail['seniorSharePercentDefault'] as number),
               approverId: USERS.senior.id,
               approverName: USERS.senior.displayName,
             }
@@ -456,9 +478,12 @@ test.describe('per-project SENIOR share override', () => {
       // nothing has been confirmed yet.
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
-      // The pending indicator shows the PROPOSED outcome — clearing the
-      // override falls back to the default (26%), phrased as "26%" per
-      // ProjectShareInfo's own `pending.percent ?? fallback` fallback.
+      // The pending indicator shows the RESOLVED outcome — clearing the
+      // override falls back to the default (26%), read from the server-
+      // resolved `effectivePercentAfterApproval` field (task-648-fix-
+      // round-1 COPY-H-2/COPY-H-3), never guessed client-side via
+      // `pending.percent ?? fallback` (that guess was the bug those
+      // findings closed).
       const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
       await expect(pendingBadge).toBeVisible()
       await expect(pendingBadge).toContainText('26%')
