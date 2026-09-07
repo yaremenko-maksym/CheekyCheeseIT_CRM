@@ -363,6 +363,22 @@ export class InterviewsService {
   }
 
   /**
+   * SR-M-1 (PR #662 round 2): shared "not archived" predicate for
+   * `getBoardSeniors`'s ADMIN and HR branches. Archiving a SENIOR
+   * intentionally leaves `teamMembers.leftAt` untouched for them AND for
+   * their team's HR/accountant (see `UsersService.archiveUser`'s own
+   * docblock — resetting it would break salary accrual for the rest of the
+   * team), so `getAccessibleSeniorIds` alone cannot tell an archived senior
+   * apart from an active one. The ADMIN branch below filtered
+   * `users.archivedAt` from the start; the HR branch used to skip it
+   * entirely, so an archived senior — invisible to ADMIN's selector — stayed
+   * visible in HR's selector for the exact same request. Both branches now
+   * read this ONE field instead of maintaining two copies that can drift
+   * apart again.
+   */
+  private readonly notArchived: SQL = isNull(users.archivedAt)
+
+  /**
    * Board selector data source — `GET /api/interviews/seniors`
    * (task-hr-drop-team-senior-board).
    *
@@ -380,8 +396,10 @@ export class InterviewsService {
    *   - ADMIN  — every active (non-archived) SENIOR, mirrors the old
    *              client-side `allSeniors` derivation.
    *   - HR     — `getAccessibleSeniorIds` (same function GET /interviews
-   *              gates on): active SENIOR members of every team this HR is
-   *              itself an ACTIVE member of, regardless of team type.
+   *              gates on): active, non-archived SENIOR members of every
+   *              team this HR is itself an ACTIVE member of, regardless of
+   *              team type — same archival filter as the ADMIN branch
+   *              (SR-M-1; see `notArchived` above).
    *   - SENIOR — themselves only (the selector isn't shown to SENIOR on the
    *              frontend; this exists for symmetry/completeness).
    *   - anyone else — 403 (also enforced by the controller's @Roles guard).
@@ -399,14 +417,14 @@ export class InterviewsService {
       const accessibleSeniorIds = [...(await this.getAccessibleSeniorIds(currentUser))]
       if (accessibleSeniorIds.length === 0) return []
       const rows = await this.db.db.query.users.findMany({
-        where: inArray(users.id, accessibleSeniorIds),
+        where: and(inArray(users.id, accessibleSeniorIds), this.notArchived),
       })
       return rows.map((u) => this.mapBoardSenior(u))
     }
 
     if (currentUser.role === 'ADMIN') {
       const rows = await this.db.db.query.users.findMany({
-        where: and(eq(users.role, 'SENIOR'), isNull(users.archivedAt)),
+        where: and(eq(users.role, 'SENIOR'), this.notArchived),
       })
       return rows.map((u) => this.mapBoardSenior(u))
     }

@@ -15,9 +15,10 @@
  * Drizzle `where` AST each call receives (via `compileWhere`, mirroring
  * `create-from-interview-active-teams.unit.spec.ts`) and only return rows
  * that predicate would actually match. That ties the mock's answer to the
- * production code's own predicate: delete `isNull(users.archivedAt)` from the
- * ADMIN branch, or swap `inArray` for the wrong id set in the HR branch, and
- * the assertions below fail for real — not just "the mock was called".
+ * production code's own predicate: delete the shared `notArchived` field
+ * (SR-M-1) from either the ADMIN or the HR branch, or swap `inArray` for the
+ * wrong id set in the HR branch, and the assertions below fail for real —
+ * not just "the mock was called".
  */
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
@@ -137,6 +138,11 @@ function makeDb(opts: { teamMemberships?: unknown[]; allUsers: UserRow[] }) {
   const usersFindMany = vi.fn((args: { where: unknown }) => {
     const { sql, params } = compileWhere(args.where)
     const wantsSenior = params.includes('SENIOR')
+    // SR-M-1 (PR #662 round 2): `notArchived` is ANDed into BOTH branches'
+    // `where` now, so this check must apply to both, not just the ADMIN
+    // ("wantsSenior") one — otherwise the mock would stay green even if the
+    // HR branch's archival filter were deleted, defeating the point of
+    // compiling the real `where` at all.
     const wantsActiveOnly = sql.includes('"archived_at" is null')
     if (wantsSenior) {
       return Promise.resolve(
@@ -145,9 +151,14 @@ function makeDb(opts: { teamMemberships?: unknown[]; allUsers: UserRow[] }) {
         ),
       )
     }
-    // HR branch — inArray(users.id, accessibleSeniorIds). All bound params
-    // are the requested ids; return exactly those rows (order-independent).
-    return Promise.resolve(opts.allUsers.filter((u) => params.includes(u.id)))
+    // HR branch — inArray(users.id, accessibleSeniorIds) AND notArchived.
+    // Bound params are the requested ids; return rows matching both the id
+    // set and (when present) the archival filter.
+    return Promise.resolve(
+      opts.allUsers.filter(
+        (u) => params.includes(u.id) && (!wantsActiveOnly || u.archivedAt === null),
+      ),
+    )
   })
   const usersFindFirst = vi.fn((args: { where: unknown }) => {
     const { params } = compileWhere(args.where)
@@ -263,6 +274,56 @@ describe('InterviewsService.getBoardSeniors', () => {
     })
     const result = await service.getBoardSeniors(HR)
     expect(result).toEqual([])
+  })
+
+  // SR-M-1 (PR #662 round 2): archiving a SENIOR intentionally leaves
+  // teamMembers.leftAt untouched for them and their HR (see
+  // UsersService.archiveUser's own docblock — resetting it would break
+  // salary accrual for the rest of the team), so getAccessibleSeniorIds()
+  // alone cannot tell an archived senior apart from an active one. Mirrors
+  // the 'ADMIN: ... excludes an archived one' test above, but through the HR
+  // branch, which used to skip the archivedAt filter entirely.
+  it('HR: an archived senior who is still an active team member is not returned', async () => {
+    const { service } = build({
+      teamMemberships: [
+        {
+          team: {
+            members: [
+              { userId: HR.id, leftAt: null, user: { role: 'HR' } },
+              { userId: SENIOR_ACTIVE.id, leftAt: null, user: { role: 'SENIOR' } },
+              { userId: SENIOR_ARCHIVED.id, leftAt: null, user: { role: 'SENIOR' } },
+            ],
+          },
+        },
+      ],
+      allUsers: [SENIOR_ACTIVE, SENIOR_ARCHIVED],
+    })
+    const result = await service.getBoardSeniors(HR)
+    const ids = result.map((r) => r.id)
+    expect(ids).toEqual([SENIOR_ACTIVE.id])
+    expect(ids).not.toContain(SENIOR_ARCHIVED.id)
+  })
+
+  // SPEC-M-1 (PR #662 round 2): AC1 names this case explicitly ("HR, покинувший
+  // команду — не получает") but it previously only existed at the integration
+  // level (board-seniors.integration.spec.ts, persona HR_LEFT). Same
+  // technique as 'HR: a senior who left the shared team is not returned'
+  // above, flipped to whose leftAt matters: getAccessibleSeniorIds() scopes
+  // its OWN top-level query to `eq(teamMembers.userId, hrId) AND
+  // isNull(teamMembers.leftAt)` — a real Postgres query for an HR whose own
+  // membership ended returns ZERO rows, which is exactly what an empty
+  // `teamMemberships` fixture represents here: `teamMembersFindMany` is a
+  // passthrough mock and does not itself compile/apply that WHERE clause (it
+  // has no `compileWhere` treatment, unlike `usersFindMany` above), so the
+  // real predicate is proven at the DB level by HR_LEFT in the integration
+  // spec — this unit test's job is AC1 traceability plus confirming
+  // getBoardSeniors' HR branch short-circuits correctly no matter WHY the
+  // accessible-senior set came back empty.
+  it('HR: own team membership has ended → gets no seniors (not just "never joined")', async () => {
+    const { service, usersFindMany } = build({ teamMemberships: [], allUsers: [SENIOR_ACTIVE] })
+    const result = await service.getBoardSeniors(HR)
+    expect(result).toEqual([])
+    expect(usersFindMany).not.toHaveBeenCalled()
   })
 
   // ── SENIOR — self only ───────────────────────────────────────────────────

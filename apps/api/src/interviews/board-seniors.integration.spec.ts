@@ -143,15 +143,30 @@ const DROP: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
+// SR-M-1 (PR #662 round 2): HR whose ONLY team contains an archived senior
+// (still an ACTIVE team_members row — archiving never sets leftAt) and
+// nothing else, so this persona's board-selector result is a clean signal
+// for "did the HR branch apply the same archivedAt filter as ADMIN's".
+const HR_SEES_ARCHIVED: SessionUser = {
+  id: 'c2000000-0000-4000-aa00-000000000012',
+  email: 'bs-hr-sees-archived@test.spec',
+  displayName: 'BS HR Sees Archived',
+  avatarUrl: null,
+  role: 'HR',
+  seniorSharePercent: 0,
+  legalFullName: null,
+}
 
 const TEAM_DROP = 'c2000000-0000-4000-bb00-000000000001' // type='DROP' — the repro team
 const TEAM_OTHER = 'c2000000-0000-4000-bb00-000000000002' // type='SENIOR' — unrelated team
+const TEAM_ARCHIVED = 'c2000000-0000-4000-bb00-000000000003' // type='SENIOR' — SR-M-1 fixture, isolated from the other two
 
 const ALL_USERS = [
   ADMIN,
   HR_DROP,
   HR_OTHER,
   HR_LEFT,
+  HR_SEES_ARCHIVED,
   SENIOR_DROP,
   SENIOR_LEFT,
   SENIOR_PLAIN,
@@ -273,8 +288,13 @@ describe.skipIf(!hasDatabaseUrl())(
       const db = dbSvc.db
 
       // Surgical cleanup of any leftover rows BEFORE seeding (deterministic).
-      await db.delete(teamMembers).where(inArray(teamMembers.userId, TEST_USER_IDS))
-      await db.delete(teams).where(inArray(teams.id, [TEAM_DROP, TEAM_OTHER]))
+      // SENIOR_ARCHIVED_ID gets its own teamMembers row now (SR-M-1 fixture,
+      // TEAM_ARCHIVED) despite not being in TEST_USER_IDS — same treatment
+      // the users-delete below already gives it.
+      await db
+        .delete(teamMembers)
+        .where(inArray(teamMembers.userId, [...TEST_USER_IDS, SENIOR_ARCHIVED_ID]))
+      await db.delete(teams).where(inArray(teams.id, [TEAM_DROP, TEAM_OTHER, TEAM_ARCHIVED]))
       await db.delete(users).where(inArray(users.id, [...TEST_USER_IDS, SENIOR_ARCHIVED_ID]))
 
       // ── Seed users ────────────────────────────────────────────────────────
@@ -303,11 +323,15 @@ describe.skipIf(!hasDatabaseUrl())(
         .onConflictDoNothing()
 
       // ── Seed teams: TEAM_DROP is type='DROP' — the actual repro shape ──────
+      // TEAM_ARCHIVED (SR-M-1) is deliberately its own team, isolated from
+      // TEAM_DROP/TEAM_OTHER, so seeding it can never change what HR_DROP or
+      // HR_OTHER see — only HR_SEES_ARCHIVED's result depends on it.
       await db
         .insert(teams)
         .values([
           { id: TEAM_DROP, name: 'BS Drop Team', type: 'DROP' },
           { id: TEAM_OTHER, name: 'BS Other Team', type: 'SENIOR' },
+          { id: TEAM_ARCHIVED, name: 'BS Archived-Senior Team', type: 'SENIOR' },
         ])
         .onConflictDoNothing()
 
@@ -317,14 +341,20 @@ describe.skipIf(!hasDatabaseUrl())(
         { teamId: TEAM_DROP, userId: SENIOR_LEFT.id, leftAt: new Date('2026-01-15') },
         { teamId: TEAM_DROP, userId: HR_LEFT.id, leftAt: new Date('2026-01-20') },
         { teamId: TEAM_OTHER, userId: HR_OTHER.id },
+        // SR-M-1: both ACTIVE members (no leftAt) — SENIOR_ARCHIVED_ID's
+        // exclusion must come from users.archivedAt, not from team scope.
+        { teamId: TEAM_ARCHIVED, userId: HR_SEES_ARCHIVED.id },
+        { teamId: TEAM_ARCHIVED, userId: SENIOR_ARCHIVED_ID },
       ])
     }, 30_000)
 
     afterAll(async () => {
       try {
         const db = dbSvc.db
-        await db.delete(teamMembers).where(inArray(teamMembers.userId, TEST_USER_IDS))
-        await db.delete(teams).where(inArray(teams.id, [TEAM_DROP, TEAM_OTHER]))
+        await db
+          .delete(teamMembers)
+          .where(inArray(teamMembers.userId, [...TEST_USER_IDS, SENIOR_ARCHIVED_ID]))
+        await db.delete(teams).where(inArray(teams.id, [TEAM_DROP, TEAM_OTHER, TEAM_ARCHIVED]))
         await db.delete(users).where(inArray(users.id, [...TEST_USER_IDS, SENIOR_ARCHIVED_ID]))
       } catch {
         // non-fatal
@@ -392,6 +422,18 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('HR who left the team gets no seniors', async () => {
       const res = await seniorsAs(HR_LEFT)
+      const body = boardSeniorSchema.array().parse(res.json())
+      expect(body).toEqual([])
+    })
+
+    // SR-M-1 (PR #662 round 2): HR_SEES_ARCHIVED's ONLY team membership is
+    // TEAM_ARCHIVED, whose ONLY senior is SENIOR_ARCHIVED_ID — an ACTIVE
+    // team_members row (no leftAt) for an archived user. Before the fix the
+    // HR branch's users query had no archivedAt filter, so this returned the
+    // archived senior; ADMIN's equivalent exclusion is proven separately
+    // below.
+    it('HR does not see an archived senior who is still an active team member', async () => {
+      const res = await seniorsAs(HR_SEES_ARCHIVED)
       const body = boardSeniorSchema.array().parse(res.json())
       expect(body).toEqual([])
     })
