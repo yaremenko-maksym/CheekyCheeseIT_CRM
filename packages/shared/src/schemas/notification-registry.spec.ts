@@ -184,17 +184,17 @@ describe('describeNotification — все ветки, чтобы гейт мут
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'VALIDATED', rejectionReason: null },
-      'Проверена: 10.00 USD',
+      'Доход валидирован: 10.00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReason: null },
-      'Отклонена: 10.00 USD',
+      'Доход отклонён: 10.00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReason: 'Нет чека' },
-      'Отклонена: 10.00 USD — Нет чека',
+      'Доход отклонён: 10.00 USD — Нет чека',
     ],
     ['TEAM_MEMBER_ADDED', { teamName: 'Alpha' }, 'Команда Alpha'],
     ['PROJECT_MEMBER_ADDED', { projectName: 'Acme' }, 'Проект Acme'],

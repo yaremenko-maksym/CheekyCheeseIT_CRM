@@ -196,10 +196,14 @@ export function describeNotification<T extends NewNotificationType>(
     }
     case 'TRANSACTION_STATUS_CHANGED': {
       const d = data as NotificationDataByType['TRANSACTION_STATUS_CHANGED']
-      if (d.status === 'VALIDATED') return `Проверена: ${money(d)}`
+      // «Валидация дохода» — термин из CONTEXT.md для перехода
+      // `PENDING → VALIDATED`; «проверка транзакции» стоит там же в списке
+      // _Избегать_. Это первый текст, который увидят все сотрудники, и он
+      // обязан говорить теми же словами, что и остальной интерфейс.
+      if (d.status === 'VALIDATED') return `Доход валидирован: ${money(d)}`
       return d.rejectionReason === null
-        ? `Отклонена: ${money(d)}`
-        : `Отклонена: ${money(d)} — ${d.rejectionReason}`
+        ? `Доход отклонён: ${money(d)}`
+        : `Доход отклонён: ${money(d)} — ${d.rejectionReason}`
     }
     case 'TEAM_MEMBER_ADDED': {
       const d = data as NotificationDataByType['TEAM_MEMBER_ADDED']
