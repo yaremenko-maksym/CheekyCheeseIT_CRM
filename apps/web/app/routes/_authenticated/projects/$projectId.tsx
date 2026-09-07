@@ -50,6 +50,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   CancelPendingShareButton,
   PendingShareEditNotice,
+  pendingShareAudience,
 } from '@/components/pending-share/cancel-pending-share'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -465,9 +466,20 @@ export function ProjectEditFields({
                       described (SR-H-2): withdrawing is the explicit button
                       below, and no text may promise a gesture that no longer
                       does anything. */}
+                  {/* task-648-fix-round-3 (COPY-M-16): one tense and one
+                      vocabulary. The old sentence promised in the PRESENT
+                      that the same value «сбрасывает переопределение», then
+                      said in the FUTURE that nothing happens until the senior
+                      confirms — two contradictory claims about the same save,
+                      the first of which is not true any more (nothing on this
+                      form takes effect on save). And «переопределение» is not
+                      a word the product uses: CONTEXT.md's «Доля синьора»
+                      entry calls the personal level «(по умолчанию)», and
+                      this screen's own approval banner already says
+                      «индивидуальная доля». */}
                   <p className="text-xs text-muted-foreground">
-                    По умолчанию: {defaultSharePercent}%. То же значение сбрасывает переопределение.
-                    Новая доля начнёт действовать после подтверждения синьора.
+                    По умолчанию — {defaultSharePercent}%. Это же значение снимет индивидуальную
+                    долю по проекту. Любое изменение начнёт действовать после подтверждения синьора.
                   </p>
                   {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN who opens
                       this form to "fix" the percent saw a slider holding the
@@ -539,9 +551,14 @@ export function ProjectEditFields({
                     inputTestId="project-edit-drop-share-override"
                     role="DROP"
                   />
+                  {/* task-648-fix-round-3 (COPY-M-16, follow-through): the
+                      senior twin ~60 lines above stopped saying
+                      «переопределение» in this round. Leaving this one alone
+                      would put two words for one operation in ONE dialog —
+                      the defect COPY-M-16 is about, merely moved. */}
                   <p className="text-xs text-muted-foreground">
-                    По умолчанию: {defaultDropSharePercent}%. Установите то же значение, чтобы
-                    сбросить переопределение.
+                    По умолчанию — {defaultDropSharePercent}%. Это же значение снимет индивидуальную
+                    долю дропа по проекту.
                   </p>
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
@@ -564,16 +581,46 @@ function InfoRow({
   icon,
   label,
   children,
+  stackOnMobile = false,
 }: {
   icon: React.ReactNode
   label: string
   children: React.ReactNode
+  /**
+   * task-648-fix-round-3 (COPY-H-7 / COPY-M-14). At 320 this row's icon, its
+   * `min-w-[80px]` label and the gaps leave the VALUE only 107px. That is
+   * enough for a number, and not enough for a control that has to state its
+   * own name: measured on the live stack, the withdraw button rendered at
+   * 107px with `scrollWidth` 124 — «Отменить предложение» was cut off, and
+   * the pending badge (112px, `whitespace-nowrap` since COPY-H-5) spilled 5px
+   * past the column. Neither showed up as document overflow, because an
+   * ancestor clips; both were invisible to every assertion in rounds 1-2.
+   *
+   * Opt-in rather than applied to every row: this is the only row that hosts
+   * an interactive control, and restacking the whole «Детали проекта» card is
+   * a design decision, not a bug fix. `sm:contents` dissolves the wrapper from
+   * `sm:` up, so at every width above mobile the markup this produces is
+   * byte-for-byte the row it always was.
+   */
+  stackOnMobile?: boolean
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-2 text-sm">
-      <span className="text-muted-foreground shrink-0 mt-0.5">{icon}</span>
-      <span className="text-muted-foreground shrink-0 min-w-[80px]">{label}:</span>
-      <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 break-words">
+    <div
+      className={cn(
+        'flex min-w-0 items-start gap-2 text-sm',
+        stackOnMobile && 'flex-col gap-1 sm:flex-row sm:gap-2',
+      )}
+    >
+      <span className={cn('flex shrink-0 items-start gap-2', stackOnMobile && 'sm:contents')}>
+        <span className="text-muted-foreground shrink-0 mt-0.5">{icon}</span>
+        <span className="text-muted-foreground shrink-0 min-w-[80px]">{label}:</span>
+      </span>
+      <div
+        className={cn(
+          'min-w-0 flex flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 break-words',
+          stackOnMobile && 'w-full sm:w-auto',
+        )}
+      >
         {children}
       </div>
     </div>
@@ -596,6 +643,7 @@ function ProjectShareInfo({
   testId = 'project-senior-share',
   badgeTestId = 'project-senior-share-override-badge',
   canCancelPendingShare = false,
+  viewerId,
 }: {
   project: Pick<
     ProjectDetailDto,
@@ -613,15 +661,33 @@ function ProjectShareInfo({
    * a button the backend would 403.
    */
   canCancelPendingShare?: boolean
+  /**
+   * task-648-fix-round-3 (COPY-H-8). Who is reading — passed in rather than
+   * read from `useAuth` here so this widget stays a pure function of its
+   * props (it is rendered twice on the page and unit-tested standalone).
+   */
+  viewerId?: string | null | undefined
 }) {
   const overrideRaw = project.seniorSharePercentOverride
   const hasOverride = overrideRaw !== null && overrideRaw !== undefined
   const fallback = project.seniorSharePercentDefault ?? 26
   const effective = hasOverride ? overrideRaw : fallback
   const pending = project.pendingSeniorShare ?? null
+  const audience = pendingShareAudience(viewerId, pending)
   return (
     <span
-      className={cn('inline-flex flex-wrap items-center gap-2', variant === 'inline' && 'text-sm')}
+      // task-648-fix-round-3 (COPY-H-7): `min-w-0 max-w-full`. This span is a
+      // flex ITEM of `InfoRow`'s content box, and a flex item defaults to
+      // `min-width: auto` — it refuses to shrink below its own min-content
+      // width, so at 320 the widget grew PAST the row that contains it and
+      // drew the withdraw button ending at x≈339, off the edge of the screen.
+      // The document itself did not scroll (an ancestor clips), which is why
+      // round 2's page-level overflow checks stayed green while a control was
+      // half off-screen — measured by this round's own E2E, not by eye.
+      className={cn(
+        'inline-flex min-w-0 max-w-full flex-wrap items-center gap-2',
+        variant === 'inline' && 'text-sm',
+      )}
       data-testid={testId}
     >
       {variant === 'inline' && <span className="text-muted-foreground">Доля синьора:</span>}
@@ -644,46 +710,73 @@ function ProjectShareInfo({
           меняется пока согласование открыто (AC2). Индикатор — отдельная
           пометка рядом, а не подмена цифры. */}
       {pending && (
-        <span className="inline-flex min-w-0 items-start gap-1">
-          <span className="min-w-0 space-y-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                {/* task-648-fix-round-2 (COPY-H-5): ONE text node, and
-                    `tabular-nums`/`whitespace-nowrap` on the badge itself.
-                    `Badge` is `inline-flex`, so the `{' '}` this used to
-                    carry sat BETWEEN flex items and never rendered — the
-                    screen read «Ждёт подтверждения:40%» on every width — and
-                    on 320 the number broke away from its label onto a second
-                    line as an independent flex item. `textContent`-based
-                    assertions could not see either symptom. */}
-                <Badge
-                  variant="outline"
-                  className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums"
-                  data-testid="project-senior-share-pending-badge"
-                >
-                  {`Ждёт подтверждения: ${pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent}%`}
-                </Badge>
-              </TooltipTrigger>
-              {/* task-648-fix-round-2 (UX-M-3(r2)): capped + wrapping.
-                  Measured at 468px (ordinary name) and 709px (long name)
-                  against a 320px viewport before this cap. */}
-              <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
-                Действует прежний процент, пока новый не подтверждён.
-              </TooltipContent>
-            </Tooltip>
-            {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): name and the
-                "prior percent still applies" fact as plain text. Radix
-                Tooltip returns early on `pointerType === 'touch'` and `Badge`
-                renders a non-focusable `div`, so in the tooltip these two
-                facts were unreachable by touch AND by keyboard. */}
+        // task-648-fix-round-3 (COPY-H-7): a COLUMN, not a row. The badge and
+        // the withdraw control used to sit side by side; on 320 the project
+        // row gives this cell 131px, the (then-longer, `whitespace-nowrap`)
+        // badge wanted 160 and the 44px icon button another 44 — the page
+        // scrolled sideways by ~59px. Stacking costs vertical space, which is
+        // the one axis a phone has to spare.
+        <span className="flex min-w-0 basis-full flex-col items-start gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* task-648-fix-round-2 (COPY-H-5): ONE text node, and
+                  `tabular-nums`/`whitespace-nowrap` on the badge itself.
+                  `Badge` is `inline-flex`, so the `{' '}` this used to
+                  carry sat BETWEEN flex items and never rendered — the
+                  screen read «Ждёт подтверждения:40%» on every width — and
+                  on 320 the number broke away from its label onto a second
+                  line as an independent flex item. `textContent`-based
+                  assertions could not see either symptom. */}
+              {/* task-648-fix-round-3 (COPY-H-7 / COPY-M-15): «Предложено N%».
+                  One name for the fact — the same word the cancel toast, the
+                  edit-dialog notice and the withdraw button already use,
+                  where «Ждёт подтверждения: N%» attached the waiting to the
+                  NUMBER instead of to the person (COPY-M-15) and cost 29
+                  incompressible px the 320px column did not have (COPY-H-7).
+                  `whitespace-nowrap` survives because the shorter string
+                  fits: measured against the narrowest ADMIN/SENIOR column. */}
+              <Badge
+                variant="outline"
+                className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums"
+                data-testid="project-senior-share-pending-badge"
+              >
+                {`Предложено ${pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent}%`}
+              </Badge>
+            </TooltipTrigger>
+            {/* task-648-fix-round-2 (UX-M-3(r2)): capped + wrapping.
+                Measured at 468px (ordinary name) and 709px (long name)
+                against a 320px viewport before this cap. */}
+            <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
+              Действует прежний процент, пока новый не подтверждён.
+            </TooltipContent>
+          </Tooltip>
+          {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): name and the
+              "prior percent still applies" fact as plain text. Radix
+              Tooltip returns early on `pointerType === 'touch'` and `Badge`
+              renders a non-focusable `div`, so in the tooltip these two
+              facts were unreachable by touch AND by keyboard. */}
+          {/* task-648-fix-round-3 (COPY-H-8): NOT shown to the person the
+              proposal waits on. They get the banner above, which addresses
+              them in the second person — and one screen telling one reader
+              both «Вашу долю… пока вы не подтвердите» and «Подтверждает
+              Oleksiy Kovalenko» was the finding. */}
+          {audience === 'observer' && (
             <span className="block text-xs text-muted-foreground break-words">
               Подтверждает {pending.approverName} — пока действует{' '}
               <span className="tabular-nums">{effective}%</span>
             </span>
-          </span>
+          )}
           {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw control lives
               next to the only indicator that the proposal exists at all. */}
-          {canCancelPendingShare && <CancelPendingShareButton scope="project" id={project.id} />}
+          {canCancelPendingShare && (
+            <CancelPendingShareButton
+              scope="project"
+              id={project.id}
+              pendingPercent={
+                pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent
+              }
+            />
+          )}
         </span>
       )}
     </span>
@@ -736,7 +829,12 @@ function PendingShareApprovalBanner({
       // see seniorShareErrorMessage's own doc), AND refetch on failure so a
       // stale banner from a resolved-elsewhere proposal doesn't stay
       // clickable showing a number that no longer means anything.
-      toast.error(seniorShareErrorMessage(err))
+      // task-648-fix-round-3 (COPY-L-9): a NAMED fallback, like the three
+      // call sites on the profile half already had. Without it an error
+      // carrying neither `.response` nor a string `.message` fell through to
+      // the generic house text, and the reader could not tell which of the
+      // two buttons on this banner had failed.
+      toast.error(seniorShareErrorMessage(err, 'Не удалось подтвердить'))
       invalidate()
     },
   })
@@ -754,7 +852,8 @@ function PendingShareApprovalBanner({
       invalidate()
     },
     onError: (err: unknown) => {
-      toast.error(seniorShareErrorMessage(err))
+      // task-648-fix-round-3 (COPY-L-9): reject twin of the fallback above.
+      toast.error(seniorShareErrorMessage(err, 'Не удалось отклонить'))
       invalidate()
     },
   })
@@ -1386,17 +1485,21 @@ function ProjectDetailPage() {
         {/* task-pending-share (position 5): actionable banner, ONLY for the
             viewer the proposal is waiting on — everyone else sees the
             read-only badge via ProjectShareInfo instead. */}
-        {project.pendingSeniorShare && user?.id === project.pendingSeniorShare.approverId && (
-          <div className="px-4 sm:px-6">
-            <PendingShareApprovalBanner
-              projectId={project.id}
-              currentPercent={
-                project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
-              }
-              pending={project.pendingSeniorShare}
-            />
-          </div>
-        )}
+        {/* task-648-fix-round-3 (COPY-H-8): the same reader question the
+            profile half now asks, through the same helper — this half had it
+            right, the other did not, and two spellings of one rule drift. */}
+        {pendingShareAudience(user?.id, project.pendingSeniorShare) === 'approver' &&
+          project.pendingSeniorShare && (
+            <div className="px-4 sm:px-6">
+              <PendingShareApprovalBanner
+                projectId={project.id}
+                currentPercent={
+                  project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
+                }
+                pending={project.pendingSeniorShare}
+              />
+            </div>
+          )}
         {/* ── Post-hero content — horizontal padding (px-0 removed from outer wrapper, Вариант Б) ── */}
         <div className="space-y-5 px-4 sm:px-6">
           {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
@@ -1527,8 +1630,20 @@ function ProjectDetailPage() {
                 below so the two stay in sync. RBAC enforcement lives at the
                 API layer; UI ut-fix-round2 also hides this row for HR. */}
                   {canSeeProjectFinance && (
-                    <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
-                      <ProjectShareInfo project={project} canCancelPendingShare={canEditOverride} />
+                    <InfoRow
+                      icon={<Percent className="h-3.5 w-3.5" />}
+                      label="Доля синьора"
+                      // task-648-fix-round-3 (COPY-H-7): only when a proposal
+                      // is live does this row carry a named button; only then
+                      // does it need the full width. Without a proposal it is
+                      // «26% (по умолчанию)» and the ordinary row is right.
+                      stackOnMobile={!!project.pendingSeniorShare}
+                    >
+                      <ProjectShareInfo
+                        project={project}
+                        canCancelPendingShare={canEditOverride}
+                        viewerId={user?.id}
+                      />
                     </InfoRow>
                   )}
                   {/* task-drop-share-override-and-receiver (Surface A). Same
@@ -2172,6 +2287,7 @@ function ProjectTransactions({
                 testId="project-transactions-senior-share"
                 badgeTestId="project-transactions-senior-share-override-badge"
                 canCancelPendingShare={canEditOverride}
+                viewerId={user?.id}
               />
             </div>
           </div>

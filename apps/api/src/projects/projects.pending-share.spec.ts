@@ -129,6 +129,14 @@ function buildHarness(
   const txUpdateCalls: Array<{ table: unknown; values: Record<string, unknown> }> = []
   const topLevelUpdateCalls: Array<{ table: unknown }> = []
 
+  // task-648-fix-round-3 (SR-M-8 / CR-H-4): ordered log of the two lock
+  // families each transaction on this half touches (`projects` rows vs
+  // `approvals` rows) — the twin of `users.pending-share.spec.ts`'s array of
+  // the same name. Round 2 left this half asserting only that `.for('update')`
+  // HAPPENED, never in which order, so the ABBA inversion the cancel path
+  // acquired that round was invisible to every test here.
+  const lockOrder: string[] = []
+
   const makeUpdateChain = (
     log: Array<{ table: unknown; values?: Record<string, unknown> }>,
     isTx: boolean,
@@ -137,6 +145,12 @@ function buildHarness(
       set: (values: Record<string, unknown>) => ({
         where: async () => {
           log.push({ table, values })
+          // task-648-fix-round-3 (SR-M-8 / CR-H-4): a write to `projects` takes
+          // a row lock exactly like the `SELECT … FOR UPDATE` above does, so it
+          // belongs in the same ordered log — otherwise a path whose ONLY
+          // `projects` lock is the write (propose, reject) has nothing to
+          // compare against `approvals`.
+          if (isTx && table === projects) lockOrder.push('projects:update')
           if (table === projects) Object.assign(projectRow, values)
           if (table === projectFinanceSettings) {
             if (financeRows[0]) Object.assign(financeRows[0], values)
@@ -167,7 +181,6 @@ function buildHarness(
   // array (incl. `[]`) overrides it — lets a test simulate "row vanished
   // between the approval check and the lock" without a second harness shape.
   let selectForUpdateOverride: ProjectRow[] | undefined
-
   const txHandle = {
     ...makeUpdateChain(txUpdateCalls, true),
     select: () => ({
@@ -175,6 +188,7 @@ function buildHarness(
         where: () => ({
           for: (mode: unknown) => {
             selectForCalls.push(mode)
+            lockOrder.push('projects:for-update')
             return {
               limit: async () => (selectForUpdateOverride ?? [projectRow]).map((r) => ({ ...r })),
             }
@@ -215,14 +229,22 @@ function buildHarness(
   const projectAuditLogService = { record: vi.fn(async () => undefined) }
   const usersService = {}
   const approvals = {
-    proposeInTx: vi.fn(async () => undefined),
-    approveInTx: vi.fn(async () => undefined),
-    rejectInTx: vi.fn(async () => undefined),
+    proposeInTx: vi.fn(async () => {
+      lockOrder.push('approvals:proposeInTx')
+    }),
+    approveInTx: vi.fn(async () => {
+      lockOrder.push('approvals:approveInTx')
+    }),
+    rejectInTx: vi.fn(async () => {
+      lockOrder.push('approvals:rejectInTx')
+    }),
     getStatus: vi.fn(async () => 'PENDING' as const),
     // task-648-fix-round-1 (SR-H-1): default succeeds, matching this
     // harness's own `getStatus: 'PENDING'` default (a live proposal exists
     // to cancel in most of this file's scenarios).
-    cancelInTx: vi.fn(async () => undefined),
+    cancelInTx: vi.fn(async () => {
+      lockOrder.push('approvals:cancelInTx')
+    }),
   }
 
   const service = new ProjectsService(
@@ -244,6 +266,7 @@ function buildHarness(
     topLevelUpdateCalls,
     txHandle,
     selectForCalls,
+    lockOrder,
     setSelectForUpdateRows: (rows: ProjectRow[]) => {
       selectForUpdateOverride = rows
     },
@@ -753,6 +776,151 @@ describe('ProjectsService.rejectSeniorShareChange — impersonation guard', () =
 // gate's own BlockStatement mutant (silencing the whole method body) went
 // unnoticed because no test observed a difference between "cancel actually
 // ran" and "cancel did nothing".
+// ---------------------------------------------------------------------------
+// task-648-fix-round-3 (SR-M-8 = CR-H-4). Round 2 fixed an ABBA inversion on
+// the USER half by making every path there lock `users` before `approvals`,
+// and justified it in writing with "the project half locks `approvals` first
+// EVERYWHERE". That sentence stopped being true in the same round: the cancel
+// path this branch introduced took `SELECT projects … FOR UPDATE` FIRST and
+// only then `approvals.cancelInTx` — the mirror image of propose/approve/
+// reject on the very same service. An ADMIN withdrawing a proposal while the
+// senior confirms it could therefore deadlock (Postgres `40P01`, surfaced to
+// the admin as a 500); the security reviewer reproduced exactly that on a
+// scratch database.
+//
+// Nothing in this file could see it: the only lock assertion here was
+// `selectForCalls).toContain('update')`, which is true of BOTH orders. These
+// four tests assert the SEQUENCE with `toEqual` (the twin of
+// `users.pending-share.spec.ts`'s SR-M-6 block), so the whole half is pinned,
+// not just the path that was wrong.
+//
+// The invariant, stated once: on this half `approvals` is locked FIRST on
+// every path, so the first entry of every sequence below is an `approvals:*`
+// one.
+// ---------------------------------------------------------------------------
+describe('ProjectsService — SR-M-8: uniform lock order (approvals → projects) on every path', () => {
+  it('propose (update) touches approvals before writing the project row', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: null,
+      pendingSeniorSharePercentOverride: null,
+    })
+    await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
+    expect(h.lockOrder).toEqual(['approvals:proposeInTx', 'projects:update'])
+  })
+
+  it('approve locks approvals BEFORE the project row', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 26,
+      pendingSeniorSharePercentOverride: 55,
+    })
+    await h.service.approveSeniorShareChange('proj-1', seniorUser)
+    expect(h.lockOrder).toEqual(['approvals:approveInTx', 'projects:for-update', 'projects:update'])
+    // ...and the project lock is a real row LOCK, not a plain read. Order
+    // alone would be satisfied by `.for('')`, which locks nothing and so
+    // prevents nothing.
+    expect(h.selectForCalls).toEqual(['update'])
+  })
+
+  it('reject locks approvals BEFORE the project row', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 26,
+      pendingSeniorSharePercentOverride: 55,
+    })
+    await h.service.rejectSeniorShareChange('proj-1', 'Слишком много', seniorUser)
+    expect(h.lockOrder).toEqual(['approvals:rejectInTx', 'projects:update'])
+  })
+
+  it('cancel locks approvals BEFORE the project row', async () => {
+    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
+    await h.service.cancelSeniorShareChange('proj-1', adminUser)
+    expect(h.lockOrder).toEqual(['approvals:cancelInTx', 'projects:for-update', 'projects:update'])
+    // Same reasoning as the approve twin above.
+    expect(h.selectForCalls).toEqual(['update'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-648-fix-round-3 (SR-L-4). `findOne` and `loadForResponse` both gate the
+// pending-proposal lookup by role (ADMIN or the affected SENIOR — everyone
+// else has the field masked by `mapProject` one line later). `update()`'s own
+// tail did not: it resolved the proposal for every caller, including the
+// ACCOUNTANT the propose-gate explicitly admits. Same defect SR-bm-3 fixed on
+// `loadForResponse` in round 2, on the one response path that was missed.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// task-648-fix-round-3 (AC9 / SR-L-4). `mapProject` masks `pendingSeniorShare`
+// for every role except ADMIN and the affected SENIOR — the allow-list half of
+// the pair, the second line of defence behind the lookup gates. Nothing
+// reached it: every path that hands `mapProject` a NON-null pending value has
+// already gated the lookup by the same rule, so the mask only ever saw `null`
+// and deleting it outright changed no test. Exercised directly here, through
+// the same private-access cast this file already uses for the notify spy.
+// ---------------------------------------------------------------------------
+describe('ProjectsService.mapProject — the pending-share mask itself', () => {
+  type MapProject = (
+    project: unknown,
+    teamOverrides: Map<string, unknown>,
+    viewerRole: string | undefined,
+    pending: unknown,
+  ) => { pendingSeniorShare: unknown }
+
+  const callMapProject = (viewerRole: string | undefined) => {
+    const h = buildHarness({ seniorSharePercentOverride: 26 })
+    const mapProject = (h.service as unknown as { mapProject: MapProject }).mapProject.bind(
+      h.service,
+    )
+    const pending = {
+      percent: 55,
+      effectivePercentAfterApproval: 55,
+      approverId: 'senior-1',
+      approverName: 'Senior One',
+    }
+    return mapProject(h.projectRow, new Map(), viewerRole, pending)
+  }
+
+  it.each(['ADMIN', 'SENIOR'])('passes the value through for %s', (role) => {
+    expect(callMapProject(role).pendingSeniorShare).not.toBeNull()
+  })
+
+  it.each(['ACCOUNTANT', 'HR', 'JUNIOR', 'DROP', undefined])(
+    'masks it to null for %s, even when a live value is handed in',
+    (role) => {
+      expect(callMapProject(role).pendingSeniorShare).toBeNull()
+    },
+  )
+})
+
+describe('ProjectsService.update — SR-L-4: pending lookup gated by role, like findOne', () => {
+  const accountantUser: SessionUser = {
+    id: 'acc-1',
+    role: 'ACCOUNTANT',
+    displayName: 'Accountant',
+    email: 'acc@x.com',
+    avatarUrl: null,
+    avatarDocumentId: null,
+    seniorSharePercent: null,
+  }
+
+  // `paymentType` (not `rate`) because ACCOUNTANT's own gate in `update()`
+  // admits them only when EVERY patched field is finance-scoped — and it is
+  // deliberately a field that opens no proposal, so the `getStatus` call this
+  // asserts about could only come from the unconditional tail lookup.
+  it('does not ask approvals for a role that cannot see the field (ACCOUNTANT)', async () => {
+    const h = buildHarness({ seniorSharePercentOverride: 26 })
+    await h.service.update('proj-1', { paymentType: 'USDT' }, accountantUser)
+    expect(h.approvals.getStatus).not.toHaveBeenCalled()
+  })
+
+  it('still asks for ADMIN, who can see it', async () => {
+    const h = buildHarness({
+      seniorSharePercentOverride: 26,
+      pendingSeniorSharePercentOverride: 55,
+    })
+    await h.service.update('proj-1', { paymentType: 'USDT' }, adminUser)
+    expect(h.approvals.getStatus).toHaveBeenCalledWith('PROJECT_SENIOR_SHARE', 'proj-1')
+  })
+})
+
 describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () => {
   it('rejects a SENIOR caller (RBAC: only ADMIN/ACCOUNTANT may cancel a proposal they did not open)', async () => {
     const h = buildHarness()
@@ -879,15 +1047,27 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
   // task-648-fix-round-2 (SR-M-7 / AC9): the row lock and its not-found guard
   // are the first two statements of the cancel transaction, and nothing
   // reached them — every other cancel test has a project row present.
+  // task-648-fix-round-3 (SR-M-8 / CR-H-4): the expectation below is INVERTED
+  // relative to round 2. Round 2 read "cancelInTx was never called" as the
+  // safety property; it was really just a restatement of the lock order that
+  // caused the deadlock. With `approvals` locked first (as every other path on
+  // this half already does), a project that vanished IS reached after
+  // `cancelInTx` has run — and that is harmless, because the throw aborts the
+  // whole transaction and the cancelled approval rolls back with it. What
+  // must hold is the OUTCOME (nothing committed), not the call count.
   it('throws NotFoundException with the exact message when the project vanished before the lock', async () => {
     const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
     h.setSelectForUpdateRows([])
     await expect(h.service.cancelSeniorShareChange('proj-1', adminUser)).rejects.toThrow(
       'Проект не найден',
     )
-    // The guard runs BEFORE approvals is touched — a vanished project must
-    // not leave a cancelled approval behind for a row that no longer exists.
-    expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
+    // `cancelInTx` ran inside the transaction that is now unwinding: the
+    // approval row is NOT withdrawn in the database, because the throw
+    // reaches `db.transaction`'s ROLLBACK. Asserted on the write that would
+    // outlive a rollback if there were one — the pending column is untouched.
+    expect(h.approvals.cancelInTx).toHaveBeenCalledOnce()
+    expect(h.txUpdateCalls).toEqual([])
+    expect(h.projectRow.pendingSeniorSharePercentOverride).toBe(40)
   })
 
   it('locks the project row FOR UPDATE before cancelling (not a plain select)', async () => {

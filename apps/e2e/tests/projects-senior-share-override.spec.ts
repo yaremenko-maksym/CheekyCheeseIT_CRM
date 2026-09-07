@@ -965,6 +965,55 @@ function mockProfileWithPending(page: import('@playwright/test').Page) {
   return { cancelCalls, ready: routes }
 }
 
+/**
+ * task-648-fix-round-3 (COPY-H-8). Same profile, same live proposal, but the
+ * permissions a SELF view really carries: `UsersAccessService` never grants
+ * `set-note` on yourself, and `set-note` is exactly what the withdraw button
+ * keys off. Without this the fixture would hand a senior an ADMIN-only
+ * control and the test would be measuring the fixture.
+ */
+function mockSeniorSelfProfileWithPending(page: import('@playwright/test').Page) {
+  const view = buildAdminViewingUser(USERS.senior) as {
+    user: Record<string, unknown>
+    permissions: { actions: string[] }
+    data: unknown
+  }
+  view.user['seniorSharePercent'] = 26
+  view.user['pendingSeniorShare'] = PENDING
+  view.permissions.actions = view.permissions.actions.filter((a) => a !== 'set-note')
+
+  const approveCalls: string[] = []
+  const serveView = (r: import('@playwright/test').Route) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(view),
+    })
+  }
+  const routes = Promise.all([
+    page.route(new RegExp(`${API_RE}/users/${USERS.senior.id}/senior-share/approve$`), (r) => {
+      approveCalls.push(r.request().method())
+      view.user['pendingSeniorShare'] = null
+      view.user['seniorSharePercent'] = PENDING.percent
+      return r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(view),
+      })
+    }),
+    // `/profile` (the self route) and `/profile/$userId` reach the SAME
+    // profile through DIFFERENT endpoints — `useMyProfile` calls `/users/me`,
+    // the other calls `/users/:id`. Mocking only the second is what made the
+    // first attempt at this scenario fail; that asymmetry is also half of
+    // why the round-2 gate keyed off the route in the first place.
+    page.route(new RegExp(`${API_RE}/users/me$`), serveView),
+    page.route(new RegExp(`${API_RE}/users/${USERS.senior.id}$`), serveView),
+  ])
+
+  return { approveCalls, ready: routes }
+}
+
 // ---------------------------------------------------------------------------
 // R / S — the withdraw button itself
 // ---------------------------------------------------------------------------
@@ -981,7 +1030,11 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
 
     const cancelButton = page.getByTestId('cancel-pending-share-project').first()
     await expect(cancelButton).toBeVisible()
+    // task-648-fix-round-3 (COPY-H-7): a NAMED text button, not a bare cross.
+    await expect(cancelButton).toHaveText('Отменить предложение')
     await cancelButton.click()
+    // task-648-fix-round-3 (COPY-M-14): confirmation before an irreversible act.
+    await page.getByTestId('cancel-pending-share-confirm-button-project').click()
 
     await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
     expect(cancelCalls[0]).toBe('POST')
@@ -998,7 +1051,9 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
 
     const cancelButton = page.getByTestId('cancel-pending-share-user').first()
     await expect(cancelButton).toBeVisible()
+    await expect(cancelButton).toHaveText('Отменить предложение')
     await cancelButton.click()
+    await page.getByTestId('cancel-pending-share-confirm-button-user').click()
 
     await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
     expect(cancelCalls[0]).toBe('POST')
@@ -1051,6 +1106,7 @@ test.describe('T — an edit dialog announces the live proposal', () => {
     await expect(notice).toContainText(USERS.senior.displayName)
 
     await page.getByTestId('cancel-pending-share-project-in-dialog').click()
+    await page.getByTestId('cancel-pending-share-confirm-button-project-in-dialog').click()
     await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
   })
 
@@ -1073,6 +1129,7 @@ test.describe('T — an edit dialog announces the live proposal', () => {
     await expect(notice).toContainText(USERS.senior.displayName)
 
     await page.getByTestId('cancel-pending-share-user-in-dialog').click()
+    await page.getByTestId('cancel-pending-share-confirm-button-user-in-dialog').click()
     await expect.poll(() => cancelCalls.length).toBeGreaterThan(0)
   })
 })
@@ -1096,8 +1153,11 @@ test.describe('U — the pending badge reads correctly on screen', () => {
       // `toContainText` reads) kept the whitespace node that `inline-flex`
       // dropped, which is why round 1's assertions were green while the
       // screen said «Ждёт подтверждения:55%».
+      // task-648-fix-round-3 (COPY-H-7 / COPY-M-15): the label is now
+      // «Предложено N%» — shorter (it has to fit a 131px column at 320) and
+      // one name for the fact across badge, toast and dialog notice.
       const rendered = await badge.evaluate((el) => (el as HTMLElement).innerText)
-      expect(rendered).toMatch(/Ждёт подтверждения: \d+%/)
+      expect(rendered).toMatch(/Предложено \d+%/)
     })
   }
 
@@ -1161,5 +1221,212 @@ test.describe('V — the approver name is readable without hover', () => {
 
     const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
     expect(rendered).toContain(`Подтверждает ${USERS.senior.displayName}`)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// W - task-648-fix-round-3 (COPY-H-7): the page must not scroll sideways
+//
+// Round 2's `whitespace-nowrap` fix for COPY-H-5 made the pill incompressible
+// at 160px inside a 131px column, and the 44px icon button sat beside it: the
+// project page overflowed a 320px viewport by ~59px, and the withdraw control
+// ended at x~382. RED on eb310997.
+// ---------------------------------------------------------------------------
+
+test.describe('W - no horizontal overflow with a live proposal', () => {
+  for (const width of [320, 375]) {
+    test(`project page at ${width} under ADMIN`, async ({ asAdmin: page }) => {
+      const { ready } = mockProjectWithPending(page)
+      await ready
+      await page.setViewportSize({ width, height: 800 })
+
+      await page.goto(`/projects/${PROJECT_ID}`)
+      await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }))
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+    })
+
+    test(`profile page at ${width} under ADMIN`, async ({ asAdmin: page }) => {
+      const { ready } = mockProfileWithPending(page)
+      await ready
+      await page.setViewportSize({ width, height: 800 })
+
+      await page.goto(`/profile/${USERS.senior.id}`)
+      await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }))
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+    })
+  }
+
+  test('the withdraw button itself ends inside a 320 viewport', async ({ asAdmin: page }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 800 })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    const box = await page.getByTestId('cancel-pending-share-project').first().boundingBox()
+    expect(box).not.toBeNull()
+    // Round 2 measured this ending at ~382 - the button was drawn past the
+    // edge of the screen, which is how the overflow above became visible.
+    expect(box!.x + box!.width).toBeLessThanOrEqual(320)
+    // ...and it is still a 44px touch target after being restacked.
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+  })
+
+  // task-648-fix-round-3 (COPY-H-7 / COPY-M-14). Fitting inside the viewport
+  // is necessary and not sufficient: the first attempt at this fix produced a
+  // 107px-wide button whose 124px label «Отменить предложение» was simply cut
+  // off. A control whose visible name is truncated has no visible name, which
+  // is the whole point of replacing the icon button. Measured, not eyeballed:
+  // `scrollWidth > clientWidth` is exactly "this text does not fit".
+  test('the withdraw button shows its whole name at 320, not a truncation', async ({
+    asAdmin: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 800 })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    const btn = page.getByTestId('cancel-pending-share-project').first()
+    await expect(btn).toBeVisible()
+    const fit = await btn.evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }))
+    expect(fit.scrollWidth).toBeLessThanOrEqual(fit.clientWidth)
+  })
+
+  // The badge got shorter this round precisely so `whitespace-nowrap` could
+  // stay (COPY-H-5 needs it). That only holds if it FITS the narrowest column
+  // it appears in — the reviewer's own condition. It was 112px in a 107px
+  // column and spilled without producing document overflow.
+  test('the pending badge fits its column at 320 instead of spilling', async ({
+    asAdmin: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+    await page.setViewportSize({ width: 320, height: 800 })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    const badge = page.getByTestId('project-senior-share-pending-badge')
+    await expect(badge).toBeVisible()
+    const geo = await badge.evaluate((el) => {
+      const b = el.getBoundingClientRect()
+      const parent = el.closest('[data-testid="project-senior-share"]')!.getBoundingClientRect()
+      return { badgeRight: b.right, parentRight: parent.right }
+    })
+    expect(geo.badgeRight).toBeLessThanOrEqual(geo.parentRight)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// X - task-648-fix-round-3 (COPY-H-8): one reader, one grammatical person
+//
+// The gate used to be the ROUTE (`/profile` vs `/profile/$userId`), so a
+// senior reading their own profile through the second route was told about
+// themselves in the third person and given no buttons.
+// ---------------------------------------------------------------------------
+
+test.describe('X - the pending share addresses the reader, not the route', () => {
+  test('SENIOR on their own profile sees first person and can act - via /profile', async ({
+    asSenior: page,
+  }) => {
+    const { approveCalls, ready } = mockSeniorSelfProfileWithPending(page)
+    await ready
+
+    await page.goto('/profile')
+    const banner = page.getByTestId('pending-base-share-approval-banner')
+    await expect(banner).toBeVisible()
+    await expect(banner).toContainText('Вашу долю')
+    await expect(page.getByTestId('pending-base-share-approve-button')).toBeVisible()
+
+    // Nothing on this screen talks ABOUT them, to them.
+    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
+    // ...and the ADMIN-only withdraw control is not offered to the approver.
+    await expect(page.getByTestId('cancel-pending-share-user')).toHaveCount(0)
+
+    await page.getByTestId('pending-base-share-approve-button').click()
+    await expect.poll(() => approveCalls.length).toBeGreaterThan(0)
+  })
+
+  test('SENIOR reaching that SAME profile through /profile/$userId sees the same thing', async ({
+    asSenior: page,
+  }) => {
+    // THE finding. Identical user, identical proposal - only the route
+    // differs, and before this round the route decided.
+    const { ready } = mockSeniorSelfProfileWithPending(page)
+    await ready
+
+    await page.goto(`/profile/${USERS.senior.id}`)
+    const banner = page.getByTestId('pending-base-share-approval-banner')
+    await expect(banner).toBeVisible()
+    await expect(banner).toContainText('Вашу долю')
+    await expect(page.getByTestId('pending-base-share-approve-button')).toBeVisible()
+    await expect(page.getByTestId('pending-base-share-reject-button')).toBeVisible()
+
+    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
+  })
+
+  test('ADMIN on that profile gets the third person and the withdraw control', async ({
+    asAdmin: page,
+  }) => {
+    const { ready } = mockProfileWithPending(page)
+    await ready
+
+    await page.goto(`/profile/${USERS.senior.id}`)
+    await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
+    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    expect(rendered).toContain(`Подтверждает ${USERS.senior.displayName}`)
+    await expect(page.getByTestId('cancel-pending-share-user').first()).toBeVisible()
+    // The actionable banner belongs to the approver, not to the admin.
+    await expect(page.getByTestId('pending-base-share-approval-banner')).toHaveCount(0)
+  })
+
+  test('on the project page a SENIOR reads no third-person line about themselves', async ({
+    asSenior: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await expect(page.getByTestId('pending-share-approval-banner')).toBeVisible()
+    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    expect(rendered).toContain('Вашу долю по проекту')
+    expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Y - task-648-fix-round-3 (COPY-M-14): the confirmation step
+// ---------------------------------------------------------------------------
+
+test.describe('Y - withdrawing asks first', () => {
+  test('«Оставить» closes the question and withdraws nothing', async ({ asAdmin: page }) => {
+    const { cancelCalls, ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.getByTestId('cancel-pending-share-project').first().click()
+
+    const dialog = page.getByTestId('cancel-pending-share-confirm-project')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText(`Отменить предложение ${PENDING_PERCENT}%?`)
+    await expect(dialog).toContainText('Действующая доля не изменится')
+
+    await page.getByTestId('cancel-pending-share-keep-project').click()
+    await expect(dialog).toBeHidden()
+    // The proposal is still there, and nothing was posted.
+    await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
+    expect(cancelCalls).toHaveLength(0)
   })
 })

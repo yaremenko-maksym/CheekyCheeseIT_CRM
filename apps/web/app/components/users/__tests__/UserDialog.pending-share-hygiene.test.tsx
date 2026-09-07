@@ -270,7 +270,52 @@ const seniorWithPending: UserProfileDto = {
   },
 } as unknown as UserProfileDto
 
+/**
+ * task-648-fix-round-3 (COPY-L-13). `?? 0` was removed by COPY-H-2 in round 1
+ * and crept back into this dialog in round 2. The reason it survived review
+ * twice is that every fixture had `percent === effectivePercentAfterApproval`,
+ * so «Предложено 40%» was right either way. Here they differ: a `null`
+ * percent means "clear the override", and the number to show is the one the
+ * SERVER resolved — never 0, never null.
+ */
+const seniorWithClearingProposal: UserProfileDto = {
+  ...seniorUser,
+  pendingSeniorShare: {
+    percent: null,
+    effectivePercentAfterApproval: 26,
+    approverId: 'senior-1',
+    approverName: 'Синьйор Тест',
+  },
+} as unknown as UserProfileDto
+
 describe('UserDialog — edit dialog announces a live proposal', () => {
+  it('a null percent shows the RESOLVED value, not «0%»', async () => {
+    render(<UserDialog mode="edit" user={seniorWithClearingProposal} onClose={vi.fn()} />)
+    const notice = await screen.findByTestId('pending-share-edit-notice-user')
+    expect(notice).toHaveTextContent('Предложено 26%')
+    expect(notice).not.toHaveTextContent('Предложено 0%')
+  })
+
+  // The other direction. With `percent === effectivePercentAfterApproval` in
+  // every other fixture, reading the wrong one of the two produced the same
+  // string and nothing could tell them apart — the mutation gate collapsed the
+  // ternary to its null arm and stayed green.
+  it('a concrete percent is shown as-is, not swapped for the resolved value', async () => {
+    const divergent = {
+      ...seniorUser,
+      pendingSeniorShare: {
+        percent: 40,
+        effectivePercentAfterApproval: 26,
+        approverId: 'senior-1',
+        approverName: 'Синьйор Тест',
+      },
+    } as unknown as UserProfileDto
+    render(<UserDialog mode="edit" user={divergent} onClose={vi.fn()} />)
+    const notice = await screen.findByTestId('pending-share-edit-notice-user')
+    expect(notice).toHaveTextContent('Предложено 40%')
+    expect(notice).not.toHaveTextContent('Предложено 26%')
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockGet.mockResolvedValue({ data: [] })
@@ -284,10 +329,17 @@ describe('UserDialog — edit dialog announces a live proposal', () => {
     expect(notice).toHaveTextContent('Синьйор Тест')
   })
 
-  it('offers to withdraw it, and the button POSTs to the cancel endpoint', async () => {
+  it('offers to withdraw it, and the button POSTs to the cancel endpoint once confirmed', async () => {
     const user = userEvent.setup()
     render(<UserDialog mode="edit" user={seniorWithPending} onClose={vi.fn()} />)
     await user.click(await screen.findByTestId('cancel-pending-share-user-in-dialog'))
+    // task-648-fix-round-3 (COPY-M-14): the click opens a confirmation now —
+    // asserted here, not just stepped over, because "the first click posts
+    // nothing" is the property that finding asked for.
+    expect(mockPost).not.toHaveBeenCalled()
+    await user.click(
+      await screen.findByTestId('cancel-pending-share-confirm-button-user-in-dialog'),
+    )
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/users/senior-1/senior-share/cancel'),
     )

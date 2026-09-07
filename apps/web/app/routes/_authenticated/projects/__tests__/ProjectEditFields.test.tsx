@@ -324,7 +324,33 @@ describe('ProjectEditFields — live proposal notice', () => {
     // promise that the same value CANCELS an open proposal — that gesture
     // no longer does anything (SR-H-2), and text must not promise it.
     const section = screen.getByTestId('project-edit-senior-share-section')
-    expect(section).toHaveTextContent('Новая доля начнёт действовать после подтверждения синьора')
+    expect(section).toHaveTextContent('начнёт действовать после подтверждения синьора')
     expect(section).not.toHaveTextContent('отменить отправленное предложение')
+  })
+
+  // task-648-fix-round-3 (COPY-M-16). The hint used to carry two tenses about
+  // one save — «Это же значение СБРАСЫВАЕТ переопределение» (present, and no
+  // longer true: nothing on this form takes effect on save) next to «начнёт
+  // действовать после подтверждения» (future) — plus a word the product does
+  // not use anywhere else.
+  it('the hint speaks in ONE tense, and in the product vocabulary', () => {
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId={null}
+        viewerRole="ADMIN"
+        pendingShare={null}
+      />,
+    )
+    const section = screen.getByTestId('project-edit-senior-share-section')
+    // Both claims about this save are in the FUTURE, because both are.
+    expect(section).toHaveTextContent('снимет индивидуальную долю по проекту')
+    expect(section).toHaveTextContent('Любое изменение начнёт действовать после подтверждения')
+    // The present tense promised something that does not happen on save.
+    expect(section).not.toHaveTextContent('сбрасывает')
+    // CONTEXT.md's «Доля синьора» entry calls the personal level
+    // «(по умолчанию)»; «переопределение» is jargon this UI invented.
+    expect(section).not.toHaveTextContent('переопределение')
   })
 })

@@ -304,8 +304,9 @@ export class ProjectsService {
       // (payroll / team-management need-to-know) but must not learn a change
       // is even proposed. `undefined` (list endpoint / create) collapses to
       // `null` here too — the field is simply absent on those responses.
-      pendingSeniorShare:
-        viewerRole === 'ADMIN' || viewerRole === 'SENIOR' ? (pendingSeniorShare ?? null) : null,
+      pendingSeniorShare: ProjectsService.canSeePendingSeniorShare(viewerRole)
+        ? (pendingSeniorShare ?? null)
+        : null,
       techStack: project.techStack ?? null,
       teamSize: project.teamSize ?? null,
       benefits: project.benefits ?? null,
@@ -357,6 +358,24 @@ export class ProjectsService {
    * legitimately hold `null` WHILE pending — see the column's own schema.ts
    * comment).
    */
+  /**
+   * task-648-fix-round-3 (SR-L-4). WHO may even be told that a proposal is
+   * open. Three response paths asked this question in three copies of the
+   * same expression — `mapProject`'s mask, `findOne`/`loadForResponse`'s
+   * "don't pay for a value nobody sees" skip, and (from this round)
+   * `update()`'s tail. SR-bm-3 in round 2 fixed one of the copies; SR-L-4
+   * found the next one. A rule with three spellings has three chances to
+   * drift, so it now has one.
+   *
+   * ADMIN and the affected SENIOR only: ACCOUNTANT and HR can reach these
+   * paths (the propose-gate admits ACCOUNTANT outright) and JUNIOR is masked
+   * wholesale, so this is an allow-list, not a denylist — the shape
+   * `security-review` pattern 3 requires on every projection.
+   */
+  private static canSeePendingSeniorShare(viewerRole: string | undefined): boolean {
+    return viewerRole === 'ADMIN' || viewerRole === 'SENIOR'
+  }
+
   private async loadPendingSeniorShare(
     projectId: string,
     senior:
@@ -675,15 +694,14 @@ export class ProjectsService {
     // ADMIN or the affected SENIOR — `mapProject` masks the field for every
     // other role now (not just JUNIOR), same "don't pay for a value nobody
     // sees" reasoning as effectiveTeam immediately above.
-    const pendingSeniorShare =
-      currentUser.role === 'ADMIN' || currentUser.role === 'SENIOR'
-        ? await this.loadPendingSeniorShare(
-            project.id,
-            project.senior,
-            project.pendingSeniorSharePercentOverride,
-            teamOverridesBySeniorId,
-          )
-        : null
+    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
+      ? await this.loadPendingSeniorShare(
+          project.id,
+          project.senior,
+          project.pendingSeniorSharePercentOverride,
+          teamOverridesBySeniorId,
+        )
+      : null
     return {
       ...this.mapProject(project, teamOverridesBySeniorId, currentUser.role, pendingSeniorShare),
       effectiveTeam,
@@ -1105,15 +1123,14 @@ export class ProjectsService {
     // result was thrown away one line later. `findOne` already applied this
     // exact gate; the two response paths silently disagreed about who may
     // even ask.
-    const pendingSeniorShare =
-      currentUser.role === 'ADMIN' || currentUser.role === 'SENIOR'
-        ? await this.loadPendingSeniorShare(
-            project.id,
-            project.senior,
-            project.pendingSeniorSharePercentOverride,
-            teamOverridesBySeniorId,
-          )
-        : null
+    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
+      ? await this.loadPendingSeniorShare(
+          project.id,
+          project.senior,
+          project.pendingSeniorSharePercentOverride,
+          teamOverridesBySeniorId,
+        )
+      : null
     return this.mapProject(project, teamOverridesBySeniorId, currentUser.role, pendingSeniorShare)
   }
 
@@ -1310,6 +1327,22 @@ export class ProjectsService {
       throw new ForbiddenException('Отменить предложение по доле может только ADMIN или ACCOUNTANT')
     }
     await this.db.db.transaction(async (tx) => {
+      // task-648-fix-round-3 (SR-M-8 / CR-H-4): `approvals` FIRST, then the
+      // project row — the exact shape `approveSeniorShareChange` above uses,
+      // and the order propose/approve/reject on this service have always
+      // used. Round 2 wrote this method the other way round, which made it
+      // the one path on this half that inverted the pair: an ADMIN
+      // withdrawing while the senior confirms could deadlock (`40P01`,
+      // surfaced to the admin as a 500), reproduced on a scratch database by
+      // the security reviewer. Both properties this ordering used to carry
+      // survive the move: `cancelInTx` throws when there is no live
+      // proposal, the lock+404 guard below still runs before any write, and
+      // `pendingSeniorSharePercentOverride` is untouched by `cancelInTx`, so
+      // `row` still holds the pre-cancel value the audit entry reports as
+      // `before`. A project deleted in the instant between the two now
+      // throws AFTER `cancelInTx` ran — harmless, because the throw aborts
+      // this transaction and the withdrawal rolls back with it.
+      await this.approvals.cancelInTx(tx, ProjectsService.SENIOR_SHARE_SUBJECT_TYPE, id)
       const [row] = await tx
         .select()
         .from(projects)
@@ -1317,7 +1350,6 @@ export class ProjectsService {
         .for('update')
         .limit(1)
       if (!row) throw new NotFoundException('Проект не найден')
-      await this.approvals.cancelInTx(tx, ProjectsService.SENIOR_SHARE_SUBJECT_TYPE, id)
       // Reaching this line means `cancelInTx` found a real PENDING proposal
       // for `id` (it throws otherwise) — same "no separate existence check
       // needed" reasoning `approveSeniorShareChange` documents above.
@@ -1641,12 +1673,21 @@ export class ProjectsService {
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([updated])
     // task-pending-share: resolve so the admin sees "proposal opened"
     // immediately in this PATCH's own response, no extra round-trip needed.
-    const pendingSeniorShare = await this.loadPendingSeniorShare(
-      updated.id,
-      updated.senior,
-      updated.pendingSeniorSharePercentOverride,
-      teamOverridesBySeniorId,
-    )
+    //
+    // task-648-fix-round-3 (SR-L-4): gated by role, exactly like `findOne` and
+    // `loadForResponse` already were. `mapProject` below masks the field for
+    // every role except ADMIN and the affected SENIOR, and ACCOUNTANT is an
+    // admitted caller of this method (the propose-gate names them) — so this
+    // was the third response path asking `approvals` a question whose answer
+    // it then threw away, the one SR-bm-3 missed in round 2.
+    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
+      ? await this.loadPendingSeniorShare(
+          updated.id,
+          updated.senior,
+          updated.pendingSeniorSharePercentOverride,
+          teamOverridesBySeniorId,
+        )
+      : null
     // Pass currentUser.role so mapProject can apply SENIOR dropName masking
     // (defense-in-depth: callers of update are ADMIN/HR/ACCOUNTANT whose role
     // never triggers the mask, but the contract is explicit and mirrors findOne/findAll).

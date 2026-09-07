@@ -11,7 +11,7 @@
  * REAL, untouched `resolveSeniorShare` (a pure function), not against a
  * mock echoing back whatever the test configured.
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { ARCHIVED_ENTITLEMENT_MESSAGE } from './archived-entitlement'
@@ -210,9 +210,18 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
 // The three RESPONSE paths used to do the reverse — `approvals` first, then
 // `users` — which is a textbook ABBA inversion: an admin re-proposing while
 // the senior confirms can deadlock (Postgres `40P01`, surfaced as a 500).
-// The project half has never had this (it locks `approvals` first
-// EVERYWHERE), so the fix is to make the user half equally uniform, in the
-// direction its propose path already dictates: `users` → `approvals`.
+// The fix is to make this half uniform, in the direction its propose path
+// already dictates: `users` → `approvals`.
+//
+// task-648-fix-round-3 (SR-M-8): this comment used to justify that with "the
+// project half has never had this — it locks `approvals` first EVERYWHERE".
+// True when written, false by the end of the same round: the cancel path
+// round 2 added on the project half locked `projects` first. Fixed there, and
+// now pinned by `projects.pending-share.spec.ts`'s own SR-M-8 block, so the
+// claim is checked rather than restated. The two halves are deliberately
+// mirror images (`users` → `approvals` here, `approvals` → `projects` there):
+// what prevents a deadlock is that each half is internally uniform, not that
+// both pick the same family first — they lock disjoint tables.
 //
 // Asserted as ORDER, not as presence: every one of these calls already
 // happened before this round: only their sequence was wrong.

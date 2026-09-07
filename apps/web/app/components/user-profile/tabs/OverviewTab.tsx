@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useAuth } from '@/context/auth'
 import {
   Bitcoin,
   Building2,
@@ -15,7 +16,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CancelPendingShareButton } from '@/components/pending-share/cancel-pending-share'
+import {
+  CancelPendingShareButton,
+  pendingShareAudience,
+} from '@/components/pending-share/cancel-pending-share'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -336,6 +340,12 @@ interface OverviewData {
 }
 
 export function OverviewTab({ user, mode, data, permissions, onGoToTab }: OverviewTabProps) {
+  // task-648-fix-round-3 (COPY-H-8): the READER, for the pending-share gate
+  // below. First statement of the component and unconditional — this file
+  // already learned once (UI perf pass, PR #304–#309) that a hook placed
+  // after any early return crashes on Rules of Hooks in a way only a live
+  // browser catches.
+  const { user: me } = useAuth()
   const overview = (data.overview ?? {}) as OverviewData
   const techStack = user.techStack ?? []
   const showSalary = permissions.fields.salary === true
@@ -366,7 +376,20 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
   // task-648-fix-round-2. `showsPendingBanner` is the banner's own render
   // condition, hoisted so the badge below can stand down when the banner is
   // already saying the same thing (COPY-L-7) instead of duplicating it.
-  const showsPendingBanner = mode === 'self' && user.role === 'SENIOR' && !!user.pendingSeniorShare
+  // task-648-fix-round-3 (COPY-H-8). This used to be
+  // `mode === 'self' && user.role === 'SENIOR' && !!user.pendingSeniorShare`,
+  // i.e. gated on the ROUTE (`/profile` vs `/profile/$userId`). A senior who
+  // reached their OWN profile through the second route — an admin sends the
+  // link, or they arrive from a team list — was therefore told about
+  // themselves in the third person and given no buttons at all, while the
+  // project half asked the right question two files away. Now both halves ask
+  // it through one helper. `role === 'SENIOR'` is dropped as redundant, not
+  // relaxed: only the affected senior is ever the `approverId` of a
+  // USER_SENIOR_SHARE proposal, and the backend re-checks it anyway
+  // (`approveInTx` is handed `currentUser.id` as `approverUserId`, so an
+  // admin cannot approve on someone's behalf even if this returned true).
+  const pendingAudience = pendingShareAudience(me?.id, user.pendingSeniorShare)
+  const showsPendingBanner = pendingAudience === 'approver'
   // UX-H-3(r2): who may withdraw a proposal. Reuses the SAME ADMIN-viewing-
   // someone-else signal `canSeeAdminNote` above already relies on (see
   // UsersAccessService) rather than inventing a second way to ask — the
@@ -436,7 +459,11 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                     rather than on `mode` alone, so a self-view that somehow
                     has a pending value without a banner still shows it. */}
                 {user.pendingSeniorShare && !showsPendingBanner && (
-                  <div className="flex items-start gap-1">
+                  // task-648-fix-round-3 (COPY-H-7): a column, not a row —
+                  // the withdraw control is now a named text button and does
+                  // not fit BESIDE the badge at 320. Twin of the project
+                  // half's identical change, same reasoning.
+                  <div className="flex flex-col items-start gap-1">
                     <div className="min-w-0 space-y-0.5">
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -456,7 +483,16 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                             className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums"
                             data-testid="user-senior-share-pending-badge"
                           >
-                            {`Ждёт подтверждения: ${user.pendingSeniorShare.percent}%`}
+                            {/* task-648-fix-round-3 (COPY-H-7 / COPY-M-15):
+                                «Предложено N%» — one name for the fact, the
+                                same the toast and the edit-dialog notice use,
+                                and short enough that `whitespace-nowrap`
+                                survives at 320. `percent` is non-null on this
+                                (USER-level) half — the schema's own comment
+                                says a base-share proposal is always a concrete
+                                percent — but it is read through the resolved
+                                field anyway so both halves read identically. */}
+                            {`Предложено ${user.pendingSeniorShare.percent === null ? user.pendingSeniorShare.effectivePercentAfterApproval : user.pendingSeniorShare.percent}%`}
                           </Badge>
                         </TooltipTrigger>
                         {/* task-648-fix-round-2 (UX-M-3(r2)): width-capped and
@@ -487,7 +523,17 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                     {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw
                         control, next to the indicator that is the only place
                         an ADMIN learns the proposal exists. */}
-                    {isAdminViewer && <CancelPendingShareButton scope="user" id={user.id} />}
+                    {isAdminViewer && (
+                      <CancelPendingShareButton
+                        scope="user"
+                        id={user.id}
+                        pendingPercent={
+                          user.pendingSeniorShare.percent === null
+                            ? user.pendingSeniorShare.effectivePercentAfterApproval
+                            : user.pendingSeniorShare.percent
+                        }
+                      />
+                    )}
                   </div>
                 )}
               </CardContent>

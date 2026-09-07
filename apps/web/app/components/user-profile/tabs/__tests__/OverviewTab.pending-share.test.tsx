@@ -24,6 +24,16 @@ vi.mock('@/hooks/use-admin-note', () => ({
   useSetAdminNote: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
+/**
+ * task-648-fix-round-3 (COPY-H-8): the banner's gate is now the READER, so
+ * every test has to say who is reading. `viewerId` is set by `renderTab`
+ * below before each render.
+ */
+const { authState } = vi.hoisted(() => ({ authState: { id: null as string | null } }))
+vi.mock('@/context/auth', () => ({
+  useAuth: () => ({ user: authState.id === null ? null : { id: authState.id } }),
+}))
+
 vi.mock('@/lib/axios', () => ({
   api: {
     get: vi.fn(),
@@ -100,11 +110,22 @@ const ADMIN_SHARE_PERMS: ViewPermissions = {
   fields: { share: true },
 }
 
+/**
+ * task-648-fix-round-3 (COPY-H-8). `viewerId` defaults so the existing tests
+ * keep meaning what they meant: on `mode='self'` the reader IS the profile's
+ * subject, on `mode='view'` it is somebody else. Tests that care about the
+ * route/reader mismatch — the whole point of the finding — pass it
+ * explicitly.
+ */
+const OTHER_VIEWER = 'b0000000-0000-4000-8000-0000000000ff'
+
 function renderTab(
   user: UserProfileDto,
   mode: 'self' | 'view',
   permissions: ViewPermissions = SHARE_PERMS,
+  viewerId: string | null = mode === 'self' ? user.id : OTHER_VIEWER,
 ) {
+  authState.id = viewerId
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={qc}>
@@ -116,24 +137,136 @@ function renderTab(
   return { qc }
 }
 
-describe('OverviewTab — pending base share banner (self + SENIOR + live proposal)', () => {
-  it('shows the banner when mode=self, role=SENIOR, and a proposal is pending (all three true)', () => {
+// ---------------------------------------------------------------------------
+// task-648-fix-round-3 (COPY-H-8). The banner used to be gated on
+// `mode === 'self' && role === 'SENIOR' && pendingSeniorShare` — i.e. on the
+// ROUTE plus a role. Both clauses were wrong for the same reason: neither
+// answers "is the person reading this the person who must decide".
+//
+//  - the ROUTE: a senior who opens their OWN profile through
+//    `/profile/$userId` (an admin sends the link, or they arrive from a team
+//    list) got `mode='view'` — third person, no buttons, about themselves.
+//  - the ROLE: the backend opens a USER_SENIOR_SHARE proposal for whoever the
+//    PATCH targets, with no `role === 'SENIOR'` check anywhere
+//    (`adminUpdateUser` → `proposeSeniorShareChangeInTx`). An ADMIN holds a
+//    `seniorSharePercent` too, so this clause hid the banner from a reader
+//    who genuinely had to answer.
+//
+// The one question that IS right is `approverId === viewer.id`, which the
+// project half already asked — now both ask it through one helper.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// task-648-fix-round-3 (COPY-L-13). `percent` is nullable on the shared
+// schema: `null` means "clear the override, fall back to the resolved value",
+// NOT "zero". Round 1 shipped `?? 0` here, COPY-H-2 removed it, and round 2
+// let it back in through `UserDialog`. Every fixture in this file has
+// `percent === effectivePercentAfterApproval`, so BOTH branches produced the
+// same number and no test could tell the resolved read from a wrong one — the
+// mutation gate is what surfaced that, by deleting the branch and staying
+// green. This fixture makes the two numbers differ.
+// ---------------------------------------------------------------------------
+const PENDING_CLEARING: PendingSeniorShare = {
+  percent: null,
+  effectivePercentAfterApproval: 26,
+  approverId: 'a0000000-0000-4000-8000-000000000001',
+  approverName: 'Senior One',
+}
+
+/**
+ * The mirror fixture: a CONCRETE percent that differs from the resolved one.
+ * Every other fixture in this file has the two equal, so "read `percent`" and
+ * "read `effectivePercentAfterApproval`" produced the same string and the
+ * branch was untestable in the other direction — the mutation gate said so by
+ * collapsing the ternary to its null arm and staying green. Same shape the
+ * project half's `ProjectEditFields` test already used.
+ */
+const PENDING_DIVERGENT: PendingSeniorShare = {
+  percent: 55,
+  effectivePercentAfterApproval: 26,
+  approverId: 'a0000000-0000-4000-8000-000000000001',
+  approverName: 'Senior One',
+}
+
+describe('OverviewTab — a proposal whose percent is null reads the RESOLVED value', () => {
+  it('a CONCRETE percent is shown as-is, not swapped for the resolved value', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING_DIVERGENT }), 'view')
+    expect(screen.getByTestId('user-senior-share-pending-badge').textContent).toBe('Предложено 55%')
+  })
+
+  it('and the withdraw confirmation names that same concrete percent', async () => {
+    const user = userEvent.setup()
+    renderTab(
+      makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING_DIVERGENT }),
+      'view',
+      ADMIN_SHARE_PERMS,
+    )
+    await user.click(screen.getByTestId('cancel-pending-share-user'))
+    const dialog = await screen.findByTestId('cancel-pending-share-confirm-user')
+    expect(dialog).toHaveTextContent('Отменить предложение 55%?')
+  })
+
+  it('the badge names the resolved percent, never «0%» and never «null%»', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING_CLEARING }), 'view')
+    const badge = screen.getByTestId('user-senior-share-pending-badge')
+    expect(badge.textContent).toBe('Предложено 26%')
+  })
+
+  it('the withdraw confirmation names the same resolved percent', async () => {
+    const user = userEvent.setup()
+    renderTab(
+      makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING_CLEARING }),
+      'view',
+      ADMIN_SHARE_PERMS,
+    )
+    await user.click(screen.getByTestId('cancel-pending-share-user'))
+    const dialog = await screen.findByTestId('cancel-pending-share-confirm-user')
+    expect(dialog).toHaveTextContent('Отменить предложение 26%?')
+  })
+})
+
+describe('OverviewTab — pending base share banner (gated on the READER, not the route)', () => {
+  it('shows the banner to the person the proposal waits on, on the self route', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     expect(screen.getByTestId('pending-base-share-approval-banner')).toBeInTheDocument()
   })
 
-  it('hides the banner when mode is NOT self, even for the SENIOR with a pending proposal', () => {
+  it('shows it to that SAME person on the /profile/$userId route — the finding', () => {
+    // Identical user, identical proposal; only the ROUTE differs. Before this
+    // round the senior was shown their own share in the third person here.
+    const senior = makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING })
+    renderTab(senior, 'view', SHARE_PERMS, senior.id)
+    expect(screen.getByTestId('pending-base-share-approval-banner')).toBeInTheDocument()
+    // ...and the third-person badge stands down, so one reader is not told
+    // both «Вашу долю…» and «Подтверждает <имя>» on one screen.
+    expect(screen.queryByTestId('user-senior-share-pending-badge')).not.toBeInTheDocument()
+  })
+
+  it('hides it from a reader who is not the approver, even on the self route', () => {
+    // The mirror case: the route says "self", the reader is someone else.
+    // Route and reader disagreeing in EITHER direction must follow the reader.
+    renderTab(
+      makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }),
+      'self',
+      SHARE_PERMS,
+      OTHER_VIEWER,
+    )
+    expect(screen.queryByTestId('pending-base-share-approval-banner')).not.toBeInTheDocument()
+  })
+
+  it('hides it from an ADMIN viewing the affected senior', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view')
     expect(screen.queryByTestId('pending-base-share-approval-banner')).not.toBeInTheDocument()
   })
 
-  it('hides the banner when the self-viewer is not a SENIOR, even with a pending proposal', () => {
-    renderTab(makeUser({ role: 'DROP', dropSharePercent: 5, pendingSeniorShare: PENDING }), 'self')
+  it('hides it when nothing is pending, however the reader arrived', () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: null }), 'self')
     expect(screen.queryByTestId('pending-base-share-approval-banner')).not.toBeInTheDocument()
   })
 
-  it('hides the banner for a self-viewing SENIOR when nothing is pending', () => {
-    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: null }), 'self')
+  it('hides it when nobody is logged in (no reader, no first person)', () => {
+    // `useAuth` returns `null` before the session resolves — a null viewer id
+    // must never accidentally equal an approver id.
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self', SHARE_PERMS, null)
     expect(screen.queryByTestId('pending-base-share-approval-banner')).not.toBeInTheDocument()
   })
 })
@@ -177,7 +310,8 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
     // that fails if a `{' '}` between elements ever comes back.
     expect(badge.childNodes).toHaveLength(1)
     expect(badge.childNodes[0]?.nodeType).toBe(Node.TEXT_NODE)
-    expect(badge.textContent).toBe('Ждёт подтверждения: 55%')
+    // task-648-fix-round-3 (COPY-H-7 / COPY-M-15): «Предложено N%».
+    expect(badge.textContent).toBe('Предложено 55%')
     expect(badge).not.toHaveTextContent('Senior One')
   })
 

@@ -1497,21 +1497,28 @@ export function UserDialog(props: UserDialogProps) {
                             ? field.state.meta.errors[0]
                             : undefined
                           return (
-                            <Field
-                              label="Доля синьора (%)"
-                              /* task-648-fix-round-2 (COPY-H-6): the form
-                                 where the change starts now says the change
-                                 does not take effect on save. */
-                              hint="То, что синьор оставляет себе. Новое значение начнёт действовать после его подтверждения"
-                              error={err}
-                              required={isCreate}
-                            >
+                            <Field label="Доля синьора (%)" error={err} required={isCreate}>
                               <ShareSlider
                                 value={val}
                                 onChange={(v) => field.handleChange(v)}
                                 onBlur={field.handleBlur}
                                 error={!!err}
                               />
+                              {/* task-648-fix-round-2 (COPY-H-6): the form
+                                  where the change starts says the change does
+                                  not take effect on save. */}
+                              {/* task-648-fix-round-3 (COPY-L-11): rendered
+                                  HERE, as a plain paragraph, instead of
+                                  through `Field`'s `hint` prop. `Field` puts
+                                  its hint AFTER children, so this dialog read
+                                  slider → notice → hint while the project
+                                  dialog read slider → hint → notice: the same
+                                  two blocks in opposite orders, two dialogs
+                                  apart, for one feature. */}
+                              <p className="text-xs text-muted-foreground">
+                                То, что синьор оставляет себе. Новое значение начнёт действовать
+                                после подтверждения синьора.
+                              </p>
                               {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN
                                   who opens this dialog to "fix" the percent
                                   saw a slider holding the ACTIVE value and
@@ -1526,7 +1533,20 @@ export function UserDialog(props: UserDialogProps) {
                                 <PendingShareEditNotice
                                   scope="user"
                                   id={editingUser.id}
-                                  pendingPercent={editingUser.pendingSeniorShare.percent ?? 0}
+                                  /* task-648-fix-round-3 (COPY-L-13): the
+                                     `?? 0` that COPY-H-2 removed in round 1
+                                     had crept back here. It is the exact bug
+                                     that finding was about: a `null` percent
+                                     is "clear the override", NOT "zero", and
+                                     rendering «Предложено 0%» tells the
+                                     admin a number the server never said.
+                                     The resolved field is what both halves
+                                     read now. */
+                                  pendingPercent={
+                                    editingUser.pendingSeniorShare.percent === null
+                                      ? editingUser.pendingSeniorShare.effectivePercentAfterApproval
+                                      : editingUser.pendingSeniorShare.percent
+                                  }
                                   approverName={editingUser.pendingSeniorShare.approverName}
                                 />
                               )}
