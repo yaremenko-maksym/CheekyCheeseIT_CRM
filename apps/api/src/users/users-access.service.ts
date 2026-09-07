@@ -78,6 +78,15 @@ export class UsersAccessService {
       // share is 50/50 with partner — not surfaced as user data). Otherwise full visibility.
       fields.salary = !isSelf && targetIsSalaryRole
       fields.share = !isSelf && targetIsShareRole
+      // task-648-fix-round-1 (QA-HIGH-1/QA-MED-2). A PENDING (unconfirmed)
+      // share change is a narrower surface than the ACTIVE share itself —
+      // task file: "ожидающее значение — только ADMIN и сам синьор". ADMIN
+      // proposed it (or is about to act on it), so ADMIN sees it for any
+      // non-self target; ACCOUNTANT/HR see the ACTIVE `share` value (payroll
+      // need-to-know) but must NOT learn a change is even proposed — see
+      // `fields.sharePending` staying unset (false) in their own branches
+      // below, and `buildProfileView`'s use of this flag instead of `share`.
+      fields.sharePending = !isSelf && targetIsShareRole
       fields.paymentMethodKpi = !isSelf
       fields.registrationDate = !isSelf
       fields.techStack = targetHasTechStack
@@ -147,6 +156,10 @@ export class UsersAccessService {
       // SENIOR: interviews moved to header link; no separate tab here
       fields.salary = targetIsSalaryRole
       fields.share = targetIsShareRole
+      // task-648-fix-round-1 (QA-HIGH-1): the affected SENIOR always sees
+      // their OWN pending proposal (they are the one who must confirm it) —
+      // see the ADMIN branch above for the general reasoning.
+      fields.sharePending = targetIsShareRole
       fields.paymentMethodKpi = true
       fields.registrationDate = true
       fields.techStack = targetHasTechStack

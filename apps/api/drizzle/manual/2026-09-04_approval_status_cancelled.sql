@@ -1,0 +1,60 @@
+-- =============================================================================
+-- approval_status: add CANCELLED — prod DDL (manual apply)
+-- =============================================================================
+--
+-- Context
+-- -------
+-- task-648-fix-round-1 (SR-H-1, security review on PR #648). An open
+-- proposal on the `approvals` foundation (2026-09-01_approvals.sql) could not
+-- be withdrawn, and returning the field to its ACTIVE value did not cancel
+-- it either (a silent no-op) — so an admin's typo, proposed and then
+-- corrected, stayed live until the senior confirmed it anyway. Full
+-- reasoning: task-648-fix-round-1.md, SR-H-1.
+--
+-- This migration adds ONE new enum value to `approval_status`
+-- (PENDING | APPROVED | REJECTED → + CANCELLED). Nothing else about the
+-- `approvals` table changes — no new column, no new table, no data touched.
+-- CANCELLED is distinct from REJECTED: REJECTED is the invited approver
+-- declining (with a reason); CANCELLED is the proposal's own owner
+-- withdrawing it before the approver answered (no reason). See
+-- `packages/shared/src/schemas/approvals.ts` for the full reasoning.
+--
+-- The dev/CI database gets this via `pnpm --filter @crm/api db:push`
+-- (drizzle-kit push). The prod image does not ship drizzle-kit, so prod is
+-- migrated with THIS script — same pattern as every other manual migration
+-- in this directory.
+--
+-- How to apply
+-- ------------
+--   docker compose -f docker-compose.prod.yml exec -T postgres psql \
+--     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+--     < apps/api/drizzle/manual/2026-09-04_approval_status_cancelled.sql
+--
+-- Wired into .github/workflows/deploy.yml (SCP copy step + psql-apply step +
+-- the preflight hard-required list) in this SAME PR — same reasoning as
+-- 2026-09-01_approvals.sql's own header: the migration and the code that
+-- needs it ship together, not across two PRs.
+-- `scripts/devops/check-prod-ddl-wiring.py` verifies both parts are present.
+--
+-- Idempotent: `ALTER TYPE … ADD VALUE IF NOT EXISTS` (native Postgres syntax,
+-- PG 9.6+ — this project runs PG 16) — safe to re-run on every deploy,
+-- forever. No transaction-block restriction applies here: nothing in THIS
+-- script tries to USE the new value in the same statement/transaction as
+-- adding it (Postgres forbids that specific combination pre-PG12, and this
+-- script never does it regardless of version).
+-- =============================================================================
+
+ALTER TYPE approval_status ADD VALUE IF NOT EXISTS 'CANCELLED';
+
+-- =============================================================================
+-- VERIFY (after applying):
+--   SELECT unnest(enum_range(NULL::approval_status));  -- 4 rows, CANCELLED last
+-- =============================================================================
+--
+-- Rollback: NOT POSSIBLE for an enum value removal in Postgres (no
+-- `ALTER TYPE … DROP VALUE`) without recreating the type. Not attempted here
+-- — same accepted limitation as any other additive enum-value migration in
+-- this codebase; the value is inert until the application code that writes
+-- it (this same PR) is also rolled back, and an unused enum value is
+-- harmless to leave in place.
+-- =============================================================================

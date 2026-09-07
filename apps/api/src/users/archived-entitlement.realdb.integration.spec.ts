@@ -194,6 +194,13 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
       teamAuditLogService,
       projectAuditLogService,
       teamsService,
+      {} as never,
+      // task-pending-share fix-round-1 (CR-H-1): buildProfileView calls
+      // `this.approvals.getStatus(...)` whenever `permissions.fields.share`
+      // is true — a working stub, not a placeholder, so a future
+      // share-visible-viewer scenario here doesn't reproduce this round's CI
+      // failure.
+      { getStatus: async () => 'NONE' as const } as never,
     )
     ;(teamsService as unknown as { usersService: UsersService }).usersService = usersService
     projectsService = new ProjectsService(

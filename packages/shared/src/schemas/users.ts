@@ -3,6 +3,7 @@ import type { Role } from '../types/roles'
 import { currencyEnumSchema, paymentMethodSchema } from './payment-requisites'
 import { tabKeySchema, actionKeySchema } from './view-permissions'
 import { withSalaryFloor } from './money'
+import { pendingSeniorShareSchema } from './pending-share'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
@@ -50,6 +51,23 @@ export const userProfileSchema = z.object({
   bankUahRnokpp: z.string().nullable(),
   bankUahBankName: z.string().nullable(),
   seniorSharePercent: z.number().int().min(0).max(100),
+  /**
+   * task-pending-share (position 5, design spec §4.3). A proposed new value
+   * for `seniorSharePercent` above, awaiting THIS person's own confirmation
+   * — `null` when nothing is pending.
+   *
+   * task-648-fix-round-2 (SR-bm-1): gated by `fields.sharePending`, NOT by
+   * `fields.share` as this doc previously claimed. The two differ on purpose
+   * and the difference is the whole point of QA-HIGH-1: ACCOUNTANT and HR
+   * DO get `fields.share` (payroll need-to-know for the ACTIVE percent) but
+   * must NOT learn that a change is even proposed. See
+   * `UsersAccessService.getViewPermissions` and `UsersService.
+   * buildProfileView`.
+   *
+   * Always `.percent` non-null when present — the column it targets is NOT
+   * NULL, so a base-share proposal never proposes "clear".
+   */
+  pendingSeniorShare: pendingSeniorShareSchema.nullable().optional(),
   /**
    * DROP-only: percentage the drop keeps off the project income (0-100).
    * Default 5. Nullable for non-DROP roles (column is nullable in DB).

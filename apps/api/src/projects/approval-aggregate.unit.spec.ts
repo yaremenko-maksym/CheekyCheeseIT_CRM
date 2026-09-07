@@ -174,6 +174,12 @@ function buildService(
     approveInTx: vi.fn(async () => undefined),
     rejectInTx: vi.fn(async () => undefined),
     getStatusInTx: vi.fn(async () => aggregate),
+    // task-pending-share: `loadForResponse` (the response path every test in
+    // this file exercises) now also resolves `pendingSeniorShare` via the
+    // non-tx `getStatus` — 'NONE' here since this file's own subject
+    // ('PROJECT', draft confirmation) is what `aggregate` describes, not a
+    // share-change proposal.
+    getStatus: vi.fn(async () => 'NONE' as const),
   }
   const service = new ProjectsService(
     db as never,
