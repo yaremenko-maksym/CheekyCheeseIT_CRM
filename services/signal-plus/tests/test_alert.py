@@ -370,6 +370,23 @@ def test_send_handover_email_posts_to_resend_with_auth_header(config_with_email)
     assert captured["headers"]["Authorization"] == "Bearer re_test_key"
 
 
+def test_send_handover_email_sends_a_product_user_agent_not_urllibs_default(config_with_email):
+    # Cloudflare in front of api.resend.com rejects urllib's default
+    # `Python-urllib/3.x` User-Agent with 403 "error code: 1010" (seen live on
+    # the VPS 2026-09-07). Without an explicit header the request never
+    # reaches Resend, so the header is part of the contract, not cosmetics.
+    captured = {}
+
+    def fake_http_post(url, *, headers, body):
+        captured["headers"] = headers
+        return 200, b'{"id":"abc"}'
+
+    assert send_handover_email(config_with_email, "connection refused", http_post=fake_http_post) is True
+    user_agent = captured["headers"].get("User-Agent", "")
+    assert user_agent.startswith("signal-plus/")
+    assert "Python-urllib" not in user_agent
+
+
 def test_send_handover_email_body_carries_reason_and_recipient(config_with_email):
     captured = {}
 
