@@ -14,7 +14,7 @@
  * apps/api's salary-status.helper.spec.ts.
  */
 import { describe, expect, it } from 'vitest'
-import { mySalaryStateSchema, mySalaryStatusSchema } from './interviews'
+import { boardSeniorSchema, mySalaryStateSchema, mySalaryStatusSchema } from './interviews'
 
 describe('mySalaryStateSchema (E-6 fix — the new 4-state field)', () => {
   it('parses NOT_CONFIGURED (no other fields)', () => {
@@ -111,5 +111,58 @@ describe('mySalaryStatusSchema (DEPRECATED — pins backward compatibility, secu
 
   it('rejects missing amount/currency/status on a non-null object', () => {
     expect(() => mySalaryStatusSchema.parse({})).toThrow()
+  })
+})
+
+// task-hr-drop-team-senior-board — GET /api/interviews/seniors DTO.
+describe('boardSeniorSchema', () => {
+  const VALID = {
+    id: '11111111-1111-4111-8111-111111111111',
+    displayName: 'Иван Синьор',
+    avatarUrl: 'https://example.com/avatar.png',
+    avatarDocumentId: '22222222-2222-4222-8222-222222222222',
+  }
+
+  it('parses a full valid row and keeps every field intact', () => {
+    // A round-trip equality check (not just `.not.toThrow()`) matters here:
+    // an emptied schema (`z.object({})`) would ALSO accept this input
+    // without throwing, but would silently strip every key — `result.id`
+    // would come back `undefined`, not the id that went in.
+    expect(boardSeniorSchema.parse(VALID)).toEqual(VALID)
+  })
+
+  it('accepts null avatarUrl and null avatarDocumentId', () => {
+    const result = boardSeniorSchema.parse({ ...VALID, avatarUrl: null, avatarDocumentId: null })
+    expect(result.avatarUrl).toBeNull()
+    expect(result.avatarDocumentId).toBeNull()
+  })
+
+  it('rejects an empty object — id/displayName/avatarUrl/avatarDocumentId are all required', () => {
+    expect(boardSeniorSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('rejects a non-UUID id', () => {
+    expect(boardSeniorSchema.safeParse({ ...VALID, id: 'not-a-uuid' }).success).toBe(false)
+  })
+
+  it('rejects a non-UUID avatarDocumentId', () => {
+    expect(boardSeniorSchema.safeParse({ ...VALID, avatarDocumentId: 'not-a-uuid' }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects an avatarUrl that is not a URL', () => {
+    expect(boardSeniorSchema.safeParse({ ...VALID, avatarUrl: 'not-a-url' }).success).toBe(false)
+  })
+
+  it('rejects a missing displayName', () => {
+    const { displayName: _displayName, ...withoutName } = VALID
+    expect(boardSeniorSchema.safeParse(withoutName).success).toBe(false)
+  })
+
+  it('strips unmasked fields silently instead of rejecting them (allow-list, not deny-list)', () => {
+    const result = boardSeniorSchema.parse({ ...VALID, email: 'leak@test.spec', techStack: ['x'] })
+    expect(result).not.toHaveProperty('email')
+    expect(result).not.toHaveProperty('techStack')
   })
 })
