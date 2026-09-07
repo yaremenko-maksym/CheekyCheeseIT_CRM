@@ -29,6 +29,7 @@ import {
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
   findUserByEmailViaApi,
+  approveProjectSeniorShareViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -155,6 +156,20 @@ test.describe('Team senior share override — resolver precedence', () => {
       expect(patchRes.status()).toBe(200)
 
       await loginViaApi(page, SEED_EMAILS.seniorA)
+      // task-pending-share fix-round-4. The PATCH above no longer moves the
+      // active override — it opens a proposal the project's SENIOR has to
+      // confirm, which is the entire point of this PR. Without this line the
+      // resolver correctly kept falling back to TEAM (16) and the assertion
+      // below read 16 instead of 33: the spec was still describing the world
+      // as it was before the proposal existed.
+      //
+      // Fixed by confirming the proposal, NOT by relaxing the expectation to
+      // 16 — the same choice round 1 made for the user half (CR-H-2). What
+      // this scenario is about is resolver PRECEDENCE (project beats team),
+      // and precedence can only be observed once the project value is
+      // actually live. Weakening it to 16 would have left the file green
+      // while testing nothing it was written to test.
+      await approveProjectSeniorShareViaAPI(page, projectBId)
       const { txId: txB } = await createSeniorIncomeViaAPI(page, {
         projectId: projectBId,
         amount: 1000,

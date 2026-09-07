@@ -47,14 +47,17 @@ describe('approvalSubjectTypeSchema', () => {
 })
 
 describe('approvalStatusSchema', () => {
-  it('accepts the three known statuses', () => {
+  it('accepts the four known statuses', () => {
     expect(() => approvalStatusSchema.parse('PENDING')).not.toThrow()
     expect(() => approvalStatusSchema.parse('APPROVED')).not.toThrow()
     expect(() => approvalStatusSchema.parse('REJECTED')).not.toThrow()
+    // CANCELLED — task-648-fix-round-1 (SR-H-1): the proposal OWNER withdrawing
+    // it outright, distinct from the approver REJECTED-ing it. See approvals.ts.
+    expect(() => approvalStatusSchema.parse('CANCELLED')).not.toThrow()
   })
 
   it('rejects an unknown status', () => {
-    expect(() => approvalStatusSchema.parse('CANCELLED')).toThrow()
+    expect(() => approvalStatusSchema.parse('MAYBE')).toThrow()
   })
 })
 

@@ -75,10 +75,18 @@ describe.skipIf(!hasDatabaseUrl())(
       const accessService = new UsersAccessService(dbSvc)
       const auditLog = new AuditLogService(dbSvc)
       const tosService = { getLatestAcceptanceForUser: async () => null } as never
+      // task-pending-share fix-round-1 (CR-H-1/SPEC-H-1): buildProfileView now
+      // unconditionally calls `this.approvals.getStatus(...)` whenever
+      // `permissions.fields.share` is true — which it is on this file's own
+      // ACCOUNTANT-viewing-SENIOR path (AC1a). A working stub is required, not
+      // a placeholder, or this file reproduces the exact CI failure it's
+      // fixing here.
+      const approvals = { getStatus: async () => 'NONE' as const } as never
 
       // Constructor order: (db, accessService, auditLogService, tosService,
-      // teamAuditLogService, projectAuditLogService, teamsService). Only the first
-      // four are exercised by buildProfileView on the accountant path.
+      // teamAuditLogService, projectAuditLogService, teamsService, inviteMailer,
+      // approvals). Only the first four plus `approvals` are exercised by
+      // buildProfileView on the accountant path.
       service = new UsersService(
         dbSvc,
         accessService,
@@ -87,6 +95,8 @@ describe.skipIf(!hasDatabaseUrl())(
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
+        approvals,
       )
 
       await db

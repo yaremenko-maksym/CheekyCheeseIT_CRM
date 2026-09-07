@@ -281,6 +281,9 @@ function buildService(
   const approvals = {
     isApprover: vi.fn(async () => false),
     listSubjectIdsForApprover: vi.fn(async () => new Set<string>()),
+    // task-pending-share: defensive — `findOne` is stubbed below for this
+    // harness's own tests, but kept for parity with the constructor shape.
+    getStatus: vi.fn(async () => 'NONE' as const),
   }
   const service = new ProjectsService(
     db as never,
@@ -600,6 +603,10 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
     const approvals = {
       isApprover: vi.fn(async () => false),
       listSubjectIdsForApprover: vi.fn(async () => new Set<string>()),
+      // task-pending-share: findOne's response path resolves
+      // pendingSeniorShare via getStatus — 'NONE' here, this file only
+      // exercises archive/unarchive + team dynamism, not share proposals.
+      getStatus: vi.fn(async () => 'NONE' as const),
     }
     const service = new ProjectsService(
       db as never,

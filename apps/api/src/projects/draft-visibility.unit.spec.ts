@@ -117,6 +117,9 @@ function buildService(invitedIds: Set<string>) {
     listSubjectIdsForApprover: vi.fn(async (_subjectType: string, userId: string) =>
       invitedIds.has(userId) ? new Set([PROJECT_ID]) : new Set<string>(),
     ),
+    // task-pending-share: findOne's response path resolves pendingSeniorShare
+    // via getStatus — 'NONE' here, this file only exercises draft visibility.
+    getStatus: vi.fn(async () => 'NONE' as const),
   }
   const service = new ProjectsService(
     db as never,

@@ -411,6 +411,14 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'testid:restore-tx-reason-input':
     'Free-text reason typed before restoring a deleted transaction.',
 
+  // ---- task-pending-share: pending senior-share-change rejection reason —
+  //      projects/$projectId.tsx (project override) + user-profile
+  //      OverviewTab.tsx (base share, self-view) ----
+  'testid:pending-share-reject-reason':
+    'Free-text reason typed by the affected SENIOR when declining a proposed project-level share change — a human-readable justification, not a data value.',
+  'testid:pending-base-share-reject-reason':
+    'Free-text reason typed by the affected SENIOR when declining a proposed change to their own base share percent.',
+
   // ---- routes/_authenticated/team/$teamId.tsx ----
   'app/routes/_authenticated/team/$teamId.tsx#id:edit-name': 'Free-text team name.',
   'app/routes/_authenticated/team/$teamId.tsx#id:edit-notes': 'Free-text internal team notes.',

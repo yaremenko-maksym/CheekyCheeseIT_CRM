@@ -281,6 +281,9 @@ function buildHarness(project: ReturnType<typeof makeProjectWithMembers>) {
   const approvals = {
     isApprover: vi.fn(async () => false),
     listSubjectIdsForApprover: vi.fn(async () => new Set<string>()),
+    // task-pending-share: findOne's response path resolves pendingSeniorShare
+    // via getStatus — 'NONE' here, this file only exercises member masking.
+    getStatus: vi.fn(async () => 'NONE' as const),
   }
 
   // security-review PR #541 follow-up (optional note 1): no `vi.spyOn` on

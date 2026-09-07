@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { pendingSeniorShareSchema } from './pending-share'
 
 export const IT_DOMAINS = [
   'AI / ML',
@@ -218,6 +219,17 @@ export const projectSchema = z.object({
    * came from. `null` when the field above is null.
    */
   effectiveSeniorShareSource: z.enum(['PROJECT', 'TEAM', 'USER_DEFAULT']).nullable().optional(),
+  /**
+   * task-pending-share (position 5, design spec §4.3). A proposed new value
+   * for `seniorSharePercentOverride` above, awaiting the project's SENIOR
+   * confirmation — `null` when nothing is pending. Masked to `null` for
+   * JUNIOR viewers (same allowlist as `seniorSharePercentOverride` itself).
+   * Only computed on the single-project read paths (GET/PATCH `:id`) — the
+   * list endpoint (GET /projects) always returns `null` here, matching how
+   * `effectiveSeniorSharePercent` above is documented as detail-oriented UI
+   * sugar, not a list-scale aggregate.
+   */
+  pendingSeniorShare: pendingSeniorShareSchema.nullable().optional(),
   members: z.array(projectMemberSchema),
   techStack: z.string().nullable(),
   teamSize: z.string().nullable(),
