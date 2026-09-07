@@ -207,10 +207,22 @@ function CancelPendingShareConfirm({
           {/* «Оставить», not «Отмена»: on a dialog whose whole subject is
               cancelling something, «Отмена» would be the same word for both
               answers. */}
-          <AlertDialogCancel data-testid={`cancel-pending-share-keep-${scope}`}>
+          {/* manual-qa round 5 (QA-MED-6): `AlertDialogCancel`/`AlertDialogAction`
+              fall back to `buttonVariants()`'s default size (`h-9` = 36px) unless
+              told otherwise — measured live at 320/375 and confirmed against
+              `apps/web/app/components/ui/button.tsx`. The sibling reject dialog
+              (`OverviewTab.tsx`) already solved exactly this with `h-11 sm:h-9`
+              on both footer buttons; this is the same fix, so the two
+              irreversible-action dialogs this feature ships stop disagreeing on
+              the one thing UX-H-1 (round 1) fixed everywhere else. */}
+          <AlertDialogCancel
+            className="h-11 sm:h-9"
+            data-testid={`cancel-pending-share-keep-${scope}`}
+          >
             Оставить
           </AlertDialogCancel>
           <AlertDialogAction
+            className="h-11 sm:h-9"
             onClick={onConfirm}
             data-testid={`cancel-pending-share-confirm-button-${scope}`}
           >
