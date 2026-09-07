@@ -166,6 +166,29 @@ describe('PendingProjectApprovalsPanel', () => {
     expect(screen.getByTestId('project-approval-approve-p1')).toBeInTheDocument()
     expect(screen.getByTestId('project-approval-approve-p2')).toBeInTheDocument()
   })
+
+  /**
+   * COPY-M-14 (PR #646 fix-round 6, MED — copy review). This panel is the
+   * ONE mount point of `ProjectApprovalActions` that must NEVER pass
+   * `compact` — see that component's own doc for why (`ProjectRow`'s
+   * status column is a genuinely narrow ~86px track at `lg:`; this widget
+   * has plenty of room at every width the dashboard renders at). Asserting
+   * the ABSENCE of `lg:hidden` on the rendered label, through the actual
+   * widget mount (not calling `ProjectApprovalActions` directly, which
+   * `ProjectApprovalActions.test.tsx`'s own "without compact" test already
+   * covers) is what proves this specific call site never regresses back to
+   * passing the prop.
+   */
+  it('COPY-M-14: the widget mount never hides the Confirm/Reject labels — no `compact` prop, at any width', () => {
+    const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
+    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+    renderPanel()
+
+    const approveLabel = screen.getByText('Подтвердить')
+    const rejectLabel = screen.getByText('Отклонить')
+    expect(approveLabel.className).not.toContain('lg:hidden')
+    expect(rejectLabel.className).not.toContain('lg:hidden')
+  })
 })
 
 describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {

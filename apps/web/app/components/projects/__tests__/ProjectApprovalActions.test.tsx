@@ -125,6 +125,45 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(reject).toHaveAttribute('aria-label', 'Отклонить')
   })
 
+  /**
+   * COPY-M-14 (PR #646 fix-round 6, MED — copy review). At `lg:` (compact)
+   * the visible label hides down to icon-only — `title` is the ONLY way a
+   * mouse user hovering the button can still read the word (a screen-reader
+   * user already gets it from `aria-label`). Pinning `title === aria-label`
+   * (not just "title is present") is what actually distinguishes "the native
+   * tooltip carries the real word" from "title is set to something, and
+   * happens not to crash" — the same reasoning COPY-L-8's own test above
+   * uses for aria-label vs the ARIA accessible-name algorithm's fallback.
+   */
+  it('COPY-M-14 (PR #646 fix-round 6): title mirrors aria-label exactly on both buttons at rest', () => {
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    const approve = screen.getByTestId(`project-approval-approve-${PROJECT_ID}`)
+    const reject = screen.getByTestId(`project-approval-reject-${PROJECT_ID}`)
+    expect(approve).toHaveAttribute('title', 'Подтвердить')
+    expect(reject).toHaveAttribute('title', 'Отклонить')
+  })
+
+  /**
+   * COPY-M-14. Without `compact` (the dashboard widget's own mount point —
+   * see PendingProjectApprovalsPanel.test.tsx for the matching assertion),
+   * the visible label must NEVER hide at `lg:` — only ProjectRow opts in.
+   */
+  it('COPY-M-14: without `compact`, the visible label never hides at lg: — only ProjectRow opts into the icon-only fallback', () => {
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    const approveLabel = screen.getByText('Подтвердить')
+    const rejectLabel = screen.getByText('Отклонить')
+    expect(approveLabel.className).not.toContain('lg:hidden')
+    expect(rejectLabel.className).not.toContain('lg:hidden')
+  })
+
+  it('COPY-M-14: `compact` restores the lg:hidden icon-only fallback for ProjectRow’s mount point', () => {
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" compact />)
+    const approveLabel = screen.getByText('Подтвердить')
+    const rejectLabel = screen.getByText('Отклонить')
+    expect(approveLabel.className).toContain('lg:hidden')
+    expect(rejectLabel.className).toContain('lg:hidden')
+  })
+
   it('mutation-gate (ProjectApprovalActions.tsx:179/183): the error paragraph is ABSENT in the normal, at-rest state — approveError/rejectError must actually gate on isError, not render unconditionally', () => {
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
 
@@ -294,6 +333,37 @@ describe('ProjectApprovalActions — Confirm', () => {
     // label swaps to the in-flight text, and so must the raw attribute (see
     // the "at rest" test above for why toHaveAccessibleName cannot see this).
     expect(button).toHaveAttribute('aria-label', 'Подтверждение…')
+    // COPY-M-14 (PR #646 fix-round 6): title mirrors aria-label's OTHER
+    // ternary branch too — a hovering mouse user gets the same in-flight
+    // wording a screen-reader user already does.
+    expect(button).toHaveAttribute('title', 'Подтверждение…')
+  })
+
+  /**
+   * COPY-L-10 (PR #646 fix-round 6, optional — copy review). The icon-only
+   * (compact, `lg:`) band had NO in-flight visual cue besides
+   * `disabled:opacity-50` — easy to miss. Reading the rendered `<svg>`'s own
+   * `class` is the only way to distinguish "spinning" from "static" here:
+   * both `Check` and `Loader2` are plain lucide-react `<svg>` elements with
+   * no other DOM signal (no `data-testid`, no distinguishing role).
+   */
+  it('COPY-L-10 (PR #646 fix-round 6, optional): the Confirm icon spins while pending, same pattern as the reveal-password icon button', () => {
+    approveState = { isPending: true, isError: false, error: null }
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    expect(screen.getByTestId(`project-approval-approve-${PROJECT_ID}-spinner`)).toBeInTheDocument()
+  })
+
+  it('COPY-L-10: the Confirm icon does NOT spin at rest (static Check icon)', () => {
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    expect(
+      screen.queryByTestId(`project-approval-approve-${PROJECT_ID}-spinner`),
+    ).not.toBeInTheDocument()
+  })
+
+  it('COPY-L-10: the Reject trigger icon spins while its OWN dialog submit is still in flight', () => {
+    rejectState = { isPending: true, isError: false, error: null }
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
+    expect(screen.getByTestId(`project-approval-reject-${PROJECT_ID}-spinner`)).toBeInTheDocument()
   })
 
   it('UX-H-2 (PR #646 fix-round 1): both buttons are h-11 (44px, responsive-design.md hard-gate) on mobile and revert to h-7 from sm: (640px+) up — same pattern as SegmentedToggle', () => {

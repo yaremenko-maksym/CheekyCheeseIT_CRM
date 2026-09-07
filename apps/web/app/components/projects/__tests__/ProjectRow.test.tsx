@@ -461,8 +461,12 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project, { viewerRole: 'ADMIN', reasonPending: true })
 
     await screen.findByTestId(`project-row-${project.id}-status-rejected`)
+    // COPY-L-9 (PR #646 fix-round 6, LOW — copy review): "Загрузка <чего>…"
+    // is this product's own convention for a loading placeholder (7 other
+    // instances) — "Причина загружается…" was the one outlier for this
+    // exact fact.
     expect(screen.getByTestId(`project-row-${project.id}-status-reason-loading`)).toHaveTextContent(
-      'Причина загружается…',
+      'Загрузка причины…',
     )
     // Not the same slot as a real reason — no quoted text renders at all.
     expect(screen.queryByText(/«.*»/)).not.toBeInTheDocument()

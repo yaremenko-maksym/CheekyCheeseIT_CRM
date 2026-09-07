@@ -422,6 +422,72 @@ test.describe('Project status filter — AC3 (confirm/reject) + AC4 (badge/reaso
       await cleanupDropViaAPI(page, dropId)
     }
   })
+
+  /**
+   * COPY-M-14 (PR #646 fix-round 6, MED — copy review). Before this fix,
+   * `ProjectApprovalActions`'s Confirm/Reject label hid unconditionally at
+   * `lg:` (1024-1279px) on EVERY mount point — correct for `ProjectRow`'s
+   * status column (a genuinely narrow ~86px track there) but wrong for the
+   * dashboard widget (plenty of room at every width). `compact` (ProjectRow
+   * only — see that component's own doc) is what now makes the two mount
+   * points diverge. SENIOR reaches BOTH surfaces for the SAME project
+   * (their own draft's card on /projects, AND the dashboard widget —
+   * PendingProjectApprovalsPanel's own doc: mounted on SeniorDashboard "for
+   * symmetry" with DROP, who has no other surface at all), so one project
+   * proves both sides with one login.
+   */
+  test('COPY-M-14: at 1024px the dashboard widget keeps the Confirm/Reject text labels while the SAME project’s /projects row goes icon-only; at 1280px the row label reappears too', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { projectId } = await createSeniorProjectViaAPI(page, {
+      seniorEmail: SEED_EMAILS.seniorA,
+      name: `COPY-M-14 ${suffix}`,
+      companyName: `COPY-M-14 Co ${suffix}`,
+      skipApproval: true,
+    })
+
+    try {
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+
+      // 1024px: the compact band (`ProjectApprovalActions`' own
+      // `lg:hidden xl:inline` on the label). The widget never sets
+      // `compact` — its label must survive here.
+      await page.setViewportSize({ width: 1024, height: 900 })
+      await page.goto('/')
+      const widgetItem = page.getByTestId(`pending-project-approval-${projectId}`)
+      await expect(widgetItem).toBeVisible()
+      await expect(widgetItem.getByText('Подтвердить')).toBeVisible()
+      await expect(widgetItem.getByText('Отклонить')).toBeVisible()
+
+      // The SAME project's row, on the ONE surface that sets `compact`.
+      await page.goto('/projects?status=PENDING')
+      const row = page.getByTestId(`project-row-${projectId}`)
+      await expect(row).toBeVisible()
+      await expect(row.getByTestId(`project-approval-approve-${projectId}`)).toBeVisible()
+      await expect(row.getByText('Подтвердить')).not.toBeVisible()
+      await expect(row.getByText('Отклонить')).not.toBeVisible()
+
+      // 1280px (`xl:`): `compact`'s OWN `xl:inline` reverts the row back to
+      // icon+label too — row and widget converge again here, same as
+      // before this fix. Not a regression: proves `compact` only narrows
+      // the band the row differs in, it does not hide the row's label
+      // permanently.
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.waitForTimeout(50)
+      await expect(row.getByText('Подтвердить')).toBeVisible()
+      await expect(row.getByText('Отклонить')).toBeVisible()
+
+      await page.goto('/')
+      const widgetItemAt1280 = page.getByTestId(`pending-project-approval-${projectId}`)
+      await expect(widgetItemAt1280.getByText('Подтвердить')).toBeVisible()
+      await expect(widgetItemAt1280.getByText('Отклонить')).toBeVisible()
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await deleteProjectViaAPI(page, projectId)
+    }
+  })
 })
 
 test.describe('Project status filter — AC5 (responsive)', () => {

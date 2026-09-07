@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, X } from 'lucide-react'
+import { Check, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -36,6 +36,19 @@ export interface ProjectApprovalActionsProps {
    */
   onActed?: () => void
   className?: string
+  /**
+   * COPY-M-14 (PR #646 fix-round 6, MED — copy review). The visible label
+   * span used to hide unconditionally at `lg:` (1024-1279px) — correct for
+   * `ProjectRow`'s status column (a genuinely narrow ~86px track), but this
+   * component ALSO mounts on `PendingProjectApprovalsPanel` (DROP's ONLY
+   * reachable surface — see that component's own doc), a dashboard widget
+   * with plenty of room at every width. Sharing the unconditional class made
+   * the widget lose its labels at `lg:` too, for no layout reason at all.
+   * `compact` opts a mount point IN to the icon-only fallback — `ProjectRow`
+   * is the only caller that passes it; the widget never does, so its labels
+   * stay visible at every width, `lg:` included.
+   */
+  compact?: boolean
 }
 
 /**
@@ -80,11 +93,21 @@ export function ProjectApprovalActions({
   companyName,
   onActed,
   className,
+  compact,
 }: ProjectApprovalActionsProps) {
   const approve = useApproveProjectDraft()
   const reject = useRejectProjectDraft()
   const [rejectOpen, setRejectOpen] = useState(false)
   const [reason, setReason] = useState('')
+  // COPY-M-14: single source for BOTH the accessible name (aria-label) and
+  // the native hover/inspection tooltip (title) — the whole point of the
+  // finding was these two silently disagreeing once the visible text hides
+  // at `lg:` (compact) with no other way to reach the word.
+  const approveLabel = approve.isPending ? 'Подтверждение…' : 'Подтвердить'
+  const rejectLabel = 'Отклонить'
+  // COPY-M-14: only the `compact` mount point (ProjectRow) hides the visible
+  // label at `lg:` — the default (PendingProjectApprovalsPanel) never does.
+  const labelClassName = compact ? 'lg:hidden xl:inline' : undefined
 
   function stop(e: React.MouseEvent) {
     // ProjectRow is a stretched-link row (Link's `::before` covers the
@@ -251,20 +274,47 @@ export function ProjectApprovalActions({
           // the label span hides only in the exact band that broke
           // (`lg:hidden xl:inline` — back to icon+label from 1280px, where
           // this was never observed to clip).
+          //
+          // COPY-M-14 (PR #646 fix-round 6): `compact` (ProjectRow only) is
+          // what actually gates the icon-only fallback now — see
+          // `labelClassName`'s own doc above.
           className="h-11 min-w-11 gap-1 border-emerald-500/30 px-2 text-[11px] text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 sm:h-7"
           onClick={handleApprove}
           disabled={approve.isPending}
-          aria-label={approve.isPending ? 'Подтверждение…' : 'Подтвердить'}
+          aria-label={approveLabel}
+          // COPY-M-14: `title` mirrors `aria-label` exactly — a mouse user
+          // hovering the icon-only (compact, `lg:`) button gets the native
+          // tooltip; a screen-reader user already had the accessible name.
+          title={approveLabel}
           data-testid={`project-approval-approve-${projectId}`}
         >
-          <Check className="h-3 w-3" aria-hidden />
+          {/* COPY-L-10 (PR #646 fix-round 6, optional). At `lg:` (compact,
+              icon-only) the ONLY previous in-flight cue was the button's own
+              `disabled:opacity-50` — easy to miss. Swaps the static icon for
+              a spinner while pending, same pattern as the reveal-password
+              icon button (ProjectCredentialsSection.tsx: `reveal.isPending ?
+              <Loader2 className="h-4 w-4 animate-spin" /> : <Eye .../>`).
+              `data-testid` on the spinner itself (not just class-matching)
+              keeps the test a plain `getByTestId` — `testing-library/no-node-
+              access` (apps/web/eslint.config.mjs) rejects `.querySelector('svg')`,
+              and unlike the visual-state cases that file's own exemption list
+              covers (e.g. segmented-toggle's active-pill color), "is this
+              icon swapped for the spinner" has a cheap accessible-ish query
+              form here — no need to add this file to that list. */}
+          {approve.isPending ? (
+            <Loader2
+              className="h-3 w-3 animate-spin"
+              aria-hidden
+              data-testid={`project-approval-approve-${projectId}-spinner`}
+            />
+          ) : (
+            <Check className="h-3 w-3" aria-hidden />
+          )}
           {/* COPY-L-1 (PR #646 fix-round 2, optional): repo convention is the
               deverbal noun ("Сохранение…", "Создание…", "Публикация…" — 15
               instances) over first-person plural ("Сохраняем…" — 4) —
               matches the majority. */}
-          <span className="lg:hidden xl:inline">
-            {approve.isPending ? 'Подтверждение…' : 'Подтвердить'}
-          </span>
+          <span className={labelClassName}>{approveLabel}</span>
         </Button>
         <Button
           type="button"
@@ -274,17 +324,32 @@ export function ProjectApprovalActions({
           // COPY-L-8 = UX-M-2(r5): same icon-only-at-lg fix as the Confirm
           // button above, same reasoning ("Отклонить" is equally one
           // unbreakable word the wrap approach could not close).
+          // COPY-M-14 (PR #646 fix-round 6): `compact` gates the icon-only
+          // fallback — see `labelClassName`'s own doc above.
           className="h-11 min-w-11 gap-1 border-destructive/30 px-2 text-[11px] text-destructive hover:bg-destructive/10 sm:h-7"
           onClick={(e) => {
             stop(e)
             setRejectOpen(true)
           }}
           disabled={reject.isPending}
-          aria-label="Отклонить"
+          aria-label={rejectLabel}
+          // COPY-M-14: title mirrors aria-label, same reasoning as Confirm.
+          title={rejectLabel}
           data-testid={`project-approval-reject-${projectId}`}
         >
-          <X className="h-3 w-3" aria-hidden />
-          <span className="lg:hidden xl:inline">Отклонить</span>
+          {/* COPY-L-10 (PR #646 fix-round 6, optional): same spinner swap as
+              Confirm above — this trigger disables while a reject submitted
+              from THIS component's own dialog is still in flight. */}
+          {reject.isPending ? (
+            <Loader2
+              className="h-3 w-3 animate-spin"
+              aria-hidden
+              data-testid={`project-approval-reject-${projectId}-spinner`}
+            />
+          ) : (
+            <X className="h-3 w-3" aria-hidden />
+          )}
+          <span className={labelClassName}>{rejectLabel}</span>
         </Button>
       </div>
       {approveError && (

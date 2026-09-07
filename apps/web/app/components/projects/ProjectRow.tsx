@@ -621,9 +621,17 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                 // child of the actual column — which is why its OWN
                 // `max-w-full` alone was already enough.
                 <div className="max-w-full lg:mt-1">
+                  {/* COPY-M-14 (PR #646 fix-round 6): `compact` is what
+                      hides the visible label at `lg:` (1024-1279px) down to
+                      icon-only — this row's status column is the genuinely
+                      narrow (~86px) track that needs it. The dashboard
+                      widget (PendingProjectApprovalsPanel) mounts the SAME
+                      component WITHOUT this prop and keeps its labels at
+                      every width — see ProjectApprovalActions' own doc. */}
                   <ProjectApprovalActions
                     projectId={project.id}
                     companyName={project.companyName}
+                    compact
                   />
                 </div>
               )}
@@ -671,11 +679,15 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                   fetchStatus value directly rather than reproducing the
                   offline/PWA setup live. */}
               {!project.rejectionReason && viewerRole === 'ADMIN' && reasonPending && (
+                // COPY-L-9 (PR #646 fix-round 6, LOW — copy review):
+                // "Загрузка <чего>…" is this product's own convention for a
+                // loading placeholder (7 other instances) — "<Чего>
+                // загружается…" was the one outlier for this exact fact.
                 <p
                   className="max-w-full text-[11px] italic text-muted-foreground/70"
                   data-testid={`project-row-${project.id}-status-reason-loading`}
                 >
-                  Причина загружается…
+                  Загрузка причины…
                 </p>
               )}
             </>
