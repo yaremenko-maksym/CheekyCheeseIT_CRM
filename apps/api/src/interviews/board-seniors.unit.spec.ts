@@ -161,19 +161,21 @@ function makeDb(opts: { teamMemberships?: unknown[]; allUsers: UserRow[] }) {
         teamMembers: { findMany: teamMembersFindMany },
       },
     },
+    usersFindMany,
+    usersFindFirst,
   }
 }
 
 function build(opts: { teamMemberships?: unknown[]; allUsers: UserRow[] }) {
   const stub = makeDb(opts)
   const service = new InterviewsService(stub as never, {} as never)
-  return service
+  return { service, usersFindMany: stub.usersFindMany, usersFindFirst: stub.usersFindFirst }
 }
 
 describe('InterviewsService.getBoardSeniors', () => {
   // ── ADMIN — all active SENIOR, archived excluded (AC1) ─────────────────
   it('ADMIN: returns every active SENIOR, excludes an archived one', async () => {
-    const service = build({ allUsers: [SENIOR_ACTIVE, SENIOR_ARCHIVED, DROP_TEAM_SENIOR] })
+    const { service } = build({ allUsers: [SENIOR_ACTIVE, SENIOR_ARCHIVED, DROP_TEAM_SENIOR] })
     const result = await service.getBoardSeniors(ADMIN)
     const ids = result.map((r) => r.id).sort()
     expect(ids).toEqual([SENIOR_ACTIVE.id, DROP_TEAM_SENIOR.id].sort())
@@ -184,7 +186,7 @@ describe('InterviewsService.getBoardSeniors', () => {
   //    same mapper, so proving it once on the richer ADMIN fixture is
   //    sufficient; the HR test below re-checks it on its own fixture too). ──
   it('AC3: response DTO carries only id/displayName/avatarUrl/avatarDocumentId', async () => {
-    const service = build({ allUsers: [SENIOR_ACTIVE] })
+    const { service } = build({ allUsers: [SENIOR_ACTIVE] })
     const [dto] = await service.getBoardSeniors(ADMIN)
     expect(dto).toBeDefined()
     expect(Object.keys(dto!).sort()).toEqual(
@@ -196,9 +198,22 @@ describe('InterviewsService.getBoardSeniors', () => {
     expect(dto!.avatarUrl).toBe(SENIOR_ACTIVE.avatarUrl)
   })
 
+  // Mutation-gate: `avatarDocumentId: u.avatarDocumentId ?? null` mutated to
+  // `u.avatarDocumentId && null` survived the AC3 test above, because
+  // SENIOR_ACTIVE's avatarDocumentId is null — `null ?? null` and
+  // `null && null` both evaluate to null, so that fixture cannot tell the two
+  // apart. DROP_TEAM_SENIOR carries a NON-null avatarDocumentId specifically
+  // so this assertion can: `?? null` passes it through unchanged, `&& null`
+  // would collapse a truthy id down to null.
+  it('a truthy avatarDocumentId is passed through unchanged (kills the `??`→`&&` mutant)', async () => {
+    const { service } = build({ allUsers: [DROP_TEAM_SENIOR] })
+    const [dto] = await service.getBoardSeniors(ADMIN)
+    expect(dto!.avatarDocumentId).toBe(DROP_TEAM_SENIOR.avatarDocumentId)
+  })
+
   // ── HR — reuses getAccessibleSeniorIds; drop-team repro (AC1) ───────────
   it('HR: sees a SENIOR whose only team is a DROP-type team (the reported bug)', async () => {
-    const service = build({
+    const { service } = build({
       teamMemberships: [
         {
           team: {
@@ -215,14 +230,21 @@ describe('InterviewsService.getBoardSeniors', () => {
     expect(result.map((r) => r.id)).toEqual([DROP_TEAM_SENIOR.id])
   })
 
-  it('HR: not a member of the senior team → gets nothing (empty scope short-circuits)', async () => {
-    const service = build({ teamMemberships: [], allUsers: [SENIOR_ACTIVE] })
+  it('HR: not a member of the senior team → gets nothing, and never queries users (empty scope short-circuits)', async () => {
+    const { service, usersFindMany } = build({ teamMemberships: [], allUsers: [SENIOR_ACTIVE] })
     const result = await service.getBoardSeniors(HR)
     expect(result).toEqual([])
+    // Mutation-gate: `if (accessibleSeniorIds.length === 0) return []` mutated
+    // to `if (false) return []` still returns `[]` here (an empty `inArray`
+    // filters every fixture row out too), so the RETURN VALUE alone cannot
+    // kill that mutant. The short-circuit's actual job — matching the
+    // existing getHrSummary comment ("avoids an empty IN () predicate") — is
+    // to skip the query entirely; assert that directly.
+    expect(usersFindMany).not.toHaveBeenCalled()
   })
 
   it('HR: a senior who left the shared team is not returned', async () => {
-    const service = build({
+    const { service } = build({
       teamMemberships: [
         {
           team: {
@@ -256,9 +278,19 @@ describe('InterviewsService.getBoardSeniors', () => {
       techStack: null,
       walletUsdtErc20: null,
     }
-    const service = build({ allUsers: [self, SENIOR_ACTIVE] })
+    const { service } = build({ allUsers: [self, SENIOR_ACTIVE] })
     const result = await service.getBoardSeniors(SENIOR)
     expect(result.map((r) => r.id)).toEqual([SENIOR.id])
+  })
+
+  it('SENIOR: own user row not found → ForbiddenException (not an empty list)', async () => {
+    // Fixture deliberately omits a row for SENIOR.id — `findFirst` resolves
+    // undefined. Mutation-gate: `if (!self) throw ...` mutated to
+    // `if (false) throw ...` was invisible to the "gets only themselves"
+    // test above (self is always found there); this is the case that
+    // actually exercises the guard.
+    const { service } = build({ allUsers: [SENIOR_ACTIVE] })
+    await expect(service.getBoardSeniors(SENIOR)).rejects.toBeInstanceOf(ForbiddenException)
   })
 
   // ── Roles the endpoint must reject outright ─────────────────────────────
@@ -268,7 +300,7 @@ describe('InterviewsService.getBoardSeniors', () => {
     ['DROP', DROP],
   ] as const) {
     it(`${label}: rejected with ForbiddenException`, async () => {
-      const service = build({ allUsers: [] })
+      const { service } = build({ allUsers: [] })
       await expect(service.getBoardSeniors(persona)).rejects.toBeInstanceOf(ForbiddenException)
     })
   }
