@@ -1055,6 +1055,43 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       activeProjects: 2,
     }),
   )
+  // task-hr-drop-team-senior-board — GET /api/interviews/seniors is the board
+  // selector's data source, replacing the client-side GET /users x GET /teams
+  // intersection specs used to rely on. Registered AFTER the `/interviews/:id`
+  // route above for the SAME reason as `hr-summary` immediately above it
+  // (LIFO — last-registered wins; otherwise the `([^/?]+)` param matcher would
+  // swallow the literal `seniors` segment and hand back an interview row,
+  // which is not an array — every `.map`/`.find` on the selector's `seniors`
+  // then throws). Mirrors the OLD intersection's OBSERVABLE result under the
+  // default fixtures (ADMIN saw every SENIOR row from GET /users; HR saw
+  // whichever senior(s) sat on GET /teams's one returned team — TEAMS[0] =
+  // Alpha Team = USERS.senior only) so every existing selector-dependent spec
+  // keeps working unchanged. A spec that needs a DIFFERENT senior list
+  // (drop-team scenarios, empty scope, …) overrides this route itself, same
+  // pattern as `/teams` above.
+  await page.route(new RegExp(`${API_RE}/interviews/seniors(\\?.*)?$`), (r) => {
+    const toBoardSenior = (u: {
+      id: string
+      displayName: string
+      avatarUrl: string | null
+      avatarDocumentId: string | null
+    }) => ({
+      id: u.id,
+      displayName: u.displayName,
+      avatarUrl: u.avatarUrl,
+      avatarDocumentId: u.avatarDocumentId,
+    })
+    if (user.role === 'ADMIN') {
+      return jsonOk(r, ALL_USERS.filter((u) => u.role === 'SENIOR').map(toBoardSenior))
+    }
+    if (user.role === 'HR') {
+      return jsonOk(r, [toBoardSenior(USERS.senior)])
+    }
+    if (user.role === 'SENIOR') {
+      return jsonOk(r, [toBoardSenior(user)])
+    }
+    return jsonOk(r, [])
+  })
 
   // Finance — real API paths (no /finance/ prefix for transactions/payout-requests)
   await page.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) =>
