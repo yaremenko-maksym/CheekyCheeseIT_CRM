@@ -504,24 +504,17 @@ function ProjectsPage() {
       ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
     }),
   )
-  // UX-M-3(r5) (PR #646 fix-round 5, MED — design review). A THIRD option
-  // set, for a THIRD toggle instance visible ONLY in the exact band the
-  // desktop sidebar's `md:` appearance breaks (768-1023px — see
-  // constants.ts's own corrected comment on `STATUS_FILTER_LABELS` for the
-  // mechanism). Reuses the SAME abbreviated wording the mobile instance
-  // already carries (already measured to fit a far tighter 320px budget)
-  // rather than inventing a fourth wording for the same four facts — own
-  // testId suffix (`-md`, not `-mobile`) so a duplicate, permanently-hidden
-  // `toggle-archived-projects-mobile` never sits in the DOM alongside the
-  // real mobile instance (strict-mode hazard for any future selector).
-  const tabOptionsMd: ReadonlyArray<SegmentedToggleOption<StatusTab>> = allowedTabs.map(
-    (value) => ({
-      value,
-      label: STATUS_FILTER_LABELS_MOBILE[value],
-      ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects-md' } : {}),
-      ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
-    }),
-  )
+  // COPY-M-13 (PR #646 fix-round 6, MED — copy review) removed the THIRD
+  // option set fix-round 5 added here (`tabOptionsMd`, `STATUS_FILTER_LABELS_MOBILE`
+  // for a 768-1023-only toggle instance). That fix over-corrected: the
+  // phone abbreviations ("Ждут") leaking into 768-1023 meant a genuine
+  // tablet (iPad portrait — 810/820/834px) got phone wording despite having
+  // room for the real one, and the SAME 640-767 band right next to it kept
+  // the full label — two different wordings for one concept inside what
+  // design spec §5 calls a single "планшет" class. The full mechanism (and
+  // why 768 specifically wraps) is `STATUS_FILTER_LABELS`'s own comment in
+  // constants.ts; the fix is the `[&>button]:md:max-[799px]:px-1` compaction
+  // on the SINGLE remaining desktop instance below, not a text swap.
 
   // task-project-status-filter-ui §6/§10. Per-tab (and, for PENDING/
   // REJECTED — which only ADMIN/SENIOR ever see per `allowedTabs` — per
@@ -570,19 +563,28 @@ function ProjectsPage() {
         {/* task-project-status-filter-ui (design spec §2/§5): status tabs —
             ADMIN (4 values) or SENIOR (2 values); hidden for every other
             role (unchanged from the old ADMIN-only gate for THEM, ut-25 +
-            ut-26 + ut-33 + ut-44's original AC1-AC2). THREE instances,
-            swapped by breakpoint (not just width) — same convention as
-            vacancies/index.tsx's status filter, extended by one band
-            (UX-M-3(r5), PR #646 fix-round 5): mobile (<640) and md-only
-            (768-1023, `tabOptionsMd`) share the SAME shortened labels
-            (STATUS_FILTER_LABELS_MOBILE) — the desktop `<aside>` sidebar
-            (nav-sidebar.tsx, `w-52` from `md:` up) eats 208px of the exact
-            width the full-label instance's `w-fit` sizing has to share,
-            which used to wrap "На подтверждении" onto a second line
-            specifically in that band (constants.ts has the full mechanism).
+            ut-26 + ut-33 + ut-44's original AC1-AC2). TWO instances, same
+            convention as vacancies/index.tsx's status filter: mobile (<640,
+            abbreviated STATUS_FILTER_LABELS_MOBILE) and desktop (640+, full
+            STATUS_FILTER_LABELS — design spec §5 itself measured the full
+            labels as fitting comfortably from 640px up, "current-768.png"
+            included).
+            COPY-M-13 (PR #646 fix-round 6, MED — copy review) removed the
+            THIRD, md-only abbreviated instance fix-round 5 added: it gave
+            the SAME "планшет" class (design spec §5) two different
+            wordings on either side of 768px, and iPad-portrait widths
+            (810/820/834 — genuinely roomy) got the phone wording along
+            with the genuinely cramped 768-799 band. `[&>button]:md:max-
+            [799px]:px-1 md:max-[799px]:gap-0.5 md:max-[799px]:p-0.5` on the
+            desktop instance below closes the SAME wrap (desktop `<aside>`
+            sidebar, nav-sidebar.tsx `w-52` from `md:` up, eating 208px of
+            the toggle's `w-fit` budget — constants.ts has the full
+            mechanism) with layout compaction instead, confined to the
+            narrow band that actually needs it; every other desktop width
+            renders identically to before.
             `[&>button]:min-h-11` (mobile only) meets the 44px mobile
-            touch-target minimum (§5/§8/§10 a11y) — the md/desktop instances
-            are unaffected (mouse-driven widths). */}
+            touch-target minimum (§5/§8/§10 a11y) — the desktop instance is
+            unaffected (mouse-driven widths). */}
         {(isAdmin || isSenior) && (
           <>
             <SegmentedToggle<StatusTab>
@@ -599,23 +601,12 @@ function ProjectsPage() {
             <SegmentedToggle<StatusTab>
               value={currentTab}
               onChange={handleTabChange}
-              options={tabOptionsMd}
-              ariaLabel="Фильтр проектов по статусу"
-              variant="tabs"
-              size="sm"
-              layoutId="projects-status-tabs-md"
-              className="hidden w-fit md:grid lg:hidden"
-              testId="projects-status-tabs-md"
-            />
-            <SegmentedToggle<StatusTab>
-              value={currentTab}
-              onChange={handleTabChange}
               options={tabOptions}
               ariaLabel="Фильтр проектов по статусу"
               variant="tabs"
               size="sm"
               layoutId="projects-status-tabs"
-              className="hidden w-fit sm:grid md:hidden lg:grid"
+              className="hidden w-fit sm:grid [&>button]:md:max-[799px]:px-1 md:max-[799px]:gap-0.5 md:max-[799px]:p-0.5"
               testId="projects-status-tabs"
             />
             {/* §10 (SC 4.1.3): the tab switch itself is announced natively

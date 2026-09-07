@@ -51,11 +51,21 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
  * `768 − 208(sidebar) − ~48(page padding) ≈ 512px` left, ~26px short —
  * confirmed to wrap in that band and to stop wrapping again once viewport
  * width outgrows the sidebar tax (≈795px, where the same arithmetic
- * clears 538px again). These full labels are therefore only guaranteed
- * single-line at `sm:` (640-767, no sidebar yet) and `lg:`+ (1024+, sidebar
- * present but the row has grown enough to absorb it) — the 768-1023px band
- * uses `STATUS_FILTER_LABELS_MOBILE` instead (index.tsx's third toggle
- * instance, `tabOptionsMd`), not these.
+ * clears 538px again).
+ *
+ * COPY-M-13 (PR #646 fix-round 6, MED — copy review) undid fix-round 5's
+ * OWN fix for that ~26px shortfall: swapping to `STATUS_FILTER_LABELS_MOBILE`
+ * for a THIRD, 768-1023-only toggle instance closed the wrap, but it also
+ * gave design spec §5's single "планшет" class two different wordings on
+ * either side of 768px, and handed the phone abbreviations to genuinely
+ * roomy iPad-portrait widths (810/820/834) that never needed them — the
+ * shortfall only actually exists in the narrow 768-799px slice, not the
+ * whole 768-1023 band. index.tsx's `projects-status-tabs` instance now
+ * stays on these full labels across the ENTIRE `sm:`+ range and closes the
+ * same ~26px with layout compaction instead
+ * (`[&>button]:md:max-[799px]:px-1 md:max-[799px]:gap-0.5
+ * md:max-[799px]:p-0.5` — confined to 768-799px, where the arithmetic above
+ * says it is actually needed; 800px+ already has enough room on its own).
  */
 export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
   ACTIVE: 'Активные',
