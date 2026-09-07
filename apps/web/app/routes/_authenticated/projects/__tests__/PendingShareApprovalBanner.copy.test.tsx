@@ -182,6 +182,23 @@ describe('PendingShareApprovalBanner — approving', () => {
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['projects', PROJECT_ID] })
   })
 
+  it('names the failed action when the confirmation itself fails', async () => {
+    // The approve twin of the reject case below, and needed for the same
+    // reason: an error with neither a status nor a message is the only shape
+    // that reaches the NAMED fallback. The 404 case above exercises the
+    // shared mapping, not this string — which is exactly why the mutation
+    // gate could still empty it with every other test green (COPY-L-9's own
+    // point: two buttons on this banner can fail, and the house text does not
+    // say which one did).
+    vi.mocked(api.post).mockRejectedValue({})
+    renderBanner()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByTestId('pending-share-approve-button'))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось подтвердить'))
+  })
+
   it('labels its own buttons', () => {
     renderBanner()
     expect(screen.getByTestId('pending-share-approve-button')).toHaveTextContent('Подтвердить')
