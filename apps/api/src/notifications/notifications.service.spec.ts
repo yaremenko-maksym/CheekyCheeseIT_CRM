@@ -15,7 +15,7 @@
  *  - markRead throws 404 for missing notification
  *  - markAllRead flips every unread row for the user
  */
-import { NotFoundException } from '@nestjs/common'
+import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import { NotificationsService } from './notifications.service'
 
@@ -28,6 +28,13 @@ interface NotifRow {
   link: string | null
   readAt: Date | null
   createdAt: Date
+  // Позиция 6 — структурные идентификаторы. Три старых типа несут null во всех,
+  // и именно так они и переносятся: без потери и без переписывания.
+  subjectType: string | null
+  subjectId: string | null
+  secondaryId: string | null
+  data: unknown
+  dedupeKey: string | null
 }
 
 function makeHarness(seed: Partial<NotifRow>[] = []) {
@@ -40,6 +47,11 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
     link: s.link ?? null,
     readAt: s.readAt ?? null,
     createdAt: s.createdAt ?? new Date(2026, 4, 25 + i),
+    subjectType: s.subjectType ?? null,
+    subjectId: s.subjectId ?? null,
+    secondaryId: s.secondaryId ?? null,
+    data: s.data ?? null,
+    dedupeKey: s.dedupeKey ?? null,
   }))
 
   // Routing: callers signal which scope they want via these flags BEFORE
@@ -101,9 +113,14 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
           from: (_t: unknown) => listBuilder,
         }
       },
+      // `create` теперь открывает свою транзакцию и делегирует в `createInTx`
+      // (тот же приём, что `ApprovalsService.propose` / `proposeInTx`), поэтому
+      // заглушка отдаёт тот же объект-базу — в памяти транзакция ничего не
+      // меняет, а вызовы идут по тому же пути, что и в бою.
+      transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => cb(db.db),
       insert: (_t: unknown) => ({
-        values: (v: Record<string, unknown>) => ({
-          returning: async () => {
+        values: (v: Record<string, unknown>) => {
+          const insertRow = () => {
             const row: NotifRow = {
               id: `n-new-${rows.length}`,
               userId: v['userId'] as string,
@@ -113,11 +130,34 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
               link: (v['link'] as string | null) ?? null,
               readAt: null,
               createdAt: new Date(),
+              subjectType: (v['subjectType'] as string | null) ?? null,
+              subjectId: (v['subjectId'] as string | null) ?? null,
+              secondaryId: (v['secondaryId'] as string | null) ?? null,
+              data: v['data'] ?? null,
+              dedupeKey: (v['dedupeKey'] as string | null) ?? null,
             }
             rows.push(row)
             return [row]
-          },
-        }),
+          }
+          return {
+            returning: async () => insertRow(),
+            // Частичный уникальный индекс (user_id, dedupe_key) — заглушка
+            // повторяет ЕГО семантику, а не «любой конфликт»: строка без ключа
+            // не сталкивается ни с чем.
+            onConflictDoNothing: (_target: unknown) => ({
+              returning: async () => {
+                const key = (v['dedupeKey'] as string | null) ?? null
+                if (
+                  key !== null &&
+                  rows.some((r) => r.userId === v['userId'] && r.dedupeKey === key)
+                ) {
+                  return []
+                }
+                return insertRow()
+              },
+            }),
+          }
+        },
       }),
       update: (_t: unknown) => ({
         set: (v: Record<string, unknown>) => ({
@@ -184,9 +224,9 @@ describe('NotificationsService', () => {
         body: 'Hello',
         link: '/somewhere',
       })
-      expect(result.title).toBe('Test')
-      expect(result.readAt).toBeNull()
-      expect(result.type).toBe('INVOICE_SIGN_REQUIRED')
+      expect(result?.title).toBe('Test')
+      expect(result?.readAt).toBeNull()
+      expect(result?.type).toBe('INVOICE_SIGN_REQUIRED')
     })
 
     it('accepts null link (no-link notification)', async () => {
@@ -198,7 +238,7 @@ describe('NotificationsService', () => {
         title: 'No link',
         link: null,
       })
-      expect(result.link).toBeNull()
+      expect(result?.link).toBeNull()
     })
 
     it('accepts a valid relative link starting with /', async () => {
@@ -210,7 +250,7 @@ describe('NotificationsService', () => {
         title: 'Signed',
         link: '/finance/invoices/abc',
       })
-      expect(result.link).toBe('/finance/invoices/abc')
+      expect(result?.link).toBe('/finance/invoices/abc')
     })
 
     it('rejects an external http link (open-redirect risk)', async () => {
@@ -381,6 +421,127 @@ describe('NotificationsService', () => {
       const svc = new NotificationsService(h.db)
       h.ctx.deleteId = 'nope'
       await expect(svc.delete('u-1', 'nope')).rejects.toThrow(NotFoundException)
+    })
+  })
+
+  // ── Позиция 6 ────────────────────────────────────────────────────────────
+
+  describe('структурные идентификаторы', () => {
+    it('кладёт вид объекта, идентификаторы и данные — не готовый текст кнопки', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db)
+      const created = await svc.create({
+        userId: 'u-1',
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Вас добавили в проект',
+        subjectType: 'PROJECT',
+        subjectId: 'p-1',
+        data: { projectName: 'Acme' },
+      })
+      expect(created?.subjectType).toBe('PROJECT')
+      expect(created?.subjectId).toBe('p-1')
+      expect(created?.data).toEqual({ projectName: 'Acme' })
+      expect(created?.subjectMissing).toBe(false)
+    })
+
+    it('данные, не подходящие форме своего типа, до базы не доезжают', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db)
+      await expect(
+        svc.create({
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          subjectType: 'PROJECT',
+          subjectId: 'p-1',
+          data: { projectName: 42 },
+        }),
+      ).rejects.toThrow(BadRequestException)
+      expect(h.rows).toHaveLength(0)
+    })
+
+    it('данные старого типа никакой формой не проверяются — три старых типа не сломаны', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db)
+      const created = await svc.create({
+        userId: 'u-1',
+        type: 'INVOICE_SIGN_REQUIRED',
+        title: 'Инвойс ожидает вашей подписи',
+        link: '/documents?category=INVOICE',
+        data: { whatever: true },
+      })
+      expect(created?.subjectType).toBeNull()
+      expect(created?.link).toBe('/documents?category=INVOICE')
+    })
+  })
+
+  describe('идемпотентность', () => {
+    it('второй раз с тем же ключом не создаёт вторую строку', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db)
+      const input = {
+        userId: 'u-1',
+        type: 'TRANSACTION_ADDED' as const,
+        title: 'Добавлена транзакция',
+        subjectType: 'TRANSACTION' as const,
+        subjectId: 't-1',
+        data: { amount: '10.00', currency: 'USD', projectName: null },
+        dedupeKey: 'TRANSACTION_ADDED:t-1',
+      }
+      expect(await svc.create(input)).not.toBeNull()
+      expect(await svc.create(input)).toBeNull()
+      expect(h.rows).toHaveLength(1)
+    })
+
+    it('тот же ключ ДРУГОМУ получателю — отдельная строка', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db)
+      const input = {
+        type: 'TRANSACTION_ADDED' as const,
+        title: 'Добавлена транзакция',
+        subjectType: 'TRANSACTION' as const,
+        subjectId: 't-1',
+        data: { amount: '10.00', currency: 'USD', projectName: null },
+        dedupeKey: 'TRANSACTION_ADDED:t-1',
+      }
+      await svc.create({ ...input, userId: 'u-1' })
+      await svc.create({ ...input, userId: 'u-2' })
+      expect(h.rows).toHaveLength(2)
+    })
+
+    it('без ключа дубли разрешены — повторное предложение обязано спросить заново', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db)
+      const input = {
+        userId: 'u-1',
+        type: 'SHARE_CONFIRM_REQUIRED' as const,
+        title: 'Ждёт решения: новая доля',
+        subjectType: 'PROJECT' as const,
+        subjectId: 'p-1',
+        data: {
+          scope: 'PROJECT' as const,
+          projectName: 'Acme',
+          previousPercent: 26,
+          proposedPercent: 30,
+        },
+      }
+      await svc.create(input)
+      await svc.create(input)
+      expect(h.rows).toHaveLength(2)
+    })
+  })
+
+  describe('createManyInTx', () => {
+    it('одна пачка получателей — по строке на каждого', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db)
+      await h.db.db.transaction(async (tx: unknown) =>
+        svc.createManyInTx(tx as Parameters<typeof svc.createManyInTx>[0], [
+          { userId: 'u-1', type: 'TEAM_NEW_MEMBER', title: 'В команде новый участник' },
+          { userId: 'u-2', type: 'TEAM_NEW_MEMBER', title: 'В команде новый участник' },
+        ]),
+      )
+      expect(h.rows.map((r) => r.userId)).toEqual(['u-1', 'u-2'])
     })
   })
 })

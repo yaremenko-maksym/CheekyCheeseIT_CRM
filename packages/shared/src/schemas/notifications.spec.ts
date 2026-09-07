@@ -18,6 +18,14 @@ const validNotification = {
   link: '/crm/finance/invoices/123e4567-e89b-12d3-a456-426614174000',
   readAt: null,
   createdAt: datetime,
+  // Позиция 6: структурные идентификаторы. Три старых типа их не заполняют —
+  // они и переносятся без потери именно так: null во всех новых колонках,
+  // кнопка по-прежнему выводится из сохранённой `link`.
+  subjectType: null,
+  subjectId: null,
+  secondaryId: null,
+  data: null,
+  subjectMissing: false,
 }
 
 describe('notificationTypeSchema', () => {

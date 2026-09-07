@@ -2123,6 +2123,40 @@ export const notifications = pgTable(
     link: varchar('link', { length: 500 }),
     readAt: timestamp('read_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // ── Позиция 6 плана уведомлений (§7.1) ──────────────────────────────────
+    // «В записи — тип события и идентификаторы объектов. Кнопки и подписи
+    // выводит клиент по типу.» `link` перестал быть источником правды для
+    // действия и остался ради трёх старых типов (их строки просто несут NULL
+    // во всех колонках ниже — перенос без потери) и как запасной путь для
+    // типа, которого клиент ещё не знает.
+    //
+    // `subjectType` — плоский varchar, а не pgEnum, по той же причине, что и
+    // `approvals.subject_type`: набор видов принадлежит вызывающим модулям, и
+    // закрывать его на уровне БД значит требовать миграцию на каждый новый
+    // тип уведомления. Закрытый набор живёт в Zod (`notificationSubjectType`),
+    // где его видит и клиент.
+    subjectType: varchar('subject_type', { length: 50 }),
+    // Не FK — та же причина, что у `approvals.subject_id` и
+    // `consumedTxHashes.referenceId`: одна колонка адресует строки нескольких
+    // таблиц. И §7.4: уведомление живёт ДОЛЬШЕ объекта — FK с каскадом просто
+    // удалил бы историю, а честное «объекта больше нет» показать было бы уже
+    // некому.
+    subjectId: uuid('subject_id'),
+    // Второй участник события: новый участник команды, подтвердивший
+    // сотрудник. Отдельной колонкой, а не внутри `data`, потому что по нему
+    // строится адресация, а не текст.
+    secondaryId: uuid('secondary_id'),
+    // Факты события (суммы, проценты, снятое на момент события название) —
+    // ДАННЫЕ, не текст. Из них клиент строит подробную строку, а письмо
+    // (позиция 7) их НЕ берёт: в письмо уходит только нейтральный `title`
+    // (§10 — «уведомления о деньгах — это раскрытие»).
+    data: jsonb('data'),
+    // Идемпотентность там, где событие может повториться: производитель
+    // складывает ключ вида `<TYPE>:<subjectId>` и полагается на
+    // `ON CONFLICT DO NOTHING` по индексу ниже. NULL = дублей не боимся
+    // (повторное предложение доли ОБЯЗАНО спросить заново — см.
+    // `approvals.supersededAt`).
+    dedupeKey: varchar('dedupe_key', { length: 200 }),
   },
   (t) => [
     // Drives unread-count query + "unread only" filter in /api/notifications.
@@ -2131,6 +2165,12 @@ export const notifications = pgTable(
       .where(sql`${t.readAt} IS NULL`),
     // Drives the chronological dropdown listing (10 most recent for the user).
     index('idx_notifications_user_created').on(t.userId, t.createdAt.desc()),
+    // Идемпотентность по (type, subjectId, userId): ключ несёт тип и объект,
+    // индекс добавляет получателя. Частичный — строки без ключа (три старых
+    // типа и всё, что дублей не боится) не ограничены ничем.
+    uniqueIndex('uq_notifications_user_dedupe')
+      .on(t.userId, t.dedupeKey)
+      .where(sql`${t.dedupeKey} IS NOT NULL`),
   ],
 )
 

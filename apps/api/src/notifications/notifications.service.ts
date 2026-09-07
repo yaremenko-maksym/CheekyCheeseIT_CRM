@@ -18,16 +18,62 @@
  * call site.
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type {
   Notification as NotificationDto,
   NotificationListFilters,
+  NotificationSubjectType,
   NotificationType,
   NotificationsListResponse,
 } from '@crm/shared'
+import { isNewNotificationType, notificationDataSchemaFor } from '@crm/shared'
 import { safeNotificationLinkSchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { notifications } from '../database/schema'
+import {
+  approvals,
+  employeeContracts,
+  nonDeletedTransactions,
+  notifications,
+  projects,
+  teams,
+  users,
+} from '../database/schema'
+import type { DrizzleTx } from '../database/types'
+import {
+  approvalChecksFor,
+  computeSubjectMissing,
+  groupSubjectIds,
+  liveApprovalKey,
+  type SubjectRef,
+} from './notification-subject-resolver'
+
+/**
+ * Что производитель кладёт в запись. §7.1: тип события и идентификаторы
+ * объектов — НЕ готовые кнопки и НЕ готовый текст подробностей.
+ *
+ * `title` при этом остаётся и обязателен: это НЕЙТРАЛЬНЫЙ заголовок без сумм и
+ * процентов, один на тип (`NOTIFICATION_TITLES`). Он же — то единственное, что
+ * позиция 7 имеет право положить в письмо: письмо уходит на личную почту вне
+ * нашего контура, и цифры туда не идут (§10).
+ */
+export type CreateNotificationInput = {
+  userId: string
+  type: NotificationType
+  title: string
+  body?: string | null
+  link?: string | null
+  subjectType?: NotificationSubjectType | null
+  subjectId?: string | null
+  secondaryId?: string | null
+  /** Факты события. Форма задана `notificationDataSchemaFor(type)`. */
+  data?: unknown
+  /**
+   * Идемпотентность там, где событие может повториться (`<TYPE>:<subjectId>`).
+   * `undefined` = дублей не боимся: повторное предложение доли ОБЯЗАНО спросить
+   * заново, и глушить его было бы потерянным подтверждением.
+   */
+  dedupeKey?: string | null
+}
 
 @Injectable()
 export class NotificationsService {
@@ -42,13 +88,25 @@ export class NotificationsService {
    * (relative path only, no '://' or 'javascript:') before insert to prevent
    * storing open-redirect or XSS payloads.
    */
-  async create(input: {
-    userId: string
-    type: NotificationType
-    title: string
-    body?: string | null
-    link?: string | null
-  }): Promise<NotificationDto> {
+  async create(input: CreateNotificationInput): Promise<NotificationDto | null> {
+    return this.db.db.transaction((tx) => this.createInTx(tx, input))
+  }
+
+  /**
+   * Тот же код, но ВНУТРИ транзакции, которую открыл вызывающий. Именно этим
+   * пользуются производители: «каждый вызов производителя — внутри той же
+   * транзакции, что и событие, либо после её коммита с явным обоснованием;
+   * уведомление о несостоявшемся событии недопустимо». Внутри транзакции это
+   * не дисциплина, а свойство: откатилось событие — откатилась и запись.
+   *
+   * `create()` выше — тонкая обёртка, открывающая свою транзакцию, чтобы две
+   * точки входа не могли разойтись (тот же приём, что у
+   * `ApprovalsService.propose` / `proposeInTx`).
+   *
+   * Возвращает `null`, когда запись погашена идемпотентностью — вызывающему это
+   * знать не обязательно, но и врать «создал» нельзя.
+   */
+  async createInTx(tx: DrizzleTx, input: CreateNotificationInput): Promise<NotificationDto | null> {
     // Validate link server-side before insert (defence-in-depth: shared schema
     // also validates on the DTO layer, but the service is the last gate before DB).
     if (input.link != null) {
@@ -60,19 +118,69 @@ export class NotificationsService {
       }
     }
 
-    const [row] = await this.db.db
-      .insert(notifications)
-      .values({
-        userId: input.userId,
-        type: input.type,
-        title: input.title,
-        body: input.body ?? null,
-        link: input.link ?? null,
-      })
-      .returning()
+    // Данные разбираются формой СВОЕГО типа прямо здесь — последний рубеж перед
+    // базой, ровно как со ссылкой выше. Клиент, встретив неразбираемые данные,
+    // покажет общий вид (AC2) и не упадёт; но пропускать в базу заведомо
+    // нечитаемую запись — значит соглашаться, что кнопка у неё не появится.
+    if (isNewNotificationType(input.type) && input.data !== undefined && input.data !== null) {
+      const parsed = notificationDataSchemaFor(input.type).safeParse(input.data)
+      if (!parsed.success) {
+        throw new BadRequestException(
+          `Invalid notification data for ${input.type}: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
+        )
+      }
+    }
 
-    if (!row) throw new Error('Failed to insert notification')
+    const values = {
+      userId: input.userId,
+      type: input.type,
+      title: input.title,
+      body: input.body ?? null,
+      link: input.link ?? null,
+      subjectType: input.subjectType ?? null,
+      subjectId: input.subjectId ?? null,
+      secondaryId: input.secondaryId ?? null,
+      data: input.data ?? null,
+      dedupeKey: input.dedupeKey ?? null,
+    }
+
+    // Идемпотентность по (type, subjectId, userId): ключ несёт первые два,
+    // частичный уникальный индекс `uq_notifications_user_dedupe` добавляет
+    // получателя. `DO NOTHING` вместо предварительного SELECT — иначе между
+    // проверкой и вставкой остаётся окно, в которое повторная доставка
+    // события пролезает целиком.
+    const rows =
+      values.dedupeKey === null
+        ? await tx.insert(notifications).values(values).returning()
+        : await tx
+            .insert(notifications)
+            .values(values)
+            .onConflictDoNothing({
+              target: [notifications.userId, notifications.dedupeKey],
+              // Предикат ЧАСТИЧНОГО индекса — без него Postgres не сопоставит
+              // конфликт с `uq_notifications_user_dedupe` и упадёт на
+              // «no unique or exclusion constraint matching».
+              where: sql`${notifications.dedupeKey} IS NOT NULL`,
+            })
+            .returning()
+
+    const row = rows[0]
+    if (!row) {
+      if (values.dedupeKey !== null) return null
+      throw new Error('Failed to insert notification')
+    }
     return this.mapNotification(row)
+  }
+
+  /**
+   * Пачка получателей одного события. Отдельный метод, а не цикл на стороне
+   * производителя, потому что «кому уходит» — свойство события, и держать его
+   * в одном месте дешевле, чем повторять цикл в пяти модулях.
+   */
+  async createManyInTx(tx: DrizzleTx, inputs: CreateNotificationInput[]): Promise<void> {
+    for (const input of inputs) {
+      await this.createInTx(tx, input)
+    }
   }
 
   /**
@@ -110,9 +218,114 @@ export class NotificationsService {
 
     const unreadCount = unreadRows[0]?.count ?? 0
 
+    // §7.4. Считается ЗДЕСЬ, а не на каждой целевой странице: страниц пять, а
+    // список один, и «объекта больше нет» — свойство записи на момент чтения, а
+    // не свойство маршрута.
+    const missing = await this.resolveSubjectMissing(rows)
+
     return {
-      items: rows.map((r) => this.mapNotification(r)),
+      items: rows.map((r) => this.mapNotification(r, missing.has(r.id))),
       unreadCount,
+    }
+  }
+
+  /**
+   * Половина §7.4 с запросами. Решение принимает
+   * `notification-subject-resolver.ts` — здесь только по одному запросу на
+   * встреченный вид объекта плюс один на живость согласований.
+   *
+   * Транзакции читаются через `non_deleted_transactions` (VIEW), а не из
+   * `transactions`: этот модуль вне `finance/**`, и мягко удалённая транзакция
+   * для него не существует — ровно то, что нужно сказать про кнопку.
+   */
+  private async resolveSubjectMissing(
+    rows: (typeof notifications.$inferSelect)[],
+  ): Promise<Set<string>> {
+    const refs: SubjectRef[] = rows.map((r) => ({
+      userId: r.userId,
+      type: r.type,
+      subjectType: (r.subjectType as NotificationSubjectType | null) ?? null,
+      subjectId: r.subjectId ?? null,
+    }))
+
+    const existingIdsByType = new Map<NotificationSubjectType, Set<string>>()
+    for (const [subjectType, ids] of groupSubjectIds(refs)) {
+      existingIdsByType.set(subjectType, await this.loadExistingIds(subjectType, ids))
+    }
+
+    const liveApprovalKeys = new Set<string>()
+    const checks = approvalChecksFor(refs)
+    if (checks.length > 0) {
+      const live = await this.db.db
+        .select({
+          subjectType: approvals.subjectType,
+          subjectId: approvals.subjectId,
+          approverUserId: approvals.approverUserId,
+        })
+        .from(approvals)
+        .where(
+          and(
+            isNull(approvals.supersededAt),
+            inArray(
+              approvals.subjectId,
+              checks.map((c) => c.subjectId),
+            ),
+          ),
+        )
+      for (const row of live) {
+        liveApprovalKeys.add(liveApprovalKey(row.subjectType, row.subjectId, row.approverUserId))
+      }
+    }
+
+    const missing = new Set<string>()
+    for (const [index, ref] of refs.entries()) {
+      if (computeSubjectMissing(ref, existingIdsByType, liveApprovalKeys)) {
+        missing.add(rows[index]!.id)
+      }
+    }
+    return missing
+  }
+
+  private async loadExistingIds(
+    subjectType: NotificationSubjectType,
+    ids: string[],
+  ): Promise<Set<string>> {
+    switch (subjectType) {
+      case 'PROJECT': {
+        const found = await this.db.db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(inArray(projects.id, ids))
+        return new Set(found.map((r) => r.id))
+      }
+      case 'TEAM': {
+        const found = await this.db.db
+          .select({ id: teams.id })
+          .from(teams)
+          .where(inArray(teams.id, ids))
+        return new Set(found.map((r) => r.id))
+      }
+      case 'USER': {
+        const found = await this.db.db
+          .select({ id: users.id })
+          .from(users)
+          .where(inArray(users.id, ids))
+        return new Set(found.map((r) => r.id))
+      }
+      case 'TRANSACTION': {
+        const found = await this.db.db
+          .select({ id: nonDeletedTransactions.id })
+          .from(nonDeletedTransactions)
+          .where(inArray(nonDeletedTransactions.id, ids))
+        return new Set(found.map((r) => r.id))
+      }
+      default: {
+        const found = await this.db.db
+          .select({ id: employeeContracts.id })
+          .from(employeeContracts)
+          .where(inArray(employeeContracts.id, ids))
+        return new Set(found.map((r) => r.id))
+      }
     }
   }
 
@@ -176,7 +389,10 @@ export class NotificationsService {
   // Mapping
   // -------------------------------------------------------------------------
 
-  private mapNotification(row: typeof notifications.$inferSelect): NotificationDto {
+  private mapNotification(
+    row: typeof notifications.$inferSelect,
+    subjectMissing = false,
+  ): NotificationDto {
     return {
       id: row.id,
       type: row.type as NotificationType,
@@ -185,6 +401,11 @@ export class NotificationsService {
       link: row.link ?? null,
       readAt: row.readAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
+      subjectType: (row.subjectType as NotificationSubjectType | null) ?? null,
+      subjectId: row.subjectId ?? null,
+      secondaryId: row.secondaryId ?? null,
+      data: row.data ?? null,
+      subjectMissing,
     }
   }
 }

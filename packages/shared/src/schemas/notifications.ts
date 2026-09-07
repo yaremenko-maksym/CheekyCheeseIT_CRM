@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NEW_NOTIFICATION_TYPES, notificationSubjectTypeSchema } from './notification-registry'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -17,6 +18,11 @@ export const notificationTypeSchema = z.enum([
   'INVOICE_SIGN_REQUIRED', // counterparty must click "Подписать"
   'INVOICE_SIGNED', // ADMIN tracking — counterparty completed the sign
   'VACANCY_APPLICATION', // task-vacancies-api — ADMIN/HR: new public vacancy application
+  // ── The ten types of the notifications-and-confirmations spec §7.2 ────────
+  // (position 6). Their human-visible text lives in `notification-registry.ts`
+  // — this enum only names the events. Order matches the spec's own grouping:
+  // informing, action-required, admin-facing.
+  ...NEW_NOTIFICATION_TYPES,
 ])
 export type NotificationType = z.infer<typeof notificationTypeSchema>
 
@@ -73,6 +79,34 @@ export const notificationSchema = z.object({
   link: safeNotificationLinkSchema,
   readAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
+  // ── §7.1: тип события и идентификаторы объектов ──────────────────────────
+  // `link` перестал быть источником правды для действия: кнопки и их подписи
+  // клиент выводит из `type` + `subjectType` + `subjectId`
+  // (`notification-registry.ts`). Колонка `link` осталась ради трёх старых
+  // типов и как запасной путь для типа, которого клиент ещё не знает.
+  subjectType: notificationSubjectTypeSchema.nullable(),
+  subjectId: z.string().uuid().nullable(),
+  /**
+   * Второй участник события, когда он есть: новый участник команды в
+   * `TEAM_NEW_MEMBER`, подтвердивший сотрудник в `APPROVAL_*`. Отдельной
+   * колонкой, а не внутри `data`, потому что по нему строится адресация, а не
+   * текст.
+   */
+  secondaryId: z.string().uuid().nullable(),
+  /**
+   * Факты события (суммы, проценты, снятые на момент события названия) — из
+   * них клиент строит подробную строку. Форма зависит от `type`; разбирается
+   * `notificationDataSchemaFor(type)`. `unknown`, а не конкретная форма,
+   * потому что запись типа, которого клиент ещё не знает, обязана доехать и
+   * отрендериться общим видом, а не уронить разбор всего списка.
+   */
+  data: z.unknown().nullable(),
+  /**
+   * §7.4: объекта, о котором уведомление, больше нет (удалён) либо
+   * согласование погашено. Считается сервером при чтении списка — клиент
+   * рисует честное «Объекта больше нет» вместо кнопки в белый экран.
+   */
+  subjectMissing: z.boolean(),
 })
 export type Notification = z.infer<typeof notificationSchema>
 

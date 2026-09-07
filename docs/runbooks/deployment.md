@@ -930,6 +930,7 @@ SHA всё равно пересобирал текущий `main` HEAD и пу�
     apps/api/drizzle/manual/2026-09-02_user_email_invites.sql \
     apps/api/drizzle/manual/2026-09-03_pending_senior_share.sql \
     apps/api/drizzle/manual/2026-09-04_approval_status_cancelled.sql \
+    apps/api/drizzle/manual/2026-09-07_notification_subjects.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
