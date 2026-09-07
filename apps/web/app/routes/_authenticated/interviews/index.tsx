@@ -34,6 +34,7 @@ import { InterviewDetailSheet } from './components/InterviewDetailSheet'
 import { JobSuggestionDialog } from '@/components/job-sourcing/JobSuggestionDialog'
 import { CreateInterviewDialog } from './components/CreateInterviewDialog'
 import { CreateProjectFromHiredDialog } from './components/CreateProjectFromHiredDialog'
+import { useBoardSeniors } from './use-board-seniors'
 
 // coordinateGetter for KeyboardSensor on the Kanban board.
 //
@@ -98,18 +99,6 @@ const kanbanKeyboardCoordinateGetter: KeyboardCoordinateGetter = (
   return { x: rect.left + rect.width / 2, y: rect.top + rect.height * 0.8 }
 }
 
-type UserDto = {
-  id: string
-  email: string
-  displayName: string
-  avatarUrl: string | null
-  avatarDocumentId: string | null
-  role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
-  googleId: string | null
-  createdAt: string
-  updatedAt: string
-}
-
 const searchSchema = z.object({
   seniorId: z.string().optional(),
 })
@@ -156,35 +145,13 @@ function InterviewsPage() {
     void navigate({ to: '/interviews', search: { seniorId: id }, replace: true })
   }
 
-  // round-2 AC2: only ADMIN/HR may list all users (board selector). SENIOR sees
-  // only their own board (effectiveSeniorId = user.id) and never needs the user
-  // list — gating prevents the 403 the backend returns for SENIOR on /users.
-  const { data: allUsers = [] } = useQuery<UserDto[]>({
-    queryKey: ['users'],
-    queryFn: () => api.get<UserDto[]>('/users').then((r) => r.data),
-    enabled: isAdmin || isHR,
-    staleTime: 5 * 60_000,
-  })
-
-  const { data: teams = [] } = useQuery<
-    { id: string; members: { userId: string; role: string }[] }[]
-  >({
-    queryKey: ['teams'],
-    queryFn: () => api.get('/teams').then((r) => r.data),
-    enabled: isHR,
-    staleTime: 5 * 60_000,
-  })
-
-  const allSeniors = allUsers.filter((u) => u.role === 'SENIOR')
-  const seniors = isHR
-    ? allSeniors.filter((s) =>
-        teams.some(
-          (t) =>
-            t.members.some((m) => m.userId === s.id && m.role === 'SENIOR') &&
-            t.members.some((m) => m.userId === user!.id && m.role === 'HR'),
-        ),
-      )
-    : allSeniors
+  // task-hr-drop-team-senior-board: single source of truth for the board
+  // selector — ADMIN/HR only (SENIOR sees only their own board via
+  // effectiveSeniorId = user.id below and never needs this list). Backed by
+  // the SAME team-scope function that gates GET /interviews, so a drop-team
+  // HR sees exactly the boards they can actually open (see the hook's own
+  // docblock for the divergence this replaces).
+  const { data: seniors = [] } = useBoardSeniors(isAdmin || isHR)
 
   const effectiveSeniorId = isSenior ? (user?.id ?? '') : (search.seniorId ?? seniors[0]?.id ?? '')
 
@@ -234,7 +201,7 @@ function InterviewsPage() {
       // if the current user has project-creation rights.
       if (variables.stage === 'HIRED' && canCreateProject) {
         const movedCard = interviewsList.find((i) => i.id === updated.id) ?? updated
-        const seniorUser = allUsers.find((u) => u.id === (movedCard.seniorId ?? effectiveSeniorId))
+        const seniorUser = seniors.find((u) => u.id === (movedCard.seniorId ?? effectiveSeniorId))
         setHiredDndState({
           interview: updated,
           seniorId: movedCard.seniorId ?? effectiveSeniorId,
