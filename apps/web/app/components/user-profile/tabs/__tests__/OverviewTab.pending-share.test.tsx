@@ -614,7 +614,11 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     )
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Новый процент отклонён — действует прежний. Админ увидит причину',
+        // task-648-fix-round-5 (COPY-M-20): the profile-half toast now
+        // matches the dialog's own canonical wording verbatim ("Отклонить
+        // предложение" two screens up) — "предложение", not "новый
+        // процент", is what got rejected.
+        'Предложение отклонено — действует прежний процент. Админ увидит причину',
       ),
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })

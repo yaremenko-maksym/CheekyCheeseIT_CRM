@@ -266,7 +266,10 @@ export function useRejectSeniorShareChange(userId: string) {
       // percent, not the доля — the доля stays, that is the whole point. The
       // dialog two screens up already said it correctly («Отклонить новый
       // процент»); this now agrees with it.
-      toast.success('Новый процент отклонён — действует прежний. Админ увидит причину')
+      // task-648-fix-round-5 (COPY-M-20): the dialog's own wording moved on
+      // to «Отклонить предложение» — this toast now matches it verbatim
+      // instead of pinning the half-renamed «Новый процент отклонён».
+      toast.success('Предложение отклонено — действует прежний процент. Админ увидит причину')
     },
     // task-648-fix-round-1 (QA-MED-5): same refetch-on-failure fix as
     // useApproveSeniorShareChange above.
