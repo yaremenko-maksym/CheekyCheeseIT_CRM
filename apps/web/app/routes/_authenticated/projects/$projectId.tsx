@@ -623,7 +623,7 @@ export function InfoRow({
       // EVERY row of «Детали проекта» at 320/375, not just the one row that
       // opts into `stackOnMobile`. The structural change this prop brought is
       // rendered for all eight of them, so all eight are what has to be
-      // measured — see describe «Y» in projects-senior-share-override.spec.ts.
+      // measured — see describe «Z» in projects-senior-share-override.spec.ts.
       data-testid="project-info-row"
       className={cn(
         'flex min-w-0 items-start gap-2 text-sm',
@@ -866,6 +866,16 @@ export function PendingShareApprovalBanner({
 
   const rejectMutation = useMutation({
     mutationFn: () =>
+      // Stryker disable next-line ArrowFunction: unwrapping the body here is
+      // unobservable by construction — unlike its approve twin above, this
+      // mutation's `onSuccess` takes no argument (the refusal has no value to
+      // report; the toast names the OLD percent, which the component already
+      // holds). `.then((r) => r.data)` is written for symmetry with the
+      // approve mutation, not because anything reads the result, so no
+      // assertion at this seam can distinguish it from `() => undefined`.
+      // The route and the body ARE asserted — see
+      // `PendingShareApprovalBanner.copy.test.tsx`, «POSTs the reason to the
+      // reject route».
       api.post(`/projects/${projectId}/senior-share/reject`, { reason }).then((r) => r.data),
     onSuccess: () => {
       // task-648-fix-round-4 (COPY-M-18). Round 1 (COPY-M-2) called this

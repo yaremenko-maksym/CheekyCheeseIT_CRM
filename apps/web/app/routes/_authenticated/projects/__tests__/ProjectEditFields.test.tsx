@@ -366,5 +366,12 @@ describe('ProjectEditFields — live proposal notice', () => {
     expect(caveatAt).toBeGreaterThanOrEqual(0)
     expect(clearsAt).toBeGreaterThanOrEqual(0)
     expect(caveatAt).toBeLessThan(clearsAt)
+
+    // The percent is glued to the sentence by a `{' '}` JSX fragment, which is
+    // a string literal like any other — empty it and the hint reads «По
+    // умолчанию —26%». Position and presence assertions both stay green on
+    // that; only reading the joint does not. (Found by the mutation gate on
+    // this very line, not guessed.)
+    expect(hint).toContain('По умолчанию — 26%: это же значение снимет')
   })
 })

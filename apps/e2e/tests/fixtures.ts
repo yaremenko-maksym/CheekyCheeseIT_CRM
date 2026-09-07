@@ -2571,6 +2571,36 @@ export async function approveUserSeniorShareViaAPI(page: Page, userId: string): 
 }
 
 /**
+ * task-pending-share fix-round-4. The PROJECT twin of
+ * `approveUserSeniorShareViaAPI` above — round 1 (CR-H-2) added the user half
+ * because `patchUserSharePercentViaAPI` had stopped applying immediately, and
+ * the project half needed the same helper for the same reason. It was missed
+ * because the ONE spec that PATCHes a project override against the real API
+ * (`team-share-override.spec.ts`) is unsharded debt: CI has never executed it
+ * (`scripts/devops/check-e2e-shard-coverage.py`, "Known unsharded"), so the
+ * regression stayed green all the way to round 4 and only a local run found
+ * it.
+ *
+ * Same session rule as its user-half twin: `ApprovalsService.approveInTx`
+ * matches the live row on `approverUserId` taken from the SESSION, so the
+ * caller must already be logged in as the project's SENIOR. 201 is asserted
+ * rather than assumed, so a future `@HttpCode(200)` fails loudly.
+ */
+export async function approveProjectSeniorShareViaAPI(
+  page: Page,
+  projectId: string,
+): Promise<void> {
+  const res = await page.request.post(
+    `${REAL_API_BASE}/api/projects/${projectId}/senior-share/approve`,
+  )
+  if (res.status() !== 201) {
+    throw new Error(
+      `approveProjectSeniorShareViaAPI failed for ${projectId}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+}
+
+/**
  * Fetch a single transaction by id via GET /api/transactions/:id. Used
  * by helpers that need to read the status mutation after validation/pay.
  */
