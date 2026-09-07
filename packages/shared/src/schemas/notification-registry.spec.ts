@@ -232,7 +232,98 @@ describe('describeNotification — все ветки, чтобы гейт мут
   })
 })
 
+describe('подписи кнопок — по одной на тип, и каждая проверена', () => {
+  // Гейт мутаций 2026-09-07: девять подписей из десяти пережили замену на
+  // пустую строку. Тест «кнопка появилась» ничего не говорит о том, ЧТО на ней
+  // написано, а подпись — это текст для сотрудника, то есть предмет ревью
+  // текста ровно так же, как заголовок.
+  it.each([
+    ['TRANSACTION_ADDED', 'TRANSACTION', 'К транзакциям'],
+    ['TRANSACTION_STATUS_CHANGED', 'TRANSACTION', 'К транзакциям'],
+    ['TEAM_MEMBER_ADDED', 'TEAM', 'Открыть команду'],
+    ['TEAM_NEW_MEMBER', 'TEAM', 'Открыть команду'],
+    ['PROJECT_MEMBER_ADDED', 'PROJECT', 'Открыть проект'],
+    ['PROJECT_CONFIRM_REQUIRED', 'PROJECT', 'Открыть проект'],
+    ['SHARE_CONFIRM_REQUIRED', 'PROJECT', 'Посмотреть и подтвердить'],
+    ['DOCUMENT_SIGN_REQUIRED', 'EMPLOYEE_CONTRACT', 'Подписать'],
+    ['APPROVAL_CONFIRMED', 'PROJECT', 'Открыть'],
+    ['APPROVAL_REJECTED', 'PROJECT', 'Открыть'],
+  ] as const)('%s → «%s»', (type, subjectType, label) => {
+    const actions = notificationActions({
+      ...base,
+      type,
+      subjectType,
+      subjectId: uuid,
+      data: null,
+    })
+    expect(actions).toHaveLength(1)
+    expect(actions[0]?.label).toBe(label)
+  })
+})
+
+describe('subjectKind — обе формы согласования знают все три вида', () => {
+  it.each(['APPROVAL_CONFIRMED', 'APPROVAL_REJECTED'] as const)('%s', (type) => {
+    for (const subjectKind of ['PROJECT', 'PROJECT_SHARE', 'BASE_SHARE'] as const) {
+      const raw = {
+        approverName: 'Иван',
+        subjectKind,
+        subjectTitle: 'Acme',
+        ...(type === 'APPROVAL_REJECTED' ? { reason: 'Причина' } : {}),
+      }
+      expect(() => notificationDataSchemaFor(type).parse(raw)).not.toThrow()
+    }
+    const bad = {
+      approverName: 'Иван',
+      subjectKind: 'SOMETHING_ELSE',
+      subjectTitle: 'Acme',
+      reason: 'Причина',
+    }
+    expect(() => notificationDataSchemaFor(type).parse(bad)).toThrow()
+  })
+})
+
 describe('notificationActions — крайние случаи', () => {
+  // Три условия в одном `if` — три отдельных случая. Гейт мутаций показал, что
+  // без них любое из трёх можно заменить на `true` незаметно.
+  it('известный тип БЕЗ вида объекта, но с идентификатором — общий путь', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_MEMBER_ADDED',
+        subjectType: null,
+        subjectId: uuid,
+        data: { projectName: 'Acme' },
+        link: '/projects',
+      }),
+    ).toEqual([{ label: 'Открыть', href: '/projects', disabled: false }])
+  })
+
+  it('известный тип С видом объекта, но БЕЗ идентификатора — общий путь', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_MEMBER_ADDED',
+        subjectType: 'PROJECT',
+        subjectId: null,
+        data: { projectName: 'Acme' },
+        link: '/projects',
+      }),
+    ).toEqual([{ label: 'Открыть', href: '/projects', disabled: false }])
+  })
+
+  it('НЕизвестный тип с полным адресом объекта всё равно идёт общим путём', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'SOMETHING_FROM_THE_FUTURE' as never,
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+        data: null,
+        link: '/finance',
+      }),
+    ).toEqual([{ label: 'Открыть', href: '/finance', disabled: false }])
+  })
+
   it('известный тип без идентификатора объекта и без ссылки не даёт кнопок', () => {
     expect(notificationActions({ ...base, type: 'TEAM_MEMBER_ADDED', data: null })).toEqual([])
   })
