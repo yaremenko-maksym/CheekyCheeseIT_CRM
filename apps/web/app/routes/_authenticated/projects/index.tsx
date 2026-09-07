@@ -513,8 +513,15 @@ function ProjectsPage() {
   // the full label — two different wordings for one concept inside what
   // design spec §5 calls a single "планшет" class. The full mechanism (and
   // why 768 specifically wraps) is `STATUS_FILTER_LABELS`'s own comment in
-  // constants.ts; the fix is the `[&>button]:md:max-[799px]:px-1` compaction
-  // on the SINGLE remaining desktop instance below, not a text swap.
+  // constants.ts.
+  //
+  // COPY-M-13 dozakrytie: the first fix (padding/gap compaction on the full-
+  // label instance, confined to 768-799px) passed locally but wrapped on CI
+  // (Linux Chromium's wider `text-xs` metrics — same mechanism, more room
+  // needed than macOS ever showed). Still only TWO DOM instances — no third
+  // one comes back — but `tabOptionsMobile` below now ALSO renders in that
+  // 768-799px slice (its own second visibility window, JSX below), reusing
+  // this short label set instead of trying to shrink the full one further.
 
   // task-project-status-filter-ui §6/§10. Per-tab (and, for PENDING/
   // REJECTED — which only ADMIN/SENIOR ever see per `allowedTabs` — per
@@ -563,28 +570,36 @@ function ProjectsPage() {
         {/* task-project-status-filter-ui (design spec §2/§5): status tabs —
             ADMIN (4 values) or SENIOR (2 values); hidden for every other
             role (unchanged from the old ADMIN-only gate for THEM, ut-25 +
-            ut-26 + ut-33 + ut-44's original AC1-AC2). TWO instances, same
-            convention as vacancies/index.tsx's status filter: mobile (<640,
-            abbreviated STATUS_FILTER_LABELS_MOBILE) and desktop (640+, full
-            STATUS_FILTER_LABELS — design spec §5 itself measured the full
-            labels as fitting comfortably from 640px up, "current-768.png"
-            included).
-            COPY-M-13 (PR #646 fix-round 6, MED — copy review) removed the
-            THIRD, md-only abbreviated instance fix-round 5 added: it gave
-            the SAME "планшет" class (design spec §5) two different
-            wordings on either side of 768px, and iPad-portrait widths
-            (810/820/834 — genuinely roomy) got the phone wording along
-            with the genuinely cramped 768-799 band. `[&>button]:md:max-
-            [799px]:px-1 md:max-[799px]:gap-0.5 md:max-[799px]:p-0.5` on the
-            desktop instance below closes the SAME wrap (desktop `<aside>`
-            sidebar, nav-sidebar.tsx `w-52` from `md:` up, eating 208px of
-            the toggle's `w-fit` budget — constants.ts has the full
-            mechanism) with layout compaction instead, confined to the
-            narrow band that actually needs it; every other desktop width
-            renders identically to before.
-            `[&>button]:min-h-11` (mobile only) meets the 44px mobile
-            touch-target minimum (§5/§8/§10 a11y) — the desktop instance is
-            unaffected (mouse-driven widths). */}
+            ut-26 + ut-33 + ut-44's original AC1-AC2). Still TWO DOM
+            instances, same convention as vacancies/index.tsx's status
+            filter — but (COPY-M-13 dozakrytie, PR #646 fix-round 6) each
+            instance now has TWO disjoint visibility windows instead of one,
+            because the "планшет" width class (design spec §5) is not
+            uniformly roomy: the desktop `<aside>` sidebar (nav-sidebar.tsx
+            `md:flex` + `w-52`) starts eating 208px right at 768px, and does
+            not stop being a problem until ≈800px (constants.ts —
+            `STATUS_FILTER_LABELS`'s comment — has the full arithmetic and
+            the CI-vs-macOS font-metric story behind the exact 800px cut).
+              - `tabOptionsMobile` (STATUS_FILTER_LABELS_MOBILE, short):
+                visible `<640px` (true mobile — unchanged) AND `768-799px`
+                (the tight tablet slice) via `max-[639px]:grid` +
+                `min-[768px]:max-[799px]:grid`. `[&>button]:min-h-11` (the
+                44px mobile touch-target minimum, §5/§8/§10 a11y) stays
+                scoped to the `<640px` window ONLY
+                (`[&>button]:max-[639px]:min-h-11`) — applying it in the
+                768-799px slice too would force every button to 44px tall,
+                which a single-line-height check cannot tell apart from an
+                actual wrap.
+              - `tabOptions` (STATUS_FILTER_LABELS, full): visible
+                `640-767px` (no sidebar yet) AND `800px+` (sidebar tax
+                absorbed again) via `sm:max-[767px]:grid` +
+                `min-[800px]:grid`. No padding/gap compaction any more — a
+                short label from the other instance already covers the one
+                slice that needed it, so there is nothing left to compact.
+            At any given width exactly one of the two instances renders:
+            the two visibility-window pairs are constructed to never
+            overlap, so which one shows never depends on CSS cascade
+            order. */}
         {(isAdmin || isSenior) && (
           <>
             <SegmentedToggle<StatusTab>
@@ -595,7 +610,7 @@ function ProjectsPage() {
               variant="tabs"
               size="sm"
               layoutId="projects-status-tabs-mobile"
-              className="w-full sm:hidden [&>button]:min-h-11"
+              className="hidden w-full max-[639px]:grid min-[768px]:max-[799px]:grid [&>button]:max-[639px]:min-h-11"
               testId="projects-status-tabs-mobile"
             />
             <SegmentedToggle<StatusTab>
@@ -606,7 +621,7 @@ function ProjectsPage() {
               variant="tabs"
               size="sm"
               layoutId="projects-status-tabs"
-              className="hidden w-fit sm:grid [&>button]:md:max-[799px]:px-1 md:max-[799px]:gap-0.5 md:max-[799px]:p-0.5"
+              className="hidden w-fit sm:max-[767px]:grid min-[800px]:grid"
               testId="projects-status-tabs"
             />
             {/* §10 (SC 4.1.3): the tab switch itself is announced natively

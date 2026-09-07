@@ -1146,47 +1146,73 @@ test.describe('Project status filter — AC5 (responsive)', () => {
   })
 
   /**
-   * COPY-M-13 (PR #646 fix-round 6, MED — copy review), supersedes
-   * UX-M-3(r5) (fix-round 5)'s own fix for the SAME wrap. UX-M-3(r5)'s
-   * diagnosis stands (constants.ts has the full mechanism: the desktop
-   * `<aside>` sidebar, nav-sidebar.tsx `md:flex` + `w-52` = 208px, does not
-   * exist below `md:` (768px), and eats 208px of the toggle's `w-fit`
-   * budget the instant it appears — confirmed to wrap in ~768-795px and
-   * stop wrapping again once viewport width outgrows the sidebar tax) but
-   * its FIX over-corrected: swapping to phone-abbreviated labels for the
-   * WHOLE 768-1023px band gave design spec §5's single "планшет" device
-   * class two different tab wordings depending on which side of 768px the
-   * viewport happened to be on, and hit genuinely roomy iPad-portrait
-   * widths (810/820/834) with wording they never needed. This test proves
-   * the REPLACEMENT fix (`[&>button]:md:max-[799px]:px-1
-   * md:max-[799px]:gap-0.5 md:max-[799px]:p-0.5` — index.tsx, confined to
-   * 768-799px) closes the same wrap with ONE toggle instance and ONE
-   * wording across the whole `sm:`+ range: no second toggle instance
-   * exists anymore, so `projects-status-tabs` is queried directly instead
-   * of "whichever tablist is visible" (UX-M-3(r5)'s own workaround for a
-   * THIRD instance that no longer exists). Reference height is measured
-   * live at 1024px (screenshot-confirmed single-line since fix-round 4)
-   * rather than a guessed pixel constant.
+   * COPY-M-13 dozakrytie (PR #646 fix-round 6, MED — copy review). The
+   * ORIGINAL COPY-M-13 fix (padding/gap compaction on the full-label
+   * instance, `[&>button]:md:max-[799px]:px-1` etc. — kept the SAME full
+   * wording across the whole `sm:`+ range) passed locally but wrapped on
+   * CI: `tab 0 height at 768px … Expected <= 26, Received 40` — Linux
+   * Chromium's `text-xs` metrics leave less headroom than macOS ever
+   * showed, so shrinking padding around the full label was never going to
+   * be CI-safe at exactly 768px. The dozakrytie fix instead switches to
+   * the SHORT (`STATUS_FILTER_LABELS_MOBILE`) label set for the 768-799px
+   * slice specifically — reusing the EXISTING mobile toggle instance's
+   * second visibility window (index.tsx), not a third DOM instance and
+   * not more compaction. `projects-status-tabs-mobile` is genuinely
+   * visible again in this band (unlike the superseded COPY-M-13 test,
+   * which queried `projects-status-tabs` directly because at the time
+   * exactly one instance ever rendered `sm:`+) — this test picks the
+   * expected instance per width instead of assuming it is always the
+   * full-label one. Reference height is measured live at 1024px
+   * (screenshot-confirmed single-line since fix-round 4) rather than a
+   * guessed pixel constant.
    */
-  test('COPY-M-13: ADMIN status tabs stay single-line and keep the SAME full labels at 768/780/795/810/834/1024 — no second wording, no page overflow', async ({
+  test('COPY-M-13: ADMIN status tabs stay single-line, short labels at 768-795px and full labels at 810px+, no page overflow', async ({
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.goto('/projects')
 
-    const tabs = page.getByTestId('projects-status-tabs')
-    const buttons = tabs.locator('button')
+    const fullTabs = page.getByTestId('projects-status-tabs')
+    const shortTabs = page.getByTestId('projects-status-tabs-mobile')
 
     await page.setViewportSize({ width: 1024, height: 900 })
     await page.waitForTimeout(50)
-    const singleLineHeight = (await buttons.first().boundingBox())!.height
+    const singleLineHeight = (await fullTabs.locator('button').first().boundingBox())!.height
 
+    const SHORT_LABEL_WIDTHS = new Set([768, 780, 795])
     const WIDTHS_UNDER_TEST = [768, 780, 795, 810, 834, 1024]
     for (const width of WIDTHS_UNDER_TEST) {
       await page.setViewportSize({ width, height: 900 })
       await page.waitForTimeout(50)
 
-      await expect(tabs, `tablist visible at ${width}px`).toBeVisible()
+      const expectShort = SHORT_LABEL_WIDTHS.has(width)
+      const visibleTabs = expectShort ? shortTabs : fullTabs
+      const hiddenTabs = expectShort ? fullTabs : shortTabs
+      const expectedLabel = expectShort ? 'Ждут' : 'На подтверждении'
+      const otherLabel = expectShort ? 'На подтверждении' : 'Ждут'
+
+      await expect(
+        visibleTabs,
+        `${expectShort ? 'short' : 'full'} tablist visible at ${width}px`,
+      ).toBeVisible()
+      await expect(
+        hiddenTabs,
+        `${expectShort ? 'full' : 'short'} tablist hidden at ${width}px`,
+      ).not.toBeVisible()
+      await expect(
+        visibleTabs.getByRole('tab', { name: expectedLabel }),
+        `"${expectedLabel}" label visible at ${width}px`,
+      ).toBeVisible()
+      // Page-scoped (not container-scoped) — catches a regression where
+      // BOTH instances render at once, or a future third instance, not
+      // just what the visible container's own static option data already
+      // guarantees.
+      await expect(
+        page.getByRole('tab', { name: otherLabel }),
+        `"${otherLabel}" label must NOT be visible anywhere at ${width}px`,
+      ).not.toBeVisible()
+
+      const buttons = visibleTabs.locator('button')
       const count = await buttons.count()
       expect(count, `tab count at ${width}px`).toBeGreaterThan(0)
       for (let i = 0; i < count; i++) {
@@ -1198,34 +1224,11 @@ test.describe('Project status filter — AC5 (responsive)', () => {
         ).toBeLessThanOrEqual(singleLineHeight + 2)
       }
 
-      // No document-level horizontal overflow at any width in the band —
-      // the compaction is scoped to the toggle's own buttons/gaps/padding,
-      // it must never leak into the page itself.
+      // No document-level horizontal overflow at any width in the band.
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       )
       expect(overflow, `document horizontal overflow at ${width}px`).toBe(false)
-    }
-
-    // Same wording at 768 (the tight edge of the compacted band) and 834
-    // (iPad-portrait, well past it) — proves there is no second, shorter
-    // label anywhere in 768-1023px anymore (the exact UX-M-3(r5) regression
-    // this fix undoes: an abbreviated instance used to own this whole band).
-    // The "Ждут" check is page-scoped, not `tabs`-scoped — it has to be
-    // able to catch a REGRESSION (mobile instance wrongly visible, or a
-    // future third instance), not just confirm what `tabOptions`' own
-    // static data already guarantees within `tabs` itself.
-    for (const width of [768, 834]) {
-      await page.setViewportSize({ width, height: 900 })
-      await page.waitForTimeout(50)
-      await expect(
-        tabs.getByRole('tab', { name: 'На подтверждении' }),
-        `full "На подтверждении" label at ${width}px`,
-      ).toBeVisible()
-      await expect(
-        page.getByRole('tab', { name: 'Ждут' }),
-        `phone-abbreviated "Ждут" label must NOT be visible anywhere at ${width}px`,
-      ).not.toBeVisible()
     }
   })
 
