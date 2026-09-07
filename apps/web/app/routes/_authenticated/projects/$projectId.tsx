@@ -477,9 +477,17 @@ export function ProjectEditFields({
                       entry calls the personal level «(по умолчанию)», and
                       this screen's own approval banner already says
                       «индивидуальная доля». */}
+                  {/* task-648-fix-round-4 (COPY-L-16): the caveat leads now.
+                      Sentence two promised an action, and the "not until the
+                      senior agrees" qualifier arrived only in sentence three
+                      — so the reader had to hold two claims at once to answer
+                      one question. Reordered rather than reworded: both
+                      clauses stay in the FUTURE, which is what COPY-M-16
+                      fixed one round ago and what «снимает» in the review's
+                      suggested phrasing would have undone. */}
                   <p className="text-xs text-muted-foreground">
-                    По умолчанию — {defaultSharePercent}%. Это же значение снимет индивидуальную
-                    долю по проекту. Любое изменение начнёт действовать после подтверждения синьора.
+                    Любое изменение начнёт действовать после подтверждения синьора. По умолчанию —{' '}
+                    {defaultSharePercent}%: это же значение снимет индивидуальную долю по проекту.
                   </p>
                   {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN who opens
                       this form to "fix" the percent saw a slider holding the
@@ -802,7 +810,13 @@ function ProjectShareInfo({
  * informational badge from `ProjectShareInfo` above; this banner is the
  * ACTIONABLE surface, deliberately separate from that read-only indicator.
  */
-function PendingShareApprovalBanner({
+/*
+ * Exported for `__tests__/PendingShareApprovalBanner.copy.test.tsx` — the same
+ * test-only export `InfoRow` and `ProjectEditFields` in this file already
+ * carry, and for the same reason: the alternative is mounting a 2000-line
+ * route to read a dialog title. No behaviour change.
+ */
+export function PendingShareApprovalBanner({
   projectId,
   currentPercent,
   pending,
@@ -854,10 +868,14 @@ function PendingShareApprovalBanner({
     mutationFn: () =>
       api.post(`/projects/${projectId}/senior-share/reject`, { reason }).then((r) => r.data),
     onSuccess: () => {
-      // task-648-fix-round-1 (COPY-M-2): "предложение" was a third name for
-      // what this screen calls "подтверждение" elsewhere — see the
-      // identical comment on useRejectSeniorShareChange.
-      toast.success('Доля отклонена — действует прежний процент. Админ увидит причину')
+      // task-648-fix-round-4 (COPY-M-18). Round 1 (COPY-M-2) called this
+      // «доля» because «подтверждение» was then the canonical name and
+      // «предложение» was a third one. Round 3 settled the canon the other
+      // way and carried it to five surfaces; this line kept round 1's word,
+      // so the same object was «предложение» on the button and «доля» in the
+      // answer. It is also the more accurate of the two: the доля did not
+      // move — the next clause of this very sentence says so.
+      toast.success('Предложение отклонено — действует прежний процент. Админ увидит причину')
       setRejectOpen(false)
       setReason('')
       invalidate()
@@ -935,7 +953,10 @@ function PendingShareApprovalBanner({
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <CrmDialogContent>
           <CrmDialogHeader>
-            <DialogTitle>Отклонить новый процент</DialogTitle>
+            {/* task-648-fix-round-4 (COPY-M-18): same rename as the profile
+                twin in OverviewTab.tsx — one object, one name, on both
+                halves. */}
+            <DialogTitle>Отклонить предложение</DialogTitle>
             <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>

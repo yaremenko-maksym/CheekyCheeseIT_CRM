@@ -283,14 +283,19 @@ export function PendingShareEditNotice({
       className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 space-y-2"
       data-testid={testId ?? `pending-share-edit-notice-${scope}`}
     >
-      {/* task-648-fix-round-3 (COPY-M-15): «ждёт подтверждения» now points at
-          the NAME, and the number is introduced by «Предложено» — the same
-          one name for the same fact the badge and the cancel toast use. It
-          used to read «Предложено N% — ждёт подтверждения: <имя>», where the
-          colon made the label look like it belonged to the number. */}
+      {/* task-648-fix-round-4 (COPY-M-17). Round 3 moved «ждёт подтверждения»
+          onto the NAME, which fixed the colon defect but opened a grammatical
+          one: that slot is genitive, and the name arrives from the database in
+          the nominative. On Latin script it passes unnoticed — «ждёт
+          подтверждения Oleksiy Kovalenko» — and on Cyrillic it does not:
+          «ждёт подтверждения Олексій Коваленко» is wrong out loud. CRM names
+          are typed by a human, so that breaks when, not if.
+          The indicator on the same screen already carries a frame that needs
+          no case at all — «Подтверждает <имя>» — so this reuses it instead of
+          inventing a second way to name one person. One fact, one frame. */}
       <p className="text-xs">
-        Предложено <span className="font-medium tabular-nums">{pendingPercent}%</span> — ждёт
-        подтверждения {approverName}. Новое значение заменит предложение.
+        Предложено <span className="font-medium tabular-nums">{pendingPercent}%</span>. Подтверждает{' '}
+        {approverName}. Новое значение заменит предложение.
       </p>
       <Button
         type="button"

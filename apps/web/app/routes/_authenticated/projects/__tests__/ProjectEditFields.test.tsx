@@ -352,5 +352,19 @@ describe('ProjectEditFields — live proposal notice', () => {
     // CONTEXT.md's «Доля синьора» entry calls the personal level
     // «(по умолчанию)»; «переопределение» is jargon this UI invented.
     expect(section).not.toHaveTextContent('переопределение')
+
+    // task-648-fix-round-4 (COPY-L-16): the caveat comes FIRST. Round 3 left
+    // it third, so the reader met «это же значение снимет индивидуальную
+    // долю» as an unqualified promise and learnt only afterwards that it
+    // waits for the senior — two claims to hold at once to answer one
+    // question. Asserted by POSITION, not by presence: both sentences were
+    // already on screen when the defect was raised, so a presence assertion
+    // could not have caught it and cannot catch its return.
+    const hint = section.textContent ?? ''
+    const caveatAt = hint.indexOf('Любое изменение начнёт действовать')
+    const clearsAt = hint.indexOf('снимет индивидуальную долю по проекту')
+    expect(caveatAt).toBeGreaterThanOrEqual(0)
+    expect(clearsAt).toBeGreaterThanOrEqual(0)
+    expect(caveatAt).toBeLessThan(clearsAt)
   })
 })

@@ -23,13 +23,22 @@ import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
  * project-level mutations use the SAME two messages — one concept, one
  * wording, on both surfaces.
  */
+/*
+ * task-648-fix-round-4 (COPY-M-18). Both messages below used to name the fact
+ * «подтверждение» / «процент» — the vocabulary of round 1, when that WAS the
+ * canonical name (COPY-M-2). Round 3 chose «предложение» and carried it to
+ * five surfaces, which left these two in the minority rather than settling
+ * anything: the cancel button now routes through this helper as well, so a
+ * reader who pressed «Отменить предложение» was answered «Подтверждение
+ * недоступно» — one object, two words, one gesture apart.
+ */
 export function seniorShareErrorMessage(err: unknown, fallback?: string): string {
   const status = getAxiosStatus(err)
   if (status === 404) {
-    return 'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.'
+    return 'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.'
   }
   if (status === 409) {
-    return 'Решение по этому проценту уже принято. Обновите страницу.'
+    return 'Решение по этому предложению уже принято. Обновите страницу.'
   }
   // task-648-fix-round-2 (COPY-L-6): merging four call sites onto one helper
   // in round 1 also merged their four named fallbacks into one anonymous

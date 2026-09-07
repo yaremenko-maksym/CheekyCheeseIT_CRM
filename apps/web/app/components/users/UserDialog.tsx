@@ -502,8 +502,13 @@ export function UserDialog(props: UserDialogProps) {
       // defensiveness, and the mutation gate is right to call that out.
       const pending = response.data.pendingSeniorShare
       if (pending) {
+        // task-648-fix-round-4 (COPY-L-15): this is the moment the fact is
+        // born, and it was the one place calling it «новая доля» — a second
+        // later the same reader sees «Предложено N%» on the badge and
+        // «Отменить предложение» on the button. The name is settled; this
+        // line was simply written before it was.
         toast.success(
-          `Сохранено. Новая доля ${pending.percent}% ждёт подтверждения синьора — пока действует ${response.data.seniorSharePercent}%`,
+          `Сохранено. Предложение отправлено синьору: ${pending.percent}% вместо действующих ${response.data.seniorSharePercent}%`,
         )
       } else {
         toast.success('Пользователь обновлён')

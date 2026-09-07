@@ -1328,7 +1328,7 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Y - task-648-fix-round-4 (CR-M-4): the OTHER seven rows
+// Z - task-648-fix-round-4 (CR-M-4): the OTHER seven rows
 //
 // `stackOnMobile` is opt-in, but the wrapper element it needed is rendered for
 // every `InfoRow` on this page. Rounds 1-3 measured the page as a whole and the
@@ -1339,7 +1339,7 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
 // So: every row, measured on its own box, at both mobile widths.
 // ---------------------------------------------------------------------------
 
-test.describe('Y - every InfoRow of the details card fits, not just the share row', () => {
+test.describe('Z - every InfoRow of the details card fits, not just the share row', () => {
   // The fixture renders seven of them (the eighth, «Доля дропа», needs a
   // drop-project, which this one is not). Pinned as a count so that a
   // renamed/removed test-id fails loudly instead of quietly turning the
@@ -1473,6 +1473,34 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
     expect(rendered).toContain('Вашу долю по проекту')
     expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
+  })
+
+  // task-648-fix-round-4 (COPY-M-18). Round 3 made «предложение» the one name
+  // for this fact and carried it to five surfaces; the refusal paths kept the
+  // older vocabulary, so the senior was asked to «отклонить новый процент» and
+  // then told «доля отклонена» — three words for one object in two clicks.
+  // The share itself is not rejected and has not moved; the PROPOSAL to change
+  // it is, which the toast's own next clause already says.
+  test('rejecting on the project names the proposal, in the dialog and in the toast', async ({
+    asSenior: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+    await page.route(`${API_GLOB}/projects/${PROJECT_ID}/senior-share/reject`, (r) =>
+      r.fulfill({ status: 201, contentType: 'application/json', body: '{}' }),
+    )
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.getByTestId('pending-share-reject-button').click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('Отклонить предложение')
+    await expect(dialog).not.toContainText('Отклонить новый процент')
+
+    await page.getByTestId('pending-share-reject-reason').fill('договаривались на 30%')
+    await page.getByTestId('pending-share-reject-confirm').click()
+
+    await expect(page.getByText('Предложение отклонено', { exact: false })).toBeVisible()
   })
 })
 

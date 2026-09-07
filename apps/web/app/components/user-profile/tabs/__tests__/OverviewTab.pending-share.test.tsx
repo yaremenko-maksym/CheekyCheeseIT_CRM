@@ -484,7 +484,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+        'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
       ),
     )
     // QA-MED-5: a stale banner (proposal already resolved elsewhere) must
@@ -548,6 +548,19 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(confirmButton)
     await waitFor(() => expect(confirmButton).toHaveTextContent('Отклонение…'))
     resolvePost({ data: { ok: true } })
+  })
+
+  // task-648-fix-round-4 (COPY-M-18). The dialog asked the senior to reject
+  // «новый процент» while every other surface of the same feature called it a
+  // предложение — and the percent is not what is being rejected: it stays
+  // exactly where it was, which is what the reject toast says one line later.
+  it('the reject dialog names the proposal, not the percent', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Отклонить предложение')
+    expect(dialog).not.toHaveTextContent('Отклонить новый процент')
   })
 
   it('reject dialog starts closed, with an empty reason field', () => {
@@ -641,7 +654,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Решение по этому проценту уже принято. Обновите страницу.',
+        'Решение по этому предложению уже принято. Обновите страницу.',
       ),
     )
     // QA-MED-5: same refetch-on-failure fix as the approve test above — a

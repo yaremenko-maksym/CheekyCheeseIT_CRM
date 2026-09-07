@@ -122,7 +122,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     await withdraw(user, 'user')
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+        'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
       ),
     )
     // QA-MED-5's lesson: refetch on FAILURE too, or a proposal resolved
@@ -218,9 +218,16 @@ describe('PendingShareEditNotice — what the edit dialogs show', () => {
     )
     const notice = screen.getByTestId('pending-share-edit-notice-user')
     expect(notice).toHaveTextContent('Предложено 40%')
-    // task-648-fix-round-3 (COPY-M-15): «ждёт подтверждения <имя>», no colon —
-    // the colon made the label read as belonging to the NUMBER.
-    expect(notice).toHaveTextContent('ждёт подтверждения Олексій Коваленко')
+    // task-648-fix-round-4 (COPY-M-17). Round 3 wrote «ждёт подтверждения
+    // <имя>», whose slot is genitive while the name arrives from the database
+    // in the nominative. On Latin script that passes unnoticed; this fixture
+    // name is deliberately Cyrillic, where it does not: «ждёт подтверждения
+    // Олексій Коваленко» is wrong out loud, and CRM names are typed by a
+    // human, so it breaks when, not if. The indicator two centimetres away
+    // already had a frame that needs no case at all — «Подтверждает <имя>» —
+    // so the notice now uses that one instead of inventing a second.
+    expect(notice).toHaveTextContent('Подтверждает Олексій Коваленко')
+    expect(notice).not.toHaveTextContent('ждёт подтверждения')
     expect(notice).toHaveTextContent('Новое значение заменит предложение')
   })
 

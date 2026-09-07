@@ -10,7 +10,7 @@
  *
  * This is the structural half of the answer (the empirical half is the per-row
  * measurement at 320/375 in `projects-senior-share-override.spec.ts`, describe
- * «Y»). Three different questions, deliberately not one snapshot:
+ * «Z»). Three different questions, deliberately not one snapshot:
  *
  *  1. the default path's markup is pinned literally, so any future edit to it
  *     shows up as a diff rather than as a visual surprise;
@@ -42,7 +42,16 @@ const classesOf = (el: Element) => [...el.classList].sort()
 /* eslint-disable testing-library/no-node-access */
 function renderRow(stackOnMobile?: boolean) {
   const { container } = render(
-    <InfoRow icon={<svg data-testid="row-icon" />} label="Стек" stackOnMobile={stackOnMobile}>
+    <InfoRow
+      icon={<svg data-testid="row-icon" />}
+      label="Стек"
+      // `exactOptionalPropertyTypes` is on, so `stackOnMobile={undefined}` is
+      // NOT the same thing as omitting the prop — and omitting it is exactly
+      // what the default path this file pins does. Spreading conditionally
+      // keeps the two renders honestly different: one passes the prop, the
+      // other never mentions it.
+      {...(stackOnMobile === undefined ? {} : { stackOnMobile })}
+    >
       <span data-testid="row-value">React</span>
     </InfoRow>,
   )
@@ -50,6 +59,14 @@ function renderRow(stackOnMobile?: boolean) {
   const wrapper = row.firstElementChild as HTMLElement
   const [icon, label] = [...wrapper.children] as HTMLElement[]
   const value = row.lastElementChild as HTMLElement
+  // Not defensiveness: `noUncheckedIndexedAccess` types these two as possibly
+  // undefined, and the honest way to narrow them is to state the structural
+  // precondition every assertion below depends on. If the wrapper ever stops
+  // holding exactly the icon and the label, this throws with a sentence
+  // instead of letting six tests fail on `undefined` one by one.
+  if (!icon || !label) {
+    throw new Error('InfoRow must render the icon and the label inside one wrapper')
+  }
   return {
     row,
     wrapper,

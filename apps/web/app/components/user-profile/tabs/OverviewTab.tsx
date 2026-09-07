@@ -157,7 +157,11 @@ function PendingBaseShareBanner({
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <CrmDialogContent>
           <CrmDialogHeader>
-            <DialogTitle>Отклонить новый процент</DialogTitle>
+            {/* task-648-fix-round-4 (COPY-M-18): the percent is not what is
+                being rejected — it stays exactly where it was, which is what
+                this dialog's own toast says one line later. What is rejected
+                is the proposal to change it. */}
+            <DialogTitle>Отклонить предложение</DialogTitle>
             <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
