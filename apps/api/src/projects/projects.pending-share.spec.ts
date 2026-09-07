@@ -861,6 +861,11 @@ describe('ProjectsService.mapProject — the pending-share mask itself', () => {
     project: unknown,
     teamOverrides: Map<string, unknown>,
     viewerRole: string | undefined,
+    // merge of origin/main into PR #646: `mapProject` gained the two batched
+    // maps of task-project-status-filter-ui (parameters 4 and 5, defaulted),
+    // so the pending share is now the sixth positional argument.
+    rejectionReasonByProjectId: Map<string, string> | undefined,
+    pendingApproverIdsByProjectId: Map<string, Set<string>> | undefined,
     pending: unknown,
   ) => { pendingSeniorShare: unknown }
 
@@ -875,7 +880,7 @@ describe('ProjectsService.mapProject — the pending-share mask itself', () => {
       approverId: 'senior-1',
       approverName: 'Senior One',
     }
-    return mapProject(h.projectRow, new Map(), viewerRole, pending)
+    return mapProject(h.projectRow, new Map(), viewerRole, undefined, undefined, pending)
   }
 
   it.each(['ADMIN', 'SENIOR'])('passes the value through for %s', (role) => {

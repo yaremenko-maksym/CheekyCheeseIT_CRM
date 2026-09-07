@@ -322,6 +322,17 @@ export const PROJECTS = [
     seniorSharePercentOverride: null as number | null,
     seniorSharePercentDefault: 26,
     startDate: '2024-01-15T00:00:00.000Z',
+    // SPEC-H-2 (PR #646 fix-round 1): `status` added — this fixture predates
+    // task-project-draft-status (PR #630), which made `status` a REQUIRED
+    // field on ProjectDto. Without it, `p.status === 'ACTIVE'` (the Active
+    // tab's own bucketing predicate, task-project-status-filter-ui) reads
+    // `undefined === 'ACTIVE'` — false — and this project silently drops off
+    // the DEFAULT tab, which is exactly what AC1 ("список совпадает с
+    // сегодняшним") forbids. The real seed's own `status` column DEFAULT is
+    // 'ACTIVE' (verified via postgres query), so this project — never a
+    // draft — genuinely IS 'ACTIVE'; this is the fixture catching up to a
+    // field it was always supposed to carry, not a new assumption.
+    status: 'ACTIVE' as const,
     archivedAt: null,
     createdAt: '2024-01-15T00:00:00.000Z',
     updatedAt: '2024-01-15T00:00:00.000Z',
@@ -343,6 +354,10 @@ export const PROJECTS = [
     seniorSharePercentDefault: 26,
     sharePercent: null,
     startDate: '2023-06-01T00:00:00.000Z',
+    // SPEC-H-2: same as project-1-id — a completed, closed project (hence
+    // archivedAt set) is still 'ACTIVE' by status; DRAFT/REJECTED is a
+    // separate axis from archival (business spec §4.2 — never mixed).
+    status: 'ACTIVE' as const,
     archivedAt: '2024-01-01T00:00:00.000Z',
     createdAt: '2023-06-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',

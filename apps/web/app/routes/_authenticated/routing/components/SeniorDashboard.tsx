@@ -13,6 +13,7 @@ import { CompanySharePayoutModal } from '@/routes/_authenticated/finance/compone
 import { SENIOR_SUMMARY_QUERY_KEY, useSeniorSummary } from '@/hooks/use-senior-summary'
 import { EarningsStatsBlock } from './EarningsStatsBlock'
 import { InProgressPanel } from './InProgressPanel'
+import { PendingProjectApprovalsPanel } from './PendingProjectApprovalsPanel'
 
 /**
  * SeniorDashboard — ролевой дашборд для роли SENIOR (и ADMIN, который видит ТУ
@@ -193,6 +194,12 @@ export function SeniorDashboard() {
                 />
               </motion.div>
             </motion.div>
+
+            {/* task-project-status-filter-ui, §Что сделать item 3. SENIOR
+                already has the ProjectRow card on /projects — mounted here
+                too for symmetry with DropDashboard ("кнопка в записи
+                согласования — для всех"). Self-hides when nothing pending. */}
+            <PendingProjectApprovalsPanel />
 
             {/* Earnings stats: hero «Всего» + sparkline + список проектов +
                 «Этот месяц» progress bar. «Прошлый месяц» убран (§3). */}

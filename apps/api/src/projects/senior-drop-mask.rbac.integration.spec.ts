@@ -21,10 +21,32 @@
  *          200, dropId === null, dropName === null (regression)
  *   SI-5   GET /api/projects (list) as SENIOR → drop-project has dropName === null
  *
+ * SR-M-7 (PR #646 fix-round 3) added SI-6..SI-9 below — SR-H-1/SR-M-5 were
+ * proven only against a mocked `db` (rejection-reason.unit.spec.ts); the
+ * mutation gate cannot see this file at all (integration specs are
+ * structurally excluded from the Stryker/vitest run, see
+ * mutation-gate-integration-specs.md) — these are the ONLY assertions that
+ * the real Postgres + real NestJS guard stack, not a mock, enforces the same
+ * two gates:
+ *
+ *   SI-6   PATCH /api/projects/:id as HR (not invited approver) on a
+ *          REJECTED project → 404, same existence-oracle as GET
+ *   SI-7   PATCH /api/projects/:id as ACCOUNTANT (finance-scoped-only patch,
+ *          not invited approver) on a REJECTED project → 404 — a DIFFERENT
+ *          pre-condition than SI-6 (only ACCOUNTANT's `hasOnlyOverride`
+ *          branch reaches the shared `assertAccess` gate this way)
+ *   SI-8   GET /api/projects/:id as SENIOR (invited approver, REJECTED
+ *          project) → 200, rejectionReason === null (ADMIN-only field)
+ *   SI-9   GET /api/projects/:id as ADMIN on the same REJECTED project →
+ *          200, rejectionReason === the real text (positive control)
+ *
  * SEED:
  *   Namespace: a9b8c7d6-e5f4-5001-** (distinct from existing 4001/4002/4003 groups)
  *   DROP_PROJ_A: SENIOR S1 + DROP D1 attached; S1 active member via seniorId FK.
  *   One JUNIOR (J1) active member for regression path.
+ *   REJECTED_PROJ: SENIOR S1 only, status REJECTED, one REJECTED `approvals`
+ *   row (S1 as approver) carrying a real rejectionReason — SI-6..SI-9's fixture.
+ *   HR1 / ACC1: SI-6/SI-7's non-invited callers.
  *
  * DB-SKIP-GUARD:
  *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
@@ -32,7 +54,7 @@
  *   in beforeAll (reports FAILED) — neither case can look like "passed"
  *   with zero assertions.
  */
-import { Controller, Get, Global, Inject, Module, Param } from '@nestjs/common'
+import { Body, Controller, Get, Global, Inject, Module, Param, Patch } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -42,7 +64,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { type SessionUser, updateProjectSchema } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
@@ -52,7 +74,7 @@ import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from './projects.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { UsersService } from '../users/users.service'
-import { projectMembers, projects, teamMembers, teams, users } from '../database/schema'
+import { approvals, projectMembers, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { UsersAccessService } from '../users/users-access.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
@@ -102,11 +124,41 @@ const D1: SessionUser = {
   legalFullName: null,
 }
 
+/** SR-M-7 (fix-round 3): SI-6's non-invited PATCH caller. */
+const HR1: SessionUser = {
+  id: 'a9b8c7d6-e5f4-5001-aa00-000000000004',
+  email: 'srmask-hr1@test.spec',
+  displayName: 'SR Mask HR1',
+  avatarUrl: null,
+  role: 'HR',
+  seniorSharePercent: 0,
+  legalFullName: null,
+}
+
+/** SR-M-7 (fix-round 3): SI-7's non-invited PATCH caller (finance-scoped-only branch). */
+const ACC1: SessionUser = {
+  id: 'a9b8c7d6-e5f4-5001-aa00-000000000005',
+  email: 'srmask-acc1@test.spec',
+  displayName: 'SR Mask Accountant1',
+  avatarUrl: null,
+  role: 'ACCOUNTANT',
+  seniorSharePercent: 0,
+  legalFullName: null,
+}
+
 const DROP_PROJ_A_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000010'
 const TEAM_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000020'
 const MEMBER_J1_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000030'
 
-const TEST_USER_IDS = [S1.id, J1.id, D1.id]
+/** SR-M-7 (fix-round 3): SI-6..SI-9's fixture — SEPARATE from DROP_PROJ_A, which
+ * defaults to ACTIVE (no `status` in that insert — DB column default is
+ * 'ACTIVE', see projects.status's schema default) and so exercises a totally
+ * different branch of `assertAccess` than a REJECTED project does. */
+const REJECTED_PROJ_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000040'
+const REJECTED_PROJ_APPROVAL_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000041'
+const REJECTION_REASON_TEXT = 'SR Mask: бюджет не подтверждён'
+
+const TEST_USER_IDS = [S1.id, J1.id, D1.id, HR1.id, ACC1.id]
 const DROP_DISPLAY_NAME = D1.displayName
 
 // ── Sentinel controller ────────────────────────────────────────────────────────
@@ -120,6 +172,16 @@ class SentinelProjectsController {
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.findOne(id, user)
+  }
+
+  // SR-M-7 (fix-round 3): SI-6/SI-7 need the real PATCH path — same schema
+  // parse the real controller does (projects.controller.ts `update`), not a
+  // hand-rolled body-passthrough, so a real 400 from a malformed body cannot
+  // be mistaken for the 404 these tests assert on.
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = updateProjectSchema.parse(body)
+    return this.svc.update(id, data, user)
   }
 }
 
@@ -249,7 +311,7 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
 
     // ── Seed ──────────────────────────────────────────────────────────────────
 
-    // Users: S1 (SENIOR), J1 (JUNIOR), D1 (DROP)
+    // Users: S1 (SENIOR), J1 (JUNIOR), D1 (DROP), HR1 (HR), ACC1 (ACCOUNTANT)
     await db
       .insert(users)
       .values([
@@ -274,6 +336,20 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
           role: 'DROP',
           googleId: `test-srmask-${D1.id}`,
           dropSharePercent: 15,
+        },
+        {
+          id: HR1.id,
+          email: HR1.email,
+          displayName: HR1.displayName,
+          role: 'HR',
+          googleId: `test-srmask-${HR1.id}`,
+        },
+        {
+          id: ACC1.id,
+          email: ACC1.email,
+          displayName: ACC1.displayName,
+          role: 'ACCOUNTANT',
+          googleId: `test-srmask-${ACC1.id}`,
         },
       ])
       .onConflictDoNothing()
@@ -313,6 +389,45 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
       .insert(teamMembers)
       .values([{ teamId: TEAM_ID, userId: S1.id, joinedAt: new Date() }])
       .onConflictDoNothing()
+
+    // SR-M-7 (fix-round 3): REJECTED_PROJ — SI-6..SI-9's fixture. `status:
+    // 'REJECTED'` explicit (DB default is 'ACTIVE', see DROP_PROJ_A's own
+    // comment above) — this is what routes assertAccess into its
+    // approver-only branch instead of the ACTIVE-project role branch.
+    await db
+      .insert(projects)
+      .values([
+        {
+          id: REJECTED_PROJ_ID,
+          name: 'SR Mask Rejected Project',
+          companyName: 'SR Mask Rejected Corp',
+          domain: 'srmask-rejected.io',
+          startDate: new Date('2026-01-01'),
+          seniorId: S1.id,
+          currency: 'USDT',
+          rate: '3000',
+          status: 'REJECTED',
+        },
+      ])
+      .onConflictDoNothing()
+
+    // One REJECTED approvals row, S1 as the approver who rejected it — the
+    // exact shape `ApprovalsService.getRejectionReasons`/`isApprover` read.
+    await db
+      .insert(approvals)
+      .values([
+        {
+          id: REJECTED_PROJ_APPROVAL_ID,
+          subjectType: 'PROJECT',
+          subjectId: REJECTED_PROJ_ID,
+          approverUserId: S1.id,
+          status: 'REJECTED',
+          rejectionReason: REJECTION_REASON_TEXT,
+          decidedAt: new Date(),
+          proposedByUserId: ADMIN.id,
+        },
+      ])
+      .onConflictDoNothing()
   }, 30_000)
 
   afterAll(async () => {
@@ -320,7 +435,11 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
       const db = dbSvc.db
       await db.delete(projectMembers).where(inArray(projectMembers.id, [MEMBER_J1_ID]))
       await db.delete(teamMembers).where(inArray(teamMembers.teamId, [TEAM_ID]))
-      await db.delete(projects).where(inArray(projects.id, [DROP_PROJ_A_ID]))
+      // SR-M-7 fixture — approvals row before its project (FK), project
+      // before its approver user (FK), same ordering discipline as the rest
+      // of this block.
+      await db.delete(approvals).where(inArray(approvals.id, [REJECTED_PROJ_APPROVAL_ID]))
+      await db.delete(projects).where(inArray(projects.id, [DROP_PROJ_A_ID, REJECTED_PROJ_ID]))
       await db.delete(teams).where(inArray(teams.id, [TEAM_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
     } catch {
@@ -437,5 +556,68 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
     expect(projA!.dropId, 'SENIOR list: dropId must be present').toBe(D1.id)
     expect(projA!.dropSharePercent, 'SENIOR list: dropSharePercent must be present').toBeDefined()
     expect(projA!.dropSharePercent).not.toBeNull()
+  })
+
+  // ── SI-6/SI-7: SR-H-1 (real DB) — a non-invited HR/ACCOUNTANT cannot PATCH
+  // a REJECTED project into revealing the reason, or at all ────────────────
+
+  it('SI-6 (SR-M-7). PATCH as HR (not invited on REJECTED_PROJ) → 404, same existence-oracle as GET — proven against a real DB, not a mocked one', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${REJECTED_PROJ_ID}`,
+      cookies: { jwt: tokenFor(HR1) },
+      payload: { name: 'Sneaky rename' },
+    })
+    expect(res.statusCode, 'HR must get 404, not 200/403').toBe(404)
+    const body = res.json() as Record<string, unknown>
+    expect(body['message'], 'must be the same existence-oracle message as findOne').toBe(
+      'Project not found',
+    )
+  })
+
+  it('SI-7 (SR-M-7). PATCH as ACCOUNTANT, finance-scoped-only body (the ONE branch that reaches assertAccess without HR/ADMIN), on REJECTED_PROJ → 404', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${REJECTED_PROJ_ID}`,
+      cookies: { jwt: tokenFor(ACC1) },
+      // Finance-scoped-only, mirrors rejection-reason.unit.spec.ts's own
+      // choice — anything outside FINANCE_SCOPED_FIELDS would 403 on the
+      // role gate BEFORE ever reaching assertAccess, testing something else.
+      payload: { paymentType: 'FOP' },
+    })
+    expect(res.statusCode, 'ACCOUNTANT must get 404, not 200/403').toBe(404)
+    const body = res.json() as Record<string, unknown>
+    expect(body['message']).toBe('Project not found')
+  })
+
+  // ── SI-8/SI-9: SR-M-5 (real DB) — rejectionReason is ADMIN-only, narrower
+  // than the visibility gate, even for the invited approver ────────────────
+
+  it('SI-8 (SR-M-7). GET as SENIOR (S1, invited approver on REJECTED_PROJ) → 200, but rejectionReason is null — visible project, withheld reason', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${REJECTED_PROJ_ID}`,
+      cookies: { jwt: tokenFor(S1) },
+    })
+    expect(res.statusCode, 'invited SENIOR must get 200').toBe(200)
+
+    const body = res.json() as Record<string, unknown>
+    expect(body['status']).toBe('REJECTED')
+    expect(body['rejectionReason'], 'SENIOR must not see the reason text').toBeNull()
+  })
+
+  it('SI-9 (SR-M-7). GET as ADMIN on REJECTED_PROJ → 200, rejectionReason is the real text — positive control for SI-8', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${REJECTED_PROJ_ID}`,
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+    expect(res.statusCode, 'ADMIN must get 200').toBe(200)
+
+    const body = res.json() as Record<string, unknown>
+    expect(body['status']).toBe('REJECTED')
+    expect(body['rejectionReason'], 'ADMIN must see the real reason text').toBe(
+      REJECTION_REASON_TEXT,
+    )
   })
 })
