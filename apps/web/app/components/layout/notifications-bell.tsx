@@ -250,7 +250,18 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
                     <button
                       type="button"
                       onClick={() => handleItemClick(n, action?.href ?? null)}
-                      className="flex flex-1 cursor-pointer items-start gap-3 px-4 py-3 text-left"
+                      // `min-w-0` на САМОЙ кнопке, а не только на внутреннем
+                      // блоке: кнопка — flex-элемент строки, и её
+                      // автоматический минимум (`min-width: auto`) считается по
+                      // min-content содержимого. Заголовок несёт `truncate`
+                      // (`white-space: nowrap`), чей min-content равен ПОЛНОЙ
+                      // ширине строки, — поэтому кнопка растягивалась под
+                      // самый длинный заголовок и вылезала за 320 px, а
+                      // `overflow-x-hidden` списка просто срезал хвост. То же
+                      // семейство, что чинил #620, только на уровень выше:
+                      // там лечили перенос слов, здесь — способность
+                      // контейнера сжаться.
+                      className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 px-4 py-3 text-left"
                       data-testid={`notification-item-${n.id}-open`}
                     >
                       <TypeIcon type={n.type} />

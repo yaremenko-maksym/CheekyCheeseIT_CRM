@@ -933,7 +933,17 @@ jobs:
             # ~5:26-5:53 critical path — one extra single-test, route-mocked
             # spec here has no realistic way to move that gap, so content fit
             # won over chasing the marginally shorter shard.
-            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts
+            #
+            # tests/notification-types.spec.ts (task-notification-types-producers,
+            # позиция 6, PR #664): тот же попап колокольчика в шапке, что и у
+            # tests/notifications-popup-overflow.spec.ts строкой выше, тот же
+            # мок-паттерн (`asAdmin` + page.route, ни одного живого вызова).
+            # Одиннадцать тестов, из них семь — измерение переполнения на семи
+            # ширинах, то есть ровно то же измерение, что уже делает соседний
+            # спек, только на новых строках. Ставится сюда по содержанию
+            # (одна поверхность), а не по длительности: auth-nav и после
+            # добавления остаётся далеко от критического пути misc (~5:26-5:53).
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts tests/notification-types.spec.ts
           - name: team-users
             files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts
           - name: projects
