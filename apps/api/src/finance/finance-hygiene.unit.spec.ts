@@ -23,6 +23,16 @@ function makeRates(usdUah = '40.0000', eurUah = '44.0000') {
   return { usdUah, usdtUah: usdUah, eurUah, date: '20260531' }
 }
 
+/**
+ * task-notification-types-producers (позиция 6): TransactionsService получил
+ * шестую зависимость — производителя уведомлений. Этим спекам она безразлична
+ * (они про деньги), поэтому здесь молчаливая заглушка. Спека, которая
+ * проверяет самого производителя, — `transaction-notifications.unit.spec.ts`.
+ */
+function makeNotificationsStub() {
+  return { create: async () => null } as never
+}
+
 interface MockTx {
   id?: string
   type: string
@@ -342,7 +352,7 @@ function makeAdminTransferService(
   const etherscan = {} as never
   const invoices = {} as never
   const documents = {} as never
-  return new TransactionsService(db, invoices, documents, nbu, etherscan)
+  return new TransactionsService(db, invoices, documents, nbu, etherscan, makeNotificationsStub())
 }
 
 describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () => {
@@ -522,7 +532,14 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       },
     } as never
     const nbu = { getRates: async () => makeRates() } as never
-    return new TransactionsService(db, {} as never, {} as never, nbu, {} as never)
+    return new TransactionsService(
+      db,
+      {} as never,
+      {} as never,
+      nbu,
+      {} as never,
+      makeNotificationsStub(),
+    )
   }
 
   it('PAID ADMIN_INCOME (non-company-funded) — editing amount throws BadRequestException', async () => {
@@ -601,6 +618,7 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       {} as never,
       { getRates: async () => makeRates() } as never,
       {} as never,
+      makeNotificationsStub(),
     )
     const admin = makeViewer('ADMIN', 'admin-id')
     // Should not throw — notes-only edit
@@ -653,6 +671,7 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       {} as never,
       { getRates: async () => makeRates() } as never,
       {} as never,
+      makeNotificationsStub(),
     )
     const admin = makeViewer('ADMIN', 'admin-id')
     await expect(
@@ -702,7 +721,14 @@ describe('AC4 BIZ-17 — updateDropIncome: resubmit REJECTED DROP_INCOME', () =>
       },
     } as never
     const nbu = { getRates: async () => makeRates() } as never
-    return new TransactionsService(db, {} as never, {} as never, nbu, {} as never)
+    return new TransactionsService(
+      db,
+      {} as never,
+      {} as never,
+      nbu,
+      {} as never,
+      makeNotificationsStub(),
+    )
   }
 
   it('DROP can resubmit their own REJECTED DROP_INCOME', async () => {

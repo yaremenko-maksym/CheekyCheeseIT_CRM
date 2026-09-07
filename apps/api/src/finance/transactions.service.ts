@@ -52,6 +52,7 @@ import {
   isCascadeAmountEdit,
   cascadeEditPreviewResponseSchema,
   amountsDiffer,
+  NOTIFICATION_TITLES,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -91,6 +92,7 @@ import { DocumentsService } from '../documents/documents.service'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
 import { convertToBase, type BalanceCurrency } from './balance.service'
 import { EtherscanService } from './etherscan.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { getOwnSalaryStatus } from './salary-status.helper'
@@ -235,6 +237,9 @@ export class TransactionsService {
     // amount ≈ payable).
     private readonly nbuCurrency: NbuCurrencyService,
     private readonly etherscan: EtherscanService,
+    // task-notification-types-producers (позиция 6). Производитель двух типов:
+    // «транзакция добавлена» и «статус транзакции изменился».
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -2017,7 +2022,7 @@ export class TransactionsService {
       throw err
     }
 
-    await this.recordCreationAudit(tx.id, tx, currentUser)
+    await this.afterTransactionCreated(tx.id, tx, currentUser)
     return this.findOne(tx.id, currentUser)
   }
 
@@ -2457,7 +2462,7 @@ export class TransactionsService {
       throw err
     }
 
-    await this.recordCreationAudit(tx!.id, tx!, currentUser)
+    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -2601,7 +2606,7 @@ export class TransactionsService {
       throw err
     }
 
-    await this.recordCreationAudit(tx!.id, tx!, currentUser)
+    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -4904,6 +4909,10 @@ export class TransactionsService {
 
       // task-salary-company-account: junior salaries no longer depend on
       // validated senior/drop income (LOCKED removed) — nothing to unlock here.
+
+      // Позиция 6: получатель дохода ЖДЁТ этого перехода. После коммита —
+      // строка уже проверена, и уведомление не может опередить факт.
+      await this.notifyTransactionStatusChanged(id, 'VALIDATED', null, currentUser)
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
       await this.db.db.transaction(async (dbtx) => {
@@ -4936,6 +4945,10 @@ export class TransactionsService {
           },
         })
       })
+
+      // Позиция 6: отказ без причины сотруднику бесполезен, а узнать её иначе
+      // неоткуда — причина едет в данных записи, а не в её заголовке.
+      await this.notifyTransactionStatusChanged(id, 'REJECTED', rejectionReason, currentUser)
     }
 
     return this.findOne(id, currentUser)
@@ -5239,7 +5252,7 @@ export class TransactionsService {
       txId = tx!.id
     }
 
-    await this.recordCreationAudit(txId, values, currentUser)
+    await this.afterTransactionCreated(txId, values, currentUser)
     return this.findOne(txId, currentUser)
   }
 
@@ -5392,7 +5405,7 @@ export class TransactionsService {
       throw err
     }
 
-    await this.recordCreationAudit(tx!.id, tx!, currentUser)
+    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -5517,7 +5530,7 @@ export class TransactionsService {
       })
       .returning()
 
-    await this.recordCreationAudit(tx!.id, tx!, currentUser)
+    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -8785,7 +8798,7 @@ export class TransactionsService {
           // entry below.
           .returning({ id: transactions.id })
         if (actor && inserted[0]) {
-          await this.recordCreationAudit(
+          await this.afterTransactionCreated(
             inserted[0].id,
             { type: 'SALARY', amount: emp.monthlySalary, currency: 'USD' },
             actor,
@@ -8841,7 +8854,7 @@ export class TransactionsService {
           })
           .returning({ id: transactions.id })
         if (actor && inserted[0]) {
-          await this.recordCreationAudit(
+          await this.afterTransactionCreated(
             inserted[0].id,
             { type: 'SALARY', amount: jr.monthlySalary, currency: 'USD' },
             actor,
@@ -9030,6 +9043,139 @@ export class TransactionsService {
    * already-audited primary action, not a second independent "creation" a
    * human decided to make.
    */
+  /**
+   * task-notification-types-producers (позиция 6). ЕДИНСТВЕННАЯ точка, которую
+   * зовут все шесть пользовательских путей создания транзакции плюс зарплатный
+   * крон — то есть ровно тот шов, который уже существовал под аудит. Спека §10
+   * прямо предупреждает: «производители незаметно большие… пять модулей, и в
+   * каждом надо не сломать существующее». Дописать вызов в восьми местах
+   * значило бы принять ровно тот риск — «обнови везде» теряет одно место.
+   * Поэтому здесь один вызов, а восемь мест только переименованы.
+   *
+   * ПОСЛЕ КОММИТА, а не внутри транзакции — сознательно, и это допустимая по
+   * заданию половина правила («либо после её коммита с явным обоснованием»).
+   * Обоснование: путей создания шесть, и не все они открывают транзакцию
+   * (`createExpense` вне company-funded ветки вставляет на голом соединении).
+   * Требование «уведомление о несостоявшемся событии недопустимо» выполняется
+   * СИЛЬНЕЕ, чем при вставке внутрь: сюда попадают только уже
+   * зафиксированные строки. Обратное — уведомление о событии, которое
+   * откатилось, — структурно невозможно.
+   */
+  private async afterTransactionCreated(
+    txId: string,
+    created: { type: string; amount: string; currency: string },
+    currentUser: SessionUser,
+  ): Promise<void> {
+    await this.recordCreationAudit(txId, created, currentUser)
+    await this.notifyTransactionAdded(txId, currentUser)
+  }
+
+  /**
+   * «Транзакция добавлена» — получателю денег и никому больше.
+   *
+   * Кому НЕ уходит и почему (§10, «уведомления о деньгах — это раскрытие»):
+   *   - ОТПРАВИТЕЛЮ. У парных строк раздела (PAYOUT_DROP / PAYOUT_ADMIN)
+   *     отправитель — контрагент, и сумма его строки есть доля другой стороны.
+   *     «Дроп не видит долю синьора и наоборот» — тот же контур, что
+   *     `mapTx(viewer)` (#381–#384).
+   *   - САМОМУ АВТОРУ действия. Своё действие подтверждает тост, а не
+   *     колокольчик (§8.1); иначе входящее обесценивается.
+   *
+   * Best-effort, как и аудит рядом: строка денег уже зафиксирована, и сбой
+   * доставки уведомления не имеет права превратить её в 500.
+   */
+  private async notifyTransactionAdded(txId: string, currentUser: SessionUser): Promise<void> {
+    try {
+      const row = await this.db.db.query.transactions.findFirst({
+        where: eq(transactions.id, txId),
+      })
+      if (!row) return
+      const recipientId = row.receiverId
+      if (!recipientId) return
+      if (recipientId === (currentUser.impersonatorId ?? currentUser.id)) return
+
+      await this.notifications.create({
+        userId: recipientId,
+        type: 'TRANSACTION_ADDED',
+        title: NOTIFICATION_TITLES.TRANSACTION_ADDED,
+        subjectType: 'TRANSACTION',
+        subjectId: row.id,
+        data: {
+          amount: row.amount,
+          currency: row.currency,
+          projectName: await this.loadProjectName(row.projectId),
+        },
+        // Событие «эта строка создана» может доехать дважды только повтором —
+        // и второй раз ничего нового не сообщает.
+        dedupeKey: `TRANSACTION_ADDED:${row.id}`,
+      })
+    } catch (notifyErr) {
+      this.logger.error(
+        `notifyTransactionAdded: failed for transaction=${txId}: ${(notifyErr as Error).message}`,
+        (notifyErr as Error).stack,
+      )
+    }
+  }
+
+  /**
+   * «Статус транзакции изменился» — тому, чьи это деньги. Проверка и отклонение
+   * (`validateTransaction`) — единственный переход статуса, которого сотрудник
+   * ЖДЁТ: он внёс доход и не знает, приняли его или нет, а причину отказа иначе
+   * узнать неоткуда.
+   */
+  private async notifyTransactionStatusChanged(
+    txId: string,
+    status: 'VALIDATED' | 'REJECTED',
+    rejectionReason: string | null,
+    currentUser: SessionUser,
+  ): Promise<void> {
+    try {
+      const row = await this.db.db.query.transactions.findFirst({
+        where: eq(transactions.id, txId),
+      })
+      if (!row) return
+      const recipientId = row.receiverId
+      if (!recipientId) return
+      if (recipientId === (currentUser.impersonatorId ?? currentUser.id)) return
+
+      await this.notifications.create({
+        userId: recipientId,
+        type: 'TRANSACTION_STATUS_CHANGED',
+        title: NOTIFICATION_TITLES.TRANSACTION_STATUS_CHANGED,
+        subjectType: 'TRANSACTION',
+        subjectId: row.id,
+        data: {
+          amount: row.amount,
+          currency: row.currency,
+          status,
+          rejectionReason,
+        },
+        // Статус входит в ключ: проверка и последующее отклонение — два разных
+        // события об одной строке, и второе обязано доехать.
+        dedupeKey: `TRANSACTION_STATUS_CHANGED:${row.id}:${status}`,
+      })
+    } catch (notifyErr) {
+      this.logger.error(
+        `notifyTransactionStatusChanged: failed for transaction=${txId}: ${(notifyErr as Error).message}`,
+        (notifyErr as Error).stack,
+      )
+    }
+  }
+
+  /**
+   * Название проекта снимается В МОМЕНТ события: уведомление живёт дольше
+   * объекта (§7.4), и строка о том, что было, не должна становиться безымянной,
+   * когда проект архивировали.
+   */
+  private async loadProjectName(projectId: string | null): Promise<string | null> {
+    if (projectId === null) return null
+    const project = await this.db.db.query.projects.findFirst({
+      where: eq(projects.id, projectId),
+      columns: { name: true },
+    })
+    return project?.name ?? null
+  }
+
   private async recordCreationAudit(
     txId: string,
     created: { type: string; amount: string; currency: string },

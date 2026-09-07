@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
 import { DocumentsModule } from '../documents/documents.module'
 import { InvoicesModule } from '../invoices/invoices.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { BalanceController, PendingObligationsController } from './balance.controller'
 import { BalanceService } from './balance.service'
 import { CompanyAccountController } from './company-account.controller'
@@ -37,6 +38,11 @@ import { TransactionsService } from './transactions.service'
     // forwardRef guards against potential circular import chains through
     // InvoicesModule → DocumentsModule → … paths.
     forwardRef(() => DocumentsModule),
+    // task-notification-types-producers (позиция 6). TransactionsService —
+    // производитель двух типов уведомлений. NotificationsModule зависит только
+    // от DatabaseModule (+ ленивый AuthModule для контроллера), поэтому цикла
+    // здесь нет и forwardRef не нужен.
+    NotificationsModule,
   ],
   providers: [
     TransactionsService,
