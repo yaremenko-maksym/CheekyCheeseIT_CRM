@@ -185,3 +185,30 @@ export type SalaryStatus = z.infer<typeof salaryStatusSchema>
 export type MySalaryStatusDto = z.infer<typeof mySalaryStatusSchema>
 export type MySalaryStateDto = z.infer<typeof mySalaryStateSchema>
 export type HrSummaryDto = z.infer<typeof hrSummarySchema>
+
+// ---------------------------------------------------------------------------
+// Board senior DTO — GET /api/interviews/seniors
+// ---------------------------------------------------------------------------
+//
+// task-hr-drop-team-senior-board — single source of truth for "whose
+// interview board can the viewer open". Replaces the client-side
+// GET /users × GET /teams intersection the board selector used to compute,
+// which silently diverged from the server's own access gate: TeamsService
+// .findAll filters out DROP-type teams for an HR caller (a DIFFERENT,
+// unrelated decision about the team-list page), so a SENIOR whose only team
+// was a drop-team fell out of the selector even though
+// InterviewsService.getAccessibleSeniorIds — the function that actually
+// gates GET /interviews — granted that HR access to the board all along.
+// This endpoint is backed by that SAME function for HR, so the selector and
+// the list endpoint can never disagree again.
+//
+// Allow-list DTO (security-review §3 masking pattern) — id/displayName/
+// avatar only. No email, no techStack, no payment/finance fields.
+export const boardSeniorSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  avatarUrl: z.string().url().nullable(),
+  avatarDocumentId: z.string().uuid().nullable(),
+})
+
+export type BoardSeniorDto = z.infer<typeof boardSeniorSchema>

@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import {
+  boardSeniorSchema,
   createInterviewSchema,
   hrSummarySchema,
   moveInterviewSchema,
@@ -83,6 +84,24 @@ export class InterviewsController {
     this.assertNotDrop(user)
     const summary = await this.interviewsService.getHrSummary(user)
     return hrSummarySchema.parse(summary)
+  }
+
+  /**
+   * Board selector data source. GET /api/interviews/seniors — ADMIN/SENIOR/HR
+   * ONLY (the @Roles set + the service's own role check both reject every
+   * other role with 403 BEFORE any DB access). Declared BEFORE the bare
+   * `@Get()` for the same defensive-ordering reason as hr-summary above.
+   *
+   * task-hr-drop-team-senior-board: single source of truth for "whose board
+   * can the viewer open" — see InterviewsService.getBoardSeniors's docblock.
+   * Allow-list DTO (`boardSeniorSchema`), parsed at the wire boundary.
+   */
+  @Get('seniors')
+  @Roles('ADMIN', 'SENIOR', 'HR')
+  async boardSeniors(@CurrentUser() user: SessionUser) {
+    this.assertNotDrop(user)
+    const rows = await this.interviewsService.getBoardSeniors(user)
+    return boardSeniorSchema.array().parse(rows)
   }
 
   @Get()
