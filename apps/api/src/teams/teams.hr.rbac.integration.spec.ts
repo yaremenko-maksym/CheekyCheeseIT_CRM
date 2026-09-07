@@ -18,6 +18,7 @@ import { TeamsService } from './teams.service'
 import { teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * Teams HR RBAC — real-backend integration spec.
@@ -148,7 +149,8 @@ class TestDatabaseModule {}
     {
       provide: TeamsService,
       // UsersService is NOT exercised in findAll — pass null stub.
-      useFactory: (db: DatabaseService) => new TeamsService(db, null as never),
+      useFactory: (db: DatabaseService) =>
+        new TeamsService(db, null as never, makeNotificationsStub()),
       inject: [DatabaseService],
     },
     {

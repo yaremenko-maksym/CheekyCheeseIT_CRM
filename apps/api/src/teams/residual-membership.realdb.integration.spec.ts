@@ -88,6 +88,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Test IDs — stable namespace rmed2- ─────────────────────────────────────
 const TEAM_ID = '5a100004-0000-4000-aa00-000000000001'
@@ -199,7 +200,7 @@ describe.skipIf(!hasDatabaseUrl())(
         // reach it here from reproducing the CI failure this round fixed.
         { getStatus: async () => 'NONE' as const } as never,
       )
-      teamsService = new TeamsService(dbSvc, usersService, teamAuditLog)
+      teamsService = new TeamsService(dbSvc, usersService, teamAuditLog, makeNotificationsStub())
 
       await db
         .insert(users)

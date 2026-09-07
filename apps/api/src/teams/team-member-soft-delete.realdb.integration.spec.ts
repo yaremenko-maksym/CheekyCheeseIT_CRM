@@ -30,6 +30,7 @@ import { TeamAuditLogService } from './team-audit-log.service'
 import { teamAuditLog, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Test IDs — stable namespace tmsd- ──────────────────────────────────────
 const TEAM_ID = '5a100002-0000-4000-aa00-000000000001'
@@ -70,7 +71,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const auditLog = new TeamAuditLogService(dbSvc)
       // usersService is not used by add/removeMember — pass a stub.
-      service = new TeamsService(dbSvc, {} as never, auditLog)
+      service = new TeamsService(dbSvc, {} as never, auditLog, makeNotificationsStub())
 
       await db
         .insert(users)

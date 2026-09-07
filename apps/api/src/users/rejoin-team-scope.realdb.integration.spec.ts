@@ -58,6 +58,7 @@ import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { teamAuditLog, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Test IDs — stable namespace rejoin- ────────────────────────────────────
 const FOREIGN_TEAM_ID = '5a100006-0000-4000-aa00-000000000001' // SENIOR never belonged here
@@ -96,7 +97,12 @@ describe.skipIf(!hasDatabaseUrl())(
       // the imported `teamAuditLog` Drizzle table used for the seed rows below.
       const teamAuditLogService = new TeamAuditLogService(dbSvc)
       const auditLog = new AuditLogService(dbSvc)
-      const teamsService = new TeamsService(dbSvc, {} as never, teamAuditLogService)
+      const teamsService = new TeamsService(
+        dbSvc,
+        {} as never,
+        teamAuditLogService,
+        makeNotificationsStub(),
+      )
       usersService = new UsersService(
         dbSvc,
         {} as never,

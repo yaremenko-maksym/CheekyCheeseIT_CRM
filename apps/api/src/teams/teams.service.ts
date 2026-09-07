@@ -8,7 +8,10 @@ import {
 } from '@nestjs/common'
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { ArchiveImpact, SessionUser } from '@crm/shared'
+import { NOTIFICATION_TITLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
+import { NotificationsService } from '../notifications/notifications.service'
+import type { CreateNotificationInput } from '../notifications/notifications.service'
 import {
   projectMembers,
   projects,
@@ -36,6 +39,9 @@ export class TeamsService {
     @Inject(forwardRef(() => UsersService))
     private usersService: UsersService,
     private teamAuditLogService: TeamAuditLogService,
+    // task-notification-types-producers (позиция 6). Производитель двух типов:
+    // «вас добавили в команду» и «в команде новый участник».
+    private readonly notifications: NotificationsService,
   ) {}
 
   // MED-2 (security-review PR #541 follow-up): `currentUser` is REQUIRED, not
@@ -873,18 +879,96 @@ export class TeamsService {
     const existing = await this.db.db.query.teamMembers.findFirst({
       where: and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)),
     })
+    // task-notification-types-producers (позиция 6). Членство и уведомления о
+    // нём — ОДНА транзакция: «уведомление о несостоявшемся событии
+    // недопустимо», и здесь это не дисциплина, а свойство — откатилось
+    // членство, откатились и записи.
+    //
+    // Обе ветки ниже — свежая вставка и возврат ранее удалённого участника —
+    // одинаковы с точки зрения человека: его добавили в команду. Раньше ветка
+    // реактивации отличалась только `return`, и уведомление, дописанное лишь в
+    // конец метода, тихо пропустило бы половину случаев.
+    const notifications = this.buildTeamMemberAddedNotifications({
+      teamId,
+      teamName: team.name,
+      addedUserId: userId,
+      addedUserRole: user.role,
+      addedUserName: user.displayName,
+      members: team.members,
+      currentUser,
+    })
+
     if (existing) {
       if (existing.leftAt === null) {
         throw new BadRequestException('User is already a member')
       }
-      await this.db.db
-        .update(teamMembers)
-        .set({ leftAt: null })
-        .where(eq(teamMembers.id, existing.id))
+      await this.db.db.transaction(async (tx) => {
+        await tx.update(teamMembers).set({ leftAt: null }).where(eq(teamMembers.id, existing.id))
+        await this.notifications.createManyInTx(tx, notifications)
+      })
       return
     }
 
-    await this.db.db.insert(teamMembers).values({ teamId, userId })
+    await this.db.db.transaction(async (tx) => {
+      await tx.insert(teamMembers).values({ teamId, userId })
+      await this.notifications.createManyInTx(tx, notifications)
+    })
+  }
+
+  /**
+   * Кому уходит событие «в команде прибыло» — и кому НЕ уходит.
+   *
+   * Правило раскрытия здесь не про деньги, а про личность, и оно уже
+   * зафиксировано в `mapTeam` выше: SENIOR не видит джунов вовсе, а JUNIOR
+   * видит среди джунов только себя. Уведомление обязано подчиняться тому же
+   * контуру — иначе колокольчик рассказывал бы то, что экран прячет, и это был
+   * бы обход маскировки, а не её частный случай.
+   *
+   * Автору действия не пишем: своё подтверждает тост, а не колокольчик (§8.1).
+   */
+  private buildTeamMemberAddedNotifications(input: {
+    teamId: string
+    teamName: string
+    addedUserId: string
+    addedUserRole: string
+    addedUserName: string
+    members: TeamWithMembers['members']
+    currentUser: SessionUser
+  }): CreateNotificationInput[] {
+    const actorId = input.currentUser.impersonatorId ?? input.currentUser.id
+    const out: CreateNotificationInput[] = []
+
+    if (input.addedUserId !== actorId) {
+      out.push({
+        userId: input.addedUserId,
+        type: 'TEAM_MEMBER_ADDED',
+        title: NOTIFICATION_TITLES.TEAM_MEMBER_ADDED,
+        subjectType: 'TEAM',
+        subjectId: input.teamId,
+        data: { teamName: input.teamName },
+      })
+    }
+
+    const addedIsJunior = input.addedUserRole === 'JUNIOR'
+    for (const member of input.members) {
+      if (member.leftAt !== null) continue
+      if (member.userId === input.addedUserId) continue
+      if (member.userId === actorId) continue
+      const memberRole = member.user?.role ?? null
+      // `mapTeam`: SENIOR не видит джунов, JUNIOR видит среди джунов только себя.
+      if (addedIsJunior && (memberRole === 'SENIOR' || memberRole === 'JUNIOR')) continue
+      out.push({
+        userId: member.userId,
+        type: 'TEAM_NEW_MEMBER',
+        title: NOTIFICATION_TITLES.TEAM_NEW_MEMBER,
+        subjectType: 'TEAM',
+        subjectId: input.teamId,
+        secondaryId: input.addedUserId,
+        data: { teamName: input.teamName, memberName: input.addedUserName },
+      })
+    }
+
+    return out
   }
 
   async removeMember(teamId: string, userId: string, currentUser: SessionUser) {

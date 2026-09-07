@@ -32,6 +32,7 @@ import type * as schema from '../database/schema'
 import type { SessionUser } from '@crm/shared'
 import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Shared fixtures ───────────────────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ function makeUpdateService(dbSvc: DbSvc) {
   const auditRecord = vi.fn().mockResolvedValue(undefined)
   const auditLog = { record: auditRecord } as unknown as TeamAuditLogService
   return {
-    service: new TeamsService(dbSvc as never, {} as never, auditLog),
+    service: new TeamsService(dbSvc as never, {} as never, auditLog, makeNotificationsStub()),
     auditRecord,
   }
 }
@@ -269,7 +270,7 @@ function makeCreateDb(userRoles: Record<string, string>) {
 
 function makeCreateService(dbSvc: DbSvc) {
   const auditLog = { record: vi.fn() } as unknown as TeamAuditLogService
-  return new TeamsService(dbSvc as never, {} as never, auditLog)
+  return new TeamsService(dbSvc as never, {} as never, auditLog, makeNotificationsStub())
 }
 
 describe('TeamsService.create — HIGH-2: ADMIN-only (HR removed from create gate)', () => {
@@ -428,6 +429,17 @@ function makeAddMemberDb(opts: {
         projects: { findMany: vi.fn().mockResolvedValue([]) },
       },
       insert: insertFn,
+      // task-notification-types-producers (позиция 6): членство и уведомление о
+      // нём пишутся ОДНОЙ транзакцией — заглушка просто отдаёт тот же набор
+      // построителей, что и вне транзакции.
+      transaction: vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({
+          insert: insertFn,
+          update: vi.fn().mockReturnValue({
+            set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+          }),
+        }),
+      ),
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
       }),
@@ -448,7 +460,7 @@ function makeAddMemberDb(opts: {
 
 function makeAddMemberService(dbSvc: DbSvc) {
   const auditLog = { record: vi.fn() } as unknown as TeamAuditLogService
-  return new TeamsService(dbSvc as never, {} as never, auditLog)
+  return new TeamsService(dbSvc as never, {} as never, auditLog, makeNotificationsStub())
 }
 
 describe('TeamsService.addMember — SEC-02 HIGH: HR cannot attach arbitrary SENIOR', () => {

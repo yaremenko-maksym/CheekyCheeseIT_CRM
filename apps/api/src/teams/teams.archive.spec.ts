@@ -15,6 +15,7 @@ import {
   teams as teamsTable,
   users as usersTable,
 } from '../database/schema'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -183,6 +184,7 @@ function buildService(
     db as never,
     usersService as never,
     makeTeamAuditLogService() as never,
+    makeNotificationsStub(),
   )
   // Spy on findOne so we don't need to mock the entire chain after pair-archive.
   vi.spyOn(service, 'findOne').mockResolvedValue({
@@ -491,6 +493,7 @@ describe('TeamsService.archive', () => {
       { db } as never,
       usersService as never,
       makeTeamAuditLogService() as never,
+      makeNotificationsStub(),
     )
 
     await expect(service.archive(teamId, adminUser)).rejects.toThrow(
@@ -520,6 +523,7 @@ describe('TeamsService.archive', () => {
       { db } as never,
       usersService as never,
       makeTeamAuditLogService() as never,
+      makeNotificationsStub(),
     )
 
     // `findOne` runs after the transaction commits — stub it directly so this
@@ -552,6 +556,7 @@ describe('TeamsService.archive', () => {
       { db } as never,
       usersService as never,
       makeTeamAuditLogService() as never,
+      makeNotificationsStub(),
     )
     vi.spyOn(service, 'findOne').mockResolvedValue({ id: teamId } as never)
 
@@ -737,6 +742,7 @@ describe('TeamsService.getArchiveImpact', () => {
       { db } as never,
       usersService as never,
       makeTeamAuditLogService() as never,
+      makeNotificationsStub(),
     )
     const impact = await service.getArchiveImpact('team-drop-1', adminUser)
     expect(impact).toMatchObject({
@@ -845,6 +851,7 @@ describe('TeamsService.getArchiveImpact', () => {
       { db } as never,
       usersService as never,
       makeTeamAuditLogService() as never,
+      makeNotificationsStub(),
     )
     const impact = await service.getArchiveImpact('team-drop-2', adminUser)
     expect(impact).toMatchObject({ type: 'team', teamType: 'DROP', pendingTransactions: [] })

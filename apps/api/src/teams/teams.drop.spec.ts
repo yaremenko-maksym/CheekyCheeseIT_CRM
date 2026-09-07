@@ -15,6 +15,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -182,7 +183,7 @@ function service(store: Parameters<typeof makeDb>[0]) {
     unarchivePairTx: vi.fn(),
     getArchiveImpact: vi.fn(),
   } as never
-  const svc = new TeamsService({ db } as never, usersService)
+  const svc = new TeamsService({ db } as never, usersService, makeNotificationsStub())
   return { svc, db, store }
 }
 

@@ -22,6 +22,7 @@ import type * as schema from '../database/schema'
 import type { SessionUser } from '@crm/shared'
 import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ function makeService(dbSvc: { db: NodePgDatabase<typeof schema> }): {
   const auditRecord = vi.fn().mockResolvedValue(undefined)
   const auditLog = { record: auditRecord } as unknown as TeamAuditLogService
   // Pass the DatabaseService-shaped object (which has .db inside) as the first ctor arg.
-  const service = new TeamsService(dbSvc as never, {} as never, auditLog)
+  const service = new TeamsService(dbSvc as never, {} as never, auditLog, makeNotificationsStub())
   return { service, auditRecord }
 }
 
