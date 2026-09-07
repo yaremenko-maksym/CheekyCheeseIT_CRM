@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import type {
+  BoardSeniorDto,
   CreateInterviewDto,
   HrSummaryDto,
   InterviewDto,
@@ -14,6 +15,7 @@ import { ProjectsService } from '../projects/projects.service'
 import {
   interviews,
   teamMembers,
+  users,
   visibleProjects,
   type Interview,
   type User,
@@ -345,6 +347,68 @@ export class InterviewsService {
       const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
       if (!accessibleSeniorIds.has(interview.seniorId)) throw new ForbiddenException()
       return
+    }
+
+    throw new ForbiddenException()
+  }
+
+  /** Allow-list mapper — id/displayName/avatar only, never email/techStack/finance. */
+  private mapBoardSenior(u: User): BoardSeniorDto {
+    return {
+      id: u.id,
+      displayName: u.displayName,
+      avatarUrl: u.avatarUrl ?? null,
+      avatarDocumentId: u.avatarDocumentId ?? null,
+    }
+  }
+
+  /**
+   * Board selector data source — `GET /api/interviews/seniors`
+   * (task-hr-drop-team-senior-board).
+   *
+   * Single source of truth for "whose interview board can the viewer open".
+   * Before this method, the /interviews board selector was computed
+   * CLIENT-SIDE from `GET /users` × `GET /teams`, which silently diverged
+   * from this service's OWN access gate: `TeamsService.findAll` filters out
+   * DROP-type teams for an HR caller (an unrelated decision about the
+   * team-LIST page), so a SENIOR whose only team was a drop-team fell out of
+   * the client's intersection even though `getAccessibleSeniorIds` — the
+   * function that actually gates `GET /interviews` — granted that HR access
+   * to the board the whole time. HR here reuses that EXACT function, so the
+   * selector and the list endpoint can never disagree again.
+   *
+   *   - ADMIN  — every active (non-archived) SENIOR, mirrors the old
+   *              client-side `allSeniors` derivation.
+   *   - HR     — `getAccessibleSeniorIds` (same function GET /interviews
+   *              gates on): active SENIOR members of every team this HR is
+   *              itself an ACTIVE member of, regardless of team type.
+   *   - SENIOR — themselves only (the selector isn't shown to SENIOR on the
+   *              frontend; this exists for symmetry/completeness).
+   *   - anyone else — 403 (also enforced by the controller's @Roles guard).
+   */
+  async getBoardSeniors(currentUser: SessionUser): Promise<BoardSeniorDto[]> {
+    if (currentUser.role === 'SENIOR') {
+      const self = await this.db.db.query.users.findFirst({
+        where: eq(users.id, currentUser.id),
+      })
+      if (!self) throw new ForbiddenException()
+      return [this.mapBoardSenior(self)]
+    }
+
+    if (currentUser.role === 'HR') {
+      const accessibleSeniorIds = [...(await this.getAccessibleSeniorIds(currentUser))]
+      if (accessibleSeniorIds.length === 0) return []
+      const rows = await this.db.db.query.users.findMany({
+        where: inArray(users.id, accessibleSeniorIds),
+      })
+      return rows.map((u) => this.mapBoardSenior(u))
+    }
+
+    if (currentUser.role === 'ADMIN') {
+      const rows = await this.db.db.query.users.findMany({
+        where: and(eq(users.role, 'SENIOR'), isNull(users.archivedAt)),
+      })
+      return rows.map((u) => this.mapBoardSenior(u))
     }
 
     throw new ForbiddenException()
