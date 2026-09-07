@@ -60,6 +60,25 @@ describe('useBoardSeniors', () => {
     expect(getMock).not.toHaveBeenCalledWith('/teams')
     expect(getMock).not.toHaveBeenCalledWith('/users')
     expect(getMock).toHaveBeenCalledTimes(1)
+
+    // Mutation-gate: the returned DATA alone doesn't pin the exact cache key
+    // used to store it — a mutated `queryKey` (emptied array, or either
+    // string blanked) still resolves the SAME in-flight request and the SAME
+    // `result.current.data` above, because there's only one query in flight
+    // in this test. The key itself matters for real: other code in this app
+    // invalidates by exactly this key after a mutation (see
+    // `queryClient.invalidateQueries` call sites) — a wrong key would silently
+    // stop those invalidations from ever reaching this query. Reading the
+    // data back out BY the literal key is what actually pins it.
+    expect(qc.getQueryData(['interviews', 'seniors'])).toEqual([SENIOR])
+
+    // Mutation-gate: `staleTime: 5 * 60_000` mutated to `5 / 60_000` is
+    // invisible to every assertion above (it only affects WHEN a refetch is
+    // considered necessary, never the first fetch's data/URL). Read the
+    // resolved option back off the query cache instead of inferring it from
+    // timing.
+    const query = qc.getQueryCache().find({ queryKey: ['interviews', 'seniors'] })
+    expect(query?.options.staleTime).toBe(5 * 60_000)
   })
 
   it('does not fetch at all when disabled (SENIOR viewing their own board)', async () => {
