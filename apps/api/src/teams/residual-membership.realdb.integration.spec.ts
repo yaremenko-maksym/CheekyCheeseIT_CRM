@@ -191,6 +191,13 @@ describe.skipIf(!hasDatabaseUrl())(
         teamAuditLog,
         {} as never,
         {} as never,
+        {} as never,
+        // task-pending-share fix-round-1 (CR-H-1): buildProfileView calls
+        // `this.approvals.getStatus(...)` whenever `permissions.fields.share`
+        // is true — not exercised by this file's unarchive/residual-membership
+        // scenarios, but a working stub prevents a future test that does
+        // reach it here from reproducing the CI failure this round fixed.
+        { getStatus: async () => 'NONE' as const } as never,
       )
       teamsService = new TeamsService(dbSvc, usersService, teamAuditLog)
 

@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common'
+import { ApprovalsModule } from '../approvals/approvals.module'
 import { AuthModule } from '../auth/auth.module'
 import { ContactModule } from '../contact/contact.module'
 import { DatabaseModule } from '../database/database.module'
@@ -17,6 +18,12 @@ import { UsersService } from './users.service'
 @Module({
   imports: [
     DatabaseModule,
+    // task-pending-share (position 5): ApprovalsService is the foundation
+    // both the base-share propose/approve/reject flow and its DTO-mapping
+    // (`buildProfileView`'s `getStatus` lookup) depend on. Plain import (no
+    // forwardRef) — ApprovalsModule only depends on DatabaseModule, so there
+    // is no cycle to break.
+    ApprovalsModule,
     forwardRef(() => AuthModule),
     forwardRef(() => FinanceModule),
     forwardRef(() => TeamsModule),

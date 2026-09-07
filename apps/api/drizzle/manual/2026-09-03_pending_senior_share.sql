@@ -1,0 +1,73 @@
+-- =============================================================================
+-- Pending senior share % — prod DDL (manual apply)
+-- =============================================================================
+--
+-- Context
+-- -------
+-- Position 5 of docs/superpowers/specs/2026-09-01-notifications-and-
+-- confirmations-design.md §4.3 — a proposed new SENIOR share % (project
+-- override OR the person's own base default) sits next to the active column
+-- while the affected SENIOR has not yet confirmed it (`approvals`, subject
+-- types 'PROJECT_SENIOR_SHARE' / 'USER_SENIOR_SHARE', built on the
+-- foundation shipped in 2026-09-01_approvals.sql). The RESOLVER
+-- (senior-share-resolver.ts) keeps reading only the ACTIVE columns below —
+-- neither new column is consulted anywhere except the propose/approve/reject
+-- flow itself, so this migration changes no read path until the API code
+-- that uses it ships in the SAME PR.
+--
+-- Two additive columns, one on `users`, one on `projects`. Nullable, no
+-- DEFAULT beyond Postgres's implicit NULL, no backfill — every existing row
+-- starts with nothing pending, which is the correct historical fact (no
+-- proposal has ever been made for a row that predates this feature). Zero
+-- data risk: nothing currently running reads either column yet.
+--
+-- How to apply
+-- ------------
+--   docker compose -f docker-compose.prod.yml exec -T postgres psql \
+--     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+--     < apps/api/drizzle/manual/2026-09-03_pending_senior_share.sql
+--
+-- Wired into .github/workflows/deploy.yml (rollback-preflight file list, SCP
+-- copy step, psql apply step) in this SAME PR — mirrors
+-- 2026-09-01_approvals.sql / 2026-09-02_project_status.sql exactly, for the
+-- same reason (CR-H-2, code-review PR #624): without these columns, the code
+-- in this PR does not work; splitting the migration and its wiring across
+-- two PRs would leave a window where prod 500s the moment the image ships.
+-- `scripts/devops/check-prod-ddl-wiring.py` verifies both the COPY and the
+-- APPLY step exist (not just a comment naming the file).
+--
+-- Idempotent: `ADD COLUMN IF NOT EXISTS` (native Postgres syntax) — safe to
+-- re-run on every deploy, forever.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1. users.pending_senior_share_percent — proposed new BASE share %.
+-- -----------------------------------------------------------------------------
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_senior_share_percent integer;
+
+-- -----------------------------------------------------------------------------
+-- 2. projects.pending_senior_share_percent_override — proposed new PROJECT
+--    override (nullable exactly like the active column it mirrors — a
+--    pending value of NULL is a real, valid proposal: "clear the override").
+-- -----------------------------------------------------------------------------
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS pending_senior_share_percent_override integer;
+
+-- =============================================================================
+-- VERIFY (after applying):
+--   SELECT column_name FROM information_schema.columns
+--     WHERE table_name = 'users' AND column_name = 'pending_senior_share_percent';
+--   SELECT column_name FROM information_schema.columns
+--     WHERE table_name = 'projects' AND column_name = 'pending_senior_share_percent_override';
+--   -- Every existing row starts with nothing pending (historical fact, not a
+--   -- guess — no proposal flow existed before this migration):
+--   SELECT count(*) FROM users WHERE pending_senior_share_percent IS NOT NULL;   -- 0
+--   SELECT count(*) FROM projects WHERE pending_senior_share_percent_override IS NOT NULL; -- 0
+-- =============================================================================
+--
+-- Rollback (feature-level; only if this feature is being reverted entirely —
+-- both columns are additive and nothing else in prod ever writes or reads
+-- them, so dropping loses no data beyond this feature's own in-flight
+-- proposals):
+--   ALTER TABLE projects DROP COLUMN IF EXISTS pending_senior_share_percent_override;
+--   ALTER TABLE users DROP COLUMN IF EXISTS pending_senior_share_percent;
+-- =============================================================================

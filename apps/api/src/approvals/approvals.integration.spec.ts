@@ -231,7 +231,7 @@ describe.skipIf(!hasDatabaseUrl())('ApprovalsService — against real Postgres',
     expect(settledRejections).toHaveLength(1)
     expect(settledRejections[0]?.reason).toBeInstanceOf(NotFoundException)
     expect((settledRejections[0]?.reason as Error).message).toBe(
-      'Согласование не найдено или уже погашено',
+      'Подтверждение не найдено или уже закрыто',
     )
 
     // The subject as a whole IS rejected either way (decision #5) — WHICH

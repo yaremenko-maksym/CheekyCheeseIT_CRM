@@ -14,10 +14,12 @@ import {
 import {
   addProjectMemberSchema,
   createProjectSchema,
+  rejectPendingShareSchema,
   rejectProjectSchema,
   type SessionUser,
   updateProjectSchema,
 } from '@crm/shared'
+import { SENIOR_SHARE_ROUTES } from '../approvals/senior-share-routes'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -104,6 +106,51 @@ export class ProjectsController {
   ) {
     const { reason } = rejectProjectSchema.parse(body)
     return this.projectsService.rejectDraft(id, reason, user)
+  }
+
+  /**
+   * task-pending-share, position 5. The project's SENIOR confirms a
+   * proposed change to `seniorSharePercentOverride`. No `@Roles(...)` —
+   * mirrors `approveDraft` above: a caller who was never the subject of a
+   * live proposal simply gets 404 from `ApprovalsService` (no live row for
+   * them), so a role check would be redundant, not protective.
+   */
+  @Post(SENIOR_SHARE_ROUTES.approve)
+  approveSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.projectsService.approveSeniorShareChange(id, user)
+  }
+
+  /**
+   * task-pending-share, design spec §3 decision 3 — rejection requires a
+   * reason. Same no-`@Roles` reasoning as the approve endpoint above.
+   */
+  @Post(SENIOR_SHARE_ROUTES.reject)
+  rejectSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { reason } = rejectPendingShareSchema.parse(body)
+    return this.projectsService.rejectSeniorShareChange(id, reason, user)
+  }
+
+  /**
+   * task-648-fix-round-1 (SR-H-1). ADMIN/ACCOUNTANT withdraws an open
+   * senior-share proposal outright — the counterpart to the propose gate
+   * inside `update()`. No `@Roles(...)` here, same reasoning as `update()`
+   * itself (field-scoped, not role-gated at the controller): the service
+   * checks ADMIN/ACCOUNTANT explicitly and throws `ForbiddenException`
+   * otherwise.
+   */
+  @Post(SENIOR_SHARE_ROUTES.cancel)
+  cancelSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.projectsService.cancelSeniorShareChange(id, user)
   }
 
   @Delete(':id')

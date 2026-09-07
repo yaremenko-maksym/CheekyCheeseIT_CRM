@@ -136,6 +136,10 @@ describe('ProjectsService — rejectionReason on findAll/findOne (task-project-s
     const usersService = {}
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       isApprover: vi.fn(async () => true),
       listSubjectIdsForApprover: vi.fn(async () => new Set(projectRows.map((p) => p.id))),
       getRejectionReasons: vi.fn(async (_subjectType: string, ids: string[]) => {
@@ -220,6 +224,10 @@ describe('ProjectsService — rejectionReason on findAll/findOne (task-project-s
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       isApprover: vi.fn(async () => true),
       listSubjectIdsForApprover: vi.fn(async () => new Set(projectRows.map((p) => p.id))),
       getRejectionReasons: vi.fn(
@@ -277,6 +285,10 @@ describe('ProjectsService — rejectionReason genuinely gated behind visibility,
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       // The gate turned ON: nobody is an approver, nobody was ever invited.
       isApprover: vi.fn(async () => false),
       listSubjectIdsForApprover: vi.fn(async () => new Set<string>()),
@@ -348,6 +360,10 @@ describe('ProjectsService.rejectDraft — rejectionReason on the response (task-
     const usersService = {}
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       rejectInTx: vi.fn(async () => undefined),
       getStatusInTx: vi.fn(async () => 'REJECTED' as const),
       // Deliberately absent: `getRejectionReasons`. If `rejectDraft` ever
@@ -430,6 +446,10 @@ describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR
     const usersService = {}
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       getRejectionReasons: vi.fn(async (_subjectType: string, ids: string[]) => {
         const map = new Map<string, string>()
         if (ids.includes(PROJECT_ID)) map.set(PROJECT_ID, 'Бюджет не подтверждён')
@@ -495,6 +515,10 @@ describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       isApprover: vi.fn(async () => opts.isApprover),
       getRejectionReasons: vi.fn(async () => new Map([[PROJECT_ID, 'Бюджет не подтверждён']])),
     }

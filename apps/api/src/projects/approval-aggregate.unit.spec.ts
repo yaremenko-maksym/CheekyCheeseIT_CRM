@@ -181,6 +181,12 @@ function buildService(
     // — just approved via THIS call), letting that test assert on the
     // response's booleans instead of only `projectRow.status`.
     getPendingApproverIds: vi.fn(async () => new Map([[PROJECT_ID, new Set([DROP_ID])]])),
+    // task-pending-share: `loadForResponse` (the response path every test in
+    // this file exercises) now also resolves `pendingSeniorShare` via the
+    // non-tx `getStatus` — 'NONE' here since this file's own subject
+    // ('PROJECT', draft confirmation) is what `aggregate` describes, not a
+    // share-change proposal.
+    getStatus: vi.fn(async () => 'NONE' as const),
   }
   const service = new ProjectsService(
     db as never,

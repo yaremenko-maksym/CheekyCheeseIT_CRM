@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useAuth } from '@/context/auth'
 import {
   Bitcoin,
   Building2,
@@ -15,6 +16,23 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  CancelPendingShareButton,
+  pendingShareAudience,
+} from '@/components/pending-share/cancel-pending-share'
+import { Label } from '@/components/ui/label'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/crm-dialog'
+import { Textarea } from '@/components/ui/textarea'
+import { useApproveSeniorShareChange, useRejectSeniorShareChange } from '@/hooks/use-user-profile'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
 import { ProfileEditFields } from '../self-edit/ProfileEditFields'
 import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
@@ -55,6 +73,135 @@ function RequisitesMissingBanner({ onGoToRequisites }: { onGoToRequisites: () =>
       >
         Заполнить реквизиты
       </Button>
+    </div>
+  )
+}
+
+/**
+ * task-pending-share (position 5, design spec §4.3/§8.3). Self-view ONLY —
+ * a SENIOR looking at their OWN profile sees this when their BASE share
+ * percent has a pending proposal awaiting their confirmation. Mirrors
+ * `PendingShareApprovalBanner` in the project detail page (same texts,
+ * same two-action shape) — deliberately not a shared component: the two
+ * post to different endpoints (`/users/:id/senior-share/*` vs
+ * `/projects/:id/senior-share/*`) and a shared abstraction over "which id,
+ * which URL" would buy less than it costs here.
+ */
+function PendingBaseShareBanner({
+  userId,
+  currentPercent,
+  pending,
+}: {
+  userId: string
+  /** task-648-fix-round-1 (COPY-M-6): the ACTIVE value, shown alongside the
+   * proposed one so the reader can compare — the resolver still returns
+   * this (AC2), unchanged, for as long as this banner is visible. */
+  currentPercent: number
+  pending: NonNullable<UserProfileDto['pendingSeniorShare']>
+}) {
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const approveMutation = useApproveSeniorShareChange(userId)
+  const rejectMutation = useRejectSeniorShareChange(userId)
+
+  const handleReject = () => {
+    rejectMutation.mutate(reason, {
+      onSuccess: () => {
+        setRejectOpen(false)
+        setReason('')
+      },
+    })
+  }
+
+  return (
+    <div
+      className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-3"
+      data-testid="pending-base-share-approval-banner"
+    >
+      {/* task-648-fix-round-1 (COPY-M-5/COPY-M-6): "доля по умолчанию" — same
+          term CONTEXT.md's "Доля синьора" entry uses, no "базов*" (that word
+          appears nowhere else in apps/web). Shows BOTH numbers — the reader
+          decides by comparing "сейчас" against "предлагают", and until now
+          only one of the two was on screen. */}
+      <p className="text-sm">
+        Вашу долю по умолчанию предлагают изменить: сейчас{' '}
+        <span className="font-medium tabular-nums">{currentPercent}%</span>, предлагают{' '}
+        <span className="font-medium tabular-nums">{pending.percent}%</span>. Пока вы не
+        подтвердите, действует {currentPercent}%.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          className="h-11 sm:h-8"
+          onClick={() => approveMutation.mutate()}
+          disabled={approveMutation.isPending}
+          data-testid="pending-base-share-approve-button"
+        >
+          {/* task-648-fix-round-1 (COPY-M-9): in-flight state names itself,
+              same convention as the other 8 process-labels in the repo
+              («Сохранение…», «Публикация…», …). */}
+          {approveMutation.isPending ? 'Подтверждение…' : 'Подтвердить'}
+        </Button>
+        <Button
+          size="sm"
+          className="h-11 sm:h-8"
+          variant="outline"
+          onClick={() => setRejectOpen(true)}
+          disabled={approveMutation.isPending}
+          data-testid="pending-base-share-reject-button"
+        >
+          Отклонить
+        </Button>
+      </div>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <CrmDialogContent>
+          <CrmDialogHeader>
+            {/* task-648-fix-round-4 (COPY-M-18): the percent is not what is
+                being rejected — it stays exactly where it was, which is what
+                this dialog's own toast says one line later. What is rejected
+                is the proposal to change it. */}
+            <DialogTitle>Отклонить предложение</DialogTitle>
+            <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
+          </CrmDialogHeader>
+          <CrmDialogBody>
+            {/* task-648-fix-round-1 (COPY-M-8): a placeholder disappears on
+                the first keystroke and never reads as a field name —
+                mirrors ProjectApprovalActions.tsx's (#646) identical fix. */}
+            <Label htmlFor="pending-base-share-reject-reason" className="text-xs">
+              Причина отказа *
+            </Label>
+            <Textarea
+              id="pending-base-share-reject-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Например: договаривались на 30%"
+              maxLength={500}
+              rows={3}
+              data-testid="pending-base-share-reject-reason"
+            />
+            <p className="text-xs text-muted-foreground text-right tabular-nums">
+              {reason.length}/500
+            </p>
+          </CrmDialogBody>
+          <CrmDialogFooter>
+            <Button variant="outline" className="h-11 sm:h-9" onClick={() => setRejectOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              className="h-11 sm:h-9"
+              onClick={handleReject}
+              disabled={!reason.trim() || rejectMutation.isPending}
+              data-testid="pending-base-share-reject-confirm"
+            >
+              {/* task-648-fix-round-1 (COPY-M-9): same in-flight convention
+                  as the approve button above. */}
+              {rejectMutation.isPending ? 'Отклонение…' : 'Отклонить'}
+            </Button>
+          </CrmDialogFooter>
+        </CrmDialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -197,6 +344,12 @@ interface OverviewData {
 }
 
 export function OverviewTab({ user, mode, data, permissions, onGoToTab }: OverviewTabProps) {
+  // task-648-fix-round-3 (COPY-H-8): the READER, for the pending-share gate
+  // below. First statement of the component and unconditional — this file
+  // already learned once (UI perf pass, PR #304–#309) that a hook placed
+  // after any early return crashes on Rules of Hooks in a way only a live
+  // browser catches.
+  const { user: me } = useAuth()
   const overview = (data.overview ?? {}) as OverviewData
   const techStack = user.techStack ?? []
   const showSalary = permissions.fields.salary === true
@@ -224,6 +377,30 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
   const isDropSelfView = mode === 'self' && user.role === 'DROP'
   const goToRequisites = () => onGoToTab?.('requisites')
 
+  // task-648-fix-round-2. `showsPendingBanner` is the banner's own render
+  // condition, hoisted so the badge below can stand down when the banner is
+  // already saying the same thing (COPY-L-7) instead of duplicating it.
+  // task-648-fix-round-3 (COPY-H-8). This used to be
+  // `mode === 'self' && user.role === 'SENIOR' && !!user.pendingSeniorShare`,
+  // i.e. gated on the ROUTE (`/profile` vs `/profile/$userId`). A senior who
+  // reached their OWN profile through the second route — an admin sends the
+  // link, or they arrive from a team list — was therefore told about
+  // themselves in the third person and given no buttons at all, while the
+  // project half asked the right question two files away. Now both halves ask
+  // it through one helper. `role === 'SENIOR'` is dropped as redundant, not
+  // relaxed: only the affected senior is ever the `approverId` of a
+  // USER_SENIOR_SHARE proposal, and the backend re-checks it anyway
+  // (`approveInTx` is handed `currentUser.id` as `approverUserId`, so an
+  // admin cannot approve on someone's behalf even if this returned true).
+  const pendingAudience = pendingShareAudience(me?.id, user.pendingSeniorShare)
+  const showsPendingBanner = pendingAudience === 'approver'
+  // UX-H-3(r2): who may withdraw a proposal. Reuses the SAME ADMIN-viewing-
+  // someone-else signal `canSeeAdminNote` above already relies on (see
+  // UsersAccessService) rather than inventing a second way to ask — the
+  // users-half backend gate is `role !== 'ADMIN' → 403`, which is exactly
+  // this.
+  const isAdminViewer = permissions.actions.includes('set-note')
+
   return (
     <div className="space-y-6">
       {/* task-drop-phase3-frontend: requisites section for DROP self-view (Q3 owner decision).
@@ -233,6 +410,18 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
       )}
       {isDropSelfView && user.paymentMethod !== null && (
         <DropRequisitesSnippet user={user} onGoToRequisites={goToRequisites} />
+      )}
+
+      {/* task-pending-share (position 5): the affected SENIOR, on their OWN
+          profile, sees the actionable banner. Everyone else who can see the
+          share (ADMIN, or the senior viewed by ACCOUNTANT/HR-with-access)
+          only gets the informational badge inside the "Доля" card below. */}
+      {showsPendingBanner && user.pendingSeniorShare && (
+        <PendingBaseShareBanner
+          userId={user.id}
+          currentPercent={user.seniorSharePercent ?? 0}
+          pending={user.pendingSeniorShare}
+        />
       )}
 
       {kpiCards > 0 && (
@@ -258,10 +447,99 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs uppercase text-muted-foreground">Доля</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-1.5">
                 <div className="text-2xl font-bold">
                   {(user.role === 'DROP' ? user.dropSharePercent : user.seniorSharePercent) ?? 0}%
                 </div>
+                {/* task-pending-share: informational for every viewer who can
+                    see this card (admin / accountant / the senior's own
+                    view) — the actionable version is the banner above,
+                    self-view only. */}
+                {/* task-648-fix-round-2 (COPY-L-7): not rendered when the
+                    actionable banner is on the same screen — after COPY-M-7
+                    and COPY-M-10 the pill carried nothing the banner two
+                    centimetres above did not already say, and on 320 both
+                    were visible at once. Gated on the banner's OWN condition
+                    rather than on `mode` alone, so a self-view that somehow
+                    has a pending value without a banner still shows it. */}
+                {user.pendingSeniorShare && !showsPendingBanner && (
+                  // task-648-fix-round-3 (COPY-H-7): a column, not a row —
+                  // the withdraw control is now a named text button and does
+                  // not fit BESIDE the badge at 320. Twin of the project
+                  // half's identical change, same reasoning.
+                  <div className="flex flex-col items-start gap-1">
+                    <div className="min-w-0 space-y-0.5">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          {/* task-648-fix-round-2 (COPY-H-5): ONE text node.
+                              `Badge` is `inline-flex`, so a `{' '}` between a
+                              text node and a `<span>` becomes whitespace
+                              BETWEEN flex items and is not rendered at all —
+                              the screen read «Ждёт подтверждения:40%» on every
+                              width, while `toHaveTextContent` stayed green
+                              because `textContent` keeps the node the layout
+                              drops. `tabular-nums` moves onto the badge, and
+                              `whitespace-nowrap` keeps the number attached to
+                              its label instead of being flung to the next line
+                              as a separate flex item on 320. */}
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums"
+                            data-testid="user-senior-share-pending-badge"
+                          >
+                            {/* task-648-fix-round-3 (COPY-H-7 / COPY-M-15):
+                                «Предложено N%» — one name for the fact, the
+                                same the toast and the edit-dialog notice use,
+                                and short enough that `whitespace-nowrap`
+                                survives at 320. `percent` is non-null on this
+                                (USER-level) half — the schema's own comment
+                                says a base-share proposal is always a concrete
+                                percent — but it is read through the resolved
+                                field anyway so both halves read identically. */}
+                            {`Предложено ${user.pendingSeniorShare.percent === null ? user.pendingSeniorShare.effectivePercentAfterApproval : user.pendingSeniorShare.percent}%`}
+                          </Badge>
+                        </TooltipTrigger>
+                        {/* task-648-fix-round-2 (UX-M-3(r2)): width-capped and
+                            wrapping. Measured at 468–709px against a 320px
+                            viewport before this cap. */}
+                        <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
+                          Действует прежний процент, пока новый не подтверждён.
+                        </TooltipContent>
+                      </Tooltip>
+                      {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): the
+                          approver's name and the "prior percent still
+                          applies" fact used to live ONLY in the tooltip —
+                          which Radix never opens on touch
+                          (`pointerType === 'touch'` returns early) and which
+                          no keyboard can reach (`Badge` renders a
+                          non-focusable `div`). Both facts are now plain text,
+                          on every device, no hover required. */}
+                      <p className="text-xs text-muted-foreground break-words">
+                        Подтверждает {user.pendingSeniorShare.approverName} — пока действует{' '}
+                        {/* `seniorSharePercent` is a non-nullable `number`
+                            on `UserProfileDto` — no `?? 0` fallback, it
+                            would be unreachable. (The KPI card above needs
+                            one because it also renders `dropSharePercent`,
+                            which IS nullable.) */}
+                        <span className="tabular-nums">{user.seniorSharePercent}%</span>
+                      </p>
+                    </div>
+                    {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw
+                        control, next to the indicator that is the only place
+                        an ADMIN learns the proposal exists. */}
+                    {isAdminViewer && (
+                      <CancelPendingShareButton
+                        scope="user"
+                        id={user.id}
+                        pendingPercent={
+                          user.pendingSeniorShare.percent === null
+                            ? user.pendingSeniorShare.effectivePercentAfterApproval
+                            : user.pendingSeniorShare.percent
+                        }
+                      />
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

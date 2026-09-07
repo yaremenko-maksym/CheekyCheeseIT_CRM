@@ -38,6 +38,7 @@ import {
   updateProfileSchema,
 } from '@crm/shared'
 import { toast } from 'sonner'
+import { PendingShareEditNotice } from '@/components/pending-share/cancel-pending-share'
 import { useAuth } from '@/context/auth'
 import { useUser } from '@/hooks/use-user-profile'
 import { Badge } from '@/components/ui/badge'
@@ -486,12 +487,32 @@ export function UserDialog(props: UserDialogProps) {
   const updateMutation = useMutation({
     mutationFn: (data: AdminUpdateUserDto) =>
       api.patch<UserProfileDto>(`/users/${editingUser!.id}`, data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['user-profile', editingUser?.id] })
-      toast.success('Пользователь обновлён')
+      // task-648-fix-round-2 (COPY-H-6): «Пользователь обновлён» is a lie for
+      // the one field this whole PR exists for — the live column was NOT
+      // updated, a proposal was opened. Every other field on the same form
+      // did apply, so the old string was not wholly false; it was silent
+      // about exactly the thing the operator needs to know. The response
+      // already carries the opened proposal — no extra round-trip.
+      // `AxiosResponse.data` is non-optional — an `?.` here would be dead
+      // defensiveness, and the mutation gate is right to call that out.
+      const pending = response.data.pendingSeniorShare
+      if (pending) {
+        // task-648-fix-round-4 (COPY-L-15): this is the moment the fact is
+        // born, and it was the one place calling it «новая доля» — a second
+        // later the same reader sees «Предложено N%» on the badge and
+        // «Отменить предложение» on the button. The name is settled; this
+        // line was simply written before it was.
+        toast.success(
+          `Сохранено. Предложение отправлено синьору: ${pending.percent}% вместо действующих ${response.data.seniorSharePercent}%`,
+        )
+      } else {
+        toast.success('Пользователь обновлён')
+      }
       props.onClose()
     },
     onError: (err: AxiosError<{ message?: string }>) => {
@@ -794,6 +815,15 @@ export function UserDialog(props: UserDialogProps) {
             value.bankUahRnokpp.trim() !== (editingUser.bankUahRnokpp ?? '') ||
             value.bankUahBankName.trim() !== (editingUser.bankUahBankName ?? ''))
 
+        // task-648-fix-round-2 (SR-M-5): see the payload comment below. Same
+        // `!!editingUser &&` shape as `paymentChanged` directly above — with
+        // no server snapshot to compare against there is no evidence the
+        // operator changed anything, so the field stays off the wire.
+        // `seniorSharePercent` is a non-nullable `number` on `UserProfileDto`,
+        // so no `?? 26` fallback: it would be unreachable.
+        const shareChanged =
+          !!editingUser && value.seniorSharePercent !== editingUser.seniorSharePercent
+
         // ut-17: normalize team telegram channel value. Strip leading @ before
         // sending — the backend stores the bare handle, UI re-adds @ on display.
         const normalizedTeamChannel = (() => {
@@ -812,8 +842,19 @@ export function UserDialog(props: UserDialogProps) {
           telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
           phone: (value.phone as string) || null,
           techStack: value.techStack.length > 0 ? value.techStack : null,
+          // task-648-fix-round-2 (SR-M-5 / QA-HIGH-3): the share % goes on
+          // the wire ONLY when the operator actually moved it. It used to be
+          // included on every save of a SENIOR — so an admin editing a phone
+          // number sent `seniorSharePercent` too, and the backend's
+          // "requested == active" branch (removed this round) read that as an
+          // explicit "cancel the live proposal". Manual QA reproduced the
+          // full path: one phone edit, `PENDING → CANCELLED`, no signal.
+          // Same rule the project form has always used (`overrideChanged` in
+          // `$projectId.tsx`): compare against the SERVER snapshot, not
+          // against the form's own initial value, so a value typed and typed
+          // back also counts as unchanged.
           ...(isSenior && {
-            seniorSharePercent: value.seniorSharePercent,
+            ...(shareChanged && { seniorSharePercent: value.seniorSharePercent }),
             hrIds,
             accountantId: accountantId || null,
             teamTelegramChannel: normalizedTeamChannel,
@@ -1461,18 +1502,59 @@ export function UserDialog(props: UserDialogProps) {
                             ? field.state.meta.errors[0]
                             : undefined
                           return (
-                            <Field
-                              label="Доля синьора (%)"
-                              hint="То, что синьор оставляет себе"
-                              error={err}
-                              required={isCreate}
-                            >
+                            <Field label="Доля синьора (%)" error={err} required={isCreate}>
                               <ShareSlider
                                 value={val}
                                 onChange={(v) => field.handleChange(v)}
                                 onBlur={field.handleBlur}
                                 error={!!err}
                               />
+                              {/* task-648-fix-round-2 (COPY-H-6): the form
+                                  where the change starts says the change does
+                                  not take effect on save. */}
+                              {/* task-648-fix-round-3 (COPY-L-11): rendered
+                                  HERE, as a plain paragraph, instead of
+                                  through `Field`'s `hint` prop. `Field` puts
+                                  its hint AFTER children, so this dialog read
+                                  slider → notice → hint while the project
+                                  dialog read slider → hint → notice: the same
+                                  two blocks in opposite orders, two dialogs
+                                  apart, for one feature. */}
+                              <p className="text-xs text-muted-foreground">
+                                То, что синьор оставляет себе. Новое значение начнёт действовать
+                                после подтверждения синьора.
+                              </p>
+                              {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN
+                                  who opens this dialog to "fix" the percent
+                                  saw a slider holding the ACTIVE value and
+                                  nothing about a proposal already awaiting an
+                                  answer — so the natural gesture silently
+                                  superseded it. */}
+                              {/* `editingUser` is null in create mode
+                                  (see its own `useMemo`), so an extra
+                                  `!isCreate` guard here would be unreachable
+                                  by construction. */}
+                              {editingUser?.pendingSeniorShare && (
+                                <PendingShareEditNotice
+                                  scope="user"
+                                  id={editingUser.id}
+                                  /* task-648-fix-round-3 (COPY-L-13): the
+                                     `?? 0` that COPY-H-2 removed in round 1
+                                     had crept back here. It is the exact bug
+                                     that finding was about: a `null` percent
+                                     is "clear the override", NOT "zero", and
+                                     rendering «Предложено 0%» tells the
+                                     admin a number the server never said.
+                                     The resolved field is what both halves
+                                     read now. */
+                                  pendingPercent={
+                                    editingUser.pendingSeniorShare.percent === null
+                                      ? editingUser.pendingSeniorShare.effectivePercentAfterApproval
+                                      : editingUser.pendingSeniorShare.percent
+                                  }
+                                  approverName={editingUser.pendingSeniorShare.approverName}
+                                />
+                              )}
                             </Field>
                           )
                         }}

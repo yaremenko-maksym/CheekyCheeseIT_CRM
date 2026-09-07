@@ -28,6 +28,7 @@ import {
   createDropSchema,
   createUserSchema,
   paymentRequisitesSchema,
+  rejectPendingShareSchema,
   rejoinTeamSchema,
   setNoteSchema,
   updateProfileSchema,
@@ -37,6 +38,7 @@ import { CurrentUser } from '../auth/current-user.decorator'
 import { AdminWriteThrottle } from '../config/throttle-decorators'
 import { Roles } from '../common/decorators/roles.decorator'
 import { AuditLog } from '../common/decorators/audit-log.decorator'
+import { SENIOR_SHARE_ROUTES } from '../approvals/senior-share-routes'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { AuditLogService } from './audit-log.service'
@@ -359,12 +361,78 @@ export class UsersController {
   @Patch(':id/salary')
   @Roles('ADMIN')
   @AuditLog('salary_change')
-  async changeSalary(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
+  async changeSalary(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+  ) {
     const dto = changeSalarySchema.parse(body)
     return this.usersService.changeSalary(
       id,
       compact(dto) as Parameters<typeof this.usersService.changeSalary>[1],
+      currentUser.id,
     )
+  }
+
+  /**
+   * task-pending-share, position 5. The affected SENIOR confirms a proposed
+   * change to their OWN base share % (`users.seniorSharePercent`). No
+   * `@Roles(...)` — mirrors `ProjectsController.approveDraft`: a caller who
+   * was never the subject of a live proposal simply gets 404 from
+   * `ApprovalsService` (no live row for them), so a role check would be
+   * redundant, not protective.
+   *
+   * `@AuditLog('salary_change')` (task-648-fix-round-1, SR-M-1): before this
+   * PR, `seniorSharePercent` only ever moved via `PATCH /:id` /
+   * `PATCH /:id/salary`, both already decorated — this route is a THIRD
+   * writer of the same column that had no audit coverage at all. The
+   * interceptor reads `targetId` from `params.id`, present here.
+   */
+  @Post(SENIOR_SHARE_ROUTES.approve)
+  @AuditLog('salary_change')
+  approveSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: SessionUser,
+  ) {
+    return this.usersService.approveSeniorShareChange(id, currentUser)
+  }
+
+  /**
+   * task-pending-share, design spec §3 decision 3 — rejection requires a
+   * reason. Same no-`@Roles` reasoning as the approve endpoint above.
+   * `@AuditLog('salary_change')` — SR-M-1, same reasoning as approve above.
+   */
+  @Post(SENIOR_SHARE_ROUTES.reject)
+  @AuditLog('salary_change')
+  rejectSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() currentUser: SessionUser,
+  ) {
+    const { reason } = rejectPendingShareSchema.parse(body)
+    return this.usersService.rejectSeniorShareChange(id, reason, currentUser)
+  }
+
+  /**
+   * task-648-fix-round-1 (SR-H-1). ADMIN withdraws an open base-share
+   * proposal outright. No `@Roles(...)` — the service checks ADMIN
+   * explicitly, same as the approve/reject pair above check impersonation.
+   *
+   * `@AuditLog('salary_change')` (task-648-fix-round-2, SR-M-7 / CR-M-2):
+   * withdrawing moves `users.pendingSeniorSharePercent` and used to leave no
+   * trace of WHO did it, while both its siblings above were decorated. The
+   * interceptor's own before/after diff over the `users` row records
+   * `pendingSeniorSharePercent` automatically (it is not in `IGNORE_FIELDS`),
+   * so the decorator alone is the whole fix — no hand-rolled `record()` call
+   * that could drift from what approve/reject log.
+   */
+  @Post(SENIOR_SHARE_ROUTES.cancel)
+  @AuditLog('salary_change')
+  cancelSeniorShareChange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: SessionUser,
+  ) {
+    return this.usersService.cancelSeniorShareChange(id, currentUser)
   }
 
   @Patch(':id/requisites')

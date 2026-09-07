@@ -46,6 +46,13 @@ import * as schema from './schema'
 import { approvals, approvalStatusEnum, users } from './schema'
 
 const MIGRATION_FILE = join(import.meta.dirname, '../../drizzle/manual/2026-09-01_approvals.sql')
+/** task-648-fix-round-1 (SR-H-1) — adds CANCELLED via `ALTER TYPE … ADD
+ * VALUE`, on top of the CREATE TYPE in MIGRATION_FILE above. Two files, one
+ * enum: `enumValuesFromMigration` below reads both, in migration order. */
+const CANCELLED_MIGRATION_FILE = join(
+  import.meta.dirname,
+  '../../drizzle/manual/2026-09-04_approval_status_cancelled.sql',
+)
 
 /** Strips quoting/table-qualification/whitespace differences so formatting
  * doesn't fail the compare — mirrors sender-receiver-check-schema.spec.ts's
@@ -112,7 +119,7 @@ function whereClauseFromMigration(indexName: string, unique: boolean): string {
 }
 
 /** The migration file's literal `CREATE TYPE approval_status AS ENUM (...)` values. */
-function enumValuesFromMigration(): string[] {
+function enumValuesFromCreateType(): string[] {
   const migrationSql = readFileSync(MIGRATION_FILE, 'utf-8')
   const ddlMatch = /create\s+type\s+approval_status\s+as\s+enum\s*\(([^)]+)\)\s*;/is.exec(
     migrationSql,
@@ -125,9 +132,42 @@ function enumValuesFromMigration(): string[] {
   return ddlMatch![1]!.split(',').map((v) => v.trim().replace(/^'|'$/g, ''))
 }
 
+/** `CANCELLED_MIGRATION_FILE`'s literal `ALTER TYPE approval_status ADD VALUE
+ * [IF NOT EXISTS] '...'` value — task-648-fix-round-1 (SR-H-1). Postgres enum
+ * values can only be ADDed, never dropped/reordered, so appending this one
+ * value onto `enumValuesFromCreateType()`'s result is exactly what the live
+ * type looks like after both migrations run, in order. */
+function enumValueFromAlterType(): string {
+  const migrationSql = readFileSync(CANCELLED_MIGRATION_FILE, 'utf-8')
+  const ddlMatch =
+    /alter\s+type\s+approval_status\s+add\s+value\s+(if\s+not\s+exists\s+)?'([^']+)'\s*;/is.exec(
+      migrationSql,
+    )
+  expect(
+    ddlMatch,
+    'expected to find "ALTER TYPE approval_status ADD VALUE [IF NOT EXISTS] \'...\'" in ' +
+      "the migration file — if this fails, the file's DDL shape changed and this spec's " +
+      'extraction regex needs updating too.',
+  ).not.toBeNull()
+  return ddlMatch![2]!
+}
+
+/** The full, live `approval_status` enum: the original CREATE TYPE values
+ * (MIGRATION_FILE) followed by every value since ADDed by a later ALTER TYPE
+ * (CANCELLED_MIGRATION_FILE) — matches schema.ts's `approvalStatusEnum`
+ * exactly, or this spec fails and says why. */
+function enumValuesFromMigration(): string[] {
+  return [...enumValuesFromCreateType(), enumValueFromAlterType()]
+}
+
 describe('approvals — schema.ts DDL (mutation-gate closure)', () => {
-  it('approvalStatusEnum carries the real three values, matching the prod migration file CREATE TYPE (not an empty/mutated array)', () => {
-    expect([...approvalStatusEnum.enumValues]).toEqual(['PENDING', 'APPROVED', 'REJECTED'])
+  it('approvalStatusEnum carries the real four values, matching the prod migration files CREATE TYPE + ALTER TYPE (not an empty/mutated array)', () => {
+    expect([...approvalStatusEnum.enumValues]).toEqual([
+      'PENDING',
+      'APPROVED',
+      'REJECTED',
+      'CANCELLED',
+    ])
     expect([...approvalStatusEnum.enumValues]).toEqual(enumValuesFromMigration())
   })
 

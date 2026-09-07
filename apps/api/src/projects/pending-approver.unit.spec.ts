@@ -108,6 +108,10 @@ function buildService(projectRows: ReturnType<typeof draftProject>[]) {
   const auditLog = { record: vi.fn(async () => undefined) }
   const hrAccess = new HrAccessService(db as never)
   const approvals = {
+    // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+    // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+    // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+    getStatus: vi.fn(async () => 'NONE' as const),
     isApprover: vi.fn(async () => true),
     listSubjectIdsForApprover: vi.fn(async () => new Set(projectRows.map((p) => p.id))),
     getPendingApproverIds: vi.fn(async (_subjectType: string, ids: string[]) => {
@@ -175,6 +179,10 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       isApprover: vi.fn(async () => true),
       listSubjectIdsForApprover: vi.fn(async () => new Set(['draft-proj-1', 'active-proj-1'])),
       // Poisoned on purpose: a real caller only ever asks about DRAFT ids,
@@ -236,6 +244,10 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       isApprover: vi.fn(async () => true),
       listSubjectIdsForApprover: vi.fn(async () => new Set([PROJECT_ID])),
       getPendingApproverIds: vi.fn(
@@ -276,6 +288,10 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       getPendingApproverIds: vi.fn(async () => new Map<string, Set<string>>()),
     }
     const service = new ProjectsService(
@@ -313,6 +329,10 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       // DROP is a non-ADMIN viewer on a non-ACTIVE (DRAFT) project —
       // findOne's assertAccess needs this to let the invited drop through.
       isApprover: vi.fn(async () => true),
@@ -378,6 +398,10 @@ describe('ProjectsService.create — seniorApprovalPending/dropApprovalPending c
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       proposeInTx: vi.fn(async () => undefined),
       getPendingApproverIds: vi.fn(async () => new Map<string, Set<string>>()),
     }
@@ -427,6 +451,10 @@ describe('ProjectsService.update — seniorApprovalPending/dropApprovalPending o
     const auditLog = { record: vi.fn(async () => undefined) }
     const hrAccess = new HrAccessService(db as never)
     const approvals = {
+      // merge of origin/main (#648): `loadPendingSeniorShare` now asks this on
+      // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
+      // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
+      getStatus: vi.fn(async () => 'NONE' as const),
       getPendingApproverIds: vi.fn(async (_subjectType: string, ids: string[]) => {
         const map = new Map<string, Set<string>>()
         if (ids.includes(PROJECT_ID)) map.set(PROJECT_ID, new Set([SENIOR_ID, DROP_ID]))

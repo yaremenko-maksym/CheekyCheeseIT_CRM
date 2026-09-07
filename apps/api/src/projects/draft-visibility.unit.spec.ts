@@ -125,6 +125,9 @@ function buildService(invitedIds: Set<string>) {
     // unopinionated default that doesn't assert anything this suite isn't
     // about.
     getPendingApproverIds: vi.fn(async () => new Map<string, Set<string>>()),
+    // task-pending-share: findOne's response path resolves pendingSeniorShare
+    // via getStatus — 'NONE' here, this file only exercises draft visibility.
+    getStatus: vi.fn(async () => 'NONE' as const),
   }
   const service = new ProjectsService(
     db as never,
