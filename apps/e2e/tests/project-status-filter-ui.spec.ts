@@ -1146,27 +1146,36 @@ test.describe('Project status filter — AC5 (responsive)', () => {
   })
 
   /**
-   * COPY-M-13 dozakrytie (PR #646 fix-round 6, MED — copy review). The
-   * ORIGINAL COPY-M-13 fix (padding/gap compaction on the full-label
-   * instance, `[&>button]:md:max-[799px]:px-1` etc. — kept the SAME full
-   * wording across the whole `sm:`+ range) passed locally but wrapped on
-   * CI: `tab 0 height at 768px … Expected <= 26, Received 40` — Linux
-   * Chromium's `text-xs` metrics leave less headroom than macOS ever
-   * showed, so shrinking padding around the full label was never going to
-   * be CI-safe at exactly 768px. The dozakrytie fix instead switches to
-   * the SHORT (`STATUS_FILTER_LABELS_MOBILE`) label set for the 768-799px
-   * slice specifically — reusing the EXISTING mobile toggle instance's
-   * second visibility window (index.tsx), not a third DOM instance and
-   * not more compaction. `projects-status-tabs-mobile` is genuinely
-   * visible again in this band (unlike the superseded COPY-M-13 test,
-   * which queried `projects-status-tabs` directly because at the time
-   * exactly one instance ever rendered `sm:`+) — this test picks the
-   * expected instance per width instead of assuming it is always the
-   * full-label one. Reference height is measured live at 1024px
-   * (screenshot-confirmed single-line since fix-round 4) rather than a
-   * guessed pixel constant.
+   * COPY-M-13 dozakrytie #1/#2 (PR #646 fix-round 6, MED — copy review).
+   * Two rounds of CI red, both from the same root cause: CI's Linux
+   * Chromium renders `text-xs` wider than macOS ever showed locally, so
+   * each "this much room is enough" estimate kept being wrong once tested
+   * against the real thing.
+   *   #1 — padding/gap compaction on the full-label instance
+   *   (`[&>button]:md:max-[799px]:px-1` etc., full wording kept across the
+   *   whole `sm:`+ range) wrapped on CI: `tab 0 height at 768px …
+   *   Expected <= 26, Received 40`.
+   *   #2 — switched to the SHORT label set for JUST 768-799px, full
+   *   labels resuming at 800px, wrapped on CI AGAIN: `tab 0 height at
+   *   810px wraps to 2 lines`. #1's CI run never even reached 810px —
+   *   Playwright stops a test at its first failed assertion inside a
+   *   loop, and 768px (earlier in `WIDTHS_UNDER_TEST` order) failed
+   *   first — so 810px's problem was invisible until #2 made 768px pass
+   *   and the loop finally got that far.
+   * This test now reflects the #2 fix's replacement: the cut moves from
+   * `sm:` (640px) to `lg:` (1024px) — index.tsx's `tabOptionsMobile`
+   * covers the WHOLE `<lg:` range, `tabOptions` only `lg:`+. `lg:` is the
+   * ONE width this test has trusted as its single-line height REFERENCE
+   * since fix-round 4, through every round including both CI failures
+   * above, and never once the width that wrapped — so every width below
+   * it (768/780/795/810/834) now expects the SHORT label, and only 1024
+   * expects the full one. `projects-status-tabs-mobile` is genuinely
+   * visible in this whole band (unlike the original, superseded COPY-M-13
+   * test, which queried `projects-status-tabs` directly because at the
+   * time exactly one instance ever rendered `sm:`+) — this test picks the
+   * expected instance per width instead of assuming which one it is.
    */
-  test('COPY-M-13: ADMIN status tabs stay single-line, short labels at 768-795px and full labels at 810px+, no page overflow', async ({
+  test('COPY-M-13: ADMIN status tabs stay single-line, short labels below lg: (1024px) and full labels from lg: up, no page overflow', async ({
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
@@ -1179,7 +1188,7 @@ test.describe('Project status filter — AC5 (responsive)', () => {
     await page.waitForTimeout(50)
     const singleLineHeight = (await fullTabs.locator('button').first().boundingBox())!.height
 
-    const SHORT_LABEL_WIDTHS = new Set([768, 780, 795])
+    const SHORT_LABEL_WIDTHS = new Set([768, 780, 795, 810, 834])
     const WIDTHS_UNDER_TEST = [768, 780, 795, 810, 834, 1024]
     for (const width of WIDTHS_UNDER_TEST) {
       await page.setViewportSize({ width, height: 900 })

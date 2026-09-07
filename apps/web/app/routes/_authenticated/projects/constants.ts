@@ -31,10 +31,10 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
 
 /**
  * Full-text labels — design spec §5 table. Used by both the `/projects`
- * SegmentedToggle (rendered in the 640-767px AND 800px+ windows — see
- * index.tsx's `projects-status-tabs` instance) and (PENDING only) the two
- * dashboard widgets that surface a project awaiting the viewer's own
- * decision.
+ * SegmentedToggle (rendered from `lg:` (1024px) up only — see index.tsx's
+ * `projects-status-tabs` instance and the dozakrytie #2 paragraph below for
+ * why the cut is at 1024, not 640) and (PENDING only) the two dashboard
+ * widgets that surface a project awaiting the viewer's own decision.
  *
  * COPY-M-2 (PR #646 fix-round 2): the original `PENDING: 'Ожидают
  * подтверждения'` (154px) forced the whole 4-column equal-width toggle
@@ -51,9 +51,11 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
  * the full viewport width to spare — but the SAME 538px toggle, sharing a
  * row with that sidebar from exactly 768px on, only has
  * `768 − 208(sidebar) − ~48(page padding) ≈ 512px` left, ~26px short —
- * confirmed to wrap in that band and to stop wrapping again once viewport
- * width outgrows the sidebar tax (≈795px, where the same arithmetic
- * clears 538px again).
+ * confirmed (on macOS) to wrap in that band and to stop wrapping again
+ * once viewport width outgrows the sidebar tax (≈795px, where the same
+ * arithmetic clears 538px again). This macOS-measured "≈795px" turned out
+ * to be the FIRST of three successively wider estimates that CI proved
+ * wrong — see the two dozakrytie paragraphs below.
  *
  * COPY-M-13 (PR #646 fix-round 6, MED — copy review) undid fix-round 5's
  * OWN fix for that ~26px shortfall (a THIRD, 768-1023-only toggle instance
@@ -70,17 +72,34 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
  * shard wrapped at 768px on the SAME commit that was green locally
  * (`tab 0 height at 768px … Expected <= 26, Received 40`).
  *
- * COPY-M-13 dozakrytie (same PR, after the CI failure): stop trying to
+ * COPY-M-13 dozakrytie #1 (same PR, after that CI failure): stop trying to
  * squeeze the full labels into the tight 768-799px slice at all — show the
  * SHORT (`STATUS_FILTER_LABELS_MOBILE`) label set there instead, reusing
- * the EXISTING mobile toggle instance (index.tsx's
- * `projects-status-tabs-mobile`) rather than adding a third DOM instance.
- * This full-label set now renders in two disjoint windows —
+ * the EXISTING mobile toggle instance rather than adding a third DOM
+ * instance. This full-label set rendered in two disjoint windows —
  * `sm:max-[767px]:grid` (640-767, no sidebar tax) and `min-[800px]:grid`
- * (800px+, sidebar tax absorbed again) — with the 768-799px gap between
- * them covered by the short set below. No padding/gap compaction needed
- * any more: a font-metric difference cannot make an already-short label
- * wrap.
+ * (800px+, on the ASSUMPTION that the sidebar tax was fully absorbed
+ * again by 800px, ~5px past the macOS-measured ≈795px clearing point).
+ *
+ * COPY-M-13 dozakrytie #2 (same PR, SECOND CI failure): that assumption
+ * was also wrong — CI wrapped again, this time at 810px
+ * (`tab 0 height at 810px wraps to 2 lines`), meaning the REAL CI-metric
+ * clearing point is somewhere above 810px, not the ≈795-800px macOS
+ * arithmetic suggested. Critically, dozakrytie #1's CI run never actually
+ * TESTED 810px — Playwright stops a test at its first failed assertion
+ * inside a loop, and that run's 768px failure came first in width order,
+ * so 810px's problem was latent and invisible the whole time. Rather than
+ * guess a FOURTH narrower pixel value with no way to verify it against CI
+ * font metrics locally (macOS Chromium's `text-xs` is confirmed narrower
+ * than CI's, by an unknown-but-nonzero margin each time), the cut moves to
+ * `lg:` (1024px) — the ONE width this exact test has used as its
+ * single-line HEIGHT REFERENCE since fix-round 4, across every round
+ * including both CI failures above, and never once been the width that
+ * wrapped. `640-1023px` (design spec §5's whole "планшет" class) now
+ * uniformly shows the short label set — which also resolves the ORIGINAL
+ * COPY-M-13 complaint (two wordings inside one device class) more
+ * completely than dozakrytie #1 did: there is now exactly one wording per
+ * class, not one wording per sub-range within a class.
  */
 export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
   ACTIVE: 'Активные',
@@ -104,19 +123,19 @@ export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
  * breathing room and no two labels a single letter apart:
  * 'Идут'/'Ждут'/'Отказ'/'Архив'.
  *
- * COPY-M-13 dozakrytie (PR #646 fix-round 6, after CI red on the padding-
- * compaction attempt — see `STATUS_FILTER_LABELS`'s own comment for the
- * mechanism): this set now ALSO renders in the 768-799px slice, via the
- * SAME `projects-status-tabs-mobile` toggle instance's second visibility
- * window (`min-[768px]:max-[799px]:grid` in index.tsx) — not because that
- * slice is a phone, but because it is the one sub-band of the "планшет"
- * class where the sidebar tax leaves too little room for the full set,
- * and a short label that already clears the 320px mobile budget trivially
- * clears the larger 768-799px one too. The instance's own `min-h-11`
+ * COPY-M-13 dozakrytie #1/#2 (PR #646 fix-round 6, two rounds of CI red —
+ * see `STATUS_FILTER_LABELS`'s own comment for the full mechanism and both
+ * failures): this set now renders for the ENTIRE `<lg:` range (`<1024px`)
+ * via the SAME `projects-status-tabs-mobile` toggle instance, not just
+ * `<640px` — not because 640-1023px is a phone, but because a short label
+ * that already clears the 320px mobile budget trivially clears every width
+ * in that range too, which sidesteps the whole class of "how much room
+ * does the full label ACTUALLY need under CI's font metrics" bugs the two
+ * dozakrytie rounds kept hitting. The instance's own `min-h-11`
  * touch-target rule stays scoped to the true `<640px` window only
- * (`[&>button]:max-[639px]:min-h-11` in index.tsx) — forcing 44px-tall
- * buttons in the 768-799px slice would itself look like a wrap to a
- * single-line-height check that has no notion of "deliberately taller".
+ * (`[&>button]:max-[639px]:min-h-11` in index.tsx) — the 44px minimum is
+ * an a11y floor for touch targets (§5/§8/§10), not a width the layout
+ * needs to reserve on every tablet/laptop width too.
  */
 export const STATUS_FILTER_LABELS_MOBILE: Record<ProjectStatusFilter, string> = {
   ACTIVE: 'Идут',

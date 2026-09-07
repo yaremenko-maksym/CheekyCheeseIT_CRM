@@ -515,13 +515,19 @@ function ProjectsPage() {
   // why 768 specifically wraps) is `STATUS_FILTER_LABELS`'s own comment in
   // constants.ts.
   //
-  // COPY-M-13 dozakrytie: the first fix (padding/gap compaction on the full-
-  // label instance, confined to 768-799px) passed locally but wrapped on CI
-  // (Linux Chromium's wider `text-xs` metrics — same mechanism, more room
-  // needed than macOS ever showed). Still only TWO DOM instances — no third
-  // one comes back — but `tabOptionsMobile` below now ALSO renders in that
-  // 768-799px slice (its own second visibility window, JSX below), reusing
-  // this short label set instead of trying to shrink the full one further.
+  // COPY-M-13 dozakrytie #1/#2: two rounds of CI red, same root cause each
+  // time (CI's Linux Chromium renders `text-xs` wider than macOS, so a
+  // macOS-measured "this much room is enough" estimate kept being wrong by
+  // a further few pixels once WHAT actually rendered on CI was tested).
+  // #1 tried a padding/gap compaction confined to 768-799px — wrapped on
+  // CI at 768px. #2 tried short labels for JUST 768-799px, full labels
+  // resuming at 800px — wrapped on CI at 810px (a width the #1 run never
+  // even reached, since Playwright stops a test at its first failed
+  // assertion and 768px failed first). Still only TWO DOM instances — no
+  // third one comes back — but `tabOptionsMobile` below now covers the
+  // WHOLE `<lg:` range (not just a narrow slice), because `lg:` (1024px)
+  // is the one width this exact test has used as its trusted reference
+  // since fix-round 4 and has never once been the width that wrapped.
 
   // task-project-status-filter-ui §6/§10. Per-tab (and, for PENDING/
   // REJECTED — which only ADMIN/SENIOR ever see per `allowedTabs` — per
@@ -572,34 +578,38 @@ function ProjectsPage() {
             role (unchanged from the old ADMIN-only gate for THEM, ut-25 +
             ut-26 + ut-33 + ut-44's original AC1-AC2). Still TWO DOM
             instances, same convention as vacancies/index.tsx's status
-            filter — but (COPY-M-13 dozakrytie, PR #646 fix-round 6) each
-            instance now has TWO disjoint visibility windows instead of one,
-            because the "планшет" width class (design spec §5) is not
-            uniformly roomy: the desktop `<aside>` sidebar (nav-sidebar.tsx
-            `md:flex` + `w-52`) starts eating 208px right at 768px, and does
-            not stop being a problem until ≈800px (constants.ts —
-            `STATUS_FILTER_LABELS`'s comment — has the full arithmetic and
-            the CI-vs-macOS font-metric story behind the exact 800px cut).
+            filter — but (COPY-M-13 dozakrytie #2, PR #646 fix-round 6,
+            after TWO rounds of CI red — constants.ts's `STATUS_FILTER_LABELS`
+            comment has the full story) the cut between them moved from
+            `sm:` (640px) to `lg:` (1024px):
               - `tabOptionsMobile` (STATUS_FILTER_LABELS_MOBILE, short):
-                visible `<640px` (true mobile — unchanged) AND `768-799px`
-                (the tight tablet slice) via `max-[639px]:grid` +
-                `min-[768px]:max-[799px]:grid`. `[&>button]:min-h-11` (the
-                44px mobile touch-target minimum, §5/§8/§10 a11y) stays
-                scoped to the `<640px` window ONLY
-                (`[&>button]:max-[639px]:min-h-11`) — applying it in the
-                768-799px slice too would force every button to 44px tall,
-                which a single-line-height check cannot tell apart from an
-                actual wrap.
-              - `tabOptions` (STATUS_FILTER_LABELS, full): visible
-                `640-767px` (no sidebar yet) AND `800px+` (sidebar tax
-                absorbed again) via `sm:max-[767px]:grid` +
-                `min-[800px]:grid`. No padding/gap compaction any more — a
-                short label from the other instance already covers the one
-                slice that needed it, so there is nothing left to compact.
-            At any given width exactly one of the two instances renders:
-            the two visibility-window pairs are constructed to never
-            overlap, so which one shows never depends on CSS cascade
-            order. */}
+                visible for the ENTIRE `<lg:` range (`lg:hidden`) — not
+                just true mobile (`<640px`) any more. `[&>button]:min-h-11`
+                (the 44px mobile touch-target minimum, §5/§8/§10 a11y)
+                stays scoped to the `<640px` window only
+                (`[&>button]:max-[639px]:min-h-11`) — it is an a11y floor
+                for touch targets, not something the 640-1023px tablet/
+                small-laptop widths need reserved too.
+              - `tabOptions` (STATUS_FILTER_LABELS, full): visible only
+                from `lg:` (1024px) up (`hidden lg:grid`) — the ONE width
+                this exact test has trusted as its single-line height
+                REFERENCE since fix-round 4, through every round including
+                both CI failures below, and never once the width that
+                wrapped.
+            Two prior, narrower attempts both wrapped on CI (Linux Chromium
+            renders `text-xs` wider than macOS ever showed locally): a
+            768-799px padding/gap compaction wrapped at 768px, then a
+            768-799px-only short-label swap (full labels resuming at
+            800px) wrapped at 810px — a width the FIRST CI run never even
+            reached, since Playwright stops a test at its first failed
+            assertion and the 768px failure always came first in width
+            order. Rather than guess a fourth, still-narrower pixel value
+            with no local way to verify it against CI's actual font
+            metrics, the cut moved to the one width already PROVEN safe
+            across every round. This also resolves the ORIGINAL COPY-M-13
+            complaint (two different wordings inside one "планшет" device
+            class) more completely than either dozakrytie attempt did:
+            640-1023px is now uniformly short, not split into sub-ranges. */}
         {(isAdmin || isSenior) && (
           <>
             <SegmentedToggle<StatusTab>
@@ -610,7 +620,7 @@ function ProjectsPage() {
               variant="tabs"
               size="sm"
               layoutId="projects-status-tabs-mobile"
-              className="hidden w-full max-[639px]:grid min-[768px]:max-[799px]:grid [&>button]:max-[639px]:min-h-11"
+              className="w-full lg:hidden [&>button]:max-[639px]:min-h-11"
               testId="projects-status-tabs-mobile"
             />
             <SegmentedToggle<StatusTab>
@@ -621,7 +631,7 @@ function ProjectsPage() {
               variant="tabs"
               size="sm"
               layoutId="projects-status-tabs"
-              className="hidden w-fit sm:max-[767px]:grid min-[800px]:grid"
+              className="hidden w-fit lg:grid"
               testId="projects-status-tabs"
             />
             {/* §10 (SC 4.1.3): the tab switch itself is announced natively
