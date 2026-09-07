@@ -76,9 +76,13 @@ describe('useBoardSeniors', () => {
     // invisible to every assertion above (it only affects WHEN a refetch is
     // considered necessary, never the first fetch's data/URL). Read the
     // resolved option back off the query cache instead of inferring it from
-    // timing.
+    // timing. Cast: `Query#options` is typed as the cache-level `QueryOptions`
+    // (no `staleTime` field in its declaration), even though the OBSERVER
+    // options `useQuery` actually passed — which DO carry `staleTime` — are
+    // what ends up stored there at runtime.
     const query = qc.getQueryCache().find({ queryKey: ['interviews', 'seniors'] })
-    expect(query?.options.staleTime).toBe(5 * 60_000)
+    const staleTime = (query?.options as { staleTime?: number } | undefined)?.staleTime
+    expect(staleTime).toBe(5 * 60_000)
   })
 
   it('does not fetch at all when disabled (SENIOR viewing their own board)', async () => {
