@@ -1328,6 +1328,76 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Y - task-648-fix-round-4 (CR-M-4): the OTHER seven rows
+//
+// `stackOnMobile` is opt-in, but the wrapper element it needed is rendered for
+// every `InfoRow` on this page. Rounds 1-3 measured the page as a whole and the
+// share row in particular; nothing measured «Стек», «Команда», «Бенефиты»,
+// «Тип оплаты», «Пересмотр ЗП», «Корп. техника» or «Доля дропа». Page-level
+// `scrollWidth` is not enough on its own - an ancestor clips, which is exactly
+// how the 107px button and the spilling badge stayed invisible for two rounds.
+// So: every row, measured on its own box, at both mobile widths.
+// ---------------------------------------------------------------------------
+
+test.describe('Y - every InfoRow of the details card fits, not just the share row', () => {
+  // The fixture renders seven of them (the eighth, «Доля дропа», needs a
+  // drop-project, which this one is not). Pinned as a count so that a
+  // renamed/removed test-id fails loudly instead of quietly turning the
+  // loops below into a pass over zero elements.
+  const EXPECTED_ROWS = 7
+
+  const measureRows = (page: import('@playwright/test').Page) =>
+    page.getByTestId('project-info-row').evaluateAll((els) =>
+      els.map((el) => ({
+        label: (el.textContent ?? '').trim().slice(0, 24),
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+        right: el.getBoundingClientRect().right,
+      })),
+    )
+
+  for (const width of [320, 375]) {
+    test(`with a live proposal at ${width} under ADMIN`, async ({ asAdmin: page }) => {
+      const { ready } = mockProjectWithPending(page)
+      await ready
+      await page.setViewportSize({ width, height: 900 })
+
+      await page.goto(`/projects/${PROJECT_ID}`)
+      await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
+
+      const rows = await measureRows(page)
+      expect(rows).toHaveLength(EXPECTED_ROWS)
+      for (const row of rows) {
+        expect(row.scrollWidth, `row «${row.label}» overflows its own box`).toBeLessThanOrEqual(
+          row.clientWidth,
+        )
+        expect(row.right, `row «${row.label}» ends past ${width}`).toBeLessThanOrEqual(width)
+      }
+    })
+
+    // The state seven of the eight rows are in essentially always: no
+    // proposal anywhere, so `stackOnMobile` is false on every single row and
+    // the wrapper is the ONLY thing round 3 changed for them.
+    test(`with no proposal at all at ${width} under ADMIN`, async ({ asAdmin: page }) => {
+      await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
+      await page.setViewportSize({ width, height: 900 })
+
+      await page.goto(`/projects/${PROJECT_ID}`)
+      await expect(page.getByTestId('project-senior-share')).toBeVisible()
+
+      const rows = await measureRows(page)
+      expect(rows).toHaveLength(EXPECTED_ROWS)
+      for (const row of rows) {
+        expect(row.scrollWidth, `row «${row.label}» overflows its own box`).toBeLessThanOrEqual(
+          row.clientWidth,
+        )
+        expect(row.right, `row «${row.label}» ends past ${width}`).toBeLessThanOrEqual(width)
+      }
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
 // X - task-648-fix-round-3 (COPY-H-8): one reader, one grammatical person
 //
 // The gate used to be the ROUTE (`/profile` vs `/profile/$userId`), so a

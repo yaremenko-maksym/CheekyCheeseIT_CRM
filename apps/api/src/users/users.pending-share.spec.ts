@@ -601,6 +601,36 @@ describe('UsersService.changeSalary — proposeSeniorShareChangeInTx branch', ()
     )
   })
 
+  // task-648-fix-round-4 (SR-L-5). `adminUpdateUser` gates the propose on
+  // `effectiveRole === 'SENIOR'` (see its own test above); this endpoint —
+  // the SECOND door onto the same column — had no role check at all, so a
+  // `PATCH /users/:id/salary` naming a DROP or JUNIOR target opened a
+  // `USER_SENIOR_SHARE` proposal against someone who has no senior share to
+  // confirm. Nothing is exploitable today (the row hangs fail-closed and the
+  // client hides the controls), but the two doors onto one column disagreed,
+  // and that is the shape every finding in this file has started as.
+  //
+  // The SENIOR half of this gate is the FIRST test in this describe block
+  // ('proposes (not applies) when seniorSharePercent is included…') — it is
+  // what keeps the fix a narrowing rather than a closing, so the two tests
+  // are a pair: one kills the always-propose mutant, the other the
+  // never-propose one.
+  it('SR-L-5: does not propose when the target role is not SENIOR (DROP), even with seniorSharePercent present', async () => {
+    const h = buildHarness({
+      role: 'DROP',
+      seniorSharePercent: 26,
+      pendingSeniorSharePercent: null,
+    })
+    const updated = await h.service.changeSalary('senior-1', { seniorSharePercent: 80 }, 'admin-1')
+    expect(h.approvals.proposeInTx).not.toHaveBeenCalled()
+    expect(updated.pendingSeniorSharePercent).toBeNull()
+    expect(h.userRow.pendingSeniorSharePercent).toBeNull()
+    // The gate IGNORES the field — it does not fall back to writing the
+    // active column directly, which would be the same un-gated write in a
+    // different disguise.
+    expect(h.userRow.seniorSharePercent).toBe(26)
+  })
+
   it('no-ops: response pendingSeniorSharePercent is NOT patched when the requested value equals the current one', async () => {
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
     const updated = await h.service.changeSalary('senior-1', { seniorSharePercent: 26 }, 'admin-1')

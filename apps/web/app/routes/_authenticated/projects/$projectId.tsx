@@ -577,7 +577,12 @@ export function ProjectEditFields({
   return null
 }
 
-function InfoRow({
+/**
+ * Exported for tests only (same test-only export `ProjectEditFields` already
+ * uses on this page) — `InfoRow.structure.test.tsx` mounts it directly rather
+ * than rendering the whole 2000-line route to look at eight rows.
+ */
+export function InfoRow({
   icon,
   label,
   children,
@@ -606,6 +611,12 @@ function InfoRow({
 }) {
   return (
     <div
+      // task-648-fix-round-4 (CR-M-4): the handle that lets an E2E measure
+      // EVERY row of «Детали проекта» at 320/375, not just the one row that
+      // opts into `stackOnMobile`. The structural change this prop brought is
+      // rendered for all eight of them, so all eight are what has to be
+      // measured — see describe «Y» in projects-senior-share-override.spec.ts.
+      data-testid="project-info-row"
       className={cn(
         'flex min-w-0 items-start gap-2 text-sm',
         stackOnMobile && 'flex-col gap-1 sm:flex-row sm:gap-2',

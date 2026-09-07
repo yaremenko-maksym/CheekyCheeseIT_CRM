@@ -1713,10 +1713,27 @@ export class UsersService {
     // resubmit of an unchanged salary would look like a change and 400.
     const existing = await this.findById(id)
     if (!existing) throw new NotFoundException('User not found')
+    // task-648-fix-round-4 (SR-L-5): the same role gate `adminUpdateUser`
+    // applies to its own propose (`effectiveRole === 'SENIOR'`). This
+    // endpoint carries no `role` field, so the effective role is simply the
+    // target's current one. Without this line the second door onto this
+    // column opened a `USER_SENIOR_SHARE` proposal against a DROP/JUNIOR
+    // target — a confirmation row for a share that role does not have,
+    // hanging fail-closed forever because the client never offers those
+    // buttons. Nothing was exploitable; the two doors onto one column simply
+    // disagreed, which is the shape every finding on this path started as.
+    //
+    // Ignoring the field rather than 400-ing is deliberate: it is exactly
+    // what `adminUpdateUser` does with the same input (its
+    // `requestedSeniorSharePercent` ternary), and a gate that answers
+    // differently depending on which endpoint you knock at is the drift this
+    // is closing.
+    const requestedSeniorSharePercent: number | undefined =
+      existing.role === 'SENIOR' ? data.seniorSharePercent : undefined
     // No share change requested — byte-for-byte the pre-existing single
     // statement, no transaction wrapper added (keeps this the SAME shape
     // every OTHER caller of this method already relies on).
-    if (data.seniorSharePercent === undefined) {
+    if (requestedSeniorSharePercent === undefined) {
       return this.updateUserRow(this.db.db, id, existing, set)
     }
     if (!actorId) {
@@ -1727,7 +1744,7 @@ export class UsersService {
       const shareChangeResult = await this.proposeSeniorShareChangeInTx(
         tx,
         existing,
-        data.seniorSharePercent!,
+        requestedSeniorSharePercent,
         actorId,
       )
       // Same stale-response fix as adminUpdateUser — see proposeSeniorShareChangeInTx's own doc.
