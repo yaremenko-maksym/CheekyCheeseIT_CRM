@@ -10,15 +10,16 @@
  * `getBoardSeniors` adds needs a mocked-DB test here too, or a mutant in that
  * branch is invisible to `mutation-gate.mjs --changed`.
  *
- * The `users.findMany` / `users.findFirst` mocks below do not ignore their
- * `where` argument and return canned rows regardless — they compile the REAL
- * Drizzle `where` AST each call receives (via `compileWhere`, mirroring
- * `create-from-interview-active-teams.unit.spec.ts`) and only return rows
- * that predicate would actually match. That ties the mock's answer to the
- * production code's own predicate: delete the shared `notArchived` field
- * (SR-M-1) from either the ADMIN or the HR branch, or swap `inArray` for the
- * wrong id set in the HR branch, and the assertions below fail for real —
- * not just "the mock was called".
+ * The `users.findMany` / `users.findFirst` / `teamMembers.findMany` mocks
+ * below do not ignore their `where` argument and return canned rows
+ * regardless — they compile the REAL Drizzle `where` AST each call receives
+ * (via `compileWhere`, mirroring `create-from-interview-active-teams.unit.
+ * spec.ts`) and only return rows that predicate would actually match. That
+ * ties the mock's answer to the production code's own predicate: delete the
+ * shared `notArchived` local (SR-M-1) from either the ADMIN or the HR
+ * branch, swap `inArray` for the wrong id set in the HR branch, or drop
+ * `isNull(teamMembers.leftAt)` from `getAccessibleSeniorIds`'s own query,
+ * and the assertions below fail for real — not just "the mock was called".
  */
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
@@ -37,6 +38,20 @@ type UserRow = {
   email: string
   techStack: string[] | null
   walletUsdtErc20: string | null
+}
+
+// `leftAt` here is the HR's OWN top-level `team_members` row (what
+// `eq(teamMembers.userId, currentUser.id)` + `isNull(teamMembers.leftAt)`
+// selects in `getAccessibleSeniorIds`), never null in a fixture that means
+// "HR is currently an active member of this team". `team.members` is the
+// nested relation load (`with: { team: { with: { members: ... } } }`),
+// filtered by the SENIOR-side `m.leftAt === null` check inside the service
+// loop itself — a plain JS array, not a second Drizzle `where`.
+type TeamMembershipRow = {
+  leftAt: Date | null
+  team: {
+    members: { userId: string; leftAt: Date | null; user: { role: string } }[]
+  }
 }
 
 const ADMIN: SessionUser = {
@@ -131,10 +146,11 @@ const DROP_TEAM_SENIOR: UserRow = {
 /**
  * Mocked DatabaseService — `db.query.teamMembers.findMany` (feeds the
  * pre-existing, unmodified `getAccessibleSeniorIds`) and `db.query.users.
- * findMany` / `findFirst` (the NEW code under test), the latter two
- * predicate-aware via `compileWhere`.
+ * findMany` / `findFirst` (the NEW code under test) — all three predicate-
+ * aware via `compileWhere` (SPEC-H-1, PR #662 round 3: `teamMembers.
+ * findMany` used to be a plain passthrough).
  */
-function makeDb(opts: { teamMemberships?: unknown[]; allUsers: UserRow[] }) {
+function makeDb(opts: { teamMemberships?: TeamMembershipRow[]; allUsers: UserRow[] }) {
   const usersFindMany = vi.fn((args: { where: unknown }) => {
     const { sql, params } = compileWhere(args.where)
     const wantsSenior = params.includes('SENIOR')
@@ -164,7 +180,22 @@ function makeDb(opts: { teamMemberships?: unknown[]; allUsers: UserRow[] }) {
     const { params } = compileWhere(args.where)
     return Promise.resolve(opts.allUsers.find((u) => params.includes(u.id)))
   })
-  const teamMembersFindMany = vi.fn(() => Promise.resolve(opts.teamMemberships ?? []))
+  // SPEC-H-1 (PR #662 round 3): `getAccessibleSeniorIds`'s OWN top-level
+  // query is `eq(teamMembers.userId, currentUser.id) AND
+  // isNull(teamMembers.leftAt)` — this mock used to ignore that `where`
+  // entirely and hand back the fixture verbatim, so a fixture representing
+  // "HR's membership row exists but is closed" was indistinguishable from
+  // "no row at all" (both surface as an empty result either way). Compiling
+  // the real `where` (same `compileWhere` trick as `usersFindMany` above)
+  // ties the mock's answer to the production predicate: drop
+  // `isNull(teamMembers.leftAt)` from the service and a fixture row with
+  // `leftAt` set starts being returned again.
+  const teamMembersFindMany = vi.fn((args: { where: unknown }) => {
+    const activeOnly = compileWhere(args.where).sql.includes('"left_at" is null')
+    return Promise.resolve(
+      (opts.teamMemberships ?? []).filter((tm) => !activeOnly || tm.leftAt === null),
+    )
+  })
   return {
     db: {
       query: {
@@ -177,7 +208,7 @@ function makeDb(opts: { teamMemberships?: unknown[]; allUsers: UserRow[] }) {
   }
 }
 
-function build(opts: { teamMemberships?: unknown[]; allUsers: UserRow[] }) {
+function build(opts: { teamMemberships?: TeamMembershipRow[]; allUsers: UserRow[] }) {
   const stub = makeDb(opts)
   const service = new InterviewsService(stub as never, {} as never)
   return { service, usersFindMany: stub.usersFindMany, usersFindFirst: stub.usersFindFirst }
@@ -227,6 +258,7 @@ describe('InterviewsService.getBoardSeniors', () => {
     const { service } = build({
       teamMemberships: [
         {
+          leftAt: null,
           team: {
             members: [
               { userId: HR.id, leftAt: null, user: { role: 'HR' } },
@@ -258,6 +290,7 @@ describe('InterviewsService.getBoardSeniors', () => {
     const { service } = build({
       teamMemberships: [
         {
+          leftAt: null,
           team: {
             members: [
               { userId: HR.id, leftAt: null, user: { role: 'HR' } },
@@ -278,7 +311,7 @@ describe('InterviewsService.getBoardSeniors', () => {
 
   // SR-M-1 (PR #662 round 2): archiving a SENIOR intentionally leaves
   // teamMembers.leftAt untouched for them and their HR (see
-  // UsersService.archiveUser's own docblock — resetting it would break
+  // UsersService.archive's own docblock — resetting it would break
   // salary accrual for the rest of the team), so getAccessibleSeniorIds()
   // alone cannot tell an archived senior apart from an active one. Mirrors
   // the 'ADMIN: ... excludes an archived one' test above, but through the HR
@@ -287,6 +320,7 @@ describe('InterviewsService.getBoardSeniors', () => {
     const { service } = build({
       teamMemberships: [
         {
+          leftAt: null,
           team: {
             members: [
               { userId: HR.id, leftAt: null, user: { role: 'HR' } },
@@ -304,23 +338,37 @@ describe('InterviewsService.getBoardSeniors', () => {
     expect(ids).not.toContain(SENIOR_ARCHIVED.id)
   })
 
-  // SPEC-M-1 (PR #662 round 2): AC1 names this case explicitly ("HR, покинувший
-  // команду — не получает") but it previously only existed at the integration
-  // level (board-seniors.integration.spec.ts, persona HR_LEFT). Same
-  // technique as 'HR: a senior who left the shared team is not returned'
-  // above, flipped to whose leftAt matters: getAccessibleSeniorIds() scopes
-  // its OWN top-level query to `eq(teamMembers.userId, hrId) AND
-  // isNull(teamMembers.leftAt)` — a real Postgres query for an HR whose own
-  // membership ended returns ZERO rows, which is exactly what an empty
-  // `teamMemberships` fixture represents here: `teamMembersFindMany` is a
-  // passthrough mock and does not itself compile/apply that WHERE clause (it
-  // has no `compileWhere` treatment, unlike `usersFindMany` above), so the
-  // real predicate is proven at the DB level by HR_LEFT in the integration
-  // spec — this unit test's job is AC1 traceability plus confirming
-  // getBoardSeniors' HR branch short-circuits correctly no matter WHY the
-  // accessible-senior set came back empty.
+  // SPEC-H-1 (PR #662 round 3, fixing SPEC-M-1 from round 2): AC1 names this
+  // case explicitly ("HR, покинувший команду — не получает"). The round-2
+  // version of this test used an EMPTY `teamMemberships` fixture — byte-
+  // identical to 'HR: not a member of the senior team' above, because the old
+  // `teamMembersFindMany` mock was a passthrough that ignored `where`
+  // entirely: "HR never had a row" and "HR's row exists but is closed" both
+  // surface as `[]` either way, so the two tests could never actually
+  // disagree. Now that the mock compiles the real `where` (see `makeDb`
+  // above), this fixture instead gives HR a REAL membership row with
+  // `leftAt` SET — distinct from the other test's `teamMemberships: []` —
+  // and relies on `isNull(teamMembers.leftAt)` in `getAccessibleSeniorIds`'s
+  // own query to filter it out. Proof (manual, not asserted by this file):
+  // commenting out `isNull(teamMembers.leftAt)` in that query turns this test
+  // red — `usersFindMany` gets called and `result` gains SENIOR_ACTIVE —
+  // while 'HR: not a member of the senior team' stays green throughout,
+  // because its fixture has no row to un-filter in the first place.
   it('HR: own team membership has ended → gets no seniors (not just "never joined")', async () => {
-    const { service, usersFindMany } = build({ teamMemberships: [], allUsers: [SENIOR_ACTIVE] })
+    const { service, usersFindMany } = build({
+      teamMemberships: [
+        {
+          leftAt: new Date('2026-03-01'),
+          team: {
+            members: [
+              { userId: HR.id, leftAt: new Date('2026-03-01'), user: { role: 'HR' } },
+              { userId: SENIOR_ACTIVE.id, leftAt: null, user: { role: 'SENIOR' } },
+            ],
+          },
+        },
+      ],
+      allUsers: [SENIOR_ACTIVE],
+    })
     const result = await service.getBoardSeniors(HR)
     expect(result).toEqual([])
     expect(usersFindMany).not.toHaveBeenCalled()
