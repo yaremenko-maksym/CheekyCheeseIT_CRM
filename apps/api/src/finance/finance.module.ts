@@ -40,8 +40,7 @@ import { TransactionsService } from './transactions.service'
     forwardRef(() => DocumentsModule),
     // task-notification-types-producers (позиция 6). TransactionsService —
     // производитель двух типов уведомлений. NotificationsModule зависит только
-    // от DatabaseModule (+ ленивый AuthModule для контроллера), поэтому цикла
-    // здесь нет и forwardRef не нужен.
+    // от DatabaseModule, поэтому цикла здесь нет и forwardRef не нужен.
     NotificationsModule,
   ],
   providers: [

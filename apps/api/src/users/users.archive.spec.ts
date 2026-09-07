@@ -78,6 +78,7 @@ import {
   transactions as transactionsTable,
   users as usersTable,
 } from '../database/schema'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 function makeDb(store: FakeStore) {
   // ---- Query builder ----
@@ -468,6 +469,7 @@ function buildService(store: FakeStore) {
     // task-pending-share fix-round-1 (CR-H-1): working stub, see the
     // sibling comment in archived-entitlement.realdb.integration.spec.ts.
     { getStatus: async () => 'NONE' as const } as never,
+    makeNotificationsStub(),
   )
   return {
     service,

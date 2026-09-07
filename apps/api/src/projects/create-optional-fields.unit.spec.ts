@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { CreateProjectDto, SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
@@ -87,6 +88,7 @@ function buildHarness() {
     usersService as never,
     hrAccess,
     approvals as never,
+    makeNotificationsStub(),
   )
   return { service, approvals, getCapturedValues: () => capturedValues }
 }

@@ -183,7 +183,12 @@ function service(store: Parameters<typeof makeDb>[0]) {
     unarchivePairTx: vi.fn(),
     getArchiveImpact: vi.fn(),
   } as never
-  const svc = new TeamsService({ db } as never, usersService, makeNotificationsStub())
+  const svc = new TeamsService(
+    { db } as never,
+    usersService,
+    { record: vi.fn() } as never,
+    makeNotificationsStub(),
+  )
   return { svc, db, store }
 }
 

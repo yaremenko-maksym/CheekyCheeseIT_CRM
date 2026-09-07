@@ -214,7 +214,7 @@ class TestDatabaseModule {}
       provide: TeamsService,
       // UsersService is NOT exercised in findAll/findOne — pass null stub.
       useFactory: (db: DatabaseService) =>
-        new TeamsService(db, null as never, makeNotificationsStub()),
+        new TeamsService(db, null as never, {} as never, makeNotificationsStub()),
       inject: [DatabaseService],
     },
     {

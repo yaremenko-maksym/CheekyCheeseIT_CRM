@@ -18,6 +18,7 @@ import { ARCHIVED_ENTITLEMENT_MESSAGE } from './archived-entitlement'
 import { UsersService } from './users.service'
 import { users } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const seniorUser: SessionUser = {
   id: 'senior-1',
@@ -183,6 +184,7 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
     {} as never,
     {} as never,
     approvals as never,
+    makeNotificationsStub(),
   )
 
   return {
@@ -388,7 +390,10 @@ describe('UsersService — notification seam (position 6 hand-off)', () => {
     )
     await h.service.adminUpdateUser('senior-1', { seniorSharePercent: 80 }, 'admin-1')
     expect(spy).toHaveBeenCalledTimes(1)
-    expect(spy).toHaveBeenCalledWith({
+    // task-notification-types-producers (позиция 6): шов заполнен и получил
+    // `tx` первым аргументом — запись пишется в той же транзакции, что и
+    // предложение.
+    expect(spy).toHaveBeenCalledWith(h.txHandle, {
       subjectId: 'senior-1',
       approverUserId: 'senior-1',
       proposedPercent: 80,

@@ -16,6 +16,7 @@ import { BadRequestException, ConflictException, ForbiddenException } from '@nes
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { UsersService } from './users.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -85,6 +86,7 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
     // task-pending-share fix-round-1 (CR-H-1): working stub, see the
     // sibling comment in archived-entitlement.realdb.integration.spec.ts.
     { getStatus: async () => 'NONE' as const } as never,
+    makeNotificationsStub(),
   )
   return { service, createDropTeam, insertMock: txHandle.insert, insertValuesSpy }
 }

@@ -13,8 +13,9 @@ import type {
   CustomVariable,
   SessionUser,
 } from '@crm/shared'
-import { CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
+import { CONTRACT_VARIABLE_DESCRIPTIONS, NOTIFICATION_TITLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import { contractTemplates, employeeContracts, tosAcceptances } from '../database/schema'
 import type { EmployeeContract } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -61,6 +62,9 @@ export class EmployeeContractsService {
   constructor(
     private readonly db: DatabaseService,
     private readonly contractTemplatesService: ContractTemplatesService,
+    // task-notification-types-producers (позиция 6). Производитель «ждёт
+    // решения: документ на подпись».
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -158,13 +162,36 @@ export class EmployeeContractsService {
       )
     }
 
-    const [updated] = await this.db.db
-      .update(employeeContracts)
-      .set({ status: 'READY_TO_SIGN', updatedAt: new Date() })
-      .where(eq(employeeContracts.id, contract.id))
-      .returning()
+    // task-notification-types-producers (позиция 6): DRAFT → READY_TO_SIGN —
+    // ровно тот момент, когда от сотрудника начинают ждать подписи, и
+    // единственный переход, о котором ему нужно узнать. Переход и уведомление
+    // — одна транзакция: договора, ждущего подписи без просьбы подписать (и
+    // просьбы без договора), не существует.
+    const updated = await this.db.db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(employeeContracts)
+        .set({ status: 'READY_TO_SIGN', updatedAt: new Date() })
+        .where(eq(employeeContracts.id, contract.id))
+        .returning()
 
-    if (!updated) throw new Error('Failed to mark contract ready')
+      if (!row) throw new Error('Failed to mark contract ready')
+
+      await this.notifications.createInTx(tx, {
+        userId,
+        type: 'DOCUMENT_SIGN_REQUIRED',
+        title: NOTIFICATION_TITLES.DOCUMENT_SIGN_REQUIRED,
+        subjectType: 'EMPLOYEE_CONTRACT',
+        subjectId: row.id,
+        data: { documentTitle: 'Договор с сотрудником' },
+        // Договор возвращают в черновик и снова готовят к подписи — это
+        // НОВАЯ просьба, а не повтор старой, поэтому ключ несёт версию
+        // строки: `updatedAt` меняется на каждом переходе.
+        dedupeKey: `DOCUMENT_SIGN_REQUIRED:${row.id}:${row.updatedAt.toISOString()}`,
+      })
+
+      return row
+    })
+
     return updated
   }
 

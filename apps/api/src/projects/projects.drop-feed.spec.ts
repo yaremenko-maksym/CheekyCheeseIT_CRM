@@ -22,6 +22,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { ProjectsService } from './projects.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -67,7 +68,14 @@ function makeSvc(projectRows: ProjectRow[], incomeRows: IncomeRow[]) {
       }),
     },
   }
-  return new ProjectsService(dbStub as never, {} as never, {} as never, {} as never)
+  return new ProjectsService(
+    dbStub as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    makeNotificationsStub(),
+  )
 }
 
 const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'ADMIN']

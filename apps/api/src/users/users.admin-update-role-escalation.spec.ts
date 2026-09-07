@@ -24,6 +24,7 @@ import type * as schema from '../database/schema'
 import type { AuditLogService } from './audit-log.service'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ const makeUsersService = (db: DrizzleDb): UsersService =>
     // (so `proposeSeniorShareChangeInTx` is never reached), but
     // `buildProfileView` still needs `this.approvals` to exist.
     { getStatus: async () => 'NONE' as const } as never,
+    makeNotificationsStub(),
   )
 
 /** Full user DB row */

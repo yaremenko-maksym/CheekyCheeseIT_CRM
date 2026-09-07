@@ -17,6 +17,7 @@ import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { projectFinanceSettings, projects, transactions } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -253,6 +254,7 @@ function buildHarness(
     usersService as never,
     new HrAccessService(db as never),
     approvals as never,
+    makeNotificationsStub(),
   )
 
   return {
@@ -437,11 +439,16 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
     )
     await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
     expect(spy).toHaveBeenCalledTimes(1)
-    expect(spy).toHaveBeenCalledWith({
+    // task-notification-types-producers (позиция 6): шов заполнен и получил
+    // `tx` первым аргументом — запись уведомления пишется в той же
+    // транзакции, что и предложение. Название проекта передаётся сюда
+    // вызывающим, у которого строка уже на руках.
+    expect(spy).toHaveBeenCalledWith(h.txHandle, {
       subjectId: 'proj-1',
       approverUserId: 'senior-1',
       proposedPercent: 30,
       previousPercent: null,
+      projectName: 'Acme Project',
     })
   })
 
@@ -509,6 +516,7 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
     )
     await h.service.update('proj-1', { seniorSharePercentOverride: 40 }, adminUser)
     expect(spy).toHaveBeenCalledWith(
+      h.txHandle,
       expect.objectContaining({ proposedPercent: 40, previousPercent: 25 }),
     )
   })

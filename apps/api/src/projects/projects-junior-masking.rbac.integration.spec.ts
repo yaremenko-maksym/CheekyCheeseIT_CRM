@@ -22,6 +22,7 @@ import { legends, projectMembers, projects, teamMembers, teams, users } from '..
 import * as schema from '../database/schema'
 import { UsersAccessService } from '../users/users-access.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * Projects JUNIOR allowlist-masking — exhaustive real-backend integration spec.
@@ -258,7 +259,8 @@ class TestDatabaseModule {}
           new HrAccessService(db),
           // task-project-draft-status: real ApprovalsService against the same
           // real DB — this is an integration spec, not a mock.
-          new ApprovalsService(db),
+          new ApprovalsService(db, makeNotificationsStub()),
+          makeNotificationsStub(),
         ),
       inject: [DatabaseService, ProjectAuditLogService, UsersService],
     },

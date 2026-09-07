@@ -16,6 +16,7 @@ import { ApprovalsService } from '../approvals/approvals.service'
 import { approvals, interviews, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * BIZ-07 — HIRED idempotency: repeated HIRED transitions must NOT create
@@ -128,7 +129,10 @@ describe.skipIf(!hasDatabaseUrl())(
       // `ApprovalsService` too — `createFromInterview` now calls
       // `proposeInTx`, which throws on `this.approvals === undefined`.
       const projectsSvc = Object.create(ProjectsService.prototype) as ProjectsService
-      Object.assign(projectsSvc, { db: dbSvc, approvals: new ApprovalsService(dbSvc) })
+      Object.assign(projectsSvc, {
+        db: dbSvc,
+        approvals: new ApprovalsService(dbSvc, makeNotificationsStub()),
+      })
       svc = new InterviewsService(dbSvc, projectsSvc)
     }, 30_000)
 

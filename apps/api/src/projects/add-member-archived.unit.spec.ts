@@ -22,6 +22,7 @@ import type { SessionUser } from '@crm/shared'
 import { ProjectsService } from './projects.service'
 import { projectMembers } from '../database/schema'
 import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const ADMIN: SessionUser = {
   id: '22222222-0000-4000-aa00-000000000001',
@@ -66,12 +67,31 @@ function makeDb(userRow: unknown) {
       insert: vi.fn(() => {
         throw new Error('INSERT REACHED — guard did not fire')
       }),
+      // task-notification-types-producers (позиция 6): членство и уведомление о
+      // нём пишутся ОДНОЙ транзакцией, поэтому «дошло до вставки» теперь
+      // означает «дошло до вставки внутри транзакции». Заглушка отдаёт тот же
+      // громкий `insert` — контрольный тест остаётся ровно тем же
+      // утверждением, что и был.
+      transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({
+          insert: () => {
+            throw new Error('INSERT REACHED — guard did not fire')
+          },
+        }),
+      ),
     },
   } as never
 }
 
 function makeService(userRow: unknown): ProjectsService {
-  return new ProjectsService(makeDb(userRow), {} as never, {} as never, {} as never)
+  return new ProjectsService(
+    makeDb(userRow),
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    makeNotificationsStub(),
+  )
 }
 
 describe('AC1 — addMember refuses an archived user', () => {
@@ -169,7 +189,14 @@ describe('MED-3 — createFromInterview does not seat dismissed teammates', () =
   // .unit.spec.ts).
   function makeService(db: never): ProjectsService {
     const approvals = { proposeInTx: vi.fn(async () => []) }
-    return new ProjectsService(db, {} as never, {} as never, {} as never, approvals as never)
+    return new ProjectsService(
+      db,
+      {} as never,
+      {} as never,
+      {} as never,
+      approvals as never,
+      makeNotificationsStub(),
+    )
   }
 
   it('seats the active teammate and skips the archived one', async () => {

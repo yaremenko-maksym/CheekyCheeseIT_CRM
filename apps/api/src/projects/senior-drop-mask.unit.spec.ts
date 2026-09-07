@@ -32,6 +32,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ---------------------------------------------------------------------------
 // Personas
@@ -243,6 +244,7 @@ function buildHarness(project: ReturnType<typeof makeDropProject>) {
     usersSvc as never,
     hrAccess,
     approvals as never,
+    makeNotificationsStub(),
   )
 
   // Bypass access check — we test mapping logic, not RBAC gate

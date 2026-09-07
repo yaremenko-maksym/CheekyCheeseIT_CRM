@@ -93,6 +93,7 @@ describe.skipIf(!hasDatabaseUrl())(
         // task-pending-share fix-round-1 (CR-H-1): working stub, see the
         // sibling comment in archived-entitlement.realdb.integration.spec.ts.
         { getStatus: async () => 'NONE' as const } as never,
+        makeNotificationsStub(),
       )
       // TeamsService needs UsersService back for OTHER methods (not exercised
       // here) — forwardRef in prod DI, plain field assignment is enough here.

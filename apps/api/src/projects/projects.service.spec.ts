@@ -23,6 +23,7 @@ import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { projectFinanceSettings, projects } from '../database/schema'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -269,6 +270,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     usersService as never,
     new HrAccessService(db as never),
     approvals as never,
+    makeNotificationsStub(),
   )
 
   return {
@@ -857,6 +859,7 @@ function buildHrScopingHarness({
     usersService as never,
     new HrAccessService(db as never),
     approvals as never,
+    makeNotificationsStub(),
   )
 
   return {

@@ -33,6 +33,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { ProjectsService } from './projects.service'
 import { projects } from '../database/schema'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const ADMIN: SessionUser = {
   id: '33333333-0000-4000-aa00-000000000001',
@@ -84,6 +85,7 @@ function makeService() {
     {} as never,
     {} as never,
     approvals as never,
+    makeNotificationsStub(),
   )
   return { service, insertedProjectValues, proposeInTx, teamMembersFindMany }
 }

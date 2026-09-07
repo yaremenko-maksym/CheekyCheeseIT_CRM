@@ -24,6 +24,7 @@ import { PdfModule } from '../common/pdf/pdf.module'
 import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * A3-4 — Real-backend integration spec for onboarding personal-contract flow.
@@ -222,7 +223,7 @@ class TestDatabaseModule {}
     {
       provide: EmployeeContractsService,
       useFactory: (db: DatabaseService, tmpl: ContractTemplatesService) =>
-        new EmployeeContractsService(db, tmpl),
+        new EmployeeContractsService(db, tmpl, makeNotificationsStub()),
       inject: [DatabaseService, ContractTemplatesService],
     },
     {

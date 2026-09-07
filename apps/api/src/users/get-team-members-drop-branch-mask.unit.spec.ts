@@ -59,6 +59,7 @@
 import { describe, expect, it } from 'vitest'
 import { getTableName } from 'drizzle-orm'
 import { UsersService } from './users.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ---------------------------------------------------------------------------
 // Fixture — a DROP target's team roster. HR_ID / SYNTHETIC_JUNIOR_ID are
@@ -291,6 +292,7 @@ function buildService(store: Store) {
     // task-pending-share fix-round-1 (CR-H-1): working stub, see the
     // sibling comment in archived-entitlement.realdb.integration.spec.ts.
     { getStatus: async () => 'NONE' as const } as never,
+    makeNotificationsStub(),
   )
 }
 

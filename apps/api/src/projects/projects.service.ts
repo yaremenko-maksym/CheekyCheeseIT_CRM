@@ -17,7 +17,9 @@ import type {
   SessionUser,
   UpdateProjectDto,
 } from '@crm/shared'
-import { projectPaymentTypeSchema } from '@crm/shared'
+import { NOTIFICATION_TITLES, projectPaymentTypeSchema } from '@crm/shared'
+import { NotificationsService } from '../notifications/notifications.service'
+import type { CreateNotificationInput } from '../notifications/notifications.service'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from '../finance/drop-share-resolver'
 import { ApprovalsService } from '../approvals/approvals.service'
 import { HrAccessService } from '../common/hr-access.service'
@@ -66,6 +68,13 @@ type NotifyPendingShareInput = {
   approverUserId: string
   proposedPercent: number | null
   previousPercent: number | null
+  /**
+   * task-notification-types-producers (позиция 6). Название снимается В МОМЕНТ
+   * предложения и передаётся сюда вызывающим, у которого строка проекта уже на
+   * руках. Не читается заново: лишний запрос на пути, где данные уже есть, — и
+   * уведомление, пережившее проект (§7.4), осталось бы безымянным.
+   */
+  projectName: string | null
 }
 
 @Injectable()
@@ -77,6 +86,10 @@ export class ProjectsService {
     private usersService: UsersService,
     private readonly hrAccess: HrAccessService,
     private readonly approvals: ApprovalsService,
+    // task-notification-types-producers (позиция 6). Производитель трёх типов:
+    // «вас добавили в проект», «ждёт решения: новый проект» и — через шов
+    // `notifyPendingSeniorShareProposed` ниже — «ждёт решения: новая доля».
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** task-project-draft-status. `subjectType` this module registers approvals under. */
@@ -1094,6 +1107,25 @@ export class ProjectsService {
         proposedByUserId: currentUser.id,
       })
 
+      // task-notification-types-producers (позиция 6): «ждёт решения: новый
+      // проект» — приглашённым подтверждающим, в ТОЙ ЖЕ транзакции, что и
+      // черновик со строками согласования. Черновика без просьбы подтвердить
+      // не существует — по той же причине, по которой не существует черновика
+      // без строк согласования (решение Д1 позиции 4).
+      await this.notifications.createManyInTx(
+        tx,
+        approverUserIds
+          .filter((approverId) => approverId !== (currentUser.impersonatorId ?? currentUser.id))
+          .map((approverId) => ({
+            userId: approverId,
+            type: 'PROJECT_CONFIRM_REQUIRED' as const,
+            title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
+            subjectType: 'PROJECT' as const,
+            subjectId: inserted.id,
+            data: { projectName: inserted.name },
+          })),
+      )
+
       return [inserted]
     })
 
@@ -1314,30 +1346,41 @@ export class ProjectsService {
   }
 
   /**
-   * Seam for position 6 of docs/superpowers/specs/2026-09-01-notifications-
-   * and-confirmations-design.md ("Типы уведомлений и их производители") — the
-   * "подтвердить новую долю" notification (§7.2) is created here once that
-   * position wires a real NotificationsService in. Deliberately a no-op
-   * today: the notification TYPE this call would use does not exist yet
-   * (owned by position 6, out of this task's scope). Called exactly once per
-   * opened proposal (see `proposeSeniorShareChange` below) so position 6 has
-   * one call site to fill in rather than having to re-discover it — verified
-   * by `projects.pending-share.spec.ts`'s spy assertion.
+   * «Ждёт решения: новая доля» — тому, чья доля меняется, и никому больше
+   * (§7.2 + §7.3). Позиция 5 оставила этот шов пустым и Stryker-подавленным,
+   * потому что типа уведомления ещё не существовало; позиция 6 его заполняет —
+   * подавление снято, метод стал настоящим и проверяется как всякий другой.
    *
-   * Body is `{ void input }` — behaviorally identical to `{}` for every
-   * caller, unobservable by any black-box test. Suppressed below rather than
-   * left to survive as a false gap. The param type is pulled out to its own
-   * declaration (not inlined) SPECIFICALLY so the method signature is one
-   * line and the disable-comment sits immediately above the ACTUAL mutated
-   * block — with a multi-line inline object type, the comment and the
-   * block's own `loc.start` do not land on adjacent lines and the
-   * suppression silently does nothing (same lesson `env.ts`'s
-   * `GIT_COMMIT_REGEX_MESSAGE` comment documents for a StringLiteral).
+   * Изменились две вещи против прежней подписи, обе намеренно:
+   *   - появился `tx` — запись пишется в ТОЙ ЖЕ транзакции, что и само
+   *     предложение (см. `proposeSeniorShareChange` ниже);
+   *   - метод стал асинхронным.
+   * Спека-хендофф (`projects.pending-share.spec.ts`) обновлена под обе.
    */
-  // Stryker disable next-line BlockStatement: see the doc comment above.
-  private notifyPendingSeniorShareProposed(input: NotifyPendingShareInput): void {
-    // Intentionally empty — see doc comment above.
-    void input
+  private async notifyPendingSeniorShareProposed(
+    tx: DrizzleTx,
+    input: NotifyPendingShareInput,
+  ): Promise<void> {
+    await this.notifications.createInTx(tx, {
+      userId: input.approverUserId,
+      type: 'SHARE_CONFIRM_REQUIRED',
+      title: NOTIFICATION_TITLES.SHARE_CONFIRM_REQUIRED,
+      subjectType: 'PROJECT',
+      subjectId: input.subjectId,
+      // Проценты — ДАННЫЕ, не текст: «26% → 30%» рисует клиент. В письмо
+      // (позиция 7) уходит только нейтральный заголовок выше — цифры за
+      // пределы нашего контура не идут (§10).
+      data: {
+        scope: 'PROJECT',
+        projectName: input.projectName,
+        previousPercent: input.previousPercent,
+        proposedPercent: input.proposedPercent,
+      },
+      // Ключа НЕТ намеренно: повторное предложение обязано спросить заново —
+      // именно это и означает `supersededAt` на предыдущем поколении строк
+      // согласования. Заглушить второе предложение значило бы потерять
+      // подтверждение.
+    })
   }
 
   /**
@@ -1358,6 +1401,9 @@ export class ProjectsService {
     // Caller (`update()`) already has this on hand from the row it read
     // before deciding to propose — no need for a second SELECT here.
     previousValue: number | null,
+    // То же самое и по той же причине — название проекта для подписи
+    // уведомления (позиция 6).
+    projectName: string | null,
   ): Promise<void> {
     await this.db.db.transaction(async (tx) => {
       await this.approvals.proposeInTx(tx, {
@@ -1370,12 +1416,19 @@ export class ProjectsService {
         .update(projects)
         .set({ pendingSeniorSharePercentOverride: proposedValue, updatedAt: new Date() })
         .where(eq(projects.id, projectId))
-    })
-    this.notifyPendingSeniorShareProposed({
-      subjectId: projectId,
-      approverUserId,
-      proposedPercent: proposedValue,
-      previousPercent: previousValue,
+
+      // task-notification-types-producers (позиция 6). Вызов ПЕРЕЕХАЛ внутрь
+      // транзакции: позиция 5 оставляла шов пустым и звала его после коммита,
+      // потому что звать было нечего. Теперь он пишет строку, и предложение
+      // без просьбы подтвердить — как и просьба без предложения — становятся
+      // структурно невозможны.
+      await this.notifyPendingSeniorShareProposed(tx, {
+        subjectId: projectId,
+        approverUserId,
+        proposedPercent: proposedValue,
+        previousPercent: previousValue,
+        projectName,
+      })
     })
   }
 
@@ -1826,6 +1879,7 @@ export class ProjectsService {
         // few lines below (security-review round 2, authz-hardening).
         currentUser.impersonatorId ?? currentUser.id,
         project.seniorSharePercentOverride ?? null,
+        project.name,
       )
     }
     // task-648-fix-round-2 (SR-H-2): there is deliberately NO `else` branch
@@ -2163,7 +2217,31 @@ export class ProjectsService {
       }
     }
 
-    await this.db.db.insert(projectMembers).values({ projectId, userId })
+    // task-notification-types-producers (позиция 6): «вас добавили в проект» —
+    // только самому добавленному. Остальным участникам проекта об этом не
+    // сообщаем: у проекта, в отличие от команды, такого типа в составе десяти
+    // нет, а придумывать одиннадцатый задание запрещает.
+    //
+    // Членство и уведомление — одна транзакция: откатилось членство, откатилась
+    // и запись.
+    const notify: CreateNotificationInput[] =
+      userId === (currentUser.impersonatorId ?? currentUser.id)
+        ? []
+        : [
+            {
+              userId,
+              type: 'PROJECT_MEMBER_ADDED',
+              title: NOTIFICATION_TITLES.PROJECT_MEMBER_ADDED,
+              subjectType: 'PROJECT',
+              subjectId: projectId,
+              data: { projectName: project.name },
+            },
+          ]
+
+    await this.db.db.transaction(async (tx) => {
+      await tx.insert(projectMembers).values({ projectId, userId })
+      await this.notifications.createManyInTx(tx, notify)
+    })
   }
 
   async removeMember(projectId: string, userId: string, currentUser: SessionUser) {

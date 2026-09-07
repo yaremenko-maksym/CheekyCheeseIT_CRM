@@ -13,6 +13,7 @@ import { REDACTED_TOKEN, type AuditLogService } from './audit-log.service'
 import { hashInviteToken } from './invite-token.util'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 type DrizzleDb = { db: NodePgDatabase<typeof schema> }
 
@@ -93,6 +94,7 @@ const makeUsersService = (
     makeTeamsService(),
     makeInviteMailer(),
     (approvalsService ?? makeApprovalsService()) as never,
+    makeNotificationsStub(),
   )
 
 // ---------------------------------------------------------------------------
@@ -787,6 +789,7 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
       makeTeamsService(),
       inviteMailer as never,
       makeApprovalsService() as never,
+      makeNotificationsStub(),
     )
 
     const before = Date.now()
@@ -972,6 +975,7 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
       makeTeamsService(),
       inviteMailer as never,
       makeApprovalsService() as never,
+      makeNotificationsStub(),
     )
 
     // 1st `.returning()` call (inside makeDb) already resolves [createdUser]
@@ -2700,6 +2704,7 @@ function makeServiceForProfileViewWithAudit(
     undefined as never,
     undefined as never,
     (approvalsService ?? makeApprovalsService()) as never,
+    makeNotificationsStub(),
   )
   return { service, auditRecord }
 }
@@ -3030,6 +3035,7 @@ describe('UsersService.buildProfileView — ForbiddenException on empty tabs', (
       undefined as never,
       undefined as never,
       makeApprovalsService(),
+      makeNotificationsStub(),
     )
   }
 
@@ -3176,6 +3182,7 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
       undefined as never,
       undefined as never,
       makeApprovalsService(),
+      makeNotificationsStub(),
     )
   }
 
@@ -3588,6 +3595,7 @@ describe('UsersService.buildProfileView — ToS hidden from JUNIOR self (data-pr
       undefined as never,
       undefined as never,
       makeApprovalsService(),
+      makeNotificationsStub(),
     )
   }
 

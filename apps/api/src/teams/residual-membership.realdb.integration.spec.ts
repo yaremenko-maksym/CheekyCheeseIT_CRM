@@ -199,6 +199,7 @@ describe.skipIf(!hasDatabaseUrl())(
         // scenarios, but a working stub prevents a future test that does
         // reach it here from reproducing the CI failure this round fixed.
         { getStatus: async () => 'NONE' as const } as never,
+        makeNotificationsStub(),
       )
       teamsService = new TeamsService(dbSvc, usersService, teamAuditLog, makeNotificationsStub())
 

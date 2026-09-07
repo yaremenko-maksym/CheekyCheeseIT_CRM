@@ -44,6 +44,8 @@ import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
 import { ApprovalsService } from '../approvals/approvals.service'
+import { NOTIFICATION_TITLES } from '@crm/shared'
+import { NotificationsService } from '../notifications/notifications.service'
 import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
@@ -171,6 +173,10 @@ export class UsersService {
     private teamsService: TeamsService,
     private inviteMailer: PersonalEmailInviteMailerService,
     private readonly approvals: ApprovalsService,
+    // task-notification-types-producers (позиция 6). Производитель «ждёт
+    // решения: новая доля» для БАЗОВОЙ доли — половина, симметричная
+    // `ProjectsService`.
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -183,26 +189,34 @@ export class UsersService {
   private static readonly SENIOR_SHARE_SUBJECT_TYPE = 'USER_SENIOR_SHARE'
 
   /**
-   * Seam for position 6 of docs/superpowers/specs/2026-09-01-notifications-
-   * and-confirmations-design.md ("Типы уведомлений и их производители") — the
-   * "подтвердить новую долю" notification (§7.2) is created here once that
-   * position wires a real NotificationsService in. Deliberately a no-op
-   * today: the notification TYPE this call would use does not exist yet
-   * (owned by position 6, out of this task's scope). Called exactly once per
-   * opened proposal (see `proposeSeniorShareChangeInTx` below) so position 6
-   * has one call site to fill in rather than having to re-discover it —
-   * verified by `users.pending-share.spec.ts`'s spy assertion.
+   * «Ждёт решения: новая доля» для БАЗОВОЙ доли — тому, чья доля меняется, и
+   * никому больше. Близнец `ProjectsService.notifyPendingSeniorShareProposed`;
+   * различие ровно одно и содержательное: там `scope: 'PROJECT'` с названием
+   * проекта, здесь `scope: 'BASE'` — «базовая доля», у которой проекта нет.
+   *
+   * Позиция 5 оставила шов пустым и Stryker-подавленным (типа уведомления ещё
+   * не существовало); позиция 6 его заполняет, подавление снято. Подпись
+   * получила `tx` и стала асинхронной — запись пишется в той же транзакции,
+   * что и предложение. Спека-хендофф `users.pending-share.spec.ts` обновлена.
    */
-  // The body below is `{ void input }` — behaviorally identical to `{}` for
-  // every caller; the seam is proven by the spy-was-CALLED assertion in
-  // users.pending-share.spec.ts, which mutation on the CALL SITE (not this
-  // body) would still catch. The directive on the line directly below MUST
-  // stay the line immediately above the method — see
-  // projects.service.ts's identical comment for why.
-  // Stryker disable next-line BlockStatement: see the doc comment above.
-  private notifyPendingSeniorShareProposed(input: NotifyPendingShareInput): void {
-    // Intentionally empty — see doc comment above.
-    void input
+  private async notifyPendingSeniorShareProposed(
+    tx: DrizzleTx,
+    input: NotifyPendingShareInput,
+  ): Promise<void> {
+    await this.notifications.createInTx(tx, {
+      userId: input.approverUserId,
+      type: 'SHARE_CONFIRM_REQUIRED',
+      title: NOTIFICATION_TITLES.SHARE_CONFIRM_REQUIRED,
+      subjectType: 'USER',
+      subjectId: input.subjectId,
+      data: {
+        scope: 'BASE',
+        projectName: null,
+        previousPercent: input.previousPercent,
+        proposedPercent: input.proposedPercent,
+      },
+      // Ключа нет намеренно — см. близнеца в `ProjectsService`.
+    })
   }
 
   /**
@@ -266,7 +280,7 @@ export class UsersService {
       .update(users)
       .set({ pendingSeniorSharePercent: requestedPercent, updatedAt: new Date() })
       .where(eq(users.id, existing.id))
-    this.notifyPendingSeniorShareProposed({
+    await this.notifyPendingSeniorShareProposed(tx, {
       subjectId: existing.id,
       approverUserId: existing.id,
       proposedPercent: requestedPercent,

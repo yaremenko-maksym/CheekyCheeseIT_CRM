@@ -13,9 +13,12 @@ import {
   proposeApprovalInputSchema,
   rejectApprovalInputSchema,
 } from '@crm/shared'
+import { NOTIFICATION_TITLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { approvals } from '../database/schema'
+import { approvals, projects, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { NotificationsService } from '../notifications/notifications.service'
+import { approvalNotificationKind, approvalNotificationSubject } from './approval-notification'
 
 type ApprovalRow = typeof approvals.$inferSelect
 
@@ -43,7 +46,14 @@ type ApprovalRow = typeof approvals.$inferSelect
  */
 @Injectable()
 export class ApprovalsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    // task-notification-types-producers (позиция 6). Производитель двух типов
+    // «админу»: «сотрудник подтвердил» и «сотрудник отклонил, с причиной».
+    // Почему шов здесь, а не в шести вызывающих местах — см.
+    // `approval-notification.ts`.
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * Opens a new proposal for a subject: one PENDING row per approver.
@@ -119,6 +129,10 @@ export class ApprovalsService {
       .returning()
     if (!updated) throw new Error('Failed to record approval')
 
+    // Позиция 6: в ТОЙ ЖЕ транзакции, что и само решение — уведомление о
+    // несостоявшемся согласии структурно невозможно.
+    await this.notifyDecision(tx, updated, null)
+
     return toApproval(updated)
   }
 
@@ -185,7 +199,74 @@ export class ApprovalsService {
         ),
       )
 
+    // Позиция 6: причина отказа — ровно то, ради чего этот тип и заведён.
+    await this.notifyDecision(tx, updated, input.reason)
+
     return toApproval(updated)
+  }
+
+  /**
+   * «Сотрудник подтвердил» / «сотрудник отклонил, с причиной» — автору
+   * предложения. Один шов на оба решения и на все виды объектов.
+   *
+   * Кому НЕ уходит: самому решившему, когда он же и предложил (своё действие
+   * подтверждает тост, §8.1), и никому при виде объекта, которого этот файл не
+   * умеет назвать (`approvalNotificationKind` вернул `null`) — сообщить
+   * администратору про «объект неизвестного вида» хуже, чем промолчать.
+   */
+  private async notifyDecision(
+    tx: DrizzleTx,
+    row: ApprovalRow,
+    rejectionReason: string | null,
+  ): Promise<void> {
+    const kind = approvalNotificationKind(row.subjectType)
+    if (kind === null) return
+    if (row.proposedByUserId === row.approverUserId) return
+
+    const { subjectType, needsProjectName } = approvalNotificationSubject(kind)
+
+    const [approver] = await tx
+      .select({ displayName: users.displayName })
+      .from(users)
+      .where(eq(users.id, row.approverUserId))
+      .limit(1)
+
+    let subjectTitle: string | null = null
+    if (needsProjectName) {
+      const [project] = await tx
+        .select({ name: projects.name })
+        .from(projects)
+        .where(eq(projects.id, row.subjectId))
+        .limit(1)
+      subjectTitle = project?.name ?? null
+    }
+
+    // Имя снимается В МОМЕНТ решения: уведомление живёт дольше объекта (§7.4),
+    // и строка о том, кто что решил, не должна становиться безымянной.
+    const approverName = approver?.displayName ?? 'Сотрудник'
+
+    if (rejectionReason === null) {
+      await this.notifications.createInTx(tx, {
+        userId: row.proposedByUserId,
+        type: 'APPROVAL_CONFIRMED',
+        title: NOTIFICATION_TITLES.APPROVAL_CONFIRMED,
+        subjectType,
+        subjectId: row.subjectId,
+        secondaryId: row.approverUserId,
+        data: { approverName, subjectKind: kind, subjectTitle },
+      })
+      return
+    }
+
+    await this.notifications.createInTx(tx, {
+      userId: row.proposedByUserId,
+      type: 'APPROVAL_REJECTED',
+      title: NOTIFICATION_TITLES.APPROVAL_REJECTED,
+      subjectType,
+      subjectId: row.subjectId,
+      secondaryId: row.approverUserId,
+      data: { approverName, subjectKind: kind, subjectTitle, reason: rejectionReason },
+    })
   }
 
   /**
