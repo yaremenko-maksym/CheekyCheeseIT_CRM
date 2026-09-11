@@ -220,6 +220,40 @@ describe('«вас добавили в проект»', () => {
     await expect(h.service.addMember('proj-1', 'junior-1', ADMIN)).rejects.toThrow()
     expect(h.created).toHaveLength(0)
   })
+
+  it('членство кладётся ровно парой «проект — человек»', async () => {
+    const h = buildAddMemberHarness()
+    await h.service.addMember('proj-1', 'junior-1', ADMIN)
+
+    // Пустая вставка оставила бы человека вне проекта, а уведомление о
+    // добавлении — уже разосланным: обе записи идут одной транзакцией и
+    // обязаны говорить одно и то же.
+    expect(h.inserted).toEqual([{ projectId: 'proj-1', userId: 'junior-1' }])
+  })
+
+  it('добавивший САМ СЕБЯ не получает письма о себе — своё подтверждает тост', async () => {
+    // §8.1. Подстраховка, а не бой: кадровик сам себя в проект добавить не
+    // может (роль не та), поэтому равенство проверяется на заглушке — ради
+    // того случая, ради которого условие и стоит.
+    const h = buildAddMemberHarness()
+    const self = { ...ADMIN, id: 'junior-1' } as SessionUser
+
+    await h.service.addMember('proj-1', 'junior-1', self)
+
+    expect(h.inserted).toHaveLength(1)
+    expect(h.created).toHaveLength(0)
+  })
+
+  it('под входом за другого автором считается реальный оператор, и письмо уходит', async () => {
+    // Вход за сотрудника: нажимает администратор, значит «своё» — его, а
+    // добавленный обязан узнать.
+    const h = buildAddMemberHarness()
+    const impersonating = { ...ADMIN, id: 'junior-1', impersonatorId: ADMIN.id } as SessionUser
+
+    await h.service.addMember('proj-1', 'junior-1', impersonating)
+
+    expect(h.created.map((c) => c['userId'])).toEqual(['junior-1'])
+  })
 })
 
 // ---------------------------------------------------------------------------

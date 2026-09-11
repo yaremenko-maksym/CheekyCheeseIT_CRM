@@ -70,12 +70,39 @@ function makeHarness(tx: TxRow, projectName: string | null = 'Acme') {
     }),
   }
 
+  // Заглушки чтения ведут себя как база в двух вещах, на которых иначе
+  // нельзя отличить «спросил правильно» от «спросил что попало»:
+  //   - без условия отбора строка не находится (запрос «дай хоть что-нибудь»
+  //     в бою вернул бы ЧУЖУЮ транзакцию — то есть чужие деньги);
+  //   - в ответе ровно те колонки, которые попросили.
+  const findFirstArgs: Record<string, unknown>[] = []
+  const pickColumns = (
+    args: { columns?: Record<string, boolean> } | undefined,
+    source: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    const columns = args?.columns
+    if (columns === undefined) return source
+    const out: Record<string, unknown> = {}
+    for (const [key, wanted] of Object.entries(columns)) if (wanted) out[key] = source[key]
+    return out
+  }
+
   const db = {
     db: {
       query: {
-        transactions: { findFirst: async () => tx },
+        transactions: {
+          findFirst: async (args?: { where?: unknown }) => {
+            findFirstArgs.push({ scope: 'transactions', ...(args ?? {}) })
+            return args?.where === undefined ? undefined : tx
+          },
+        },
         projects: {
-          findFirst: async () => (projectName === null ? undefined : { name: projectName }),
+          findFirst: async (args?: { where?: unknown; columns?: Record<string, boolean> }) => {
+            findFirstArgs.push({ scope: 'projects', ...(args ?? {}) })
+            if (args?.where === undefined) return undefined
+            if (projectName === null) return undefined
+            return pickColumns(args, { id: 'proj-1', name: projectName })
+          },
         },
       },
       insert: () => ({ values: async () => undefined }),
@@ -84,7 +111,22 @@ function makeHarness(tx: TxRow, projectName: string | null = 'Acme') {
   } as never
 
   const svc = makeTransactionsService({ db, notificationsService: notifications })
-  return { svc, created, notifications, auditInserts }
+  return { svc, created, notifications, auditInserts, findFirstArgs }
+}
+
+/**
+ * Журнал — единственный наблюдаемый выход best-effort производителя: он ничего
+ * не возвращает и ничем не падает. Поэтому «промолчал» и «упал, но проглотил»
+ * различаются только здесь. Возвращается список сообщений, а не сам шпион,
+ * чтобы утверждение читалось про текст.
+ */
+function spyOnLoggerErrors(svc: TransactionsService): string[] {
+  const messages: string[] = []
+  const logger = (svc as unknown as { logger: { error: (m: string, s?: string) => void } }).logger
+  vi.spyOn(logger, 'error').mockImplementation((m: string) => {
+    messages.push(String(m))
+  })
+  return messages
 }
 
 /** `afterTransactionCreated` — приватный шов, который зовут все пути создания. */
@@ -180,17 +222,74 @@ describe('«транзакция добавлена»', () => {
     const h = makeHarness(tx)
     const db = (h.svc as unknown as { db: { db: { query: { transactions: unknown } } } }).db
     db.db.query.transactions = { findFirst: async () => undefined }
+    const errors = spyOnLoggerErrors(h.svc)
+
     await created(h.svc).afterTransactionCreated(tx.id, tx, ADMIN)
+
     expect(h.created).toHaveLength(0)
+    // «Молча» — это ровно тишина, а не проглоченное падение: ушедшая строка —
+    // обычный исход гонки, и жалоба в журнал на каждый такой случай заглушила
+    // бы настоящие сбои доставки.
+    expect(errors).toHaveLength(0)
   })
 
   it('сбой доставки не превращает записанные деньги в ошибку', async () => {
     const tx = makeTxRow()
     const h = makeHarness(tx)
+    const errors = spyOnLoggerErrors(h.svc)
     ;(h.notifications.create as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('нет связи'),
     )
+
     await expect(created(h.svc).afterTransactionCreated(tx.id, tx, ADMIN)).resolves.toBeUndefined()
+
+    // Но и молчать нельзя: не доехавшее уведомление о деньгах обязано остаться
+    // следом в журнале — с той строкой, о которой речь, и с причиной.
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain('notifyTransactionAdded')
+    expect(errors[0]).toContain('tx-1')
+    expect(errors[0]).toContain('нет связи')
+  })
+
+  it('спека без своей заглушки уведомлений производителя не роняет', async () => {
+    // Пинует умолчание из `__test-helpers__/make-transactions-service`: десятки
+    // финансовых спек не передают `notificationsService` вовсе, и производитель
+    // обязан у них проходить бесшумно — иначе «best-effort» превратится в
+    // журнал, полный ложных сбоев.
+    const tx = makeTxRow()
+    const db = {
+      db: {
+        query: {
+          transactions: {
+            findFirst: async (args?: { where?: unknown }) => (args ? tx : undefined),
+          },
+          projects: { findFirst: async () => ({ name: 'Acme' }) },
+        },
+        // Рядом с производителем на том же пути живёт запись в аудит — без неё
+        // молчание проверялось бы на упавшем соседе, а не на производителе.
+        insert: () => ({ values: async () => undefined }),
+      },
+    } as never
+    const svc = makeTransactionsService({ db })
+    const errors = spyOnLoggerErrors(svc)
+
+    await expect(created(svc).afterTransactionCreated(tx.id, tx, ADMIN)).resolves.toBeUndefined()
+    expect(errors).toHaveLength(0)
+  })
+
+  it('читает ИМЕННО свою строку и ровно нужную колонку проекта', async () => {
+    const tx = makeTxRow()
+    const h = makeHarness(tx)
+
+    await created(h.svc).afterTransactionCreated(tx.id, tx, ADMIN)
+
+    const txRead = h.findFirstArgs.find((a) => a['scope'] === 'transactions')
+    const projectRead = h.findFirstArgs.find((a) => a['scope'] === 'projects')
+    // Запрос без условия отбора в бою вернул бы ЧУЖУЮ строку, то есть чужие
+    // деньги; запрос без списка колонок притащил бы весь профиль проекта.
+    expect(txRead?.['where']).toBeDefined()
+    expect(projectRead?.['where']).toBeDefined()
+    expect(projectRead?.['columns']).toEqual({ name: true })
   })
 })
 
@@ -252,5 +351,63 @@ describe('«статус транзакции изменился»', () => {
     const h = makeHarness(tx)
     await expect(h.svc.validateTransaction('tx-1', 'reject', null, ADMIN)).rejects.toThrow()
     expect(h.created).toHaveLength(0)
+  })
+
+  it('строка без получателя: писать некому — и никто посторонний не узнаёт', async () => {
+    const tx = makeTxRow({ receiverId: null })
+    const h = makeHarness(tx)
+    vi.spyOn(h.svc, 'findOne').mockResolvedValue({} as never)
+
+    await h.svc.validateTransaction('tx-1', 'validate', null, ADMIN)
+
+    expect(h.created).toHaveLength(0)
+  })
+
+  it('проверивший СВОЮ строку себе не пишет — своё подтверждает тост (§8.1)', async () => {
+    const tx = makeTxRow({ receiverId: ADMIN.id })
+    const h = makeHarness(tx)
+    vi.spyOn(h.svc, 'findOne').mockResolvedValue({} as never)
+
+    await h.svc.validateTransaction('tx-1', 'validate', null, ADMIN)
+
+    expect(h.created).toHaveLength(0)
+  })
+
+  it('под входом за другого сотрудника автором считается реальный оператор', async () => {
+    // Вход за другого: решение принимает администратор, значит и «своё» здесь
+    // — его. Получателю-сотруднику написать обязаны, иначе человек не узнает о
+    // судьбе своего дохода.
+    const tx = makeTxRow({ receiverId: 'senior-1' })
+    const h = makeHarness(tx)
+    vi.spyOn(h.svc, 'findOne').mockResolvedValue({} as never)
+    const impersonating = { ...ADMIN, id: 'senior-1', impersonatorId: ADMIN.id } as SessionUser
+
+    await h.svc.validateTransaction('tx-1', 'validate', null, impersonating)
+
+    expect(h.created).toHaveLength(1)
+    expect(h.created[0]).toMatchObject({ userId: 'senior-1' })
+  })
+
+  it('строки уже нет — молча ничего, без жалобы в журнал', async () => {
+    const tx = makeTxRow()
+    const h = makeHarness(tx)
+    vi.spyOn(h.svc, 'findOne').mockResolvedValue({} as never)
+    const errors = spyOnLoggerErrors(h.svc)
+    const db = (h.svc as unknown as { db: { db: { query: { transactions: unknown } } } }).db
+    let call = 0
+    const before = db.db.query.transactions as { findFirst: (a?: unknown) => Promise<unknown> }
+    // Первое чтение обслуживает сам переход статуса; исчезает строка к моменту
+    // рассылки — то есть ровно на гонке с удалением.
+    db.db.query.transactions = {
+      findFirst: async (a?: unknown) => {
+        call += 1
+        return call === 1 ? before.findFirst(a) : undefined
+      },
+    }
+
+    await h.svc.validateTransaction('tx-1', 'validate', null, ADMIN)
+
+    expect(h.created).toHaveLength(0)
+    expect(errors).toHaveLength(0)
   })
 })

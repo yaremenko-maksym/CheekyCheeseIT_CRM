@@ -47,8 +47,23 @@ function makeHarness(row: Record<string, unknown>, opts: { projectName?: string 
   // вызова — `lockLiveRows` заканчивается на `.for(...)`, а два чтения
   // производителя на `.limit(1)`.
   let limitCall = 0
+  /**
+   * Заглушка УВАЖАЕТ список запрошенных колонок, как и настоящая база: что не
+   * попросили — того в ответе нет. Иначе «прочитать имя сотрудника» и
+   * «прочитать ничего» выглядели бы для теста одинаково, и производитель мог
+   * бы спрашивать у базы пустоту, оставаясь зелёным.
+   */
+  const project = (
+    fields: Record<string, unknown> | undefined,
+    source: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    if (fields === undefined) return source
+    const out: Record<string, unknown> = {}
+    for (const key of Object.keys(fields)) out[key] = source[key]
+    return out
+  }
   const txHandle = {
-    select: vi.fn(() => {
+    select: vi.fn((fields?: Record<string, unknown>) => {
       const chain: Record<string, unknown> = {}
       chain['from'] = vi.fn(() => chain)
       chain['where'] = vi.fn(() => chain)
@@ -62,10 +77,10 @@ function makeHarness(row: Record<string, unknown>, opts: { projectName?: string 
         Promise.resolve([row]).then(resolve, reject)
       chain['limit'] = vi.fn(async () => {
         limitCall += 1
-        if (limitCall === 1) return [row]
-        if (limitCall === 2) return [{ displayName: 'Иван Петров' }]
+        if (limitCall === 1) return [project(fields, row as unknown as Record<string, unknown>)]
+        if (limitCall === 2) return [project(fields, { displayName: 'Иван Петров' })]
         const name = opts.projectName === undefined ? 'Acme' : opts.projectName
-        return name === null ? [] : [{ name }]
+        return name === null ? [] : [project(fields, { name })]
       })
       return chain
     }),
