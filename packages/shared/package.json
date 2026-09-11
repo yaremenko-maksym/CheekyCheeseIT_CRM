@@ -32,6 +32,6 @@
     "@vitest/eslint-plugin": "^1.6.26",
     "eslint": "^10.3.0",
     "typescript": "^5.8.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.11"
   }
 }
