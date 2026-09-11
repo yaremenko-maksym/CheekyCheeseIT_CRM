@@ -40,7 +40,6 @@ import {
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
-import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * DROP RBAC — real-backend integration spec (real DB, no mocks).

@@ -195,6 +195,36 @@ describe('«вас добавили в команду» и «в команде �
     expect(h.created.map((c) => c['userId'])).toEqual(['hr-1', 'ghost-1', 'senior-1'])
   })
 
+  /**
+   * SR-M-1 (security-review круг 1). Обратная сторона предыдущего случая — и
+   * ровно та, которую предыдущий тест закреплял в опасную сторону: если у
+   * строки членства не подтянулся профиль, роль НЕИЗВЕСТНА, и решать, что
+   * такому участнику можно показать имя джуна, нельзя.
+   *
+   * В этом же файле сервиса `mapTeam` / `mapDropTeam` после #541 трактуют
+   * оборванную личность как САМУЮ ОГРАНИЧЕННУЮ роль («a dangling identity is
+   * treated as the MOST restricted role, not the least»). Производитель обязан
+   * идти в ту же сторону: иначе колокольчик рассказывает то, что экран прячет.
+   */
+  it('о новом ДЖУНЕ участник без профиля не узнаёт — неизвестная роль = самая ограниченная', async () => {
+    const h = makeHarness({
+      members: [
+        { id: 'm-1', userId: 'ghost-1', role: null, leftAt: null },
+        { id: 'm-2', userId: 'senior-1', role: 'SENIOR', leftAt: null },
+        { id: 'm-3', userId: 'acc-1', role: 'ACCOUNTANT', leftAt: null },
+      ],
+      addedUser: { id: 'junior-1', role: 'JUNIOR', displayName: 'Пётр Джунов' },
+    })
+
+    await h.svc.addMember('team-1', 'junior-1', ADMIN)
+
+    // Рассылка при этом НЕ падает и не схлопывается: бухгалтер узнаёт, сам
+    // добавленный узнаёт. Молчат только те, кому имя джуна не положено.
+    expect(h.created.map((c) => c['userId'])).toEqual(['junior-1', 'acc-1'])
+    const names = h.created.map((c) => JSON.stringify(c['data']))
+    expect(names.filter((n) => n.includes('Пётр Джунов'))).toHaveLength(1)
+  })
+
   it('добавленный не получает ВТОРОГО письма как «участник команды»', async () => {
     // Подстраховка, а не бой: активное членство отсекается выше («уже
     // участник»), поэтому сам себя в списке участников добавляемый увидеть не

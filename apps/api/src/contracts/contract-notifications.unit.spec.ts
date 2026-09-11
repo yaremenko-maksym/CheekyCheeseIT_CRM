@@ -5,13 +5,43 @@
  * Событие — перевод договора DRAFT → READY_TO_SIGN, то есть ровно момент,
  * когда от сотрудника начинают ждать подписи. Получатель — он один.
  */
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { EmployeeContractsService } from './employee-contracts.service'
 import type { NotificationsService } from '../notifications/notifications.service'
 
 const ADMIN = { id: 'admin-1', role: 'ADMIN' } as SessionUser
-const UPDATED_AT = new Date('2026-09-07T10:00:00.000Z')
+/** Версия строки ДО перехода — та, из которой строится ключ идемпотентности. */
+const CREATED_AT = new Date('2026-09-07T09:00:00.000Z')
+
+/**
+ * Условия отбора раскрываются в настоящий SQL и ПРИМЕНЯЮТСЯ к строке — как их
+ * применила бы база (CR-M-2, круг 1).
+ *
+ * Без этого заглушка отдавала бы строку независимо от того, что стоит в
+ * `WHERE`, и «UPDATE ... WHERE id = ? AND status = 'DRAFT'» был бы для теста
+ * неотличим от «UPDATE ... WHERE id = ?» — то есть ровно та потеря, которую
+ * находка и называет. Приём тот же, что в `pending-settlement.spec.ts`:
+ * `PgDialect().sqlToQuery` вместо разбора внутренностей drizzle руками.
+ */
+const COLUMN_TO_FIELD: Record<string, string> = {
+  id: 'id',
+  user_id: 'userId',
+  status: 'status',
+}
+
+function whereMatches(condition: unknown, row: Record<string, unknown>): boolean {
+  const compiled = new PgDialect().sqlToQuery(condition as Parameters<PgDialect['sqlToQuery']>[0])
+  for (const part of compiled.sql.split(/\s+and\s+/i)) {
+    const match = /"[^"]+"\."([^"]+)"\s*=\s*\$(\d+)/.exec(part)
+    if (match === null) throw new Error(`заглушка не понимает условие: ${part}`)
+    const field = COLUMN_TO_FIELD[match[1] as string]
+    if (field === undefined) throw new Error(`заглушка не знает колонку: ${match[1]}`)
+    if (row[field] !== compiled.params[Number(match[2]) - 1]) return false
+  }
+  return true
+}
 
 function makeHarness(status = 'DRAFT', updateReturnsNothing = false) {
   const created: Record<string, unknown>[] = []
@@ -22,12 +52,23 @@ function makeHarness(status = 'DRAFT', updateReturnsNothing = false) {
     }),
   } as unknown as NotificationsService
 
+  // Живая строка: её читает `findFirst`, её же меняет `UPDATE`. Одна строка на
+  // две операции — иначе гонку не изобразить.
+  const row: Record<string, unknown> = {
+    id: 'contract-1',
+    userId: 'junior-1',
+    status,
+    updatedAt: CREATED_AT,
+  }
+  /** Снимок, который читают ОБА участника гонки: оба видят ещё-черновик. */
+  let frozenRead: Record<string, unknown> | null = null
+
   const updates: unknown[] = []
   const db = {
     db: {
       query: {
         employeeContracts: {
-          findFirst: async () => ({ id: 'contract-1', userId: 'junior-1', status }),
+          findFirst: async () => ({ ...(frozenRead ?? row) }),
         },
       },
       transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> =>
@@ -38,11 +79,13 @@ function makeHarness(status = 'DRAFT', updateReturnsNothing = false) {
             // ожидание подписи» и «ничего не записать» выглядели бы для теста
             // одинаково: возвращённый статус был бы правильным в обоих случаях.
             set: (v: Record<string, unknown>) => ({
-              where: () => ({
+              where: (condition: unknown) => ({
                 returning: async () => {
                   updates.push(v)
                   if (updateReturnsNothing) return []
-                  return [{ id: 'contract-1', updatedAt: UPDATED_AT, status, ...v }]
+                  if (!whereMatches(condition, row)) return []
+                  Object.assign(row, v)
+                  return [{ ...row }]
                 },
               }),
             }),
@@ -52,7 +95,16 @@ function makeHarness(status = 'DRAFT', updateReturnsNothing = false) {
   } as never
 
   const svc = new EmployeeContractsService(db, {} as never, notifications)
-  return { svc, created, updates }
+  return {
+    svc,
+    created,
+    updates,
+    row,
+    /** Заморозить чтение: с этого момента все читатели видят текущую строку. */
+    freezeReads: () => {
+      frozenRead = { ...row }
+    },
+  }
 }
 
 describe('«ждёт решения: документ на подпись»', () => {
@@ -72,22 +124,48 @@ describe('«ждёт решения: документ на подпись»', ()
     })
   })
 
-  it('ключ идемпотентности несёт версию строки — повторная подготовка спросит заново', async () => {
-    // Часы останавливаются, потому что версию строки проставляет сам переход
-    // (`updatedAt: new Date()`), и заглушка возвращает строку уже правленой.
-    // Ожидаемый ключ остаётся отдельным литералом, а не вычисляется тем же
-    // способом, что и код.
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(UPDATED_AT)
-    try {
-      const h = makeHarness()
-      await h.svc.markReady('junior-1', ADMIN)
-      expect(h.created[0]?.['dedupeKey']).toBe(
-        'DOCUMENT_SIGN_REQUIRED:contract-1:2026-09-07T10:00:00.000Z',
-      )
-    } finally {
-      vi.useRealTimers()
-    }
+  /**
+   * CR-M-2 (код-ревью круг 1). Ключ строился на `row.updatedAt` — значении,
+   * которое пишет ТА ЖЕ операция, которую он должен дедуплицировать: два
+   * одновременных перехода получали два РАЗНЫХ ключа, и частичный индекс
+   * дубль не ловил.
+   *
+   * Теперь ключ считается из строки, прочитанной ДО перехода: у обоих
+   * участников гонки она одна и та же, значит и ключ один. Версия в ключе при
+   * этом сохранена намеренно — возврат договора в черновик и повторная
+   * подготовка это НОВАЯ просьба подписать, и она обязана доехать (без версии
+   * её погасил бы тот самый индекс).
+   *
+   * Часы не останавливаются: ожидаемый ключ несёт версию ДО перехода, а её
+   * ставит фикстура, а не `Date.now()`.
+   */
+  it('ключ идемпотентности несёт версию строки ДО перехода — один на оба участника гонки', async () => {
+    const h = makeHarness()
+    await h.svc.markReady('junior-1', ADMIN)
+    expect(h.created[0]?.['dedupeKey']).toBe(
+      'DOCUMENT_SIGN_REQUIRED:contract-1:DRAFT@2026-09-07T09:00:00.000Z',
+    )
+  })
+
+  it('две одновременные подготовки: переход и просьба подписать ровно по разу', async () => {
+    const h = makeHarness()
+    // Оба запроса успели прочитать договор ещё черновиком — ровно то окно, в
+    // котором `getActiveOrThrow` (обычный `findFirst`, без `FOR UPDATE`)
+    // пропускает обоих.
+    h.freezeReads()
+
+    const results = await Promise.allSettled([
+      h.svc.markReady('junior-1', ADMIN),
+      h.svc.markReady('junior-1', ADMIN),
+    ])
+
+    // Оба дошли до UPDATE — guard по прочитанному статусу их не разделил.
+    expect(h.updates).toHaveLength(2)
+    // Разделило условие в самом UPDATE: строка перешла один раз...
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1)
+    // ...и сотрудник получил ОДНУ просьбу подписать, а не две.
+    expect(h.created).toHaveLength(1)
   })
 
   it('договор не в черновике — ни перехода, ни уведомления', async () => {

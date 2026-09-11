@@ -954,7 +954,16 @@ export class TeamsService {
       if (member.leftAt !== null) continue
       if (member.userId === input.addedUserId) continue
       if (member.userId === actorId) continue
-      const memberRole = member.user?.role ?? null
+      // SR-M-1 (security-review круг 1): роль НЕИЗВЕСТНА — значит самая
+      // ограниченная, а не «никакая». `?? null` открывал рассылку в
+      // непроверяемую сторону: строка членства без подтянутого профиля не
+      // попадала ни под одно условие и получала имя джуна.
+      //
+      // `mapTeam` / `mapDropTeam` в этом же файле после #541 идут именно так
+      // («a dangling identity is treated as the MOST restricted role, not the
+      // least»), и производитель обязан повторять их контур: колокольчик не
+      // имеет права рассказывать то, что прячет экран.
+      const memberRole = member.user?.role ?? 'JUNIOR'
       // `mapTeam`: SENIOR не видит джунов, JUNIOR видит среди джунов только себя.
       if (addedIsJunior && (memberRole === 'SENIOR' || memberRole === 'JUNIOR')) continue
       out.push({
