@@ -65,13 +65,20 @@ test.describe('/pending — AC4: project approval actions', () => {
       await loginViaApi(page, SEED_EMAILS.seniorA)
       await page.goto('/pending')
       await expect(page.getByTestId('pending-page')).toBeVisible()
-      await expect(page.getByText(`Pending AC4 Co ${suffix}`)).toBeVisible()
+      const row = page.getByTestId(`pending-item-row-PROJECT_APPROVAL-${projectId}`)
+      await expect(row).toBeVisible()
+      await expect(row).toContainText(`Pending AC4 Co ${suffix}`)
 
       const badgeBefore = await navPendingBadgeCount(page)
 
       await page.getByTestId(`project-approval-approve-${projectId}`).click()
 
-      await expect(page.getByText(`Pending AC4 Co ${suffix}`)).not.toBeVisible()
+      // Anchored on the ROW, not on the company name as free text: the
+      // success toast QUOTES that same name ("Проект «…» подтверждён"), so a
+      // text-based `not.toBeVisible()` would wait out the toast's own 4s
+      // lifetime and then assert against a page where it is already gone —
+      // which is exactly how this line failed before (measured, not guessed).
+      await expect(row).toBeHidden()
       // COPY-M-8 wording ("Проект «X» подтверждён" / "Вы подтвердили. Ждём …") —
       // asserting the shared substring both branches carry.
       await expect(page.getByText(/подтвержд/i)).toBeVisible()
@@ -99,7 +106,13 @@ test.describe('/pending — AC4: project approval actions', () => {
     try {
       await loginViaApi(page, SEED_EMAILS.seniorA)
       await page.goto('/pending')
-      await expect(page.getByText(`Pending Reject Co ${suffix}`)).toBeVisible()
+      // Row-anchored for the same reason as the confirm test above — plus
+      // the reject DIALOG's own heading quotes the company name too
+      // («Отклонить проект «…»»), so bare text here is a strict-mode
+      // violation the moment the dialog opens.
+      const row = page.getByTestId(`pending-item-row-PROJECT_APPROVAL-${projectId}`)
+      await expect(row).toBeVisible()
+      await expect(row).toContainText(`Pending Reject Co ${suffix}`)
 
       await page.getByTestId(`project-approval-reject-${projectId}`).click()
       const submit = page.getByTestId('project-approval-reject-submit')
@@ -109,7 +122,7 @@ test.describe('/pending — AC4: project approval actions', () => {
       await expect(submit).toBeEnabled()
       await submit.click()
 
-      await expect(page.getByText(`Pending Reject Co ${suffix}`)).not.toBeVisible()
+      await expect(row).toBeHidden()
       await expect(page.getByText('Проект отклонён, админ увидит причину')).toBeVisible()
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
@@ -174,12 +187,17 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
     await patchUserSharePercentViaAPI(page, seniorB.id, { seniorSharePercent: 33 })
 
     await page.goto('/pending')
-    await expect(page.getByText(new RegExp(seniorB.displayName))).toBeVisible()
+    // Row-anchored: on a `proposedByMe` share row the person's name is BOTH
+    // the title and part of the meta line ("ждём: …"), so matching it as
+    // free text is a strict-mode violation by construction.
+    const row = page.getByTestId(`pending-item-row-SHARE_APPROVAL-${seniorB.id}`)
+    await expect(row).toBeVisible()
+    await expect(row).toContainText(seniorB.displayName)
 
     await page.getByTestId(`cancel-pending-share-user`).first().click()
     await page.getByTestId('cancel-pending-share-confirm-button-user').click()
 
-    await expect(page.getByText(new RegExp(`ждём.*${seniorB.displayName}`))).not.toBeVisible()
+    await expect(row).toBeHidden()
   })
 })
 
@@ -219,24 +237,27 @@ test.describe('/pending — AC5: nav badge + notifications-bell footer link', ()
   })
 })
 
-test.describe('/pending — AC6: contract row (happy path, no live setup needed)', () => {
-  test('SENIOR B (seeded READY_TO_SIGN) sees a Контракты row with the badge and an Открыть link — does not complete signing', async ({
-    page,
-  }) => {
-    // dmytro.marchenko (SEED_EMAILS.seniorB) is deliberately parked at
-    // READY_TO_SIGN forever for the onboarding-wizard specs (see
-    // onboardDropViaAPI's own doc in fixtures.ts) — read-only here, no
-    // mutation, so this test does not consume that state for anyone else.
-    await loginViaApi(page, SEED_EMAILS.seniorB)
-    await page.goto('/pending')
-
-    await expect(page.getByText('Контракт сотрудника')).toBeVisible()
-    await expect(page.getByText('готов к подписанию')).toBeVisible()
-    // No approve/reject pair on this kind (task «Границы» — signing stays in
-    // ContractTab/ContractActionBar).
-    await expect(page.getByRole('button', { name: 'Подтвердить' })).toHaveCount(0)
-  })
-})
+// ---------------------------------------------------------------------------
+// AC6 — the CONTRACT_TO_SIGN row has NO live E2E, on purpose (integration
+// decision 6, 2026-09-11).
+//
+// A user whose contract is still unsigned never reaches this screen: the
+// server refuses every non-onboarding endpoint for them, `GET /pending`
+// included. Measured against the running stack, not assumed:
+//
+//   GET /api/pending as dmytro.marchenko (seeded READY_TO_SIGN)
+//   → 403 {"error":"ONBOARDING_REQUIRED","missing":["contract","tos"]}
+//
+// and the web router redirects the same user to /onboarding before the route
+// even mounts (`_authenticated/route.tsx`'s onboarding gate). The kind stays
+// in the schema and in the aggregate — it becomes reachable the day a
+// contract appears for an ALREADY-onboarded user — and it keeps its
+// server-side coverage (`pending.integration.spec.ts` AC1's
+// JUNIOR/HR/ACCOUNTANT cases build it against a real Postgres) plus its
+// client-side rendering coverage (`PendingItemRow.test.tsx`'s
+// CONTRACT_TO_SIGN cases). What cannot exist today is the live browser path,
+// so there is no test pretending to walk it.
+// ---------------------------------------------------------------------------
 
 test.describe('/pending — AC7: responsive', () => {
   const WIDTHS = [320, 375, 768, 1024, 1280, 1440, 1920]
@@ -284,15 +305,21 @@ test.describe('/pending — AC7: responsive', () => {
       // floor only applies at the two mobile widths (responsive-design.md).
       for (const width of [320, 375]) {
         await page.setViewportSize({ width, height: 900 })
-        await page.waitForTimeout(100)
-        const approveBox = await page
-          .getByTestId(`project-approval-approve-${projectId}`)
-          .boundingBox()
-        expect(approveBox, `approve button not measurable at ${width}px`).not.toBeNull()
-        expect(
-          (approveBox as { height: number }).height,
-          `touch target < 44px at ${width}px`,
-        ).toBeGreaterThanOrEqual(44)
+        // `expect.poll`, not a fixed wait + one measurement: the rows sit in
+        // a framer-motion `layout` list, and a viewport change starts a
+        // layout transition whose transform is included in
+        // `boundingBox()`. A single read 100 ms in caught the button
+        // mid-transition at 40.4px — the settled value is 44 (h-11). Polling
+        // asserts the value the user actually ends up with, without
+        // hard-coding how long the animation happens to take.
+        await expect
+          .poll(
+            async () =>
+              (await page.getByTestId(`project-approval-approve-${projectId}`).boundingBox())
+                ?.height ?? 0,
+            { message: `touch target < 44px at ${width}px`, timeout: 5000 },
+          )
+          .toBeGreaterThanOrEqual(44)
       }
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
@@ -327,7 +354,15 @@ test.describe('/pending — SR-L-6: dashboard widget reads GET /pending, never G
       await page.waitForTimeout(500)
 
       expect(requestedUrls.some((u) => u.includes('/api/pending'))).toBe(true)
-      expect(requestedUrls.some((u) => u.includes('/api/projects'))).toBe(false)
+      // The LIST endpoint specifically — `/api/projects` or
+      // `/api/projects?...` — not any path that merely starts with it. SR-L-6
+      // is about the full, unmasked `ProjectDto[]` reaching a DROP; the
+      // dashboard's own `GET /api/projects/drop/me` is a different,
+      // drop-scoped endpoint returning `DropProjectDto` (no `rate`, no
+      // `notesGeneral`, no `members[].email`) and has always been part of
+      // this screen. A plain `.includes('/api/projects')` failed on it —
+      // measured on the live stack, not assumed.
+      expect(requestedUrls.filter((u) => /\/api\/projects(\?|$)/.test(u))).toEqual([])
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       await cleanupDropViaAPI(page, dropId)

@@ -112,6 +112,7 @@ const DROP_USER_ROW = {
 const ACTIVE_PROJECT_ROW = {
   id: PROJECT_ID,
   name: 'GamingTec',
+  companyName: 'GamingTec Holdings',
   archivedAt: null as Date | null,
   seniorSharePercentOverride: null as number | null,
   pendingSeniorSharePercentOverride: null as number | null,
@@ -139,7 +140,7 @@ describe('PendingService.getPending — mine, PROJECT_APPROVAL', () => {
         approvalId: APPROVAL_ID_1,
         subjectType: 'PROJECT',
         subjectId: PROJECT_ID,
-        title: 'GamingTec',
+        title: 'GamingTec Holdings',
         proposedBy: 'Admin Adminovich',
         waitingFor: undefined,
         // The viewer IS this project's senior — their own resolved share,
@@ -410,7 +411,7 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (PROJECT_SENIOR_SHA
 })
 
 describe('PendingService.getPending — mine, SHARE_APPROVAL (USER_SENIOR_SHARE)', () => {
-  it('titles a self base-share proposal "Ваша базовая доля" and links to /profile', async () => {
+  it('titles a self base-share proposal "Доля по умолчанию" and links to /profile', async () => {
     const approvalsService = makeFakeApprovals([
       makeApproval({
         id: APPROVAL_ID_1,
@@ -434,7 +435,7 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (USER_SENIOR_SHARE)
         // action at /users/:id), not the raw approvals column.
         subjectType: 'USER',
         subjectId: SENIOR_ID,
-        title: 'Ваша базовая доля',
+        title: 'Доля по умолчанию',
         proposedBy: 'Admin Adminovich',
         waitingFor: undefined,
         currentPercent: 26,
@@ -673,7 +674,7 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
         // them apart.
         subjectType: 'PROJECT',
         subjectId: PROJECT_ID,
-        title: 'GamingTec',
+        title: 'Доля по проекту «GamingTec»',
         proposedBy: undefined,
         waitingFor: ['Senior One'],
         // No project-level override (null) and no PENDING project-level

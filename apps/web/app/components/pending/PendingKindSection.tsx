@@ -51,7 +51,14 @@ export function PendingKindSection({
           {items.map((item) => (
             <motion.li
               key={`${item.kind}-${item.subjectId}`}
-              layout
+              // `layout="position"`, not bare `layout`: the rows only ever
+              // need to SLIDE UP into a departing row's gap, and the plain
+              // version animates size too — by scaling the element, which
+              // visibly distorts the row's text and buttons mid-flight (and
+              // was measurable: a 44px touch target reads as 40.4px while
+              // the transform is running). Position-only keeps the slide and
+              // leaves the contents undeformed.
+              layout="position"
               initial={false}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: shouldReduceMotion ? 0 : 0.2 }}

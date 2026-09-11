@@ -39,6 +39,11 @@ const USER_SENIOR_SHARE_SUBJECT_TYPE = 'USER_SENIOR_SHARE'
 type ProjectLite = {
   id: string
   name: string
+  /** What a project is CALLED on every other surface of the CRM — the
+   * dashboard widget's own primary line before SR-L-6, and what
+   * `ProjectApprovalActions`'s `companyName` prop means. See
+   * `buildItemForSubject`'s PROJECT_APPROVAL branch. */
+  companyName: string
   archivedAt: Date | null
   seniorSharePercentOverride: number | null
   pendingSeniorSharePercentOverride: number | null
@@ -440,7 +445,15 @@ export class PendingService {
         approvalId: row.id,
         subjectType: 'PROJECT',
         subjectId: project.id,
-        title: project.name,
+        // `companyName`, not `name` (integration decision A1, 2026-09-12):
+        // the design spec's own §6.1 example row is a company
+        // ("TechFlow Solutions"), the dashboard widget's primary line was
+        // `project.companyName` before SR-L-6, and the client feeds this
+        // straight into `ProjectApprovalActions`'s `companyName` prop (which
+        // renders it inside "Подтвердить проект «…»"). Three consumers, one
+        // answer. The project's own `name` is the internal label and is not
+        // what identifies the decision to the person making it.
+        title: project.companyName,
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         viewerSharePercent,
@@ -480,7 +493,12 @@ export class PendingService {
         approvalId: row.id,
         subjectType: 'PROJECT',
         subjectId: project.id,
-        title: project.name,
+        // Design spec §6.2's own recommendation ("нужно решить
+        // консистентно"), settled here: a bare project title inside the
+        // «Доли» section reads as a project row, not as a share proposal —
+        // and it is the wording `PendingShareApprovalBanner` already uses
+        // ("доля по проекту"). Integration decision A1, 2026-09-12.
+        title: `Доля по проекту «${project.name}»`,
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         currentPercent,
@@ -506,7 +524,11 @@ export class PendingService {
         approvalId: row.id,
         subjectType: 'USER',
         subjectId: senior.id,
-        title: ctx.isMine ? 'Ваша базовая доля' : senior.displayName,
+        // «Доля по умолчанию» — design spec §6.2's recommended wording, the
+        // same words `PendingBaseShareBanner` already says ("долю по
+        // умолчанию"). On `proposedByMe` the ADMIN is looking at SOMEONE
+        // ELSE's base share, so there the person's name is the title.
+        title: ctx.isMine ? 'Доля по умолчанию' : senior.displayName,
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         currentPercent: senior.seniorSharePercent,
@@ -607,6 +629,7 @@ export class PendingService {
     const PROJECT_LITE_COLUMNS = {
       id: projects.id,
       name: projects.name,
+      companyName: projects.companyName,
       archivedAt: projects.archivedAt,
       seniorSharePercentOverride: projects.seniorSharePercentOverride,
       pendingSeniorSharePercentOverride: projects.pendingSeniorSharePercentOverride,

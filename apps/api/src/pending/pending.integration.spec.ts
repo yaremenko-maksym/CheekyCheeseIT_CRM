@@ -435,12 +435,26 @@ describe.skipIf(!hasDatabaseUrl())('PendingService.getPending — against real P
   // AC3 — disclosure
   // -------------------------------------------------------------------
   describe('AC3 — disclosure', () => {
-    it('a PROJECT_APPROVAL item never carries a percent field, for any viewer', async () => {
+    /**
+     * Was "a PROJECT_APPROVAL item never carries a percent field, for ANY
+     * viewer". Integration decision 2 (2026-09-11) narrowed that: a project
+     * row now carries `viewerSharePercent` — the viewer's OWN resolved
+     * share, and only theirs. The invariant this test protects is therefore
+     * the one that actually matters and always did: the COUNTERPARTY'S
+     * figure never appears. The drop's 88% is still absent from the SENIOR's
+     * response; for the DROP it is now present ON PURPOSE, because it is
+     * their own number (it is what they are being asked to agree to).
+     */
+    it("a PROJECT_APPROVAL item carries only the viewer's OWN share — never the counterparty's", async () => {
       const projectId = await freshProject({
         seniorId: SENIOR_ID,
         dropId: DROP_ID,
         dropSharePercentOverride: 88,
       })
+      await dbSvc.db
+        .update(projects)
+        .set({ seniorSharePercentOverride: 44 })
+        .where(eq(projects.id, projectId))
       await approvalsSvc.propose({
         subjectType: PROJECT_SUBJECT_TYPE,
         subjectId: projectId,
@@ -451,8 +465,69 @@ describe.skipIf(!hasDatabaseUrl())('PendingService.getPending — against real P
       const seniorResult = await pendingSvc.getPending(viewer(SENIOR_ID, 'SENIOR'))
       const dropResult = await pendingSvc.getPending(viewer(DROP_ID, 'DROP'))
 
+      const seniorItem = seniorResult.mine.find((i) => i.subjectId === projectId)
+      expect(seniorItem).toMatchObject({ viewerSharePercent: 44, seniorName: null })
+      // The drop's 88 is nowhere in the SENIOR's whole response...
       expect(collectNumbers(seniorResult)).not.toContain(88)
-      expect(collectNumbers(dropResult)).not.toContain(88)
+
+      const dropItem = dropResult.mine.find((i) => i.subjectId === projectId)
+      // ...and symmetrically, the DROP gets their own 88 and the senior's
+      // NAME (not their figure), never the senior's 44.
+      expect(dropItem).toMatchObject({ viewerSharePercent: 88, seniorName: 'Senior' })
+      expect(collectNumbers(dropResult)).not.toContain(44)
+    })
+
+    it('an ADMIN watching the same project from proposedByMe gets neither figure', async () => {
+      const projectId = await freshProject({
+        seniorId: SENIOR_ID,
+        dropId: DROP_ID,
+        dropSharePercentOverride: 66,
+      })
+      await dbSvc.db
+        .update(projects)
+        .set({ seniorSharePercentOverride: 55 })
+        .where(eq(projects.id, projectId))
+      await approvalsSvc.propose({
+        subjectType: PROJECT_SUBJECT_TYPE,
+        subjectId: projectId,
+        approverUserIds: [SENIOR_ID, DROP_ID],
+        proposedByUserId: ADMIN_ID,
+      })
+
+      const adminResult = await pendingSvc.getPending(viewer(ADMIN_ID, 'ADMIN'))
+
+      const item = adminResult.proposedByMe.find((i) => i.subjectId === projectId)
+      expect(item).toMatchObject({ viewerSharePercent: null, seniorName: null })
+      expect(collectNumbers(adminResult)).not.toContain(66)
+      expect(collectNumbers(adminResult)).not.toContain(55)
+    })
+
+    it('every item the aggregate emits carries a subjectType from the closed USER | PROJECT set', async () => {
+      const projectId = await freshProject({ seniorId: SENIOR_ID, dropId: DROP_ID })
+      await approvalsSvc.propose({
+        subjectType: PROJECT_SUBJECT_TYPE,
+        subjectId: projectId,
+        approverUserIds: [SENIOR_ID],
+        proposedByUserId: ADMIN_ID,
+      })
+      await approvalsSvc.propose({
+        subjectType: USER_SHARE_SUBJECT_TYPE,
+        subjectId: SENIOR_ID,
+        approverUserIds: [SENIOR_ID],
+        proposedByUserId: ADMIN_ID,
+      })
+
+      const result = await pendingSvc.getPending(viewer(SENIOR_ID, 'SENIOR'))
+
+      expect(result.mine.length).toBeGreaterThan(1)
+      for (const item of result.mine) {
+        expect(['USER', 'PROJECT']).toContain(item.subjectType)
+      }
+      expect(result.mine.find((i) => i.subjectId === projectId)?.subjectType).toBe('PROJECT')
+      expect(
+        result.mine.find((i) => i.kind === 'SHARE_APPROVAL' && i.subjectId === SENIOR_ID)
+          ?.subjectType,
+      ).toBe('USER')
     })
   })
 })

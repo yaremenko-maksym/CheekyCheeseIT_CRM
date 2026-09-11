@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { api } from '@/lib/axios'
 import { seniorShareErrorMessage } from '@/hooks/use-user-profile'
+import { PENDING_QUERY_KEY } from '@/hooks/use-pending-items'
 
 /**
  * task-648-fix-round-2 (SR-H-2 / SPEC-H-2 / CR-H-3 / UX-H-3(r2) / QA-HIGH-2).
@@ -67,6 +68,13 @@ export function useCancelPendingShare(scope: PendingShareScope, id: string) {
       void qc.invalidateQueries({ queryKey: ['projects', id] })
       void qc.invalidateQueries({ queryKey: ['projects'] })
     }
+    // Scope-independent, like `useApproveSeniorShareChange`'s own matching
+    // line: a cancelled proposal is gone from `GET /pending` for everyone,
+    // and the /pending screen is where an ADMIN cancels it from
+    // (task-pending-screen AC4 — "строка ушла из proposedByMe"). Without
+    // this, the row stayed on screen until the next natural refetch —
+    // measured live, that is how the E2E for that AC failed.
+    void qc.invalidateQueries({ queryKey: PENDING_QUERY_KEY })
   }
 
   return useMutation({
