@@ -96,7 +96,9 @@ describe('/pending — AC6 states', () => {
     mockState = { ...mockState, isError: true }
     renderPage()
     expect(screen.getByTestId('pending-error')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    // Accessible name is the `aria-label` ("Повторить загрузку" — same
+    // DropBalanceCard.tsx precedent), not the shorter visible text.
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить загрузку' }))
     expect(refetchSpy).toHaveBeenCalledTimes(1)
   })
 

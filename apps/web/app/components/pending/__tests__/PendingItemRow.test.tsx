@@ -70,7 +70,11 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
   })
 
   it('mine, no proposedBy (fail-safe): renders only давность, no "Предложил"', () => {
-    render(<PendingItemRow item={item({ proposedBy: undefined })} zone="mine" onActed={vi.fn()} />)
+    // `exactOptionalPropertyTypes` rejects `{ proposedBy: undefined }` (an
+    // explicit undefined value differs from the key being absent) —
+    // destructuring it off is what actually omits the key.
+    const { proposedBy: _unused, ...withoutProposedBy } = item({})
+    render(<PendingItemRow item={withoutProposedBy} zone="mine" onActed={vi.fn()} />)
     expect(screen.queryByText(/^Предложил/)).not.toBeInTheDocument()
   })
 
@@ -116,13 +120,11 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
   })
 
   it('mine, currentPercent absent (defensive): "Предлагают Y% · давность", no "Сейчас … →"', () => {
-    render(
-      <PendingItemRow
-        item={item({ kind: 'SHARE_APPROVAL', pendingPercent: 30, currentPercent: undefined })}
-        zone="mine"
-        onActed={vi.fn()}
-      />,
-    )
+    const { currentPercent: _unused, ...withoutCurrentPercent } = item({
+      kind: 'SHARE_APPROVAL',
+      pendingPercent: 30,
+    })
+    render(<PendingItemRow item={withoutCurrentPercent} zone="mine" onActed={vi.fn()} />)
     expect(screen.getByText(/^Предлагают 30% ·/)).toBeInTheDocument()
     expect(screen.queryByText(/Сейчас/)).not.toBeInTheDocument()
   })

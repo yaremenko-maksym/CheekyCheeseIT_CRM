@@ -141,7 +141,10 @@ describe('PendingProjectApprovalsPanel', () => {
   })
 
   it('an item with no `proposedBy` renders no "Предложил …" line (fail-safe — should not happen for this kind, but does not crash)', () => {
-    mockState = { ...mockState, mine: [pendingItem({ proposedBy: undefined })] }
+    // `exactOptionalPropertyTypes` rejects an explicit `undefined` value —
+    // destructuring it off is what actually omits the key.
+    const { proposedBy: _unused, ...withoutProposedBy } = pendingItem({})
+    mockState = { ...mockState, mine: [withoutProposedBy] }
     renderPanel()
     expect(screen.queryByText(/^Предложил/)).not.toBeInTheDocument()
   })
