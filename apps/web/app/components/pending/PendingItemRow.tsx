@@ -170,7 +170,15 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
       // focus falls back to <body>.
       tabIndex={-1}
     >
-      <div className="min-w-0 flex-1">
+      {/* Design spec §9 (mobile): "заголовок+мета на всю ширину, кнопки на
+          следующей строке". `flex-wrap` alone does not produce that — a
+          `flex-1 min-w-0` text column SHRINKS instead of forcing the actions
+          onto the next line, and at 320px that left the meta line wrapping
+          inside a ~60px gutter beside the buttons (seen in the AC7
+          screenshot, not in any assertion: nothing overflowed, it was just
+          unreadable). `w-full` below `sm:` is what actually makes the two
+          blocks stack. */}
+      <div className="w-full min-w-0 sm:flex-1">
         {item.kind === 'CONTRACT_TO_SIGN' ? (
           // §6.3: title and badge are SEPARATE flex items (each wraps on its
           // own) — the exact defect the design doc's own mock caught on
@@ -192,7 +200,7 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
         )}
         <p className="mt-0.5 text-[11.5px] text-muted-foreground">{metaFor(item, zone)}</p>
       </div>
-      <div className="flex-none">{renderActions(item, zone, onActed)}</div>
+      <div className="w-full sm:w-auto sm:flex-none">{renderActions(item, zone, onActed)}</div>
     </div>
   )
 }
