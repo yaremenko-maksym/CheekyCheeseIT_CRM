@@ -12,7 +12,7 @@
  */
 import { BadRequestException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { NotificationsService } from './notifications.service'
 import {
@@ -329,10 +329,6 @@ describe('данные проверяются формой своего типа
 // ---------------------------------------------------------------------------
 
 describe('исчезнувший объект вычисляется на чтении списка', () => {
-  beforeEach(() => {
-    // список читается для одного получателя — сид у каждого теста свой
-  })
-
   it('объект на месте — кнопка ведёт, «исчез» не выставляется', async () => {
     const h = makeHarness([makeRow()], { projects: ['p-1'] })
 
