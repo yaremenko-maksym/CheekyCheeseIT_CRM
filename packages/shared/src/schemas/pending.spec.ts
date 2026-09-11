@@ -67,6 +67,21 @@ describe('pendingItemSchema', () => {
     expect(pendingItemSchema.parse(proposedByMeRow)).toEqual(proposedByMeRow)
   })
 
+  it('accepts subjectType — distinguishes PROJECT_SENIOR_SHARE from USER_SENIOR_SHARE for a SHARE_APPROVAL kind (PR #667 web-half gap)', () => {
+    const projectShareRow = {
+      ...baseItem,
+      kind: 'SHARE_APPROVAL' as const,
+      subjectType: 'PROJECT_SENIOR_SHARE',
+    }
+    const userShareRow = {
+      ...baseItem,
+      kind: 'SHARE_APPROVAL' as const,
+      subjectType: 'USER_SENIOR_SHARE',
+    }
+    expect(pendingItemSchema.parse(projectShareRow)).toEqual(projectShareRow)
+    expect(pendingItemSchema.parse(userShareRow)).toEqual(userShareRow)
+  })
+
   it('accepts CONTRACT_TO_SIGN with no approvalId (contracts are not approvals rows)', () => {
     const row = {
       kind: 'CONTRACT_TO_SIGN' as const,

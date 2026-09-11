@@ -125,6 +125,7 @@ describe('PendingService.getPending — mine, PROJECT_APPROVAL', () => {
       {
         kind: 'PROJECT_APPROVAL',
         approvalId: APPROVAL_ID_1,
+        subjectType: 'PROJECT',
         subjectId: PROJECT_ID,
         title: 'GamingTec',
         proposedBy: 'Admin Adminovich',
@@ -290,6 +291,7 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (USER_SENIOR_SHARE)
       {
         kind: 'SHARE_APPROVAL',
         approvalId: APPROVAL_ID_1,
+        subjectType: 'USER_SENIOR_SHARE',
         subjectId: SENIOR_ID,
         title: 'Ваша базовая доля',
         proposedBy: 'Admin Adminovich',
@@ -432,6 +434,7 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
       {
         kind: 'SHARE_APPROVAL',
         approvalId: APPROVAL_ID_1,
+        subjectType: 'USER_SENIOR_SHARE',
         subjectId: SENIOR_ID,
         title: 'Senior One',
         proposedBy: undefined,

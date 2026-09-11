@@ -281,6 +281,7 @@ export class PendingService {
       return {
         kind: 'PROJECT_APPROVAL',
         approvalId: row.id,
+        subjectType: row.subjectType,
         subjectId: project.id,
         title: project.name,
         proposedBy: ctx.proposedBy,
@@ -310,6 +311,7 @@ export class PendingService {
       return {
         kind: 'SHARE_APPROVAL',
         approvalId: row.id,
+        subjectType: row.subjectType,
         subjectId: project.id,
         title: project.name,
         proposedBy: ctx.proposedBy,
@@ -335,6 +337,7 @@ export class PendingService {
       return {
         kind: 'SHARE_APPROVAL',
         approvalId: row.id,
+        subjectType: row.subjectType,
         subjectId: senior.id,
         title: ctx.perspective === 'mine' ? 'Ваша базовая доля' : senior.displayName,
         proposedBy: ctx.proposedBy,

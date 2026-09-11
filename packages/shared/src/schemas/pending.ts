@@ -88,6 +88,23 @@ export const pendingItemSchema = z.object({
    * a possible future single-row action, not as a second subject identifier.
    */
   approvalId: z.string().uuid().optional(),
+  /**
+   * The `approvals.subjectType` this item was built from — `'PROJECT'`,
+   * `'PROJECT_SENIOR_SHARE'`, or `'USER_SENIOR_SHARE'` today (see
+   * `PendingService`'s header for why this is not a closed enum here
+   * either — same free-form reasoning as `approvals.ts`'s own
+   * `subjectType`). Absent for `CONTRACT_TO_SIGN` (not an approvals row).
+   *
+   * Added for the web half's `SHARE_APPROVAL` rows specifically: `kind`
+   * alone cannot tell a project-level share override from a user's own
+   * base-share change, and the two resolve through different endpoints
+   * (`useApproveSeniorShareChange`'s `scope: 'project' | 'user'`) —
+   * `subjectType === 'USER_SENIOR_SHARE' ? 'user' : 'project'` is the
+   * derivation. PR #667 (web half) flagged this gap against a LOCAL
+   * placeholder type carrying the same field under the same name; this is
+   * that field landing in the real schema, not a new invention.
+   */
+  subjectType: z.string().optional(),
   /** The underlying project id / user id / employee_contracts id. */
   subjectId: z.string().uuid(),
   /** "<project name>" / "«Ваша базовая доля»" / "Контракт сотрудника" — see `PendingService` per-kind title choice. */
