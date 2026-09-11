@@ -163,6 +163,12 @@ def notify_stale_pin(
 # ---------------------------------------------------------------------------
 
 RESEND_API_URL = "https://api.resend.com/emails"
+# api.resend.com sits behind Cloudflare, which answers urllib's default
+# `Python-urllib/3.x` User-Agent with HTTP 403 "error code: 1010" (browser
+# signature banned). Observed live on the VPS 2026-09-07 during the alert
+# layers test: every other layer fired, the email did not. A product-named
+# User-Agent passes; the header is asserted by tests/test_alert.py.
+RESEND_USER_AGENT = "signal-plus/0.1 (+https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM)"
 
 
 def _default_http_post(url: str, *, headers: dict[str, str], body: bytes) -> tuple[int, bytes]:  # pragma: no cover - real network, never used in tests
@@ -203,6 +209,7 @@ def send_handover_email(config: Config, reason: str, *, http_post=_default_http_
     headers = {
         "Authorization": f"Bearer {config.resend_api_key}",
         "Content-Type": "application/json",
+        "User-Agent": RESEND_USER_AGENT,
     }
 
     try:
