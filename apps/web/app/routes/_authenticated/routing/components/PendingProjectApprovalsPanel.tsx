@@ -59,19 +59,15 @@ export const card = {
  * so a dismissal never lingers across a reject → re-propose cycle that
  * legitimately brings the SAME project id back for a NEW decision.
  *
- * ASSUMPTION / KNOWN REGRESSION (A1, autonomy-levels.md — see this task's
- * final report «Reuse & blast-radius» / «Допущения»): the OLD rendering
- * also showed the viewer's own resolved share % on this project
- * (`effectiveDropSharePercent`/`effectiveSeniorSharePercent`) — genuinely
- * useful, non-sensitive-to-THEM context for the decision (COPY-M-6, #646
- * fix-round 2: "DROP has no route access to /projects at all — this widget
- * is their ONLY view of what they are being asked to agree to"). `PendingItem`
- * (task file §1's documented contract) carries no share field for
- * `PROJECT_APPROVAL` — only `SHARE_APPROVAL` items get `currentPercent`/
- * `pendingPercent`. Recommended follow-up: an optional
- * `viewerSharePercent?: number` on `PendingItem` for this kind, populated
- * the same way the dashboards already compute the two `effective...Percent`
- * fields — flagged for the API-half/PM rather than invented here.
+ * The share line below is the SAME information the old rendering read off
+ * the full `ProjectDto` (`effectiveDropSharePercent` /
+ * `effectiveSeniorSharePercent` + `seniorName`), now carried by
+ * `PendingItem.viewerSharePercent` / `.seniorName` — integration decision 2,
+ * 2026-09-11. Keeping it is the point: a DROP has no route access to
+ * `/projects` at all, so without it "да" here would be blind (COPY-M-6, #646
+ * fix-round 2). What changed is WHO decides which figure the viewer may see:
+ * the server now sends only the viewer's own, instead of the client picking
+ * a field out of a DTO that carried both.
  */
 export function PendingProjectApprovalsPanel() {
   const { mine, isLoading, isError, dataUpdatedAt } = usePendingItems()
@@ -147,6 +143,23 @@ export function PendingProjectApprovalsPanel() {
                     Предложил {item.proposedBy}
                   </p>
                 ) : null}
+                {/* COPY-L-4 / COPY-L-7 (PR #646 fix-rounds 3-4) are kept
+                    verbatim in behaviour: a missing figure gets a WHOLE
+                    replacement sentence rather than an em-dash dropped into
+                    the normal template (a bare "Ваша доля: —%" reads as a
+                    real value), and that sentence is `line-clamp-2`, not
+                    `truncate`, because at 320px `truncate` was cutting off
+                    the actionable half of it. */}
+                {item.viewerSharePercent != null ? (
+                  <p className="truncate text-[11px] text-amber-300/70">
+                    Ваша доля: {item.viewerSharePercent}%
+                    {item.seniorName ? ` · синьор: ${item.seniorName}` : ''}
+                  </p>
+                ) : (
+                  <p className="line-clamp-2 text-[11px] text-amber-300/70">
+                    Доля неизвестна. Обновите страницу.
+                  </p>
+                )}
               </div>
               <ProjectApprovalActions
                 projectId={item.subjectId}

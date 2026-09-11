@@ -15,7 +15,8 @@ import { Briefcase, DollarSign, FileSignature, HelpCircle, Inbox } from 'lucide-
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PendingKindSection } from '@/components/pending/PendingKindSection'
-import { usePendingItems, type PendingItem, type PendingItemKind } from '@/hooks/use-pending-items'
+import type { PendingItem, PendingItemKind } from '@crm/shared'
+import { usePendingItems } from '@/hooks/use-pending-items'
 
 export const Route = createFileRoute('/_authenticated/pending/')({
   component: PendingPage,

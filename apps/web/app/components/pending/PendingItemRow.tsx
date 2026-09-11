@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { ProjectApprovalActions } from '@/components/projects/ProjectApprovalActions'
 import { CancelPendingShareButton } from '@/components/pending-share/cancel-pending-share'
 import { SeniorShareApprovalActions } from '@/components/pending/SeniorShareApprovalActions'
-import type { PendingItem } from '@/hooks/use-pending-items'
+import type { PendingItem } from '@crm/shared'
 
 export type PendingZone = 'mine' | 'proposedByMe'
 
@@ -24,14 +24,12 @@ function fmtRelative(iso: string): string {
   }
 }
 
-/** See `PendingItem.subjectType`'s own doc (use-pending-items.ts) for why
- * this reads a field the merged schema may not carry yet. `'project'` is the
- * fail-safe default when `subjectType` is absent — a base-share (`'user'`)
- * proposal only ever targets the viewer's own id, so guessing `'project'`
- * on missing data at worst 404s (caught by `seniorShareErrorMessage`) rather
- * than silently mutating the wrong resource type. */
+/** `subjectType` is the server's own answer to "which endpoint family does
+ * this row's action belong to" — required and closed (`'USER' | 'PROJECT'`,
+ * see its doc in `@crm/shared`'s `pending.ts`), so there is no missing-value
+ * case to guess at any more: integration decision 1, 2026-09-11. */
 function shareScopeOf(item: PendingItem): 'user' | 'project' {
-  return item.subjectType === 'USER_SENIOR_SHARE' ? 'user' : 'project'
+  return item.subjectType === 'USER' ? 'user' : 'project'
 }
 
 function metaFor(item: PendingItem, zone: PendingZone): string {

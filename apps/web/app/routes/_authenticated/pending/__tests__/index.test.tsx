@@ -11,7 +11,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { PendingItem } from '@/hooks/use-pending-items'
+import type { PendingItem } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { PendingPage } from '../index'
 
@@ -51,6 +51,7 @@ vi.mock('@/hooks/use-pending-items', async (orig) => {
 function item(overrides: Partial<PendingItem>): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
+    subjectType: 'PROJECT',
     subjectId: 'subj-1',
     title: 'Acme Corp',
     proposedBy: 'Admin One',

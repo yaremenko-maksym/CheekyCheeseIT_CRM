@@ -14,7 +14,7 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { PendingItem } from '@/hooks/use-pending-items'
+import type { PendingItem } from '@crm/shared'
 import { PendingProjectApprovalsPanel, card } from '../PendingProjectApprovalsPanel'
 
 let mockState: {
@@ -57,10 +57,13 @@ vi.mock('@/hooks/use-project-approvals', async (orig) => {
 function pendingItem(overrides: Partial<PendingItem>): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
+    subjectType: 'PROJECT',
     subjectId: '00000000-0000-0000-0000-0000000000a1',
     title: 'Acme Corp',
     proposedBy: 'Олексій Коваленко',
     createdAt: '2026-01-01T00:00:00.000Z',
+    viewerSharePercent: 26,
+    seniorName: null,
     actions: ['approve', 'reject', 'open'],
     link: '/projects/00000000-0000-0000-0000-0000000000a1',
     ...overrides,
@@ -230,6 +233,50 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
       </QueryClientProvider>,
     )
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Integration decision 2 (2026-09-11): the share line is back, fed by the
+// server's own per-viewer fields instead of by the client picking a figure
+// out of a DTO that carried both sides'. The three cases below are the same
+// three the pre-SR-L-6 widget had (drop / senior / missing figure), rewritten
+// against `PendingItem`.
+// ---------------------------------------------------------------------------
+describe('PendingProjectApprovalsPanel — viewer share line', () => {
+  it("renders the DROP viewer's own share together with the senior's name", () => {
+    mockState = {
+      mine: [pendingItem({ viewerSharePercent: 9, seniorName: 'Олексій Коваленко' })],
+      isLoading: false,
+      isError: false,
+      dataUpdatedAt: 1,
+    }
+    renderPanel()
+    expect(screen.getByText('Ваша доля: 9% · синьор: Олексій Коваленко')).toBeInTheDocument()
+  })
+
+  it("renders a SENIOR viewer's own share with no senior name appended (they are the senior)", () => {
+    mockState = {
+      mine: [pendingItem({ viewerSharePercent: 26, seniorName: null })],
+      isLoading: false,
+      isError: false,
+      dataUpdatedAt: 1,
+    }
+    renderPanel()
+    expect(screen.getByText('Ваша доля: 26%')).toBeInTheDocument()
+    expect(screen.queryByText(/синьор:/)).not.toBeInTheDocument()
+  })
+
+  it('falls back to the whole "Доля неизвестна" sentence when the server sent no figure', () => {
+    mockState = {
+      mine: [pendingItem({ viewerSharePercent: null, seniorName: null })],
+      isLoading: false,
+      isError: false,
+      dataUpdatedAt: 1,
+    }
+    renderPanel()
+    expect(screen.getByText('Доля неизвестна. Обновите страницу.')).toBeInTheDocument()
+    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
   })
 })
 

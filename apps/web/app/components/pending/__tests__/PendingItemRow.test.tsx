@@ -9,7 +9,7 @@
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { PendingItem } from '@/hooks/use-pending-items'
+import type { PendingItem } from '@crm/shared'
 import { PendingItemRow } from '../PendingItemRow'
 
 const mockNavigate = vi.fn()
@@ -44,6 +44,7 @@ vi.mock('@/components/pending-share/cancel-pending-share', () => ({
 function item(overrides: Partial<PendingItem>): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
+    subjectType: 'PROJECT',
     subjectId: 'subj-1',
     title: 'Acme Corp',
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // ~2 days ago
@@ -107,7 +108,7 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
           title: 'Доля по умолчанию',
           currentPercent: 26,
           pendingPercent: 30,
-          subjectType: 'USER_SENIOR_SHARE',
+          subjectType: 'USER',
         })}
         zone="mine"
         onActed={vi.fn()}
@@ -129,13 +130,13 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
     expect(screen.queryByText(/Сейчас/)).not.toBeInTheDocument()
   })
 
-  it('subjectType PROJECT_SENIOR_SHARE (or absent) maps to scope="project"', () => {
+  it('subjectType PROJECT maps to scope="project"', () => {
     render(
       <PendingItemRow
         item={item({
           kind: 'SHARE_APPROVAL',
           pendingPercent: 30,
-          subjectType: 'PROJECT_SENIOR_SHARE',
+          subjectType: 'PROJECT',
         })}
         zone="mine"
         onActed={vi.fn()}

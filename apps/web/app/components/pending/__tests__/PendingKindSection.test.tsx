@@ -8,7 +8,7 @@
 import { render, screen } from '@testing-library/react'
 import { Briefcase } from 'lucide-react'
 import { describe, expect, it, vi } from 'vitest'
-import type { PendingItem } from '@/hooks/use-pending-items'
+import type { PendingItem } from '@crm/shared'
 import { PendingKindSection } from '../PendingKindSection'
 
 vi.mock('@/components/projects/ProjectApprovalActions', () => ({
@@ -18,6 +18,7 @@ vi.mock('@/components/projects/ProjectApprovalActions', () => ({
 function item(overrides: Partial<PendingItem>): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
+    subjectType: 'PROJECT',
     subjectId: 'subj-1',
     title: 'Acme Corp',
     createdAt: new Date().toISOString(),

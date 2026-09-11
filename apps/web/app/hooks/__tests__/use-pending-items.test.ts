@@ -14,7 +14,8 @@ vi.mock('@/lib/axios', () => ({
 }))
 
 import { api } from '@/lib/axios'
-import { usePendingItems, PENDING_QUERY_KEY, type PendingResponse } from '../use-pending-items'
+import type { PendingResponse } from '@crm/shared'
+import { usePendingItems, PENDING_QUERY_KEY } from '../use-pending-items'
 
 const mockGet = api.get as ReturnType<typeof vi.fn>
 
@@ -60,6 +61,7 @@ describe('usePendingItems', () => {
       mine: [
         {
           kind: 'PROJECT_APPROVAL',
+          subjectType: 'PROJECT',
           subjectId: 'p1',
           title: 'Acme',
           proposedBy: 'Admin One',
