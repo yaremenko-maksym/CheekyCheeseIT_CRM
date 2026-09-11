@@ -16,7 +16,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Approval } from '@crm/shared'
 import { PendingService } from './pending.service'
-import { employeeContracts, projects, teamMembers, users } from '../database/schema'
+import { employeeContracts, projects, users } from '../database/schema'
 import type { DatabaseService } from '../database/database.service'
 import type { ApprovalsService } from '../approvals/approvals.service'
 
