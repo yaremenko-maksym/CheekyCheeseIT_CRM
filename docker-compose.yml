@@ -28,12 +28,18 @@ services:
   # S3-compatible object storage for documents (PHASE 6).
   # Dev only. Prod uses AWS S3 in eu-central-1.
   # Console: http://localhost:9001 (login: minioadmin / minioadmin).
+  # Pinned quay.io: MinIO stopped publishing Docker Hub / quay.io images on
+  # 2025-10-15 (source-only + Community-Edition freeze), and Docker Hub's
+  # `minio/minio` repo now 404s anonymous pulls entirely ("pull access
+  # denied ... repository does not exist"). This is the last tag quay.io
+  # published before the freeze — still pullable anonymously (verified
+  # 2026-09-11); `latest` is not an option here.
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
     ports:
-      - '9000:9000'   # S3 API
-      - '9001:9001'   # Web console
+      - '9000:9000' # S3 API
+      - '9001:9001' # Web console
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -48,8 +54,9 @@ services:
 
   # One-shot bootstrap: creates bucket `crm-documents` on first compose-up.
   # Exits 0 immediately after — re-runs are idempotent (`mb --ignore-existing`).
+  # Pinned quay.io/minio/mc for the same reason as the minio image above.
   minio-bootstrap:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio:
         condition: service_healthy

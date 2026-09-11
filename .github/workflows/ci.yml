@@ -1195,11 +1195,17 @@ jobs:
       - name: Start MinIO + bucket
         if: steps.scope.outputs.code == 'true' && matrix.shard.name != 'landing'
         run: |
+          # Pinned quay.io: MinIO stopped publishing Docker Hub / quay.io images
+          # on 2025-10-15 (source-only + Community-Edition freeze), and Docker
+          # Hub's `minio/minio` repo now 404s anonymous pulls entirely ("pull
+          # access denied ... repository does not exist"). These are the last
+          # tags quay.io published before the freeze — still pullable
+          # anonymously (verified 2026-09-11); `latest` is not an option here.
           docker run -d --name minio \
             --network host \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:latest server /data --console-address ":9001"
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data --console-address ":9001"
           # Wait for healthy
           for i in {1..30}; do
             if curl -sf http://localhost:9000/minio/health/live; then echo "MinIO ready"; break; fi
@@ -1207,7 +1213,8 @@ jobs:
             sleep 2
           done
           # Bootstrap bucket (mc image entrypoint is `mc`, override with /bin/sh).
-          docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c "
+          # Pinned quay.io/minio/mc for the same reason as the server image above.
+          docker run --rm --network host --entrypoint /bin/sh quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z -c "
             mc alias set local http://localhost:9000 minioadmin minioadmin &&
             mc mb --ignore-existing local/crm-documents &&
             echo 'MinIO bucket crm-documents ready (CI)'
