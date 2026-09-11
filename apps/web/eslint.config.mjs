@@ -99,6 +99,16 @@ export default [
       // making (see task-lint-teeth "Границы"). Flagged in the PR body as the
       // one entry here that a follow-up could remove.
       'app/components/user-profile/tabs/__tests__/OverviewTab.share-card.test.tsx',
+      // Same class as the sparkline and the segmented toggle above, for the same
+      // two reasons. (1) The per-type icon is an `<svg>` whose only machine-
+      // visible identity is its class list — the tint tells the reader what
+      // KIND of event this is, the `lucide-*` token tells «команда» from
+      // «проект», and neither is a role or an accessible name. (2) The unread
+      // marker is an `aria-hidden` dot: it is deliberately invisible to the
+      // accessibility tree, so no screen query can reach it by construction.
+      // Both are read INSIDE a row already obtained with `screen.getByTestId`,
+      // so the portal-blindness this rule guards against cannot occur here.
+      'app/components/layout/__tests__/notifications-bell.render.test.tsx',
     ],
     plugins: {
       'testing-library': testingLibrary,

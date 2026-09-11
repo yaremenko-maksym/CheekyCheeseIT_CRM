@@ -51,6 +51,11 @@ describe('groupSubjectIds', () => {
       ref({ subjectType: 'TEAM', subjectId: 't-1' }),
       ref({ subjectType: null, subjectId: null }),
       ref({ subjectType: 'USER', subjectId: null }),
+      // Половинчатая строка: идентификатор есть, а вида объекта нет. Спрашивать
+      // по ней нечего — вид объекта и есть таблица, в которую пошёл бы запрос.
+      // Каждое из двух условий проверяется в ОДИНОЧКУ: пара «оба null» не
+      // отличает «или» от любого из его слагаемых.
+      ref({ subjectType: null, subjectId: 'orphan-1' }),
     ])
     expect([...grouped.keys()]).toEqual(['PROJECT', 'TEAM'])
     expect(grouped.get('PROJECT')).toEqual(['p-1', 'p-2'])
@@ -81,6 +86,30 @@ describe('computeSubjectMissing', () => {
       computeSubjectMissing(
         ref({ type: 'INVOICE_SIGN_REQUIRED', subjectType: null, subjectId: null }),
         existing([]),
+        new Set(),
+      ),
+    ).toBe(false)
+  })
+
+  it('идентификатор без вида объекта: спрашивать негде — значит, не исчезал', () => {
+    // Вид объекта выбирает таблицу; без него запроса не было вовсе, и сказать
+    // «объекта больше нет» не на чем. Строка проверяет ОДНО из двух условий
+    // отдельно от второго.
+    expect(
+      computeSubjectMissing(
+        ref({ subjectType: null, subjectId: 'p-1' }),
+        existing([['PROJECT', ['p-1']]]),
+        new Set(),
+      ),
+    ).toBe(false)
+  })
+
+  it('вид объекта без идентификатора: спрашивать не про что — значит, не исчезал', () => {
+    // Зеркало предыдущей строки: второе условие отдельно от первого.
+    expect(
+      computeSubjectMissing(
+        ref({ subjectType: 'PROJECT', subjectId: null }),
+        existing([['PROJECT', ['p-1']]]),
         new Set(),
       ),
     ).toBe(false)

@@ -20,7 +20,12 @@ const ADMIN: SessionUser = {
   name: 'Админ',
 } as SessionUser
 
-type MemberSeed = { id: string; userId: string; role: string; leftAt: Date | null }
+/**
+ * `role: null` — строка членства, у которой не подтянулся пользователь.
+ * В бою так бывает на гонке с удалением профиля; проверяется, что рассылка от
+ * этого не падает, а не то, что так «должно» быть.
+ */
+type MemberSeed = { id: string; userId: string; role: string | null; leftAt: Date | null }
 
 function makeHarness(opts: {
   members: MemberSeed[]
@@ -66,7 +71,7 @@ function makeHarness(opts: {
               id: m.id,
               userId: m.userId,
               leftAt: m.leftAt,
-              user: { id: m.userId, role: m.role },
+              user: m.role === null ? undefined : { id: m.userId, role: m.role },
             })),
           }),
         },
@@ -135,7 +140,78 @@ describe('«вас добавили в команду» и «в команде �
     await h.svc.addMember('team-1', 'hr-1', ADMIN)
 
     expect(h.updated).toHaveLength(1)
+    // Возврат снимает ИМЕННО отметку об уходе и ничего больше: пустая правка
+    // оставила бы человека вне команды, а уведомление — уже разосланным.
+    expect(h.updated[0]).toEqual({ leftAt: null })
+    expect(h.inserted).toHaveLength(0)
     expect(h.created.map((c) => c['userId'])).toEqual(['hr-1', 'senior-1'])
+  })
+
+  it('свежая вставка кладёт ровно пару «команда — человек»', async () => {
+    const h = makeHarness({
+      members: [{ id: 'm-1', userId: 'senior-1', role: 'SENIOR', leftAt: null }],
+      addedUser: { id: 'hr-1', role: 'HR', displayName: 'Иван Петров' },
+    })
+
+    await h.svc.addMember('team-1', 'hr-1', ADMIN)
+
+    expect(h.inserted).toEqual([{ teamId: 'team-1', userId: 'hr-1' }])
+    expect(h.updated).toHaveLength(0)
+  })
+
+  it('добавивший САМ СЕБЯ не получает письма о себе — своё подтверждает тост', async () => {
+    // §8.1: колокольчик — для входящего. Человек, нажавший кнопку, и так
+    // видит результат; уведомление себе было бы эхом собственного действия.
+    //
+    // Подстраховка, а не бой: активное членство отсекается выше («уже
+    // участник»), поэтому кадровик, добавляющий сам себя, до рассылки в бою не
+    // доходит. Заглушка членства (`existingMembership` не задан) описывает
+    // именно тот случай, ради которого условие и стоит.
+    const HR: SessionUser = { ...ADMIN, id: 'hr-self', role: 'HR' } as SessionUser
+    const h = makeHarness({
+      members: [
+        { id: 'm-1', userId: 'hr-self', role: 'HR', leftAt: null },
+        { id: 'm-2', userId: 'senior-1', role: 'SENIOR', leftAt: null },
+      ],
+      addedUser: { id: 'hr-self', role: 'HR', displayName: 'Кадровик' },
+    })
+
+    await h.svc.addMember('team-1', 'hr-self', HR)
+
+    expect(h.created.map((c) => c['userId'])).toEqual(['senior-1'])
+  })
+
+  it('участник без подтянутого профиля рассылку не роняет', async () => {
+    const h = makeHarness({
+      members: [
+        { id: 'm-1', userId: 'ghost-1', role: null, leftAt: null },
+        { id: 'm-2', userId: 'senior-1', role: 'SENIOR', leftAt: null },
+      ],
+      addedUser: { id: 'hr-1', role: 'HR', displayName: 'Иван Петров' },
+    })
+
+    await h.svc.addMember('team-1', 'hr-1', ADMIN)
+
+    expect(h.created.map((c) => c['userId'])).toEqual(['hr-1', 'ghost-1', 'senior-1'])
+  })
+
+  it('добавленный не получает ВТОРОГО письма как «участник команды»', async () => {
+    // Подстраховка, а не бой: активное членство отсекается выше («уже
+    // участник»), поэтому сам себя в списке участников добавляемый увидеть не
+    // должен. Если увидит — про себя же он узнает дважды, и порядок строк в
+    // колокольчике станет бессмысленным.
+    const h = makeHarness({
+      members: [
+        { id: 'm-1', userId: 'hr-1', role: 'HR', leftAt: null },
+        { id: 'm-2', userId: 'senior-1', role: 'SENIOR', leftAt: null },
+      ],
+      addedUser: { id: 'hr-1', role: 'HR', displayName: 'Иван Петров' },
+    })
+
+    await h.svc.addMember('team-1', 'hr-1', ADMIN)
+
+    expect(h.created.map((c) => c['userId'])).toEqual(['hr-1', 'senior-1'])
+    expect(h.created.filter((c) => c['userId'] === 'hr-1')).toHaveLength(1)
   })
 
   it('администратор, добавляющий сам себя в свою же команду, себе не пишет', async () => {
