@@ -101,8 +101,8 @@ function PendingBaseShareBanner({
 }) {
   const [rejectOpen, setRejectOpen] = useState(false)
   const [reason, setReason] = useState('')
-  const approveMutation = useApproveSeniorShareChange(userId)
-  const rejectMutation = useRejectSeniorShareChange(userId)
+  const approveMutation = useApproveSeniorShareChange('user', userId)
+  const rejectMutation = useRejectSeniorShareChange('user', userId)
 
   const handleReject = () => {
     rejectMutation.mutate(reason, {

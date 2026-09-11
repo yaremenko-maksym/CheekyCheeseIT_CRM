@@ -5,6 +5,7 @@ import {
   Briefcase,
   ChevronLeft,
   ChevronRight,
+  Clock,
   DollarSign,
   FileText,
   Home,
@@ -27,6 +28,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useActiveTeam } from '@/hooks/use-active-team'
 import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
+import { usePendingItems } from '@/hooks/use-pending-items'
 
 type Role = SessionUser['role']
 type RouteTo = FileRouteTypes['to']
@@ -38,6 +40,13 @@ interface NavItem {
   roles: readonly Role[]
   /** When true, link is active only on exact path match (no children routes). */
   activeOptions?: { exact?: boolean }
+  /**
+   * task-pending-screen (§7). Set only on the runtime-filtered `items` array
+   * (never on the static `NAV_ITEMS` source) — see `NavSidebar`'s `.map()`
+   * below. `undefined`/`0` renders no badge at all (design spec §7: "0 —
+   * бейджа нет вообще").
+   */
+  badgeCount?: number
 }
 
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
@@ -69,6 +78,16 @@ const NAV_ITEMS: NavItem[] = [
     to: '/',
     roles: DASHBOARD_NAV_ROLES,
     activeOptions: { exact: true },
+  },
+  {
+    // task-pending-screen (позиция 7c, §7 + addendum «решения по открытым
+    // вопросам» п.3): сразу после «Дашборда» — доступен всем ролям
+    // (навигация к «моим» решениям и, для ADMIN, к разделу «Ждут решения
+    // других»). Badge count проставляется ниже в NavSidebar (mine.length).
+    label: 'Ждут решения',
+    icon: Clock,
+    to: '/pending',
+    roles: navRolesFor('/pending'),
   },
   { label: 'Пользователи', icon: Users, to: '/users', roles: navRolesFor('/users') },
   { label: 'Админ', icon: Settings, to: '/admin', roles: navRolesFor('/admin') },
@@ -138,13 +157,21 @@ export function NavSidebar({
   // being over the sidebar (keyboard focus restoration, etc).
   const dialogOpen = useAnyDialogOpen()
 
+  // task-pending-screen (§7): same query the /pending screen itself reads
+  // (PENDING_QUERY_KEY) — react-query dedupes the network call instead of
+  // firing a second one when the viewer actually opens the page. Called
+  // unconditionally (not gated on role/onboarding) — same pattern as
+  // `useActiveTeam` two lines up; the endpoint itself returns an
+  // empty/self-scoped list for every role, never a 403.
+  const { mine: pendingMine } = usePendingItems()
+
   const items = NAV_ITEMS.filter((item) => {
     if (!item.roles.includes(user.role)) return false
     if (isTeamlessSenior && (item.to === '/projects' || item.to === '/interviews')) {
       return false
     }
     return true
-  })
+  }).map((item) => (item.to === '/pending' ? { ...item, badgeCount: pendingMine.length } : item))
 
   return (
     <>
@@ -239,6 +266,14 @@ export function NavSidebar({
                 >
                   <item.icon className="h-4 w-4 shrink-0 transition-colors group-data-[status=active]:text-primary" />
                   <span className="truncate">{item.label}</span>
+                  {/* task-pending-screen §7: mobile Sheet has room in-row (no
+                      collapsed state) — badge sits beside the label, not
+                      absolute over the icon like the desktop-collapsed case. */}
+                  {item.badgeCount ? (
+                    <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                      {item.badgeCount > 99 ? '99+' : item.badgeCount}
+                    </span>
+                  ) : null}
                 </Link>
               ))}
             </nav>
@@ -275,6 +310,21 @@ function DesktopNavLink({
     >
       <item.icon className="h-4 w-4 shrink-0 transition-colors group-data-[status=active]:text-primary" />
       {!collapsed && <span className="truncate">{item.label}</span>}
+      {/* task-pending-screen §7: 1:1 classes with notifications-bell-badge —
+          one visual language for "count of unresolved things" in the app.
+          Collapsed: absolute over the icon (the Link above is already
+          `relative`). Expanded: inline after the label via `ml-auto`. */}
+      {item.badgeCount ? (
+        <span
+          className={cn(
+            'flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground',
+            collapsed ? 'absolute -top-0.5 -right-0.5' : 'ml-auto px-1',
+          )}
+          data-testid="nav-pending-badge"
+        >
+          {item.badgeCount > 99 ? '99+' : item.badgeCount}
+        </span>
+      ) : null}
     </Link>
   )
 
