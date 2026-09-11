@@ -34,6 +34,20 @@ async function deleteProjectViaAPI(page: import('@playwright/test').Page, projec
   await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)
 }
 
+/**
+ * design spec §7: `0` renders no badge at all, `1-9` an exact number, `10+`
+ * capped at "99+". `parseInt` (not `Number`) tolerates the trailing `+` —
+ * returns `0` when the badge element is absent (nav-pending-badge only
+ * renders when `mine.length > 0`), never throws, so callers can always
+ * assert unconditionally instead of branching on presence.
+ */
+async function navPendingBadgeCount(page: import('@playwright/test').Page): Promise<number> {
+  const badge = page.getByTestId('nav-pending-badge').first()
+  if ((await badge.count()) === 0) return 0
+  const text = (await badge.textContent()) ?? '0'
+  return parseInt(text, 10) || 0
+}
+
 test.describe('/pending — AC4: project approval actions', () => {
   test('SENIOR: confirm a pending project — row disappears, toast, badge count drops by one', async ({
     page,
@@ -53,11 +67,7 @@ test.describe('/pending — AC4: project approval actions', () => {
       await expect(page.getByTestId('pending-page')).toBeVisible()
       await expect(page.getByText(`Pending AC4 Co ${suffix}`)).toBeVisible()
 
-      const badgeBefore = await page
-        .getByTestId('nav-pending-badge')
-        .first()
-        .textContent()
-        .catch(() => null)
+      const badgeBefore = await navPendingBadgeCount(page)
 
       await page.getByTestId(`project-approval-approve-${projectId}`).click()
 
@@ -66,14 +76,8 @@ test.describe('/pending — AC4: project approval actions', () => {
       // asserting the shared substring both branches carry.
       await expect(page.getByText(/подтвержд/i)).toBeVisible()
 
-      if (badgeBefore && /^\d+$/.test(badgeBefore)) {
-        const badgeAfter = await page
-          .getByTestId('nav-pending-badge')
-          .first()
-          .textContent()
-          .catch(() => '0')
-        expect(Number(badgeAfter ?? '0')).toBe(Number(badgeBefore) - 1)
-      }
+      const badgeAfter = await navPendingBadgeCount(page)
+      expect(badgeAfter).toBe(badgeBefore - 1)
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       await deleteProjectViaAPI(page, projectId)
@@ -268,24 +272,27 @@ test.describe('/pending — AC7: responsive', () => {
         const row = page.getByTestId(`pending-item-row-PROJECT_APPROVAL-${projectId}`)
         const rowBox = await row.boundingBox()
         expect(rowBox, `row not measurable at ${width}px`).not.toBeNull()
-        if (rowBox) {
-          expect(
-            rowBox.x + rowBox.width,
-            `row right edge past viewport at ${width}px`,
-          ).toBeLessThanOrEqual(width + 1)
-        }
+        expect(
+          (rowBox as { x: number; width: number }).x +
+            (rowBox as { x: number; width: number }).width,
+          `row right edge past viewport at ${width}px`,
+        ).toBeLessThanOrEqual(width + 1)
+      }
 
-        if (width === 320 || width === 375) {
-          const approveBox = await page
-            .getByTestId(`project-approval-approve-${projectId}`)
-            .boundingBox()
-          expect(approveBox, `approve button not measurable at ${width}px`).not.toBeNull()
-          if (approveBox) {
-            expect(approveBox.height, `touch target < 44px at ${width}px`).toBeGreaterThanOrEqual(
-              44,
-            )
-          }
-        }
+      // Separate loop (not a branch inside the one above — playwright/no-
+      // conditional-expect forbids expect() under an if): touch-target
+      // floor only applies at the two mobile widths (responsive-design.md).
+      for (const width of [320, 375]) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(100)
+        const approveBox = await page
+          .getByTestId(`project-approval-approve-${projectId}`)
+          .boundingBox()
+        expect(approveBox, `approve button not measurable at ${width}px`).not.toBeNull()
+        expect(
+          (approveBox as { height: number }).height,
+          `touch target < 44px at ${width}px`,
+        ).toBeGreaterThanOrEqual(44)
       }
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
