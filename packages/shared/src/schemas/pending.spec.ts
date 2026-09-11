@@ -56,6 +56,15 @@ describe('pendingItemSchema', () => {
     expect(() => pendingItemSchema.parse({ ...baseItem, actions: ['remind'] })).toThrow()
   })
 
+  it("accepts 'cancel' as a valid action — proposedByMe share-approval rows use ['cancel', 'open']", () => {
+    const row = {
+      ...baseItem,
+      kind: 'SHARE_APPROVAL' as const,
+      actions: ['cancel', 'open'] as const,
+    }
+    expect(pendingItemSchema.parse(row)).toEqual(row)
+  })
+
   it('rejects an unknown kind — the closed set is deliberate (see schema doc)', () => {
     expect(() => pendingItemSchema.parse({ ...baseItem, kind: 'DROP_SHARE_APPROVAL' })).toThrow()
   })
