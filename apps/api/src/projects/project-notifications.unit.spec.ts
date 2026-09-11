@@ -145,6 +145,92 @@ describe('«ждёт решения: новый проект»', () => {
 })
 
 // ---------------------------------------------------------------------------
+// createFromInterview → «ждёт решения: новый проект» (SR-L-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * SR-L-1 (security-review круг 1). Черновик проекта заводят ДВЕ двери:
+ * `create` (руками) и `createFromInterview` (из нанятого собеседования). Обе
+ * открывают согласование через `proposeInTx`, но производитель стоял только у
+ * первой — синьор, которому прислали проект из собеседования, не узнавал, что
+ * от него ждут подтверждения.
+ *
+ * Это ровно тот риск, который PR сам назвал главным в комментарии к
+ * `afterTransactionCreated`: «объём, на котором „обнови везде“ теряет одно
+ * место».
+ */
+function buildFromInterviewHarness() {
+  const { notifications, created } = makeNotificationsSpy()
+  const inserted: Record<string, unknown>[] = []
+  const db = {
+    db: {
+      query: {
+        // Синьор не состоит ни в одной команде — путь досева HR/бухгалтера
+        // здесь не проверяется, он не про уведомления.
+        teamMembers: { findMany: async () => [] },
+      },
+      insert: () => ({
+        values: (values: Record<string, unknown>) => ({
+          returning: async () => {
+            inserted.push(values)
+            return [{ id: 'proj-from-interview', ...values }]
+          },
+        }),
+      }),
+    },
+  }
+  const service = new ProjectsService(
+    db as never,
+    { record: vi.fn(async () => undefined) } as never,
+    {} as never,
+    new HrAccessService(db as never),
+    { proposeInTx: vi.fn(async () => undefined) } as never,
+    notifications,
+  )
+  const interview = {
+    id: 'int-1',
+    companyName: 'Acme',
+    seniorId: SENIOR_ID,
+    notesDomain: 'Other',
+    notesTechStack: null,
+    senior: null,
+  }
+  return { service, created, interview }
+}
+
+describe('«ждёт решения: новый проект» — вторая дверь, из собеседования', () => {
+  it('синьор узнаёт о черновике, созданном из нанятого собеседования', async () => {
+    const h = buildFromInterviewHarness()
+
+    await h.service.createFromInterview(h.interview as never, ADMIN)
+
+    expect(h.created).toHaveLength(1)
+    expect(h.created[0]).toMatchObject({
+      userId: SENIOR_ID,
+      type: 'PROJECT_CONFIRM_REQUIRED',
+      title: 'Ждёт решения: новый проект',
+      subjectType: 'PROJECT',
+      subjectId: 'proj-from-interview',
+      data: { projectName: 'Acme' },
+    })
+  })
+
+  it('синьор, заведший проект из СВОЕГО собеседования, себе не пишет', async () => {
+    const h = buildFromInterviewHarness()
+
+    await h.service.createFromInterview(
+      h.interview as never,
+      {
+        ...ADMIN,
+        id: SENIOR_ID,
+      } as SessionUser,
+    )
+
+    expect(h.created).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // addMember → «вас добавили в проект»
 // ---------------------------------------------------------------------------
 

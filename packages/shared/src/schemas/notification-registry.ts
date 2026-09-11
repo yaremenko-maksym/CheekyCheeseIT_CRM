@@ -274,10 +274,29 @@ export function describeNotification<T extends NewNotificationType>(
       const d = data as NotificationDataByType['APPROVAL_CONFIRMED']
       return `${d.approverName} — ${subjectPhrase(d.subjectKind, d.subjectTitle)}`
     }
-    default: {
+    case 'APPROVAL_REJECTED': {
       const d = data as NotificationDataByType['APPROVAL_REJECTED']
       const subject = `${d.approverName} — ${subjectPhrase(d.subjectKind, d.subjectTitle)}`
       return d.reasonPreview === null ? subject : `${subject}: ${d.reasonPreview}`
+    }
+    default: {
+      // CR-M-1 (код-ревью круг 1): одиннадцатый тип обязан ЛОМАТЬ КОМПИЛЯЦИЮ
+      // здесь, а не молча проваливаться в чужую форму данных.
+      //
+      // Соседи по файлу (`NOTIFICATION_TITLES`, `ACTION_LABELS`,
+      // `dataSchemas`) уже не дают забыть новый тип — через
+      // `Record<NewNotificationType, …>` и `satisfies`. У `switch` такой
+      // страховки не было: добавить тип в `NEW_NOTIFICATION_TYPES` и
+      // дописать его форму можно было, НЕ дописав его описание, — и человек
+      // увидел бы поля чужого типа вместо ошибки сборки.
+      //
+      // Деградация НЕИЗВЕСТНОГО типа на клиенте (AC6) — отдельная и живая
+      // ветка на границе (`renderNotification`): данные с сервера могут быть
+      // старше бандла. Здесь речь о другом — о типе, известном системе типов,
+      // но забытом автором. Поэтому бросок, а не запасная форма: до этой
+      // строки нельзя доехать, не обманув компилятор.
+      const exhaustive: never = type
+      throw new Error(`describeNotification: неописанный тип уведомления ${String(exhaustive)}`)
     }
   }
 }

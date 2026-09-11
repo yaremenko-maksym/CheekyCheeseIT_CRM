@@ -446,3 +446,78 @@ describe('«статус транзакции изменился»', () => {
     expect(errors).toHaveLength(0)
   })
 })
+
+/**
+ * SR-L-2 (security-review круг 1). Зарплатный крон вызывает
+ * `createMonthlySalaries` БЕЗ сессионного актора (его некому дать — это
+ * расписание, а не запрос), и производитель стоял за условием
+ * `if (actor && inserted[0])`. То есть сотрудник узнавал о начисленной
+ * зарплате, только если строку завёл человек руками.
+ *
+ * Уведомление получателю от актора не зависит: актор нужен ровно для одного —
+ * не написать человеку о его же собственном действии (§8.1). Нет актора —
+ * некого и исключать, событие системное.
+ */
+describe('«транзакция добавлена» — системное событие без актора', () => {
+  it('получатель узнаёт о строке, созданной без сессионного пользователя', async () => {
+    const tx = makeTxRow({ type: 'SALARY', receiverId: 'hr-1', senderId: null, projectId: null })
+    const h = makeHarness(tx, null)
+
+    await created(h.svc).afterTransactionCreated(tx.id, tx, null)
+
+    expect(h.created).toHaveLength(1)
+    expect(h.created[0]).toMatchObject({
+      userId: 'hr-1',
+      type: 'TRANSACTION_ADDED',
+      dedupeKey: 'TRANSACTION_ADDED:tx-1',
+    })
+  })
+
+  it('журнал действий без актора не пишется — писать в него нечего', async () => {
+    const tx = makeTxRow({ type: 'SALARY', receiverId: 'hr-1', senderId: null, projectId: null })
+    const h = makeHarness(tx, null)
+
+    await created(h.svc).afterTransactionCreated(tx.id, tx, null)
+
+    // Аудит остаётся привязан к человеку: системная строка несёт `createdBy`
+    // (резервный админ), и второй записи «кто это сделал» у неё нет.
+    expect(h.auditInserts).toHaveLength(0)
+  })
+
+  it('кроновый проход зарплат порождает уведомление получателю', async () => {
+    const salaryRow = makeTxRow({
+      id: 'tx-salary',
+      type: 'SALARY',
+      receiverId: 'hr-1',
+      senderId: null,
+      projectId: null,
+    })
+    const h = makeHarness(salaryRow, null)
+
+    // Кому начислять — не предмет этого теста; важно, что актора НЕТ.
+    const internals = h.svc as unknown as {
+      resolveHrAccountantSalaryReceivers: () => Promise<unknown[]>
+      resolveJuniorSalaryReceivers: () => Promise<unknown[]>
+    }
+    vi.spyOn(internals, 'resolveHrAccountantSalaryReceivers').mockResolvedValue([
+      { id: 'hr-1', email: 'hr@example.com', monthlySalary: '1000.00' },
+    ])
+    vi.spyOn(internals, 'resolveJuniorSalaryReceivers').mockResolvedValue([])
+
+    const db = (h.svc as unknown as { db: { db: Record<string, unknown> } }).db.db
+    // Резервный админ — тот, кого крон записывает в `createdBy`.
+    ;(db['query'] as Record<string, unknown>)['users'] = {
+      findFirst: async () => ({ id: 'admin-fallback', role: 'ADMIN' }),
+    }
+    db['insert'] = () => ({
+      values: () => ({
+        onConflictDoNothing: () => ({ returning: async () => [{ id: 'tx-salary' }] }),
+      }),
+    })
+
+    await h.svc.createMonthlySalaries('2026-09')
+
+    expect(h.created).toHaveLength(1)
+    expect(h.created[0]).toMatchObject({ userId: 'hr-1', type: 'TRANSACTION_ADDED' })
+  })
+})

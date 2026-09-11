@@ -2377,6 +2377,27 @@ export class ProjectsService {
       proposedByUserId: currentUser.id,
     })
 
+    // SR-L-1 (security-review круг 1): ВТОРАЯ дверь в черновик проекта — и
+    // производитель обязан стоять у обеих. `create` выше уже просит синьора
+    // подтвердить; проект, приехавший из нанятого собеседования, открывает
+    // ровно такое же согласование, и без этой строки синьор о нём не узнавал
+    // (кнопка «подтвердить» есть, просьбы нет).
+    //
+    // Тот же контур, что и у `create`: получатели — приглашённые
+    // подтверждающие, автор действия исключён (§8.1 — своё подтверждает тост,
+    // а не колокольчик), запись идёт по тому же соединению, что и сам
+    // черновик, поэтому откат события уносит и её.
+    if (interview.seniorId !== (currentUser.impersonatorId ?? currentUser.id)) {
+      await this.notifications.createInTx(conn as unknown as DrizzleTx, {
+        userId: interview.seniorId,
+        type: 'PROJECT_CONFIRM_REQUIRED',
+        title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
+        subjectType: 'PROJECT',
+        subjectId: project.id,
+        data: { projectName: project.name },
+      })
+    }
+
     // Find all teams where this senior is CURRENTLY a member. Backlog #136:
     // this query used to ignore `leftAt`, so a team the senior had already
     // left still fed its HR/ACCOUNTANT into a brand-new project — a stale

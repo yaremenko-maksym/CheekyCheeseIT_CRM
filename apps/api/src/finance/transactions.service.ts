@@ -8798,11 +8798,11 @@ export class TransactionsService {
           // really created a row" from "it already existed" for the audit
           // entry below.
           .returning({ id: transactions.id })
-        if (actor && inserted[0]) {
+        if (inserted[0]) {
           await this.afterTransactionCreated(
             inserted[0].id,
             { type: 'SALARY', amount: emp.monthlySalary, currency: 'USD' },
-            actor,
+            actor ?? null,
           )
         }
       } catch (err: unknown) {
@@ -8854,11 +8854,11 @@ export class TransactionsService {
             where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
           })
           .returning({ id: transactions.id })
-        if (actor && inserted[0]) {
+        if (inserted[0]) {
           await this.afterTransactionCreated(
             inserted[0].id,
             { type: 'SALARY', amount: jr.monthlySalary, currency: 'USD' },
-            actor,
+            actor ?? null,
           )
         }
       } catch (err: unknown) {
@@ -9065,9 +9065,17 @@ export class TransactionsService {
   private async afterTransactionCreated(
     txId: string,
     created: { type: string; amount: string; currency: string },
-    currentUser: SessionUser,
+    currentUser: SessionUser | null,
   ): Promise<void> {
-    await this.recordCreationAudit(txId, created, currentUser)
+    // SR-L-2 (security-review круг 1): актор может отсутствовать — зарплатный
+    // крон создаёт строки по расписанию, и сессионного пользователя у него
+    // нет. Две половины этого шва относятся к актору по-разному:
+    //   - ЖУРНАЛ действий пишется про человека; без человека писать в него
+    //     нечего (у строки остаётся `createdBy` — резервный админ);
+    //   - УВЕДОМЛЕНИЕ адресовано получателю денег и от актора не зависит:
+    //     актор нужен ровно для того, чтобы не написать человеку о его же
+    //     действии (§8.1). Нет актора — некого исключать.
+    if (currentUser !== null) await this.recordCreationAudit(txId, created, currentUser)
     await this.notifyTransactionAdded(txId, currentUser)
   }
 
@@ -9085,7 +9093,10 @@ export class TransactionsService {
    * Best-effort, как и аудит рядом: строка денег уже зафиксирована, и сбой
    * доставки уведомления не имеет права превратить её в 500.
    */
-  private async notifyTransactionAdded(txId: string, currentUser: SessionUser): Promise<void> {
+  private async notifyTransactionAdded(
+    txId: string,
+    currentUser: SessionUser | null,
+  ): Promise<void> {
     try {
       const row = await this.db.db.query.transactions.findFirst({
         where: eq(transactions.id, txId),
@@ -9093,7 +9104,10 @@ export class TransactionsService {
       if (!row) return
       const recipientId = row.receiverId
       if (!recipientId) return
-      if (recipientId === (currentUser.impersonatorId ?? currentUser.id)) return
+      // Системное событие (крон) актора не имеет — исключать некого.
+      if (currentUser !== null && recipientId === (currentUser.impersonatorId ?? currentUser.id)) {
+        return
+      }
 
       await this.notifications.create({
         userId: recipientId,
