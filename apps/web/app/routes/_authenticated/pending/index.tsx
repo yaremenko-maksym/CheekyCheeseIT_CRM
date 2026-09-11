@@ -15,6 +15,7 @@ import { Briefcase, DollarSign, FileSignature, HelpCircle, Inbox } from 'lucide-
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PendingKindSection } from '@/components/pending/PendingKindSection'
+import type { PendingZone } from '@/components/pending/PendingItemRow'
 import type { PendingItem, PendingItemKind } from '@crm/shared'
 import { usePendingItems } from '@/hooks/use-pending-items'
 
@@ -38,6 +39,44 @@ const KIND_SECTIONS: ReadonlyArray<{
   { kind: 'SHARE_APPROVAL', title: 'Доли', icon: DollarSign },
   { kind: 'CONTRACT_TO_SIGN', title: 'Контракты', icon: FileSignature },
 ]
+
+const OTHER_SECTION_TITLE = 'Другое'
+
+/** Which section a row is rendered in — the same grouping the JSX below
+ * applies, extracted so the focus chain asks the question once. */
+function sectionTitleOf(item: PendingItem): string {
+  return KIND_SECTIONS.find((s) => s.kind === item.kind)?.title ?? OTHER_SECTION_TITLE
+}
+
+/**
+ * Design spec §12 / integration decision 3: where focus goes once the acted
+ * row leaves the DOM. An ORDERED list of candidates rather than a single
+ * computed target — the caller takes the first one that actually exists
+ * after the re-render, which is also the answer to "what if the whole
+ * section, or the whole zone, went away with that row": the question never
+ * has to be predicted, only asked in the right order.
+ *
+ * Order: the next row of the SAME section → that section's heading → the
+ * zone's own heading → the page root. (No "previous row" step: the spec
+ * says next-or-heading, and a user who just acted on the last row of a
+ * section is looking at that section's remaining rows ABOVE the heading —
+ * jumping backwards into them reads as a lost place, the heading as a
+ * deliberate one.)
+ */
+export function focusSelectorsAfterActing(
+  section: PendingItem[],
+  acted: PendingItem,
+  zone: PendingZone,
+): string[] {
+  const index = section.findIndex((i) => itemKey(i) === itemKey(acted))
+  const next = index === -1 ? undefined : section[index + 1]
+  return [
+    ...(next ? [`[data-testid="pending-item-row-${next.kind}-${next.subjectId}"]`] : []),
+    `[data-testid="pending-kind-heading-${zone}-${sectionTitleOf(acted)}"]`,
+    zone === 'mine' ? '#pending-mine-heading' : '#pending-others-heading',
+    '[data-testid="pending-page"]',
+  ]
+}
 
 // Exported (not module-private) for __tests__/index.test.tsx — same
 // precedent as $projectId.tsx's PendingShareApprovalBanner: the alternative
@@ -67,13 +106,33 @@ export function PendingPage() {
   const visibleMine = mine.filter((i) => !dismissed.has(itemKey(i)))
   const visibleOther = proposedByMe.filter((i) => !dismissed.has(itemKey(i)))
 
-  function handleActed(item: PendingItem) {
+  function handleActed(item: PendingItem, zone: PendingZone) {
+    const list = zone === 'mine' ? visibleMine : visibleOther
+    const section = list.filter((i) => sectionTitleOf(i) === sectionTitleOf(item))
+    setFocusSelectors(focusSelectorsAfterActing(section, item, zone))
     setDismissed((prev) => new Set(prev).add(itemKey(item)))
   }
 
+  // Runs after the re-render that removed the row, so the DOM it queries is
+  // the post-removal one — hence "first candidate that exists" rather than a
+  // pre-computed element reference (which could point at a node that has
+  // just been unmounted).
+  const [focusSelectors, setFocusSelectors] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (!focusSelectors) return
+    for (const selector of focusSelectors) {
+      const el = document.querySelector<HTMLElement>(selector)
+      if (el) {
+        el.focus()
+        break
+      }
+    }
+    setFocusSelectors(null)
+  }, [focusSelectors])
+
   if (isLoading) {
     return (
-      <div data-testid="pending-page" className="flex h-full flex-col">
+      <div data-testid="pending-page" tabIndex={-1} className="flex h-full flex-col">
         <div className="flex-1 space-y-2 overflow-y-auto px-4 py-5 md:px-6 md:py-6 lg:max-w-6xl lg:px-8">
           <Skeleton className="h-16 rounded-md" data-testid="pending-loading" />
           <Skeleton className="h-16 rounded-md" />
@@ -85,7 +144,7 @@ export function PendingPage() {
 
   if (isError) {
     return (
-      <div data-testid="pending-page" className="flex h-full flex-col">
+      <div data-testid="pending-page" tabIndex={-1} className="flex h-full flex-col">
         <div
           className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-5 text-center"
           data-testid="pending-error"
@@ -107,7 +166,7 @@ export function PendingPage() {
   const isEmpty = visibleMine.length === 0 && visibleOther.length === 0
 
   return (
-    <div data-testid="pending-page" className="flex h-full flex-col">
+    <div data-testid="pending-page" tabIndex={-1} className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6 lg:max-w-6xl lg:px-8">
         {isEmpty ? (
           <div
@@ -125,7 +184,11 @@ export function PendingPage() {
           <div className="space-y-6">
             {visibleMine.length > 0 && (
               <section className="space-y-3" aria-labelledby="pending-mine-heading">
-                <h2 id="pending-mine-heading" className="text-base font-semibold tracking-tight">
+                <h2
+                  id="pending-mine-heading"
+                  tabIndex={-1}
+                  className="text-base font-semibold tracking-tight"
+                >
                   Ждут вашего решения
                 </h2>
                 <div className="space-y-4">
@@ -136,7 +199,7 @@ export function PendingPage() {
                       icon={icon}
                       items={visibleMine.filter((i) => i.kind === kind)}
                       zone="mine"
-                      onActed={handleActed}
+                      onActed={(i) => handleActed(i, 'mine')}
                     />
                   ))}
                   <PendingKindSection
@@ -144,7 +207,7 @@ export function PendingPage() {
                     icon={HelpCircle}
                     items={visibleMine.filter((i) => !KIND_SECTIONS.some((s) => s.kind === i.kind))}
                     zone="mine"
-                    onActed={handleActed}
+                    onActed={(i) => handleActed(i, 'mine')}
                   />
                 </div>
               </section>
@@ -152,7 +215,11 @@ export function PendingPage() {
 
             {visibleOther.length > 0 && (
               <section className="space-y-3" aria-labelledby="pending-others-heading">
-                <h2 id="pending-others-heading" className="text-base font-semibold tracking-tight">
+                <h2
+                  id="pending-others-heading"
+                  tabIndex={-1}
+                  className="text-base font-semibold tracking-tight"
+                >
                   Ждут решения других
                 </h2>
                 <div className="space-y-4">
@@ -167,7 +234,7 @@ export function PendingPage() {
                         icon={icon}
                         items={visibleOther.filter((i) => i.kind === kind)}
                         zone="proposedByMe"
-                        onActed={handleActed}
+                        onActed={(i) => handleActed(i, 'proposedByMe')}
                       />
                     ),
                   )}
@@ -178,7 +245,7 @@ export function PendingPage() {
                       (i) => !KIND_SECTIONS.some((s) => s.kind === i.kind),
                     )}
                     zone="proposedByMe"
-                    onActed={handleActed}
+                    onActed={(i) => handleActed(i, 'proposedByMe')}
                   />
                 </div>
               </section>

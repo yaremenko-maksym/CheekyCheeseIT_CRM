@@ -180,3 +180,97 @@ describe('/pending — AC4: end-to-end local dismiss through a REAL action compo
     expect(screen.queryByText('Acme Corp')).not.toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Design spec §12 / integration decision 3 (2026-09-11): the row the user was
+// standing on disappears under them, so focus must land on the next logical
+// element rather than falling back to <body> — the same obligation a modal
+// has on close, except here the trigger left with the row.
+// ---------------------------------------------------------------------------
+describe('/pending — §12: focus after a row disappears', () => {
+  beforeEach(() => {
+    mockPost.mockReset()
+    mockPost.mockResolvedValue({ data: { status: 'ACTIVE' } })
+  })
+
+  it('moves focus to the NEXT row of the same section', async () => {
+    const user = userEvent.setup()
+    mockState = {
+      ...mockState,
+      mine: [
+        item({ subjectId: 'p1', title: 'Acme Corp' }),
+        item({ subjectId: 'p2', title: 'Globex' }),
+      ],
+      proposedByMe: [],
+    }
+    renderPage()
+
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p1'))
+    })
+
+    expect(screen.getByTestId('pending-item-row-PROJECT_APPROVAL-p2')).toHaveFocus()
+  })
+
+  it('moves focus to the section heading when the acted row was the last one of its section but others remain', async () => {
+    const user = userEvent.setup()
+    mockState = {
+      ...mockState,
+      mine: [
+        item({ subjectId: 'p1', title: 'Acme Corp' }),
+        item({ subjectId: 'p2', title: 'Globex' }),
+      ],
+      proposedByMe: [],
+    }
+    renderPage()
+
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p2'))
+    })
+
+    expect(screen.getByTestId('pending-kind-heading-mine-Проекты')).toHaveFocus()
+  })
+
+  it('falls back to the zone heading when the whole section went away but the zone did not', async () => {
+    const user = userEvent.setup()
+    mockState = {
+      ...mockState,
+      mine: [
+        item({ subjectId: 'p1', title: 'Acme Corp' }),
+        item({
+          kind: 'SHARE_APPROVAL',
+          subjectType: 'USER',
+          subjectId: 'u1',
+          title: 'Ваша базовая доля',
+          currentPercent: 26,
+          pendingPercent: 30,
+          link: '/profile',
+        }),
+      ],
+      proposedByMe: [],
+    }
+    renderPage()
+
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p1'))
+    })
+
+    expect(screen.getByRole('heading', { name: 'Ждут вашего решения' })).toHaveFocus()
+  })
+
+  it('falls back to the page root when nothing at all is left to focus', async () => {
+    const user = userEvent.setup()
+    mockState = {
+      ...mockState,
+      mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
+      proposedByMe: [],
+    }
+    renderPage()
+
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p1'))
+    })
+
+    expect(screen.getByTestId('pending-page')).toHaveFocus()
+  })
+})

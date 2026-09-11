@@ -163,6 +163,12 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
           : 'border-border/40 bg-muted/20',
       )}
       data-testid={`pending-item-row-${item.kind}-${item.subjectId}`}
+      // Design spec §12: not reachable by Tab (it is a container, not a
+      // control — `-1`, never `0`), but focusable programmatically so the
+      // page can land focus HERE when the row above it disappears from
+      // under the user. Without it `.focus()` is a no-op on a plain div and
+      // focus falls back to <body>.
+      tabIndex={-1}
     >
       <div className="min-w-0 flex-1">
         {item.kind === 'CONTRACT_TO_SIGN' ? (
