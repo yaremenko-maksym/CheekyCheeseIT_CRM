@@ -130,8 +130,8 @@ export class NotificationsService {
         // ничем: списка с нулём причин отказа не порождает ни одна форма, и
         // запасное «invalid» недостижимо. Оставлено страховкой на случай смены
         // библиотеки — но проверить его нечем.
-        // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
         throw new BadRequestException(
+          // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
           `Invalid notification data for ${input.type}: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
         )
       }
