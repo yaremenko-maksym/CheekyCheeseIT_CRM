@@ -576,6 +576,7 @@ export class PendingService {
     },
   ): { viewerSharePercent: number | null; seniorName: string | null } {
     const viewerId = ctx.viewerId
+    // Stryker disable next-line ConditionalExpression: forcing this guard OFF is provably equivalent, not untested. With `viewerId === null`, `project.seniorId === null` is false (NOT NULL column) and the drop arm — which `dropId === null` would enter — immediately hits `if (!drop)` because `usersById.get(null)` can never resolve, returning this same `{null, null}`. Kept explicit so reading the code does not require that proof.
     if (viewerId === null) return { viewerSharePercent: null, seniorName: null }
 
     if (project.seniorId === viewerId) {

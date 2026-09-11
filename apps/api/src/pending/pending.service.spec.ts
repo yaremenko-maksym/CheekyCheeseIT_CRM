@@ -962,6 +962,94 @@ describe('PendingService.getPending — PROJECT_APPROVAL viewer share (decision 
     expect(result.mine[0]?.viewerSharePercent).toBe(33)
   })
 
+  it("passes the SENIOR's OWN default into the resolver, not the resolver's own 26 fallback", async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: SENIOR_ID }),
+    ])
+    const db = makeFakeDb({
+      projects: [ACTIVE_PROJECT_ROW],
+      users: [ADMIN_USER_ROW, { ...SENIOR_USER_ROW, seniorSharePercent: 37 }],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    // 37, never 26: `resolveSeniorShare`'s user-default step falls back to 26
+    // when it is handed nothing, so a percent of 26 here would be
+    // indistinguishable from passing the senior through at all.
+    expect(result.mine[0]?.viewerSharePercent).toBe(37)
+  })
+
+  it("returns null — not an absent field — when the viewer's own user row is missing", async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: SENIOR_ID }),
+    ])
+    // The viewer IS this project's senior, but their `users` row is not in
+    // the batch (deleted between the two queries).
+    const db = makeFakeDb({ projects: [ACTIVE_PROJECT_ROW], users: [ADMIN_USER_ROW] })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine[0]?.viewerSharePercent).toBeNull()
+    expect(result.mine[0]?.seniorName).toBeNull()
+  })
+
+  it('gives neither figure to an approver who is neither the senior nor the drop of that project', async () => {
+    const OTHER_SENIOR = '80000000-0000-4000-8000-000000000008'
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: SENIOR_ID }),
+    ])
+    const db = makeFakeDb({
+      projects: [
+        {
+          ...PROJECT_WITH_BOTH_OVERRIDES,
+          seniorId: OTHER_SENIOR,
+          dropId: DROP_ID as string | null,
+        },
+      ],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW, DROP_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine[0]?.viewerSharePercent).toBeNull()
+    expect(result.mine[0]?.seniorName).toBeNull()
+  })
+
+  it('returns null for a DROP viewer whose own user row is missing, instead of throwing', async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: DROP_ID }),
+    ])
+    const db = makeFakeDb({
+      projects: [PROJECT_WITH_BOTH_OVERRIDES],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: DROP_ID, role: 'DROP' } as never)
+
+    expect(result.mine[0]?.viewerSharePercent).toBeNull()
+    expect(result.mine[0]?.seniorName).toBeNull()
+  })
+
+  it("keeps the DROP viewer's own share when the SENIOR's row is missing — seniorName just goes null", async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: DROP_ID }),
+    ])
+    const db = makeFakeDb({
+      projects: [PROJECT_WITH_BOTH_OVERRIDES],
+      users: [ADMIN_USER_ROW, DROP_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: DROP_ID, role: 'DROP' } as never)
+
+    expect(result.mine[0]?.viewerSharePercent).toBe(9)
+    expect(result.mine[0]?.seniorName).toBeNull()
+  })
+
   it('gives an ADMIN neither figure on a proposedByMe project row (the widget showed them none either)', async () => {
     const approvalsService = makeFakeApprovals(
       [],
