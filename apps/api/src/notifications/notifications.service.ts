@@ -125,6 +125,12 @@ export class NotificationsService {
     if (isNewNotificationType(input.type) && input.data !== undefined && input.data !== null) {
       const parsed = notificationDataSchemaFor(input.type).safeParse(input.data)
       if (!parsed.success) {
+        // `issues` непустой всегда, когда разбор не удался, — это свойство
+        // самой Zod, а не наше допущение. Значит, снятие `?.` не наблюдается
+        // ничем: списка с нулём причин отказа не порождает ни одна форма, и
+        // запасное «invalid» недостижимо. Оставлено страховкой на случай смены
+        // библиотеки — но проверить его нечем.
+        // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
         throw new BadRequestException(
           `Invalid notification data for ${input.type}: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
         )

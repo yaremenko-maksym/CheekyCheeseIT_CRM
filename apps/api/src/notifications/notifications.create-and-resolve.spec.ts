@@ -57,12 +57,27 @@ function makeRow(over: Partial<Row> = {}): Row {
   } as Row
 }
 
-function makeHarness(seed: Row[] = [], existing: Existing = {}) {
+function makeHarness(seed: Row[] = [], existing: Existing = {}, insertReturnsNothing = false) {
   const rows = [...seed]
   const insertValues: Record<string, unknown>[] = []
   const conflictArgs: Record<string, unknown>[] = []
   /** Таблицы, у которых сервис спрашивал про существование объектов. */
   const askedTables: string[] = []
+  /** Условия отбора, с которыми пришли запросы про живость объектов. */
+  const whereClauses: { table: string; sql: unknown }[] = []
+
+  /**
+   * Ответ содержит РОВНО запрошенные колонки, как и настоящая база. Без этого
+   * «спросил идентификатор» и «не спросил ничего» дают один и тот же результат,
+   * и пустой список колонок остаётся незамеченным до боя, где он вернул бы
+   * строки без `id` — то есть «объект исчез» для всех подряд.
+   */
+  const pick = (fields: Record<string, unknown> | undefined, source: Record<string, unknown>) => {
+    if (fields === undefined) return source
+    const out: Record<string, unknown> = {}
+    for (const key of Object.keys(fields)) out[key] = source[key]
+    return out
+  }
 
   const rowsFor = (table: unknown, fields?: Record<string, unknown>): unknown[] => {
     if (table === notifications) {
@@ -73,7 +88,7 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}) {
     }
     if (table === approvals) {
       askedTables.push('approvals')
-      return existing.approvals ?? []
+      return (existing.approvals ?? []).map((a) => pick(fields, a as Record<string, unknown>))
     }
     const byTable: [unknown, string, string[] | undefined][] = [
       [projects, 'projects', existing.projects],
@@ -85,10 +100,17 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}) {
     for (const [candidate, name, ids] of byTable) {
       if (table === candidate) {
         askedTables.push(name)
-        return (ids ?? []).map((id) => ({ id }))
+        return (ids ?? []).map((id) => pick(fields, { id }))
       }
     }
     throw new Error('заглушка не знает такой таблицы')
+  }
+
+  const tableName = (table: unknown): string => {
+    if (table === approvals) return 'approvals'
+    if (table === projects) return 'projects'
+    if (table === notifications) return 'notifications'
+    return 'other'
   }
 
   const db = {
@@ -96,7 +118,10 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}) {
       select: (fields?: Record<string, unknown>) => ({
         from: (table: unknown) => {
           const builder: Record<string, unknown> = {}
-          builder['where'] = () => builder
+          builder['where'] = (clause: unknown) => {
+            whereClauses.push({ table: tableName(table), sql: clause })
+            return builder
+          }
           builder['orderBy'] = () => builder
           builder['limit'] = async (n: number) => rowsFor(table, fields).slice(0, n)
           // Запрос про живые согласования ждут прямо на `.where(...)` — как и
@@ -123,7 +148,7 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}) {
             return [row]
           }
           return {
-            returning: async () => insertRow(),
+            returning: async () => (insertReturnsNothing ? [] : insertRow()),
             onConflictDoNothing: (arg: Record<string, unknown>) => {
               conflictArgs.push(arg)
               return {
@@ -151,8 +176,15 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}) {
     insertValues,
     conflictArgs,
     askedTables,
+    whereClauses,
     db,
   }
+}
+
+/** Раскрывает условие отбора в настоящий SQL с параметрами — как его увидит база. */
+function compileWhere(clause: unknown): { sql: string; params: unknown[] } {
+  const compiled = new PgDialect().sqlToQuery(clause as Parameters<PgDialect['sqlToQuery']>[0])
+  return { sql: compiled.sql.toLowerCase(), params: compiled.params }
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +285,24 @@ describe('создание записи: в базу уезжает ровно �
         .replace(/\bnotifications\./g, '')
         .toLowerCase(),
     ).toBe('dedupe_key is not null')
+  })
+
+  it('вставка без ключа не вернула строку — честная ошибка, а не тихий null', async () => {
+    // Подстраховка: обычная вставка обязана вернуть строку. Возврат `null`
+    // здесь означал бы «погашено идемпотентностью», а гасить было нечего —
+    // производитель решил бы, что получатель уже уведомлён, и промолчал бы.
+    const h = makeHarness([], {}, true)
+
+    await expect(
+      h.svc.create({
+        userId: 'u-9',
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Вас добавили в проект',
+        subjectType: 'PROJECT',
+        subjectId: 'p-1',
+        data: { projectName: 'Acme' },
+      }),
+    ).rejects.toThrow('Failed to insert notification')
   })
 
   it('тот же ключ ДРУГОМУ получателю — отдельная строка', async () => {
@@ -410,6 +460,23 @@ describe('исчезнувший объект вычисляется на чте
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
     expect(list.items[0]?.subjectMissing).toBe(false)
+  })
+
+  it('про живость согласования спрашивают ИМЕННО про этот объект', async () => {
+    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
+      projects: ['p-1'],
+      approvals: [{ subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1' }],
+    })
+
+    await h.svc.listForUser('u-1', { limit: 10 })
+
+    // Запрос «про что угодно» вернул бы ЧУЖИЕ живые согласования, и кнопка
+    // повела бы к объекту, решение по которому ждут не от этого человека.
+    const approvalWhere = h.whereClauses.find((w) => w.table === 'approvals')
+    expect(approvalWhere, 'запрос к согласованиям обязан нести условие').toBeDefined()
+    const compiled = compileWhere(approvalWhere!.sql)
+    expect(compiled.params).toContain('p-1')
+    expect(compiled.sql).toContain('superseded_at')
   })
 
   it('информирующей строке согласования не нужны — лишнего запроса нет', async () => {
