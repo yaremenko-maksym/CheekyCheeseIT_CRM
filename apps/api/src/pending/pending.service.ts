@@ -206,14 +206,20 @@ export class PendingService {
       // project id into `projectIds` vs a person id into `userIds`) on the
       // side where it is NOT structurally redundant — see that function's
       // matching comment.
-      // Stryker disable next-line ConditionalExpression: see comment above.
       if (
+        // Stryker disable next-line ConditionalExpression: see comment above — the comment must sit inside the parens for a multi-line condition, Stryker reports the mutant at the condition's own line, not the `if (` line.
         row.subjectType === PROJECT_APPROVAL_SUBJECT_TYPE ||
         row.subjectType === PROJECT_SENIOR_SHARE_SUBJECT_TYPE
       ) {
         projectIds.add(row.subjectId)
-        // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement: same redundancy as the `if` above — `subjectId === viewerId` is already in `userIds` via this function's seed.
-      } else if (row.subjectType === USER_SENIOR_SHARE_SUBJECT_TYPE) {
+      }
+      // A standalone `if`, not `else if`: mutually exclusive with the block
+      // above via `subjectType`'s actual values regardless, and a plain
+      // `if` is what the suppression below reliably attaches to — an
+      // earlier `else if` here silenced nothing (confirmed empirically: the
+      // comment simply did not show up in the gate's own suppression tally).
+      // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement: same redundancy as the `if` above — `subjectId === viewerId` is already in `userIds` via this function's seed.
+      if (row.subjectType === USER_SENIOR_SHARE_SUBJECT_TYPE) {
         userIds.add(row.subjectId)
       }
     }
@@ -283,15 +289,18 @@ export class PendingService {
       // approver reaches `seniorIds` for team-override resolution) is
       // exercised by `offers a proposed PROJECT_SENIOR_SHARE change with the
       // resolved percent (team override applied)` below.
-      // Stryker disable next-line ConditionalExpression: only the ALWAYS-true mutant is unobservable, see comment above — the other half of this condition is a real test target.
       if (
+        // Stryker disable next-line ConditionalExpression: only the ALWAYS-true mutant is unobservable, see comment above — the other half of this condition is a real test target, and the comment must sit inside the parens for a multi-line condition (Stryker reports the mutant at the condition's own line, not the `if (` line).
         row.subjectType === PROJECT_APPROVAL_SUBJECT_TYPE ||
         row.subjectType === PROJECT_SENIOR_SHARE_SUBJECT_TYPE
       ) {
         projectIds.add(row.subjectId)
         if (row.subjectType === PROJECT_SENIOR_SHARE_SUBJECT_TYPE) seniorIds.add(row.approverUserId)
-        // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement: same self-approval-invariant redundancy as `buildMineItems`'s matching branch — `userIds.add(row.approverUserId)` above already covers `subjectId` (they are equal for USER_SENIOR_SHARE), and `seniorIds` is never consulted while building a USER_SENIOR_SHARE item (no team-override step on that branch).
-      } else if (row.subjectType === USER_SENIOR_SHARE_SUBJECT_TYPE) {
+      }
+      // A standalone `if`, not `else if` — see `buildMineItems`'s matching
+      // branch for why (a prior `else if` here silenced nothing).
+      // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement: same self-approval-invariant redundancy as `buildMineItems`'s matching branch — `userIds.add(row.approverUserId)` above already covers `subjectId` (they are equal for USER_SENIOR_SHARE), and `seniorIds` is never consulted while building a USER_SENIOR_SHARE item (no team-override step on that branch).
+      if (row.subjectType === USER_SENIOR_SHARE_SUBJECT_TYPE) {
         userIds.add(row.subjectId)
         seniorIds.add(row.subjectId)
       }
