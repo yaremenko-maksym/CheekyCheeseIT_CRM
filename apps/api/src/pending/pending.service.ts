@@ -6,6 +6,7 @@ import { ApprovalsService } from '../approvals/approvals.service'
 import { DatabaseService } from '../database/database.service'
 import { employeeContracts, projects, teamMembers, users } from '../database/schema'
 import { resolveSeniorShare, type ResolverTeam } from '../finance/senior-share-resolver'
+import { resolveDropShare } from '../finance/drop-share-resolver'
 
 /**
  * task-pending-screen (position 7c of docs/superpowers/specs/2026-09-01-
@@ -41,6 +42,12 @@ type ProjectLite = {
   archivedAt: Date | null
   seniorSharePercentOverride: number | null
   pendingSeniorSharePercentOverride: number | null
+  /** Who the two sides of a PROJECT_APPROVAL row are — read ONLY to decide
+   * which side the VIEWER is on (integration decision 2), never emitted. */
+  seniorId: string
+  dropId: string | null
+  /** The project-level drop override `resolveDropShare` reads first. */
+  dropSharePercentOverride: number | null
 }
 
 type UserLite = {
@@ -48,6 +55,9 @@ type UserLite = {
   displayName: string
   seniorSharePercent: number
   pendingSeniorSharePercent: number | null
+  /** The per-user drop default `resolveDropShare` falls back to. Only ever
+   * read for the VIEWER'S OWN row (integration decision 2). */
+  dropSharePercent: number | null
 }
 
 /** The shape `loadTeamOverridesForSeniors` casts `teamMembers.findMany`'s
@@ -152,6 +162,10 @@ export class PendingService {
 
     return {
       kind: 'CONTRACT_TO_SIGN',
+      // The contract is the viewer's OWN — user-scoped, and `/profile`
+      // below is a user-scoped surface — even though `subjectId` is the
+      // contract row's id (integration decision 1's per-kind mapping).
+      subjectType: 'USER',
       subjectId: row.id,
       title: 'Контракт сотрудника',
       createdAt: row.updatedAt.toISOString(),
@@ -226,8 +240,16 @@ export class PendingService {
       }
     }
 
-    const [projectsById, usersById, teamOverridesBySenior] = await Promise.all([
-      this.loadProjectsByIds(projectIds),
+    // Projects FIRST, users second (not one `Promise.all`): a
+    // PROJECT_APPROVAL row shown to the project's DROP carries the SENIOR'S
+    // NAME (integration decision 2), and which user that is only becomes
+    // known once the project rows are in hand. One extra round trip, no
+    // extra query — the senior ids join the `inArray` the users load was
+    // going to make anyway.
+    const projectsById = await this.loadProjectsByIds(projectIds)
+    for (const project of projectsById.values()) userIds.add(project.seniorId)
+
+    const [usersById, teamOverridesBySenior] = await Promise.all([
       this.loadUsersByIds(userIds),
       // `mine` rows are always the viewer's OWN share — one senior, one
       // team-override lookup, regardless of how many share-approval rows
@@ -244,6 +266,7 @@ export class PendingService {
         teamOverridesBySenior,
         seniorId: viewerId,
         isMine: true,
+        viewerId,
         proposedBy: proposedByName,
         waitingFor: undefined,
         actionsForApprovalKinds: ['approve', 'reject', 'open'],
@@ -271,7 +294,7 @@ export class PendingService {
 
     const groups = new Map<string, Approval[]>()
     for (const row of rows) {
-      const key = `${row.subjectType} ${row.subjectId}`
+      const key = `${row.subjectType}\u0000${row.subjectId}`
       const group = groups.get(key)
       if (group) group.push(row)
       else groups.set(key, [row])
@@ -347,6 +370,10 @@ export class PendingService {
         teamOverridesBySenior,
         seniorId: representative.approverUserId,
         isMine: false,
+        // ADMIN is party to neither side of the project — the dashboard
+        // widget showed them no share line either (integration decision 2:
+        // "ADMIN — как раньше в виджете").
+        viewerId: null,
         proposedBy: undefined,
         waitingFor: waitingForNames,
         // No "withdraw a project draft" endpoint exists in main today —
@@ -387,6 +414,16 @@ export class PendingService {
        * nothing observable — a boolean's only two values are both load-
        * bearing by construction). */
       isMine: boolean
+      /** The VIEWER, when the viewer is a party to this row (i.e. on
+       * `mine`); `null` on `proposedByMe`, where the viewer is the ADMIN
+       * observer and `seniorId` above is some OTHER person's id. Only the
+       * PROJECT_APPROVAL branch reads it — to decide whether the viewer is
+       * this project's senior or its drop, and therefore WHICH share figure
+       * (if any) is theirs to see. Explicit rather than reusing
+       * `seniorId`/`isMine`, because on the `proposedByMe` side `seniorId`
+       * is emphatically NOT the viewer, and a share figure resolved against
+       * it would be someone else's number. */
+      viewerId: string | null
       proposedBy: string | undefined
       waitingFor: string[] | undefined
       actionsForApprovalKinds: PendingItem['actions']
@@ -397,14 +434,17 @@ export class PendingService {
       // §7.4 / AC2: an archived (or already-deleted) project's proposal is
       // not "something you can act on right now" — dropped, not surfaced.
       if (!project || project.archivedAt !== null) return null
+      const { viewerSharePercent, seniorName } = this.viewerShareOnProject(project, ctx)
       return {
         kind: 'PROJECT_APPROVAL',
         approvalId: row.id,
-        subjectType: row.subjectType,
+        subjectType: 'PROJECT',
         subjectId: project.id,
         title: project.name,
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
+        viewerSharePercent,
+        seniorName,
         createdAt: row.createdAt,
         actions: ctx.actionsForApprovalKinds,
         link: `/projects/${project.id}`,
@@ -438,7 +478,7 @@ export class PendingService {
       return {
         kind: 'SHARE_APPROVAL',
         approvalId: row.id,
-        subjectType: row.subjectType,
+        subjectType: 'PROJECT',
         subjectId: project.id,
         title: project.name,
         proposedBy: ctx.proposedBy,
@@ -464,7 +504,7 @@ export class PendingService {
       return {
         kind: 'SHARE_APPROVAL',
         approvalId: row.id,
-        subjectType: row.subjectType,
+        subjectType: 'USER',
         subjectId: senior.id,
         title: ctx.isMine ? 'Ваша базовая доля' : senior.displayName,
         proposedBy: ctx.proposedBy,
@@ -481,6 +521,72 @@ export class PendingService {
     // this service does not (yet) recognise is skipped rather than shown
     // with a guessed shape — see this file's header comment.
     return null
+  }
+
+  /**
+   * The VIEWER'S OWN resolved share on a project awaiting their decision,
+   * plus (for a DROP viewer only) who the senior is. Integration decision 2,
+   * 2026-09-11 — restores what `PendingProjectApprovalsPanel` used to read
+   * off the full `ProjectDto` before SR-L-6 took that DTO away from the DROP
+   * dashboard.
+   *
+   * The masking contour is `mapProject`'s, stated positively rather than as
+   * a denylist: the ONLY figure that can be emitted is the one belonging to
+   * the side the viewer is on. A SENIOR viewer's branch cannot reach
+   * `resolveDropShare` and a DROP viewer's cannot reach `resolveSeniorShare`
+   * — the counterparty's percentage is not merely omitted at the end, it is
+   * never computed. A viewer who is neither (ADMIN on `proposedByMe`) gets
+   * `null`/`null`, matching the widget, which rendered no share line for
+   * them either.
+   *
+   * `seniorName` is a NAME, not a share figure, and only a DROP sees it:
+   * they have no route access to `/projects` at all, so this row is their
+   * only view of whom they would be working under (COPY-M-6, #646). The
+   * mirror image is deliberately absent — a SENIOR is not told who the drop
+   * is, the same rule `mapProject` already applies.
+   */
+  private viewerShareOnProject(
+    project: ProjectLite,
+    ctx: {
+      usersById: Map<string, UserLite>
+      teamOverridesBySenior: Map<string, ResolverTeam[]>
+      viewerId: string | null
+    },
+  ): { viewerSharePercent: number | null; seniorName: string | null } {
+    const viewerId = ctx.viewerId
+    if (viewerId === null) return { viewerSharePercent: null, seniorName: null }
+
+    if (project.seniorId === viewerId) {
+      const senior = ctx.usersById.get(viewerId)
+      if (!senior) return { viewerSharePercent: null, seniorName: null }
+      // Same three-level hierarchy (project override → team → user default)
+      // `ProjectsService` resolves `effectiveSeniorSharePercent` with, via
+      // the same shared pure resolver, so the number here and the number on
+      // the project page can never disagree.
+      // Stryker disable next-line ArrayDeclaration: a non-empty malformed fallback is filtered out by `resolveSeniorShare`'s own `seniorSharePercentOverride != null` guard — same unobservability the `buildItemForSubject` PROJECT_SENIOR_SHARE branch documents for this identical expression.
+      const teams = ctx.teamOverridesBySenior.get(viewerId) ?? []
+      const value = resolveSeniorShare(
+        { seniorSharePercentOverride: project.seniorSharePercentOverride },
+        { seniorSharePercent: senior.seniorSharePercent },
+        teams,
+      ).value
+      return { viewerSharePercent: value, seniorName: null }
+    }
+
+    if (project.dropId === viewerId) {
+      const drop = ctx.usersById.get(viewerId)
+      if (!drop) return { viewerSharePercent: null, seniorName: null }
+      const value = resolveDropShare(
+        { dropSharePercentOverride: project.dropSharePercentOverride },
+        { dropSharePercent: drop.dropSharePercent },
+      ).value
+      return {
+        viewerSharePercent: value,
+        seniorName: ctx.usersById.get(project.seniorId)?.displayName ?? null,
+      }
+    }
+
+    return { viewerSharePercent: null, seniorName: null }
   }
 
   // ---------------------------------------------------------------------
@@ -504,6 +610,9 @@ export class PendingService {
       archivedAt: projects.archivedAt,
       seniorSharePercentOverride: projects.seniorSharePercentOverride,
       pendingSeniorSharePercentOverride: projects.pendingSeniorSharePercentOverride,
+      seniorId: projects.seniorId,
+      dropId: projects.dropId,
+      dropSharePercentOverride: projects.dropSharePercentOverride,
     }
     const rows = await this.db.db
       .select(PROJECT_LITE_COLUMNS)
@@ -525,6 +634,7 @@ export class PendingService {
       displayName: users.displayName,
       seniorSharePercent: users.seniorSharePercent,
       pendingSeniorSharePercent: users.pendingSeniorSharePercent,
+      dropSharePercent: users.dropSharePercent,
     }
     const rows = await this.db.db
       .select(USER_LITE_COLUMNS)

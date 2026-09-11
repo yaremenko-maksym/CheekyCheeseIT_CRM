@@ -93,12 +93,21 @@ const SENIOR_USER_ROW = {
   displayName: 'Senior One',
   seniorSharePercent: 26,
   pendingSeniorSharePercent: null as number | null,
+  dropSharePercent: null as number | null,
 }
 const ADMIN_USER_ROW = {
   id: ADMIN_ID,
   displayName: 'Admin Adminovich',
   seniorSharePercent: 26,
   pendingSeniorSharePercent: null as number | null,
+  dropSharePercent: null as number | null,
+}
+const DROP_USER_ROW = {
+  id: DROP_ID,
+  displayName: 'Drop One',
+  seniorSharePercent: 26,
+  pendingSeniorSharePercent: null as number | null,
+  dropSharePercent: 7 as number | null,
 }
 const ACTIVE_PROJECT_ROW = {
   id: PROJECT_ID,
@@ -106,6 +115,9 @@ const ACTIVE_PROJECT_ROW = {
   archivedAt: null as Date | null,
   seniorSharePercentOverride: null as number | null,
   pendingSeniorSharePercentOverride: null as number | null,
+  seniorId: SENIOR_ID,
+  dropId: DROP_ID as string | null,
+  dropSharePercentOverride: null as number | null,
 }
 
 describe('PendingService.getPending — mine, PROJECT_APPROVAL', () => {
@@ -130,6 +142,10 @@ describe('PendingService.getPending — mine, PROJECT_APPROVAL', () => {
         title: 'GamingTec',
         proposedBy: 'Admin Adminovich',
         waitingFor: undefined,
+        // The viewer IS this project's senior — their own resolved share,
+        // and no drop identity (integration decision 2).
+        viewerSharePercent: 26,
+        seniorName: null,
         createdAt: '2026-09-01T10:00:00.000Z',
         actions: ['approve', 'reject', 'open'],
         link: `/projects/${PROJECT_ID}`,
@@ -414,7 +430,9 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (USER_SENIOR_SHARE)
       {
         kind: 'SHARE_APPROVAL',
         approvalId: APPROVAL_ID_1,
-        subjectType: 'USER_SENIOR_SHARE',
+        // integration decision 1: the CLIENT-facing scope ('USER' routes the
+        // action at /users/:id), not the raw approvals column.
+        subjectType: 'USER',
         subjectId: SENIOR_ID,
         title: 'Ваша базовая доля',
         proposedBy: 'Admin Adminovich',
@@ -460,6 +478,9 @@ describe('PendingService.getPending — mine, CONTRACT_TO_SIGN', () => {
     expect(result.mine).toEqual([
       {
         kind: 'CONTRACT_TO_SIGN',
+        // integration decision 1: user-scoped even though `subjectId` is the
+        // contract row's id — `/profile` is a user-scoped surface.
+        subjectType: 'USER',
         subjectId: CONTRACT_ID,
         title: 'Контракт сотрудника',
         createdAt: '2026-09-05T12:00:00.000Z',
@@ -590,7 +611,7 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
       {
         kind: 'SHARE_APPROVAL',
         approvalId: APPROVAL_ID_1,
-        subjectType: 'USER_SENIOR_SHARE',
+        subjectType: 'USER',
         subjectId: SENIOR_ID,
         title: 'Senior One',
         proposedBy: undefined,
@@ -647,7 +668,10 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
       {
         kind: 'SHARE_APPROVAL',
         approvalId: APPROVAL_ID_1,
-        subjectType: 'PROJECT_SENIOR_SHARE',
+        // integration decision 1: a project-scoped share proposal and a
+        // project approval share one scope ('PROJECT'); `kind` still tells
+        // them apart.
+        subjectType: 'PROJECT',
         subjectId: PROJECT_ID,
         title: 'GamingTec',
         proposedBy: undefined,
@@ -836,5 +860,131 @@ describe('PendingService.getPending — forward-compatible unknown subjectType',
     const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
 
     expect(result.mine).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Integration decision 2 (2026-09-11): a PROJECT_APPROVAL row carries the
+// VIEWER'S OWN share — and only theirs. Unit-level twins of
+// `pending.integration.spec.ts`'s AC3 deep-JSON cases; they exist here too
+// because the mutation gate only ever executes unit specs (see
+// .claude/rules/common/mutation-gate-integration-specs.md).
+// ---------------------------------------------------------------------------
+
+/** Every primitive leaf of a JSON-serialisable value, flattened. AC3 asserts
+ * "this number/name appears NOWHERE in the response" — a field-by-field
+ * assertion cannot say that, since a field added later would slip past it. */
+function leafValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value.flatMap(leafValues)
+  if (value !== null && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).flatMap(leafValues)
+  }
+  return [value]
+}
+
+describe('PendingService.getPending — PROJECT_APPROVAL viewer share (decision 2)', () => {
+  const PROJECT_WITH_BOTH_OVERRIDES = {
+    ...ACTIVE_PROJECT_ROW,
+    seniorSharePercentOverride: 40 as number | null,
+    dropSharePercentOverride: 9 as number | null,
+  }
+
+  it('gives a SENIOR viewer their own resolved share and no drop figure or drop name anywhere in the JSON', async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: SENIOR_ID }),
+    ])
+    const db = makeFakeDb({
+      projects: [PROJECT_WITH_BOTH_OVERRIDES],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW, DROP_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine[0]?.viewerSharePercent).toBe(40)
+    expect(result.mine[0]?.seniorName).toBeNull()
+    const leaves = leafValues(result)
+    expect(leaves).not.toContain(9)
+    expect(leaves).not.toContain(7)
+    expect(leaves).not.toContain('Drop One')
+  })
+
+  it("gives a DROP viewer their own resolved share plus the senior's NAME, and no senior figure anywhere in the JSON", async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: DROP_ID }),
+    ])
+    const db = makeFakeDb({
+      projects: [PROJECT_WITH_BOTH_OVERRIDES],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW, DROP_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: DROP_ID, role: 'DROP' } as never)
+
+    expect(result.mine[0]?.viewerSharePercent).toBe(9)
+    expect(result.mine[0]?.seniorName).toBe('Senior One')
+    const leaves = leafValues(result)
+    expect(leaves).not.toContain(40)
+    expect(leaves).not.toContain(26)
+  })
+
+  it("falls back to the DROP viewer's own default when the project carries no drop override", async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: DROP_ID }),
+    ])
+    const db = makeFakeDb({
+      projects: [ACTIVE_PROJECT_ROW],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW, DROP_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: DROP_ID, role: 'DROP' } as never)
+
+    expect(result.mine[0]?.viewerSharePercent).toBe(7)
+  })
+
+  it('applies the senior team override when the project has none (same resolver as the project page)', async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({ subjectType: 'PROJECT', subjectId: PROJECT_ID, approverUserId: SENIOR_ID }),
+    ])
+    const db = makeFakeDb({
+      projects: [ACTIVE_PROJECT_ROW],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW],
+      teamMembersWithTeam: [
+        { userId: SENIOR_ID, team: { seniorSharePercentOverride: 33, archivedAt: null } },
+      ],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine[0]?.viewerSharePercent).toBe(33)
+  })
+
+  it('gives an ADMIN neither figure on a proposedByMe project row (the widget showed them none either)', async () => {
+    const approvalsService = makeFakeApprovals(
+      [],
+      [
+        makeApproval({
+          subjectType: 'PROJECT',
+          subjectId: PROJECT_ID,
+          approverUserId: SENIOR_ID,
+          proposedByUserId: ADMIN_ID,
+        }),
+      ],
+    )
+    const db = makeFakeDb({
+      projects: [PROJECT_WITH_BOTH_OVERRIDES],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW, DROP_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe[0]?.viewerSharePercent).toBeNull()
+    expect(result.proposedByMe[0]?.seniorName).toBeNull()
+    const leaves = leafValues(result)
+    expect(leaves).not.toContain(40)
+    expect(leaves).not.toContain(9)
   })
 })

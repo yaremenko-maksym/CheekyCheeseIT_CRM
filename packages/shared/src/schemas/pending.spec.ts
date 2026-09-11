@@ -14,6 +14,7 @@ const createdAt = '2026-09-01T10:00:00.000Z'
 
 const baseItem = {
   kind: 'PROJECT_APPROVAL' as const,
+  subjectType: 'PROJECT' as const,
   subjectId: uuid1,
   title: 'GamingTec',
   createdAt,
@@ -76,24 +77,48 @@ describe('pendingItemSchema', () => {
     expect(pendingItemSchema.parse(proposedByMeRow)).toEqual(proposedByMeRow)
   })
 
-  it('accepts subjectType — distinguishes PROJECT_SENIOR_SHARE from USER_SENIOR_SHARE for a SHARE_APPROVAL kind (PR #667 web-half gap)', () => {
-    const projectShareRow = {
-      ...baseItem,
-      kind: 'SHARE_APPROVAL' as const,
-      subjectType: 'PROJECT_SENIOR_SHARE',
-    }
+  it("accepts subjectType 'USER' — a base-share row routes its action through /users/:id, a project one through /projects/:id (integration decision 1)", () => {
     const userShareRow = {
       ...baseItem,
       kind: 'SHARE_APPROVAL' as const,
-      subjectType: 'USER_SENIOR_SHARE',
+      subjectType: 'USER' as const,
     }
-    expect(pendingItemSchema.parse(projectShareRow)).toEqual(projectShareRow)
+    const projectShareRow = {
+      ...baseItem,
+      kind: 'SHARE_APPROVAL' as const,
+      subjectType: 'PROJECT' as const,
+    }
     expect(pendingItemSchema.parse(userShareRow)).toEqual(userShareRow)
+    expect(pendingItemSchema.parse(projectShareRow)).toEqual(projectShareRow)
+  })
+
+  it('rejects a row with no subjectType — required, not an optional string (integration decision 1)', () => {
+    const { subjectType: _omitted, ...withoutSubjectType } = baseItem
+    expect(() => pendingItemSchema.parse(withoutSubjectType)).toThrow()
+  })
+
+  it("rejects a subjectType outside the closed 'USER' | 'PROJECT' set — the raw approvals column is not this contract", () => {
+    expect(() =>
+      pendingItemSchema.parse({ ...baseItem, subjectType: 'PROJECT_SENIOR_SHARE' }),
+    ).toThrow()
+  })
+
+  it('accepts viewerSharePercent / seniorName on a PROJECT_APPROVAL row, and null for both (integration decision 2)', () => {
+    const withShare = { ...baseItem, viewerSharePercent: 26, seniorName: 'Senior One' }
+    const masked = { ...baseItem, viewerSharePercent: null, seniorName: null }
+    expect(pendingItemSchema.parse(withShare)).toEqual(withShare)
+    expect(pendingItemSchema.parse(masked)).toEqual(masked)
+  })
+
+  it('rejects a viewerSharePercent outside 0..100 — same bounds as the two percent fields', () => {
+    expect(() => pendingItemSchema.parse({ ...baseItem, viewerSharePercent: 101 })).toThrow()
+    expect(() => pendingItemSchema.parse({ ...baseItem, viewerSharePercent: -1 })).toThrow()
   })
 
   it('accepts CONTRACT_TO_SIGN with no approvalId (contracts are not approvals rows)', () => {
     const row = {
       kind: 'CONTRACT_TO_SIGN' as const,
+      subjectType: 'USER' as const,
       subjectId: uuid2,
       title: 'Контракт сотрудника',
       createdAt,
