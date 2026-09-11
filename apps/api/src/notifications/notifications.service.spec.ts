@@ -217,6 +217,22 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
   return { db, ctx: ctx as CtxAug, rows, telemetry }
 }
 
+/**
+ * Журнал — второй наблюдаемый выход пропущенного уведомления (первый —
+ * телеметрия). Сообщение в нём проверяется ПО СОДЕРЖАНИЮ: «отказ произошёл» и
+ * «отказ понятен» — разные свойства, и пустая строка удовлетворяет только
+ * первому. Возвращается список сообщений, а не сам шпион, чтобы утверждение
+ * читалось про текст (тот же приём, что в `transaction-notifications.unit.spec.ts`).
+ */
+function spyOnLoggerErrors(svc: NotificationsService): string[] {
+  const messages: string[] = []
+  const logger = (svc as unknown as { logger: { error: (m: string) => void } }).logger
+  vi.spyOn(logger, 'error').mockImplementation((m: string) => {
+    messages.push(String(m))
+  })
+  return messages
+}
+
 describe('NotificationsService', () => {
   describe('create', () => {
     it('inserts a new row with default-null readAt', async () => {
@@ -493,18 +509,46 @@ describe('NotificationsService', () => {
         })
       })
 
-      it('отказ телеметрии тоже не роняет событие', async () => {
+      it('в журнале названы тип и получатель — иначе не найти сломавшегося производителя', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        const logged = spyOnLoggerErrors(svc)
+
+        await svc.create({
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          data: { projectName: 42 },
+        })
+
+        // Пропуск — это отказ, и он обязан быть читаемым: пустая строка в
+        // журнале сообщает ровно столько же, сколько молчание.
+        expect(logged).toHaveLength(1)
+        expect(logged[0]).toContain('Уведомление пропущено')
+        expect(logged[0]).toContain('PROJECT_MEMBER_ADDED')
+        expect(logged[0]).toContain('u-1')
+      })
+
+      it('отказ телеметрии тоже не роняет событие — и сам попадает в журнал', async () => {
         const h = makeHarness()
         vi.mocked(h.telemetry.recordError).mockRejectedValueOnce(new Error('telemetry down'))
         const svc = new NotificationsService(h.db, h.telemetry)
+        const logged = spyOnLoggerErrors(svc)
+
         const result = await svc.create({
           userId: 'u-1',
           type: 'PROJECT_MEMBER_ADDED',
           title: 'Вас добавили в проект',
           data: { projectName: 42 },
         })
+
         expect(result).toBeNull()
         expect(h.rows).toHaveLength(0)
+        // Две строки: сам пропуск и отказ канала, в который он не доехал.
+        // Без второй «телеметрия молча не работает» выглядит как «ошибок нет».
+        expect(logged).toHaveLength(2)
+        expect(logged[1]).toContain('Телеметрия не приняла отказ уведомления')
+        expect(logged[1]).toContain('telemetry down')
       })
 
       it('причина отказа в пять тысяч символов уведомление пропускает, а не отменяет отказ', async () => {

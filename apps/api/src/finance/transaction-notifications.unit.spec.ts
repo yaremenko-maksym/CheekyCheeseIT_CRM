@@ -484,6 +484,41 @@ describe('«транзакция добавлена» — системное с�
     expect(h.auditInserts).toHaveLength(0)
   })
 
+  /**
+   * Обвязка кронового прохода: получателей задаём сами (кому начислять — не
+   * предмет этих тестов), актора НЕТ, а вставка ведёт себя как
+   * `INSERT ... ON CONFLICT DO NOTHING RETURNING id`: список строк пуст, когда
+   * строка за этот месяц уже есть.
+   */
+  function wireCron(
+    h: ReturnType<typeof makeHarness>,
+    opts: { insertReturns: { id: string }[]; juniors?: boolean },
+  ) {
+    const internals = h.svc as unknown as {
+      resolveHrAccountantSalaryReceivers: () => Promise<unknown[]>
+      resolveJuniorSalaryReceivers: () => Promise<unknown[]>
+    }
+    vi.spyOn(internals, 'resolveHrAccountantSalaryReceivers').mockResolvedValue([
+      { id: 'hr-1', email: 'hr@example.com', monthlySalary: '1000.00' },
+    ])
+    vi.spyOn(internals, 'resolveJuniorSalaryReceivers').mockResolvedValue(
+      opts.juniors === true
+        ? [{ id: 'junior-1', email: 'jr@example.com', monthlySalary: '500.00', projectId: 'p-1' }]
+        : [],
+    )
+
+    const db = (h.svc as unknown as { db: { db: Record<string, unknown> } }).db.db
+    // Резервный админ — тот, кого крон записывает в `createdBy`.
+    ;(db['query'] as Record<string, unknown>)['users'] = {
+      findFirst: async () => ({ id: 'admin-fallback', role: 'ADMIN' }),
+    }
+    db['insert'] = () => ({
+      values: () => ({
+        onConflictDoNothing: () => ({ returning: async () => opts.insertReturns }),
+      }),
+    })
+  }
+
   it('кроновый проход зарплат порождает уведомление получателю', async () => {
     const salaryRow = makeTxRow({
       id: 'tx-salary',
@@ -493,31 +528,33 @@ describe('«транзакция добавлена» — системное с�
       projectId: null,
     })
     const h = makeHarness(salaryRow, null)
-
-    // Кому начислять — не предмет этого теста; важно, что актора НЕТ.
-    const internals = h.svc as unknown as {
-      resolveHrAccountantSalaryReceivers: () => Promise<unknown[]>
-      resolveJuniorSalaryReceivers: () => Promise<unknown[]>
-    }
-    vi.spyOn(internals, 'resolveHrAccountantSalaryReceivers').mockResolvedValue([
-      { id: 'hr-1', email: 'hr@example.com', monthlySalary: '1000.00' },
-    ])
-    vi.spyOn(internals, 'resolveJuniorSalaryReceivers').mockResolvedValue([])
-
-    const db = (h.svc as unknown as { db: { db: Record<string, unknown> } }).db.db
-    // Резервный админ — тот, кого крон записывает в `createdBy`.
-    ;(db['query'] as Record<string, unknown>)['users'] = {
-      findFirst: async () => ({ id: 'admin-fallback', role: 'ADMIN' }),
-    }
-    db['insert'] = () => ({
-      values: () => ({
-        onConflictDoNothing: () => ({ returning: async () => [{ id: 'tx-salary' }] }),
-      }),
-    })
+    wireCron(h, { insertReturns: [{ id: 'tx-salary' }] })
 
     await h.svc.createMonthlySalaries('2026-09')
 
     expect(h.created).toHaveLength(1)
     expect(h.created[0]).toMatchObject({ userId: 'hr-1', type: 'TRANSACTION_ADDED' })
+  })
+
+  it('повторный проход за тот же месяц не пишет второго уведомления', async () => {
+    // Пустой `RETURNING` — это «ON CONFLICT DO NOTHING сработал»: строка за
+    // месяц уже есть, события НЕ произошло. Уведомление о несостоявшемся
+    // событии недопустимо, и жаловаться в журнал тут тоже не на что —
+    // идемпотентность отработала штатно.
+    const salaryRow = makeTxRow({
+      id: 'tx-salary',
+      type: 'SALARY',
+      receiverId: 'hr-1',
+      senderId: null,
+      projectId: null,
+    })
+    const h = makeHarness(salaryRow, null)
+    const errors = spyOnLoggerErrors(h.svc)
+    wireCron(h, { insertReturns: [], juniors: true })
+
+    await h.svc.createMonthlySalaries('2026-09')
+
+    expect(h.created).toHaveLength(0)
+    expect(errors).toHaveLength(0)
   })
 })
