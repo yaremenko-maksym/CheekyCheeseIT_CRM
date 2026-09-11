@@ -357,6 +357,40 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (PROJECT_SENIOR_SHA
 
     expect(result.mine).toEqual([])
   })
+
+  it('falls back to the user default (not a crash) when the team-membership query itself rejects', async () => {
+    // `loadTeamOverridesForSeniors`'s try/catch exists for exactly this —
+    // a real DB call failing — and no other test in this file ever makes
+    // the fake reject, so this is the only coverage for that branch.
+    const approvalsService = makeFakeApprovals([
+      makeApproval({
+        id: APPROVAL_ID_1,
+        subjectType: 'PROJECT_SENIOR_SHARE',
+        subjectId: PROJECT_ID,
+        approverUserId: SENIOR_ID,
+      }),
+    ])
+    const db = makeFakeDb({
+      projects: [
+        {
+          ...ACTIVE_PROJECT_ROW,
+          seniorSharePercentOverride: null,
+          pendingSeniorSharePercentOverride: null,
+        },
+      ],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW],
+    })
+    // Override just the team-membership query to reject, keeping every
+    // other table lookup from `makeFakeDb` as-is.
+    db.db.query.teamMembers.findMany = vi.fn().mockRejectedValue(new Error('connection reset'))
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    // SENIOR_USER_ROW.seniorSharePercent === 26 — the USER_DEFAULT fallback,
+    // reached because the failed team lookup is treated as "no override".
+    expect(result.mine[0]).toMatchObject({ currentPercent: 26, pendingPercent: 26 })
+  })
 })
 
 describe('PendingService.getPending — mine, SHARE_APPROVAL (USER_SENIOR_SHARE)', () => {
@@ -477,6 +511,21 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
 
     expect(result.proposedByMe).toEqual([])
     expect(approvalsService.listPendingProposedBy).not.toHaveBeenCalled()
+  })
+
+  it('is empty for an ADMIN viewer with nothing proposed (queried, genuinely empty)', async () => {
+    // Distinct from the test above: this DOES call listPendingProposedBy
+    // (ADMIN), exercising `buildProposedByMeItems`'s own `rows.length === 0`
+    // early return on a genuinely empty array, rather than skipping the
+    // function call entirely via the role gate.
+    const approvalsService = makeFakeApprovals([], [])
+    const db = makeFakeDb({})
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe).toEqual([])
+    expect(approvalsService.listPendingProposedBy).toHaveBeenCalledWith(ADMIN_ID)
   })
 
   it('groups two live approver rows for the same PROJECT into one item with both names in waitingFor', async () => {
