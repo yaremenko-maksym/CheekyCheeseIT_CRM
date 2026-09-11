@@ -295,6 +295,18 @@ export class PendingService {
         row.subjectType === PROJECT_SENIOR_SHARE_SUBJECT_TYPE
       ) {
         projectIds.add(row.subjectId)
+        // Forcing this to unconditionally fire (so a PROJECT_APPROVAL row's
+        // approver ALSO lands in `seniorIds`) is unobservable: only the
+        // PROJECT_SENIOR_SHARE branch of `buildItemForSubject` ever reads
+        // `teamOverridesBySenior`, and it reads it keyed by THAT item's OWN
+        // senior id — a stray extra `Map` entry for some unrelated
+        // approver's id (from a PROJECT_APPROVAL row) is never looked up,
+        // so it cannot corrupt the correct senior's resolution. The real
+        // job (a genuine PROJECT_SENIOR_SHARE row's approver reaching
+        // `seniorIds` so its team override resolves) is exercised by
+        // `offers a proposed PROJECT_SENIOR_SHARE change with the resolved
+        // percent (team override applied)` above.
+        // Stryker disable next-line ConditionalExpression: see comment above — the forced-true direction is unobservable; forced-false already fails that test (confirmed: this suppression only needed adding once that test existed).
         if (row.subjectType === PROJECT_SENIOR_SHARE_SUBJECT_TYPE) seniorIds.add(row.approverUserId)
       }
       // A standalone `if`, not `else if` — see `buildMineItems`'s matching
