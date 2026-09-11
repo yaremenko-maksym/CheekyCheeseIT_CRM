@@ -468,14 +468,17 @@ describe('SR-H-1 — потолки формы совпадают с потол�
 
   it('превью на символ длиннее потолка форму не проходит', () => {
     const schema = notificationDataSchemaFor('APPROVAL_REJECTED')
-    expect(() =>
-      schema.parse({
-        approverName: 'Иван',
-        subjectKind: 'PROJECT',
-        subjectTitle: 'Acme',
-        reasonPreview: '😀'.repeat(201),
-      }),
-    ).toThrow()
+    expect(
+      () =>
+        schema.parse({
+          approverName: 'Иван',
+          subjectKind: 'PROJECT',
+          subjectTitle: 'Acme',
+          reasonPreview: '😀'.repeat(201),
+        }),
+      // Сообщение — не украшение: именно оно уезжает в журнал и телеметрию
+      // отказа (см. `refuse()`), и по нему ищут сломавшегося производителя.
+    ).toThrow(/at most 200 characters/)
   })
 
   /**
@@ -495,7 +498,7 @@ describe('SR-H-1 — потолки формы совпадают с потол�
     const name = '😀'.repeat(256)
     expect(() =>
       notificationDataSchemaFor('PROJECT_MEMBER_ADDED').parse({ projectName: name }),
-    ).toThrow()
+    ).toThrow(/at most 255 characters/)
   })
 
   it('обрамляющие пробелы снимаются до подсчёта длины', () => {
