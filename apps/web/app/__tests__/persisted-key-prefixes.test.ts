@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { PERSISTED_KEY_PREFIXES } from '../routes/__root'
 import { PENDING_APPROVALS_QUERY_KEY } from '../hooks/use-project-approvals'
+import { notificationsQueryKey } from '../hooks/use-notifications-api'
 
 // PII-bearing keys that were removed in the security audit and must NEVER return.
 const FORBIDDEN_PII_PREFIXES = ['teams', 'team', 'user-team'] as const
@@ -77,5 +78,25 @@ describe('PERSISTED_KEY_PREFIXES — PII exclusion (security audit Fix#1)', () =
   // change is caught here, not just by a same-file mirror.
   it('SR-L-5 / CR-bm-2: PENDING_APPROVALS_QUERY_KEY is NOT in the allow-list', () => {
     expect(PERSISTED_KEY_PREFIXES.has(String(PENDING_APPROVALS_QUERY_KEY[0]))).toBe(false)
+  })
+
+  /**
+   * task-notification-types-producers (позиция 6). Уведомления с позиции 6
+   * несут суммы, проценты и причины отказа — то есть ровно то, что §10 зовёт
+   * раскрытием. Их список НИКОГДА не должен оседать в IndexedDB: браузер
+   * переживает выход из системы, а запись о чужих деньгах — не должна.
+   *
+   * Проверяется НАСТОЯЩИЙ ключ из `notificationsQueryKey`, а не его литерал:
+   * переименуют ключ — тест поедет вместе с ним, и добавление его в
+   * allow-list всё равно останется красным.
+   */
+  it('notificationsQueryKey is NOT in the allow-list — money never reaches IndexedDB', () => {
+    expect(PERSISTED_KEY_PREFIXES.has(String(notificationsQueryKey()[0]))).toBe(false)
+    // Все формы ключа, а не одна: фильтры меняют ХВОСТ ключа, а решение
+    // принимается по его первому элементу — значит, ни одна форма не проходит.
+    expect(PERSISTED_KEY_PREFIXES.has(String(notificationsQueryKey({ unreadOnly: true })[0]))).toBe(
+      false,
+    )
+    expect(PERSISTED_KEY_PREFIXES.has(String(notificationsQueryKey({ limit: 50 })[0]))).toBe(false)
   })
 })
