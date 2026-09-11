@@ -268,6 +268,41 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (PROJECT_SENIOR_SHA
     // SENIOR_USER_ROW.seniorSharePercent === 26 — the USER_DEFAULT fallback.
     expect(result.mine[0]).toMatchObject({ currentPercent: 26, pendingPercent: 26 })
   })
+
+  it('drops the item when the project row is missing entirely, without crashing', async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({
+        id: APPROVAL_ID_1,
+        subjectType: 'PROJECT_SENIOR_SHARE',
+        subjectId: PROJECT_ID,
+        approverUserId: SENIOR_ID,
+      }),
+    ])
+    const db = makeFakeDb({ projects: [], users: [ADMIN_USER_ROW, SENIOR_USER_ROW] })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine).toEqual([])
+  })
+
+  it('drops the item when the viewer/senior row is missing from usersById, without crashing', async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({
+        id: APPROVAL_ID_1,
+        subjectType: 'PROJECT_SENIOR_SHARE',
+        subjectId: PROJECT_ID,
+        approverUserId: SENIOR_ID,
+      }),
+    ])
+    // SENIOR_ID deliberately absent from `users` — only the proposer is seeded.
+    const db = makeFakeDb({ projects: [ACTIVE_PROJECT_ROW], users: [ADMIN_USER_ROW] })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine).toEqual([])
+  })
 })
 
 describe('PendingService.getPending — mine, SHARE_APPROVAL (USER_SENIOR_SHARE)', () => {
@@ -303,6 +338,24 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (USER_SENIOR_SHARE)
         link: '/profile',
       },
     ])
+  })
+
+  it('drops the item when the viewer/senior row is missing from usersById, without crashing', async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({
+        id: APPROVAL_ID_1,
+        subjectType: 'USER_SENIOR_SHARE',
+        subjectId: SENIOR_ID,
+        approverUserId: SENIOR_ID,
+      }),
+    ])
+    // SENIOR_ID deliberately absent — only the proposer is seeded.
+    const db = makeFakeDb({ users: [ADMIN_USER_ROW] })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine).toEqual([])
   })
 })
 
@@ -446,6 +499,160 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
         link: '/users',
       },
     ])
+  })
+
+  it('sorts proposedByMe by createdAt ascending, independently of the order the groups happened to form in', async () => {
+    const approvalsService = makeFakeApprovals(
+      [],
+      [
+        makeApproval({
+          id: APPROVAL_ID_1,
+          subjectType: 'PROJECT',
+          subjectId: PROJECT_ID,
+          approverUserId: SENIOR_ID,
+          createdAt: '2026-09-10T00:00:00.000Z',
+        }),
+        makeApproval({
+          id: APPROVAL_ID_2,
+          subjectType: 'USER_SENIOR_SHARE',
+          subjectId: DROP_ID,
+          approverUserId: DROP_ID,
+          createdAt: '2026-09-01T00:00:00.000Z',
+        }),
+      ],
+    )
+    const db = makeFakeDb({
+      projects: [ACTIVE_PROJECT_ROW],
+      users: [SENIOR_USER_ROW, { ...ADMIN_USER_ROW, id: DROP_ID, displayName: 'Drop One' }],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe.map((item) => item.subjectId)).toEqual([DROP_ID, PROJECT_ID])
+  })
+
+  it('two different subjects are never merged into one group, even sharing a kind', async () => {
+    const approvalsService = makeFakeApprovals(
+      [],
+      [
+        makeApproval({
+          id: APPROVAL_ID_1,
+          subjectType: 'USER_SENIOR_SHARE',
+          subjectId: SENIOR_ID,
+          approverUserId: SENIOR_ID,
+        }),
+        makeApproval({
+          id: APPROVAL_ID_2,
+          subjectType: 'USER_SENIOR_SHARE',
+          subjectId: DROP_ID,
+          approverUserId: DROP_ID,
+        }),
+      ],
+    )
+    const db = makeFakeDb({
+      users: [SENIOR_USER_ROW, { ...ADMIN_USER_ROW, id: DROP_ID, displayName: 'Drop One' }],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe).toHaveLength(2)
+    expect(result.proposedByMe.map((item) => item.subjectId).sort()).toEqual(
+      [SENIOR_ID, DROP_ID].sort(),
+    )
+  })
+
+  it('a group with one approver missing from usersById still yields the OTHER name, not a crash', async () => {
+    const approvalsService = makeFakeApprovals(
+      [],
+      [
+        makeApproval({
+          id: APPROVAL_ID_1,
+          subjectType: 'PROJECT',
+          subjectId: PROJECT_ID,
+          approverUserId: SENIOR_ID,
+        }),
+        makeApproval({
+          id: APPROVAL_ID_2,
+          subjectType: 'PROJECT',
+          subjectId: PROJECT_ID,
+          approverUserId: DROP_ID,
+        }),
+      ],
+    )
+    // DROP_ID deliberately absent from `users` — e.g. hard-deleted between
+    // the approvals query and this batch fetch.
+    const db = makeFakeDb({ projects: [ACTIVE_PROJECT_ROW], users: [SENIOR_USER_ROW] })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe).toHaveLength(1)
+    expect(result.proposedByMe[0]?.waitingFor).toEqual(['Senior One'])
+  })
+
+  it('drops the whole group when the underlying project is archived (§7.4 / AC2, proposedByMe)', async () => {
+    const approvalsService = makeFakeApprovals(
+      [],
+      [
+        makeApproval({
+          id: APPROVAL_ID_1,
+          subjectType: 'PROJECT',
+          subjectId: PROJECT_ID,
+          approverUserId: SENIOR_ID,
+        }),
+      ],
+    )
+    const db = makeFakeDb({
+      projects: [{ ...ACTIVE_PROJECT_ROW, archivedAt: new Date('2026-08-01T00:00:00.000Z') }],
+      users: [SENIOR_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe).toEqual([])
+  })
+
+  it('drops a PROJECT_SENIOR_SHARE group when the project row is missing entirely, without crashing', async () => {
+    const approvalsService = makeFakeApprovals(
+      [],
+      [
+        makeApproval({
+          id: APPROVAL_ID_1,
+          subjectType: 'PROJECT_SENIOR_SHARE',
+          subjectId: PROJECT_ID,
+          approverUserId: SENIOR_ID,
+        }),
+      ],
+    )
+    const db = makeFakeDb({ projects: [], users: [SENIOR_USER_ROW] })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe).toEqual([])
+  })
+
+  it('drops a USER_SENIOR_SHARE group when the senior row is missing entirely, without crashing', async () => {
+    const approvalsService = makeFakeApprovals(
+      [],
+      [
+        makeApproval({
+          id: APPROVAL_ID_1,
+          subjectType: 'USER_SENIOR_SHARE',
+          subjectId: SENIOR_ID,
+          approverUserId: SENIOR_ID,
+        }),
+      ],
+    )
+    const db = makeFakeDb({ users: [] })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe).toEqual([])
   })
 })
 
