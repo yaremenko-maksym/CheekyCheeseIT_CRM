@@ -50,6 +50,16 @@ type UserLite = {
   pendingSeniorSharePercent: number | null
 }
 
+/** Named so `loadTeamOverridesForSeniors`'s `let rows: ... = []` can sit on
+ * ONE line — a multi-line inline type annotation between the `let` and the
+ * `= []` initializer put several lines between the two, and Stryker's
+ * disable-next-line comment (which must be immediately adjacent to the
+ * mutated line) ended up suppressing nothing. */
+type TeamMembershipRow = {
+  userId: string
+  team: { seniorSharePercentOverride: number | null; archivedAt: Date | null }
+}
+
 @Injectable()
 export class PendingService {
   constructor(
@@ -116,9 +126,19 @@ export class PendingService {
     // fail loudly if either diverged (same class as `mutation-gate-
     // integration-specs.md`'s own "DB-facing detail, integration-only"
     // carve-out).
+    //
+    // Extracted to a named constant (not inlined into `.select(...)`) so the
+    // suppression comment actually takes effect: Stryker's disable-next-line
+    // does not reliably attach to an ObjectLiteral that is a bare argument
+    // mid method-chain (confirmed empirically — see `invoices.service.ts`'s
+    // `REPOINT_RETURNING` for the same workaround, same documented reason).
+    // Stryker disable next-line ObjectLiteral: DB column projection, see comment above.
+    const CONTRACT_ITEM_COLUMNS = {
+      id: employeeContracts.id,
+      updatedAt: employeeContracts.updatedAt,
+    }
     const rows = await this.db.db
-      // Stryker disable next-line ObjectLiteral: DB column projection, see comment above.
-      .select({ id: employeeContracts.id, updatedAt: employeeContracts.updatedAt })
+      .select(CONTRACT_ITEM_COLUMNS)
       .from(employeeContracts)
       .where(
         // Stryker disable next-line StringLiteral: DB WHERE-clause literal, see comment above.
@@ -157,14 +177,42 @@ export class PendingService {
     if (rows.length === 0) return []
 
     const projectIds = new Set<string>()
+    // The seed matters in PRODUCTION (a `mine` PROJECT_SENIOR_SHARE row's
+    // `proposedByUserId` is virtually always someone else, e.g. ADMIN, so
+    // without it the viewer's own row could be missing from `usersById` and
+    // `buildItemForSubject` would silently drop the item) but is UNOBSERVABLE
+    // through this file's fake DB: `loadUsersByIds`'s mocked `.where(...)`
+    // (see `tableChain`) returns every seeded user regardless of which ids
+    // were actually requested — the real filter only exists once a real
+    // Postgres does the `inArray(...)`. `pending.integration.spec.ts`'s AC1
+    // SENIOR/DROP cases run this exact path for real and would fail loudly
+    // if this seed were dropped.
+    // Stryker disable next-line ArrayDeclaration: see comment above — only a real Postgres round-trip can distinguish this from `[]`.
     const userIds = new Set<string>([viewerId])
     for (const row of rows) {
       userIds.add(row.proposedByUserId)
+      // Routing a USER_SENIOR_SHARE row to the "project" branch by mistake
+      // (either half of this condition mutated) is unobservable for `mine`
+      // specifically: `userIds` already has this row's `subjectId` via the
+      // seed above — `proposeSeniorShareChangeInTx` (`users.service.ts`)
+      // only ever opens a USER_SENIOR_SHARE approval with
+      // `approverUserIds: [existing.id]`, i.e. `subjectId === approverUserId`,
+      // and `listPendingForApprover(viewerId)` only returns rows where the
+      // viewer IS `approverUserId` — so for every `mine` USER_SENIOR_SHARE
+      // row, `subjectId === viewerId`, already in `userIds` regardless of
+      // this branch. `buildProposedByMeItems`'s own `waitingFor`-name test
+      // (`groups two live approver rows...`) and `offers cancel for a
+      // proposed SHARE_APPROVAL` prove the branch's REAL job (routing a
+      // project id into `projectIds` vs a person id into `userIds`) on the
+      // side where it is NOT structurally redundant — see that function's
+      // matching comment.
+      // Stryker disable next-line ConditionalExpression: see comment above.
       if (
         row.subjectType === PROJECT_APPROVAL_SUBJECT_TYPE ||
         row.subjectType === PROJECT_SENIOR_SHARE_SUBJECT_TYPE
       ) {
         projectIds.add(row.subjectId)
+        // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement: same redundancy as the `if` above — `subjectId === viewerId` is already in `userIds` via this function's seed.
       } else if (row.subjectType === USER_SENIOR_SHARE_SUBJECT_TYPE) {
         userIds.add(row.subjectId)
       }
@@ -226,12 +274,23 @@ export class PendingService {
     const seniorIds = new Set<string>()
     for (const row of rows) {
       userIds.add(row.approverUserId)
+      // Forcing this condition to unconditionally match is unobservable:
+      // for a USER_SENIOR_SHARE row it would wrongly skip to the "project"
+      // arm, but `userIds.add(row.approverUserId)` just above already added
+      // this row's person (self-approval invariant — see this function's
+      // header). The clause that actually matters (whether a GENUINE
+      // PROJECT_SENIOR_SHARE row's `subjectId` reaches `projectIds`, and its
+      // approver reaches `seniorIds` for team-override resolution) is
+      // exercised by `offers a proposed PROJECT_SENIOR_SHARE change with the
+      // resolved percent (team override applied)` below.
+      // Stryker disable next-line ConditionalExpression: only the ALWAYS-true mutant is unobservable, see comment above — the other half of this condition is a real test target.
       if (
         row.subjectType === PROJECT_APPROVAL_SUBJECT_TYPE ||
         row.subjectType === PROJECT_SENIOR_SHARE_SUBJECT_TYPE
       ) {
         projectIds.add(row.subjectId)
         if (row.subjectType === PROJECT_SENIOR_SHARE_SUBJECT_TYPE) seniorIds.add(row.approverUserId)
+        // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement: same self-approval-invariant redundancy as `buildMineItems`'s matching branch — `userIds.add(row.approverUserId)` above already covers `subjectId` (they are equal for USER_SENIOR_SHARE), and `seniorIds` is never consulted while building a USER_SENIOR_SHARE item (no team-override step on that branch).
       } else if (row.subjectType === USER_SENIOR_SHARE_SUBJECT_TYPE) {
         userIds.add(row.subjectId)
         seniorIds.add(row.subjectId)
@@ -246,7 +305,15 @@ export class PendingService {
 
     const items: PendingItem[] = []
     for (const group of groups.values()) {
+      // `groups` is only ever populated via `groups.set(key, [row])` (a
+      // freshly-seeded one-element array) or `group.push(row)` onto an
+      // already-non-empty array (see the grouping loop above) — there is no
+      // path that puts an empty array into the map, so `group[0]` being
+      // `undefined` cannot happen. The guard exists because TypeScript
+      // cannot prove that from `Map#values()`'s type alone, not for a real
+      // runtime case.
       const representative = group[0]
+      // Stryker disable next-line ConditionalExpression: see comment above — provably unreachable, not untested.
       if (!representative) continue
       const waitingForNames = group
         .map((row) => usersById.get(row.approverUserId)?.displayName)
@@ -404,15 +471,19 @@ export class PendingService {
     // same empty `Map` a real round-trip would, just without paying for it.
     // Stryker disable next-line ConditionalExpression: see comment above — provably unobservable, not untested.
     if (ids.size === 0) return map
+    // Extracted (not inlined into `.select(...)`) so the suppression below
+    // actually attaches — see `buildContractItem`'s `CONTRACT_ITEM_COLUMNS`
+    // for the same workaround and the reason it is needed.
+    // Stryker disable next-line ObjectLiteral: DB column projection — a mocked unit double cannot observe it, see this file's header on `pending.integration.spec.ts`.
+    const PROJECT_LITE_COLUMNS = {
+      id: projects.id,
+      name: projects.name,
+      archivedAt: projects.archivedAt,
+      seniorSharePercentOverride: projects.seniorSharePercentOverride,
+      pendingSeniorSharePercentOverride: projects.pendingSeniorSharePercentOverride,
+    }
     const rows = await this.db.db
-      // Stryker disable next-line ObjectLiteral: DB column projection — a mocked unit double cannot observe it, see this file's header on `pending.integration.spec.ts`.
-      .select({
-        id: projects.id,
-        name: projects.name,
-        archivedAt: projects.archivedAt,
-        seniorSharePercentOverride: projects.seniorSharePercentOverride,
-        pendingSeniorSharePercentOverride: projects.pendingSeniorSharePercentOverride,
-      })
+      .select(PROJECT_LITE_COLUMNS)
       .from(projects)
       .where(inArray(projects.id, Array.from(ids)))
     for (const row of rows) map.set(row.id, row)
@@ -424,14 +495,16 @@ export class PendingService {
     // Same round-trip-avoidance reasoning as `loadProjectsByIds`'s own guard.
     // Stryker disable next-line ConditionalExpression: see comment above — provably unobservable, not untested.
     if (ids.size === 0) return map
+    // Extracted for the same reason as `loadProjectsByIds`'s own constant.
+    // Stryker disable next-line ObjectLiteral: DB column projection — a mocked unit double cannot observe it, see this file's header on `pending.integration.spec.ts`.
+    const USER_LITE_COLUMNS = {
+      id: users.id,
+      displayName: users.displayName,
+      seniorSharePercent: users.seniorSharePercent,
+      pendingSeniorSharePercent: users.pendingSeniorSharePercent,
+    }
     const rows = await this.db.db
-      // Stryker disable next-line ObjectLiteral: DB column projection — a mocked unit double cannot observe it, see this file's header on `pending.integration.spec.ts`.
-      .select({
-        id: users.id,
-        displayName: users.displayName,
-        seniorSharePercent: users.seniorSharePercent,
-        pendingSeniorSharePercent: users.pendingSeniorSharePercent,
-      })
+      .select(USER_LITE_COLUMNS)
       .from(users)
       .where(inArray(users.id, Array.from(ids)))
     for (const row of rows) map.set(row.id, row)
@@ -463,10 +536,7 @@ export class PendingService {
     // result, or `[]` again in `catch`), so this value is never actually
     // read before being overwritten.
     // Stryker disable next-line ArrayDeclaration: see comment above — the initializer is always overwritten before use.
-    let rows: Array<{
-      userId: string
-      team: { seniorSharePercentOverride: number | null; archivedAt: Date | null }
-    }> = []
+    let rows: TeamMembershipRow[] = []
     try {
       rows = (await this.db.db.query.teamMembers.findMany({
         where: and(inArray(teamMembers.userId, Array.from(seniorIds)), isNull(teamMembers.leftAt)),

@@ -166,6 +166,25 @@ describe('PendingService.getPending — mine, PROJECT_APPROVAL', () => {
 
     expect(result.mine).toEqual([])
   })
+
+  it('falls back to "Неизвестно" when the proposer row is missing from usersById', async () => {
+    const approvalsService = makeFakeApprovals([
+      makeApproval({
+        subjectType: 'PROJECT',
+        subjectId: PROJECT_ID,
+        approverUserId: SENIOR_ID,
+        proposedByUserId: ADMIN_ID,
+      }),
+    ])
+    // ADMIN_USER_ROW (the proposer) deliberately NOT seeded — only the
+    // viewer's own row is, so `usersById` is non-empty but still misses it.
+    const db = makeFakeDb({ projects: [ACTIVE_PROJECT_ROW], users: [SENIOR_USER_ROW] })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine[0]).toMatchObject({ proposedBy: 'Неизвестно' })
+  })
 })
 
 describe('PendingService.getPending — mine, SHARE_APPROVAL (PROJECT_SENIOR_SHARE)', () => {
@@ -242,6 +261,13 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (PROJECT_SENIOR_SHA
         approverUserId: SENIOR_ID,
       }),
     ])
+    // Deliberately NOT `SENIOR_USER_ROW` (26): `resolveSeniorShare`'s own
+    // USER_DEFAULT step falls back to a literal 26 when its input is
+    // malformed (`senior-share-resolver.ts`'s `senior.seniorSharePercent ??
+    // 26`), which would coincidentally match 26 either way and hide a
+    // mutant on the object passed into that step. 31 cannot be confused
+    // with the resolver's own internal fallback.
+    const seniorWithNonDefaultShare = { ...SENIOR_USER_ROW, seniorSharePercent: 31 }
     const db = makeFakeDb({
       projects: [
         {
@@ -250,7 +276,7 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (PROJECT_SENIOR_SHA
           pendingSeniorSharePercentOverride: null,
         },
       ],
-      users: [ADMIN_USER_ROW, SENIOR_USER_ROW],
+      users: [ADMIN_USER_ROW, seniorWithNonDefaultShare],
       teamMembersWithTeam: [
         {
           userId: SENIOR_ID,
@@ -265,8 +291,36 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (PROJECT_SENIOR_SHA
 
     const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
 
-    // SENIOR_USER_ROW.seniorSharePercent === 26 — the USER_DEFAULT fallback.
-    expect(result.mine[0]).toMatchObject({ currentPercent: 26, pendingPercent: 26 })
+    expect(result.mine[0]).toMatchObject({
+      currentPercent: 31,
+      pendingPercent: 31,
+      link: `/projects/${PROJECT_ID}`,
+    })
+  })
+
+  it('drops the item when the underlying project is archived (§7.4 / AC2), distinctly from a missing project', async () => {
+    // Distinct from "project row is missing entirely" below: `!project` is
+    // already false here (the row IS found), so this exercises the SECOND
+    // half of the guard (`project.archivedAt !== null`) on its own — the
+    // missing-project test can't tell the two halves apart from each other
+    // (both end in the same `return null`).
+    const approvalsService = makeFakeApprovals([
+      makeApproval({
+        id: APPROVAL_ID_1,
+        subjectType: 'PROJECT_SENIOR_SHARE',
+        subjectId: PROJECT_ID,
+        approverUserId: SENIOR_ID,
+      }),
+    ])
+    const db = makeFakeDb({
+      projects: [{ ...ACTIVE_PROJECT_ROW, archivedAt: new Date('2026-08-01T00:00:00.000Z') }],
+      users: [ADMIN_USER_ROW, SENIOR_USER_ROW],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
+
+    expect(result.mine).toEqual([])
   })
 
   it('drops the item when the project row is missing entirely, without crashing', async () => {
@@ -501,6 +555,65 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
     ])
   })
 
+  it('offers a proposed PROJECT_SENIOR_SHARE change with the resolved percent (team override applied)', async () => {
+    // Deliberately the PROJECT_SENIOR_SHARE counterpart of the
+    // USER_SENIOR_SHARE test above, WITH a team override seeded and
+    // asserted on: `buildProposedByMeItems`'s routing loop populates
+    // `projectIds`/`seniorIds` under a DIFFERENT condition than the mine-
+    // side loop (no viewer-seed redundancy there), and the nested
+    // `seniorIds.add(row.approverUserId)` only runs for this exact subject
+    // type — a test that never seeds a team override could not tell a
+    // silently-empty `teamOverridesBySenior` apart from a correctly
+    // populated one.
+    const approvalsService = makeFakeApprovals(
+      [],
+      [
+        makeApproval({
+          id: APPROVAL_ID_1,
+          subjectType: 'PROJECT_SENIOR_SHARE',
+          subjectId: PROJECT_ID,
+          approverUserId: SENIOR_ID,
+          proposedByUserId: ADMIN_ID,
+        }),
+      ],
+    )
+    const db = makeFakeDb({
+      projects: [
+        {
+          ...ACTIVE_PROJECT_ROW,
+          seniorSharePercentOverride: null,
+          pendingSeniorSharePercentOverride: null,
+        },
+      ],
+      users: [SENIOR_USER_ROW],
+      teamMembersWithTeam: [
+        { userId: SENIOR_ID, team: { seniorSharePercentOverride: 45, archivedAt: null } },
+      ],
+    })
+    const service = new PendingService(db, approvalsService)
+
+    const result = await service.getPending({ id: ADMIN_ID, role: 'ADMIN' } as never)
+
+    expect(result.proposedByMe).toEqual([
+      {
+        kind: 'SHARE_APPROVAL',
+        approvalId: APPROVAL_ID_1,
+        subjectType: 'PROJECT_SENIOR_SHARE',
+        subjectId: PROJECT_ID,
+        title: 'GamingTec',
+        proposedBy: undefined,
+        waitingFor: ['Senior One'],
+        // No project-level override (null) and no PENDING project-level
+        // override either — both resolve through the TEAM step to 45.
+        currentPercent: 45,
+        pendingPercent: 45,
+        createdAt: '2026-09-01T10:00:00.000Z',
+        actions: ['cancel', 'open'],
+        link: `/projects/${PROJECT_ID}`,
+      },
+    ])
+  })
+
   it('sorts proposedByMe by createdAt ascending, independently of the order the groups happened to form in', async () => {
     const approvalsService = makeFakeApprovals(
       [],
@@ -658,10 +771,17 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
 
 describe('PendingService.getPending — forward-compatible unknown subjectType', () => {
   it('skips a row whose subjectType this service does not recognise, without throwing', async () => {
+    // `subjectId: SENIOR_ID` + a seeded `SENIOR_USER_ROW` deliberately make
+    // this row's subject ALSO resolvable as a user: if `buildItemForSubject`
+    // ever mis-routed an unrecognised type into the USER_SENIOR_SHARE branch
+    // (instead of falling through to its own `return null`), THIS fixture
+    // would build a bogus item instead of skipping it — an empty `usersById`
+    // would hide that bug, since both the correct fallback AND a wrongly-
+    // entered branch with no matching user end in the same `null`.
     const approvalsService = makeFakeApprovals([
-      makeApproval({ subjectType: 'SOME_FUTURE_SUBJECT_TYPE', subjectId: PROJECT_ID }),
+      makeApproval({ subjectType: 'SOME_FUTURE_SUBJECT_TYPE', subjectId: SENIOR_ID }),
     ])
-    const db = makeFakeDb({})
+    const db = makeFakeDb({ users: [SENIOR_USER_ROW] })
     const service = new PendingService(db, approvalsService)
 
     const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
