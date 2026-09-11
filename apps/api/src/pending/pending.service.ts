@@ -28,7 +28,7 @@ import { resolveSeniorShare, type ResolverTeam } from '../finance/senior-share-r
  * which is why `mine`/`proposedByMe` structurally can never carry a DROP
  * percentage: the column to hold one does not exist on this path. A row
  * whose `subjectType` is none of the three below is skipped rather than
- * guessed at — see `mapApprovalRow`.
+ * guessed at — see `buildItemForSubject`'s own trailing comment.
  */
 
 const PROJECT_APPROVAL_SUBJECT_TYPE = 'PROJECT'
@@ -50,11 +50,13 @@ type UserLite = {
   pendingSeniorSharePercent: number | null
 }
 
-/** Named so `loadTeamOverridesForSeniors`'s `let rows: ... = []` can sit on
- * ONE line — a multi-line inline type annotation between the `let` and the
- * `= []` initializer put several lines between the two, and Stryker's
- * disable-next-line comment (which must be immediately adjacent to the
- * mutated line) ended up suppressing nothing. */
+/** The shape `loadTeamOverridesForSeniors` casts `teamMembers.findMany`'s
+ * result to. Named (not an inline `Array<{...}>` on the `await` expression)
+ * so the cast reads as one line — an earlier version of that method kept
+ * this shape inline on a `let rows: Array<{...}> = []` declaration, which
+ * put several lines between the `let` and its `= []` initializer and broke
+ * a Stryker disable-next-line comment aimed at that initializer (it must be
+ * immediately adjacent to the mutated line). */
 type TeamMembershipRow = {
   userId: string
   team: { seniorSharePercentOverride: number | null; archivedAt: Date | null }
