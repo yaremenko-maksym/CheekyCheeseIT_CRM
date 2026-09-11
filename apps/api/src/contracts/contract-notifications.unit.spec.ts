@@ -5,11 +5,13 @@
  * Событие — перевод договора DRAFT → READY_TO_SIGN, то есть ровно момент,
  * когда от сотрудника начинают ждать подписи. Получатель — он один.
  */
+import { ConflictException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { EmployeeContractsService } from './employee-contracts.service'
 import type { NotificationsService } from '../notifications/notifications.service'
+import { makePassThroughEmitInTx } from '../notifications/__test-helpers__/notifications-stub'
 
 const ADMIN = { id: 'admin-1', role: 'ADMIN' } as SessionUser
 /** Версия строки ДО перехода — та, из которой строится ключ идемпотентности. */
@@ -50,6 +52,7 @@ function makeHarness(status = 'DRAFT', updateReturnsNothing = false) {
       created.push(i)
       return null
     }),
+    emitInTx: makePassThroughEmitInTx(),
   } as unknown as NotificationsService
 
   // Живая строка: её читает `findFirst`, её же меняет `UPDATE`. Одна строка на
@@ -163,7 +166,16 @@ describe('«ждёт решения: документ на подпись»', ()
     expect(h.updates).toHaveLength(2)
     // Разделило условие в самом UPDATE: строка перешла один раз...
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
-    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1)
+    const rejected = results.filter((r) => r.status === 'rejected')
+    expect(rejected).toHaveLength(1)
+    // SR-L-5 (security-review круг 2): проигравшему гонку — 409 с человеческим
+    // текстом, а не голая `Error` (500). Одновременность здесь легитимна, и
+    // отвечать на неё отказом сервера значит показывать нормальную работу
+    // двух админов как поломку — в ответе клиенту и в телеметрии ошибок.
+    const reason = (rejected[0] as PromiseRejectedResult).reason as ConflictException
+    expect(reason).toBeInstanceOf(ConflictException)
+    expect(reason.getStatus()).toBe(409)
+    expect(reason.message).toContain('no longer DRAFT')
     // ...и сотрудник получил ОДНУ просьбу подписать, а не две.
     expect(h.created).toHaveLength(1)
   })
@@ -191,9 +203,7 @@ describe('«ждёт решения: документ на подпись»', ()
     // случае не рассылается просьба подписать несуществующий договор.
     const h = makeHarness('DRAFT', true)
 
-    await expect(h.svc.markReady('junior-1', ADMIN)).rejects.toThrow(
-      'Failed to mark contract ready',
-    )
+    await expect(h.svc.markReady('junior-1', ADMIN)).rejects.toThrow(ConflictException)
     expect(h.created).toHaveLength(0)
   })
 })

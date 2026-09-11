@@ -209,29 +209,85 @@ export class NotificationsService {
    * записи: вызывающему не нужно различать «не создал, потому что дубль» и
    * «не создал, потому что данные не той формы», а нужно не упасть.
    */
-  private async refuse(input: CreateNotificationInput, reason: string): Promise<null> {
+  private refuse(input: CreateNotificationInput, reason: string): null {
     this.logger.error(
       `Уведомление пропущено (событие не откатываем): ${reason} [type=${input.type} userId=${input.userId}]`,
     )
+    this.report({
+      source: 'API',
+      message: `Notification skipped — ${reason}`,
+      route: '/api/notifications',
+      userId: input.userId,
+      // Ни `title`, ни `data` сюда не едут: дайджест уходит в отдельный
+      // репозиторий, а форма данных уже названа типом и сообщением.
+      meta: { type: input.type, subjectType: input.subjectType ?? null },
+    })
+    return null
+  }
+
+  /**
+   * Путь производителя целиком — во ВЛОЖЕННОЙ транзакции (SR-H-2,
+   * security-review круг 2).
+   *
+   * `refuse()` круга 1 снял вето только у ФОРМЫ ДАННЫХ: неудачный `safeParse`
+   * перестал бросать. Всё остальное на пути производителя — резолв адресатов,
+   * сборка payload, сам `INSERT` — вето сохраняло. На `fda3f11f` это ловилось
+   * исполнением: `TypeError` в производителе `createFromInterview` откатывал
+   * переход собеседования в HIRED вместе с созданием проекта.
+   *
+   * Почему вложенная транзакция, а не просто `try/catch`: ошибка Postgres
+   * (например, одинокий суррогат в `jsonb` — SR-M-3) абортит САМУ транзакцию.
+   * Перехват в JS её не воскрешает: любой следующий запрос события упадёт с
+   * «current transaction is aborted, commands ignored until end of transaction
+   * block». Вложенная транзакция в Drizzle — это `SAVEPOINT` (см.
+   * `node-postgres/session`: `savepoint spN` … `rollback to savepoint spN`), и
+   * откат к ней возвращает транзакцию события в рабочее состояние.
+   *
+   * Инвариант «уведомление о несостоявшемся событии недопустимо» при этом
+   * цел: savepoint вложен В транзакцию события, поэтому откат события
+   * по-прежнему уносит и запись.
+   */
+  async emitInTx(tx: DrizzleTx, produce: (sp: DrizzleTx) => Promise<void>): Promise<void> {
     try {
-      await this.telemetry.recordError({
-        source: 'API',
-        message: `Notification skipped — ${reason}`,
-        route: '/api/notifications',
-        userId: input.userId,
-        // Ни `title`, ни `data` сюда не едут: дайджест уходит в отдельный
-        // репозиторий, а форма данных уже названа типом и сообщением.
-        meta: { type: input.type, subjectType: input.subjectType ?? null },
+      await tx.transaction(async (sp) => {
+        await produce(sp)
       })
     } catch (err) {
-      // Телеметрия — канал наблюдения, а не участник события. Её отказ не
-      // имеет права сделать то, что мы только что запретили разбору данных:
-      // уронить транзакцию события.
+      // Трасса, а не только текст: бросок может случиться ДО сборки payload,
+      // когда ни типа, ни получателя ещё нет, и тогда единственное, что
+      // называет сломавшегося производителя, — стек.
+      this.logger.error(
+        `Путь производителя уведомлений упал (событие не откатываем): ${
+          err instanceof Error ? (err.stack ?? err.message) : String(err)
+        }`,
+      )
+      this.report({
+        source: 'API',
+        // В телеметрию — короткая форма: дайджест уходит в отдельный
+        // репозиторий, и стек там не нужен, а `fingerprint` считается от
+        // сообщения.
+        message: `Notification producer failed — ${String(err)}`,
+        route: '/api/notifications',
+      })
+    }
+  }
+
+  /**
+   * Телеметрия отказа — БЕЗ `await` (SR-L-4, security-review круг 2).
+   *
+   * Оба вызывающих работают из-под открытой транзакции события, а
+   * `TelemetryErrorsService` пишет через тот же пул (`max: 10`). Ждать вторую
+   * коннекцию, держа первую под транзакцией, — классическая форма
+   * pool-deadlock, стоит отказам пойти пачкой. Канал наблюдения не имеет права
+   * задержать событие, поэтому запись отпускается в фон, а её собственный
+   * отказ остаётся в журнале.
+   */
+  private report(payload: Parameters<TelemetryErrorsService['recordError']>[0]): void {
+    void this.telemetry.recordError(payload).catch((err: unknown) => {
       this.logger.error(
         `Телеметрия не приняла отказ уведомления: ${err instanceof Error ? err.message : String(err)}`,
       )
-    }
-    return null
+    })
   }
 
   /**

@@ -119,7 +119,29 @@ const moneyFields = {
  * а вместе с ним, пока производитель имел право вето, и само событие. Потолок
  * формы данных выводится из потолка сущности, а не назначается отдельно.
  */
-const objectName = z.string().min(1).max(255)
+const OBJECT_NAME_MAX = 255
+
+/**
+ * Длина в КОД-ПОИНТАХ, а не в 16-битных единицах (SR-M-3, security-review
+ * круг 2).
+ *
+ * `String.prototype.length` считает единицы UTF-16, а `varchar(255)` в
+ * Postgres — символы. Эмодзи — это одна единица длины для колонки и ДВЕ для
+ * `length`, поэтому имя из 200 символов с 60 эмодзи колонку проходит, а
+ * `z.string().max(255)` — нет: форма оказывалась строже системы записи ровно
+ * там, где круг 1 приводил их к одному потолку. Одна мерка на усечение и на
+ * потолок — иначе они расходятся молча.
+ */
+function codePointLength(value: string): number {
+  return Array.from(value).length
+}
+
+const objectName = z
+  .string()
+  .min(1)
+  .refine((value) => codePointLength(value) <= OBJECT_NAME_MAX, {
+    message: `Object name must be at most ${OBJECT_NAME_MAX} characters`,
+  })
 
 /**
  * Сколько текста, написанного человеком, уведомление имеет право нести.
@@ -141,12 +163,26 @@ export const NOTIFICATION_TEXT_PREVIEW_MAX = 200
  */
 export function notificationTextPreview(text: string): string {
   const trimmed = text.trim()
-  if (trimmed.length <= NOTIFICATION_TEXT_PREVIEW_MAX) return trimmed
-  return `${trimmed.slice(0, NOTIFICATION_TEXT_PREVIEW_MAX - 1)}…`
+  // SR-M-3 (security-review круг 2): режем по КОД-ПОИНТАМ. `slice` режет по
+  // 16-битным единицам и на эмодзи, попавшем на границу, оставляет ОДИНОКИЙ
+  // суррогат. Такая строка проходит форму (длина в единицах — ровно потолок),
+  // но `jsonb` её не принимает: «invalid input syntax for type json — Unicode
+  // low surrogate must follow a high surrogate» (воспроизведено на
+  // PostgreSQL 16). Ошибка прилетала уже из `INSERT`, то есть за контуром,
+  // который круг 1 обезвредил, и откатывала сам отказ согласования.
+  const points = Array.from(trimmed)
+  if (points.length <= NOTIFICATION_TEXT_PREVIEW_MAX) return trimmed
+  return `${points.slice(0, NOTIFICATION_TEXT_PREVIEW_MAX - 1).join('')}…`
 }
 
 /** Превью или его отсутствие — форма, общая для всех «причин». */
-const textPreview = z.string().min(1).max(NOTIFICATION_TEXT_PREVIEW_MAX).nullable()
+const textPreview = z
+  .string()
+  .min(1)
+  .refine((value) => codePointLength(value) <= NOTIFICATION_TEXT_PREVIEW_MAX, {
+    message: `Preview must be at most ${NOTIFICATION_TEXT_PREVIEW_MAX} characters`,
+  })
+  .nullable()
 
 const percent = z.number().int().min(0).max(100).nullable()
 

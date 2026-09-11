@@ -190,16 +190,33 @@ export class EmployeeContractsService {
         .where(and(eq(employeeContracts.id, contract.id), eq(employeeContracts.status, 'DRAFT')))
         .returning()
 
-      if (!row) throw new Error('Failed to mark contract ready')
+      // SR-L-5 (security-review круг 2): проигравший гонку получает 409, а не
+      // 500. Исход гонки — «договор уже не черновик», то есть РОВНО то, что
+      // сообщает guard выше по методу; отвечать на одну и ту же ситуацию то
+      // отказом клиента, то отказом сервера значит показывать легитимную
+      // одновременность как поломку — в том числе в телеметрии ошибок.
+      if (!row) {
+        throw new ConflictException(
+          'Cannot mark ready: contract is no longer DRAFT (concurrent update)',
+        )
+      }
 
-      await this.notifications.createInTx(tx, {
-        userId,
-        type: 'DOCUMENT_SIGN_REQUIRED',
-        title: NOTIFICATION_TITLES.DOCUMENT_SIGN_REQUIRED,
-        subjectType: 'EMPLOYEE_CONTRACT',
-        subjectId: row.id,
-        data: { documentTitle: 'Договор с сотрудником' },
-        dedupeKey,
+      // SR-H-2 (круг 2): путь производителя — во вложенной транзакции.
+      // Переход в READY_TO_SIGN уже случился; уронить его из-за того, что
+      // просьба подписать не собралась, — та самая цена, которую круг 2
+      // запретил платить. Savepoint оставляет инвариант «нет договора, ждущего
+      // подписи, без просьбы» там, где он держится (откат события уносит и
+      // запись), и снимает обратное вето.
+      await this.notifications.emitInTx(tx, async (sp) => {
+        await this.notifications.createInTx(sp, {
+          userId,
+          type: 'DOCUMENT_SIGN_REQUIRED',
+          title: NOTIFICATION_TITLES.DOCUMENT_SIGN_REQUIRED,
+          subjectType: 'EMPLOYEE_CONTRACT',
+          subjectId: row.id,
+          data: { documentTitle: 'Договор с сотрудником' },
+          dedupeKey,
+        })
       })
 
       return row

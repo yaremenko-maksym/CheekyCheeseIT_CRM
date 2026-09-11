@@ -416,6 +416,88 @@ describe('SR-H-1 — потолки формы совпадают с потол�
     expect(notificationTextPreview('я'.repeat(5000))).toHaveLength(200)
   })
 
+  /**
+   * SR-M-3 (security-review круг 2). Длина мерялась в 16-битных единицах, а
+   * усечение шло `slice` — по ним же. Эмодзи на позициях 198–199 оставляло на
+   * срезе ОДИНОКИЙ СУРРОГАТ: форму такая строка проходила (ровно 200 единиц),
+   * а Postgres отвергал её уже на `INSERT` в `jsonb`. То есть длина текста,
+   * написанного человеком, снова решала судьбу события — в обход `refuse()`.
+   *
+   * `encodeURIComponent` бросает `URIError` ровно на одиноком суррогате — это
+   * та же проверка, что `String.prototype.isWellFormed()`, но без зависимости
+   * от версии lib в tsconfig.
+   */
+  it('эмодзи на границе не разрывается — превью остаётся корректной строкой', () => {
+    const withEmojiOnBoundary = `${'a'.repeat(198)}😀${'b'.repeat(50)}`
+    const preview = notificationTextPreview(withEmojiOnBoundary)
+
+    expect(() => encodeURIComponent(preview)).not.toThrow()
+    // Ровно потолок — но в СИМВОЛАХ, как их считает и колонка, и Postgres.
+    expect(Array.from(preview)).toHaveLength(200)
+    expect(preview.endsWith('…')).toBe(true)
+    // Эмодзи доехало ЦЕЛИКОМ: 198 букв + оно = 199 символов, ровно потолок
+    // без многоточия. Половины от него не осталось — старый `slice` по
+    // единицам оставлял здесь один старший суррогат.
+    expect(preview).toContain('😀')
+  })
+
+  it('двести эмодзи — это двести символов, а не четыреста: превью не трогает их', () => {
+    const exact = '😀'.repeat(200)
+    expect(notificationTextPreview(exact)).toBe(exact)
+  })
+
+  it('двести один эмодзи усекается до двухсот СИМВОЛОВ', () => {
+    const preview = notificationTextPreview('😀'.repeat(201))
+    expect(Array.from(preview)).toHaveLength(200)
+    expect(Array.from(preview).slice(0, 199).join('')).toBe('😀'.repeat(199))
+    expect(preview.endsWith('…')).toBe(true)
+    expect(() => encodeURIComponent(preview)).not.toThrow()
+  })
+
+  it('превью из эмодзи ровно по потолку форму проходит — мерка у формы та же', () => {
+    const schema = notificationDataSchemaFor('APPROVAL_REJECTED')
+    expect(() =>
+      schema.parse({
+        approverName: 'Иван',
+        subjectKind: 'PROJECT',
+        subjectTitle: 'Acme',
+        reasonPreview: '😀'.repeat(200),
+      }),
+    ).not.toThrow()
+  })
+
+  it('превью на символ длиннее потолка форму не проходит', () => {
+    const schema = notificationDataSchemaFor('APPROVAL_REJECTED')
+    expect(() =>
+      schema.parse({
+        approverName: 'Иван',
+        subjectKind: 'PROJECT',
+        subjectTitle: 'Acme',
+        reasonPreview: '😀'.repeat(201),
+      }),
+    ).toThrow()
+  })
+
+  /**
+   * SR-M-3(б): потолок имени выводится из КОЛОНКИ (`varchar(255)`), а колонка
+   * считает символы. Имя из 255 эмодзи в базу влезает — значит, и в форму
+   * обязано: иначе легальное имя молча пропускало бы уведомление с ERROR в
+   * журнале.
+   */
+  it('имя из 255 эмодзи форму проходит — колонка их принимает', () => {
+    const name = '😀'.repeat(255)
+    expect(() =>
+      notificationDataSchemaFor('PROJECT_MEMBER_ADDED').parse({ projectName: name }),
+    ).not.toThrow()
+  })
+
+  it('имя из 256 эмодзи форму не проходит — потолок остаётся потолком', () => {
+    const name = '😀'.repeat(256)
+    expect(() =>
+      notificationDataSchemaFor('PROJECT_MEMBER_ADDED').parse({ projectName: name }),
+    ).toThrow()
+  })
+
   it('обрамляющие пробелы снимаются до подсчёта длины', () => {
     expect(notificationTextPreview('  причина  ')).toBe('причина')
     expect(notificationTextPreview(`  ${'я'.repeat(200)}  `)).toBe('я'.repeat(200))

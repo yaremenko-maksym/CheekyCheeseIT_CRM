@@ -888,7 +888,7 @@ export class TeamsService {
     // одинаковы с точки зрения человека: его добавили в команду. Раньше ветка
     // реактивации отличалась только `return`, и уведомление, дописанное лишь в
     // конец метода, тихо пропустило бы половину случаев.
-    const notifications = this.buildTeamMemberAddedNotifications({
+    const notifyInput = {
       teamId,
       teamName: team.name,
       addedUserId: userId,
@@ -896,7 +896,21 @@ export class TeamsService {
       addedUserName: user.displayName,
       members: team.members,
       currentUser,
-    })
+    }
+
+    // SR-H-2 (security-review круг 2): путь производителя целиком — во
+    // ВЛОЖЕННОЙ транзакции (SAVEPOINT), включая отбор получателей. Отбор
+    // переехал ВНУТРЬ по той же причине: пока он стоял до транзакции, его
+    // падение отменяло само членство — то есть уведомление имело вето над
+    // событием ещё до того, как событие случилось.
+    const notify = async (tx: DrizzleTx): Promise<void> => {
+      await this.notifications.emitInTx(tx, async (sp) => {
+        await this.notifications.createManyInTx(
+          sp,
+          this.buildTeamMemberAddedNotifications(notifyInput),
+        )
+      })
+    }
 
     if (existing) {
       if (existing.leftAt === null) {
@@ -904,14 +918,14 @@ export class TeamsService {
       }
       await this.db.db.transaction(async (tx) => {
         await tx.update(teamMembers).set({ leftAt: null }).where(eq(teamMembers.id, existing.id))
-        await this.notifications.createManyInTx(tx, notifications)
+        await notify(tx)
       })
       return
     }
 
     await this.db.db.transaction(async (tx) => {
       await tx.insert(teamMembers).values({ teamId, userId })
-      await this.notifications.createManyInTx(tx, notifications)
+      await notify(tx)
     })
   }
 

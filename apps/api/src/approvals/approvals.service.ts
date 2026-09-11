@@ -131,7 +131,14 @@ export class ApprovalsService {
 
     // Позиция 6: в ТОЙ ЖЕ транзакции, что и само решение — уведомление о
     // несостоявшемся согласии структурно невозможно.
-    await this.notifyDecision(tx, updated, null)
+    // SR-H-2 (security-review круг 2): путь производителя целиком — во
+    // ВЛОЖЕННОЙ транзакции (SAVEPOINT). Событие уже состоялось; уронить его
+    // из-за того, что уведомление о нём не собралось, — ровно то вето, которое
+    // круг 2 запретил. Откат события по-прежнему уносит и запись: savepoint
+    // вложен в транзакцию события, а не заменяет её.
+    await this.notifications.emitInTx(tx, async (sp) => {
+      await this.notifyDecision(sp, updated, null)
+    })
 
     return toApproval(updated)
   }
@@ -200,7 +207,9 @@ export class ApprovalsService {
       )
 
     // Позиция 6: причина отказа — ровно то, ради чего этот тип и заведён.
-    await this.notifyDecision(tx, updated, input.reason)
+    await this.notifications.emitInTx(tx, async (sp) => {
+      await this.notifyDecision(sp, updated, input.reason)
+    })
 
     return toApproval(updated)
   }

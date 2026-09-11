@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
 import type { NotificationsService } from '../notifications/notifications.service'
+import { makePassThroughEmitInTx } from '../notifications/__test-helpers__/notifications-stub'
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
@@ -41,6 +42,7 @@ function makeHarness(opts: {
     createManyInTx: vi.fn(async (_tx: unknown, inputs: Record<string, unknown>[]) => {
       created.push(...inputs)
     }),
+    emitInTx: makePassThroughEmitInTx(),
   } as unknown as NotificationsService
 
   const inserted: unknown[] = []

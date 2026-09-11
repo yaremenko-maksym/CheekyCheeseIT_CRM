@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { UsersService } from './users.service'
 import type { NotificationsService } from '../notifications/notifications.service'
+import { makePassThroughEmitInTx } from '../notifications/__test-helpers__/notifications-stub'
 
 function callSeam(input: {
   subjectId: string
@@ -20,6 +21,7 @@ function callSeam(input: {
       created.push(i)
       return null
     }),
+    emitInTx: makePassThroughEmitInTx(),
   } as unknown as NotificationsService
 
   const service = new UsersService(

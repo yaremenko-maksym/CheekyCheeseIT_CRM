@@ -12,6 +12,7 @@ import type { CreateProjectDto, SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import type { NotificationsService } from '../notifications/notifications.service'
+import { makePassThroughEmitInTx } from '../notifications/__test-helpers__/notifications-stub'
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
@@ -46,6 +47,7 @@ function makeNotificationsSpy() {
     createManyInTx: vi.fn(async (_tx: unknown, inputs: Record<string, unknown>[]) => {
       created.push(...inputs)
     }),
+    emitInTx: makePassThroughEmitInTx(),
   } as unknown as NotificationsService
   return { notifications, created }
 }

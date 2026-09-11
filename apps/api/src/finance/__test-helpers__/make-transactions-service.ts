@@ -110,6 +110,9 @@ function makeDefaultNotificationsStub(): NotificationsService {
     create: vi.fn().mockResolvedValue(null),
     createInTx: vi.fn().mockResolvedValue(null),
     createManyInTx: vi.fn().mockResolvedValue(undefined),
+    emitInTx: vi.fn(async (tx: unknown, produce: (sp: unknown) => Promise<void>) => {
+      await produce(tx)
+    }),
   } as unknown as NotificationsService
 }
 

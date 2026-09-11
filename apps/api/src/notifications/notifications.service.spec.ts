@@ -546,7 +546,9 @@ describe('NotificationsService', () => {
         expect(h.rows).toHaveLength(0)
         // Две строки: сам пропуск и отказ канала, в который он не доехал.
         // Без второй «телеметрия молча не работает» выглядит как «ошибок нет».
-        expect(logged).toHaveLength(2)
+        // SR-L-4 (круг 3): телеметрия больше не ждётся под транзакцией, её
+        // отказ приходит отдельным микротаском — отсюда `waitFor`.
+        await vi.waitFor(() => expect(logged).toHaveLength(2))
         expect(logged[1]).toContain('Телеметрия не приняла отказ уведомления')
         expect(logged[1]).toContain('telemetry down')
       })
@@ -671,6 +673,165 @@ describe('NotificationsService', () => {
         ]),
       )
       expect(h.rows.map((r) => r.userId)).toEqual(['u-1', 'u-2'])
+    })
+  })
+  /**
+   * SR-H-2 (security-review круг 2). `refuse()` круга 1 закрыл ТОЛЬКО разбор
+   * данных: бросок на пути производителя до `createInTx` (или из самого
+   * `tx.insert`) по-прежнему летел внутрь транзакции события и откатывал её —
+   * на `fda3f11f` это роняло переход собеседования в HIRED вместе с созданием
+   * проекта.
+   *
+   * `emitInTx` — шов, на котором это кончается: путь производителя целиком
+   * выполняется во ВЛОЖЕННОЙ транзакции (в Postgres — `SAVEPOINT`), и ошибка
+   * откатывает ровно её. Простого `try/catch` тут мало: ошибка Postgres
+   * (невалидный jsonb — SR-M-3) абортит саму транзакцию, и перехват в JS её не
+   * воскрешает — все последующие запросы события падали бы с «current
+   * transaction is aborted».
+   */
+  describe('emitInTx — путь производителя во вложенной транзакции', () => {
+    it('бросок производителя до вставки не долетает до вызывающего', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      spyOnLoggerErrors(svc)
+
+      await expect(
+        svc.emitInTx(h.db.db as never, async () => {
+          throw new Error('резолв адресатов упал')
+        }),
+      ).resolves.toBeUndefined()
+    })
+
+    it('путь идёт во ВЛОЖЕННОЙ транзакции, а не в транзакции события', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const nested = vi.spyOn(h.db.db, 'transaction')
+
+      await svc.emitInTx(h.db.db as never, async (sp) => {
+        await svc.createInTx(sp, {
+          userId: 'u-1',
+          type: 'TEAM_MEMBER_ADDED',
+          title: 'Вас добавили в команду',
+          data: { teamName: 'Команда' },
+        })
+      })
+
+      // Без вложенной транзакции откатывать было бы нечего, кроме транзакции
+      // события — то есть ровно то вето, которое снимаем.
+      expect(nested).toHaveBeenCalledTimes(1)
+      expect(h.rows).toHaveLength(1)
+    })
+
+    it('в журнале и текст ошибки, и трасса — иначе не найти сломавшегося производителя', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw new Error('резолв адресатов упал')
+      })
+
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain('резолв адресатов упал')
+      // Бросок может случиться ДО сборки payload — тогда стек единственный,
+      // кто называет производителя.
+      expect(logged[0]).toMatch(/\n\s+at /)
+    })
+
+    it('Error без трассы — в журнале остаётся хотя бы его текст', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      const bare = new Error('трассы нет')
+      delete (bare as { stack?: string }).stack
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw bare
+      })
+
+      expect(logged[0]).toContain('трассы нет')
+    })
+
+    it('брошенная не-Error причина тоже читается в журнале', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw 'строкой тоже бросают'
+      })
+
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain('строкой тоже бросают')
+    })
+
+    it('пропуск уходит в телеметрию — короткой формой, без стека', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      spyOnLoggerErrors(svc)
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw new Error('резолв адресатов упал')
+      })
+
+      expect(h.telemetry.recordError).toHaveBeenCalledWith({
+        source: 'API',
+        message: 'Notification producer failed — Error: резолв адресатов упал',
+        route: '/api/notifications',
+      })
+    })
+
+    /**
+     * SR-L-4 (security-review круг 2). Телеметрия пишет через тот же пул, а
+     * захват ВТОРОЙ коннекции из-под открытой транзакции — классическая форма
+     * pool-deadlock, стоит отказам пойти пачкой. Значит, ждать её под
+     * транзакцией нельзя: неразрешённый промис телеметрии не имеет права
+     * задержать событие.
+     */
+    it('не ждёт телеметрию под транзакцией — исчерпанный пул не держит событие', async () => {
+      const h = makeHarness()
+      vi.mocked(h.telemetry.recordError).mockReturnValue(new Promise<void>(() => {}))
+      const svc = new NotificationsService(h.db, h.telemetry)
+      spyOnLoggerErrors(svc)
+
+      await expect(
+        svc.emitInTx(h.db.db as never, async () => {
+          throw new Error('boom')
+        }),
+      ).resolves.toBeUndefined()
+      expect(h.telemetry.recordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('отказ самой телеметрии не роняет событие', async () => {
+      const h = makeHarness()
+      vi.mocked(h.telemetry.recordError).mockRejectedValue(new Error('телеметрия недоступна'))
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      await expect(
+        svc.emitInTx(h.db.db as never, async () => {
+          throw new Error('boom')
+        }),
+      ).resolves.toBeUndefined()
+      // Первая строка — сам отказ производителя, вторая — отказ канала
+      // наблюдения; обе пишутся, ни одна не бросает.
+      await vi.waitFor(() => expect(logged).toHaveLength(2))
+      expect(logged[1]).toContain('телеметрия недоступна')
+    })
+
+    it('не-Error отказ телеметрии тоже читается в журнале', async () => {
+      const h = makeHarness()
+      vi.mocked(h.telemetry.recordError).mockRejectedValue('канал лёг строкой')
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw new Error('boom')
+      })
+
+      await vi.waitFor(() => expect(logged).toHaveLength(2))
+      expect(logged[1]).toContain('канал лёг строкой')
     })
   })
 })

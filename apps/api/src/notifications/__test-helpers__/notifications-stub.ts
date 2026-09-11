@@ -17,10 +17,27 @@
 import { vi } from 'vitest'
 import type { NotificationsService } from '../notifications.service'
 
+/**
+ * Двойник `emitInTx` для спек, которые держат СВОЙ двойник уведомлений (те,
+ * что записывают созданное в массив и проверяют его).
+ *
+ * В бою `emitInTx` открывает вложенную транзакцию (SAVEPOINT) вокруг пути
+ * производителя — SR-H-2. Двойник исполняет путь как есть, на том же `tx`:
+ * предмет таких спек — ЧТО записывается, а не чем откатывается. Семантика
+ * живёт здесь в одном экземпляре, чтобы пять спек не разошлись в понимании
+ * того, что значит «путь производителя прошёл».
+ */
+export function makePassThroughEmitInTx() {
+  return vi.fn(async (tx: unknown, produce: (sp: unknown) => Promise<void>) => {
+    await produce(tx)
+  })
+}
+
 export function makeNotificationsStub(): NotificationsService {
   return {
     create: vi.fn().mockResolvedValue(null),
     createInTx: vi.fn().mockResolvedValue(null),
     createManyInTx: vi.fn().mockResolvedValue(undefined),
+    emitInTx: makePassThroughEmitInTx(),
   } as unknown as NotificationsService
 }

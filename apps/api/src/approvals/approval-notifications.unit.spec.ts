@@ -12,6 +12,7 @@ import { ApprovalsService } from './approvals.service'
 import { approvalNotificationKind, approvalNotificationSubject } from './approval-notification'
 import type { DatabaseService } from '../database/database.service'
 import type { NotificationsService } from '../notifications/notifications.service'
+import { makePassThroughEmitInTx } from '../notifications/__test-helpers__/notifications-stub'
 
 const SUBJECT_ID = 'b1000000-0000-4000-a000-000000000001'
 const APPROVER_ID = 'b1000000-0000-4000-a000-000000000002'
@@ -40,6 +41,7 @@ function makeHarness(row: Record<string, unknown>, opts: { projectName?: string 
       created.push(input)
       return null
     }),
+    emitInTx: makePassThroughEmitInTx(),
   } as unknown as NotificationsService
 
   // Один и тот же построитель отвечает трём читателям: блокировке живых строк,

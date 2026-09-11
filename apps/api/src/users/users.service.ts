@@ -203,19 +203,26 @@ export class UsersService {
     tx: DrizzleTx,
     input: NotifyPendingShareInput,
   ): Promise<void> {
-    await this.notifications.createInTx(tx, {
-      userId: input.approverUserId,
-      type: 'SHARE_CONFIRM_REQUIRED',
-      title: NOTIFICATION_TITLES.SHARE_CONFIRM_REQUIRED,
-      subjectType: 'USER',
-      subjectId: input.subjectId,
-      data: {
-        scope: 'BASE',
-        projectName: null,
-        previousPercent: input.previousPercent,
-        proposedPercent: input.proposedPercent,
-      },
-      // Ключа нет намеренно — см. близнеца в `ProjectsService`.
+    // SR-H-2 (security-review круг 2): путь производителя целиком — во
+    // ВЛОЖЕННОЙ транзакции (SAVEPOINT). Событие уже состоялось; уронить его
+    // из-за того, что уведомление о нём не собралось, — ровно то вето, которое
+    // круг 2 запретил. Откат события по-прежнему уносит и запись: savepoint
+    // вложен в транзакцию события, а не заменяет её.
+    await this.notifications.emitInTx(tx, async (sp) => {
+      await this.notifications.createInTx(sp, {
+        userId: input.approverUserId,
+        type: 'SHARE_CONFIRM_REQUIRED',
+        title: NOTIFICATION_TITLES.SHARE_CONFIRM_REQUIRED,
+        subjectType: 'USER',
+        subjectId: input.subjectId,
+        data: {
+          scope: 'BASE',
+          projectName: null,
+          previousPercent: input.previousPercent,
+          proposedPercent: input.proposedPercent,
+        },
+        // Ключа нет намеренно — см. близнеца в `ProjectsService`.
+      })
     })
   }
 

@@ -1112,19 +1112,26 @@ export class ProjectsService {
       // черновик со строками согласования. Черновика без просьбы подтвердить
       // не существует — по той же причине, по которой не существует черновика
       // без строк согласования (решение Д1 позиции 4).
-      await this.notifications.createManyInTx(
-        tx,
-        approverUserIds
-          .filter((approverId) => approverId !== (currentUser.impersonatorId ?? currentUser.id))
-          .map((approverId) => ({
-            userId: approverId,
-            type: 'PROJECT_CONFIRM_REQUIRED' as const,
-            title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
-            subjectType: 'PROJECT' as const,
-            subjectId: inserted.id,
-            data: { projectName: inserted.name },
-          })),
-      )
+      // SR-H-2 (security-review круг 2): путь производителя целиком — во
+      // ВЛОЖЕННОЙ транзакции (SAVEPOINT). Событие уже состоялось; уронить его
+      // из-за того, что уведомление о нём не собралось, — ровно то вето,
+      // которое круг 2 запретил. Откат события по-прежнему уносит и запись:
+      // savepoint вложен в транзакцию события, а не заменяет её.
+      await this.notifications.emitInTx(tx, async (sp) => {
+        await this.notifications.createManyInTx(
+          sp,
+          approverUserIds
+            .filter((approverId) => approverId !== (currentUser.impersonatorId ?? currentUser.id))
+            .map((approverId) => ({
+              userId: approverId,
+              type: 'PROJECT_CONFIRM_REQUIRED' as const,
+              title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
+              subjectType: 'PROJECT' as const,
+              subjectId: inserted.id,
+              data: { projectName: inserted.name },
+            })),
+        )
+      })
 
       return [inserted]
     })
@@ -1361,25 +1368,29 @@ export class ProjectsService {
     tx: DrizzleTx,
     input: NotifyPendingShareInput,
   ): Promise<void> {
-    await this.notifications.createInTx(tx, {
-      userId: input.approverUserId,
-      type: 'SHARE_CONFIRM_REQUIRED',
-      title: NOTIFICATION_TITLES.SHARE_CONFIRM_REQUIRED,
-      subjectType: 'PROJECT',
-      subjectId: input.subjectId,
-      // Проценты — ДАННЫЕ, не текст: «26% → 30%» рисует клиент. В письмо
-      // (позиция 7) уходит только нейтральный заголовок выше — цифры за
-      // пределы нашего контура не идут (§10).
-      data: {
-        scope: 'PROJECT',
-        projectName: input.projectName,
-        previousPercent: input.previousPercent,
-        proposedPercent: input.proposedPercent,
-      },
-      // Ключа НЕТ намеренно: повторное предложение обязано спросить заново —
-      // именно это и означает `supersededAt` на предыдущем поколении строк
-      // согласования. Заглушить второе предложение значило бы потерять
-      // подтверждение.
+    // SR-H-2 (security-review круг 2): путь производителя — во вложенной
+    // транзакции (SAVEPOINT); подробности у близнеца в `UsersService`.
+    await this.notifications.emitInTx(tx, async (sp) => {
+      await this.notifications.createInTx(sp, {
+        userId: input.approverUserId,
+        type: 'SHARE_CONFIRM_REQUIRED',
+        title: NOTIFICATION_TITLES.SHARE_CONFIRM_REQUIRED,
+        subjectType: 'PROJECT',
+        subjectId: input.subjectId,
+        // Проценты — ДАННЫЕ, не текст: «26% → 30%» рисует клиент. В письмо
+        // (позиция 7) уходит только нейтральный заголовок выше — цифры за
+        // пределы нашего контура не идут (§10).
+        data: {
+          scope: 'PROJECT',
+          projectName: input.projectName,
+          previousPercent: input.previousPercent,
+          proposedPercent: input.proposedPercent,
+        },
+        // Ключа НЕТ намеренно: повторное предложение обязано спросить заново —
+        // именно это и означает `supersededAt` на предыдущем поколении строк
+        // согласования. Заглушить второе предложение значило бы потерять
+        // подтверждение.
+      })
     })
   }
 
@@ -2224,23 +2235,29 @@ export class ProjectsService {
     //
     // Членство и уведомление — одна транзакция: откатилось членство, откатилась
     // и запись.
-    const notify: CreateNotificationInput[] =
-      userId === (currentUser.impersonatorId ?? currentUser.id)
-        ? []
-        : [
-            {
-              userId,
-              type: 'PROJECT_MEMBER_ADDED',
-              title: NOTIFICATION_TITLES.PROJECT_MEMBER_ADDED,
-              subjectType: 'PROJECT',
-              subjectId: projectId,
-              data: { projectName: project.name },
-            },
-          ]
-
     await this.db.db.transaction(async (tx) => {
       await tx.insert(projectMembers).values({ projectId, userId })
-      await this.notifications.createManyInTx(tx, notify)
+      // SR-H-2 (security-review круг 2): путь производителя целиком — во
+      // ВЛОЖЕННОЙ транзакции (SAVEPOINT). Событие уже состоялось; уронить его
+      // из-за того, что уведомление о нём не собралось, — ровно то вето,
+      // которое круг 2 запретил. Откат события по-прежнему уносит и запись:
+      // savepoint вложен в транзакцию события, а не заменяет её.
+      await this.notifications.emitInTx(tx, async (sp) => {
+        const notify: CreateNotificationInput[] =
+          userId === (currentUser.impersonatorId ?? currentUser.id)
+            ? []
+            : [
+                {
+                  userId,
+                  type: 'PROJECT_MEMBER_ADDED',
+                  title: NOTIFICATION_TITLES.PROJECT_MEMBER_ADDED,
+                  subjectType: 'PROJECT',
+                  subjectId: projectId,
+                  data: { projectName: project.name },
+                },
+              ]
+        await this.notifications.createManyInTx(sp, notify)
+      })
     })
   }
 
@@ -2387,16 +2404,23 @@ export class ProjectsService {
     // подтверждающие, автор действия исключён (§8.1 — своё подтверждает тост,
     // а не колокольчик), запись идёт по тому же соединению, что и сам
     // черновик, поэтому откат события уносит и её.
-    if (interview.seniorId !== (currentUser.impersonatorId ?? currentUser.id)) {
-      await this.notifications.createInTx(conn as unknown as DrizzleTx, {
-        userId: interview.seniorId,
-        type: 'PROJECT_CONFIRM_REQUIRED',
-        title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
-        subjectType: 'PROJECT',
-        subjectId: project.id,
-        data: { projectName: project.name },
-      })
-    }
+    // SR-H-2 (security-review круг 2): именно ЗДЕСЬ вето и поймали
+    // исполнением — `TypeError` на этом пути откатывал переход собеседования в
+    // HIRED вместе с созданием проекта и записью `created_project_id` (BIZ-07).
+    // Теперь путь производителя идёт во вложенной транзакции (SAVEPOINT):
+    // ошибка откатывает ровно её, а событие живёт.
+    await this.notifications.emitInTx(conn as unknown as DrizzleTx, async (sp) => {
+      if (interview.seniorId !== (currentUser.impersonatorId ?? currentUser.id)) {
+        await this.notifications.createInTx(sp, {
+          userId: interview.seniorId,
+          type: 'PROJECT_CONFIRM_REQUIRED',
+          title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
+          subjectType: 'PROJECT',
+          subjectId: project.id,
+          data: { projectName: project.name },
+        })
+      }
+    })
 
     // Find all teams where this senior is CURRENTLY a member. Backlog #136:
     // this query used to ignore `leftAt`, so a team the senior had already
