@@ -38,7 +38,11 @@ const KIND_SECTIONS: ReadonlyArray<{
   { kind: 'CONTRACT_TO_SIGN', title: 'Контракты', icon: FileSignature },
 ]
 
-function PendingPage() {
+// Exported (not module-private) for __tests__/index.test.tsx — same
+// precedent as $projectId.tsx's PendingShareApprovalBanner: the alternative
+// is mounting the route through a full TanStack Router tree to read this
+// page's own empty/loading/error states.
+export function PendingPage() {
   const { mine, proposedByMe, isLoading, isError, dataUpdatedAt, refetch } = usePendingItems()
 
   // Local-dismiss on `onActed`, pruned on every fresh fetch — same pattern
