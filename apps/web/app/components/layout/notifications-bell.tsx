@@ -16,10 +16,10 @@
  * notifications.
  */
 import { useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { Bell, CheckCheck, FileSignature, Inbox, Trash2 } from 'lucide-react'
+import { ArrowRight, Bell, CheckCheck, FileSignature, Inbox, Trash2 } from 'lucide-react'
 import type { Notification } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -254,6 +254,23 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
             ))}
           </ul>
         )}
+
+        {/* task-pending-screen §8 — единственная правка этого файла (позиция
+            6 правит рендер по типу выше, TypeIcon — не толкаться). Виден и
+            при пустом, и при непустом списке уведомлений: это не ещё одно
+            уведомление, а постоянная точка выхода на «Ждут решения», не
+            завязанная на unreadCount/isLoading. */}
+        <footer className="border-t border-border/50 px-4 py-2.5 text-center">
+          <Link
+            to="/pending"
+            onClick={() => setOpen(false)}
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            data-testid="notifications-bell-footer-pending-link"
+          >
+            Всё, что ждёт решения
+            <ArrowRight className="h-3 w-3" aria-hidden />
+          </Link>
+        </footer>
       </DropdownMenuContent>
     </DropdownMenu>
   )

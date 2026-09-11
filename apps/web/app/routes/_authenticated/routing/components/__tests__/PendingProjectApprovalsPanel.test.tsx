@@ -1,57 +1,44 @@
 /**
- * task-project-status-filter-ui, §Что сделать item 3. This panel is DROP's
- * ONLY reachable surface for confirming/rejecting a project — see the
- * component's own doc for why. `usePendingProjectApprovals` is mocked (its
- * own bucketing logic has its own test file); `ProjectApprovalActions`
- * renders for real, with its two mutation hooks mocked the same way
- * `ProjectApprovalActions.test.tsx` mocks them — that file covers the
- * Confirm/Reject mechanics themselves, this one only what the PANEL does
- * once a mutation settles.
- *
- * The "local-dismiss" describe block below mocks `useApproveProjectDraft`/
- * `useRejectProjectDraft` too (same pattern as ProjectApprovalActions.test.tsx)
- * — found live on the real stack while verifying AC3 for DROP: a project
- * with BOTH a senior and a drop invited stays `status: 'DRAFT'` after only
- * ONE of them decides (business spec §4.1 partial agreement), so
- * `usePendingProjectApprovals`'s own DRAFT-only bucketing cannot make the
- * just-acted-on item disappear by itself — these tests pin that the panel
- * hides it locally via `onActed`, without depending on the mocked
- * `pending` array ever changing.
+ * task-pending-screen (SR-L-6, #646 security review round 4). Was mocking
+ * `usePendingProjectApprovals` (full `ProjectDto[]` from `GET /projects`,
+ * viewer-role/share-percent rendering baked into the widget itself) — now
+ * mocks `usePendingItems` (`GET /pending`, already scoped/masked server-side
+ * per SR-L-6's own doc in the component file). The old "visiblePending
+ * viewer-role gate" / share-percent describe blocks are GONE along with the
+ * code they tested — `mine` from `GET /pending` is per-viewer by
+ * construction (`ApprovalsService.listPendingForApprover`), and
+ * `PendingItem` for `PROJECT_APPROVAL` carries no share field at all (see
+ * the component's own "ASSUMPTION / KNOWN REGRESSION" doc).
  */
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ProjectDto } from '@crm/shared'
+import type { PendingItem } from '@/hooks/use-pending-items'
 import { PendingProjectApprovalsPanel, card } from '../PendingProjectApprovalsPanel'
 
 let mockState: {
-  pending: ProjectDto[]
+  mine: PendingItem[]
   isLoading: boolean
   isError: boolean
   dataUpdatedAt: number
-} = { pending: [], isLoading: false, isError: false, dataUpdatedAt: 0 }
-
-// COPY-H-2 / COPY-M-6 (PR #646 fix-round 2): both fixes read `useAuth()`'s
-// `user.id` — undefined (no mock at all) makes `visiblePending`'s
-// `viewerIsSenior`/`viewerIsDrop` checks permanently false, which only ever
-// exercises the fail-open `return true` branch. Defaults to `null` (no
-// viewer) so every PRE-EXISTING test above keeps hitting that same
-// fail-open branch unchanged; only the new describe block below sets this.
-let mockUser: { id: string } | null = null
-
-vi.mock('@/context/auth', () => ({
-  useAuth: () => ({ user: mockUser }),
-}))
+} = { mine: [], isLoading: false, isError: false, dataUpdatedAt: 0 }
 
 const mockApprove = vi.fn()
 const mockReject = vi.fn()
+
+vi.mock('@/hooks/use-pending-items', async (orig) => {
+  const real = await orig<typeof import('@/hooks/use-pending-items')>()
+  return {
+    ...real,
+    usePendingItems: () => mockState,
+  }
+})
 
 vi.mock('@/hooks/use-project-approvals', async (orig) => {
   const real = await orig<typeof import('@/hooks/use-project-approvals')>()
   return {
     ...real,
-    usePendingProjectApprovals: () => mockState,
     useApproveProjectDraft: () => ({
       mutate: mockApprove,
       isPending: false,
@@ -67,36 +54,15 @@ vi.mock('@/hooks/use-project-approvals', async (orig) => {
   }
 })
 
-function project(overrides: Partial<ProjectDto>): ProjectDto {
+function pendingItem(overrides: Partial<PendingItem>): PendingItem {
   return {
-    id: '00000000-0000-0000-0000-0000000000a1',
-    name: 'Frontend platform',
-    companyName: 'Acme Corp',
-    domain: 'Other',
-    logoDocumentId: null,
-    logoExternalUrl: null,
-    startDate: '2026-01-01T00:00:00.000Z',
-    seniorId: 'senior-1',
-    seniorName: 'Senior One',
-    dropId: null,
-    dropName: null,
-    dropSharePercent: null,
-    rate: 3000,
-    currency: 'USD',
-    seniorSharePercentOverride: null,
-    seniorSharePercentDefault: 26,
-    members: [],
-    techStack: null,
-    teamSize: null,
-    benefits: null,
-    paymentType: null,
-    salaryReview: null,
-    corpTech: null,
-    notesGeneral: null,
-    status: 'DRAFT',
-    archivedAt: null,
+    kind: 'PROJECT_APPROVAL',
+    subjectId: '00000000-0000-0000-0000-0000000000a1',
+    title: 'Acme Corp',
+    proposedBy: 'Олексій Коваленко',
     createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
+    actions: ['approve', 'reject', 'open'],
+    link: '/projects/00000000-0000-0000-0000-0000000000a1',
     ...overrides,
   }
 }
@@ -111,7 +77,9 @@ function renderPanel() {
 }
 
 beforeEach(() => {
-  mockUser = null
+  mockState = { mine: [], isLoading: false, isError: false, dataUpdatedAt: 0 }
+  mockApprove.mockReset()
+  mockReject.mockReset()
 })
 
 describe('PendingProjectApprovalsPanel — card animation variants', () => {
@@ -125,396 +93,149 @@ describe('PendingProjectApprovalsPanel — card animation variants', () => {
 
 describe('PendingProjectApprovalsPanel', () => {
   it('loading: renders the skeleton, nothing else', () => {
-    mockState = { pending: [], isLoading: true, isError: false, dataUpdatedAt: 0 }
+    mockState = { ...mockState, isLoading: true }
     renderPanel()
-
     expect(screen.getByTestId('pending-project-approvals-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('pending-project-approvals-panel')).not.toBeInTheDocument()
   })
 
-  it('COPY-M-7 (PR #646 fix-round 2, wording fixed COPY-L-6 fix-round 3): error: shows a one-line message instead of silently rendering nothing — a DROP who can never see /projects had no other way to learn the check failed', () => {
-    mockState = { pending: [], isLoading: false, isError: true, dataUpdatedAt: 0 }
+  it('error: shows a one-line message instead of silently rendering nothing — a DROP who can never see /projects had no other way to learn the check failed', () => {
+    mockState = { ...mockState, isError: true }
     renderPanel()
-
-    // COPY-L-6 (fix-round 3): "решение" now matches the card header's own
-    // "Ждёт вашего решения" — the panel used to mix "решение" (header) and
-    // "подтверждение" (this error line) for the same fact.
     expect(screen.getByTestId('pending-project-approvals-error')).toHaveTextContent(
-      'Не удалось проверить, ждёт ли вас решение по проекту. Обновите страницу.',
+      'Не удалось проверить, ждёт ли вас решение по проекту.',
     )
   })
 
   it('empty (nothing pending): renders nothing — no "all clear" noise on every dashboard load', () => {
-    mockState = { pending: [], isLoading: false, isError: false, dataUpdatedAt: 0 }
+    mockState = { ...mockState, mine: [] }
     const { container } = renderPanel()
-
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('with pending projects: renders the panel, one row per project, with Confirm/Reject actions', () => {
-    const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
-    const p2 = project({ id: 'p2', companyName: 'Beta LLC', name: 'Migration' })
-    mockState = { pending: [p1, p2], isLoading: false, isError: false, dataUpdatedAt: 1 }
+  it('items whose kind is NOT PROJECT_APPROVAL are filtered out (mine may also carry SHARE_APPROVAL/CONTRACT_TO_SIGN — this widget is projects-only)', () => {
+    mockState = {
+      ...mockState,
+      mine: [pendingItem({ kind: 'SHARE_APPROVAL', subjectId: 'share-1' })],
+    }
+    const { container } = renderPanel()
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('with pending items: renders the panel, one row per item, with Confirm/Reject actions', () => {
+    mockState = {
+      ...mockState,
+      mine: [
+        pendingItem({ subjectId: 'p1', title: 'Acme Corp' }),
+        pendingItem({ subjectId: 'p2', title: 'TechFlow Solutions', proposedBy: 'Ірина Савенко' }),
+      ],
+    }
     renderPanel()
 
     expect(screen.getByTestId('pending-project-approvals-panel')).toBeInTheDocument()
-    expect(screen.getByText('Ждёт вашего решения')).toBeInTheDocument()
-    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
-    expect(screen.getByTestId('pending-project-approval-p2')).toBeInTheDocument()
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
-    expect(screen.getByText('Beta LLC')).toBeInTheDocument()
+    expect(screen.getByText('TechFlow Solutions')).toBeInTheDocument()
+    expect(screen.getByText('Предложил Ірина Савенко')).toBeInTheDocument()
     expect(screen.getByTestId('project-approval-approve-p1')).toBeInTheDocument()
-    expect(screen.getByTestId('project-approval-approve-p2')).toBeInTheDocument()
+    expect(screen.getByTestId('project-approval-reject-p1')).toBeInTheDocument()
   })
 
-  /**
-   * COPY-M-14 (PR #646 fix-round 6, MED — copy review). This panel is the
-   * ONE mount point of `ProjectApprovalActions` that must NEVER pass
-   * `compact` — see that component's own doc for why (`ProjectRow`'s
-   * status column is a genuinely narrow ~86px track at `lg:`; this widget
-   * has plenty of room at every width the dashboard renders at). Asserting
-   * the ABSENCE of `lg:hidden` on the rendered label, through the actual
-   * widget mount (not calling `ProjectApprovalActions` directly, which
-   * `ProjectApprovalActions.test.tsx`'s own "without compact" test already
-   * covers) is what proves this specific call site never regresses back to
-   * passing the prop.
-   */
-  it('COPY-M-14: the widget mount never hides the Confirm/Reject labels — no `compact` prop, at any width', () => {
-    const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
+  it('an item with no `proposedBy` renders no "Предложил …" line (fail-safe — should not happen for this kind, but does not crash)', () => {
+    // `exactOptionalPropertyTypes` rejects an explicit `undefined` value —
+    // destructuring it off is what actually omits the key.
+    const { proposedBy: _unused, ...withoutProposedBy } = pendingItem({})
+    mockState = { ...mockState, mine: [withoutProposedBy] }
     renderPanel()
+    expect(screen.queryByText(/^Предложил/)).not.toBeInTheDocument()
+  })
 
+  it('the widget mount never hides the Confirm/Reject labels — no `compact` prop, at any width', () => {
+    mockState = { ...mockState, mine: [pendingItem({})] }
+    renderPanel()
+    // ProjectApprovalActions' `compact` prop hides the text label at `lg:`
+    // via `lg:hidden xl:inline` — asserting the plain, unconditional class
+    // (no responsive hide) proves this mount point never passes `compact`.
     const approveLabel = screen.getByText('Подтвердить')
-    const rejectLabel = screen.getByText('Отклонить')
-    expect(approveLabel.className).not.toContain('lg:hidden')
-    expect(rejectLabel.className).not.toContain('lg:hidden')
+    expect(approveLabel.className).not.toMatch(/lg:hidden/)
   })
 })
 
 describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
-  it('hides ONLY the acted-on item immediately, without the mocked `pending` array ever changing', async () => {
+  it('hides ONLY the acted-on item immediately, without the mocked `mine` array ever changing', async () => {
     const user = userEvent.setup()
-    const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
-    const p2 = project({ id: 'p2', companyName: 'Beta LLC', name: 'Migration' })
-    // Fixed reference — proves the panel does NOT rely on a parent re-fetch
-    // (a project with both a senior and a drop invited stays DRAFT, and
-    // thus stays in `pending`, after only one of them decides).
-    mockState = { pending: [p1, p2], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    // COPY-H-2 (PR #646 fix-round 2): handleApprove's onSuccess now reads
-    // `project.status` off its argument — `{ status: 'DRAFT' }` matches this
-    // describe block's own partial-agreement premise (see the file's top
-    // doc): the project stays DRAFT after only ONE invited approver acts,
-    // which is exactly why the panel needs its own local-dismiss instead of
-    // relying on `pending` to shrink by itself.
-    mockApprove.mockImplementation(
-      (_projectId: string, opts?: { onSuccess?: (project: { status: string }) => void }) =>
-        opts?.onSuccess?.({ status: 'DRAFT' }),
-    )
+    mockState = {
+      ...mockState,
+      mine: [
+        pendingItem({ subjectId: 'p1', title: 'Acme Corp' }),
+        pendingItem({ subjectId: 'p2', title: 'TechFlow' }),
+      ],
+    }
     renderPanel()
 
-    await user.click(screen.getByTestId('project-approval-approve-p1'))
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p1'))
+    })
 
-    expect(screen.queryByTestId('pending-project-approval-p1')).not.toBeInTheDocument()
-    expect(screen.getByTestId('pending-project-approval-p2')).toBeInTheDocument()
-    // The source data the hook reports is untouched — this is a client-only
-    // dismiss, not a side effect on the mock.
-    expect(mockState.pending).toHaveLength(2)
+    // approve mutate was called with a success callback — invoke it the way
+    // ProjectApprovalActions itself does, to observe the panel's onActed.
+    const [, options] = mockApprove.mock.calls[0] as [string, { onSuccess?: (d: unknown) => void }]
+    act(() => options.onSuccess?.({ status: 'ACTIVE', dropApprovalPending: false }))
+
+    expect(screen.queryByText('Acme Corp')).not.toBeInTheDocument()
+    expect(screen.getByText('TechFlow')).toBeInTheDocument()
   })
 
   it('dismissing the LAST visible item removes the whole card — same "nothing pending" contract as an empty fetch', async () => {
     const user = userEvent.setup()
-    const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    // COPY-H-2 (PR #646 fix-round 2): handleApprove's onSuccess now reads
-    // `project.status` off its argument — `{ status: 'DRAFT' }` matches this
-    // describe block's own partial-agreement premise (see the file's top
-    // doc): the project stays DRAFT after only ONE invited approver acts,
-    // which is exactly why the panel needs its own local-dismiss instead of
-    // relying on `pending` to shrink by itself.
-    mockApprove.mockImplementation(
-      (_projectId: string, opts?: { onSuccess?: (project: { status: string }) => void }) =>
-        opts?.onSuccess?.({ status: 'DRAFT' }),
-    )
+    mockState = { ...mockState, mine: [pendingItem({ subjectId: 'p1' })] }
     const { container } = renderPanel()
 
-    await user.click(screen.getByTestId('project-approval-approve-p1'))
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p1'))
+    })
+    const [, options] = mockApprove.mock.calls[0] as [string, { onSuccess?: (d: unknown) => void }]
+    act(() => options.onSuccess?.({ status: 'ACTIVE' }))
 
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('a fresh fetch that STILL contains the dismissed id (the partial-agreement case: the other invited approver has not decided yet) keeps it hidden — the prune only drops ids that actually left `pending`', async () => {
-    const user = userEvent.setup()
-    const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    // COPY-H-2 (PR #646 fix-round 2): handleApprove's onSuccess now reads
-    // `project.status` off its argument — `{ status: 'DRAFT' }` matches this
-    // describe block's own partial-agreement premise (see the file's top
-    // doc): the project stays DRAFT after only ONE invited approver acts,
-    // which is exactly why the panel needs its own local-dismiss instead of
-    // relying on `pending` to shrink by itself.
-    mockApprove.mockImplementation(
-      (_projectId: string, opts?: { onSuccess?: (project: { status: string }) => void }) =>
-        opts?.onSuccess?.({ status: 'DRAFT' }),
+  it('a fresh fetch (dataUpdatedAt changes) prunes a dismissal for an item no longer in `mine` — a later re-proposal of the same id is not hidden forever', () => {
+    mockState = { ...mockState, mine: [pendingItem({ subjectId: 'p1' })], dataUpdatedAt: 1 }
+    const { rerender } = render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <PendingProjectApprovalsPanel />
+      </QueryClientProvider>,
     )
-    const { rerender } = renderPanel()
-
-    await user.click(screen.getByTestId('project-approval-approve-p1'))
-    expect(screen.queryByTestId('pending-project-approval-p1')).not.toBeInTheDocument()
-
-    // The invalidated query refetches — the project itself is STILL DRAFT
-    // (the other invited approver has not decided) so `pending` STILL
-    // reports p1, same as `usePendingProjectApprovals` genuinely would.
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 2 }
+    // Simulate: item was dismissed, then vanished from a fresh fetch, then
+    // (re-proposal) came back under a NEW dataUpdatedAt — the effect should
+    // have pruned the stale dismissal on the empty-fetch step, so the
+    // returning item is visible again, not hidden forever.
+    mockState = { ...mockState, mine: [], dataUpdatedAt: 2 }
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     rerender(
       <QueryClientProvider client={qc}>
         <PendingProjectApprovalsPanel />
       </QueryClientProvider>,
     )
-
-    expect(screen.queryByTestId('pending-project-approval-p1')).not.toBeInTheDocument()
-  })
-
-  it('a fresh fetch (dataUpdatedAt changes) prunes a dismissal for an item no longer in `pending` — a later re-proposal of the same id is not hidden forever', async () => {
-    const user = userEvent.setup()
-    const p1 = project({ id: 'p1', companyName: 'Acme Corp', name: 'Platform' })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    // COPY-H-2 (PR #646 fix-round 2): handleApprove's onSuccess now reads
-    // `project.status` off its argument — `{ status: 'DRAFT' }` matches this
-    // describe block's own partial-agreement premise (see the file's top
-    // doc): the project stays DRAFT after only ONE invited approver acts,
-    // which is exactly why the panel needs its own local-dismiss instead of
-    // relying on `pending` to shrink by itself.
-    mockApprove.mockImplementation(
-      (_projectId: string, opts?: { onSuccess?: (project: { status: string }) => void }) =>
-        opts?.onSuccess?.({ status: 'DRAFT' }),
-    )
-    const { rerender } = renderPanel()
-
-    await user.click(screen.getByTestId('project-approval-approve-p1'))
-    expect(screen.queryByTestId('pending-project-approval-p1')).not.toBeInTheDocument()
-
-    // The project left `pending` for good (e.g. it went ACTIVE) — a fresh
-    // fetch reports it gone, which prunes the now-pointless dismissal...
-    mockState = { pending: [], isLoading: false, isError: false, dataUpdatedAt: 2 }
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    rerender(
-      <QueryClientProvider client={qc}>
-        <PendingProjectApprovalsPanel />
-      </QueryClientProvider>,
-    )
-
-    // ...so when the SAME id later comes back (reject → re-propose, business
-    // spec re-proposal history), it is shown again, not hidden forever.
-    act(() => {
-      mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 3 }
-    })
-    rerender(
-      <QueryClientProvider client={qc}>
-        <PendingProjectApprovalsPanel />
-      </QueryClientProvider>,
-    )
-
-    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
-  })
-})
-
-describe('PendingProjectApprovalsPanel — visiblePending viewer-role gate (COPY-H-2 widget half)', () => {
-  // Every test in the two describe blocks above renders with `mockUser: null`
-  // (the file's own `beforeEach`) — `visiblePending`'s `viewerIsSenior`/
-  // `viewerIsDrop` are permanently false there, so ALL of them exercise only
-  // the fail-open `return true` branch. None of them puts the mocked VIEWER
-  // on the "already decided their own half" side, which is the exact case
-  // this fix (and COPY-H-2's ProjectRow.tsx sibling, same fix-round) exists
-  // for: a fresh page load must not show the viewer their own already-acted
-  // item with a live Confirm/Reject that would only ever 409.
-  const SENIOR_ID = 'senior-1' // matches project()'s own fixture default
-
-  it('a project where the viewer (senior) already confirmed is NOT in visiblePending, even though it is still DRAFT (waiting on the drop)', () => {
-    mockUser = { id: SENIOR_ID }
-    const p1 = project({
-      id: 'p1',
-      dropId: 'drop-1',
-      dropName: 'Drop One',
-      seniorApprovalPending: false,
-      dropApprovalPending: true,
-    })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    const { container } = renderPanel()
-
-    // Same "nothing pending" contract as a genuinely empty fetch — the ONE
-    // item that exists is filtered out before the panel ever decides
-    // whether to render a Card at all.
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('a project where the viewer (drop) already confirmed is NOT in visiblePending, even though it is still DRAFT (waiting on the senior)', () => {
-    mockUser = { id: 'drop-1' }
-    const p1 = project({
-      id: 'p1',
-      dropId: 'drop-1',
-      dropName: 'Drop One',
-      seniorApprovalPending: true,
-      dropApprovalPending: false,
-    })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    const { container } = renderPanel()
-
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('a project where the viewer (senior) STILL owes a decision stays visible, alongside one where they already decided', () => {
-    mockUser = { id: SENIOR_ID }
-    const stillOwed = project({
-      id: 'p1',
-      companyName: 'Still Owed Co',
-      seniorApprovalPending: true,
-    })
-    const alreadyDone = project({
-      id: 'p2',
-      companyName: 'Already Done Co',
-      dropId: 'drop-1',
-      dropName: 'Drop One',
-      seniorApprovalPending: false,
-      dropApprovalPending: true,
-    })
     mockState = {
-      pending: [stillOwed, alreadyDone],
-      isLoading: false,
-      isError: false,
-      dataUpdatedAt: 1,
+      ...mockState,
+      mine: [pendingItem({ subjectId: 'p1', title: 'Acme Corp' })],
+      dataUpdatedAt: 3,
     }
-    renderPanel()
-
-    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
-    expect(screen.queryByTestId('pending-project-approval-p2')).not.toBeInTheDocument()
-  })
-
-  it('COPY-M-6: a visible item for a DROP viewer shows their resolved share % and the senior name — their only reachable view of what they are agreeing to', () => {
-    mockUser = { id: 'drop-1' }
-    const p1 = project({
-      id: 'p1',
-      dropId: 'drop-1',
-      dropName: 'Drop One',
-      seniorName: 'Senior Alpha',
-      effectiveDropSharePercent: 15,
-      dropApprovalPending: true,
-    })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    renderPanel()
-
-    expect(screen.getByText('Ваша доля: 15% · синьор: Senior Alpha')).toBeInTheDocument()
-  })
-
-  it('mutation-gate (visiblePending, line ~129/133): a DROP viewer who is neither senior NOR the invited drop on a project stays fail-open VISIBLE, even when that OTHER drop is done deciding — proves viewerIsDrop is an actual identity check, not always-true', () => {
-    mockUser = { id: 'drop-1' }
-    // dropApprovalPending: false would HIDE this item if viewerIsDrop wrongly
-    // matched (dropStillPending gate) — the viewer is neither this project's
-    // senior (default fixture senior is 'senior-1') nor its drop ('drop-2'),
-    // so the only correct outcome is the fail-open `return true` at the
-    // bottom of the filter, independent of this project's approval state.
-    const p1 = project({
-      id: 'p1',
-      dropId: 'drop-2',
-      dropName: 'Someone Else',
-      seniorApprovalPending: true,
-      dropApprovalPending: false,
-      // mutation-gate (PR #646 fix-round 3, caption ternary at ~line 225):
-      // a non-null value here is load-bearing. Without it,
-      // `effectiveSeniorSharePercent` is `undefined`, so the INNER ternary
-      // (`!= null ? … : …`) renders the SAME "could not determine" fallback
-      // text on both the real code and the `user?.id === project.seniorId`
-      // → `true` mutant — the assertion below would pass either way and the
-      // mutant would survive. A real percent makes the two branches actually
-      // print different text, so the mutant is only killed if the OUTER
-      // ternary picks the right branch for this viewer.
-      effectiveSeniorSharePercent: 26,
-    })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    renderPanel()
-
-    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
-    // mutation-gate (COPY-M-6 caption, line ~207): the second ternary's own
-    // condition (`user?.id === project.seniorId`) is only ever reached when
-    // the FIRST one is false — a viewer who is neither role must see NEITHER
-    // caption, not the senior one by default.
-    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
-  })
-
-  it('COPY-L-4 (PR #646 fix-round 3, was mutation-gate COPY-M-6 line ~209): effectiveSeniorSharePercent null renders the whole-sentence fallback, not "Ваша доля: —%" — a bare em-dash percent reads like a real (zero-ish) share, not "we could not tell"', () => {
-    mockUser = { id: SENIOR_ID }
-    const p1 = project({ id: 'p1', effectiveSeniorSharePercent: null, seniorApprovalPending: true })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    renderPanel()
-
-    const fallback = screen.getByText('Доля неизвестна. Обновите страницу.')
-    expect(fallback).toBeInTheDocument()
-    // COPY-L-7 (PR #646 fix-round 4): `truncate` (single-line, ellipsis)
-    // used to cut this sentence off on a 320px viewport before "Обновите
-    // страницу." — the instruction — ever rendered. `line-clamp-2` wraps
-    // instead of clipping.
-    expect(fallback.className).toContain('line-clamp-2')
-    expect(fallback.className).not.toContain('truncate')
-    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
-  })
-
-  it('COPY-L-4 (PR #646 fix-round 3, was mutation-gate COPY-M-6 line ~204): effectiveDropSharePercent null renders the same whole-sentence fallback — symmetric with the senior-side branch above, not "Ваша доля: —% · синьор: …"', () => {
-    mockUser = { id: 'drop-1' }
-    const p1 = project({
-      id: 'p1',
-      dropId: 'drop-1',
-      dropName: 'Drop One',
-      seniorName: 'Senior Alpha',
-      effectiveDropSharePercent: null,
-      dropApprovalPending: true,
-    })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    renderPanel()
-
-    const fallback = screen.getByText('Доля неизвестна. Обновите страницу.')
-    expect(fallback).toBeInTheDocument()
-    expect(fallback.className).toContain('line-clamp-2')
-    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
-  })
-
-  it('mutation-gate (visiblePending, line ~130/131): seniorApprovalPending/dropApprovalPending genuinely undefined (old cached DTO, fields never fetched) falls back to "still pending" — stays visible, same as ProjectRow.tsx\'s own `?? true` fallback', () => {
-    mockUser = { id: SENIOR_ID }
-    const p1 = project({ id: 'p1' })
-    // The `project()` fixture itself does not set these two fields — using
-    // it as-is (no override) is what makes them `undefined`, not `false`,
-    // distinguishing "?? true" (correct) from "&& true" or "?? false"
-    // (both of which would collapse `undefined` to a falsy/hidden result).
-    expect(p1.seniorApprovalPending).toBeUndefined()
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    renderPanel()
-
-    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
-  })
-
-  it("mutation-gate (visiblePending, line ~131): the SAME undefined-fallback check, but for a DROP viewer specifically — `viewerIsSenior` is checked FIRST (line 132) and short-circuits before dropStillPending is ever returned, so the senior-viewer test above never actually observes line 131's own `?? true` at all", () => {
-    mockUser = { id: 'drop-1' }
-    const p1 = project({ id: 'p1', dropId: 'drop-1', dropName: 'Drop One' })
-    expect(p1.dropApprovalPending).toBeUndefined()
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    renderPanel()
-
-    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
-  })
-
-  it('COPY-M-6: a visible item for a SENIOR viewer shows their resolved share %, WITHOUT naming the drop (stays RBAC-masked either way)', () => {
-    mockUser = { id: SENIOR_ID }
-    const p1 = project({
-      id: 'p1',
-      dropId: 'drop-1',
-      dropName: 'Drop One',
-      effectiveSeniorSharePercent: 26,
-      seniorApprovalPending: true,
-    })
-    mockState = { pending: [p1], isLoading: false, isError: false, dataUpdatedAt: 1 }
-    renderPanel()
-
-    expect(screen.getByText('Ваша доля: 26%')).toBeInTheDocument()
-    expect(screen.queryByText(/синьор/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Drop One/)).not.toBeInTheDocument()
+    rerender(
+      <QueryClientProvider client={qc}>
+        <PendingProjectApprovalsPanel />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByText('Acme Corp')).toBeInTheDocument()
   })
 })
+
+// SR-L-6's "widget never requests /projects" claim is structural, not just
+// tested in isolation: this component only ever calls `usePendingItems()`
+// (proven throughout this file — every render above goes through the SAME
+// mocked hook) — see `use-pending-items.test.ts` for the hook itself only
+// ever calling `api.get('/pending')`, and `pending.spec.ts` (E2E) for the
+// live-network version of this exact assertion on the DROP dashboard.
