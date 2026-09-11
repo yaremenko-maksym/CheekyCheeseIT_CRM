@@ -563,7 +563,17 @@ export class PendingService {
         where: and(inArray(teamMembers.userId, Array.from(seniorIds)), isNull(teamMembers.leftAt)),
         with: { team: true },
       })) as unknown as typeof rows
+      // Emptying this catch body, or changing what it reassigns `rows` to,
+      // is unobservable either way: the loop right below skips any element
+      // without a valid `.team` (`if (!row.team || ...) continue`), so
+      // whether `rows` ends up `[]` (this reassignment, or an emptied catch
+      // leaving the `let`'s own `[]` initializer untouched) or a malformed
+      // non-empty array (a mutated array literal here), the loop populates
+      // `map` with nothing either way — same "absorbed by a downstream
+      // guard" shape as that loop's own suppressed fallback just below.
+      // Stryker disable next-line BlockStatement: see comment above.
     } catch {
+      // Stryker disable next-line ArrayDeclaration: see comment above.
       rows = []
     }
 
