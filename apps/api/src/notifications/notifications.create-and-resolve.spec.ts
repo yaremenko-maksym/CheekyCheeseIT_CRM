@@ -10,10 +10,10 @@
  * как база — запросы маршрутизируются по таблице, вставка честно сталкивается с
  * уникальным ключом, — и поэтому каждая из этих потерь становится видимой.
  */
-import { BadRequestException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 
+import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { NotificationsService } from './notifications.service'
 import {
   approvals,
@@ -170,8 +170,10 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}, insertReturnsNot
     },
   } as unknown as ConstructorParameters<typeof NotificationsService>[0]
 
+  const telemetry = makeTelemetryErrorsStub()
   return {
-    svc: new NotificationsService(db),
+    svc: new NotificationsService(db, telemetry),
+    telemetry,
     rows,
     insertValues,
     conflictArgs,
@@ -345,31 +347,38 @@ describe('данные проверяются формой своего типа
     const h = makeHarness()
 
     // Сообщение несёт И тип, И то, что именно не сошлось: без первого не
-    // понять, чей производитель сломался, без второго — что чинить.
-    await expect(
-      h.svc.create({
-        userId: 'u-9',
-        type: 'PROJECT_MEMBER_ADDED',
-        title: 'Вас добавили в проект',
-        subjectType: 'PROJECT',
-        subjectId: 'p-1',
-        data: { projectName: 42 },
-      }),
-    ).rejects.toThrow(/Invalid notification data for PROJECT_MEMBER_ADDED: .*expected string/i)
+    // понять, чей производитель сломался, без второго — что чинить. С SR-H-1
+    // адресат сообщения сменился — это больше не 400 вызывающему (его
+    // транзакция не при чём), а строка телеметрии; проверяется она же.
+    const result = await h.svc.create({
+      userId: 'u-9',
+      type: 'PROJECT_MEMBER_ADDED',
+      title: 'Вас добавили в проект',
+      subjectType: 'PROJECT',
+      subjectId: 'p-1',
+      data: { projectName: 42 },
+    })
+    expect(result).toBeNull()
     expect(h.insertValues).toHaveLength(0)
+    expect(h.telemetry.recordError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringMatching(
+          /Invalid notification data for PROJECT_MEMBER_ADDED: .*expected string/i,
+        ),
+      }),
+    )
   })
 
   it('ссылка проверяется тем же способом и с той же причиной', async () => {
     const h = makeHarness()
 
-    await expect(
-      h.svc.create({
-        userId: 'u-9',
-        type: 'INVOICE_SIGN_REQUIRED',
-        title: 'Инвойс ожидает вашей подписи',
-        link: 'javascript:alert(1)',
-      }),
-    ).rejects.toThrow(BadRequestException)
+    const result = await h.svc.create({
+      userId: 'u-9',
+      type: 'INVOICE_SIGN_REQUIRED',
+      title: 'Инвойс ожидает вашей подписи',
+      link: 'javascript:alert(1)',
+    })
+    expect(result).toBeNull()
     expect(h.insertValues).toHaveLength(0)
   })
 })

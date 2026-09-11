@@ -310,7 +310,10 @@ describe('«статус транзакции изменился»', () => {
       subjectId: 'tx-1',
       dedupeKey: 'TRANSACTION_STATUS_CHANGED:tx-1:VALIDATED',
     })
-    expect(h.created[0]?.['data']).toMatchObject({ status: 'VALIDATED', rejectionReason: null })
+    expect(h.created[0]?.['data']).toMatchObject({
+      status: 'VALIDATED',
+      rejectionReasonPreview: null,
+    })
   })
 
   it('отклонение → получателю, с причиной в данных', async () => {
@@ -327,8 +330,40 @@ describe('«статус транзакции изменился»', () => {
     })
     expect(h.created[0]?.['data']).toMatchObject({
       status: 'REJECTED',
-      rejectionReason: 'Нет чека',
+      rejectionReasonPreview: 'Нет чека',
     })
+  })
+
+  // SR-H-1 (круг 1): причина отказа — текст, написанный человеком, и его длина
+  // не имеет права решать судьбу уведомления. В запись едет превью.
+  it('длинная причина отклонения сводится к превью в 200 символов', async () => {
+    const tx = makeTxRow()
+    const h = makeHarness(tx)
+    vi.spyOn(h.svc, 'findOne').mockResolvedValue({} as never)
+
+    await h.svc.validateTransaction('tx-1', 'reject', 'я'.repeat(5000), ADMIN)
+
+    expect(h.created).toHaveLength(1)
+    const preview = (h.created[0]?.['data'] as { rejectionReasonPreview: string })
+      .rejectionReasonPreview
+    expect(preview).toHaveLength(200)
+    expect(preview.endsWith('…')).toBe(true)
+  })
+
+  // `validateTransactionSchema.rejectionReason` — `z.string().max(500)`, без
+  // `min(1)` и без `trim()`: причина из одних пробелов сюда реально доезжает
+  // (в отличие от согласований, где непустота гарантирована формой ввода).
+  // Для человека это «отклонили без причины», и запись обязана говорить то же,
+  // а не показывать пустой хвост после тире.
+  it('причина из одних пробелов = причины нет', async () => {
+    const tx = makeTxRow()
+    const h = makeHarness(tx)
+    vi.spyOn(h.svc, 'findOne').mockResolvedValue({} as never)
+
+    await h.svc.validateTransaction('tx-1', 'reject', '   ', ADMIN)
+
+    expect(h.created).toHaveLength(1)
+    expect(h.created[0]?.['data']).toMatchObject({ rejectionReasonPreview: null })
   })
 
   it('отказ в доступе не порождает уведомления — события не было', async () => {

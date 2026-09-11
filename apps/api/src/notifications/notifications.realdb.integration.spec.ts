@@ -9,6 +9,7 @@ import { NotificationsService } from './notifications.service'
 import { DatabaseService } from '../database/database.service'
 import * as schema from '../database/schema'
 import { approvals, notifications, projects, teamMembers, teams, users } from '../database/schema'
+import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 
 /**
@@ -71,7 +72,10 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
 
     pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
     db = drizzle(pool, { schema })
-    service = new NotificationsService({ db } as unknown as DatabaseService)
+    service = new NotificationsService(
+      { db } as unknown as DatabaseService,
+      makeTelemetryErrorsStub(),
+    )
 
     await wipe()
 
@@ -217,7 +221,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
           approverName: 'Синьор',
           subjectKind: 'PROJECT_SHARE',
           subjectTitle: 'Живой проект',
-          reason: 'Процент ниже договорённого',
+          reasonPreview: 'Процент ниже договорённого',
         },
       })
 

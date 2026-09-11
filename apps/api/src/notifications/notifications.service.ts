@@ -17,7 +17,7 @@
  * notification types only requires appending to the enum + a single emitter
  * call site.
  */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type {
   Notification as NotificationDto,
@@ -39,6 +39,7 @@ import {
   users,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import {
   approvalChecksFor,
   computeSubjectMissing,
@@ -77,7 +78,12 @@ export type CreateNotificationInput = {
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly db: DatabaseService) {}
+  private readonly logger = new Logger(NotificationsService.name)
+
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly telemetry: TelemetryErrorsService,
+  ) {}
 
   /**
    * Insert a new notification row. The schema enum is the single source of
@@ -112,7 +118,9 @@ export class NotificationsService {
     if (input.link != null) {
       const result = safeNotificationLinkSchema.safeParse(input.link)
       if (!result.success) {
-        throw new BadRequestException(
+        return this.refuse(
+          input,
+          // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
           `Invalid notification link: ${result.error.issues[0]?.message ?? 'invalid'}`,
         )
       }
@@ -130,7 +138,8 @@ export class NotificationsService {
         // ничем: списка с нулём причин отказа не порождает ни одна форма, и
         // запасное «invalid» недостижимо. Оставлено страховкой на случай смены
         // библиотеки — но проверить его нечем.
-        throw new BadRequestException(
+        return this.refuse(
+          input,
           // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
           `Invalid notification data for ${input.type}: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
         )
@@ -176,6 +185,53 @@ export class NotificationsService {
       throw new Error('Failed to insert notification')
     }
     return this.mapNotification(row)
+  }
+
+  /**
+   * Уведомление не имеет права вето над событием (SR-H-1, security-review
+   * круг 1).
+   *
+   * Пять производителей из шести зовут `createInTx` ВНУТРИ транзакции самого
+   * события — это осознанный выбор: «уведомление о несостоявшемся событии
+   * недопустимо». Но у выбора была вторая половина, которую никто не проверял:
+   * пока эта ветка БРОСАЛА, неудачный разбор данных откатывал и саму
+   * транзакцию. Синьор не мог отказать, потому что причина отказа оказалась
+   * длиннее потолка формы уведомления; проект не создавался из-за длины
+   * названия. Цена ошибки в описании события равнялась цене ошибки в самом
+   * событии — несоразмерно.
+   *
+   * Поэтому: запись пропускается, событие живёт. Пропуск при этом громкий —
+   * `logger.error` в консоли сервера И строка в телеметрии ошибок, которая
+   * доезжает до дайджеста. Тихо потерянное уведомление было бы вторым концом
+   * той же палки.
+   *
+   * Возвращается `null` — тот же ответ, что и у погашенной идемпотентностью
+   * записи: вызывающему не нужно различать «не создал, потому что дубль» и
+   * «не создал, потому что данные не той формы», а нужно не упасть.
+   */
+  private async refuse(input: CreateNotificationInput, reason: string): Promise<null> {
+    this.logger.error(
+      `Уведомление пропущено (событие не откатываем): ${reason} [type=${input.type} userId=${input.userId}]`,
+    )
+    try {
+      await this.telemetry.recordError({
+        source: 'API',
+        message: `Notification skipped — ${reason}`,
+        route: '/api/notifications',
+        userId: input.userId,
+        // Ни `title`, ни `data` сюда не едут: дайджест уходит в отдельный
+        // репозиторий, а форма данных уже названа типом и сообщением.
+        meta: { type: input.type, subjectType: input.subjectType ?? null },
+      })
+    } catch (err) {
+      // Телеметрия — канал наблюдения, а не участник события. Её отказ не
+      // имеет права сделать то, что мы только что запретили разбору данных:
+      // уронить транзакцию события.
+      this.logger.error(
+        `Телеметрия не приняла отказ уведомления: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    return null
   }
 
   /**

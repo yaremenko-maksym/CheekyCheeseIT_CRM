@@ -53,6 +53,7 @@ import {
   cascadeEditPreviewResponseSchema,
   amountsDiffer,
   NOTIFICATION_TITLES,
+  notificationTextPreview,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -9138,6 +9139,10 @@ export class TransactionsService {
       if (!recipientId) return
       if (recipientId === (currentUser.impersonatorId ?? currentUser.id)) return
 
+      // SR-H-1 (круг 1): причина отказа едет превью, а не целиком — §10
+      // («уведомление несёт суть и ссылку, полный текст читают в CRM»), та же
+      // причина, что и у «сотрудник отклонил». Пустое превью = «без причины».
+      const preview = rejectionReason === null ? null : notificationTextPreview(rejectionReason)
       await this.notifications.create({
         userId: recipientId,
         type: 'TRANSACTION_STATUS_CHANGED',
@@ -9148,7 +9153,7 @@ export class TransactionsService {
           amount: row.amount,
           currency: row.currency,
           status,
-          rejectionReason,
+          rejectionReasonPreview: preview === '' ? null : preview,
         },
         // Статус входит в ключ: проверка и последующее отклонение — два разных
         // события об одной строке, и второе обязано доехать.

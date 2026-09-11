@@ -13,7 +13,7 @@ import {
   proposeApprovalInputSchema,
   rejectApprovalInputSchema,
 } from '@crm/shared'
-import { NOTIFICATION_TITLES } from '@crm/shared'
+import { NOTIFICATION_TITLES, notificationTextPreview } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { approvals, projects, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -258,6 +258,18 @@ export class ApprovalsService {
       return
     }
 
+    // SR-H-1 (круг 1): в уведомление едет ПРЕВЬЮ причины, а не причина
+    // целиком. Две причины, обе из §10. Первая — раскрытие: эта же строка
+    // уходит письмом на личную почту вне нашего контура, а полный текст
+    // читают в CRM, где работают права. Вторая — длина текста, написанного
+    // человеком, перестаёт быть связана с судьбой уведомления: превью
+    // ограничено по построению, а не надеждой на потолок входной схемы.
+    // Пустым превью здесь быть не может: `rejectApprovalInputSchema` требует
+    // непустую после `trim()` причину (1..500), и через `rejectInTx` иначе не
+    // пройти. Поэтому `null` отсюда не уезжает — хотя форма его допускает
+    // (см. `reasonPreview` в реестре: там нулевое значение заведено для
+    // читателя, а не для этого производителя).
+    const preview = notificationTextPreview(rejectionReason)
     await this.notifications.createInTx(tx, {
       userId: row.proposedByUserId,
       type: 'APPROVAL_REJECTED',
@@ -265,7 +277,7 @@ export class ApprovalsService {
       subjectType,
       subjectId: row.subjectId,
       secondaryId: row.approverUserId,
-      data: { approverName, subjectKind: kind, subjectTitle, reason: rejectionReason },
+      data: { approverName, subjectKind: kind, subjectTitle, reasonPreview: preview },
     })
   }
 

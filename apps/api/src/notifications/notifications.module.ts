@@ -21,11 +21,17 @@
  */
 import { Module } from '@nestjs/common'
 import { DatabaseModule } from '../database/database.module'
+import { TelemetryModule } from '../telemetry/telemetry.module'
 import { NotificationsController } from './notifications.controller'
 import { NotificationsService } from './notifications.service'
 
 @Module({
-  imports: [DatabaseModule],
+  // TelemetryModule — канал, в который уходит пропущенное уведомление
+  // (SR-H-1): разбор данных больше не бросает, а значит отказ обязан быть
+  // виден снаружи процесса, иначе он становится тихой потерей. Кольца это не
+  // заводит: TelemetryModule зависит только от `ScheduleModule`, про
+  // уведомления он не знает.
+  imports: [DatabaseModule, TelemetryModule],
   controllers: [NotificationsController],
   providers: [NotificationsService],
   exports: [NotificationsService],

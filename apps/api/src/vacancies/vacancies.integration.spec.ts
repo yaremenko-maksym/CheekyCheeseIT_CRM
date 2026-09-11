@@ -63,6 +63,7 @@ import { ZodExceptionFilter } from '../zod-exception.filter'
 import { CompressionService } from '../documents/compression.service'
 import { S3Service } from '../documents/s3.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { notifications, users, vacancies, vacancyApplications } from '../database/schema'
 import * as schema from '../database/schema'
 import { ApplicationsService, RESUME_MAX_BYTES } from './applications.service'
@@ -327,7 +328,7 @@ class TestDatabaseModule {}
     { provide: CompressionService, useFactory: () => new CompressionService() },
     {
       provide: NotificationsService,
-      useFactory: (db: DatabaseService) => new NotificationsService(db),
+      useFactory: (db: DatabaseService) => new NotificationsService(db, makeTelemetryErrorsStub()),
       inject: [DatabaseService],
     },
     {

@@ -111,8 +111,42 @@ const moneyFields = {
  * Название объекта снимается В МОМЕНТ события, а не читается по ссылке при
  * показе: уведомление живёт дольше объекта (§7.4), и запись о том, что было,
  * не должна становиться безымянной, когда проект архивировали.
+ *
+ * SR-H-1 (круг 1): потолок — 255, ровно как у КОЛОНОК, откуда это имя
+ * снимается (`users.display_name`, `projects.name`, `teams.name` — все
+ * `varchar(255)`). Здесь стояло 200, то есть форма уведомления была строже
+ * системы записи, и легальное имя проекта в 201 символ роняло разбор данных —
+ * а вместе с ним, пока производитель имел право вето, и само событие. Потолок
+ * формы данных выводится из потолка сущности, а не назначается отдельно.
  */
-const objectName = z.string().min(1).max(200)
+const objectName = z.string().min(1).max(255)
+
+/**
+ * Сколько текста, написанного человеком, уведомление имеет право нести.
+ *
+ * §10: уведомление несёт СУТЬ и ССЫЛКУ — полный текст читают в CRM, где
+ * работает маскировка и права. Поэтому причина отказа едет сюда превью, а не
+ * целиком: это и требование раскрытия (превью уходит в письмо на личную почту
+ * вне нашего контура), и снятая связка «длина текста ↔ судьба события».
+ */
+export const NOTIFICATION_TEXT_PREVIEW_MAX = 200
+
+/**
+ * Превью текста, написанного человеком: обрамляющие пробелы снимаются, длинный
+ * текст усекается ДО потолка вместе с многоточием (результат — ровно
+ * `NOTIFICATION_TEXT_PREVIEW_MAX` символов, не больше).
+ *
+ * Пустая строка на выходе (текст был из одних пробелов) — это «причины нет»:
+ * поля превью нулевые, и производитель кладёт `null`, а не пустую строку.
+ */
+export function notificationTextPreview(text: string): string {
+  const trimmed = text.trim()
+  if (trimmed.length <= NOTIFICATION_TEXT_PREVIEW_MAX) return trimmed
+  return `${trimmed.slice(0, NOTIFICATION_TEXT_PREVIEW_MAX - 1)}…`
+}
+
+/** Превью или его отсутствие — форма, общая для всех «причин». */
+const textPreview = z.string().min(1).max(NOTIFICATION_TEXT_PREVIEW_MAX).nullable()
 
 const percent = z.number().int().min(0).max(100).nullable()
 
@@ -124,7 +158,7 @@ const dataSchemas = {
   TRANSACTION_STATUS_CHANGED: z.object({
     ...moneyFields,
     status: z.enum(['VALIDATED', 'REJECTED']),
-    rejectionReason: z.string().min(1).max(1000).nullable(),
+    rejectionReasonPreview: textPreview,
   }),
   TEAM_MEMBER_ADDED: z.object({ teamName: objectName }),
   PROJECT_MEMBER_ADDED: z.object({ projectName: objectName }),
@@ -146,7 +180,11 @@ const dataSchemas = {
     approverName: objectName,
     subjectKind: z.enum(['PROJECT', 'PROJECT_SHARE', 'BASE_SHARE']),
     subjectTitle: objectName.nullable(),
-    reason: z.string().min(1).max(1000),
+    // Превью, а не причина целиком, и ОТСУТСТВИЕ превью допустимо (§10 +
+    // SR-H-1): администратор узнаёт ФАКТ отказа и идёт читать причину в CRM.
+    // Обязательное поле здесь означало бы, что причина, которую не удалось
+    // свести к превью, отменяет и сообщение об отказе.
+    reasonPreview: textPreview,
   }),
 } satisfies Record<NewNotificationType, z.ZodType>
 
@@ -201,9 +239,9 @@ export function describeNotification<T extends NewNotificationType>(
       // _Избегать_. Это первый текст, который увидят все сотрудники, и он
       // обязан говорить теми же словами, что и остальной интерфейс.
       if (d.status === 'VALIDATED') return `Доход валидирован: ${money(d)}`
-      return d.rejectionReason === null
+      return d.rejectionReasonPreview === null
         ? `Доход отклонён: ${money(d)}`
-        : `Доход отклонён: ${money(d)} — ${d.rejectionReason}`
+        : `Доход отклонён: ${money(d)} — ${d.rejectionReasonPreview}`
     }
     case 'TEAM_MEMBER_ADDED': {
       const d = data as NotificationDataByType['TEAM_MEMBER_ADDED']
@@ -238,7 +276,8 @@ export function describeNotification<T extends NewNotificationType>(
     }
     default: {
       const d = data as NotificationDataByType['APPROVAL_REJECTED']
-      return `${d.approverName} — ${subjectPhrase(d.subjectKind, d.subjectTitle)}: ${d.reason}`
+      const subject = `${d.approverName} — ${subjectPhrase(d.subjectKind, d.subjectTitle)}`
+      return d.reasonPreview === null ? subject : `${subject}: ${d.reasonPreview}`
     }
   }
 }

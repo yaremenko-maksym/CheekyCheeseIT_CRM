@@ -6,6 +6,7 @@ import {
   notificationActions,
   notificationDataSchemaFor,
   notificationSubjectTypeSchema,
+  notificationTextPreview,
   renderNotification,
 } from './notification-registry'
 import { notificationTypeSchema } from './notifications'
@@ -93,7 +94,7 @@ describe('describeNotification — подробности из данных, н�
       approverName: 'Иван Петров',
       subjectTitle: 'Acme',
       subjectKind: 'PROJECT',
-      reason: 'Доля не та',
+      reasonPreview: 'Доля не та',
     })
     expect(describeNotification('APPROVAL_REJECTED', data)).toBe(
       'Иван Петров — проект Acme: Доля не та',
@@ -183,17 +184,17 @@ describe('describeNotification — все ветки, чтобы гейт мут
     ['TRANSACTION_ADDED', { amount: '1200.00', currency: 'USD', projectName: null }, '1200.00 USD'],
     [
       'TRANSACTION_STATUS_CHANGED',
-      { amount: '10.00', currency: 'USD', status: 'VALIDATED', rejectionReason: null },
+      { amount: '10.00', currency: 'USD', status: 'VALIDATED', rejectionReasonPreview: null },
       'Доход валидирован: 10.00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
-      { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReason: null },
+      { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReasonPreview: null },
       'Доход отклонён: 10.00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
-      { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReason: 'Нет чека' },
+      { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReasonPreview: 'Нет чека' },
       'Доход отклонён: 10.00 USD — Нет чека',
     ],
     ['TEAM_MEMBER_ADDED', { teamName: 'Alpha' }, 'Команда Alpha'],
@@ -268,7 +269,7 @@ describe('subjectKind — обе формы согласования знают 
         approverName: 'Иван',
         subjectKind,
         subjectTitle: 'Acme',
-        ...(type === 'APPROVAL_REJECTED' ? { reason: 'Причина' } : {}),
+        ...(type === 'APPROVAL_REJECTED' ? { reasonPreview: 'Причина' } : {}),
       }
       expect(() => notificationDataSchemaFor(type).parse(raw)).not.toThrow()
     }
@@ -276,7 +277,7 @@ describe('subjectKind — обе формы согласования знают 
       approverName: 'Иван',
       subjectKind: 'SOMETHING_ELSE',
       subjectTitle: 'Acme',
-      reason: 'Причина',
+      reasonPreview: 'Причина',
     }
     expect(() => notificationDataSchemaFor(type).parse(bad)).toThrow()
   })
@@ -345,5 +346,102 @@ describe('notificationActions — крайние случаи', () => {
         subjectMissing: true,
       }),
     ).toEqual([{ label: 'Объекта больше нет', href: null, disabled: true }])
+  })
+})
+
+/**
+ * SR-H-1 (security-review PR #664, круг 1). Потолок разбора данных был уже
+ * потолка записи: имя объекта `max(200)` против колонок `varchar(255)`,
+ * причина отказа `max(1000)` в записи против входной схемы, у которой на
+ * момент находки верхней границы не было вовсе. Производитель при этом сидит
+ * ВНУТРИ транзакции события — значит легальное длинное значение отменяло
+ * само событие.
+ *
+ * Здесь проверяется первая половина исправления: потолки сведены с сущностями,
+ * а полный текст причины в уведомление не кладётся вовсе (§10 — уведомление
+ * несёт суть и ссылку, причину читают в CRM).
+ */
+describe('SR-H-1 — потолки формы совпадают с потолками записи', () => {
+  it('имя объекта в 255 символов — ровно колонка varchar(255) — форму проходит', () => {
+    const name = 'я'.repeat(255)
+    expect(() =>
+      notificationDataSchemaFor('PROJECT_MEMBER_ADDED').parse({ projectName: name }),
+    ).not.toThrow()
+    expect(() =>
+      notificationDataSchemaFor('TEAM_MEMBER_ADDED').parse({ teamName: name }),
+    ).not.toThrow()
+    expect(() =>
+      notificationDataSchemaFor('TEAM_NEW_MEMBER').parse({ teamName: name, memberName: name }),
+    ).not.toThrow()
+  })
+
+  it('имя длиннее колонки (256) форму не проходит — потолок остаётся потолком', () => {
+    const tooLong = 'я'.repeat(256)
+    expect(() =>
+      notificationDataSchemaFor('PROJECT_MEMBER_ADDED').parse({ projectName: tooLong }),
+    ).toThrow()
+  })
+
+  it('превью ровно в 200 символов остаётся собой — ни усечения, ни многоточия', () => {
+    const exact = 'я'.repeat(200)
+    expect(notificationTextPreview(exact)).toBe(exact)
+  })
+
+  it('201 символ усекается ровно до 200 — последний символ многоточие', () => {
+    const preview = notificationTextPreview('я'.repeat(201))
+    expect(preview).toHaveLength(200)
+    expect(preview.endsWith('…')).toBe(true)
+    expect(preview.slice(0, 199)).toBe('я'.repeat(199))
+  })
+
+  it('пять тысяч символов тоже сводятся к двумстам', () => {
+    expect(notificationTextPreview('я'.repeat(5000))).toHaveLength(200)
+  })
+
+  it('обрамляющие пробелы снимаются до подсчёта длины', () => {
+    expect(notificationTextPreview('  причина  ')).toBe('причина')
+    expect(notificationTextPreview(`  ${'я'.repeat(200)}  `)).toBe('я'.repeat(200))
+  })
+
+  it('текст из одних пробелов даёт пустую строку — производителю это «без причины»', () => {
+    expect(notificationTextPreview('   ')).toBe('')
+  })
+
+  it('«сотрудник отклонил» принимает превью и его отсутствие, но не полный текст', () => {
+    const schema = notificationDataSchemaFor('APPROVAL_REJECTED')
+    const withReason = { approverName: 'Иван', subjectKind: 'PROJECT', subjectTitle: 'Acme' }
+    expect(() => schema.parse({ ...withReason, reasonPreview: 'Доля не та' })).not.toThrow()
+    expect(() => schema.parse({ ...withReason, reasonPreview: null })).not.toThrow()
+    expect(() => schema.parse({ ...withReason, reasonPreview: 'я'.repeat(201) })).toThrow()
+  })
+
+  it('«статус транзакции изменился» несёт превью причины, не полный текст', () => {
+    const schema = notificationDataSchemaFor('TRANSACTION_STATUS_CHANGED')
+    const rejected = { amount: '10.00', currency: 'USD', status: 'REJECTED' }
+    expect(() => schema.parse({ ...rejected, rejectionReasonPreview: 'Нет чека' })).not.toThrow()
+    expect(() => schema.parse({ ...rejected, rejectionReasonPreview: null })).not.toThrow()
+    expect(() => schema.parse({ ...rejected, rejectionReasonPreview: 'я'.repeat(201) })).toThrow()
+  })
+
+  it('отказ без причины описывается без обрыва строки', () => {
+    expect(
+      describeNotification('APPROVAL_REJECTED', {
+        approverName: 'Иван',
+        subjectKind: 'PROJECT',
+        subjectTitle: 'Acme',
+        reasonPreview: null,
+      }),
+    ).toBe('Иван — проект Acme')
+  })
+
+  it('отказ с превью причины дописывает её после двоеточия', () => {
+    expect(
+      describeNotification('APPROVAL_REJECTED', {
+        approverName: 'Иван',
+        subjectKind: 'PROJECT',
+        subjectTitle: 'Acme',
+        reasonPreview: 'Доля не та',
+      }),
+    ).toBe('Иван — проект Acme: Доля не та')
   })
 })

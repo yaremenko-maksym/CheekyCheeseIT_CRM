@@ -85,12 +85,24 @@ function makeHarness(row: Record<string, unknown>, opts: { projectName?: string 
       return chain
     }),
     update: vi.fn(() => {
+      // Заглушка ПРИМЕНЯЕТ правку и возвращает строку такой, какой она стала:
+      // раньше здесь стоял жёсткий `status: 'APPROVED'`, и отказ был
+      // неотличим от подтверждения — тест не мог сказать, применилось ли
+      // решение вообще (SR-H-1: ровно этот вопрос и проверяется длинной
+      // причиной).
+      const patch: Record<string, unknown> = {}
       const whereResult = {
-        returning: vi.fn(async () => [{ ...row, status: 'APPROVED', decidedAt: new Date() }]),
+        returning: vi.fn(async () => [{ ...row, decidedAt: new Date(), ...patch }]),
         then: (resolve: (v: unknown[]) => unknown, reject?: (e: unknown) => unknown) =>
           Promise.resolve([]).then(resolve, reject),
       }
-      const chain = { set: vi.fn(() => chain), where: vi.fn(() => whereResult) }
+      const chain = {
+        set: vi.fn((values: Record<string, unknown>) => {
+          Object.assign(patch, values)
+          return chain
+        }),
+        where: vi.fn(() => whereResult),
+      }
       return chain
     }),
   }
@@ -245,7 +257,34 @@ describe('«сотрудник отклонил, с причиной»', () => {
       type: 'APPROVAL_REJECTED',
       title: 'Сотрудник отклонил',
     })
-    expect(h.created[0]?.['data']).toMatchObject({ reason: 'Доля не та' })
+    expect(h.created[0]?.['data']).toMatchObject({ reasonPreview: 'Доля не та' })
     expect(String(h.created[0]?.['title'])).not.toContain('Доля не та')
+  })
+
+  /**
+   * SR-H-1 (security-review круг 1). Длина причины — легального текста,
+   * который пишет синьор, — управляла судьбой САМОГО отказа: разбор данных
+   * уведомления бросал внутри транзакции решения, и причина длиннее потолка
+   * формы откатывала отказ целиком.
+   *
+   * 500 символов — не «краевой случай», а ровно тот потолок, который
+   * `rejectApprovalInputSchema` разрешает написать (`.max(500)`, добавлен
+   * SR-L-1 на PR #646). Всё, что длиннее, получает честный 400 ПРО ПРИЧИНУ на
+   * границе запроса — это правило ввода, а не вето уведомления.
+   */
+  it('причина максимальной разрешённой длины: отказ применён, в записи — превью на 200', async () => {
+    const h = makeHarness(makeRow())
+    const updated = await h.svc.reject({
+      subjectType: 'PROJECT',
+      subjectId: SUBJECT_ID,
+      approverUserId: APPROVER_ID,
+      reason: 'я'.repeat(500),
+    })
+
+    expect(updated.status).toBe('REJECTED')
+    expect(h.created).toHaveLength(1)
+    const preview = (h.created[0]?.['data'] as { reasonPreview: string }).reasonPreview
+    expect(preview).toHaveLength(200)
+    expect(preview.endsWith('…')).toBe(true)
   })
 })

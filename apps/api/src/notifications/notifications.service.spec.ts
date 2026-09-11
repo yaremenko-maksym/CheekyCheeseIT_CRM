@@ -15,8 +15,9 @@
  *  - markRead throws 404 for missing notification
  *  - markAllRead flips every unread row for the user
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it } from 'vitest'
+import { NotFoundException } from '@nestjs/common'
+import { describe, expect, it, vi } from 'vitest'
+import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { NotificationsService } from './notifications.service'
 
 interface NotifRow {
@@ -209,14 +210,18 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
   }
   ;(ctx as CtxAug).pendingMarkReadId = null
   ;(ctx as CtxAug).pendingDeleteId = null
-  return { db, ctx: ctx as CtxAug, rows }
+  // Заглушка телеметрии возвращается наружу: SR-H-1 сделал её единственным
+  // наблюдаемым следом пропущенного уведомления, и тесты обязаны уметь этот
+  // след прочитать.
+  const telemetry = makeTelemetryErrorsStub()
+  return { db, ctx: ctx as CtxAug, rows, telemetry }
 }
 
 describe('NotificationsService', () => {
   describe('create', () => {
     it('inserts a new row with default-null readAt', async () => {
       const { db } = makeHarness()
-      const svc = new NotificationsService(db)
+      const svc = new NotificationsService(db, makeTelemetryErrorsStub())
       const result = await svc.create({
         userId: 'u-1',
         type: 'INVOICE_SIGN_REQUIRED',
@@ -231,7 +236,7 @@ describe('NotificationsService', () => {
 
     it('accepts null link (no-link notification)', async () => {
       const { db } = makeHarness()
-      const svc = new NotificationsService(db)
+      const svc = new NotificationsService(db, makeTelemetryErrorsStub())
       const result = await svc.create({
         userId: 'u-1',
         type: 'INVOICE_SIGN_REQUIRED',
@@ -243,7 +248,7 @@ describe('NotificationsService', () => {
 
     it('accepts a valid relative link starting with /', async () => {
       const { db } = makeHarness()
-      const svc = new NotificationsService(db)
+      const svc = new NotificationsService(db, makeTelemetryErrorsStub())
       const result = await svc.create({
         userId: 'u-1',
         type: 'INVOICE_SIGNED',
@@ -253,43 +258,31 @@ describe('NotificationsService', () => {
       expect(result?.link).toBe('/finance/invoices/abc')
     })
 
-    it('rejects an external http link (open-redirect risk)', async () => {
-      const { db } = makeHarness()
-      const svc = new NotificationsService(db)
-      await expect(
-        svc.create({
-          userId: 'u-1',
-          type: 'INVOICE_SIGN_REQUIRED',
-          title: 'Phish',
-          link: 'http://evil.com',
+    // SR-H-1: опасная ссылка по-прежнему НЕ доезжает до базы — менялась не
+    // строгость проверки, а цена отказа. Раньше здесь стоял `rejects.toThrow`,
+    // то есть 400 вызывающему и откат его транзакции; теперь запись просто не
+    // создаётся, а отказ виден в телеметрии.
+    it.each([
+      ['внешняя http-ссылка (open-redirect)', 'http://evil.com'],
+      ['javascript: (XSS)', 'javascript:alert(1)'],
+      ['ссылка без ведущего слеша', 'finance/invoices/123'],
+    ])('%s: запись не создаётся, событие не падает', async (_name, link) => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const result = await svc.create({
+        userId: 'u-1',
+        type: 'INVOICE_SIGN_REQUIRED',
+        title: 'Phish',
+        link,
+      })
+      expect(result).toBeNull()
+      expect(h.rows).toHaveLength(0)
+      expect(h.telemetry.recordError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'API',
+          message: expect.stringContaining('Invalid notification link'),
         }),
-      ).rejects.toThrow('Invalid notification link')
-    })
-
-    it('rejects a javascript: link (XSS risk)', async () => {
-      const { db } = makeHarness()
-      const svc = new NotificationsService(db)
-      await expect(
-        svc.create({
-          userId: 'u-1',
-          type: 'INVOICE_SIGN_REQUIRED',
-          title: 'XSS',
-          link: 'javascript:alert(1)',
-        }),
-      ).rejects.toThrow('Invalid notification link')
-    })
-
-    it('rejects a link without leading slash', async () => {
-      const { db } = makeHarness()
-      const svc = new NotificationsService(db)
-      await expect(
-        svc.create({
-          userId: 'u-1',
-          type: 'INVOICE_SIGN_REQUIRED',
-          title: 'Bad',
-          link: 'finance/invoices/123',
-        }),
-      ).rejects.toThrow('Invalid notification link')
+      )
     })
   })
 
@@ -303,7 +296,7 @@ describe('NotificationsService', () => {
 
     it('scopes to userId — does not leak other users', async () => {
       const h = makeHarness(seedAll)
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.scopeUserId = 'u-1'
       h.ctx.scopeUnreadOnly = false
       const res = await svc.listForUser('u-1', { unreadOnly: false, limit: 10 })
@@ -313,7 +306,7 @@ describe('NotificationsService', () => {
 
     it('unreadOnly=true filters to unread', async () => {
       const h = makeHarness(seedAll)
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.scopeUserId = 'u-1'
       h.ctx.scopeUnreadOnly = true
       const res = await svc.listForUser('u-1', { unreadOnly: true, limit: 10 })
@@ -323,7 +316,7 @@ describe('NotificationsService', () => {
 
     it('respects limit', async () => {
       const h = makeHarness(seedAll)
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.scopeUserId = 'u-1'
       h.ctx.scopeUnreadOnly = false
       const res = await svc.listForUser('u-1', { unreadOnly: false, limit: 1 })
@@ -332,7 +325,7 @@ describe('NotificationsService', () => {
 
     it('unreadCount matches actual unread set for that user', async () => {
       const h = makeHarness(seedAll)
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.scopeUserId = 'u-1'
       const res = await svc.listForUser('u-1', { unreadOnly: false, limit: 10 })
       expect(res.unreadCount).toBe(2)
@@ -342,7 +335,7 @@ describe('NotificationsService', () => {
   describe('markRead', () => {
     it('marks a single notification as read', async () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-1', readAt: null }])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'n1'
       h.ctx.pendingMarkReadId = 'n1'
       await svc.markRead('u-1', 'n1')
@@ -352,7 +345,7 @@ describe('NotificationsService', () => {
     it('is idempotent (already-read row is no-op)', async () => {
       const past = new Date('2026-05-01')
       const h = makeHarness([{ id: 'n1', userId: 'u-1', readAt: past }])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'n1'
       h.ctx.pendingMarkReadId = 'n1'
       await svc.markRead('u-1', 'n1')
@@ -361,14 +354,14 @@ describe('NotificationsService', () => {
 
     it('throws 404 (not 403) when caller is not the owner — existence oracle (SEC-10)', async () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'n1'
       await expect(svc.markRead('u-1', 'n1')).rejects.toThrow(NotFoundException)
     })
 
     it('throws 404 when notification does not exist', async () => {
       const h = makeHarness([])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'nope'
       await expect(svc.markRead('u-1', 'nope')).rejects.toThrow(NotFoundException)
     })
@@ -382,7 +375,7 @@ describe('NotificationsService', () => {
         { id: 'n3', userId: 'u-1', readAt: new Date('2026-05-01') },
         { id: 'n4', userId: 'u-2', readAt: null },
       ])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markAllForUserId = 'u-1'
       await svc.markAllRead('u-1')
       expect(h.rows[0]!.readAt).not.toBeNull()
@@ -398,7 +391,7 @@ describe('NotificationsService', () => {
         { id: 'n1', userId: 'u-1', readAt: null },
         { id: 'n2', userId: 'u-1', readAt: null },
       ])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.deleteId = 'n1'
       h.ctx.pendingDeleteId = 'n1'
       await svc.delete('u-1', 'n1')
@@ -409,7 +402,7 @@ describe('NotificationsService', () => {
 
     it('throws 404 (not 403) when the caller is not the owner — existence oracle (SEC-10)', async () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.deleteId = 'n1'
       await expect(svc.delete('u-1', 'n1')).rejects.toThrow(NotFoundException)
       // Row still present after the failed call
@@ -418,7 +411,7 @@ describe('NotificationsService', () => {
 
     it('throws 404 when the notification does not exist', async () => {
       const h = makeHarness([])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.deleteId = 'nope'
       await expect(svc.delete('u-1', 'nope')).rejects.toThrow(NotFoundException)
     })
@@ -429,7 +422,7 @@ describe('NotificationsService', () => {
   describe('структурные идентификаторы', () => {
     it('кладёт вид объекта, идентификаторы и данные — не готовый текст кнопки', async () => {
       const h = makeHarness()
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       const created = await svc.create({
         userId: 'u-1',
         type: 'PROJECT_MEMBER_ADDED',
@@ -446,23 +439,115 @@ describe('NotificationsService', () => {
 
     it('данные, не подходящие форме своего типа, до базы не доезжают', async () => {
       const h = makeHarness()
-      const svc = new NotificationsService(h.db)
-      await expect(
-        svc.create({
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const result = await svc.create({
+        userId: 'u-1',
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Вас добавили в проект',
+        subjectType: 'PROJECT',
+        subjectId: 'p-1',
+        data: { projectName: 42 },
+      })
+      expect(result).toBeNull()
+      expect(h.rows).toHaveLength(0)
+    })
+
+    /**
+     * SR-H-1 (security-review круг 1), вторая половина: производитель не имеет
+     * права вето над событием. Раньше эта ветка бросала `BadRequestException`
+     * внутри транзакции события — и легальное длинное значение (причина отказа,
+     * имя проекта) откатывало сам отказ или само создание проекта.
+     */
+    describe('битые данные не отменяют событие, но отказ громкий', () => {
+      it('вызывающий получает null вместо исключения — его транзакция жива', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        // `createInTx` — ровно тот путь, которым идут пять производителей
+        // внутри транзакции своего события.
+        const result = await svc.createInTx({} as never, {
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          data: { projectName: 42 },
+        })
+        expect(result).toBeNull()
+        expect(h.rows).toHaveLength(0)
+      })
+
+      it('пропуск уходит в телеметрию — тип и получатель названы, данные нет', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        await svc.create({
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          subjectType: 'PROJECT',
+          data: { projectName: 42 },
+        })
+        expect(h.telemetry.recordError).toHaveBeenCalledWith({
+          source: 'API',
+          message: expect.stringContaining('Invalid notification data for PROJECT_MEMBER_ADDED'),
+          route: '/api/notifications',
+          userId: 'u-1',
+          meta: { type: 'PROJECT_MEMBER_ADDED', subjectType: 'PROJECT' },
+        })
+      })
+
+      it('отказ телеметрии тоже не роняет событие', async () => {
+        const h = makeHarness()
+        vi.mocked(h.telemetry.recordError).mockRejectedValueOnce(new Error('telemetry down'))
+        const svc = new NotificationsService(h.db, h.telemetry)
+        const result = await svc.create({
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          data: { projectName: 42 },
+        })
+        expect(result).toBeNull()
+        expect(h.rows).toHaveLength(0)
+      })
+
+      it('причина отказа в пять тысяч символов уведомление пропускает, а не отменяет отказ', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        const result = await svc.createInTx({} as never, {
+          userId: 'admin-1',
+          type: 'APPROVAL_REJECTED',
+          title: 'Сотрудник отклонил',
+          // Производитель обязан усечь превью сам; если он этого не сделал —
+          // страдает уведомление, а не решение синьора.
+          data: {
+            approverName: 'Иван',
+            subjectKind: 'PROJECT',
+            subjectTitle: 'Acme',
+            reasonPreview: 'я'.repeat(5000),
+          },
+        })
+        expect(result).toBeNull()
+        expect(h.rows).toHaveLength(0)
+        expect(h.telemetry.recordError).toHaveBeenCalledTimes(1)
+      })
+
+      it('имя проекта в 255 символов — легальная длина колонки — уведомление создаёт', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        const created = await svc.create({
           userId: 'u-1',
           type: 'PROJECT_MEMBER_ADDED',
           title: 'Вас добавили в проект',
           subjectType: 'PROJECT',
           subjectId: 'p-1',
-          data: { projectName: 42 },
-        }),
-      ).rejects.toThrow(BadRequestException)
-      expect(h.rows).toHaveLength(0)
+          data: { projectName: 'я'.repeat(255) },
+        })
+        expect(created).not.toBeNull()
+        expect(h.rows).toHaveLength(1)
+        expect(h.telemetry.recordError).not.toHaveBeenCalled()
+      })
     })
 
     it('данные старого типа никакой формой не проверяются — три старых типа не сломаны', async () => {
       const h = makeHarness()
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       const created = await svc.create({
         userId: 'u-1',
         type: 'INVOICE_SIGN_REQUIRED',
@@ -478,7 +563,7 @@ describe('NotificationsService', () => {
   describe('идемпотентность', () => {
     it('второй раз с тем же ключом не создаёт вторую строку', async () => {
       const h = makeHarness()
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       const input = {
         userId: 'u-1',
         type: 'TRANSACTION_ADDED' as const,
@@ -495,7 +580,7 @@ describe('NotificationsService', () => {
 
     it('тот же ключ ДРУГОМУ получателю — отдельная строка', async () => {
       const h = makeHarness()
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       const input = {
         type: 'TRANSACTION_ADDED' as const,
         title: 'Добавлена транзакция',
@@ -511,7 +596,7 @@ describe('NotificationsService', () => {
 
     it('без ключа дубли разрешены — повторное предложение обязано спросить заново', async () => {
       const h = makeHarness()
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       const input = {
         userId: 'u-1',
         type: 'SHARE_CONFIRM_REQUIRED' as const,
@@ -534,7 +619,7 @@ describe('NotificationsService', () => {
   describe('createManyInTx', () => {
     it('одна пачка получателей — по строке на каждого', async () => {
       const h = makeHarness()
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       await h.db.db.transaction(async (tx: unknown) =>
         svc.createManyInTx(tx as Parameters<typeof svc.createManyInTx>[0], [
           { userId: 'u-1', type: 'TEAM_NEW_MEMBER', title: 'В команде новый участник' },
