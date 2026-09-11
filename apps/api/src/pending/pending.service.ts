@@ -169,6 +169,7 @@ export class PendingService {
         usersById,
         teamOverridesBySenior,
         seniorId: viewerId,
+        perspective: 'mine',
         proposedBy: proposedByName,
         waitingFor: undefined,
         actionsForApprovalKinds: ['approve', 'reject', 'open'],
@@ -232,6 +233,7 @@ export class PendingService {
         usersById,
         teamOverridesBySenior,
         seniorId: representative.approverUserId,
+        perspective: 'proposedByMe',
         proposedBy: undefined,
         waitingFor: waitingForNames,
         // No "withdraw a project draft" endpoint exists in main today —
@@ -259,6 +261,13 @@ export class PendingService {
       usersById: Map<string, UserLite>
       teamOverridesBySenior: Map<string, ResolverTeam[]>
       seniorId: string
+      /** Which half of `getPending`'s response this item is being built
+       * for — drives the USER_SENIOR_SHARE title choice below. Explicit
+       * rather than inferred from `waitingFor`'s presence: the two already
+       * vary independently in shape (`proposedBy`/`waitingFor` swap), an
+       * inferred discriminator would be a third, implicit copy of the same
+       * fact. */
+      perspective: 'mine' | 'proposedByMe'
       proposedBy: string | undefined
       waitingFor: string[] | undefined
       actionsForApprovalKinds: PendingItem['actions']
@@ -327,14 +336,14 @@ export class PendingService {
         kind: 'SHARE_APPROVAL',
         approvalId: row.id,
         subjectId: senior.id,
-        title: ctx.waitingFor === undefined ? 'Ваша базовая доля' : senior.displayName,
+        title: ctx.perspective === 'mine' ? 'Ваша базовая доля' : senior.displayName,
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         currentPercent: senior.seniorSharePercent,
         pendingPercent,
         createdAt: row.createdAt,
         actions: ctx.actionsForApprovalKinds,
-        link: ctx.waitingFor === undefined ? '/profile' : '/users',
+        link: ctx.perspective === 'mine' ? '/profile' : '/users',
       }
     }
 
