@@ -153,15 +153,23 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
     try {
       await loginViaApi(page, SEED_EMAILS.seniorA)
       await page.goto('/pending')
-      await expect(page.getByText('Доля по умолчанию')).toBeVisible()
+      // Row-anchored, and deliberately NOT `getByText('Доля по умолчанию')`:
+      // since COPY-L-1 the toast says «Доля по умолчанию теперь 31%», which
+      // CONTAINS the row's title. A text-based "row is gone" assertion would
+      // therefore also wait for the toast to expire — and then the toast
+      // assertion below could only ever look at an empty toast region
+      // (measured: that is exactly how this test failed once).
+      const shareRow = page.getByTestId(`pending-item-row-SHARE_APPROVAL-${seniorA.id}`)
+      await expect(shareRow).toBeVisible()
+      await expect(shareRow).toContainText('Доля по умолчанию')
       await expect(page.getByText(/предлагают 31%/)).toBeVisible()
 
       await page.getByTestId(`senior-share-approve-user-${seniorA.id}`).click()
 
-      await expect(page.getByText('Доля по умолчанию')).not.toBeVisible()
-      // COPY-L-1 (fix-round 3): the toast names the object — the row it
-      // refers to disappears in the same moment.
+      // Transient first (a toast outlives neither the wait above nor a long
+      // poll), persistent second.
       await expect(page.getByText(/Доля по умолчанию теперь 31%/)).toBeVisible()
+      await expect(shareRow).toBeHidden()
     } finally {
       // Best-effort restore — leaves the seed account at a known percent for
       // the next run rather than at whatever this test proposed.
