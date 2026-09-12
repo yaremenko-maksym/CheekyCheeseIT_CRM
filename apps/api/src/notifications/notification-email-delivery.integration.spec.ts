@@ -515,6 +515,42 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
     expect(row!.lastError).toBe('Resend API HTTP 422')
   })
 
+  it('поздний markSkipped после markSent не переписывает отправленную строку (SR-L-6)', async () => {
+    // Аренда — 60 секунд, а пятиминутный байпас зависшего прохода (SR-L-4) на
+    // короткое время может дать двум проходам одну и ту же строку. Без
+    // `WHERE status = 'QUEUED'` второй, опоздавший `markSkipped` переписал бы
+    // уже отправленную строку обратно в `SKIPPED`, оставив `sent_at` /
+    // `sent_to_email` заполненными, — след доставки начал бы врать.
+    const id = await queueFor(USER_A)
+    const claimed = await claimUntilFound(id)
+    await repo.markSent(claimed.id, 'a.personal@gmail.com')
+
+    await repo.markSkipped(claimed.id, 'CHANNEL_OFF')
+
+    const [row] = await db
+      .select()
+      .from(notificationEmails)
+      .where(eq(notificationEmails.id, claimed.id))
+    expect(row!.status).toBe('SENT')
+    expect(row!.sentToEmail).toBe('a.personal@gmail.com')
+    expect(row!.skipReason).toBeNull()
+  })
+
+  it('поздний markFailed после markSent не переписывает отправленную строку (SR-L-6)', async () => {
+    const id = await queueFor(USER_A)
+    const claimed = await claimUntilFound(id)
+    await repo.markSent(claimed.id, 'a.personal@gmail.com')
+
+    await repo.markFailed(claimed.id, 'Resend API HTTP 500')
+
+    const [row] = await db
+      .select()
+      .from(notificationEmails)
+      .where(eq(notificationEmails.id, claimed.id))
+    expect(row!.status).toBe('SENT')
+    expect(row!.lastError).toBeNull()
+  })
+
   it('одно письмо на уведомление — повторная постановка ничего не создаёт', async () => {
     const created = await db.transaction(async (tx) =>
       service.createInTx(tx, notificationInput(USER_A)),

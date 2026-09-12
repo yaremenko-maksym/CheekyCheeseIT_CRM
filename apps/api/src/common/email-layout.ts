@@ -23,13 +23,21 @@
  * экранировал бы сам, сделал бы первое невозможным; хелпер, который принимает
  * готовый HTML, оставляет решение там, где известно, что именно подставляют.
  * Оба вызывающих закрыты тестом на подстановку с `<script>`.
+ *
+ * **Слот принимает `EscapedHtml`, а не сырой `string` (SR-L-8, security-review
+ * PR #673 круг 2).** До этой правки `html: string` принимал что угодно, и
+ * третий вызывающий, забывший `escapeHtml` на пользовательских данных, узнал
+ * бы об этом только от почтового клиента получателя. `EscapedHtml` — бренд:
+ * его даёт либо `escapeHtml(value)` (данные), либо `trustedHtml(value)`
+ * (литеральная разметка, которую пишет разработчик — кнопка, `<strong>` в
+ * оговорке). Голая строка на месте `html`/`footer` теперь не компилируется.
  */
-import { escapeHtml } from './escape-html'
+import { escapeHtml, type EscapedHtml } from './escape-html'
 
 /** Абзац письма и отступ ПОД ним, в пикселях. */
 export interface EmailBlock {
-  /** Готовый HTML строки: экранирование — на вызывающем (см. заголовок файла). */
-  html: string
+  /** Уже безопасный HTML строки: `escapeHtml` для данных, `trustedHtml` для литеральной разметки (см. заголовок файла). */
+  html: EscapedHtml
   spaceAfter: number
 }
 
@@ -42,7 +50,7 @@ export interface EmailLayoutInput {
    * Абзац ПОСЛЕ кнопки, с отступом сверху. Нужен приглашению (защитная
    * оговорка «если письмо пришло по ошибке…»), у писем уведомлений его нет.
    */
-  footer?: string
+  footer?: EscapedHtml
 }
 
 function paragraph(html: string, margin: string): string {

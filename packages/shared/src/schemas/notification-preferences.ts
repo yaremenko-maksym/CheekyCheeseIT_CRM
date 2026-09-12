@@ -65,8 +65,13 @@ const preferenceItem = z.object({
 export const updateNotificationPreferencesSchema = z.object({
   items: z
     .array(preferenceItem)
-    .min(1)
-    .max(NEW_NOTIFICATION_TYPES.length)
+    // Сообщения РУССКИЕ на обеих границах (COPY-L-6, copy-review PR #673
+    // круг 2) — тот же канал и тот же довод, что у `.refine()` ниже: пустая
+    // пачка или пачка сверх десяти типов — это сломанный/устаревший клиент,
+    // но отвечает на неё всё равно человек, приславший запрос через 7b, а не
+    // разработчик, читающий лог.
+    .min(1, 'Укажите хотя бы одну настройку')
+    .max(NEW_NOTIFICATION_TYPES.length, 'Слишком много настроек в одном запросе')
     // Тексты РУССКИЕ, и это не вкусовщина: `ZodExceptionFilter` отдаёт
     // `issues[].message` клиенту дословно на всех маршрутах вне
     // `FINANCE_CRITICAL_PREFIXES`, а `/api/notifications/preferences` в этом

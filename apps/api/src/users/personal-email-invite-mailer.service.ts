@@ -39,7 +39,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { renderEmailLayout } from '../common/email-layout'
-import { escapeHtml } from '../common/escape-html'
+import { escapeHtml, trustedHtml } from '../common/escape-html'
 import type { Env } from '../config/env'
 import { ResendMailerService } from '../contact/resend-mailer.service'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
@@ -130,24 +130,40 @@ export class PersonalEmailInviteMailerService {
     // одним отправителем» (§12) не должно держаться на том, что две копии
     // таблицы правят синхронно. Разметка этого письма от переезда НЕ
     // изменилась — ни байта, что и проверяет эталон в спеке.
+    //
+    // `trustedHtml` на всех трёх блоках и на оговорке (SR-L-8, security-review
+    // PR #673 круг 2): это литеральные строки, которые пишет разработчик, не
+    // подстановка данных — `firstName` внутри первой строки уже прошёл
+    // `escapeHtml` выше, и оборачивать результат ЕЩЁ раз значило бы
+    // экранировать дважды. `trustedHtml` — явная, грепаемая пометка «за эту
+    // строку поручился код, а не пользователь», а не тихий обход типа.
     const html = renderEmailLayout({
       blocks: [
         {
-          html: `${firstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
+          html: trustedHtml(
+            `${firstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
+          ),
           spaceAfter: 16,
         },
         {
-          html: 'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
+          html: trustedHtml(
+            'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
+          ),
           // Четыре, а не шестнадцать: эта строка и следующая — одна мысль,
           // разбитая на две для читаемости.
           spaceAfter: 4,
         },
-        { html: 'Пока не подтвердите, вход работает только по рабочему.', spaceAfter: 24 },
+        {
+          html: trustedHtml('Пока не подтвердите, вход работает только по рабочему.'),
+          spaceAfter: 24,
+        },
       ],
       button: { href: link, label: 'Подтвердить адрес' },
       // Защитная оговорка, а не вежливость (§11) — полным весом и жирным
       // (COPY-M-5, PR #623), поэтому `<strong>` внутри готового HTML.
-      footer: 'Если письмо пришло по ошибке, <strong>не переходите по ссылке</strong>.',
+      footer: trustedHtml(
+        'Если письмо пришло по ошибке, <strong>не переходите по ссылке</strong>.',
+      ),
     })
 
     const text = [

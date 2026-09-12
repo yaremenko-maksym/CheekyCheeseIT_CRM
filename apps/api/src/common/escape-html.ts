@@ -11,11 +11,41 @@
  * Порядок замен значим: `&` идёт ПЕРВЫМ, иначе уже вставленные `&lt;`
  * экранируются повторно и читатель видит `&amp;lt;`.
  */
-export function escapeHtml(value: string): string {
+declare const escapedHtmlBrand: unique symbol
+
+/**
+ * Строка, безопасная для вставки в HTML письма без дальнейшего
+ * экранирования — либо потому что прошла через `escapeHtml`, либо потому что
+ * автор явно поручился за неё через `trustedHtml`.
+ *
+ * Заведён вместо простого `string` в `EmailBlock.html` / `EmailLayoutInput.footer`
+ * (SR-L-8, security-review PR #673 круг 2): до этой правки хелпер принимал
+ * сырую строку, и промах третьего вызывающего (забытый `escapeHtml` на
+ * пользовательских данных) был бы тихим — компилятор его не видел, а
+ * почтовый клиент получателя увидел бы первым. Бренд делает «забыл
+ * экранировать» ошибкой типов, а не инцидентом.
+ */
+export type EscapedHtml = string & { readonly [escapedHtmlBrand]: true }
+
+export function escapeHtml(value: string): EscapedHtml {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/'/g, '&#39;') as EscapedHtml
+}
+
+/**
+ * Пометить строку как уже безопасную для HTML — БЕЗ прогона через
+ * `escapeHtml`.
+ *
+ * Только для литеральной разметки, которую пишет разработчик в коде самого
+ * письма (кнопка, `<strong>` в защитной оговорке приглашения, статичные
+ * строки тела) — НИКОГДА для строки, пришедшей из запроса, базы или
+ * подстановки пользовательских данных: для них есть `escapeHtml`, и его
+ * пропуск компилятор с этой правки не пропускает молча (SR-L-8).
+ */
+export function trustedHtml(value: string): EscapedHtml {
+  return value as EscapedHtml
 }

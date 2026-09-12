@@ -770,6 +770,29 @@ describe('заголовки письма', () => {
       'Запрос на добавление проекта «Проект Bcc: attacker@example.com»',
     )
   })
+
+  it('перевод строки в адресе получателя не разрывает заголовки (SR-L-7)', async () => {
+    // `user_emails.email` — `varchar` без CHECK-констрейнта: форму
+    // гарантирует только разбор запроса, а в базу можно попасть мимо него.
+    // `stripCrlf` стоял на `subject`/`reply_to` (SR-M-1), но не на `to` —
+    // адрес, оказавшийся в заголовках ПОСЛЕ подписи получателя, — тот же
+    // канал инъекции, только с другой стороны письма.
+    const gw = makeGateway([claimed()])
+    gw.context = {
+      archived: false,
+      addresses: [{ email: 'ivan@gmail.com\r\nBcc: attacker@example.com', kind: 'PERSONAL' }],
+      emailEnabled: null,
+    }
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends[0]!.to).toEqual(['ivan@gmail.com Bcc: attacker@example.com'])
+    expect(sends[0]!.to[0]).not.toMatch(/[\r\n]/)
+    // Журнал доставки хранит ровно то, что реально ушло — не сырой адрес из
+    // базы.
+    expect(gw.sent).toEqual([{ id: 'e-1', email: 'ivan@gmail.com Bcc: attacker@example.com' }])
+  })
 })
 
 describe('зависший проход не глушит отправщик навсегда (SR-L-4)', () => {

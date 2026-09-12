@@ -185,7 +185,14 @@ export class NotificationEmailCronService {
       this.logSkip(item.id, decision.skipReason)
       return
     }
-    const to = decision.to
+    // `stripCrlf` на адресе получателя тоже (SR-L-7, security-review PR #673
+    // круг 2) — не только на `subject`/`reply_to`. Адрес приходит из
+    // `user_emails.email` (`varchar`, без CHECK-констрейнта); форму
+    // гарантирует только разбор запроса, а в базу можно попасть и мимо него
+    // (тот же довод, которым в `decideDelivery` оставлен последний рубеж для
+    // `emailEnabled`). Значение переиспользуется и для отправки, и для
+    // `markSent` — журнал доставки хранит ровно то, что реально ушло.
+    const to = stripCrlf(decision.to)
 
     const mail = renderNotificationEmail(item.notification, { frontendUrl: this.frontendUrl })
 

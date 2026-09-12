@@ -142,10 +142,12 @@ describe('updateNotificationPreferencesSchema', () => {
     )
   })
 
-  it('оба отказа обходятся без латиницы и без ссылок на внутренние документы', () => {
+  it('все четыре отказа обходятся без латиницы и без ссылок на внутренние документы', () => {
     // Проверяется свойство, а не вторая копия строки: латиница в
     // пользовательском тексте — то, чем отличался круг 1, а «(spec §3)»
-    // читателю интерфейса не сообщает ничего.
+    // читателю интерфейса не сообщает ничего. Расширено на границы длины
+    // массива (COPY-L-6, copy-review PR #673 круг 2) — те же ветки, что и
+    // `.refine()`, только раньше их в цепочке.
     const duplicate = updateNotificationPreferencesSchema.safeParse({
       items: [
         { type: 'TRANSACTION_ADDED', emailEnabled: false },
@@ -155,7 +157,19 @@ describe('updateNotificationPreferencesSchema', () => {
     const locked = updateNotificationPreferencesSchema.safeParse({
       items: [{ type: 'DOCUMENT_SIGN_REQUIRED', emailEnabled: false }],
     })
-    for (const message of [...issueMessages(duplicate), ...issueMessages(locked)]) {
+    const empty = updateNotificationPreferencesSchema.safeParse({ items: [] })
+    const tooMany = updateNotificationPreferencesSchema.safeParse({
+      items: Array.from({ length: NEW_NOTIFICATION_TYPES.length + 1 }, (_, i) => ({
+        type: NEW_NOTIFICATION_TYPES[i % NEW_NOTIFICATION_TYPES.length]!,
+        emailEnabled: true,
+      })),
+    })
+    for (const message of [
+      ...issueMessages(duplicate),
+      ...issueMessages(locked),
+      ...issueMessages(empty),
+      ...issueMessages(tooMany),
+    ]) {
       expect(message).not.toMatch(/[A-Za-z]/)
       expect(message).not.toContain('§')
     }
@@ -171,9 +185,26 @@ describe('updateNotificationPreferencesSchema', () => {
     expect(issueMessages(result)).toContain('Неизвестный тип уведомления')
   })
 
-  it('отвергает пустой список', () => {
+  it('отвергает пустой список текстом, а не тишиной', () => {
+    // COPY-L-6: `.min(1)` без своего сообщения отдавал дефолт Zod
+    // («Too small: expected array to have >=1 items») — английский и прямо
+    // клиенту, тем же каналом, что и COPY-H-3.
     const result = updateNotificationPreferencesSchema.safeParse({ items: [] })
     expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('Укажите хотя бы одну настройку')
+  })
+
+  it('отвергает пачку длиннее списка типов текстом, а не тишиной', () => {
+    // COPY-L-6: `.max(...)` без своего сообщения отдавал дефолт Zod
+    // («Too big: expected array to have <=10 items»).
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: Array.from({ length: NEW_NOTIFICATION_TYPES.length + 1 }, (_, i) => ({
+        type: NEW_NOTIFICATION_TYPES[i % NEW_NOTIFICATION_TYPES.length]!,
+        emailEnabled: true,
+      })),
+    })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('Слишком много настроек в одном запросе')
   })
 })
 

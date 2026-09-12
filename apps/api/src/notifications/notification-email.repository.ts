@@ -149,11 +149,21 @@ export class OutboxRepository implements OutboxGateway {
     }
   }
 
+  /**
+   * `WHERE … status = 'QUEUED'` — тот же предикат и то же обоснование, что у
+   * `scheduleRetry` ниже (SR-L-6, security-review PR #673 круг 2): аренда —
+   * 60 секунд, а пятиминутный байпас зависшего прохода (SR-L-4) на короткое
+   * время может дать двум проходам одну и ту же строку. Без предиката поздний
+   * `markSent` зависшего прохода переписал бы уже терминальную строку (скажем,
+   * `SKIPPED` после того как настройку выключили) обратно в `SENT`, и след
+   * доставки в `notification_emails` — той самой таблице, по которой runbook
+   * 7.2 учит читать результат — начал бы врать.
+   */
   async markSent(id: string, email: string): Promise<void> {
     await this.db.db
       .update(notificationEmails)
       .set({ status: 'SENT', sentAt: new Date(), sentToEmail: email, updatedAt: new Date() })
-      .where(eq(notificationEmails.id, id))
+      .where(and(eq(notificationEmails.id, id), eq(notificationEmails.status, 'QUEUED')))
   }
 
   /**
@@ -162,19 +172,23 @@ export class OutboxRepository implements OutboxGateway {
    * Не `FAILED`: «не полагалось отправлять» и «не смогли отправить» — разные
    * факты, и сливать их в один статус значило бы звать чинить выключенный
    * человеком канал. `last_error` при этом остаётся пустым — ошибки не было.
+   *
+   * `WHERE … status = 'QUEUED'` (SR-L-6) — см. `markSent` выше: та же защита
+   * от того же байпаса, симметричная во все три марка терминального статуса.
    */
   async markSkipped(id: string, reason: SkipReason): Promise<void> {
     await this.db.db
       .update(notificationEmails)
       .set({ status: 'SKIPPED', skipReason: reason, updatedAt: new Date() })
-      .where(eq(notificationEmails.id, id))
+      .where(and(eq(notificationEmails.id, id), eq(notificationEmails.status, 'QUEUED')))
   }
 
+  /** `WHERE … status = 'QUEUED'` (SR-L-6) — см. `markSent` выше. */
   async markFailed(id: string, reason: string): Promise<void> {
     await this.db.db
       .update(notificationEmails)
       .set({ status: 'FAILED', lastError: reason, updatedAt: new Date() })
-      .where(eq(notificationEmails.id, id))
+      .where(and(eq(notificationEmails.id, id), eq(notificationEmails.status, 'QUEUED')))
   }
 
   /**
