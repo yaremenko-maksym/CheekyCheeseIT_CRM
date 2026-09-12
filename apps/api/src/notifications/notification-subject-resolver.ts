@@ -70,6 +70,14 @@ export function awaitsApproval(type: string): boolean {
 }
 
 /**
+ * Форма `uuid`, которую `approvals.id` несёт как колонку в Postgres —
+ * НЕ строгая v4-проверка (версия/вариант не важны здесь, важна форма записи).
+ * Тот же класс проверки, что `z.string().uuid()`, без зависимости от Zod в
+ * резолвере (SR-M-18, security-review круг 6, #664).
+ */
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
  * Идентификатор строки согласования из данных уведомления (`data.approvalId`).
  *
  * `data` — `jsonb`, то есть `unknown` по определению: форму гарантирует Zod на
@@ -77,11 +85,19 @@ export function awaitsApproval(type: string): boolean {
  * не приведение типа: строка, чьи данные не той формы, обязана приехать без
  * идентификатора, а не уронить чтение всего списка (AC2 — тот же принцип, что
  * у `renderNotification`).
+ *
+ * SR-M-18 (security-review круг 6, #664). Значение уходит дальше в
+ * `inArray(approvals.id, …)` — колонку `uuid`. Строка любой другой формы
+ * доедет до Postgres как параметр сравнения и уронит запрос ошибкой `22P02`,
+ * а с ним весь `GET /api/notifications` этого пользователя, а не одну строку
+ * (ровно то, что первый абзац обещает не допускать). Форма проверяется здесь
+ * же, где и тип — не той формы значит без идентификатора, тем же путём, что
+ * «не строка» или «пустая».
  */
 export function approvalIdFromData(data: unknown): string | null {
   if (typeof data !== 'object' || data === null) return null
   const value = (data as Record<string, unknown>)['approvalId']
-  return typeof value === 'string' && value.length > 0 ? value : null
+  return typeof value === 'string' && UUID_SHAPE.test(value) ? value : null
 }
 
 /** Группирует идентификаторы по виду объекта — по одному запросу на вид. */

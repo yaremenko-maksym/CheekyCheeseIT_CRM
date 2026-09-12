@@ -51,8 +51,10 @@ describe('awaitsApproval', () => {
  * уронить чтение всего списка.
  */
 describe('approvalIdFromData', () => {
+  const validUuid = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+
   it('идентификатор строки согласования — из данных производителя', () => {
-    expect(approvalIdFromData({ projectName: 'Acme', approvalId: 'a-7' })).toBe('a-7')
+    expect(approvalIdFromData({ projectName: 'Acme', approvalId: validUuid })).toBe(validUuid)
   })
 
   it('данных нет вовсе', () => {
@@ -73,6 +75,45 @@ describe('approvalIdFromData', () => {
     expect(approvalIdFromData({ approvalId: 7 })).toBeNull()
     expect(approvalIdFromData({ approvalId: null })).toBeNull()
     expect(approvalIdFromData({ approvalId: '' })).toBeNull()
+  })
+
+  /**
+   * SR-M-18 (security-review круг 6, #664). `approvals.id` — колонка `uuid`;
+   * строка не той формы, доехавшая до `inArray(approvals.id, …)`, роняет
+   * запрос ошибкой Postgres `22P02` — а с ним весь `GET /api/notifications`
+   * этого пользователя, а не одну строку. Раньше сюда проходила ЛЮБАЯ
+   * непустая строка, в том числе такая, как `'a-7'` в тесте выше — отсюда
+   * смена его ожидания на невалидный uuid.
+   */
+  it('SR-M-18: строка не в форме uuid не проходит — иначе она уронит запрос к approvals', () => {
+    expect(approvalIdFromData({ approvalId: 'a-7' })).toBeNull()
+    expect(approvalIdFromData({ approvalId: 'garbage' })).toBeNull()
+    expect(approvalIdFromData({ approvalId: 'not-a-uuid-at-all' })).toBeNull()
+  })
+
+  it('SR-M-18: валидный uuid — в любом регистре — проходит', () => {
+    expect(approvalIdFromData({ approvalId: validUuid })).toBe(validUuid)
+    expect(approvalIdFromData({ approvalId: validUuid.toUpperCase() })).toBe(
+      validUuid.toUpperCase(),
+    )
+  })
+})
+
+/**
+ * SR-M-18 (security-review круг 6, #664). Не-uuid обязан отсеяться уже на
+ * этапе разбора данных (`approvalIdFromData`) — значит он физически не может
+ * попасть в `approvalIdsToCheck`, а оттуда в `inArray(approvals.id, …)`.
+ * Проверяется весь путь «данные производителя → список к запросу», а не
+ * только парсер в изоляции.
+ */
+describe('SR-M-18: не-uuid не попадает в запрос к approvals', () => {
+  it('строка с мусором в data.approvalId не отдаёт идентификатор в approvalIdsToCheck', () => {
+    const garbageRow: SubjectRef = {
+      ...ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
+      approvalId: approvalIdFromData({ approvalId: 'garbage' }),
+    }
+    expect(garbageRow.approvalId).toBeNull()
+    expect(approvalIdsToCheck([garbageRow])).toEqual([])
   })
 })
 

@@ -16,7 +16,10 @@
  *  - markAllRead flips every unread row for the user
  */
 import { NotFoundException } from '@nestjs/common'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
+import type { ApprovalStatus } from '@crm/shared'
+import { approvals, projects } from '../database/schema'
 import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { NotificationsService } from './notifications.service'
 
@@ -345,6 +348,205 @@ describe('NotificationsService', () => {
       h.ctx.scopeUserId = 'u-1'
       const res = await svc.listForUser('u-1', { unreadOnly: false, limit: 10 })
       expect(res.unreadCount).toBe(2)
+    })
+  })
+
+  /**
+   * SR-L-8 (security-review круг 6, #664, defense-in-depth). Запрос к
+   * `approvals` держит связь с получателем ТОЛЬКО через `approverUserId` в
+   * `where` — без него пара «уведомление одного пользователя, строка
+   * согласования другого» отличалась бы от «строки нет вовсе» только
+   * дисциплиной производителей, а не структурой запроса. Строка чужого
+   * подтверждающего обязана читаться КАК ОТСУТСТВУЮЩАЯ — `approvalSuperseded`,
+   * тем же путём, что и полностью погашенная.
+   *
+   * Условия отбора раскрываются в настоящий SQL и ПРИМЕНЯЮТСЯ к строкам —
+   * как их применила бы база, а не «заглушка отдаёт всё, что дали» (тот же
+   * приём, что в `contract-notifications.unit.spec.ts` / `users.service.spec.ts`
+   * — `PgDialect().sqlToQuery` вместо разбора внутренностей drizzle руками).
+   */
+  describe('resolveSubjectStates (private) — approvals scoped to the recipient (SR-L-8)', () => {
+    // SR-M-18 (тот же круг, #664): `approvalIdFromData` теперь требует форму
+    // uuid, поэтому тестовые идентификаторы обязаны быть настоящими uuid —
+    // иначе `approvalIdFromData` вернул бы `null` ДО того, как запрос к
+    // `approvals` вообще случится, и тест прошёл бы по неверной причине.
+    const APPROVAL_UUID = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+
+    const APPROVALS_COLUMNS: Record<string, string> = {
+      id: 'id',
+      superseded_at: 'supersededAt',
+      approver_user_id: 'approverUserId',
+    }
+    const PROJECTS_COLUMNS: Record<string, string> = {
+      id: 'id',
+      archived_at: 'archivedAt',
+    }
+
+    function matchesWhere(
+      condition: unknown,
+      row: Record<string, unknown>,
+      columns: Record<string, string>,
+    ): boolean {
+      const compiled = new PgDialect().sqlToQuery(
+        condition as Parameters<PgDialect['sqlToQuery']>[0],
+      )
+      // A bare single-condition compile (e.g. a lone `inArray(...)`) is NOT
+      // wrapped in parens and its own trailing `)` must survive; only an
+      // `and(...)`-wrapped multi-condition compile starts with `(` — strip
+      // that matching pair, and only that pair.
+      const inner =
+        compiled.sql.startsWith('(') && compiled.sql.endsWith(')')
+          ? compiled.sql.slice(1, -1)
+          : compiled.sql
+      for (const part of inner.split(/\s+and\s+/i)) {
+        const isNullMatch = /"[^"]+"\."([^"]+)"\s+is\s+null/i.exec(part)
+        if (isNullMatch) {
+          const field = columns[isNullMatch[1] as string]
+          if (field === undefined) throw new Error(`заглушка не знает колонку: ${isNullMatch[1]}`)
+          if (row[field] !== null) return false
+          continue
+        }
+        const inMatch = /"[^"]+"\."([^"]+)"\s+in\s+\(([^)]+)\)/i.exec(part)
+        if (inMatch) {
+          const field = columns[inMatch[1] as string]
+          if (field === undefined) throw new Error(`заглушка не знает колонку: ${inMatch[1]}`)
+          const values = (inMatch[2] as string)
+            .split(',')
+            .map((p) => compiled.params[Number(p.trim().slice(1)) - 1])
+          if (!values.includes(row[field])) return false
+          continue
+        }
+        const eqMatch = /"[^"]+"\."([^"]+)"\s*=\s*\$(\d+)/.exec(part)
+        if (eqMatch) {
+          const field = columns[eqMatch[1] as string]
+          if (field === undefined) throw new Error(`заглушка не знает колонку: ${eqMatch[1]}`)
+          if (row[field] !== compiled.params[Number(eqMatch[2]) - 1]) return false
+          continue
+        }
+        throw new Error(`заглушка не понимает условие: ${part}`)
+      }
+      return true
+    }
+
+    type ApprovalSeed = {
+      id: string
+      status: ApprovalStatus
+      approverUserId: string
+      supersededAt: Date | null
+    }
+    type ProjectSeed = { id: string; archivedAt: Date | null }
+
+    function callResolveSubjectStates(
+      recipientUserId: string,
+      notifRows: {
+        userId: string
+        type: string
+        subjectType: string | null
+        subjectId: string | null
+        data: unknown
+      }[],
+      approvalSeeds: ApprovalSeed[],
+      projectSeeds: ProjectSeed[],
+    ) {
+      const db = {
+        db: {
+          select: (_fields?: unknown) => ({
+            from: (t: unknown) => {
+              if (t === approvals) {
+                return {
+                  where: async (cond: unknown) =>
+                    approvalSeeds
+                      .filter((r) =>
+                        matchesWhere(
+                          cond,
+                          r as unknown as Record<string, unknown>,
+                          APPROVALS_COLUMNS,
+                        ),
+                      )
+                      .map((r) => ({ id: r.id, status: r.status })),
+                }
+              }
+              if (t === projects) {
+                return {
+                  where: async (cond: unknown) =>
+                    projectSeeds.filter((r) =>
+                      matchesWhere(cond, r as unknown as Record<string, unknown>, PROJECTS_COLUMNS),
+                    ),
+                }
+              }
+              throw new Error('resolveSubjectStates harness: unexpected table in .from()')
+            },
+          }),
+        },
+      }
+      const svc = new NotificationsService(
+        db as unknown as ConstructorParameters<typeof NotificationsService>[0],
+        makeTelemetryErrorsStub(),
+      )
+      const resolve = (
+        svc as unknown as {
+          resolveSubjectStates: (userId: string, rows: unknown[]) => Promise<unknown[]>
+        }
+      ).resolveSubjectStates.bind(svc)
+      return resolve(recipientUserId, notifRows)
+    }
+
+    it('approval строки того же получателя — предложение активно', async () => {
+      const [state] = await callResolveSubjectStates(
+        'u-1',
+        [
+          {
+            userId: 'u-1',
+            type: 'SHARE_CONFIRM_REQUIRED',
+            subjectType: 'PROJECT',
+            subjectId: 'p-1',
+            data: { approvalId: APPROVAL_UUID },
+          },
+        ],
+        [{ id: APPROVAL_UUID, status: 'PENDING', approverUserId: 'u-1', supersededAt: null }],
+        [{ id: 'p-1', archivedAt: null }],
+      )
+      expect(state).toBe('active')
+    })
+
+    it('approval строки ДРУГОГО подтверждающего — как отсутствующая, не оживляет уведомление', async () => {
+      // Живая строка существует и не погашена — но принадлежит ЧУЖОМУ
+      // подтверждающему. Без `eq(approverUserId, userId)` в `where` она нашлась
+      // бы и дала 'active'; со связью — не находится вовсе, ровно как
+      // погашенная (см. doc-комментарий `computeSubjectState`).
+      const [state] = await callResolveSubjectStates(
+        'u-1',
+        [
+          {
+            userId: 'u-1',
+            type: 'SHARE_CONFIRM_REQUIRED',
+            subjectType: 'PROJECT',
+            subjectId: 'p-1',
+            data: { approvalId: APPROVAL_UUID },
+          },
+        ],
+        [{ id: APPROVAL_UUID, status: 'PENDING', approverUserId: 'u-OTHER', supersededAt: null }],
+        [{ id: 'p-1', archivedAt: null }],
+      )
+      expect(state).toBe('approvalSuperseded')
+    })
+
+    it('approval строка того же получателя, но уже решённая — «Решение уже принято»', async () => {
+      const [state] = await callResolveSubjectStates(
+        'u-1',
+        [
+          {
+            userId: 'u-1',
+            type: 'SHARE_CONFIRM_REQUIRED',
+            subjectType: 'PROJECT',
+            subjectId: 'p-1',
+            data: { approvalId: APPROVAL_UUID },
+          },
+        ],
+        [{ id: APPROVAL_UUID, status: 'APPROVED', approverUserId: 'u-1', supersededAt: null }],
+        [{ id: 'p-1', archivedAt: null }],
+      )
+      expect(state).toBe('approvalDecided')
     })
   })
 

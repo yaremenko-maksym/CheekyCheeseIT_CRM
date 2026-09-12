@@ -373,7 +373,7 @@ export class NotificationsService {
     // идентификатору: карта требовала бы запасного значения на случай
     // «состояния нет», которого не бывает, — и это запасное значение было бы
     // веткой, которую не исполняет ни один тест.
-    const states = await this.resolveSubjectStates(rows)
+    const states = await this.resolveSubjectStates(userId, rows)
 
     return {
       items: rows.map((r, index) => this.mapNotification(r, states[index]!)),
@@ -399,8 +399,17 @@ export class NotificationsService {
    * идентификатору объекта. Запрос по объекту возвращал живое поколение
    * согласования на уведомление о ЛЮБОМ поколении — старое предложение доли
    * оставалось активным рядом с новым, с другим процентом и рабочей кнопкой.
+   *
+   * SR-L-8 (security-review круг 6, #664, defense-in-depth). `userId` —
+   * получатель ВСЕХ строк `rows` (единственный вызывающий — `listForUser`,
+   * который уже скопил их по этому получателю), и запрос к `approvals`
+   * связывает найденную строку с НИМ через `approverUserId`, а не полагается
+   * на дисциплину производителей (сегодня она верна — см. security-review
+   * дельты — но структурный инвариант дешевле держать в запросе, чем в
+   * доверии). Строка чужого подтверждающего читается КАК ОТСУТСТВУЮЩАЯ.
    */
   private async resolveSubjectStates(
+    userId: string,
     rows: (typeof notifications.$inferSelect)[],
   ): Promise<SubjectResolution[]> {
     const refs: SubjectRef[] = rows.map((r) => ({
@@ -425,7 +434,13 @@ export class NotificationsService {
       const live = await this.db.db
         .select({ id: approvals.id, status: approvals.status })
         .from(approvals)
-        .where(and(isNull(approvals.supersededAt), inArray(approvals.id, approvalIds)))
+        .where(
+          and(
+            isNull(approvals.supersededAt),
+            inArray(approvals.id, approvalIds),
+            eq(approvals.approverUserId, userId),
+          ),
+        )
       for (const row of live) {
         const classification = classifyApprovalRow(row.status)
         if (classification === 'live') liveApprovalIds.add(row.id)

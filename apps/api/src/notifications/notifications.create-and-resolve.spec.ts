@@ -499,7 +499,7 @@ describe('исчезнувший объект вычисляется на чте
         makeRow({
           type: 'PROJECT_CONFIRM_REQUIRED',
           subjectId: 'p-1',
-          data: { projectName: 'Acme', approvalId: 'a-1' },
+          data: { projectName: 'Acme', approvalId: '11111111-1111-4111-8111-111111111111' },
         }),
       ],
       // Проект жив, но живого согласования по нему больше нет: предложение
@@ -529,12 +529,12 @@ describe('исчезнувший объект вычисляется на чте
         makeRow({
           type: 'PROJECT_CONFIRM_REQUIRED',
           subjectId: 'p-1',
-          data: { projectName: 'Acme', approvalId: 'a-1' },
+          data: { projectName: 'Acme', approvalId: '11111111-1111-4111-8111-111111111111' },
         }),
       ],
       {
         projects: ['p-1'],
-        approvals: [{ id: 'a-1', status: 'PENDING' }],
+        approvals: [{ id: '11111111-1111-4111-8111-111111111111', status: 'PENDING' }],
       },
     )
 
@@ -557,12 +557,12 @@ describe('исчезнувший объект вычисляется на чте
         makeRow({
           type: 'PROJECT_CONFIRM_REQUIRED',
           subjectId: 'p-1',
-          data: { projectName: 'Acme', approvalId: 'a-1' },
+          data: { projectName: 'Acme', approvalId: '11111111-1111-4111-8111-111111111111' },
         }),
       ],
       {
         projects: ['p-1'],
-        approvals: [{ id: 'a-1', status: 'APPROVED' }],
+        approvals: [{ id: '11111111-1111-4111-8111-111111111111', status: 'APPROVED' }],
       },
     )
 
@@ -585,12 +585,12 @@ describe('исчезнувший объект вычисляется на чте
         makeRow({
           type: 'PROJECT_CONFIRM_REQUIRED',
           subjectId: 'p-1',
-          data: { projectName: 'Acme', approvalId: 'a-1' },
+          data: { projectName: 'Acme', approvalId: '11111111-1111-4111-8111-111111111111' },
         }),
       ],
       {
         projects: ['p-1'],
-        approvals: [{ id: 'a-1', status: 'REJECTED' }],
+        approvals: [{ id: '11111111-1111-4111-8111-111111111111', status: 'REJECTED' }],
       },
     )
 
@@ -611,12 +611,12 @@ describe('исчезнувший объект вычисляется на чте
         makeRow({
           type: 'PROJECT_CONFIRM_REQUIRED',
           subjectId: 'p-1',
-          data: { projectName: 'Acme', approvalId: 'a-1' },
+          data: { projectName: 'Acme', approvalId: '11111111-1111-4111-8111-111111111111' },
         }),
       ],
       {
         projects: ['p-1'],
-        approvals: [{ id: 'a-1', status: 'CANCELLED' }],
+        approvals: [{ id: '11111111-1111-4111-8111-111111111111', status: 'CANCELLED' }],
       },
     )
 
@@ -632,12 +632,12 @@ describe('исчезнувший объект вычисляется на чте
         makeRow({
           type: 'PROJECT_CONFIRM_REQUIRED',
           subjectId: 'p-1',
-          data: { projectName: 'Acme', approvalId: 'a-1' },
+          data: { projectName: 'Acme', approvalId: '11111111-1111-4111-8111-111111111111' },
         }),
       ],
       {
         projects: ['p-1'],
-        approvals: [{ id: 'a-1', status: 'PENDING' }],
+        approvals: [{ id: '11111111-1111-4111-8111-111111111111', status: 'PENDING' }],
       },
     )
 
@@ -651,7 +651,7 @@ describe('исчезнувший объект вычисляется на чте
     // QA-H-1 (круг 3): условие — по идентификатору СТРОКИ согласования, а не
     // по идентификатору объекта. Запрос по объекту возвращал живое НОВОЕ
     // поколение на уведомление о СТАРОМ, и старое оставалось активным.
-    expect(compiled.params).toContain('a-1')
+    expect(compiled.params).toContain('11111111-1111-4111-8111-111111111111')
     expect(compiled.params).not.toContain('p-1')
     expect(compiled.sql).toContain('superseded_at')
   })
