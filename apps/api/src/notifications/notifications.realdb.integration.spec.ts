@@ -54,6 +54,9 @@ const PROJECT_ID = 'f6a10000-0000-4006-c000-000000000001'
 const DOOMED_PROJECT_ID = 'f6a10000-0000-4006-c000-000000000002'
 // QA-M-1 (manual-qa круг 1, #664) — контракт NEWCOMER_ID для теста деградации.
 const CONTRACT_ID = 'f6a10000-0000-4006-d000-000000000001'
+// QA-M-3 / QA-L-2 (manual-qa круг 2, #664) — объекты, которые архивируют.
+const ARCHIVED_PROJECT_ID = 'f6a10000-0000-4006-c000-000000000003'
+const ARCHIVED_TEAM_ID = 'f6a10000-0000-4006-b000-000000000002'
 const ALL_USER_IDS = [ADMIN_ID, SENIOR_ID, DROP_ID, NEWCOMER_ID]
 
 let pool: Pool
@@ -69,8 +72,10 @@ async function wipe(): Promise<void> {
   await db.delete(teamMembers).where(inArray(teamMembers.userId, ALL_USER_IDS))
   // FK-safe order: contract row before its owning user.
   await db.delete(employeeContracts).where(eq(employeeContracts.id, CONTRACT_ID))
-  await db.delete(projects).where(inArray(projects.id, [PROJECT_ID, DOOMED_PROJECT_ID]))
-  await db.delete(teams).where(eq(teams.id, TEAM_ID))
+  await db
+    .delete(projects)
+    .where(inArray(projects.id, [PROJECT_ID, DOOMED_PROJECT_ID, ARCHIVED_PROJECT_ID]))
+  await db.delete(teams).where(inArray(teams.id, [TEAM_ID, ARCHIVED_TEAM_ID]))
   await db.delete(users).where(inArray(users.id, ALL_USER_IDS))
 }
 
@@ -425,6 +430,132 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       // упереться в partial-unique `employee_contracts_one_per_user`.
       await db.delete(notifications).where(eq(notifications.subjectId, CONTRACT_ID))
       await db.delete(employeeContracts).where(eq(employeeContracts.id, CONTRACT_ID))
+    })
+  })
+
+  /**
+   * QA-M-3 (MED) / QA-L-2 (LOW) — manual-qa круг 2, #664.
+   *
+   * Находка вскрылась ТОЛЬКО на живом стенде, и проверять её мок не имеет
+   * права по той же причине, что и остальную деградацию: «объект архивен»
+   * живёт в колонке `archived_at`, и вопрос ровно в том, читает ли её
+   * реальный запрос. Мок вернёт то, что в него положили, и не заметит, если
+   * колонку перестать спрашивать.
+   *
+   * Прогон QA: архивация проекта каскадом закрывает членство
+   * (`project_members.left_at`), и джун по активной кнопке приезжал на
+   * «Вас ещё не добавили в проект» — ложь про событие, которое БЫЛО.
+   */
+  describe('QA-M-3 / QA-L-2 — архив это не удаление', () => {
+    it('архивный проект: семь типов с subjectType=PROJECT получают «Проект в архиве»', async () => {
+      await db.insert(projects).values({
+        id: ARCHIVED_PROJECT_ID,
+        name: 'Проект, который заархивируют',
+        companyName: 'Acme',
+        domain: 'AI',
+        startDate: new Date('2026-01-01T00:00:00Z'),
+        seniorId: SENIOR_ID,
+        rate: 100,
+      })
+      await service.create({
+        userId: NEWCOMER_ID,
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Вас добавили в проект',
+        subjectType: 'PROJECT',
+        subjectId: ARCHIVED_PROJECT_ID,
+        data: { projectName: 'Проект, который заархивируют' },
+      })
+
+      const beforeArchive = await service.listForUser(NEWCOMER_ID, { limit: 10 })
+      const live = beforeArchive.items.find((n) => n.subjectId === ARCHIVED_PROJECT_ID)
+      expect([live?.subjectMissing, live?.subjectArchived]).toEqual([false, false])
+      expect(renderNotification(live as RenderableNotification).actions).toEqual([
+        { label: 'Открыть проект', href: `/projects/${ARCHIVED_PROJECT_ID}`, disabled: false },
+      ])
+
+      // Ровно то, что делает `DELETE /api/projects/:id` — строка остаётся,
+      // проставляется `archived_at`.
+      await db
+        .update(projects)
+        .set({ archivedAt: new Date() })
+        .where(eq(projects.id, ARCHIVED_PROJECT_ID))
+
+      const afterArchive = await service.listForUser(NEWCOMER_ID, { limit: 10 })
+      const archived = afterArchive.items.find((n) => n.subjectId === ARCHIVED_PROJECT_ID)
+      expect(archived).toBeDefined()
+      expect(archived?.subjectArchived).toBe(true)
+      // Не «удалён»: проект цел и виден в архиве — вторая ложь была бы не
+      // лучше первой.
+      expect(archived?.subjectMissing).toBe(false)
+      expect(renderNotification(archived as RenderableNotification).actions).toEqual([
+        { label: 'Проект в архиве', href: null, disabled: true },
+      ])
+
+      // Находка задевает не один тип, а всю семью с этим видом объекта.
+      for (const type of [
+        'PROJECT_CONFIRM_REQUIRED',
+        'SHARE_CONFIRM_REQUIRED',
+        'APPROVAL_CONFIRMED',
+        'APPROVAL_REJECTED',
+      ] as const) {
+        const rendered = renderNotification({
+          ...(archived as RenderableNotification),
+          type,
+        })
+        expect(rendered.actions).toEqual([{ label: 'Проект в архиве', href: null, disabled: true }])
+      }
+
+      await db.delete(notifications).where(eq(notifications.subjectId, ARCHIVED_PROJECT_ID))
+      await db.delete(projects).where(eq(projects.id, ARCHIVED_PROJECT_ID))
+    })
+
+    it('архивная команда: «Команда в архиве», кнопка недоступна', async () => {
+      await db.insert(teams).values({ id: ARCHIVED_TEAM_ID, name: 'Команда, которую заархивируют' })
+      await service.create({
+        userId: NEWCOMER_ID,
+        type: 'TEAM_NEW_MEMBER',
+        title: 'В команде новый участник',
+        subjectType: 'TEAM',
+        subjectId: ARCHIVED_TEAM_ID,
+        secondaryId: DROP_ID,
+        data: { teamName: 'Команда, которую заархивируют', memberName: 'Дроп' },
+      })
+
+      await db.update(teams).set({ archivedAt: new Date() }).where(eq(teams.id, ARCHIVED_TEAM_ID))
+
+      const list = await service.listForUser(NEWCOMER_ID, { limit: 10 })
+      const item = list.items.find((n) => n.subjectId === ARCHIVED_TEAM_ID)
+      expect([item?.subjectMissing, item?.subjectArchived]).toEqual([false, true])
+      expect(renderNotification(item as RenderableNotification).actions).toEqual([
+        { label: 'Команда в архиве', href: null, disabled: true },
+      ])
+
+      await db.delete(notifications).where(eq(notifications.subjectId, ARCHIVED_TEAM_ID))
+      await db.delete(teams).where(eq(teams.id, ARCHIVED_TEAM_ID))
+    })
+
+    it('архивный профиль: «Профиль в архиве» — у users своя archived_at', async () => {
+      await service.create({
+        userId: ADMIN_ID,
+        type: 'APPROVAL_CONFIRMED',
+        title: 'Предложение принято',
+        subjectType: 'USER',
+        subjectId: DROP_ID,
+        secondaryId: DROP_ID,
+        data: { approverName: 'Дроп', subjectKind: 'BASE_SHARE', subjectTitle: null },
+      })
+
+      await db.update(users).set({ archivedAt: new Date() }).where(eq(users.id, DROP_ID))
+
+      const list = await service.listForUser(ADMIN_ID, { limit: 10 })
+      const item = list.items.find((n) => n.subjectId === DROP_ID)
+      expect([item?.subjectMissing, item?.subjectArchived]).toEqual([false, true])
+      expect(renderNotification(item as RenderableNotification).actions).toEqual([
+        { label: 'Профиль в архиве', href: null, disabled: true },
+      ])
+
+      await db.update(users).set({ archivedAt: null }).where(eq(users.id, DROP_ID))
+      await db.delete(notifications).where(eq(notifications.subjectId, DROP_ID))
     })
   })
 })

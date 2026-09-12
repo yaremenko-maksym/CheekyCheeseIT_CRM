@@ -22,7 +22,10 @@ import type { Page } from '@playwright/test'
 const KNOWN_ID = '11111111-2222-4333-8444-555555555501'
 const MISSING_ID = '11111111-2222-4333-8444-555555555502'
 const UNKNOWN_ID = '11111111-2222-4333-8444-555555555503'
+const ARCHIVED_ID = '11111111-2222-4333-8444-555555555504'
+const REJECTED_ID = '11111111-2222-4333-8444-555555555505'
 const PROJECT_ID = '99999999-2222-4333-8444-555555555599'
+const ARCHIVED_PROJECT_ID = '99999999-2222-4333-8444-55555555559a'
 
 const ITEMS = [
   {
@@ -38,6 +41,7 @@ const ITEMS = [
     secondaryId: null,
     data: { projectName: 'Acme' },
     subjectMissing: false,
+    subjectArchived: false,
   },
   {
     id: MISSING_ID,
@@ -52,6 +56,48 @@ const ITEMS = [
     secondaryId: null,
     data: { teamName: 'Alpha', memberName: 'Иван Петров' },
     subjectMissing: true,
+    subjectArchived: false,
+  },
+  {
+    // QA-M-3 / QA-L-2 (manual-qa круг 2, #664): архив — третий ответ, а не
+    // разновидность удаления. На живом прогоне архивный проект оставлял
+    // кнопку активной, и джун приезжал на «Вас ещё не добавили в проект».
+    id: ARCHIVED_ID,
+    type: 'PROJECT_MEMBER_ADDED',
+    title: 'Вас добавили в проект',
+    body: null,
+    link: null,
+    readAt: null,
+    createdAt: '2026-09-07T08:30:00.000Z',
+    subjectType: 'PROJECT',
+    subjectId: ARCHIVED_PROJECT_ID,
+    secondaryId: null,
+    data: { projectName: 'Проект в архиве' },
+    subjectMissing: false,
+    subjectArchived: true,
+  },
+  {
+    // COPY-M-7 / UX-M-2 (copy + design круг 2): причина отказа идёт ПЕРВОЙ
+    // строкой, иначе её не видит никто — «кто — по какому объекту» съедает
+    // оба ряда `line-clamp-2`.
+    id: REJECTED_ID,
+    type: 'APPROVAL_REJECTED',
+    title: 'Предложение отклонено',
+    body: null,
+    link: null,
+    readAt: null,
+    createdAt: '2026-09-07T08:15:00.000Z',
+    subjectType: 'PROJECT',
+    subjectId: PROJECT_ID,
+    secondaryId: null,
+    data: {
+      approverName: 'Дмитро Марченко',
+      subjectKind: 'PROJECT_SHARE',
+      subjectTitle: 'Ferm E-Commerce',
+      reasonPreview: 'дублирует существующий проект того же клиента, обсудим в четверг',
+    },
+    subjectMissing: false,
+    subjectArchived: false,
   },
   {
     id: UNKNOWN_ID,
@@ -69,6 +115,7 @@ const ITEMS = [
     secondaryId: null,
     data: null,
     subjectMissing: false,
+    subjectArchived: false,
   },
 ]
 
@@ -174,4 +221,44 @@ test.describe('N4 — адаптив попапа: ни одной ширины 
       expect(listOverflow, `список на ${width}px`).toBeLessThanOrEqual(0)
     })
   }
+})
+
+test.describe('N5 — архив и причина отказа (круг 2: QA-M-3/QA-L-2, COPY-M-7/UX-M-2)', () => {
+  test('архивный объект: «Проект в архиве», кнопка не ведёт никуда', async ({ asAdmin }) => {
+    await mockNotifications(asAdmin)
+    await asAdmin.goto('/')
+    await openBell(asAdmin)
+
+    // QA-M-3: архив — не удаление. «Проект удалён» на архивном проекте было
+    // бы второй ложью после активной кнопки.
+    await expect(asAdmin.getByTestId(`notification-item-${ARCHIVED_ID}-action`)).toHaveText(
+      'Проект в архиве',
+    )
+    await asAdmin.getByTestId(`notification-item-${ARCHIVED_ID}-open`).click()
+    await expect(asAdmin).toHaveURL(/\/$/)
+  })
+
+  test('причина отказа видна первой строкой и закрыта кавычкой', async ({ asAdmin }) => {
+    await mockNotifications(asAdmin)
+    await asAdmin.goto('/')
+    await asAdmin.setViewportSize({ width: 320, height: 900 })
+    await openBell(asAdmin)
+
+    const detail = asAdmin.getByTestId(`notification-item-${REJECTED_ID}-detail`)
+    const text = (await detail.textContent()) ?? ''
+    // COPY-M-7: причина ПЕРВОЙ строкой — кругом раньше её не видел никто.
+    expect(text.startsWith('«')).toBe(true)
+    // UX-M-2: закрывающая «ёлочка» — на той же строке, а не за границей клипа.
+    const firstLine = text.split('\n')[0] ?? ''
+    expect(firstLine.endsWith('»')).toBe(true)
+    expect(text).toContain('Дмитро Марченко')
+
+    // Та же мера, что и в N4: строка не должна вылезать за попап на 320.
+    const overflow = await asAdmin.evaluate(() => {
+      const list = document.querySelector('[data-testid="notifications-list"]')
+      if (!list) throw new Error('notifications-list не найден')
+      return list.scrollWidth - list.clientWidth
+    })
+    expect(overflow).toBeLessThanOrEqual(0)
+  })
 })
