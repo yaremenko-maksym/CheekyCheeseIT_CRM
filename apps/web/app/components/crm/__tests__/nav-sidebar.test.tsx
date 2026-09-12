@@ -68,7 +68,7 @@ const seniorUser: SessionUser = {
   seniorSharePercent: 26,
 }
 
-function renderSidebar() {
+function renderSidebar(opts: { mobileOpen?: boolean } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const rootRoute = createRootRoute({
     component: () => (
@@ -77,7 +77,7 @@ function renderSidebar() {
           user={seniorUser}
           collapsed={false}
           onToggle={() => {}}
-          mobileOpen={false}
+          mobileOpen={opts.mobileOpen ?? false}
           onMobileClose={() => {}}
         />
       </QueryClientProvider>
@@ -151,5 +151,70 @@ describe('NavSidebar — «Ждут решения» nav item (label, link targe
     // leaves no element at all, which also fails this call.
     const badge = await screen.findByTestId('nav-pending-badge')
     expect(badge).toHaveTextContent('2')
+  })
+
+  // mutation-gate (PR #667 fix-round 2, round 2 of the gate itself): the
+  // test above only exercises `badgeCount > 99` at count=2 (false branch) —
+  // a mutant that changes the false branch's OWN result, or that flips `>`
+  // to `>=` (which only diverges from `>` exactly AT 99), survives a
+  // count=2 case because it produces the SAME output as the real code for
+  // that one input. These two pin the true branch and the exact boundary.
+  it('badge count caps display at "99+" once the count exceeds 99, but shows the exact number AT 99', async () => {
+    mockIsComplete = true
+    mockMine = Array.from({ length: 100 }, (_, i) => ({ id: String(i) }))
+
+    renderSidebar()
+
+    const badgeOver = await screen.findByTestId('nav-pending-badge')
+    expect(badgeOver).toHaveTextContent('99+')
+  })
+
+  it('badge count shows the exact number "99" at the boundary — not "99+"', async () => {
+    mockIsComplete = true
+    mockMine = Array.from({ length: 99 }, (_, i) => ({ id: String(i) }))
+
+    renderSidebar()
+
+    const badgeAtBoundary = await screen.findByTestId('nav-pending-badge')
+    expect(badgeAtBoundary).toHaveTextContent('99')
+    expect(badgeAtBoundary).not.toHaveTextContent('99+')
+  })
+
+  // mutation-gate: the badge's own classNames (both the always-applied base
+  // and the collapsed-vs-expanded ternary) had no assertion at all — a
+  // mutant turning either string to "" changed nothing any test checked.
+  it('badge carries its base classes and the expanded-state (non-collapsed) position classes', async () => {
+    mockIsComplete = true
+    mockMine = [{ id: '1' }]
+
+    renderSidebar()
+
+    const badge = await screen.findByTestId('nav-pending-badge')
+    // Base classes (always applied, line 329's own literal).
+    expect(badge).toHaveClass('rounded-full', 'bg-primary')
+    // `collapsed` is false in this harness (renderSidebar's own prop) — the
+    // expanded branch of the ternary, not the `absolute -top-0.5
+    // -right-0.5` collapsed branch.
+    expect(badge).toHaveClass('ml-auto', 'px-1')
+    expect(badge).not.toHaveClass('absolute')
+  })
+
+  // mutation-gate: the MOBILE Sheet's own copy of the same `item.badgeCount
+  // > 99 ? '99+' : item.badgeCount` ternary is a SEPARATE JSX expression
+  // from the desktop one above — evaluated (and therefore "covered") every
+  // render regardless of `mobileOpen`, since it is a plain child expression
+  // inside `SheetContent`'s JSX, but its RESULT was never read by any
+  // assertion. Radix's Dialog/Sheet does not mount `SheetContent` into the
+  // DOM at all while `open=false` (confirmed by `mobileOpen={true}` being
+  // required below for `nav-pending-badge-mobile` to be findable) — so this
+  // is the only way to observe it.
+  it('mobile Sheet badge (separate JSX from the desktop one) also caps at "99+"', async () => {
+    mockIsComplete = true
+    mockMine = Array.from({ length: 100 }, (_, i) => ({ id: String(i) }))
+
+    renderSidebar({ mobileOpen: true })
+
+    const mobileBadge = await screen.findByTestId('nav-pending-badge-mobile')
+    expect(mobileBadge).toHaveTextContent('99+')
   })
 })

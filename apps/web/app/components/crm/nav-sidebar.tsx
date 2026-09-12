@@ -279,7 +279,10 @@ export function NavSidebar({
                       collapsed state) — badge sits beside the label, not
                       absolute over the icon like the desktop-collapsed case. */}
                   {item.badgeCount ? (
-                    <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                    <span
+                      className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground"
+                      data-testid="nav-pending-badge-mobile"
+                    >
                       {item.badgeCount > 99 ? '99+' : item.badgeCount}
                     </span>
                   ) : null}
