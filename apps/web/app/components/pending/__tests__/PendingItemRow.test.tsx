@@ -7,8 +7,8 @@
  * rendered with WHICH props, plus the title/meta text this file itself
  * owns (§6.1-6.5).
  */
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PendingItem } from '@crm/shared'
 import { PendingItemRow } from '../PendingItemRow'
 
@@ -97,6 +97,13 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
     expect(screen.queryByTestId('stub-project-approval-actions')).not.toBeInTheDocument()
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
   })
+
+  it('proposedByMe with no waitingFor at all (defensive — should not happen): давность only, no "Ждём:"', () => {
+    render(
+      <PendingItemRow item={item({ actions: ['open'] })} zone="proposedByMe" onActed={vi.fn()} />,
+    )
+    expect(screen.queryByText(/^Ждём:/)).not.toBeInTheDocument()
+  })
 })
 
 describe('PendingItemRow — SHARE_APPROVAL', () => {
@@ -166,6 +173,23 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
     ).toBeInTheDocument()
     expect(screen.getByTestId('stub-cancel-pending-share')).toHaveTextContent('project:subj-1:30')
   })
+
+  it('proposedByMe with no waitingFor at all (defensive): "Сейчас X% → предлагают Y% · давность", no "ждём:" segment', () => {
+    render(
+      <PendingItemRow
+        item={item({
+          kind: 'SHARE_APPROVAL',
+          currentPercent: 26,
+          pendingPercent: 30,
+          actions: ['cancel'],
+        })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/ждём:/)).not.toBeInTheDocument()
+    expect(screen.getByText(/^Сейчас 26% → предлагают 30% ·/)).toBeInTheDocument()
+  })
 })
 
 describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
@@ -182,6 +206,75 @@ describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
     expect(screen.queryByText(/^Предложил/)).not.toBeInTheDocument()
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
     expect(screen.queryByTestId('stub-project-approval-actions')).not.toBeInTheDocument()
+  })
+})
+
+describe('PendingItemRow — OpenLink (Открыть) navigation', () => {
+  afterEach(() => {
+    mockNavigate.mockReset()
+  })
+
+  it('clicking Открыть navigates to item.link via the typed router', () => {
+    render(
+      <PendingItemRow
+        item={item({ waitingFor: ['Ірина Савенко'], actions: ['open'] })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('pending-item-open-subj-1'))
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/projects/subj-1' })
+  })
+
+  it('when navigate() throws (item.link is server data, not a route literal the router validated), falls back to a hard navigation', () => {
+    const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
+    mockNavigate.mockImplementation(() => {
+      throw new Error('not a route this build knows about')
+    })
+    render(
+      <PendingItemRow
+        item={item({ waitingFor: ['Ірина Савенко'], actions: ['open'] })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('pending-item-open-subj-1'))
+    expect(assignSpy).toHaveBeenCalledWith('/projects/subj-1')
+    assignSpy.mockRestore()
+  })
+
+  it('CONTRACT_TO_SIGN renders Открыть as the PRIMARY (filled) button; every other kind renders it secondary (ghost)', () => {
+    const { unmount } = render(
+      <PendingItemRow
+        item={item({ kind: 'CONTRACT_TO_SIGN', actions: ['open'] })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('pending-item-open-subj-1')).toHaveClass('bg-primary')
+    unmount()
+
+    render(
+      <PendingItemRow
+        item={item({ waitingFor: ['X'], actions: ['open'] })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('pending-item-open-subj-1')).not.toHaveClass('bg-primary')
+  })
+})
+
+describe('PendingItemRow — fmtRelative fallback', () => {
+  it('an unparsable createdAt renders the raw string instead of "Invalid Date" or crashing', () => {
+    render(
+      <PendingItemRow
+        item={item({ createdAt: 'not-a-real-date' })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/not-a-real-date$/)).toBeInTheDocument()
   })
 })
 
