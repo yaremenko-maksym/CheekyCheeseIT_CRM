@@ -304,6 +304,49 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
     expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
   })
 
+  // COPY-L-6 (fix-round 4) widened the row's input type to include a
+  // degraded `kind: 'UNKNOWN'` item, which carries NO `waitingFor` key at
+  // all — hence the `'waitingFor' in item &&` guard. These two pin the other
+  // two shapes the field can arrive in, which the guard must treat as "no
+  // one is waiting" rather than as "print an empty list".
+  it('an EMPTY waitingFor prints no «Ждём:» segment — a label with nothing after it is worse than no label', () => {
+    render(
+      <PendingItemRow
+        item={item({
+          kind: 'SHARE_APPROVAL',
+          subjectType: 'PROJECT',
+          currentPercent: 26,
+          pendingPercent: 30,
+          waitingFor: [],
+          actions: ['cancel'],
+        })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(metaText()).not.toMatch(/Ждём/)
+    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
+  })
+
+  it('a waitingFor key present but undefined renders the row instead of crashing it', () => {
+    render(
+      <PendingItemRow
+        item={item({
+          kind: 'SHARE_APPROVAL',
+          subjectType: 'PROJECT',
+          currentPercent: 26,
+          pendingPercent: 30,
+          waitingFor: undefined,
+          actions: ['cancel'],
+        })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(metaText()).not.toMatch(/Ждём/)
+    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
+  })
+
   it('multiple names in waitingFor are joined with ", "', () => {
     render(
       <PendingItemRow
