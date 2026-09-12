@@ -125,7 +125,7 @@ describe('«ждёт решения: документ на подпись»', ()
       title: 'Контракт на подпись',
       subjectType: 'EMPLOYEE_CONTRACT',
       subjectId: 'contract-1',
-      data: { documentTitle: 'Ваш контракт с компанией' },
+      data: { documentTitle: 'Ваш контракт' },
     })
   })
 

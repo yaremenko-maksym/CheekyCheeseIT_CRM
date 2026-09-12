@@ -395,7 +395,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
         title: 'Контракт на подпись',
         subjectType: 'EMPLOYEE_CONTRACT',
         subjectId: CONTRACT_ID,
-        data: { documentTitle: 'Ваш контракт с компанией' },
+        data: { documentTitle: 'Ваш контракт' },
       })
 
       const beforeSigning = await service.listForUser(NEWCOMER_ID, { limit: 10 })

@@ -246,11 +246,7 @@ describe('describeNotification — все ветки, чтобы гейт мут
       // COPY-H-6: проценты вперёд, имя проекта в хвосте.
       '26% → не задана · проект без названия',
     ],
-    [
-      'DOCUMENT_SIGN_REQUIRED',
-      { documentTitle: 'Ваш контракт с компанией' },
-      'Ваш контракт с компанией',
-    ],
+    ['DOCUMENT_SIGN_REQUIRED', { documentTitle: 'Ваш контракт' }, 'Ваш контракт'],
     [
       'APPROVAL_CONFIRMED',
       { approverName: 'Иван', subjectKind: 'BASE_SHARE', subjectTitle: null },
@@ -502,7 +498,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
         type: 'DOCUMENT_SIGN_REQUIRED',
         subjectType: 'EMPLOYEE_CONTRACT',
         subjectId: uuid,
-        data: { documentTitle: 'Ваш контракт с компанией' },
+        data: { documentTitle: 'Ваш контракт' },
         subjectMissing: true,
       }),
     ).toEqual([{ label: 'Подпись больше не требуется', href: null, disabled: true }])
@@ -515,7 +511,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
         type: 'DOCUMENT_SIGN_REQUIRED',
         subjectType: 'EMPLOYEE_CONTRACT',
         subjectId: uuid,
-        data: { documentTitle: 'Ваш контракт с компанией' },
+        data: { documentTitle: 'Ваш контракт' },
         subjectMissing: false,
       }),
     ).toEqual([{ label: 'Подписать контракт', href: '/onboarding', disabled: false }])

@@ -146,7 +146,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
       makeNotification({
         type: 'DOCUMENT_SIGN_REQUIRED',
         subjectType: 'EMPLOYEE_CONTRACT',
-        data: { documentTitle: 'Ваш контракт с компанией' },
+        data: { documentTitle: 'Ваш контракт' },
         subjectMissing: true,
       }),
     ]
@@ -164,7 +164,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
       makeNotification({
         type: 'DOCUMENT_SIGN_REQUIRED',
         subjectType: 'EMPLOYEE_CONTRACT',
-        data: { documentTitle: 'Ваш контракт с компанией' },
+        data: { documentTitle: 'Ваш контракт' },
         subjectMissing: false,
       }),
     ]
