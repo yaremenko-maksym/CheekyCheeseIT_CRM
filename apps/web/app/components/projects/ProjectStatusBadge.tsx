@@ -1,3 +1,4 @@
+import { Clock, XCircle } from 'lucide-react'
 import type { ProjectStatus } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 
@@ -28,6 +29,17 @@ export interface ProjectStatusBadgeInfo {
   label: string
   variant: 'default' | 'outline'
   className: string
+  /**
+   * UX-M-1 / UX-L-1 (PR #670 designer review, fix-round 2). Mirrors
+   * `ProjectRow.tsx`'s icon choice for the same two states (`Clock` for
+   * "Ждёт решения", `XCircle` for "Отклонён") — `null` for
+   * `ACTIVE`/`ARCHIVED`, which never had an icon in the list row either.
+   * Unlike the row's own `Clock`, this one is NOT width-gated
+   * (`hidden … xl:inline`): the header badge sits alone in a `flex-wrap`
+   * row, not a ~86px table column, so there is no cramped width to hide it
+   * from — a design decision recorded here, not inferred at the call site.
+   */
+  icon: typeof Clock | null
 }
 
 export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectStatusBadgeInfo {
@@ -37,6 +49,7 @@ export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectSta
       label: 'В архиве',
       variant: 'outline',
       className: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+      icon: null,
     }
   }
 
@@ -48,15 +61,17 @@ export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectSta
         status: 'DRAFT',
         label: 'Ждёт решения',
         variant: 'outline',
-        className: 'border-amber-500/30 bg-amber-500/20 text-amber-300',
+        className: 'gap-1 border-amber-500/30 bg-amber-500/20 text-amber-300',
+        icon: Clock,
       }
     case 'REJECTED':
-      // Same destructive token family as ProjectRow.tsx's "Отклонено" badge.
+      // Same destructive token family as ProjectRow.tsx's "Отклонён" badge.
       return {
         status: 'REJECTED',
         label: 'Отклонён',
         variant: 'outline',
-        className: 'border-destructive/30 bg-destructive/10 text-destructive',
+        className: 'gap-1 border-destructive/30 bg-destructive/10 text-destructive',
+        icon: XCircle,
       }
     case 'ACTIVE':
       return {
@@ -64,6 +79,7 @@ export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectSta
         label: 'Активный',
         variant: 'default',
         className: '',
+        icon: null,
       }
     default: {
       // Exhaustiveness guard — a new `ProjectStatus` member fails the build
@@ -86,6 +102,7 @@ export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectSta
 export function ProjectStatusBadge({ project }: { project: ProjectStatusBadgeInput }) {
   const info = projectStatusBadge(project)
   const testId = info.status === 'ARCHIVED' ? 'project-archived-badge' : 'project-status-badge'
+  const Icon = info.icon
   return (
     <Badge
       variant={info.variant}
@@ -98,6 +115,10 @@ export function ProjectStatusBadge({ project }: { project: ProjectStatusBadgeInp
       data-testid={testId}
       data-status={info.status}
     >
+      {/* UX-M-1 / UX-L-1 (fix-round 2): unconditional, unlike ProjectRow.tsx's
+          own width-gated Clock (`hidden … xl:inline`) — this badge lives
+          alone in the header's `flex-wrap` row, not a ~86px table column. */}
+      {Icon && <Icon className="h-3 w-3" aria-hidden data-testid={`${testId}-icon`} />}
       {info.label}
     </Badge>
   )

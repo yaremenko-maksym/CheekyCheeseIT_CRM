@@ -383,12 +383,16 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(screen.getByText(`от ${project.dropName} и ${project.seniorName}`)).toBeInTheDocument()
   })
 
-  it('REJECTED: renders the "Отклонено" badge + reason text, destructive dot, opacity dimming (same treatment as archived)', async () => {
+  it('REJECTED: renders the "Отклонён" badge + reason text, destructive dot, opacity dimming (same treatment as archived)', async () => {
+    // COPY-M-1 (PR #670 fix-round 2): was "Отклонено" (neuter/impersonal),
+    // renamed to "Отклонён" (masculine, agrees with "проект") to match the
+    // project detail page header badge (`ProjectStatusBadge.tsx`) — one
+    // object, one name across both halves of the same click-through.
     const project = makeProject({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' })
     renderProjectRow(project)
 
     const badge = await screen.findByTestId(`project-row-${project.id}-status-rejected`)
-    expect(badge).toHaveTextContent('Отклонено')
+    expect(badge).toHaveTextContent('Отклонён')
     const reason = screen.getByText('«нет бюджета на Q3»')
     expect(reason).toHaveAttribute('title', 'нет бюджета на Q3')
     const dot = screen.getByTestId(`project-row-${project.id}-status-dot`)

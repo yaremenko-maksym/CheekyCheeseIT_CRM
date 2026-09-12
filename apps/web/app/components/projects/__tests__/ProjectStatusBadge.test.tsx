@@ -26,6 +26,7 @@
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { Clock, XCircle } from 'lucide-react'
 import type { ProjectStatus } from '@crm/shared'
 import { projectStatusBadge, ProjectStatusBadge } from '../ProjectStatusBadge'
 
@@ -35,7 +36,8 @@ describe('projectStatusBadge (pure function)', () => {
       status: 'DRAFT',
       label: 'Ждёт решения',
       variant: 'outline',
-      className: 'border-amber-500/30 bg-amber-500/20 text-amber-300',
+      className: 'gap-1 border-amber-500/30 bg-amber-500/20 text-amber-300',
+      icon: Clock,
     })
   })
 
@@ -44,7 +46,8 @@ describe('projectStatusBadge (pure function)', () => {
       status: 'REJECTED',
       label: 'Отклонён',
       variant: 'outline',
-      className: 'border-destructive/30 bg-destructive/10 text-destructive',
+      className: 'gap-1 border-destructive/30 bg-destructive/10 text-destructive',
+      icon: XCircle,
     })
   })
 
@@ -54,6 +57,7 @@ describe('projectStatusBadge (pure function)', () => {
       label: 'Активный',
       variant: 'default',
       className: '',
+      icon: null,
     })
   })
 
@@ -64,6 +68,7 @@ describe('projectStatusBadge (pure function)', () => {
         label: 'В архиве',
         variant: 'outline',
         className: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+        icon: null,
       },
     )
   })
@@ -76,6 +81,7 @@ describe('projectStatusBadge (pure function)', () => {
       label: 'В архиве',
       variant: 'outline',
       className: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+      icon: null,
     })
   })
 
@@ -87,6 +93,7 @@ describe('projectStatusBadge (pure function)', () => {
       label: 'В архиве',
       variant: 'outline',
       className: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+      icon: null,
     })
   })
 
@@ -107,6 +114,28 @@ describe('<ProjectStatusBadge /> (render)', () => {
     expect(screen.queryByText('Активный')).not.toBeInTheDocument()
   })
 
+  /**
+   * UX-M-1 (PR #670 designer review, fix-round 2). `ProjectRow.tsx`'s own
+   * "Ждёт решения" badge shows a `Clock` icon (there, `hidden … xl:inline`
+   * — width-gated because the list row is a tight ~86px column). The header
+   * badge has room to spare (it sits alone in a `flex-wrap` row with two
+   * other badges, not a table column), so the orchestrator's decision was
+   * to show it unconditionally rather than repeat the same width gate.
+   * `lucide-react`'s `createLucideIcon` always stamps
+   * `lucide-${kebabCase(name)}` onto the rendered `<svg>` (verified reading
+   * `createLucideIcon.mjs` — not assumed), so asserting the `lucide-clock`
+   * class (via the `data-testid="project-status-badge-icon"` the render
+   * wrapper puts on the icon itself, testing-library/no-node-access forbids
+   * `container.querySelector`) also pins WHICH icon renders, not just that
+   * one does.
+   */
+  it("UX-M-1: DRAFT renders the same Clock icon as the list row's pending badge, unconditionally (no width gate — header has room)", () => {
+    render(<ProjectStatusBadge project={{ status: 'DRAFT', archivedAt: null }} />)
+    const icon = screen.getByTestId('project-status-badge-icon')
+    expect(icon).toHaveClass('lucide-clock')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+  })
+
   it('REJECTED renders "Отклонён" with the destructive classes', () => {
     render(<ProjectStatusBadge project={{ status: 'REJECTED', archivedAt: null }} />)
     const badge = screen.getByTestId('project-status-badge')
@@ -118,6 +147,21 @@ describe('<ProjectStatusBadge /> (render)', () => {
       'bg-destructive/10',
       'text-destructive',
     )
+  })
+
+  /**
+   * UX-L-1 (PR #670 designer review, fix-round 2). Same principle as
+   * UX-M-1 above, for the `XCircle` icon `ProjectRow.tsx` shows
+   * unconditionally on its "Отклонён" badge (COPY-M-1, same round). `XCircle` is a deprecated
+   * lucide-react alias for `CircleX` (`x-circle.mjs` re-exports
+   * `circle-x.mjs` — verified reading the source, not assumed), so the
+   * stamped class is `.lucide-circle-x`, not `.lucide-x-circle`.
+   */
+  it("UX-L-1: REJECTED renders the same XCircle icon as the list row's rejected badge", () => {
+    render(<ProjectStatusBadge project={{ status: 'REJECTED', archivedAt: null }} />)
+    const icon = screen.getByTestId('project-status-badge-icon')
+    expect(icon).toHaveClass('lucide-circle-x')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
   })
 
   it('ACTIVE, not archived, renders "Активный" with only the base text-xs class', () => {
