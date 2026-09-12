@@ -14,6 +14,7 @@
  * defense-in-depth).
  */
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -22,17 +23,26 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Put,
   Query,
 } from '@nestjs/common'
-import { notificationListFiltersSchema, type SessionUser } from '@crm/shared'
+import {
+  notificationListFiltersSchema,
+  updateNotificationPreferencesSchema,
+  type SessionUser,
+} from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { NotificationPreferencesService } from './notification-preferences.service'
 import { NotificationsService } from './notifications.service'
 
 // Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD). All routes
 // in this controller require an authenticated user (no `@Public()`).
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly svc: NotificationsService) {}
+  constructor(
+    private readonly svc: NotificationsService,
+    private readonly prefs: NotificationPreferencesService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // GET /api/notifications
@@ -51,6 +61,35 @@ export class NotificationsController {
       limit: limit ? Number(limit) : undefined,
     })
     return this.svc.listForUser(user.id, filters)
+  }
+
+  // ---------------------------------------------------------------------------
+  // GET /api/notifications/preferences   (позиция 7a)
+  // ---------------------------------------------------------------------------
+  // Стоит ВЫШЕ `:id/read` по той же причине, что и `read-all`: иначе
+  // `ParseUUIDPipe` попытается прочитать «preferences» как UUID.
+  //
+  // Идентификатора пользователя нет ни в пути, ни в теле: обе ручки работают
+  // с настройками ТОГО, КТО СПРОСИЛ. Чужие настройки нельзя ни прочитать, ни
+  // записать не потому, что проверка это запрещает, а потому что назвать
+  // чужого нечем.
+
+  @Get('preferences')
+  getPreferences(@CurrentUser() user: SessionUser) {
+    return this.prefs.listForUser(user.id)
+  }
+
+  // ---------------------------------------------------------------------------
+  // PUT /api/notifications/preferences   (позиция 7a)
+  // ---------------------------------------------------------------------------
+  // Разбор — `updateNotificationPreferencesSchema`, а не class-validator
+  // (правило проекта). Он же отвергает попытку выключить письмо у типа,
+  // требующего действия: §3, «приглушить можно, выключить нет».
+
+  @Put('preferences')
+  updatePreferences(@CurrentUser() user: SessionUser, @Body() body: unknown) {
+    const input = updateNotificationPreferencesSchema.parse(body)
+    return this.prefs.updateForUser(user.id, input)
   }
 
   // ---------------------------------------------------------------------------

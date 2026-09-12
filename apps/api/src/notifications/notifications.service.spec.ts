@@ -19,7 +19,12 @@ import { NotFoundException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApprovalStatus } from '@crm/shared'
-import { approvals, projects } from '../database/schema'
+import {
+  approvals,
+  notificationEmails,
+  notificationPreferences,
+  projects,
+} from '../database/schema'
 import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { NotificationsService } from './notifications.service'
 
@@ -58,6 +63,9 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
     dedupeKey: s.dedupeKey ?? null,
   }))
 
+  /** Строки очереди писем (позиция 7a) — сюда уходит всё, что не уведомление. */
+  const emailRows: Record<string, unknown>[] = []
+
   // Routing: callers signal which scope they want via these flags BEFORE
   // they call the service method under test. The stubs read them when the
   // service issues a query.
@@ -93,6 +101,10 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
           return {
             from: (_t: unknown) => ({
               where: async (_p: unknown) => {
+                // Позиция 7a: тем же `select(fields).from(...).where(...)`
+                // читаются настройки каналов. Пустой список = «человек ничего
+                // не менял», то есть письма идут по умолчанию.
+                if (_t === notificationPreferences) return []
                 const uid = ctx.scopeUserId
                 const unread = rows.filter((r) => (!uid || r.userId === uid) && r.readAt === null)
                 return [{ count: unread.length }]
@@ -122,8 +134,23 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
       // заглушка отдаёт тот же объект-базу — в памяти транзакция ничего не
       // меняет, а вызовы идут по тому же пути, что и в бою.
       transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => cb(db.db),
+      // Позиция 7a: сервис пишет уже в ДВЕ таблицы — уведомление и строку
+      // очереди писем. Заглушка, складывающая обе в один массив, показала бы
+      // зелёным даже запись письма вместо уведомления, поэтому маршрутизация
+      // идёт по самой таблице. Содержимое очереди проверяется отдельно
+      // (`notifications.email-enqueue.spec.ts`); здесь она только не мешает.
       insert: (_t: unknown) => ({
         values: (v: Record<string, unknown>) => {
+          if (_t === notificationEmails) {
+            const queued = () => {
+              emailRows.push({ ...v })
+              return [{ id: `e-${emailRows.length}`, ...v }]
+            }
+            return {
+              returning: async () => queued(),
+              onConflictDoNothing: (_target: unknown) => ({ returning: async () => queued() }),
+            }
+          }
           const insertRow = () => {
             const row: NotifRow = {
               id: `n-new-${rows.length}`,

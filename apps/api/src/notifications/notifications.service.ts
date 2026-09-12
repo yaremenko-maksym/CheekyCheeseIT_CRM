@@ -33,6 +33,8 @@ import {
   approvals,
   employeeContracts,
   nonDeletedTransactions,
+  notificationEmails,
+  notificationPreferences,
   notifications,
   projects,
   teams,
@@ -50,6 +52,7 @@ import {
   type SubjectResolution,
   type SubjectState,
 } from './notification-subject-resolver'
+import { shouldQueueEmail } from './notification-email-outbox'
 
 /**
  * Что производитель кладёт в запись. §7.1: тип события и идентификаторы
@@ -187,7 +190,79 @@ export class NotificationsService {
       if (values.dedupeKey !== null) return null
       throw new Error('Failed to insert notification')
     }
+
+    // Позиция 7a, AC1: письмо встаёт в очередь ТОЙ ЖЕ транзакцией. Не
+    // дисциплина, а свойство: откатилось событие — откатились и уведомление,
+    // и письмо. Письмо о несостоявшемся событии недопустимо ровно так же,
+    // как уведомление о нём.
+    //
+    // Порядок значим: строка очереди ссылается на уведомление, поэтому она
+    // может появиться только ПОСЛЕ него — и только если оно действительно
+    // появилось (погашенное идемпотентностью вернулось выше как `null`, и
+    // второго письма не будет).
+    await this.enqueueEmailInTx(tx, row.id, values.userId, values.type)
+
     return this.mapNotification(row, 'active')
+  }
+
+  /**
+   * Поставить письмо по уже вставленному уведомлению.
+   *
+   * **Не имеет права уронить событие** — та же граница, что у `refuse()`
+   * (SR-H-1, security-review круг 1, #664): цена ошибки в КАНАЛЕ не равна
+   * цене ошибки в самом событии. Проект не должен перестать создаваться
+   * из-за того, что очередь писем недоступна. Отказ при этом громкий —
+   * `logger.error` плюс строка в телеметрии, которая доезжает до дайджеста.
+   *
+   * В отличие от `refuse()`, здесь достаточно `try/catch` без савепойнта:
+   * весь путь производителя УЖЕ обёрнут во вложенную транзакцию
+   * (`emitInTx`), и ошибка Postgres, абортившая бы транзакцию события,
+   * откатывается до её савепойнта. Собственный савепойнт добавил бы второй
+   * круг отката там, где первый уже есть.
+   */
+  private async enqueueEmailInTx(
+    tx: DrizzleTx,
+    notificationId: string,
+    userId: string,
+    type: string,
+  ): Promise<void> {
+    try {
+      if (!isNewNotificationType(type)) return
+
+      // Читаются ТОЛЬКО отличия от умолчания — в таблице нет строк для всего,
+      // чего человек не менял (см. `notification_preferences`).
+      const prefRows = await tx
+        .select({
+          type: notificationPreferences.type,
+          emailEnabled: notificationPreferences.emailEnabled,
+        })
+        .from(notificationPreferences)
+        .where(eq(notificationPreferences.userId, userId))
+
+      const prefs = new Map(prefRows.map((r) => [r.type, r.emailEnabled]))
+      if (!shouldQueueEmail(type, prefs)) return
+
+      await tx
+        .insert(notificationEmails)
+        .values({ notificationId, userId })
+        // Одно письмо на уведомление: повторная постановка — ничего, а не
+        // второе письмо. Индекс `uq_notification_emails_notification`.
+        .onConflictDoNothing({ target: notificationEmails.notificationId })
+        .returning()
+    } catch (err) {
+      this.logger.error(
+        `Письмо не поставлено в очередь (событие и уведомление не откатываем): ${
+          err instanceof Error ? err.message : String(err)
+        } [type=${type}]`,
+      )
+      this.report({
+        source: 'API',
+        message: 'Notification email not queued',
+        route: '/api/notifications',
+        userId,
+        meta: { type },
+      })
+    }
   }
 
   /**

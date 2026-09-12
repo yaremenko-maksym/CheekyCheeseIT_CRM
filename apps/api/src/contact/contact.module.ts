@@ -16,12 +16,16 @@ import { TelemetryModule } from '../telemetry/telemetry.module'
 import { VacanciesModule } from '../vacancies/vacancies.module'
 import { ContactController } from './contact.controller'
 import { ContactService } from './contact.service'
-import { ResendMailerService } from './resend-mailer.service'
+import { MailerModule } from './mailer.module'
 
 @Module({
-  imports: [VacanciesModule, TelemetryModule],
+  // `ResendMailerService` переехал в `MailerModule` (позиция 7a): тот же
+  // отправщик понадобился `NotificationsModule`, а импорт ЭТОГО модуля замкнул
+  // бы кольцо notifications → contact → vacancies → notifications. Реэкспорт
+  // оставляет `UsersModule` (импортирует нас ради приглашений) без изменений.
+  imports: [MailerModule, VacanciesModule, TelemetryModule],
   controllers: [ContactController],
-  providers: [ContactService, ResendMailerService],
-  exports: [ResendMailerService],
+  providers: [ContactService],
+  exports: [MailerModule],
 })
 export class ContactModule {}
