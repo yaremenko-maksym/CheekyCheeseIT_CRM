@@ -113,7 +113,7 @@ describe('updateNotificationPreferencesSchema', () => {
     // Иначе исход зависит от порядка применения, и пользователь не знает,
     // какая из двух записей победила.
     expect(result.success).toBe(false)
-    expect(issueMessages(result)).toContain('Each notification type may appear at most once')
+    expect(issueMessages(result)).toContain('Каждый тип уведомления можно указать только один раз')
   })
 
   it('отвергает пачку, где ХОТЯ БЫ ОДИН запертый тип выключают', () => {
@@ -129,16 +129,46 @@ describe('updateNotificationPreferencesSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('отказ называет причину, а не отвергает молча', () => {
+  it('отказ называет причину ПО-РУССКИ, а не отвергает молча', () => {
     // Сообщение — часть контракта: его читает 7b, чтобы показать человеку,
     // почему переключатель не поддался. Пустой текст отказа неотличим от
-    // поломки сервера.
+    // поломки сервера, английский — от отладочного вывода (SPEC-H-5 / CR-H-5 /
+    // COPY-H-3: `ZodExceptionFilter` отдаёт эту строку клиенту дословно).
     const result = updateNotificationPreferencesSchema.safeParse({
       items: [{ type: 'SHARE_CONFIRM_REQUIRED', emailEnabled: false }],
     })
     expect(issueMessages(result)).toContain(
-      'Email for approval and signature requests cannot be switched off (spec §3) — it can be muted in the mail client, not disabled here',
+      'Письма о запросах на подтверждение и подпись отключить нельзя',
     )
+  })
+
+  it('оба отказа обходятся без латиницы и без ссылок на внутренние документы', () => {
+    // Проверяется свойство, а не вторая копия строки: латиница в
+    // пользовательском тексте — то, чем отличался круг 1, а «(spec §3)»
+    // читателю интерфейса не сообщает ничего.
+    const duplicate = updateNotificationPreferencesSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false },
+        { type: 'TRANSACTION_ADDED', emailEnabled: true },
+      ],
+    })
+    const locked = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'DOCUMENT_SIGN_REQUIRED', emailEnabled: false }],
+    })
+    for (const message of [...issueMessages(duplicate), ...issueMessages(locked)]) {
+      expect(message).not.toMatch(/[A-Za-z]/)
+      expect(message).not.toContain('§')
+    }
+  })
+
+  it('неизвестный тип отвергается русским текстом, а не дефолтом Zod', () => {
+    // Дефолт перечисляет допустимые значения по-английски — а именно это и
+    // увидит человек, если 7b пошлёт устаревший тип из старого бандла.
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'NOT_A_REAL_TYPE', emailEnabled: true }],
+    })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('Неизвестный тип уведомления')
   })
 
   it('отвергает пустой список', () => {

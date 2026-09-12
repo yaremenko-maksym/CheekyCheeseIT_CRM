@@ -27,14 +27,21 @@
  *   - **единый префикс «Запрос на …»** у всего, что требует ответа, — он
  *     сообщает, что это предложение, а не свершившийся факт, ещё до открытия;
  *   - **в письме о смене доли вторая строка снимает испуг** — действует
- *     прежний процент, новый вступит в силу только после согласия.
+ *     прежняя доля, новая вступит в силу только после согласия.
  *
- * Вёрстка — таблицами и встроенными стилями (§12: «почтовые клиенты — не
- * браузеры»), тот же каркас, что у приглашения
- * (`personal-email-invite-mailer.service.ts`), чтобы письма от нас выглядели
- * одним отправителем, на котором почта учится (§12).
+ * Вёрстка — ОБЩИЙ каркас `common/email-layout.ts`, тот же объект, которым
+ * собирается приглашение (`personal-email-invite-mailer.service.ts`): «письма
+ * от нас выглядят одним отправителем, на котором почта учится» (§12) — свойство,
+ * которое не должно держаться на том, что две копии таблицы правят синхронно
+ * (SPEC-M-2, круг 1 копировал разметку).
+ *
+ * **Словарь.** Объект решения о деньгах называется ДОЛЕЙ — так его называют
+ * попап, `/pending`, профиль и `CONTEXT.md` (где «процент дропа» стоит в
+ * `_Избегать_`). Единственное исключение — тема запроса о доле ПО ПРОЕКТУ: её
+ * §11 задаёт дословно и она утверждена владельцем (COPY-H-1 / COPY-L-3).
  */
 import {
+  isActionRequiredNotificationType,
   isNewNotificationType,
   notificationActions,
   notificationDataSchemaFor,
@@ -43,7 +50,18 @@ import {
   type NotificationDataByType,
   type NotificationSubjectType,
 } from '@crm/shared'
+import { renderEmailLayout } from '../common/email-layout'
 import { escapeHtml } from '../common/escape-html'
+import { stripCrlf } from '../common/strip-crlf'
+
+/**
+ * Экран, где на запрос можно ОТВЕТИТЬ (позиция 7c, #667).
+ *
+ * Ссылка письма для трёх типов, требующих действия, ведёт сюда, а не на объект:
+ * на `/projects/:id` кнопок подтверждения нет, и письмо «Запрос на добавление
+ * проекта» приводило бы читателя туда, где ответить нечем (SPEC-H-3 / CR-H-4).
+ */
+const PENDING_PATH = '/pending'
 
 /** Строка уведомления в том объёме, который нужен письму. */
 export interface NotificationEmailSource {
@@ -89,60 +107,76 @@ const BODIES: {
   [K in NewNotificationType]: (d: NotificationDataByType[K]) => Body
 } = {
   TRANSACTION_ADDED: (d) => ({
+    // Имя проекта — с 24-го знака, а не с 35-го (COPY-L-2): в списке входящих
+    // на телефоне видно около сорока, и обрезается ровно то единственное, чем
+    // два таких письма различаются.
     subject:
       d.projectName === null
         ? 'Вам добавили транзакцию'
-        : `Вам добавили транзакцию по проекту «${d.projectName}»`,
+        : `Транзакция по проекту «${d.projectName}»`,
     lines: ['В ваших финансах новая транзакция. Сумма и детали — в CRM.'],
   }),
 
   TRANSACTION_STATUS_CHANGED: (d) => ({
     // Статус — не сумма и не процент, и он единственное, ради чего письмо
     // читают. Прятать его значило бы слать письмо «случилось что-то».
+    //
+    // Актор НЕ назван (COPY-H-2): валидацию дохода делает бухгалтер ИЛИ админ
+    // (`@Roles('ADMIN', 'ACCOUNTANT')` на `PATCH :id/validate`), а в `data`
+    // этого типа актора нет вовсе. Круг 1 писал «Бухгалтер подтвердил» — то
+    // есть утверждал факт, которого не знает, и в части случаев ложно.
     subject: d.status === 'VALIDATED' ? 'Доход валидирован' : 'Доход отклонён',
-    lines:
-      d.status === 'VALIDATED'
-        ? ['Бухгалтер подтвердил заявленный доход.']
-        : ['Бухгалтер отклонил заявленный доход. Причина — в CRM.'],
+    lines: d.status === 'VALIDATED' ? ['Сумма и детали — в CRM.'] : ['Причина отказа — в CRM.'],
   }),
 
   TEAM_MEMBER_ADDED: (d) => ({
+    // Тело НЕ пересказывает тему (COPY-M-1): человек, открывший письмо и не
+    // узнавший ничего нового, так и учится не открывать следующие.
     subject: `Вас добавили в команду «${d.teamName}»`,
-    lines: [`Теперь вы участник команды «${d.teamName}».`],
+    lines: ['Состав команды — в CRM.'],
   }),
 
   PROJECT_MEMBER_ADDED: (d) => ({
     subject: `Вас добавили в проект «${d.projectName}»`,
-    lines: [`Теперь вы участник проекта «${d.projectName}».`],
+    lines: ['Детали проекта и его состав — в CRM.'],
   }),
 
   TEAM_NEW_MEMBER: (d) => ({
     // Имя новичка остаётся в CRM: письмо не называет людей (§10 — объём
     // того, что уходит на личную почту, держим минимальным).
     subject: `В команде «${d.teamName}» новый участник`,
-    lines: [`К команде «${d.teamName}» присоединился новый участник. Кто — в CRM.`],
+    lines: ['Кто именно — в CRM.'],
   }),
 
   PROJECT_CONFIRM_REQUIRED: (d) => ({
     subject: `Запрос на добавление проекта «${d.projectName}»`,
     lines: [
-      `Вас предлагают в проект «${d.projectName}».`,
+      // «Предлагают участие В проекте» (COPY-M-2): идиома — «предложить на
+      // проект», а «предлагают в проект» давало гибрид с интерфейсным
+      // «добавить в проект». И рамка теперь одна с соседним запросом: оба
+      // начинаются с «Вам предлагают…», а не один с «Вас», другой с «Вам».
+      `Вам предлагают участие в проекте «${d.projectName}».`,
       'Проект не начнётся, пока участники не ответят.',
     ],
   }),
 
   SHARE_CONFIRM_REQUIRED: (d) => ({
+    // «Доля», а не «процент» (COPY-H-1): попап, `/pending`, профиль и
+    // `CONTEXT.md` называют объект долей, а «процент дропа» стоит там в
+    // `_Избегать_`. Исключение ровно одно — тема ветки ПО ПРОЕКТУ: §11 задаёт
+    // её дословно и утверждена владельцем (COPY-L-3), поэтому письмо говорит
+    // «процент» в теме и «доля» в теле, пока владелец не скажет иначе.
     subject:
       d.scope === 'BASE' || d.projectName === null
-        ? 'Запрос на смену базового процента'
+        ? 'Запрос на смену доли по умолчанию'
         : `Запрос на смену процента по проекту «${d.projectName}»`,
     lines: [
       d.scope === 'BASE' || d.projectName === null
-        ? 'Вам предлагают изменить базовый процент.'
-        : `Вам предлагают изменить процент по проекту «${d.projectName}».`,
+        ? 'Вам предлагают изменить долю по умолчанию.'
+        : `Вам предлагают изменить вашу долю по проекту «${d.projectName}».`,
       // §11: «Без этого человек, увидев тему, решает, что у него уже что-то
       // изменили».
-      'Сейчас действует прежний процент. Новый вступит в силу только после вашего согласия.',
+      'Сейчас действует прежняя доля. Новая вступит в силу только после вашего согласия.',
     ],
   }),
 
@@ -150,21 +184,23 @@ const BODIES: {
     // §11 предлагал «{тип документа} за {период}», но период в данных
     // отсутствует: производитель кладёт `documentTitle: 'Ваш контракт'`
     // (`employee-contracts.service.ts`) — у договора с сотрудником периода
-    // нет. Тема называет то, что система знает.
-    subject: 'Запрос на подпись: контракт',
+    // нет. Двоеточие с одним словом после него читается как недозаполненный
+    // шаблон (COPY-L-4), поэтому слот убран, а префикс «Запрос на …» —
+    // остался: он и сообщает, что ждут ответа.
+    subject: 'Запрос на подпись контракта',
     lines: ['Ваш контракт готов и ждёт подписи.'],
   }),
 
   APPROVAL_CONFIRMED: (d) => ({
     subject: 'Ваше предложение принято',
-    lines: [approvalLine(d.subjectKind, d.subjectTitle, 'принял')],
+    lines: [approvalLine(d.subjectKind, d.subjectTitle, 'ACCEPTED')],
   }),
 
   APPROVAL_REJECTED: (d) => ({
     subject: 'Ваше предложение отклонено',
     // Причина отказа — в CRM: это слова конкретного человека о деньгах,
     // и уходить на личную почту им незачем (§10).
-    lines: [approvalLine(d.subjectKind, d.subjectTitle, 'отклонил'), 'Причина — в CRM.'],
+    lines: [approvalLine(d.subjectKind, d.subjectTitle, 'REJECTED'), 'Причина — в CRM.'],
   }),
 }
 
@@ -172,23 +208,33 @@ const BODIES: {
  * Общая строка двух писем админу. Сотрудник не назван по имени (то же
  * правило, что и везде), назван ОБЪЕКТ решения — по нему админ и понимает, о
  * каком из своих предложений речь.
+ *
+ * У глагола появился свой объект (COPY-M-3): принимают ПРЕДЛОЖЕНИЕ, а
+ * «принял проект» в этой предметной области значит «утвердил проект целиком»,
+ * что делает админ, а не тот, кого в проект позвали. Отказ поэтому не
+ * зеркалит согласие («отказался ОТ смены», «отказался участвовать В»), и
+ * одним параметром `verb` это не выражается — отсюда решение целиком.
  */
 function approvalLine(
   subjectKind: 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE',
   subjectTitle: string | null,
-  verb: 'принял' | 'отклонил',
+  decision: 'ACCEPTED' | 'REJECTED',
 ): string {
+  if (subjectKind === 'PROJECT') {
+    const where = subjectTitle === null ? 'в проекте' : `в проекте «${subjectTitle}»`
+    return decision === 'ACCEPTED'
+      ? `Сотрудник согласился участвовать ${where}.`
+      : `Сотрудник отказался участвовать ${where}.`
+  }
   const what =
-    subjectKind === 'PROJECT'
-      ? subjectTitle === null
-        ? 'проект'
-        : `проект «${subjectTitle}»`
-      : subjectKind === 'PROJECT_SHARE'
-        ? subjectTitle === null
-          ? 'смену процента по проекту'
-          : `смену процента по проекту «${subjectTitle}»`
-        : 'смену базового процента'
-  return `Сотрудник ${verb} ${what}.`
+    subjectKind === 'BASE_SHARE'
+      ? 'доли по умолчанию'
+      : subjectTitle === null
+        ? 'доли по проекту'
+        : `доли по проекту «${subjectTitle}»`
+  return decision === 'ACCEPTED'
+    ? `Сотрудник согласился на смену ${what}.`
+    : `Сотрудник отказался от смены ${what}.`
 }
 
 /**
@@ -204,15 +250,27 @@ export function renderNotificationEmail(
   opts: RenderOptions,
 ): RenderedNotificationEmail {
   const root = opts.frontendUrl.replace(/\/$/, '')
-  const action = notificationActions({
-    type: source.type,
-    title: source.title,
-    body: source.body,
-    link: source.link,
-    subjectType: source.subjectType,
-    subjectId: source.subjectId,
-    data: source.data,
-  })[0]
+
+  // Три типа, требующих ответа, ведут на `/pending` — экран, где ответ вообще
+  // можно дать (задание, п.4 и «Уточнения оркестратора»; SPEC-H-3 / CR-H-4).
+  // Круг 1 звал `notificationActions()` без различения и получал путь к
+  // ОБЪЕКТУ: для `PROJECT_CONFIRM_REQUIRED` это `/projects/:id`, где кнопок
+  // подтверждения нет вовсе, а для `DOCUMENT_SIGN_REQUIRED` — `/onboarding`.
+  // То есть письмо «Запрос на …» вело туда, где на запрос не ответишь.
+  //
+  // Подпись — «Ответить на запрос» (COPY-L-5): «Открыть проект» на кнопке,
+  // ведущей на список запросов, называла бы не то, что откроется.
+  const action = isActionRequiredNotificationType(source.type)
+    ? { href: PENDING_PATH, label: 'Ответить на запрос' }
+    : notificationActions({
+        type: source.type,
+        title: source.title,
+        body: source.body,
+        link: source.link,
+        subjectType: source.subjectType,
+        subjectId: source.subjectId,
+        data: source.data,
+      })[0]
   // Кнопка одна, и вести ей есть куда всегда: объекту 15 секунд от роду, а
   // состояния «объекта больше нет» письмо по построению не застаёт. Корень
   // CRM — запасной путь для старого типа без сохранённой ссылки.
@@ -222,9 +280,24 @@ export function renderNotificationEmail(
   const body = composeBody(source)
 
   return {
-    subject: body.subject,
-    text: [...body.lines, '', buttonHref].join('\n'),
-    html: layout(body.lines, buttonHref, buttonLabel),
+    // `stripCrlf`: тема уезжает в ЗАГОЛОВОК письма, а имя объекта приходит из
+    // пользовательского ввода, где `z.string().max(255)` перевод строки
+    // разрешает (SR-M-1, та же защита и та же причина, что в
+    // `contact.service.ts`). Тело этого не требует — там перевод строки
+    // законен.
+    subject: stripCrlf(body.subject),
+    // Подпись кнопки перед адресом (COPY-L-1): в html читатель видит
+    // «Ответить на запрос», в text — голый адрес, и одна подпись делает
+    // текстовую версию равной по внятности.
+    text: [...body.lines, '', `${buttonLabel}: ${buttonHref}`].join('\n'),
+    html: renderEmailLayout({
+      blocks: body.lines.map((line, i) => ({
+        html: escapeHtml(line),
+        // У последней строки отступ больше — она отделяет текст от кнопки.
+        spaceAfter: i === body.lines.length - 1 ? 24 : 16,
+      })),
+      button: { href: buttonHref, label: buttonLabel },
+    }),
     buttonHref,
     buttonLabel,
   }
@@ -247,57 +320,4 @@ function composeBody(source: NotificationEmailSource): Body {
   }
   // Три старых типа (инвойсы, вакансии) и всё, чего шаблон ещё не знает.
   return { subject: source.title, lines: [source.body ?? 'Подробности — в CRM.'] }
-}
-
-/**
- * Каркас письма — таблицы и встроенные стили (§12). Повторяет приглашение
- * (`personal-email-invite-mailer.service.ts`) намеренно: один постоянный
- * отправитель с узнаваемым письмом — то немногое, на что мы можем повлиять в
- * доставляемости.
- *
- * `max-width:480px` + `viewport` — письмо читают с телефона, и 320 пикселей
- * та ширина, на которой лишняя фиксированная ширина даёт горизонтальную
- * прокрутку.
- */
-function layout(lines: string[], href: string, label: string): string {
-  const paragraphs = lines
-    .map(
-      (line, i) =>
-        `              <p style="margin:0 0 ${
-          i === lines.length - 1 ? 24 : 16
-        }px 0;font-size:16px;line-height:24px;color:#18181b;">\n                ${escapeHtml(
-          line,
-        )}\n              </p>`,
-    )
-    .join('\n')
-
-  return `<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-</head>
-<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:32px 0;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
-          <tr>
-            <td style="padding:32px 32px 24px 32px;">
-${paragraphs}
-              <table role="presentation" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="border-radius:6px;background-color:#18181b;">
-                    <a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:bold;">${escapeHtml(label)}</a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
 }

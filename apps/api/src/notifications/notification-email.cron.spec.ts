@@ -207,7 +207,8 @@ describe('отправщик — успешный путь', () => {
     expect(sends).toHaveLength(1)
     expect(sends[0]!.subject).toBe('Запрос на добавление проекта «Мобильный банк»')
     // Адрес в письме — из настройки `FRONTEND_URL`, а не из константы в коде.
-    expect(sends[0]!.text).toContain('https://app.cheekycheese.tech/projects/')
+    // Тип требует действия, поэтому ведёт на `/pending` (SPEC-H-3).
+    expect(sends[0]!.text).toContain('https://app.cheekycheese.tech/pending')
     expect(gw.sent).toEqual([{ id: 'e-1', email: 'u-1@cheekycheese.tech' }])
     expect(gw.failed).toHaveLength(0)
   })

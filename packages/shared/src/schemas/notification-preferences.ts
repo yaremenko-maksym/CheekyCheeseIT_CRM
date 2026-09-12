@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import {
-  ACTION_REQUIRED_NOTIFICATION_TYPES,
+  isActionRequiredNotificationType,
   NEW_NOTIFICATION_TYPES,
   type NewNotificationType,
 } from './notification-registry'
@@ -23,21 +23,31 @@ import {
  *
  * Почему `locked` вычисляется, а не хранится: это свойство ТИПА, а не
  * пользователя. Храни мы его строкой в базе, добавление типа в
- * `ACTION_REQUIRED_NOTIFICATION_TYPES` пришлось бы дублировать миграцией, и
+ * составе типов, требующих действия, пришлось бы дублировать миграцией, и
  * два источника правды разошлись бы на первом же несовпадении.
  */
 
-/** Типы, у которых настройка почты существует. Три старых (инвойсы, вакансии) письма не имеют вовсе. */
-export const configurableNotificationTypeSchema = z.enum(NEW_NOTIFICATION_TYPES)
+/**
+ * Типы, у которых настройка почты существует. Три старых (инвойсы, вакансии)
+ * письма не имеют вовсе.
+ *
+ * Сообщение своё, а не дефолтное от Zod: дефолт перечисляет допустимые
+ * значения по-английски («Invalid option: expected one of …»), и это первое,
+ * что человек увидит, если 7b пошлёт устаревший тип из старого бандла.
+ */
+export const configurableNotificationTypeSchema = z.enum(NEW_NOTIFICATION_TYPES, {
+  message: 'Неизвестный тип уведомления',
+})
 export type ConfigurableNotificationType = z.infer<typeof configurableNotificationTypeSchema>
 
 /**
  * Письмо этого типа выключить нельзя. Выводится из состава
- * `ACTION_REQUIRED_NOTIFICATION_TYPES` — одного источника правды на весь
- * реестр (см. заголовок файла).
+ * `isActionRequiredNotificationType` — одного источника правды на весь реестр
+ * (см. заголовок файла). Запертость выводится из «ждут ответа», а не наоборот:
+ * маршрут кнопки письма читает то же свойство и не должен поехать за настройкой.
  */
 export function isEmailChannelLocked(type: NewNotificationType): boolean {
-  return (ACTION_REQUIRED_NOTIFICATION_TYPES as readonly string[]).includes(type)
+  return isActionRequiredNotificationType(type)
 }
 
 const preferenceItem = z.object({
@@ -57,12 +67,18 @@ export const updateNotificationPreferencesSchema = z.object({
     .array(preferenceItem)
     .min(1)
     .max(NEW_NOTIFICATION_TYPES.length)
+    // Тексты РУССКИЕ, и это не вкусовщина: `ZodExceptionFilter` отдаёт
+    // `issues[].message` клиенту дословно на всех маршрутах вне
+    // `FINANCE_CRITICAL_PREFIXES`, а `/api/notifications/preferences` в этом
+    // списке нет. То есть строка ниже — то самое, что человек прочтёт, когда
+    // переключатель не поддастся (§5 задания, `russian-language.md`).
+    // Круг 1 отдавал здесь английскую фразу со ссылкой на «spec §3» — ссылку на
+    // внутренний документ читателю интерфейса сообщать нечего.
     .refine((items) => new Set(items.map((i) => i.type)).size === items.length, {
-      message: 'Each notification type may appear at most once',
+      message: 'Каждый тип уведомления можно указать только один раз',
     })
     .refine((items) => items.every((i) => i.emailEnabled || !isEmailChannelLocked(i.type)), {
-      message:
-        'Email for approval and signature requests cannot be switched off (spec §3) — it can be muted in the mail client, not disabled here',
+      message: 'Письма о запросах на подтверждение и подпись отключить нельзя',
     }),
 })
 export type UpdateNotificationPreferencesInput = z.infer<typeof updateNotificationPreferencesSchema>
