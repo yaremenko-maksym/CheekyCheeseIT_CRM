@@ -584,10 +584,11 @@ export class NotificationsService {
     row: typeof notifications.$inferSelect,
     state: SubjectState | 'missing',
   ): NotificationDto {
+    // Явной проверки на `undefined` здесь НЕТ намеренно: таблица покрывает все
+    // три состояния, `computeSubjectState` роняет разбор на любом другом, а
+    // обращение к полю отсутствующей записи упадёт само. Ветка «а вдруг» была
+    // бы веткой, которую не исполняет ни один тест (гейт мутаций круга 5).
     const flags = NotificationsService.SUBJECT_FLAGS[state]
-    if (flags === undefined) {
-      throw new Error(`mapNotification: неизвестное состояние объекта ${String(state)}`)
-    }
     return {
       id: row.id,
       type: row.type as NotificationType,

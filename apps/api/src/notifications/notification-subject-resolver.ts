@@ -125,13 +125,24 @@ export function computeSubjectState(
   if (row.subjectType === null || row.subjectId === null) return 'active'
   const state = statesByType.get(row.subjectType)?.get(row.subjectId)
   if (state === undefined) return 'missing'
-  // Сравнение ПОЛОЖИТЕЛЬНОЕ и именно с `active`, а не отрицательное с
-  // `archived`: живой объект — единственное состояние, при котором кнопка
-  // имеет право вести куда-то. Всё, в чём мы не уверены, деградирует в
-  // «в архиве» — то есть в отсутствие ссылки, а не в живую ссылку.
-  // Гейт мутаций круга 5 показал, что прежняя форма (`=== 'archived'`) делала
-  // подмену самого литерала `'active'` в запросе НЕВИДИМОЙ для всех тестов.
-  if (state !== 'active') return 'archived'
+  // Разбор ИСЧЕРПЫВАЮЩИЙ, а не парой сравнений, и это не украшение: состояние
+  // собирается вручную из колонки `archived_at` (`loadSubjectStates`), и
+  // значение, которого мы не ждём, обязано ронять разбор, а не превращаться
+  // молча в «живой» — молча это активная кнопка на объекте, про который
+  // ничего не известно. Тот же приём, что у `describeNotification` (CR-M-1).
+  // Гейт мутаций круга 5: при паре сравнений один из двух литералов всегда
+  // оставался непроверенным — какой именно, зависело от того, с каким из них
+  // сравнивают.
+  switch (state) {
+    case 'archived':
+      return 'archived'
+    case 'active':
+      break
+    default: {
+      const exhaustive: never = state
+      throw new Error(`computeSubjectState: неизвестное состояние ${String(exhaustive)}`)
+    }
+  }
   const approvalSubjectType = approvalSubjectTypeFor(row.type, row.subjectType)
   if (approvalSubjectType === null) return 'active'
   return liveApprovalKeys.has(liveApprovalKey(approvalSubjectType, row.subjectId, row.userId))
