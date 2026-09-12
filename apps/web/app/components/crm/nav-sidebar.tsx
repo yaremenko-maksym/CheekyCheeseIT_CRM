@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useOnboardingGate } from '@/context/onboarding'
 import { useActiveTeam } from '@/hooks/use-active-team'
 import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { usePendingItems } from '@/hooks/use-pending-items'
@@ -159,11 +160,19 @@ export function NavSidebar({
 
   // task-pending-screen (§7): same query the /pending screen itself reads
   // (PENDING_QUERY_KEY) — react-query dedupes the network call instead of
-  // firing a second one when the viewer actually opens the page. Called
-  // unconditionally (not gated on role/onboarding) — same pattern as
-  // `useActiveTeam` two lines up; the endpoint itself returns an
-  // empty/self-scoped list for every role, never a 403.
-  const { mine: pendingMine } = usePendingItems()
+  // firing a second one when the viewer actually opens the page.
+  //
+  // SR-L-1 (PR #667 fix-round 2): gated on `isComplete`, same as
+  // `useActiveTeam` two lines up — do NOT call /api/pending while the user
+  // is still in the onboarding wizard. `CrmLayout` renders the full shell
+  // (sidebar included) before the `['onboarding-status']` response lands,
+  // so an ungated call here fires straight into `OnboardingGuard`'s 403
+  // (see onboarding.guard.integration.spec.ts cases 10/11 — /api/pending is
+  // deliberately NOT bypass-listed) — a prior version of this comment
+  // claimed this was already gated "same pattern as useActiveTeam" while
+  // the code below did the opposite.
+  const { isComplete } = useOnboardingGate()
+  const { mine: pendingMine } = usePendingItems(isComplete)
 
   const items = NAV_ITEMS.filter((item) => {
     if (!item.roles.includes(user.role)) return false
