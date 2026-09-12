@@ -58,13 +58,43 @@ export const PENDING_QUERY_KEY = ['pending'] as const
  * which the screen already renders as its error state (with «Повторить»).
  */
 export function usePendingItems() {
-  const { isComplete } = useOnboardingGate()
+  const gate = useOnboardingGate()
   const query = useQuery({
     queryKey: PENDING_QUERY_KEY,
     queryFn: () => api.get<unknown>('/pending').then((r) => pendingResponseSchema.parse(r.data)),
-    enabled: isComplete,
+    enabled: gate.isComplete,
   })
   const mine = query.data?.mine ?? []
   const proposedByMe = query.data?.proposedByMe ?? []
-  return { ...query, mine, proposedByMe }
+  // SR-M-2 / COPY-H-2 (fix-round 4): "we have not asked yet". The gate above
+  // is the right fix for SR-L-5, but `enabled: false` in react-query v5
+  // reports `isLoading: false` (it is `isPending && isFetching`) with
+  // `data: undefined` — so every consumer's "loading → error → empty" chain
+  // fell through to EMPTY while the onboarding status was still in flight.
+  // On `/pending`, whose entire purpose is to say what is unresolved, that
+  // renders «Ничего не ждёт вашего решения» BEFORE the question is asked,
+  // and keeps rendering it for the whole session when `GET
+  // /onboarding/status` fails (no redirect happens on a failed status — see
+  // `_authenticated/route.tsx`). Exposed as a flag AND folded into
+  // `isLoading` so the three call sites cannot disagree about it, the same
+  // reason the gate itself lives here.
+  const gated = !gate.isComplete && !gate.isError
+  return {
+    ...query,
+    mine,
+    proposedByMe,
+    gated,
+    isLoading: query.isLoading || gated,
+    // A failed gate is an honest error for this data too: nobody can tell
+    // the viewer that nothing awaits them when the prerequisite request
+    // never answered.
+    isError: query.isError || gate.isError,
+    // While the gate is what is broken, retrying `/pending` would change
+    // nothing (the query stays disabled) — «Повторить» has to re-ask the
+    // status instead.
+    refetch: () => {
+      if (gate.isError) gate.refetch()
+      else void query.refetch()
+    },
+  }
 }

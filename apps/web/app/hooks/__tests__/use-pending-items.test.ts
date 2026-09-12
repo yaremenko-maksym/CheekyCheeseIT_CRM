@@ -25,12 +25,19 @@ vi.mock('@/lib/axios', () => ({
 }))
 
 let mockIsComplete = true
+let mockGateIsError = false
+const mockGateRefetch = vi.fn()
 
 vi.mock('@/context/onboarding', async (orig) => {
   const real = await orig<typeof import('@/context/onboarding')>()
   return {
     ...real,
-    useOnboardingGate: () => ({ isComplete: mockIsComplete, isPending: !mockIsComplete }),
+    useOnboardingGate: () => ({
+      isComplete: mockIsComplete,
+      isPending: !mockIsComplete && !mockGateIsError,
+      isError: mockGateIsError,
+      refetch: mockGateRefetch,
+    }),
   }
 })
 
@@ -49,7 +56,9 @@ function makeWrapper() {
 
 beforeEach(() => {
   mockGet.mockReset()
+  mockGateRefetch.mockReset()
   mockIsComplete = true
+  mockGateIsError = false
 })
 
 describe('usePendingItems', () => {
@@ -149,6 +158,63 @@ describe('usePendingItems — SR-L-5: the onboarding gate is a property of the Q
     })
 
     expect(mockGet).not.toHaveBeenCalled()
+  })
+})
+
+describe('usePendingItems — SR-M-2: «не спрашивали» is not «нечего показать»', () => {
+  it('a closed gate reads as LOADING, not as an answered query with nothing in it', () => {
+    mockIsComplete = false
+    mockGet.mockResolvedValue({ data: { mine: [], proposedByMe: [] } })
+
+    const { result } = renderHook(() => usePendingItems(), { wrapper: makeWrapper() })
+
+    expect(result.current.gated).toBe(true)
+    expect(result.current.isLoading).toBe(true)
+    expect(result.current.isError).toBe(false)
+  })
+
+  it('an OPEN gate with an empty response is not «gated» — the empty state it feeds is a real answer', async () => {
+    mockGet.mockResolvedValue({ data: { mine: [], proposedByMe: [] } })
+
+    const { result } = renderHook(() => usePendingItems(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.gated).toBe(false)
+  })
+
+  it('a FAILED gate surfaces as an error, not as a permanent skeleton and not as an empty list', () => {
+    mockIsComplete = false
+    mockGateIsError = true
+    mockGet.mockResolvedValue({ data: { mine: [], proposedByMe: [] } })
+
+    const { result } = renderHook(() => usePendingItems(), { wrapper: makeWrapper() })
+
+    expect(result.current.isError).toBe(true)
+    expect(result.current.gated).toBe(false)
+    expect(result.current.isLoading).toBe(false)
+    expect(mockGet).not.toHaveBeenCalled()
+  })
+
+  it('`refetch` re-asks the GATE when the gate is what failed — retrying the disabled query would change nothing', () => {
+    mockIsComplete = false
+    mockGateIsError = true
+
+    const { result } = renderHook(() => usePendingItems(), { wrapper: makeWrapper() })
+    result.current.refetch()
+
+    expect(mockGateRefetch).toHaveBeenCalledTimes(1)
+    expect(mockGet).not.toHaveBeenCalled()
+  })
+
+  it('`refetch` with a healthy gate re-asks /pending itself', async () => {
+    mockGet.mockResolvedValue({ data: { mine: [], proposedByMe: [] } })
+
+    const { result } = renderHook(() => usePendingItems(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(1))
+    result.current.refetch()
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2))
+    expect(mockGateRefetch).not.toHaveBeenCalled()
   })
 })
 
