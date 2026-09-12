@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { NOTIFICATION_TITLES } from '@crm/shared'
-import { notificationEmails, notificationPreferences, notifications } from '../database/schema'
+import { notificationEmails, notifications, users } from '../database/schema'
 import { NotificationsService } from './notifications.service'
 
 /**
@@ -19,6 +19,12 @@ import { NotificationsService } from './notifications.service'
  * прежняя): с этой задачи сервис пишет в две таблицы и читает из третьей, и
  * заглушка, складывающая всё в один массив, показала бы зелёным даже запись
  * письма вместо уведомления.
+ *
+ * **Круг 2 (SPEC-H-1 / SPEC-H-2).** Постановка больше не читает настройку
+ * канала — её смотрит отправщик, в момент отправки. Зато читает состояние
+ * получателя: архивированному строка заводится сразу `SKIPPED/USER_ARCHIVED`.
+ * И строка теперь заводится ВСЕГДА: «строки нет» не отвечает на вопрос,
+ * почему письма не было.
  */
 
 interface Harness {
@@ -32,7 +38,7 @@ interface Harness {
   tx: unknown
 }
 
-function makeHarness(prefRows: { type: string; emailEnabled: boolean }[] = []): Harness {
+function makeHarness(archivedAt: Date | null = null): Harness {
   const notificationRows: Record<string, unknown>[] = []
   const emailRows: Record<string, unknown>[] = []
   const conflictTargets: string[] = []
@@ -40,19 +46,17 @@ function makeHarness(prefRows: { type: string; emailEnabled: boolean }[] = []): 
 
   const tx = {
     // Проецирует по ЗАПРОШЕННЫМ полям: сервис, забывший попросить
-    // `emailEnabled`, обязан получить строку без него — иначе проверка «письмо
-    // не ставится выключенному типу» проходила бы и тогда, когда сервис читает
-    // не те колонки.
+    // `archivedAt`, обязан получить строку без него — иначе проверка «письмо
+    // архивированному не уходит» проходила бы и тогда, когда сервис читает не
+    // те колонки.
     select: (fields?: Record<string, unknown>) => ({
       from: (table: unknown) => ({
         where: async (_p: unknown) => {
-          if (table !== notificationPreferences) return []
+          if (table !== users) return []
           const names = Object.keys(fields ?? {})
-          return prefRows.map((r) => {
-            const projected: Record<string, unknown> = {}
-            for (const n of names) projected[n] = (r as unknown as Record<string, unknown>)[n]
-            return projected
-          })
+          const projected: Record<string, unknown> = {}
+          for (const n of names) projected[n] = { archivedAt }[n as 'archivedAt']
+          return [projected]
         },
       }),
     }),
@@ -132,16 +136,29 @@ describe('createInTx ставит письмо в очередь', () => {
     })
   })
 
-  it('не ставит письмо, если пользователь выключил этот тип', async () => {
-    const h = makeHarness([{ type: 'PROJECT_MEMBER_ADDED', emailEnabled: false }])
+  it('строка встаёт QUEUED без единой причины пропуска', async () => {
+    const h = makeHarness()
     await h.service.createInTx(h.tx as never, informingInput())
 
-    expect(h.notifications).toHaveLength(1)
-    expect(h.emails).toHaveLength(0)
+    expect(h.emails[0]).toMatchObject({ status: 'QUEUED', skipReason: null })
   })
 
-  it('ставит письмо типа, требующего действия, вопреки выключенной записи', async () => {
-    const h = makeHarness([{ type: 'DOCUMENT_SIGN_REQUIRED', emailEnabled: false }])
+  it('настройку канала при постановке НЕ читает вовсе', async () => {
+    // SPEC-H-2 / CR-H-2 / SR-M-2: настройку смотрит отправщик. Круг 1 решал
+    // это здесь, и человек, включивший канал между событием и отправкой,
+    // письма уже не получал — строки не было и появиться ей было негде.
+    // Заглушка отвечает только на `users`, поэтому запрос к настройкам вернул
+    // бы пусто; проверяется ЧИСЛО запросов — читаем одну таблицу, не две.
+    const h = makeHarness()
+    const spy = vi.spyOn(h.tx as { select: (f?: unknown) => unknown }, 'select')
+    await h.service.createInTx(h.tx as never, informingInput())
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(h.emails[0]).toMatchObject({ status: 'QUEUED' })
+  })
+
+  it('запертый тип встаёт в очередь так же, как любой другой', async () => {
+    const h = makeHarness()
     await h.service.createInTx(h.tx as never, {
       userId: 'u-1',
       type: 'DOCUMENT_SIGN_REQUIRED',
@@ -152,14 +169,25 @@ describe('createInTx ставит письмо в очередь', () => {
     })
 
     expect(h.emails).toHaveLength(1)
+    expect(h.emails[0]).toMatchObject({ status: 'QUEUED' })
   })
 
-  it('старому типу очередь не заводит и настроек НЕ читает', async () => {
-    // Ранний выход, а не «дошёл и передумал»: у старых типов письма нет по
-    // построению, и лишний запрос к настройкам на каждое такое уведомление —
-    // плата за ничто.
+  it('архивированному получателю строка заводится сразу SKIPPED/USER_ARCHIVED', async () => {
+    // SPEC-H-4 / SR-H-1, первая половина гварда: крону такая строка не
+    // достанется вовсе (`claimDue` берёт только `QUEUED`), а в очереди
+    // остаётся ответ на вопрос, почему письма не было.
+    const h = makeHarness(new Date('2026-08-01T00:00:00Z'))
+    await h.service.createInTx(h.tx as never, informingInput())
+
+    expect(h.notifications).toHaveLength(1)
+    expect(h.emails[0]).toMatchObject({ status: 'SKIPPED', skipReason: 'USER_ARCHIVED' })
+  })
+
+  it('старому типу строка заводится SKIPPED/LEGACY_TYPE, а не пропускается молча', async () => {
+    // SPEC-H-1: у трёх старых типов (инвойсы, вакансии) письма нет ни
+    // шаблона, ни настройки — но след «письма не полагалось» нужен ровно так
+    // же, как всем остальным причинам.
     const h = makeHarness()
-    const spy = vi.spyOn(h.tx as { select: (f?: unknown) => unknown }, 'select')
     await h.service.createInTx(h.tx as never, {
       userId: 'u-1',
       type: 'INVOICE_SIGN_REQUIRED',
@@ -168,8 +196,7 @@ describe('createInTx ставит письмо в очередь', () => {
     })
 
     expect(h.notifications).toHaveLength(1)
-    expect(h.emails).toHaveLength(0)
-    expect(spy).not.toHaveBeenCalled()
+    expect(h.emails[0]).toMatchObject({ status: 'SKIPPED', skipReason: 'LEGACY_TYPE' })
   })
 
   it('строка очереди ставится с погашением повтора по уведомлению', async () => {
@@ -238,7 +265,7 @@ describe('createInTx ставит письмо в очередь', () => {
 
     // Пропуск ГРОМКИЙ: тихо потерянное письмо — второй конец той же палки.
     const said = String(error.mock.calls[0]?.[0] ?? '')
-    expect(said).toContain('Письмо не поставлено в очередь')
+    expect(said).toContain('Failed to enqueue notification email')
     expect(said).toContain('queue is down')
     expect(said).toContain('PROJECT_MEMBER_ADDED')
     error.mockRestore()
@@ -265,7 +292,7 @@ describe('createInTx ставит письмо в очередь', () => {
             values: () => ({
               onConflictDoNothing: () => ({
                 returning: async () => {
-                  throw 'очередь недоступна'
+                  throw 'the queue is unreachable'
                 },
               }),
             }),
@@ -279,7 +306,7 @@ describe('createInTx ставит письмо в очередь', () => {
     const result = await h.service.createInTx(tx as never, informingInput())
 
     expect(result).not.toBeNull()
-    expect(String(error.mock.calls[0]?.[0] ?? '')).toContain('очередь недоступна')
+    expect(String(error.mock.calls[0]?.[0] ?? '')).toContain('the queue is unreachable')
     error.mockRestore()
   })
 
@@ -295,11 +322,16 @@ describe('createInTx ставит письмо в очередь', () => {
     expect(h.emails.map((e) => e['userId'])).toEqual(['u-1', 'u-2'])
   })
 
-  it('настройки читаются по получателю, а не по всем подряд', async () => {
+  it('состояние получателя читается на КАЖДОГО из них, а не один раз на пачку', async () => {
+    // Иначе архив одного применился бы ко всем: пачка `createManyInTx` — это
+    // разные люди, и «уволен ли он» у каждого свой.
     const h = makeHarness()
     const spy = vi.spyOn(h.tx as { select: (f?: unknown) => unknown }, 'select')
-    await h.service.createInTx(h.tx as never, informingInput())
-    expect(spy).toHaveBeenCalled()
+    await h.service.createManyInTx(h.tx as never, [
+      { ...informingInput(), userId: 'u-1' },
+      { ...informingInput(), userId: 'u-2' },
+    ])
+    expect(spy).toHaveBeenCalledTimes(2)
   })
 })
 

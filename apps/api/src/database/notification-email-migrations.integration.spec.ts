@@ -94,7 +94,7 @@ describe.skipIf(!hasDatabaseUrl())('миграции позиции 7a идем�
     )
   })
 
-  it('тип статуса создан ровно один раз и несёт три значения', async () => {
+  it('тип статуса создан ровно один раз и несёт четыре значения', async () => {
     // Именно здесь ловится забытая обёртка `DO $$ … END $$`: без неё второй
     // прогон упал бы на «type already exists» ещё в тесте выше.
     // Схема указывается явно: у scratch-базы уже есть одноимённый тип в
@@ -112,7 +112,99 @@ describe.skipIf(!hasDatabaseUrl())('миграции позиции 7a идем�
       'QUEUED',
       'SENT',
       'FAILED',
+      'SKIPPED',
     ])
+  })
+
+  it('«SKIPPED» доезжает и до базы, которая помнит версию файла без него', async () => {
+    // Круг 1 этого PR создавал тип с тремя значениями, и такая база живёт у
+    // каждого, кто гонял спеки на прошлой голове. `CREATE TYPE` в файле её не
+    // догонит — `to_regtype` увидит существующий тип и пройдёт мимо; догоняет
+    // ровно `ALTER TYPE … ADD VALUE IF NOT EXISTS`. Проверяется исполнением
+    // сценария «была тройка → применили файл», потому что прочитать это в
+    // файле глазами и значит поверить, что оператор отработал.
+    const legacy = 'mig_7a_legacy'
+    const client = await pool.connect()
+    try {
+      await client.query(`DROP SCHEMA IF EXISTS ${legacy} CASCADE`)
+      await client.query(`CREATE SCHEMA ${legacy}`)
+      await client.query(`SET search_path TO ${legacy}`)
+      await client.query(`CREATE TABLE ${legacy}.users (id uuid PRIMARY KEY)`)
+      await client.query(`CREATE TABLE ${legacy}.notifications (id uuid PRIMARY KEY)`)
+      // Ровно то, что оставил круг 1: три значения и таблица без `skip_reason`.
+      await client.query(
+        `CREATE TYPE notification_email_status AS ENUM ('QUEUED', 'SENT', 'FAILED')`,
+      )
+      await client.query(`
+        CREATE TABLE notification_emails (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          notification_id uuid NOT NULL REFERENCES notifications (id) ON DELETE CASCADE,
+          user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+          status notification_email_status NOT NULL DEFAULT 'QUEUED',
+          attempts integer NOT NULL DEFAULT 0,
+          next_attempt_at timestamptz NOT NULL DEFAULT now(),
+          sent_at timestamptz,
+          sent_to_email varchar(255),
+          last_error varchar(200),
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+      `)
+
+      await client.query(sqlFor('2026-09-12_notification_emails.sql'))
+
+      const labels = await client.query(
+        `SELECT enumlabel FROM pg_enum e
+           JOIN pg_type t ON t.oid = e.enumtypid
+           JOIN pg_namespace n ON n.oid = t.typnamespace
+          WHERE t.typname = 'notification_email_status' AND n.nspname = $1
+          ORDER BY e.enumsortorder`,
+        [legacy],
+      )
+      expect(labels.rows.map((r: { enumlabel: string }) => r.enumlabel)).toContain('SKIPPED')
+
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = 'notification_emails'`,
+        [legacy],
+      )
+      expect(cols.rows.map((r: { column_name: string }) => r.column_name)).toContain('skip_reason')
+    } finally {
+      await client.query(`DROP SCHEMA IF EXISTS ${legacy} CASCADE`).catch(() => undefined)
+      client.release()
+    }
+  })
+
+  it('причина пропуска — свой тип с четырьмя кодами', async () => {
+    const labels = await pool.query(
+      `SELECT enumlabel FROM pg_enum e
+         JOIN pg_type t ON t.oid = e.enumtypid
+         JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE t.typname = 'notification_email_skip_reason' AND n.nspname = $1
+        ORDER BY e.enumsortorder`,
+      [SCHEMA],
+    )
+    expect(labels.rows.map((r: { enumlabel: string }) => r.enumlabel)).toEqual([
+      'NO_ADDRESS',
+      'USER_ARCHIVED',
+      'CHANNEL_OFF',
+      'LEGACY_TYPE',
+    ])
+  })
+
+  it('колонка причины существует и по умолчанию пуста', async () => {
+    // `NULL` у не-`SKIPPED` строк — не забытое умолчание, а решение: «пропущено
+    // без причины» — состояние, которого не должно существовать.
+    const cols = await pool.query(
+      `SELECT column_name, column_default, is_nullable
+         FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = 'notification_emails'
+          AND column_name = 'skip_reason'`,
+      [SCHEMA],
+    )
+    expect(cols.rowCount).toBe(1)
+    expect(cols.rows[0].column_default).toBeNull()
+    expect(cols.rows[0].is_nullable).toBe('YES')
   })
 
   it('умолчания совпадают с тем, что объявляет schema.ts', async () => {

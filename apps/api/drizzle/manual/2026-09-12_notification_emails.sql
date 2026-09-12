@@ -74,7 +74,40 @@
 DO $$
 BEGIN
   IF to_regtype('notification_email_status') IS NULL THEN
-    CREATE TYPE notification_email_status AS ENUM ('QUEUED', 'SENT', 'FAILED');
+    CREATE TYPE notification_email_status AS ENUM ('QUEUED', 'SENT', 'FAILED', 'SKIPPED');
+  END IF;
+END
+$$;
+
+-- `SKIPPED` was added in review round 2 (SPEC-H-1 / CR-H-1 / SR-L-2), after an
+-- earlier version of this very file had already been run on developer scratch
+-- databases. `ALTER TYPE … ADD VALUE IF NOT EXISTS` covers both cases in one
+-- statement: a no-op on a type the CREATE above just made with four labels, and
+-- the upgrade path for a type that already exists with three.
+--
+-- NOT inside the DO-block above, and this is not a style choice: Postgres
+-- refuses `ALTER TYPE … ADD VALUE` executed from a function or procedural
+-- block ("cannot be executed from a function"). Top level it is. Nothing in
+-- this file USES the new label (the partial index below keys on 'QUEUED'),
+-- which is the other rule about adding enum values inside a transaction.
+ALTER TYPE notification_email_status ADD VALUE IF NOT EXISTS 'SKIPPED';
+
+-- -----------------------------------------------------------------------------
+-- 1b. Why the email will NOT be sent — filled on SKIPPED rows and only there.
+--
+--     Its own type rather than free text: the reason is what queries ask about
+--     ("how many emails did not go out because the channel was off"), and a
+--     typo in it would be a silently lost report row. The same list lives as a
+--     union in notification-email-outbox.ts (`SKIP_REASONS`); the two
+--     descriptions are compared by notification-email-outbox.spec.ts, so a
+--     divergence fails a test rather than an INSERT in production.
+-- -----------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF to_regtype('notification_email_skip_reason') IS NULL THEN
+    CREATE TYPE notification_email_skip_reason AS ENUM (
+      'NO_ADDRESS', 'USER_ARCHIVED', 'CHANNEL_OFF', 'LEGACY_TYPE'
+    );
   END IF;
 END
 $$;
@@ -97,9 +130,17 @@ CREATE TABLE IF NOT EXISTS notification_emails (
   sent_at           timestamptz,
   sent_to_email     varchar(255),
   last_error        varchar(200),
+  skip_reason       notification_email_skip_reason,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
+
+-- The column is listed in the CREATE TABLE above for a fresh database AND added
+-- separately for one that already ran the round-1 version of this file. Both
+-- forms are idempotent, and keeping both means neither path needs to know which
+-- one the target took.
+ALTER TABLE notification_emails
+  ADD COLUMN IF NOT EXISTS skip_reason notification_email_skip_reason;
 
 -- -----------------------------------------------------------------------------
 -- 3. One email per notification. The notification row already de-duplicates
@@ -127,9 +168,10 @@ CREATE INDEX IF NOT EXISTS idx_notification_emails_due
 --     WHERE tablename = 'notification_emails';
 --   SELECT enumlabel FROM pg_enum e
 --     JOIN pg_type t ON t.oid = e.enumtypid
---     WHERE t.typname = 'notification_email_status';
+--     WHERE t.typname IN
+--       ('notification_email_status', 'notification_email_skip_reason');
 --
--- Expected: eleven columns, three indexes (primary key + the two above), three
--- enum labels. No query returns any row CONTENT — no personal data is read or
--- printed by this migration or its verification.
+-- Expected: twelve columns, three indexes (primary key + the two above), four
+-- status labels and four skip-reason labels. No query returns any row CONTENT —
+-- no personal data is read or printed by this migration or its verification.
 -- =============================================================================

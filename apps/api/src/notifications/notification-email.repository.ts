@@ -11,9 +11,15 @@
 import { Injectable } from '@nestjs/common'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
-import { notificationEmails, notifications, userEmails } from '../database/schema'
+import {
+  notificationEmails,
+  notificationPreferences,
+  notifications,
+  userEmails,
+  users,
+} from '../database/schema'
 import type { NotificationSubjectType } from '@crm/shared'
-import { backoffMs, type AddressRow } from './notification-email-outbox'
+import { backoffMs, type DeliveryContext, type SkipReason } from './notification-email-outbox'
 import type { ClaimedEmail, OutboxGateway } from './notification-email.cron'
 
 /**
@@ -99,18 +105,68 @@ export class OutboxRepository implements OutboxGateway {
     }))
   }
 
-  async addressesFor(userId: string): Promise<AddressRow[]> {
+  /**
+   * Всё о получателе, что решает судьбу письма в момент отправки: жив ли он,
+   * куда слать, не выключил ли он этот тип.
+   *
+   * **Одним запросом про человека, а не двумя.** `users LEFT JOIN user_emails`
+   * — именно LEFT: у человека без единого адреса строк соединения нет, и
+   * INNER JOIN не отличил бы «уволен» от «адреса нет», то есть потерял бы
+   * ровно то различие, ради которого заведён `skip_reason`. Строка `users`
+   * при этом есть всегда, пока есть строка очереди (внешний ключ с CASCADE).
+   *
+   * Настройка читается ТОЛЬКО по нужному типу: читать все отличия человека
+   * ради одного значения значило бы платить за чужие типы на каждом письме.
+   */
+  async deliveryContextFor(userId: string, type: string): Promise<DeliveryContext> {
     const rows = await this.db.db
-      .select({ email: userEmails.email, kind: userEmails.kind })
-      .from(userEmails)
-      .where(eq(userEmails.userId, userId))
-    return rows
+      .select({
+        archivedAt: users.archivedAt,
+        email: userEmails.email,
+        kind: userEmails.kind,
+      })
+      .from(users)
+      .leftJoin(userEmails, eq(userEmails.userId, users.id))
+      .where(eq(users.id, userId))
+
+    const [pref] = await this.db.db
+      .select({ emailEnabled: notificationPreferences.emailEnabled })
+      .from(notificationPreferences)
+      .where(
+        and(eq(notificationPreferences.userId, userId), eq(notificationPreferences.type, type)),
+      )
+
+    return {
+      // Пользователя не нашли вовсе — тогда и адресов нет, и решение выйдет
+      // `NO_ADDRESS`. Отдельной ветки этот случай не заслуживает: строка
+      // очереди уходит вместе с пользователем (`ON DELETE CASCADE`), поэтому
+      // доехать сюда без строки `users` можно только в гонке с удалением.
+      archived: rows[0]?.archivedAt != null,
+      addresses: rows.flatMap((r) =>
+        r.email !== null && r.kind !== null ? [{ email: r.email, kind: r.kind }] : [],
+      ),
+      emailEnabled: pref?.emailEnabled ?? null,
+    }
   }
 
   async markSent(id: string, email: string): Promise<void> {
     await this.db.db
       .update(notificationEmails)
       .set({ status: 'SENT', sentAt: new Date(), sentToEmail: email, updatedAt: new Date() })
+      .where(eq(notificationEmails.id, id))
+  }
+
+  /**
+   * Терминально пометить строку «письма не будет» с причиной.
+   *
+   * Не `FAILED`: «не полагалось отправлять» и «не смогли отправить» — разные
+   * факты, и сливать их в один статус значило бы звать чинить выключенный
+   * человеком канал. `last_error` при этом остаётся пустым — ошибки не было.
+   */
+  async markSkipped(id: string, reason: SkipReason): Promise<void> {
+    await this.db.db
+      .update(notificationEmails)
+      .set({ status: 'SKIPPED', skipReason: reason, updatedAt: new Date() })
       .where(eq(notificationEmails.id, id))
   }
 

@@ -34,7 +34,6 @@ import {
   employeeContracts,
   nonDeletedTransactions,
   notificationEmails,
-  notificationPreferences,
   notifications,
   projects,
   teams,
@@ -52,7 +51,7 @@ import {
   type SubjectResolution,
   type SubjectState,
 } from './notification-subject-resolver'
-import { shouldQueueEmail } from './notification-email-outbox'
+import { decideEnqueue } from './notification-email-outbox'
 
 /**
  * Что производитель кладёт в запись. §7.1: тип события и идентификаторы
@@ -227,31 +226,39 @@ export class NotificationsService {
     type: string,
   ): Promise<void> {
     try {
-      if (!isNewNotificationType(type)) return
+      // Настройка канала здесь НЕ читается — её смотрит отправщик, в момент
+      // отправки (§5 задания, SPEC-H-2 / CR-H-2 / SR-M-2). Круг 1 решал это
+      // здесь, и человек, включивший канал между событием и отправкой,
+      // письма уже не получал: строки не было и появиться ей было негде.
+      //
+      // Состояние получателя, наоборот, смотрится ОБА раза: архивированному
+      // строка заводится сразу пропущенной (крону она не достанется вовсе), а
+      // архив, случившийся позже, ловит уже отправщик.
+      const [recipient] = await tx
+        .select({ archivedAt: users.archivedAt })
+        .from(users)
+        .where(eq(users.id, userId))
 
-      // Читаются ТОЛЬКО отличия от умолчания — в таблице нет строк для всего,
-      // чего человек не менял (см. `notification_preferences`).
-      const prefRows = await tx
-        .select({
-          type: notificationPreferences.type,
-          emailEnabled: notificationPreferences.emailEnabled,
-        })
-        .from(notificationPreferences)
-        .where(eq(notificationPreferences.userId, userId))
-
-      const prefs = new Map(prefRows.map((r) => [r.type, r.emailEnabled]))
-      if (!shouldQueueEmail(type, prefs)) return
+      const decision = decideEnqueue(type, recipient?.archivedAt != null)
 
       await tx
         .insert(notificationEmails)
-        .values({ notificationId, userId })
+        .values({
+          notificationId,
+          userId,
+          status: decision.status,
+          // Строка заводится ВСЕГДА, даже когда письма не будет: «строки нет»
+          // не отвечает на вопрос, почему сотруднику не пришло письмо про X
+          // (§1 задания — `SKIPPED` + `skip_reason`).
+          skipReason: decision.status === 'SKIPPED' ? decision.skipReason : null,
+        })
         // Одно письмо на уведомление: повторная постановка — ничего, а не
         // второе письмо. Индекс `uq_notification_emails_notification`.
         .onConflictDoNothing({ target: notificationEmails.notificationId })
         .returning()
     } catch (err) {
       this.logger.error(
-        `Письмо не поставлено в очередь (событие и уведомление не откатываем): ${
+        `Failed to enqueue notification email (the event and its notification are NOT rolled back): ${
           err instanceof Error ? err.message : String(err)
         } [type=${type}]`,
       )

@@ -16,7 +16,12 @@ import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 
-import { notificationEmailStatusEnum, notificationEmails, notificationPreferences } from './schema'
+import {
+  notificationEmailSkipReasonEnum,
+  notificationEmailStatusEnum,
+  notificationEmails,
+  notificationPreferences,
+} from './schema'
 
 /**
  * Полная форма колонки: имя, SQL-тип, обязательность, умолчание.
@@ -66,17 +71,42 @@ describe('notification_emails — форма объявления', () => {
       // значение оттуда, и более короткая колонка обрезала бы адрес.
       { name: 'sent_to_email', type: 'varchar(255)', notNull: false, hasDefault: false },
       { name: 'last_error', type: 'varchar(200)', notNull: false, hasDefault: false },
+      // Заполнена у `SKIPPED` и только у него; `NULL` у остальных — решение, а
+      // не забытое умолчание (см. комментарий в `schema.ts`).
+      {
+        name: 'skip_reason',
+        type: 'notification_email_skip_reason',
+        notNull: false,
+        hasDefault: false,
+      },
       { name: 'created_at', type: 'timestamp with time zone', notNull: true, hasDefault: true },
       { name: 'updated_at', type: 'timestamp with time zone', notNull: true, hasDefault: true },
     ])
   })
 
-  it('статус доставки — три значения в этом порядке', () => {
+  it('статус доставки — четыре значения в этом порядке', () => {
     // `SENDING` здесь нет намеренно: захват выражается арендой, а не статусом
     // (см. комментарий к enum в `schema.ts`). Появись он — это осознанная
     // смена механики, и падать здесь она обязана.
-    expect(notificationEmailStatusEnum.enumValues).toEqual(['QUEUED', 'SENT', 'FAILED'])
+    //
+    // `SKIPPED` — наоборот, обязателен (SPEC-H-1 / CR-H-1): без него «не
+    // смогли отправить» неотличимо от «не полагалось отправлять». Порядок
+    // значим: он же зафиксирован в миграции, и расхождение означало бы, что
+    // `schema.ts` и прод описывают разные типы.
+    expect(notificationEmailStatusEnum.enumValues).toEqual(['QUEUED', 'SENT', 'FAILED', 'SKIPPED'])
     expect(notificationEmailStatusEnum.enumName).toBe('notification_email_status')
+  })
+
+  it('причина пропуска — свой тип с четырьмя кодами задания', () => {
+    // Перечень из §1 задания дословно. Пятый код — не расширение словаря, а
+    // новая причина, о которой должен узнать и `decideDelivery`, и отчёт.
+    expect(notificationEmailSkipReasonEnum.enumValues).toEqual([
+      'NO_ADDRESS',
+      'USER_ARCHIVED',
+      'CHANNEL_OFF',
+      'LEGACY_TYPE',
+    ])
+    expect(notificationEmailSkipReasonEnum.enumName).toBe('notification_email_skip_reason')
   })
 
   it('строка умирает вместе со своим уведомлением (ON DELETE CASCADE)', () => {

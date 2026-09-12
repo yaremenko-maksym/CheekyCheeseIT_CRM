@@ -4,6 +4,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { NotificationsService } from './notifications.service'
+import { decideDelivery } from './notification-email-outbox'
 import { OutboxRepository } from './notification-email.repository'
 import { DatabaseService } from '../database/database.service'
 import * as schema from '../database/schema'
@@ -42,7 +43,9 @@ import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 const USER_A = 'f7a10000-0000-4007-a000-000000000001'
 const USER_B = 'f7a10000-0000-4007-a000-000000000002'
 const USER_NO_MAIL = 'f7a10000-0000-4007-a000-000000000003'
-const ALL_USERS = [USER_A, USER_B, USER_NO_MAIL]
+/** Уволенный: строка `users` жива, `archived_at` заполнен, личный адрес на месте. */
+const USER_ARCHIVED = 'f7a10000-0000-4007-a000-000000000004'
+const ALL_USERS = [USER_A, USER_B, USER_NO_MAIL, USER_ARCHIVED]
 
 let pool: Pool
 let db: ReturnType<typeof drizzle<typeof schema>>
@@ -117,6 +120,18 @@ function notificationInput(userId: string) {
   }
 }
 
+/** Информирующий тип — письмо по нему МОЖНО выключить настройкой. */
+function teamNotificationInput(userId: string) {
+  return {
+    userId,
+    type: 'TEAM_MEMBER_ADDED' as const,
+    title: 'Вас добавили в команду',
+    subjectType: 'TEAM' as const,
+    subjectId: 'f7a10000-0000-4007-b000-000000000002',
+    data: { teamName: 'Ядро платформы' },
+  }
+}
+
 describe.skipIf(!hasDatabaseUrl())('доставка писем на живой базе (позиция 7a)', () => {
   beforeAll(async () => {
     // Таблицы этой задачи. Нет их — миграция не применена, и спека обязана
@@ -125,6 +140,7 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
       { table: 'notification_emails', column: 'status' },
       { table: 'notification_emails', column: 'next_attempt_at' },
       { table: 'notification_emails', column: 'sent_to_email' },
+      { table: 'notification_emails', column: 'skip_reason' },
       { table: 'notification_preferences', column: 'email_enabled' },
     ])
 
@@ -146,11 +162,22 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
       { id: USER_A, email: 'a@cheekycheese.tech', displayName: 'A', role: 'SENIOR' },
       { id: USER_B, email: 'b@cheekycheese.tech', displayName: 'B', role: 'SENIOR' },
       { id: USER_NO_MAIL, email: 'c@cheekycheese.tech', displayName: 'C', role: 'JUNIOR' },
+      {
+        id: USER_ARCHIVED,
+        email: 'd@cheekycheese.tech',
+        displayName: 'D',
+        role: 'SENIOR',
+        // Именно так выглядит увольнение в этой базе: строка остаётся, доступ
+        // отзывает `JwtAuthGuard`. Письмо — единственный канал, который до
+        // такого человека ещё ДОХОДИТ, поэтому его и надо закрыть (SR-H-1).
+        archivedAt: new Date('2026-08-01T00:00:00Z'),
+      },
     ])
     await db.insert(userEmails).values([
       { userId: USER_A, email: 'a@cheekycheese.tech', kind: 'WORK', canLogin: true },
       { userId: USER_A, email: 'a.personal@gmail.com', kind: 'PERSONAL' },
       { userId: USER_B, email: 'b@cheekycheese.tech', kind: 'WORK', canLogin: true },
+      { userId: USER_ARCHIVED, email: 'd.personal@gmail.com', kind: 'PERSONAL' },
     ])
   })
 
@@ -200,20 +227,16 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
     expect(queued).toHaveLength(0)
   })
 
-  it('AC1: выключенный информирующий тип строки очереди не создаёт', async () => {
+  it('AC6: выключенный тип всё равно встаёт в очередь — решает отправка', async () => {
+    // SPEC-H-2: круг 1 не создавал строку вовсе, и человек, включивший канал
+    // между событием и отправкой, письма уже не получал — строки не было и
+    // появиться ей было негде.
     await db
       .insert(notificationPreferences)
       .values({ userId: USER_A, type: 'TEAM_MEMBER_ADDED', emailEnabled: false })
 
     await db.transaction(async (tx) => {
-      await service.createInTx(tx, {
-        userId: USER_A,
-        type: 'TEAM_MEMBER_ADDED',
-        title: 'Вас добавили в команду',
-        subjectType: 'TEAM',
-        subjectId: 'f7a10000-0000-4007-b000-000000000002',
-        data: { teamName: 'Ядро платформы' },
-      })
+      await service.createInTx(tx, teamNotificationInput(USER_A))
     })
 
     const notifs = await db.select().from(notifications).where(eq(notifications.userId, USER_A))
@@ -222,11 +245,135 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
       .from(notificationEmails)
       .where(eq(notificationEmails.userId, USER_A))
     expect(notifs).toHaveLength(1)
-    expect(queued).toHaveLength(0)
+    expect(queued).toHaveLength(1)
+    expect(queued[0]!.status).toBe('QUEUED')
+    expect(queued[0]!.skipReason).toBeNull()
+  })
+
+  it('AC6: настройка, выключенная ПОСЛЕ постановки, останавливает письмо', async () => {
+    // Ровно то окно, на которое указывал SR-M-2: между событием и отправкой
+    // проходит до пятнадцати секунд, а при ретраях — часы.
+    await db.transaction(async (tx) => {
+      await service.createInTx(tx, teamNotificationInput(USER_A))
+    })
+    const [row] = await db
+      .select({ id: notificationEmails.id })
+      .from(notificationEmails)
+      .where(eq(notificationEmails.userId, USER_A))
+
+    // Человек выключил канал уже после того, как письмо встало в очередь.
+    await db
+      .insert(notificationPreferences)
+      .values({ userId: USER_A, type: 'TEAM_MEMBER_ADDED', emailEnabled: false })
+
+    const context = await repo.deliveryContextFor(USER_A, 'TEAM_MEMBER_ADDED')
+    expect(context.emailEnabled).toBe(false)
+    expect(decideDelivery('TEAM_MEMBER_ADDED', context)).toEqual({
+      send: false,
+      skipReason: 'CHANNEL_OFF',
+    })
+
+    await repo.markSkipped(row!.id, 'CHANNEL_OFF')
+    const [after] = await db
+      .select()
+      .from(notificationEmails)
+      .where(eq(notificationEmails.id, row!.id))
+    expect(after!.status).toBe('SKIPPED')
+    expect(after!.skipReason).toBe('CHANNEL_OFF')
+    // Ошибки не было — `last_error` обязан остаться пустым, иначе «не
+    // полагалось отправлять» снова станет похоже на сбой.
+    expect(after!.lastError).toBeNull()
+    // И строка больше не всплывает: частичный индекс отдаёт только `QUEUED`.
+    await expectNotClaimable(row!.id)
+  })
+
+  it('AC6: настройка «выключено» у запертого типа письмо не останавливает', async () => {
+    await db
+      .insert(notificationPreferences)
+      .values({ userId: USER_A, type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: false })
+
+    await db.transaction(async (tx) => {
+      await service.createInTx(tx, notificationInput(USER_A))
+    })
+
+    const context = await repo.deliveryContextFor(USER_A, 'PROJECT_CONFIRM_REQUIRED')
+    expect(context.emailEnabled).toBe(false)
+    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+      send: true,
+      to: 'a.personal@gmail.com',
+    })
+  })
+
+  it('AC3: архивированному получателю строка заводится сразу SKIPPED/USER_ARCHIVED', async () => {
+    // SR-H-1, первая половина гварда — на постановке. Проверяется на ЖИВОЙ
+    // базе, потому что `archived_at` читает запрос, а не мок.
+    await db.transaction(async (tx) => {
+      await service.createInTx(tx, notificationInput(USER_ARCHIVED))
+    })
+
+    const queued = await db
+      .select()
+      .from(notificationEmails)
+      .where(eq(notificationEmails.userId, USER_ARCHIVED))
+    expect(queued).toHaveLength(1)
+    expect(queued[0]!.status).toBe('SKIPPED')
+    expect(queued[0]!.skipReason).toBe('USER_ARCHIVED')
+    // Крону такая строка не достаётся вовсе.
+    await expectNotClaimable(queued[0]!.id)
+  })
+
+  it('AC3: архив ПОСЛЕ постановки останавливает письмо на отправке', async () => {
+    // Вторая половина гварда. Строка встала, когда человек был жив; уволили
+    // его, пока она ждала своей очереди (или пятого ретрая — это часы).
+    const id = await queueFor(USER_A)
+    await db
+      .update(users)
+      .set({ archivedAt: new Date('2026-09-01T00:00:00Z') })
+      .where(eq(users.id, USER_A))
+
+    const context = await repo.deliveryContextFor(USER_A, 'PROJECT_CONFIRM_REQUIRED')
+    expect(context.archived).toBe(true)
+    // Адрес при этом на месте — то есть письмо ушло бы, если бы решение
+    // смотрело только на адреса.
+    expect(context.addresses.length).toBe(2)
+    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+      send: false,
+      skipReason: 'USER_ARCHIVED',
+    })
+
+    await repo.markSkipped(id, 'USER_ARCHIVED')
+    const [after] = await db.select().from(notificationEmails).where(eq(notificationEmails.id, id))
+    expect(after!.status).toBe('SKIPPED')
+    expect(after!.skipReason).toBe('USER_ARCHIVED')
+  })
+
+  it('AC3: старому типу заводится строка SKIPPED/LEGACY_TYPE', async () => {
+    await db.transaction(async (tx) => {
+      await service.createInTx(tx, {
+        userId: USER_A,
+        type: 'INVOICE_SIGN_REQUIRED',
+        title: 'Инвойс ждёт подписи',
+        link: '/finance/invoices/f7a10000-0000-4007-b000-000000000009',
+      })
+    })
+
+    const queued = await db
+      .select()
+      .from(notificationEmails)
+      .where(eq(notificationEmails.userId, USER_A))
+    expect(queued).toHaveLength(1)
+    expect(queued[0]!.status).toBe('SKIPPED')
+    expect(queued[0]!.skipReason).toBe('LEGACY_TYPE')
   })
 
   it('AC3: письмо уходит на личный адрес, когда он есть', async () => {
-    expect((await repo.addressesFor(USER_A)).length).toBe(2)
+    const context = await repo.deliveryContextFor(USER_A, 'PROJECT_CONFIRM_REQUIRED')
+    expect(context.addresses.length).toBe(2)
+    expect(context.archived).toBe(false)
+    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+      send: true,
+      to: 'a.personal@gmail.com',
+    })
     const id = await queueFor(USER_A)
 
     const claimed = await claimUntilFound(id)
@@ -242,12 +389,31 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
   })
 
   it('AC3: у пользователя без личного адреса остаётся рабочий', async () => {
-    const rows = await repo.addressesFor(USER_B)
-    expect(rows.map((r) => r.kind)).toEqual(['WORK'])
+    const context = await repo.deliveryContextFor(USER_B, 'PROJECT_CONFIRM_REQUIRED')
+    expect(context.addresses.map((r) => r.kind)).toEqual(['WORK'])
+    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+      send: true,
+      to: 'b@cheekycheese.tech',
+    })
   })
 
   it('AC3: у пользователя без адресов вовсе — пустой список, а не выдумка', async () => {
-    expect(await repo.addressesFor(USER_NO_MAIL)).toEqual([])
+    // LEFT JOIN, а не INNER: человек без адресов обязан вернуть контекст, в
+    // котором «уволен» отличимо от «адреса нет». INNER JOIN вернул бы ноль
+    // строк в обоих случаях, и `skip_reason` соврал бы про причину.
+    const context = await repo.deliveryContextFor(USER_NO_MAIL, 'PROJECT_CONFIRM_REQUIRED')
+    expect(context.addresses).toEqual([])
+    expect(context.archived).toBe(false)
+    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+      send: false,
+      skipReason: 'NO_ADDRESS',
+    })
+  })
+
+  it('AC3: у архивированного контекст говорит «уволен», а не «нет адреса»', async () => {
+    const context = await repo.deliveryContextFor(USER_ARCHIVED, 'PROJECT_CONFIRM_REQUIRED')
+    expect(context.archived).toBe(true)
+    expect(context.addresses.map((r) => r.email)).toEqual(['d.personal@gmail.com'])
   })
 
   it('AC2: захват увеличивает попытки и отодвигает срок', async () => {
@@ -338,7 +504,7 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
   it('AC2: отложить похороненную строку нельзя', async () => {
     const id = await queueFor(USER_A)
     const claimed = await claimUntilFound(id)
-    await repo.markFailed(claimed.id, 'no email address')
+    await repo.markFailed(claimed.id, 'Resend API HTTP 422')
     await repo.scheduleRetry(claimed.id, 'Resend API HTTP 500', 2)
 
     const [row] = await db
@@ -346,7 +512,7 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
       .from(notificationEmails)
       .where(eq(notificationEmails.id, claimed.id))
     expect(row!.status).toBe('FAILED')
-    expect(row!.lastError).toBe('no email address')
+    expect(row!.lastError).toBe('Resend API HTTP 422')
   })
 
   it('одно письмо на уведомление — повторная постановка ничего не создаёт', async () => {

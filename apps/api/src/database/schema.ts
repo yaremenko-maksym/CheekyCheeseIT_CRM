@@ -3384,11 +3384,35 @@ export type NewEmployeeContract = typeof employeeContracts.$inferInsert
  * работу сама. Плата за это — возможная повторная отправка одного письма при
  * падении ровно между `send()` и отметкой `SENT`; выбор сознательный, второе
  * письмо «вас ждёт решение» безвредно, потерянное — нет.
+ *
+ * `SKIPPED` — не сбой, а «не полагалось отправлять»: уволенный получатель,
+ * выключенный им канал, тип без письма. Отличать его от `FAILED` требует §1
+ * задания, и причина не бухгалтерская: без этого различия вопрос «почему
+ * сотруднику не пришло письмо про X» не имеет ответа в данных, а `FAILED` с
+ * текстом в `last_error` звал бы чинить то, что работает как задумано
+ * (SPEC-H-1 / CR-H-1 / SR-L-2, круг 1).
  */
 export const notificationEmailStatusEnum = pgEnum('notification_email_status', [
   'QUEUED',
   'SENT',
   'FAILED',
+  'SKIPPED',
+])
+
+/**
+ * Почему письма не будет. Заполнена ровно у строк со статусом `SKIPPED`.
+ *
+ * Отдельный тип, а не свободный текст: причина — предмет запросов («сколько
+ * писем не ушло из-за выключенного канала»), и опечатка в ней означала бы
+ * молча потерянную строку отчёта. Тот же перечень живёт союзом в
+ * `notification-email-outbox.ts` (`SKIP_REASONS`), и расхождение двух описаний
+ * ловит `notification-email-outbox.spec.ts`, а не прод.
+ */
+export const notificationEmailSkipReasonEnum = pgEnum('notification_email_skip_reason', [
+  'NO_ADDRESS',
+  'USER_ARCHIVED',
+  'CHANNEL_OFF',
+  'LEGACY_TYPE',
 ])
 
 /**
@@ -3461,6 +3485,13 @@ export const notificationEmails = pgTable(
      * которых этот проект не пишет в журналы.
      */
     lastError: varchar('last_error', { length: 200 }),
+    /**
+     * Почему письма не будет — заполнена у `SKIPPED` и только у него.
+     * `NULL` у остальных статусов: «пропущено без причины» — состояние,
+     * которого не должно существовать, и отдельный код `NONE` только дал бы
+     * ему имя.
+     */
+    skipReason: notificationEmailSkipReasonEnum('skip_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
