@@ -248,10 +248,30 @@ test.describe('N5 — архив и причина отказа (круг 2: QA-
     const text = (await detail.textContent()) ?? ''
     // COPY-M-7: причина ПЕРВОЙ строкой — кругом раньше её не видел никто.
     expect(text.startsWith('«')).toBe(true)
-    // UX-M-2: закрывающая «ёлочка» — на той же строке, а не за границей клипа.
     const firstLine = text.split('\n')[0] ?? ''
     expect(firstLine.endsWith('»')).toBe(true)
     expect(text).toContain('Дмитро Марченко')
+
+    // UX-M-2, и это главная мера файла: закрывающая «ёлочка» должна быть
+    // видна НА ЭКРАНЕ. Арифметика знаков этого не доказывает — ширину знает
+    // браузер. Первая редакция круга 5 считала бюджет строки равным 30
+    // знакам, и на реальном рендере 320 px цитата всё равно переносилась на
+    // второй ряд, унося «»» за границу `line-clamp-2`. Поэтому меряется
+    // число ВИЗУАЛЬНЫХ рядов, которые занимает цитата: `Range.getClientRects`
+    // даёт по прямоугольнику на ряд.
+    const quoteRows = await asAdmin.evaluate((id) => {
+      const p = document.querySelector(`[data-testid="notification-item-${id}-detail"]`)
+      if (!p) throw new Error('строка подробностей не найдена')
+      const node = p.firstChild
+      if (!node || node.nodeType !== Node.TEXT_NODE) throw new Error('ожидался текстовый узел')
+      const value = node.nodeValue ?? ''
+      const end = value.indexOf('»') + 1
+      const range = document.createRange()
+      range.setStart(node, 0)
+      range.setEnd(node, end)
+      return range.getClientRects().length
+    }, REJECTED_ID)
+    expect(quoteRows, 'цитата занимает больше одного ряда — «»» уедет за клип').toBe(1)
 
     // Та же мера, что и в N4: строка не должна вылезать за попап на 320.
     const overflow = await asAdmin.evaluate(() => {

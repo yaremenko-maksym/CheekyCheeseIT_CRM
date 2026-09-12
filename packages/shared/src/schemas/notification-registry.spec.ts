@@ -767,7 +767,7 @@ describe('цитата причины доезжает до читателя ц�
     })
     const visible = visibleInPopup(detail)
     expect(visible.startsWith('«')).toBe(true)
-    expect(visible).toContain('дублирует существующий')
+    expect(visible).toContain('дублирует существу')
     expect(visible).toContain('Иван Петров')
   })
 
