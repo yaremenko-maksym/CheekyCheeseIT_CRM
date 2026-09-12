@@ -163,7 +163,7 @@ describe('«сотрудник подтвердил»', () => {
     expect(h.created[0]).toMatchObject({
       userId: ADMIN_ID,
       type: 'APPROVAL_CONFIRMED',
-      title: 'Предложение подтверждено',
+      title: 'Предложение принято',
       subjectType: 'PROJECT',
       subjectId: SUBJECT_ID,
       secondaryId: APPROVER_ID,
