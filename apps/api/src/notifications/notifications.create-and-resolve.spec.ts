@@ -538,4 +538,96 @@ describe('исчезнувший объект вычисляется на чте
     expect(compiled.sql).toContain('status')
     expect(compiled.params).toContain('READY_TO_SIGN')
   })
+
+  /**
+   * QA-M-1 (продолжение): предыдущий тест смотрит только на форму запроса.
+   * Этот — на результат: если `.select({ id: employeeContracts.id })`
+   * потеряет поле `id` (или `.map((r) => r.id)` перестанет его читать),
+   * `existingIdsByType` для EMPLOYEE_CONTRACT наполнится `undefined`, и
+   * реально существующий контракт станет ложно «отсутствующим». Гейт
+   * мутаций (круг 4) поймал ровно это: оба мутанта survived на тесте,
+   * который проверял только SQL, а не итог.
+   */
+  it('EMPLOYEE_CONTRACT: живой контракт реально даёт subjectMissing=false (не только форма запроса)', async () => {
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'DOCUMENT_SIGN_REQUIRED',
+          subjectType: 'EMPLOYEE_CONTRACT',
+          subjectId: 'c-1',
+          data: { documentTitle: 'Ваш контракт с компанией' },
+        }),
+      ],
+      { contracts: ['c-1'] },
+    )
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items[0]?.subjectMissing).toBe(false)
+  })
+
+  /**
+   * TEAM/USER/TRANSACTION — три случая из пяти в `loadExistingIds`, у
+   * которых не было СВОЕГО юнит-теста на маршрутизацию (только на живом
+   * Postgres). Гейт мутаций (круг 4) показал, почему это важно и здесь:
+   * правка соседней EMPLOYEE_CONTRACT-ветки расширила замутированный кусок
+   * файла на весь `switch`, и три метки регистра (`case 'TEAM'` и т. д.)
+   * выжили — мутация на пустую строку молча проваливает подходящий
+   * `subjectType` в `default` (контракты) вместо своей таблицы. Каждый тест
+   * — позитивный контроль на СВОЮ таблицу при ПУСТОМ списке контрактов:
+   * под мутацией код спросил бы не ту таблицу и получил бы «не существует».
+   */
+  it('TEAM маршрутизируется в команды, не в контракты', async () => {
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'TEAM_MEMBER_ADDED',
+          subjectType: 'TEAM',
+          subjectId: 't-1',
+          data: { teamName: 'Alpha' },
+        }),
+      ],
+      { teams: ['t-1'] },
+    )
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items[0]?.subjectMissing).toBe(false)
+  })
+
+  it('USER маршрутизируется в пользователей, не в контракты', async () => {
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'APPROVAL_CONFIRMED',
+          subjectType: 'USER',
+          subjectId: 'usr-1',
+          data: { approverName: 'Иван', subjectKind: 'BASE_SHARE', subjectTitle: null },
+        }),
+      ],
+      { users: ['usr-1'] },
+    )
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items[0]?.subjectMissing).toBe(false)
+  })
+
+  it('TRANSACTION маршрутизируется в транзакции, не в контракты', async () => {
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'TRANSACTION_ADDED',
+          subjectType: 'TRANSACTION',
+          subjectId: 'tx-1',
+          data: { amount: '10.00', currency: 'USD', projectName: null },
+        }),
+      ],
+      { transactions: ['tx-1'] },
+    )
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items[0]?.subjectMissing).toBe(false)
+  })
 })

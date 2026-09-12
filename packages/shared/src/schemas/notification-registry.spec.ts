@@ -442,6 +442,14 @@ describe('subjectMissing — подпись называет вид объект
     ['TEAM', 'Команда удалена'],
     ['USER', 'Профиль удалён'],
     ['TRANSACTION', 'Транзакция удалена'],
+    // EMPLOYEE_CONTRACT — тоже через ОБЩУЮ ветку (`type` здесь не
+    // DOCUMENT_SIGN_REQUIRED), потому что через СВОЙ обычный тип
+    // (DOCUMENT_SIGN_REQUIRED) subjectMissing перехватывается раньше — см.
+    // describe ниже. Без этой строки мутационный гейт не видит
+    // `SUBJECT_MISSING_LABELS.EMPLOYEE_CONTRACT` вовсе: единственный
+    // реальный потребитель этого вида объекта (DOCUMENT_SIGN_REQUIRED)
+    // никогда не доходит до общей карты (нашёл гейт мутаций — 1 survived).
+    ['EMPLOYEE_CONTRACT', 'Контракт удалён'],
   ] as const)('%s → «%s»', (subjectType, label) => {
     expect(
       notificationActions({
