@@ -543,6 +543,31 @@ function subjectMissingLabel(subjectType: NotificationSubjectType | null): strin
   return subjectType === null ? 'Этого больше нет в CRM' : SUBJECT_MISSING_LABELS[subjectType]
 }
 
+/**
+ * QA-M-3 / QA-L-2 (manual-qa круг 2, #664): архив — не удаление.
+ *
+ * Живой прогон: архивированный проект оставлял кнопку активной, и джун, чьё
+ * членство завершилось каскадом архивации, приезжал на страницу с текстом
+ * «Вас ещё не добавили в проект». Сказать вместо этого «Проект удалён» было
+ * бы вторым враньём: проект цел, его видно в архиве. Подпись называет ровно
+ * то, что произошло, и никуда не ведёт.
+ *
+ * Транзакция и контракт сюда не попадают по построению (архива у них нет —
+ * см. `loadSubjectStates`), но запись есть у всех пяти видов: `Record` без
+ * пропусков — то, что сломает компиляцию на шестом виде объекта.
+ */
+const SUBJECT_ARCHIVED_LABELS: Record<NotificationSubjectType, string> = {
+  PROJECT: 'Проект в архиве',
+  TEAM: 'Команда в архиве',
+  USER: 'Профиль в архиве',
+  TRANSACTION: 'Транзакция в архиве',
+  EMPLOYEE_CONTRACT: 'Контракт в архиве',
+}
+
+function subjectArchivedLabel(subjectType: NotificationSubjectType | null): string {
+  return subjectType === null ? 'Это убрано в архив' : SUBJECT_ARCHIVED_LABELS[subjectType]
+}
+
 /** Маршрут объекта. У транзакции и договора своей страницы нет — ведём в список. */
 export function notificationHref(subjectType: NotificationSubjectType, subjectId: string): string {
   switch (subjectType) {
@@ -569,6 +594,7 @@ export type RenderableNotification = {
   subjectId: string | null
   data: unknown
   subjectMissing?: boolean
+  subjectArchived?: boolean
 }
 
 export function notificationActions(n: RenderableNotification): NotificationAction[] {
@@ -591,6 +617,12 @@ export function notificationActions(n: RenderableNotification): NotificationActi
       return [{ label: 'Подпись больше не требуется', href: null, disabled: true }]
     }
     return [{ label: subjectMissingLabel(n.subjectType), href: null, disabled: true }]
+  }
+  // QA-M-3 / QA-L-2: архив проверяется ПОСЛЕ исчезновения и отдельно от него —
+  // у «нет объекта» и «объект в архиве» разные подписи, и путать их значит
+  // врать в одну или в другую сторону.
+  if (n.subjectArchived === true) {
+    return [{ label: subjectArchivedLabel(n.subjectType), href: null, disabled: true }]
   }
   if (isNewNotificationType(n.type) && n.subjectType !== null && n.subjectId !== null) {
     return [

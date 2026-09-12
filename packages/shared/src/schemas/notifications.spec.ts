@@ -26,6 +26,7 @@ const validNotification = {
   secondaryId: null,
   data: null,
   subjectMissing: false,
+  subjectArchived: false,
 }
 
 describe('notificationTypeSchema', () => {

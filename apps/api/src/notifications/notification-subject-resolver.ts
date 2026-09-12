@@ -16,6 +16,21 @@
  */
 import type { NotificationSubjectType } from '@crm/shared'
 
+/**
+ * Состояние объекта, о котором уведомление.
+ *
+ * QA-M-3 / QA-L-2 (manual-qa круг 2, #664): раньше здесь был булев ответ
+ * «строка есть / строки нет», и архивированный проект попадал в «есть» —
+ * кнопка оставалась активной, а джун, чьё членство завершилось каскадом
+ * архивации, приезжал на страницу с текстом «Вас ещё не добавили в проект».
+ * Ложь про событие, которое БЫЛО. Архив — третий ответ, а не разновидность
+ * одного из двух: объект цел, но работа по нему закончена.
+ *
+ * Отсутствие в карте — «объекта больше нет»; поэтому вариантов здесь два, а
+ * состояний у строки три.
+ */
+export type SubjectState = 'active' | 'archived'
+
 /** Строка уведомления в объёме, достаточном для решения. */
 export type SubjectRef = {
   userId: string
@@ -85,24 +100,35 @@ export function approvalChecksFor(
 }
 
 /**
- * Итог. «Объекта больше нет», если:
- *   - сам объект исчез (строки нет среди существующих), ИЛИ
- *   - это уведомление про согласование, а живого согласования уже нет
- *     (погашено `supersededAt` — предложение отозвали, пересоздали или
- *     погасил отказ соседа).
+ * Итог. Три ответа вместо двух:
+ *   - `missing` — объект исчез (строки нет среди найденных) ЛИБО это
+ *     уведомление про согласование, а живого согласования уже нет (погашено
+ *     `supersededAt` — предложение отозвали, пересоздали или погасил отказ
+ *     соседа);
+ *   - `archived` — объект цел, но работа по нему закончена (QA-M-3/QA-L-2);
+ *   - `active` — всё на месте, кнопка ведёт куда обещает.
  *
  * Строка БЕЗ структурного объекта (три старых типа) — не «исчезла»: у неё
  * никогда и не было объекта, её кнопка идёт по сохранённой ссылке.
+ *
+ * Порядок проверок содержателен, а не случаен: состояние ОБЪЕКТА решает
+ * раньше живости согласования. Подпись выводится из вида объекта («Проект в
+ * архиве»), и сказать про архивный проект «Проект удалён» только потому, что
+ * предложение по нему погашено, — ровно та ложь, ради которой заведена
+ * находка.
  */
-export function computeSubjectMissing(
+export function computeSubjectState(
   row: SubjectRef,
-  existingIdsByType: Map<NotificationSubjectType, Set<string>>,
+  statesByType: Map<NotificationSubjectType, Map<string, SubjectState>>,
   liveApprovalKeys: Set<string>,
-): boolean {
-  if (row.subjectType === null || row.subjectId === null) return false
-  const existing = existingIdsByType.get(row.subjectType)
-  if (existing === undefined || !existing.has(row.subjectId)) return true
+): SubjectState | 'missing' {
+  if (row.subjectType === null || row.subjectId === null) return 'active'
+  const state = statesByType.get(row.subjectType)?.get(row.subjectId)
+  if (state === undefined) return 'missing'
+  if (state === 'archived') return 'archived'
   const approvalSubjectType = approvalSubjectTypeFor(row.type, row.subjectType)
-  if (approvalSubjectType === null) return false
-  return !liveApprovalKeys.has(liveApprovalKey(approvalSubjectType, row.subjectId, row.userId))
+  if (approvalSubjectType === null) return 'active'
+  return liveApprovalKeys.has(liveApprovalKey(approvalSubjectType, row.subjectId, row.userId))
+    ? 'active'
+    : 'missing'
 }

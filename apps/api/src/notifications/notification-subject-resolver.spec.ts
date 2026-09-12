@@ -3,10 +3,11 @@ import type { NotificationSubjectType } from '@crm/shared'
 import {
   approvalChecksFor,
   approvalSubjectTypeFor,
-  computeSubjectMissing,
+  computeSubjectState,
   groupSubjectIds,
   liveApprovalKey,
   type SubjectRef,
+  type SubjectState,
 } from './notification-subject-resolver'
 
 const ref = (over: Partial<SubjectRef> = {}): SubjectRef => ({
@@ -17,10 +18,17 @@ const ref = (over: Partial<SubjectRef> = {}): SubjectRef => ({
   ...over,
 })
 
-const existing = (
+/** Всё найденное — живое: короткая запись для случаев, где архив ни при чём. */
+const live = (
   entries: [NotificationSubjectType, string[]][],
-): Map<NotificationSubjectType, Set<string>> =>
-  new Map(entries.map(([k, ids]) => [k, new Set(ids)]))
+): Map<NotificationSubjectType, Map<string, SubjectState>> =>
+  new Map(entries.map(([k, ids]) => [k, new Map(ids.map((id) => [id, 'active' as SubjectState]))]))
+
+/** То же, но состояние каждого объекта задаётся явно (QA-M-3 / QA-L-2). */
+const archived = (
+  entries: [NotificationSubjectType, [string, SubjectState][]][],
+): Map<NotificationSubjectType, Map<string, SubjectState>> =>
+  new Map(entries.map(([k, pairs]) => [k, new Map(pairs)]))
 
 describe('approvalSubjectTypeFor', () => {
   it('подтверждение проекта проверяется согласованием PROJECT', () => {
@@ -80,15 +88,15 @@ describe('approvalChecksFor', () => {
   })
 })
 
-describe('computeSubjectMissing', () => {
+describe('computeSubjectState', () => {
   it('строка без структурного объекта не считается исчезнувшей', () => {
     expect(
-      computeSubjectMissing(
+      computeSubjectState(
         ref({ type: 'INVOICE_SIGN_REQUIRED', subjectType: null, subjectId: null }),
-        existing([]),
+        live([]),
         new Set(),
       ),
-    ).toBe(false)
+    ).toBe('active')
   })
 
   it('идентификатор без вида объекта: спрашивать негде — значит, не исчезал', () => {
@@ -96,64 +104,134 @@ describe('computeSubjectMissing', () => {
     // «объекта больше нет» не на чем. Строка проверяет ОДНО из двух условий
     // отдельно от второго.
     expect(
-      computeSubjectMissing(
+      computeSubjectState(
         ref({ subjectType: null, subjectId: 'p-1' }),
-        existing([['PROJECT', ['p-1']]]),
+        live([['PROJECT', ['p-1']]]),
         new Set(),
       ),
-    ).toBe(false)
+    ).toBe('active')
   })
 
   it('вид объекта без идентификатора: спрашивать не про что — значит, не исчезал', () => {
     // Зеркало предыдущей строки: второе условие отдельно от первого.
     expect(
-      computeSubjectMissing(
+      computeSubjectState(
         ref({ subjectType: 'PROJECT', subjectId: null }),
-        existing([['PROJECT', ['p-1']]]),
+        live([['PROJECT', ['p-1']]]),
         new Set(),
       ),
-    ).toBe(false)
+    ).toBe('active')
   })
 
   it('объект на месте — не исчез', () => {
-    expect(computeSubjectMissing(ref(), existing([['PROJECT', ['p-1']]]), new Set())).toBe(false)
+    expect(computeSubjectState(ref(), live([['PROJECT', ['p-1']]]), new Set())).toBe('active')
   })
 
   it('объекта нет среди существующих — исчез', () => {
-    expect(computeSubjectMissing(ref(), existing([['PROJECT', ['p-2']]]), new Set())).toBe(true)
+    expect(computeSubjectState(ref(), live([['PROJECT', ['p-2']]]), new Set())).toBe('missing')
   })
 
   it('вида объекта не спрашивали вовсе — исчез', () => {
-    expect(computeSubjectMissing(ref(), existing([['TEAM', ['p-1']]]), new Set())).toBe(true)
+    expect(computeSubjectState(ref(), live([['TEAM', ['p-1']]]), new Set())).toBe('missing')
   })
 
   it('проект жив, но согласование погашено — кнопка честно говорит, что вести некуда', () => {
     expect(
-      computeSubjectMissing(
+      computeSubjectState(
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
-        existing([['PROJECT', ['p-1']]]),
+        live([['PROJECT', ['p-1']]]),
         new Set(),
       ),
-    ).toBe(true)
+    ).toBe('missing')
   })
 
   it('проект жив и согласование живо — не исчез', () => {
     expect(
-      computeSubjectMissing(
+      computeSubjectState(
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
-        existing([['PROJECT', ['p-1']]]),
+        live([['PROJECT', ['p-1']]]),
         new Set([liveApprovalKey('PROJECT', 'p-1', 'u-1')]),
       ),
-    ).toBe(false)
+    ).toBe('active')
   })
 
   it('живое согласование ДРУГОГО подтверждающего этой строке не помогает', () => {
     expect(
-      computeSubjectMissing(
+      computeSubjectState(
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
-        existing([['PROJECT', ['p-1']]]),
+        live([['PROJECT', ['p-1']]]),
         new Set([liveApprovalKey('PROJECT', 'p-1', 'u-2')]),
       ),
-    ).toBe(true)
+    ).toBe('missing')
+  })
+})
+
+/**
+ * QA-M-3 (MED) и QA-L-2 (LOW), manual-qa круг 2, #664.
+ *
+ * «Строка в таблице есть» — не то же самое, что «объект ещё живой». Живой
+ * прогон: архивированный проект оставлял кнопку «Открыть проект» активной, и
+ * джун, чьё членство завершилось каскадом архивации, приезжал на страницу с
+ * текстом «Вас ещё не добавили в проект» — ложь про событие, которое БЫЛО.
+ * Тот же класс уже чинили для контракта (QA-M-1), здесь он остался открытым
+ * для трёх видов объекта сразу: проект, команда и профиль — у всех трёх есть
+ * колонка `archived_at`.
+ */
+describe('computeSubjectState — архив это не удаление (QA-M-3 / QA-L-2)', () => {
+  it('архивный проект — «в архиве», а не «удалён»', () => {
+    expect(
+      computeSubjectState(ref(), archived([['PROJECT', [['p-1', 'archived']]]]), new Set()),
+    ).toBe('archived')
+  })
+
+  it('архивная команда — «в архиве»', () => {
+    expect(
+      computeSubjectState(
+        ref({ type: 'TEAM_MEMBER_ADDED', subjectType: 'TEAM', subjectId: 't-1' }),
+        archived([['TEAM', [['t-1', 'archived']]]]),
+        new Set(),
+      ),
+    ).toBe('archived')
+  })
+
+  it('архивный профиль — «в архиве»', () => {
+    expect(
+      computeSubjectState(
+        ref({ type: 'APPROVAL_CONFIRMED', subjectType: 'USER', subjectId: 'u-9' }),
+        archived([['USER', [['u-9', 'archived']]]]),
+        new Set(),
+      ),
+    ).toBe('archived')
+  })
+
+  it('состояние объекта сильнее живости согласования: архив не выдаётся за удаление', () => {
+    // Порядок важен и проверяется отдельно: подпись выводится из состояния
+    // ОБЪЕКТА, и «Проект удалён» на архивном проекте — ровно та ложь, ради
+    // которой находка заведена. Погашенное согласование этого не меняет.
+    expect(
+      computeSubjectState(
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
+        archived([['PROJECT', [['p-1', 'archived']]]]),
+        new Set(),
+      ),
+    ).toBe('archived')
+  })
+
+  it('архив одного объекта не красит соседа того же вида', () => {
+    expect(
+      computeSubjectState(
+        ref(),
+        archived([
+          [
+            'PROJECT',
+            [
+              ['p-1', 'active'],
+              ['p-2', 'archived'],
+            ],
+          ],
+        ]),
+        new Set(),
+      ),
+    ).toBe('active')
   })
 })

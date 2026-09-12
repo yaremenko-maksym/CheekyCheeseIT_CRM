@@ -47,6 +47,7 @@ function makeNotification(over: Partial<Notification>): Notification {
     secondaryId: null,
     data: { projectName: 'Acme' },
     subjectMissing: false,
+    subjectArchived: false,
     ...over,
   } as Notification
 }
@@ -426,5 +427,58 @@ describe('сохранённые адреса времён префикса /crm
     expect(await navigateTargetFor('/crm/finance/invoices/a')).toEqual({
       to: '/finance/invoices/a',
     })
+  })
+})
+
+/**
+ * QA-M-3 / QA-L-2 (manual-qa круг 2, #664) — со стороны экрана.
+ *
+ * Сервер научился отличать архив от удаления; здесь проверяется, что это
+ * доезжает до глаз: подпись называет архив своим словом, кнопка гаснет и
+ * клик по строке никуда не ведёт. Без последнего утверждения «недоступна»
+ * оставалась бы свойством цвета текста, а не поведения.
+ */
+describe('архивный объект: своя подпись и никакого перехода (QA-M-3 / QA-L-2)', () => {
+  it.each([
+    ['PROJECT', 'PROJECT_MEMBER_ADDED', 'Проект в архиве'],
+    ['TEAM', 'TEAM_MEMBER_ADDED', 'Команда в архиве'],
+    ['USER', 'APPROVAL_CONFIRMED', 'Профиль в архиве'],
+  ] as const)('%s → «%s»', async (subjectType, type, label) => {
+    items = [
+      makeNotification({
+        type,
+        subjectType,
+        data:
+          type === 'APPROVAL_CONFIRMED'
+            ? { approverName: 'Иван', subjectKind: 'BASE_SHARE', subjectTitle: null }
+            : type === 'TEAM_MEMBER_ADDED'
+              ? { teamName: 'Alpha' }
+              : { projectName: 'Acme' },
+        subjectArchived: true,
+      }),
+    ]
+    await openBell()
+
+    expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(label)
+  })
+
+  it('подпись приглушена и клик по архивной строке не уводит со страницы', async () => {
+    items = [makeNotification({ subjectArchived: true })]
+    await openBell()
+
+    expect(screen.getByTestId(`notification-item-${UUID}-action`).className).toContain(
+      'text-muted-foreground/60',
+    )
+    await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('«в архиве» не подменяет «удалён»: удалённый объект называется своим словом', async () => {
+    items = [makeNotification({ subjectMissing: true })]
+    await openBell()
+
+    expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
+      'Проект удалён',
+    )
   })
 })

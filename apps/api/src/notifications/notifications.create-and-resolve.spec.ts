@@ -29,10 +29,18 @@ type Row = typeof notifications.$inferSelect
 
 const NOW = new Date('2026-09-07T10:00:00.000Z')
 
+/**
+ * Строка в «базе». Голая строка — живой объект; объект в архиве задаётся
+ * явно (QA-M-3 / QA-L-2, круг 2): у проекта, команды и профиля есть колонка
+ * `archived_at`, и заглушка обязана уметь ответить ею, иначе «архив» и
+ * «живой» для теста неразличимы.
+ */
+type ExistingRow = string | { id: string; archivedAt: Date }
+
 type Existing = {
-  projects?: string[]
-  teams?: string[]
-  users?: string[]
+  projects?: ExistingRow[]
+  teams?: ExistingRow[]
+  users?: ExistingRow[]
   transactions?: string[]
   contracts?: string[]
   approvals?: { subjectType: string; subjectId: string; approverUserId: string }[]
@@ -65,6 +73,13 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}, insertReturnsNot
   const askedTables: string[] = []
   /** Условия отбора, с которыми пришли запросы про живость объектов. */
   const whereClauses: { table: string; sql: unknown }[] = []
+  /**
+   * Колонки, которые запрос ЗАПРОСИЛ. Для QA-M-3 это и есть проверяемый
+   * механизм: состояние объекта читается колонкой `archived_at`, а не
+   * отсекается условием отбора, — иначе архивный объект стал бы
+   * неотличим от удалённого, что и было дефектом.
+   */
+  const askedColumns: { table: string; columns: string[] }[] = []
 
   /**
    * Ответ содержит РОВНО запрошенные колонки, как и настоящая база. Без этого
@@ -90,7 +105,7 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}, insertReturnsNot
       askedTables.push('approvals')
       return (existing.approvals ?? []).map((a) => pick(fields, a as Record<string, unknown>))
     }
-    const byTable: [unknown, string, string[] | undefined][] = [
+    const byTable: [unknown, string, ExistingRow[] | undefined][] = [
       [projects, 'projects', existing.projects],
       [teams, 'teams', existing.teams],
       [users, 'users', existing.users],
@@ -100,7 +115,15 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}, insertReturnsNot
     for (const [candidate, name, ids] of byTable) {
       if (table === candidate) {
         askedTables.push(name)
-        return (ids ?? []).map((id) => pick(fields, { id }))
+        askedColumns.push({ table: name, columns: Object.keys(fields ?? {}) })
+        return (ids ?? []).map((entry) =>
+          pick(
+            fields,
+            typeof entry === 'string'
+              ? { id: entry, archivedAt: null }
+              : { id: entry.id, archivedAt: entry.archivedAt },
+          ),
+        )
       }
     }
     throw new Error('заглушка не знает такой таблицы')
@@ -182,6 +205,7 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}, insertReturnsNot
     insertValues,
     conflictArgs,
     askedTables,
+    askedColumns,
     whereClauses,
     db,
   }
@@ -629,5 +653,116 @@ describe('исчезнувший объект вычисляется на чте
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
     expect(list.items[0]?.subjectMissing).toBe(false)
+  })
+})
+
+/**
+ * QA-M-3 (MED) / QA-L-2 (LOW), manual-qa круг 2, #664.
+ *
+ * «Строка есть» — не «объект живой». Живой прогон: архивированный проект
+ * оставлял кнопку «Открыть проект» активной, и джун, чьё членство завершилось
+ * каскадом архивации, приезжал на страницу «Вас ещё не добавили в проект».
+ *
+ * Здесь проверяется МЕХАНИЗМ, а не только исход: состояние читается
+ * колонкой, а не отсекается условием отбора. Отсекай мы архив условием —
+ * архивный объект вернулся бы в «удалён», то есть в исходный дефект.
+ */
+describe('архив читается колонкой, а не отсекается отбором (QA-M-3 / QA-L-2)', () => {
+  const archivedRow = (id: string) => ({ id, archivedAt: new Date('2026-09-01T00:00:00.000Z') })
+
+  it('проект, команда и профиль спрашиваются ВМЕСТЕ с их archivedAt', () => {
+    const h = makeHarness(
+      [
+        makeRow({ id: 'n-p', subjectType: 'PROJECT', subjectId: 'p-1' }),
+        makeRow({ id: 'n-t', type: 'TEAM_MEMBER_ADDED', subjectType: 'TEAM', subjectId: 't-1' }),
+        makeRow({ id: 'n-u', type: 'APPROVAL_CONFIRMED', subjectType: 'USER', subjectId: 'u-9' }),
+      ],
+      { projects: ['p-1'], teams: ['t-1'], users: ['u-9'] },
+    )
+
+    return h.svc.listForUser('u-1', { limit: 10 }).then(() => {
+      for (const table of ['projects', 'teams', 'users']) {
+        const asked = h.askedColumns.find((c) => c.table === table)
+        expect(asked?.columns).toEqual(['id', 'archivedAt'])
+      }
+    })
+  })
+
+  it('условие отбора архив НЕ фильтрует — иначе он стал бы неотличим от удаления', async () => {
+    const h = makeHarness([makeRow({ subjectId: 'p-1' })], { projects: ['p-1'] })
+
+    await h.svc.listForUser('u-1', { limit: 10 })
+
+    const where = h.whereClauses.find((w) => w.table === 'projects')
+    expect(where).toBeDefined()
+    expect(compileWhere(where!.sql).sql).not.toContain('archived_at')
+  })
+
+  it('архивный проект: кнопки нет, но и «удалён» про него не говорят', async () => {
+    const h = makeHarness([makeRow({ subjectId: 'p-1' })], { projects: [archivedRow('p-1')] })
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items[0]?.subjectArchived).toBe(true)
+    expect(list.items[0]?.subjectMissing).toBe(false)
+  })
+
+  it('архивная команда — то же самое (QA-L-2)', async () => {
+    const h = makeHarness(
+      [makeRow({ type: 'TEAM_MEMBER_ADDED', subjectType: 'TEAM', subjectId: 't-1' })],
+      { teams: [archivedRow('t-1')] },
+    )
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect([list.items[0]?.subjectMissing, list.items[0]?.subjectArchived]).toEqual([false, true])
+  })
+
+  it('архивный профиль — то же самое (QA-L-2, у users своя archived_at)', async () => {
+    const h = makeHarness(
+      [makeRow({ type: 'APPROVAL_CONFIRMED', subjectType: 'USER', subjectId: 'u-9' })],
+      { users: [archivedRow('u-9')] },
+    )
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect([list.items[0]?.subjectMissing, list.items[0]?.subjectArchived]).toEqual([false, true])
+  })
+
+  it('живой объект остаётся живым — оба поля ложны', async () => {
+    const h = makeHarness([makeRow({ subjectId: 'p-1' })], { projects: ['p-1'] })
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect([list.items[0]?.subjectMissing, list.items[0]?.subjectArchived]).toEqual([false, false])
+  })
+
+  it('удалённый объект остаётся удалённым — архив его не подменяет', async () => {
+    const h = makeHarness([makeRow({ subjectId: 'p-2' })], { projects: [archivedRow('p-1')] })
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect([list.items[0]?.subjectMissing, list.items[0]?.subjectArchived]).toEqual([true, false])
+  })
+
+  it('архив соседа в той же пачке не красит живую строку', async () => {
+    const h = makeHarness(
+      [
+        makeRow({ id: 'n-live', subjectId: 'p-1' }),
+        makeRow({
+          id: 'n-archived',
+          subjectId: 'p-2',
+          createdAt: new Date('2026-09-06T10:00:00.000Z'),
+        }),
+      ],
+      { projects: ['p-1', archivedRow('p-2')] },
+    )
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items.map((i) => [i.id, i.subjectMissing, i.subjectArchived])).toEqual([
+      ['n-live', false, false],
+      ['n-archived', false, true],
+    ])
   })
 })

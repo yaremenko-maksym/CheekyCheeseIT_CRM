@@ -42,10 +42,11 @@ import type { DrizzleTx } from '../database/types'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import {
   approvalChecksFor,
-  computeSubjectMissing,
+  computeSubjectState,
   groupSubjectIds,
   liveApprovalKey,
   type SubjectRef,
+  type SubjectState,
 } from './notification-subject-resolver'
 
 /**
@@ -364,12 +365,12 @@ export class NotificationsService {
     const unreadCount = unreadRows[0]?.count ?? 0
 
     // §7.4. Считается ЗДЕСЬ, а не на каждой целевой странице: страниц пять, а
-    // список один, и «объекта больше нет» — свойство записи на момент чтения, а
+    // список один, и состояние объекта — свойство записи на момент чтения, а
     // не свойство маршрута.
-    const missing = await this.resolveSubjectMissing(rows)
+    const states = await this.resolveSubjectStates(rows)
 
     return {
-      items: rows.map((r) => this.mapNotification(r, missing.has(r.id))),
+      items: rows.map((r) => this.mapNotification(r, states.get(r.id) ?? 'active')),
       unreadCount,
     }
   }
@@ -383,9 +384,9 @@ export class NotificationsService {
    * `transactions`: этот модуль вне `finance/**`, и мягко удалённая транзакция
    * для него не существует — ровно то, что нужно сказать про кнопку.
    */
-  private async resolveSubjectMissing(
+  private async resolveSubjectStates(
     rows: (typeof notifications.$inferSelect)[],
-  ): Promise<Set<string>> {
+  ): Promise<Map<string, SubjectState | 'missing'>> {
     const refs: SubjectRef[] = rows.map((r) => ({
       userId: r.userId,
       type: r.type,
@@ -393,9 +394,9 @@ export class NotificationsService {
       subjectId: r.subjectId ?? null,
     }))
 
-    const existingIdsByType = new Map<NotificationSubjectType, Set<string>>()
+    const statesByType = new Map<NotificationSubjectType, Map<string, SubjectState>>()
     for (const [subjectType, ids] of groupSubjectIds(refs)) {
-      existingIdsByType.set(subjectType, await this.loadExistingIds(subjectType, ids))
+      statesByType.set(subjectType, await this.loadSubjectStates(subjectType, ids))
     }
 
     const liveApprovalKeys = new Set<string>()
@@ -422,47 +423,61 @@ export class NotificationsService {
       }
     }
 
-    const missing = new Set<string>()
+    const states = new Map<string, SubjectState | 'missing'>()
     for (const [index, ref] of refs.entries()) {
-      if (computeSubjectMissing(ref, existingIdsByType, liveApprovalKeys)) {
-        missing.add(rows[index]!.id)
-      }
+      states.set(rows[index]!.id, computeSubjectState(ref, statesByType, liveApprovalKeys))
     }
-    return missing
+    return states
   }
 
-  private async loadExistingIds(
+  /**
+   * Состояние каждого запрошенного объекта. Отсутствие в карте — «объекта
+   * больше нет».
+   *
+   * QA-M-3 / QA-L-2 (manual-qa круг 2, #664): у проекта, команды и профиля
+   * есть колонка `archived_at`, и раньше запрос её не читал — архивированная
+   * строка находилась и выдавалась за живую. Здесь она читается ОДНИМ И ТЕМ
+   * ЖЕ способом для всех трёх видов: три копии одного условия расходятся
+   * молча, а один механизм — нет.
+   */
+  private async loadSubjectStates(
     subjectType: NotificationSubjectType,
     ids: string[],
-  ): Promise<Set<string>> {
+  ): Promise<Map<string, SubjectState>> {
+    const byArchivedAt = (rows: { id: string; archivedAt: Date | null }[]) =>
+      new Map<string, SubjectState>(
+        rows.map((r) => [r.id, r.archivedAt === null ? 'active' : 'archived']),
+      )
     switch (subjectType) {
       case 'PROJECT': {
         const found = await this.db.db
-          .select({ id: projects.id })
+          .select({ id: projects.id, archivedAt: projects.archivedAt })
           .from(projects)
           .where(inArray(projects.id, ids))
-        return new Set(found.map((r) => r.id))
+        return byArchivedAt(found)
       }
       case 'TEAM': {
         const found = await this.db.db
-          .select({ id: teams.id })
+          .select({ id: teams.id, archivedAt: teams.archivedAt })
           .from(teams)
           .where(inArray(teams.id, ids))
-        return new Set(found.map((r) => r.id))
+        return byArchivedAt(found)
       }
       case 'USER': {
         const found = await this.db.db
-          .select({ id: users.id })
+          .select({ id: users.id, archivedAt: users.archivedAt })
           .from(users)
           .where(inArray(users.id, ids))
-        return new Set(found.map((r) => r.id))
+        return byArchivedAt(found)
       }
       case 'TRANSACTION': {
+        // У транзакции архива нет — есть мягкое удаление, и оно уже отрезано
+        // самим представлением `non_deleted_transactions`.
         const found = await this.db.db
           .select({ id: nonDeletedTransactions.id })
           .from(nonDeletedTransactions)
           .where(inArray(nonDeletedTransactions.id, ids))
-        return new Set(found.map((r) => r.id))
+        return new Map<string, SubjectState>(found.map((r) => [r.id, 'active']))
       }
       default: {
         // QA-M-1 (manual-qa круг 1, #664). `DOCUMENT_SIGN_REQUIRED` — единственный
@@ -480,7 +495,7 @@ export class NotificationsService {
           .where(
             and(inArray(employeeContracts.id, ids), eq(employeeContracts.status, 'READY_TO_SIGN')),
           )
-        return new Set(found.map((r) => r.id))
+        return new Map<string, SubjectState>(found.map((r) => [r.id, 'active']))
       }
     }
   }
@@ -545,9 +560,14 @@ export class NotificationsService {
   // Mapping
   // -------------------------------------------------------------------------
 
+  /**
+   * Два булевых поля DTO выводятся из ОДНОГО состояния и только здесь —
+   * поэтому «исчез и в архиве одновременно» невозможно по построению, а не
+   * по договорённости.
+   */
   private mapNotification(
     row: typeof notifications.$inferSelect,
-    subjectMissing = false,
+    state: SubjectState | 'missing' = 'active',
   ): NotificationDto {
     return {
       id: row.id,
@@ -561,7 +581,8 @@ export class NotificationsService {
       subjectId: row.subjectId ?? null,
       secondaryId: row.secondaryId ?? null,
       data: row.data ?? null,
-      subjectMissing,
+      subjectMissing: state === 'missing',
+      subjectArchived: state === 'archived',
     }
   }
 }

@@ -10,6 +10,7 @@ import {
   notificationSubjectTypeSchema,
   notificationTextPreview,
   renderNotification,
+  type NotificationSubjectType,
 } from './notification-registry'
 import { notificationTypeSchema } from './notifications'
 
@@ -28,6 +29,7 @@ const base = {
   secondaryId: null,
   data: null,
   subjectMissing: false,
+  subjectArchived: false,
 }
 
 describe('десять типов — реестр', () => {
@@ -838,5 +840,89 @@ describe('цитата причины доезжает до читателя ц�
       expect(quote.length).toBeGreaterThan(2)
       expect(visibleInPopup(detail)).toContain(quote)
     }
+  })
+})
+
+/**
+ * QA-M-3 (MED) / QA-L-2 (LOW), manual-qa круг 2, #664.
+ *
+ * Архив — третий ответ, а не разновидность удаления. Живой прогон показал
+ * цену смешения: архивированный проект оставлял кнопку активной, и джун,
+ * чьё членство завершилось каскадом архивации, приезжал на страницу
+ * «Вас ещё не добавили в проект». Подпись «Проект удалён» была бы вторым
+ * враньём — проект цел и виден в архиве.
+ */
+describe('архивный объект — своя подпись, кнопка недоступна (QA-M-3 / QA-L-2)', () => {
+  const archived = (subjectType: NotificationSubjectType, type: string) =>
+    notificationActions({
+      ...base,
+      type,
+      subjectType,
+      subjectId: uuid,
+      subjectArchived: true,
+    })
+
+  it.each([
+    ['PROJECT', 'PROJECT_MEMBER_ADDED', 'Проект в архиве'],
+    ['TEAM', 'TEAM_MEMBER_ADDED', 'Команда в архиве'],
+    ['USER', 'APPROVAL_CONFIRMED', 'Профиль в архиве'],
+  ] as const)('%s → «%s»', (subjectType, type, label) => {
+    expect(archived(subjectType, type)).toEqual([{ label, href: null, disabled: true }])
+  })
+
+  it('семь типов с объектом-проектом получают одну и ту же честную подпись', () => {
+    // Находка задевает не один тип, а всю семью с `subjectType='PROJECT'` —
+    // поэтому проверяется семья, а не один представитель.
+    for (const type of [
+      'PROJECT_MEMBER_ADDED',
+      'PROJECT_CONFIRM_REQUIRED',
+      'SHARE_CONFIRM_REQUIRED',
+      'APPROVAL_CONFIRMED',
+      'APPROVAL_REJECTED',
+      'TRANSACTION_ADDED',
+      'INVOICE_SIGN_REQUIRED',
+    ]) {
+      expect(archived('PROJECT', type)).toEqual([
+        { label: 'Проект в архиве', href: null, disabled: true },
+      ])
+    }
+  })
+
+  it('исчезнувший объект сильнее архивного: «удалён» не подменяется «в архиве»', () => {
+    // Сервер такой пары не выдаёт (оба поля выводятся из одного состояния),
+    // но порядок веток всё равно закреплён: иначе его молча переставят.
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_MEMBER_ADDED',
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+        subjectMissing: true,
+        subjectArchived: true,
+      }),
+    ).toEqual([{ label: 'Проект удалён', href: null, disabled: true }])
+  })
+
+  it('вид объекта неизвестен — общий честный ответ, а не пустая кнопка', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'FUTURE_TYPE',
+        link: '/finance',
+        subjectArchived: true,
+      }),
+    ).toEqual([{ label: 'Это убрано в архив', href: null, disabled: true }])
+  })
+
+  it('живой объект архивной подписи не получает — кнопка ведёт куда обещает', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_MEMBER_ADDED',
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+        subjectArchived: false,
+      }),
+    ).toEqual([{ label: 'Открыть проект', href: `/projects/${uuid}`, disabled: false }])
   })
 })
