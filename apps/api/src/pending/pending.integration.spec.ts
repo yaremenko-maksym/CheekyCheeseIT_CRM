@@ -16,6 +16,7 @@ import {
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { PendingService } from './pending.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * task-pending-screen (position 7c). `PendingService.getPending` against a
@@ -148,7 +149,7 @@ describe.skipIf(!hasDatabaseUrl())('PendingService.getPending — against real P
       pool,
       db,
     })
-    approvalsSvc = new ApprovalsService(dbSvc)
+    approvalsSvc = new ApprovalsService(dbSvc, makeNotificationsStub())
     pendingSvc = new PendingService(dbSvc, approvalsSvc)
 
     await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
