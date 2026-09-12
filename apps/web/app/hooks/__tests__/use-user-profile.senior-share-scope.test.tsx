@@ -103,11 +103,34 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['pending'] })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['user-profile', PROJECT_ID] })
   })
+
+  it('a response body of `undefined` (e.g. a 204) resolves the percent to null instead of throwing', async () => {
+    // Distinct from the `{}` case above: `undefined?.effectiveSeniorSharePercent`
+    // is the ONLY thing standing between this and `Cannot read properties of
+    // undefined` — `{}` alone would not reach that branch (a missing key on a
+    // real object is `undefined` already, without needing the `?.` at all).
+    mockPost.mockResolvedValue({ data: undefined })
+    renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь null%'),
+    )
+  })
 })
 
 describe('useApproveSeniorShareChange — scope: "user" (a response with no `user` field at all must not crash)', () => {
   it('a success payload missing `user` resolves the percent to null instead of throwing', async () => {
     mockPost.mockResolvedValue({ data: {} })
+    renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Ваша доля теперь null%'))
+  })
+
+  it('a response body of `undefined` ALSO resolves to null instead of throwing (distinct from a merely-missing `user` key)', async () => {
+    // `({}).user?.x` never touches the outer `?.` at all (a real object's
+    // missing key is `undefined` already) — only `data` itself being
+    // `undefined`/`null` exercises THAT optional-chaining link.
+    mockPost.mockResolvedValue({ data: undefined })
     renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Ваша доля теперь null%'))

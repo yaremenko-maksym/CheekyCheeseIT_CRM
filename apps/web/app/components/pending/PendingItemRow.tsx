@@ -73,6 +73,7 @@ function OpenLink({ item, primary }: { item: PendingItem; primary?: boolean }) {
   return (
     <Button
       type="button"
+      // Stryker disable next-line StringLiteral: verified empirically against `class-variance-authority` (cva) — an empty-string variant key falls back to `defaultVariants.variant` ('default'), IDENTICAL output to the literal `'default'` here (`buttonVariants({variant: ''})` and `buttonVariants({variant: 'default'})` produce the same class string). Only the 'ghost' → '' half of this ternary is genuinely observable, and it already has its own killing test (see "not.toHaveClass('bg-primary')").
       variant={primary ? 'default' : 'ghost'}
       size="sm"
       className="h-11 gap-1 sm:h-7"

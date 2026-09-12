@@ -178,10 +178,49 @@ describe('SeniorShareApprovalActions', () => {
     expect(screen.getByText('Не удалось подтвердить')).toBeInTheDocument()
   })
 
+  it('a reject error with neither a mapped status nor a string message falls through to THIS component’s OWN (reject-specific) fallback', () => {
+    rejectState = {
+      isPending: false,
+      isError: true,
+      error: { not: 'an axios error' },
+    }
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    // The reject error paragraph is inside the dialog body — it only
+    // exists once the dialog is open.
+    fireEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+    expect(screen.getByText('Не удалось отклонить')).toBeInTheDocument()
+  })
+
+  it('reject.isPending shows the spinner (own testid) on the trigger button', () => {
+    rejectState = { isPending: true, isError: false, error: null }
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(screen.getByTestId(`senior-share-reject-user-${ID}-spinner`)).toBeInTheDocument()
+  })
+
+  it('the reason textarea is correctly labelled and described — Label htmlFor/id AND aria-describedby both actually resolve', async () => {
+    const user = userEvent.setup()
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    await user.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+    // Only findable this way if `htmlFor` really matches the textarea's `id`
+    // — a broken/emptied template on either side makes this query fail even
+    // though `getByTestId` would still find the same element.
+    const textarea = screen.getByLabelText('Причина отказа *')
+    expect(textarea).toHaveAttribute('data-testid', 'senior-share-reject-reason')
+    // Only correct if `aria-describedby` really points at the counter
+    // paragraph's own `id`.
+    expect(textarea).toHaveAccessibleDescription('0/500')
+  })
+
   it('reject: no error yet renders no inline text; a real error renders it (same 409/404 mapping)', () => {
     const { rerender } = render(<SeniorShareApprovalActions scope="user" id={ID} />)
     fireEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
-    expect(screen.queryByText(/Не удалось отклонить|устарело|уже принято/)).not.toBeInTheDocument()
+    // Baseline with the dialog open is 2 paragraphs (Radix's own
+    // DialogDescription + the live char counter) — NOT 0. A
+    // `rejectError && <p>` mutated to `rejectError || <p>` would add a
+    // THIRD, empty one even while idle; a text-pattern query can't see
+    // that (an empty `<p>` matches no text either way), a role-based COUNT
+    // does.
+    expect(screen.queryAllByRole('paragraph')).toHaveLength(2)
 
     rejectState = {
       isPending: false,

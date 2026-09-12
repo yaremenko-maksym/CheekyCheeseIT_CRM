@@ -104,6 +104,44 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
     )
     expect(screen.queryByText(/^Ждём:/)).not.toBeInTheDocument()
   })
+
+  it('multiple names in waitingFor are joined with ", " — not concatenated bare', () => {
+    render(
+      <PendingItemRow
+        item={item({ waitingFor: ['Ірина Савенко', 'Олексій Коваленко'], actions: ['open'] })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/^Ждём: Ірина Савенко, Олексій Коваленко ·/)).toBeInTheDocument()
+  })
+
+  it('has approve but not reject: still falls back to Открыть-only (both are required, not either)', () => {
+    render(
+      <PendingItemRow
+        item={item({ actions: ['approve', 'open'] })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('stub-project-approval-actions')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
+  })
+
+  it('has BOTH approve and reject but is in the WRONG zone (proposedByMe): still falls back to Открыть-only', () => {
+    // Complements the "approve but not reject" case above — together they
+    // pin BOTH `&&` links of `zone==='mine' && has('approve') && has('reject')`
+    // against being widened to `||` at either position.
+    render(
+      <PendingItemRow
+        item={item({ actions: ['approve', 'reject', 'open'] })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('stub-project-approval-actions')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
+  })
 })
 
 describe('PendingItemRow — SHARE_APPROVAL', () => {
@@ -190,6 +228,78 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
     expect(screen.queryByText(/ждём:/)).not.toBeInTheDocument()
     expect(screen.getByText(/^Сейчас 26% → предлагают 30% ·/)).toBeInTheDocument()
   })
+
+  it('multiple names in waitingFor are joined with ", "', () => {
+    render(
+      <PendingItemRow
+        item={item({
+          kind: 'SHARE_APPROVAL',
+          pendingPercent: 30,
+          waitingFor: ['Олексій Коваленко', 'Ірина Савенко'],
+          actions: ['cancel'],
+        })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/ждём: Олексій Коваленко, Ірина Савенко ·/)).toBeInTheDocument()
+  })
+
+  it('zone "mine" never enters the proposedByMe branch, even when waitingFor happens to be set', () => {
+    render(
+      <PendingItemRow
+        item={item({
+          kind: 'SHARE_APPROVAL',
+          pendingPercent: 30,
+          waitingFor: ['Should be ignored in mine'],
+        })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/ждём:/)).not.toBeInTheDocument()
+    expect(screen.getByText(/^Предлагают 30% ·/)).toBeInTheDocument()
+  })
+
+  it('has approve but not reject: still falls back to Открыть-only', () => {
+    render(
+      <PendingItemRow
+        item={item({ kind: 'SHARE_APPROVAL', pendingPercent: 30, actions: ['approve', 'open'] })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('stub-senior-share-approval-actions')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
+  })
+
+  it('has BOTH approve and reject but is in the WRONG zone (proposedByMe): still falls back to Открыть-only', () => {
+    render(
+      <PendingItemRow
+        item={item({
+          kind: 'SHARE_APPROVAL',
+          pendingPercent: 30,
+          actions: ['approve', 'reject', 'open'],
+        })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('stub-senior-share-approval-actions')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
+  })
+
+  it('has cancel but is in the WRONG zone (mine): falls back to Открыть-only, does not render CancelPendingShareButton', () => {
+    render(
+      <PendingItemRow
+        item={item({ kind: 'SHARE_APPROVAL', pendingPercent: 30, actions: ['cancel', 'open'] })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('stub-cancel-pending-share')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
+  })
 })
 
 describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
@@ -206,6 +316,38 @@ describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
     expect(screen.queryByText(/^Предложил/)).not.toBeInTheDocument()
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
     expect(screen.queryByTestId('stub-project-approval-actions')).not.toBeInTheDocument()
+  })
+
+  it('meta is давность ONLY — never enters the SHARE_APPROVAL "Предлагают X%" branch', () => {
+    render(
+      <PendingItemRow
+        item={item({
+          kind: 'CONTRACT_TO_SIGN',
+          title: 'Контракт сотрудника',
+          actions: ['open'],
+          createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('5 минут назад')).toBeInTheDocument()
+    expect(screen.queryByText(/Предлагают/)).not.toBeInTheDocument()
+  })
+
+  it('neither PROJECT_APPROVAL nor SHARE_APPROVAL ever shows the CONTRACT_TO_SIGN "готов к подписанию" badge', () => {
+    const { unmount } = render(<PendingItemRow item={item({})} zone="mine" onActed={vi.fn()} />)
+    expect(screen.queryByText('готов к подписанию')).not.toBeInTheDocument()
+    unmount()
+
+    render(
+      <PendingItemRow
+        item={item({ kind: 'SHARE_APPROVAL', pendingPercent: 30 })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText('готов к подписанию')).not.toBeInTheDocument()
   })
 })
 
@@ -276,6 +418,22 @@ describe('PendingItemRow — fmtRelative fallback', () => {
     )
     expect(screen.getByText(/not-a-real-date$/)).toBeInTheDocument()
   })
+
+  it('a valid createdAt renders in RUSSIAN with the "ago" suffix — both the locale AND addSuffix option are load-bearing', () => {
+    // date-fns fact, verified directly: formatDistanceToNow(5-min-ago date)
+    // is "5 минут назад" with {addSuffix:true, locale:ru}, "5 минут" with
+    // addSuffix dropped, and "5 minutes ago" (English) with locale dropped —
+    // three genuinely different strings, so a fixed interval pins all of it
+    // in one assertion.
+    render(
+      <PendingItemRow
+        item={item({ createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/5 минут назад$/)).toBeInTheDocument()
+  })
 })
 
 describe('PendingItemRow — AC6: unknown kind never crashes', () => {
@@ -288,6 +446,9 @@ describe('PendingItemRow — AC6: unknown kind never crashes', () => {
       render(<PendingItemRow item={weirdItem} zone="mine" onActed={vi.fn()} />),
     ).not.toThrow()
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
+    // An unrecognized kind never gets the CONTRACT_TO_SIGN branch's PRIMARY
+    // (filled) button — only CONTRACT_TO_SIGN itself is `primary`.
+    expect(screen.getByTestId('pending-item-open-subj-1')).not.toHaveClass('bg-primary')
   })
 
   it('unknown kind with no actions renders no action at all (does not guess)', () => {
@@ -297,5 +458,22 @@ describe('PendingItemRow — AC6: unknown kind never crashes', () => {
     } as unknown as PendingItem
     render(<PendingItemRow item={weirdItem} zone="mine" onActed={vi.fn()} />)
     expect(screen.queryByTestId('pending-item-open-subj-1')).not.toBeInTheDocument()
+  })
+})
+
+describe('PendingItemRow — row wrapper: shared base classes, zone-specific classes, tabIndex', () => {
+  it('mine zone: base layout classes present AND the mine-specific border/bg classes (not just "no amber")', () => {
+    render(<PendingItemRow item={item({})} zone="mine" onActed={vi.fn()} />)
+    const row = screen.getByTestId('pending-item-row-PROJECT_APPROVAL-subj-1')
+    expect(row).toHaveClass('flex', 'rounded-md', 'border')
+    expect(row).toHaveClass('border-border/40', 'bg-muted/20')
+  })
+
+  it('the row itself is tabIndex=-1 (focusable programmatically, not in the Tab order — design spec §12)', () => {
+    render(<PendingItemRow item={item({})} zone="mine" onActed={vi.fn()} />)
+    expect(screen.getByTestId('pending-item-row-PROJECT_APPROVAL-subj-1')).toHaveAttribute(
+      'tabindex',
+      '-1',
+    )
   })
 })

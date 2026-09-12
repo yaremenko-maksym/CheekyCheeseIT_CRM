@@ -64,8 +64,10 @@ export function PendingKindSection({
             re-render could visibly corrupt — the content-only assertions
             this whole test file uses cannot tell a stable key from a
             colliding one either. */}
-        {/* Stryker disable next-line BooleanLiteral: see the block comment above — no observable DOM effect in this test harness */}
-        <AnimatePresence initial={false}>
+        <AnimatePresence
+          // Stryker disable next-line BooleanLiteral: see the block comment above — no observable DOM effect in this test harness. (Placed on the ATTRIBUTE itself, not as a `{/* */}` JSX-child comment above the element — verified live that the latter position does NOT get picked up by Stryker's directive scanner for this node.)
+          initial={false}
+        >
           {items.map((item) => (
             <motion.li
               // Stryker disable next-line StringLiteral: see the block comment above — `key` is never rendered to the DOM and this component has no state a collision could visibly corrupt

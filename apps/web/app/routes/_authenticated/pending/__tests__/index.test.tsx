@@ -464,27 +464,36 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
 })
 
 describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
-  it('cancelling a share from «Ждут решения других» removes ONLY that row and moves focus within the OTHERS zone', async () => {
+  it('cancelling a share from «Ждут решения других» removes ONLY that row and moves focus to the NEXT row in the SAME section', async () => {
     const user = userEvent.setup()
     mockPost.mockReset()
     mockPost.mockResolvedValue({ data: {} })
     mockState = {
       ...mockState,
       proposedByMe: [
+        // Two SHARE_APPROVAL rows on purpose — this is what actually
+        // exercises `handleActed`'s `zone === 'mine' ? visibleMine :
+        // visibleOther` choice: with a wrong (mine, empty) list, `section`
+        // comes back empty and focus falls to the heading instead of s2's
+        // row. Different `subjectType` (→ different `scope`) keeps their
+        // `CancelPendingShareButton` trigger testids
+        // (`cancel-pending-share-user`/`-project`) from colliding.
         item({
           kind: 'SHARE_APPROVAL',
+          subjectType: 'USER',
           subjectId: 's1',
           title: 'Доля 1',
-          waitingFor: ['Senior One'],
           pendingPercent: 30,
           actions: ['cancel'],
         }),
-        // A DIFFERENT kind on purpose — `CancelPendingShareButton`'s own
-        // trigger testid is scope-only (`cancel-pending-share-project`, no
-        // id), so a second SHARE_APPROVAL row here would make that testid
-        // ambiguous. A PROJECT_APPROVAL row proves "removed ONLY that row"
-        // just as well, without touching the thing this test isn't about.
-        item({ subjectId: 'p2', title: 'Some Project', actions: ['open'] }),
+        item({
+          kind: 'SHARE_APPROVAL',
+          subjectType: 'PROJECT',
+          subjectId: 's2',
+          title: 'Доля 2',
+          pendingPercent: 20,
+          actions: ['cancel'],
+        }),
       ],
     }
     renderPage()
@@ -493,23 +502,72 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
     // the confirm button needs `findByTestId` (retries), not `getByTestId`
     // — the AlertDialog's portal content is not synchronously present the
     // instant the trigger click's state update commits.
-    await user.click(screen.getByTestId('cancel-pending-share-project'))
+    await user.click(screen.getByTestId('cancel-pending-share-user'))
     await act(async () => {
-      await user.click(await screen.findByTestId('cancel-pending-share-confirm-button-project'))
+      await user.click(await screen.findByTestId('cancel-pending-share-confirm-button-user'))
     })
 
     // Removed from `visibleOther` specifically (not left over from `visibleMine`,
     // which a `.filter(proposedByMe)` → `mine`-shaped mutant would produce).
     expect(screen.queryByText('Доля 1')).not.toBeInTheDocument()
-    expect(screen.getByText('Some Project')).toBeInTheDocument()
-    // s1 was the ONLY item in «Доли» — that section's own heading vanishes
-    // along with it, so focus falls through to the OTHERS zone heading
-    // (never the mine-zone one). A `zone === 'mine' ? visibleMine :
-    // visibleOther` mutant would misroute this into the empty mine list,
-    // landing on '#pending-mine-heading' instead — but that section does
-    // not even render (visibleMine is empty), so focus would fall all the
-    // way to the page root; either way, not this assertion.
-    expect(screen.getByRole('heading', { name: 'Ждут решения других' })).toHaveFocus()
+    expect(screen.getByText('Доля 2')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-item-row-SHARE_APPROVAL-s2')).toHaveFocus()
+  })
+
+  it('cancelling the LAST row of a still-non-empty proposedByMe section moves focus to that section’s OWN (correctly zoned) heading', async () => {
+    // The complementary case to the one above: acting on the SECOND of two
+    // same-section rows has no "next" row, so `focusSelectorsAfterActing`
+    // falls through to the zone-interpolated heading selector
+    // (`pending-kind-heading-${zone}-...`) — the one candidate that is
+    // actually sensitive to the STRING VALUE of the `zone` argument
+    // `handleActed` is called with, not just whether it equals 'mine'.
+    const user = userEvent.setup()
+    mockPost.mockReset()
+    mockPost.mockResolvedValue({ data: {} })
+    mockState = {
+      ...mockState,
+      proposedByMe: [
+        item({
+          kind: 'SHARE_APPROVAL',
+          subjectType: 'USER',
+          subjectId: 's1',
+          title: 'Доля 1',
+          pendingPercent: 30,
+          actions: ['cancel'],
+        }),
+        item({
+          kind: 'SHARE_APPROVAL',
+          subjectType: 'PROJECT',
+          subjectId: 's2',
+          title: 'Доля 2',
+          pendingPercent: 20,
+          actions: ['cancel'],
+        }),
+      ],
+    }
+    renderPage()
+
+    await user.click(screen.getByTestId('cancel-pending-share-project'))
+    await act(async () => {
+      await user.click(await screen.findByTestId('cancel-pending-share-confirm-button-project'))
+    })
+
+    expect(screen.queryByText('Доля 2')).not.toBeInTheDocument()
+    expect(screen.getByText('Доля 1')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Доли')).toHaveFocus()
+  })
+})
+
+describe('/pending — visibleOther gate', () => {
+  it('mine non-empty, proposedByMe empty: shows «Ждут вашего решения» only, not «Ждут решения других»', () => {
+    mockState = {
+      ...mockState,
+      mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
+      proposedByMe: [],
+    }
+    renderPage()
+    expect(screen.getByText('Ждут вашего решения')).toBeInTheDocument()
+    expect(screen.queryByText('Ждут решения других')).not.toBeInTheDocument()
   })
 })
 
@@ -530,6 +588,18 @@ describe('/pending — proposedByMe grouping across kinds', () => {
           ...item({ subjectId: 'weird-1', title: 'Mystery item' }),
           kind: 'SOMETHING_NEW',
         } as unknown as PendingItem,
+        // Defensive: §2 says this can never actually happen (a contract is
+        // not an `approvals` row), but the filter that excludes it is real
+        // product code and deserves its own proof, not a proof-by-absence
+        // that would hold even with the filter deleted (an empty `items`
+        // array already renders nothing, filter or not — see
+        // PendingKindSection's own "renders nothing when empty").
+        item({
+          kind: 'CONTRACT_TO_SIGN',
+          subjectId: 'contract-1',
+          title: 'Контракт сотрудника — should never render here',
+          actions: ['open'],
+        }),
       ],
     }
     renderPage()
@@ -542,6 +612,9 @@ describe('/pending — proposedByMe grouping across kinds', () => {
     expect(screen.getByTestId('pending-kind-heading-proposedByMe-Другое')).toBeInTheDocument()
     expect(
       screen.queryByTestId('pending-kind-heading-proposedByMe-Контракты'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Контракт сотрудника — should never render here'),
     ).not.toBeInTheDocument()
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
     expect(screen.getByText('Доля по умолчанию')).toBeInTheDocument()
