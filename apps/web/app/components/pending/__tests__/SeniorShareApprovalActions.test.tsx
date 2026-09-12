@@ -61,6 +61,45 @@ describe('SeniorShareApprovalActions', () => {
     expect(capturedIds).toEqual([ID, ID])
   })
 
+  it('default (idle, no error) render: exact button labels, own wrapper testid+class, no error paragraphs at all', () => {
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(screen.getByText('Подтвердить')).toBeInTheDocument()
+    expect(screen.getByText('Отклонить')).toBeInTheDocument()
+    expect(screen.getByTestId(`senior-share-approval-actions-user-${ID}`)).toHaveClass(
+      'justify-end',
+    )
+    // Neither error paragraph exists yet — the approve one is a sibling of
+    // the wrapper div, the reject one only exists once the dialog is open.
+    // `<p>` maps to the implicit ARIA role "paragraph" — a role-based query
+    // stays within Testing Library's own API (no raw container/node access).
+    expect(screen.queryAllByRole('paragraph')).toHaveLength(0)
+  })
+
+  it('onActed is optional — a successful approve with no onActed prop at all does not throw', () => {
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    act(() => {
+      fireEvent.click(screen.getByTestId(`senior-share-approve-user-${ID}`))
+    })
+    const [, options] = mockApprove.mock.calls[0] as [unknown, { onSuccess?: () => void }]
+    expect(() => act(() => options.onSuccess?.())).not.toThrow()
+  })
+
+  it('onActed is optional — a successful reject with no onActed prop at all does not throw, and still closes+resets the dialog', async () => {
+    const user = userEvent.setup()
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    await user.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+    await user.type(screen.getByTestId('senior-share-reject-reason'), 'причина')
+    await user.click(screen.getByTestId('senior-share-reject-submit'))
+
+    const [, options] = mockReject.mock.calls[0] as [string, { onSuccess?: () => void }]
+    expect(() => act(() => options.onSuccess?.())).not.toThrow()
+    // The dialog's onSuccess closes it and clears the reason — reopening
+    // must show an EMPTY textarea, not the just-submitted text.
+    expect(screen.queryByTestId('senior-share-reject-reason')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+    expect(screen.getByTestId('senior-share-reject-reason')).toHaveValue('')
+  })
+
   it('Подтвердить calls approve.mutate(undefined, { onSuccess }) and fires onActed on success', () => {
     const onActed = vi.fn()
     render(<SeniorShareApprovalActions scope="user" id={ID} onActed={onActed} />)
@@ -127,5 +166,55 @@ describe('SeniorShareApprovalActions', () => {
     expect(
       screen.getByText('Решение по этому предложению уже принято. Обновите страницу.'),
     ).toBeInTheDocument()
+  })
+
+  it('an approve error with neither a mapped status nor a string message falls through to THIS component’s own fallback', () => {
+    approveState = {
+      isPending: false,
+      isError: true,
+      error: { not: 'an axios error' },
+    }
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(screen.getByText('Не удалось подтвердить')).toBeInTheDocument()
+  })
+
+  it('reject: no error yet renders no inline text; a real error renders it (same 409/404 mapping)', () => {
+    const { rerender } = render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    fireEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+    expect(screen.queryByText(/Не удалось отклонить|устарело|уже принято/)).not.toBeInTheDocument()
+
+    rejectState = {
+      isPending: false,
+      isError: true,
+      error: Object.assign(new Error('x'), { isAxiosError: true, response: { status: 404 } }),
+    }
+    rerender(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(
+      screen.getByText(
+        'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('a reason of only whitespace keeps the submit button disabled (trim, not raw truthiness)', async () => {
+    const user = userEvent.setup()
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    await user.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+    await user.type(screen.getByTestId('senior-share-reject-reason'), '    ')
+    expect(screen.getByTestId('senior-share-reject-submit')).toBeDisabled()
+  })
+
+  it('reject.isPending swaps the submit button label to "Отклонение…", back to "Отклонить" when idle', () => {
+    // Open the dialog WHILE idle — the "Отклонить" trigger button is itself
+    // `disabled={reject.isPending}`, so opening it only works before the
+    // mutation starts; the label swap on the SUBMIT button is what this
+    // test is actually about.
+    const { rerender } = render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    fireEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+    expect(screen.getByTestId('senior-share-reject-submit')).toHaveTextContent('Отклонить')
+
+    rejectState = { isPending: true, isError: false, error: null }
+    rerender(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(screen.getByTestId('senior-share-reject-submit')).toHaveTextContent('Отклонение…')
   })
 })
