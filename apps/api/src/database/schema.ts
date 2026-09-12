@@ -3371,6 +3371,130 @@ export type TosAcceptance = typeof tosAcceptances.$inferSelect
 export type NewTosAcceptance = typeof tosAcceptances.$inferInsert
 export type EmployeeContract = typeof employeeContracts.$inferSelect
 export type NewEmployeeContract = typeof employeeContracts.$inferInsert
+// ---------------------------------------------------------------------------
+// Позиция 7a: доставка уведомлений почтой
+// ---------------------------------------------------------------------------
+
+/**
+ * Состояние доставки. Промежуточного `SENDING` НЕТ намеренно: захват строки
+ * отправщиком выражается не статусом, а АРЕНДОЙ — `next_attempt_at`
+ * отодвигается вперёд, и строка перестаёт попадать в выборку. Процесс,
+ * упавший посреди HTTP-запроса к Resend, не оставляет после себя строк,
+ * навсегда застрявших в `SENDING`: аренда истекает, и строка возвращается в
+ * работу сама. Плата за это — возможная повторная отправка одного письма при
+ * падении ровно между `send()` и отметкой `SENT`; выбор сознательный, второе
+ * письмо «вас ждёт решение» безвредно, потерянное — нет.
+ */
+export const notificationEmailStatusEnum = pgEnum('notification_email_status', [
+  'QUEUED',
+  'SENT',
+  'FAILED',
+])
+
+/**
+ * Очередь писем (outbox) — спека §7, позиция 7a.
+ *
+ * **Строка заводится В ТОЙ ЖЕ транзакции, что и само уведомление**
+ * (`NotificationsService.createInTx`). Это не стиль, а то же свойство, ради
+ * которого производители зовут `createInTx` изнутри транзакции события:
+ * откатилось событие — откатились и уведомление, и письмо. Письмо о
+ * несостоявшемся событии недопустимо ровно так же, как уведомление о нём.
+ *
+ * **Текста письма здесь НЕТ.** Ни темы, ни тела: они собираются в момент
+ * отправки из типа уведомления и его `data`
+ * (`notification-email-copy.ts`). Причина — та же, по которой §7.1 отверг
+ * хранение готовых кнопок в строке уведомления: правка формулировки
+ * потребовала бы правки ДАННЫХ, старые строки консервировали бы прошлогодний
+ * текст, а тексты интерфейса расползлись бы по базе, где их не видит ни один
+ * текстовый гейт (`copy-reviewer` читает десять писем в одном файле).
+ */
+export const notificationEmails = pgTable(
+  'notification_emails',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // Единственный источник содержания письма. CASCADE: получатель удалил
+    // уведомление — письмо по нему больше не о чем слать, а собрать текст
+    // было бы уже не из чего.
+    notificationId: uuid('notification_id')
+      .notNull()
+      .references(() => notifications.id, { onDelete: 'cascade' }),
+    // Дубль `notifications.user_id` — намеренный. По нему идёт выбор адреса и
+    // проверка настроек, и join к уведомлению ради одной колонки, которая
+    // никогда не меняется, стоил бы дороже, чем копия.
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: notificationEmailStatusEnum('status').notNull().default('QUEUED'),
+    /** Сколько раз отправщик БРАЛ строку в работу. Пять — потолок. */
+    attempts: integer('attempts').notNull().default(0),
+    /** Раньше этого момента строку не берут. Он же — срок аренды при захвате. */
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).defaultNow().notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    /**
+     * Адрес, на который письмо действительно ушло. Выбирается в момент
+     * отправки (PERSONAL → WORK), а не при постановке в очередь: личный адрес
+     * могли добавить уже после события. Хранится ради следа «куда ушло» —
+     * единственная колонка с персональными данными в этой таблице, и в журнал
+     * она НЕ попадает.
+     */
+    sentToEmail: varchar('sent_to_email', { length: 255 }),
+    /**
+     * Почему не ушло. Кладётся ТОЛЬКО обеззараженная причина
+     * (`safeErrorReason`: `Resend API HTTP 429` / имя класса ошибки) — тело
+     * ответа Resend цитирует отвергнутый адрес, то есть ровно те данные,
+     * которых этот проект не пишет в журналы.
+     */
+    lastError: varchar('last_error', { length: 200 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Выборка отправщика целиком: «QUEUED, срок подошёл, самые старые вперёд».
+    // Частичный — отправленные и сдавшиеся строки копятся навсегда, и держать
+    // их в индексе значило бы платить за них на каждом проходе крона.
+    index('idx_notification_emails_due')
+      .on(t.nextAttemptAt)
+      .where(sql`${t.status} = 'QUEUED'`),
+    // Одно письмо на уведомление. Повторный вызов постановки для той же
+    // строки — не второе письмо, а ничего.
+    uniqueIndex('uq_notification_emails_notification').on(t.notificationId),
+  ],
+)
+
+/**
+ * Настройки каналов — §3 решение 6 («каналы настраивает сам сотрудник»).
+ *
+ * Строки ЗДЕСЬ нет = умолчание, а умолчание — «письма идут». Хранится только
+ * отличие от умолчания, поэтому таблица остаётся почти пустой, а новый тип
+ * уведомления не требует ни миграции, ни бэкфилла.
+ *
+ * `type` — плоский varchar по той же причине, что `notifications.type`:
+ * закрытый набор живёт в Zod (`configurableNotificationTypeSchema`), где его
+ * видит и клиент, а не в БД, где каждый новый тип стоил бы миграции. Запись
+ * «выключено» для типа, требующего действия, отвергается разбором ДО базы
+ * (`updateNotificationPreferencesSchema`) — см. §3, «письма про подтверждения
+ * и подписи отключить нельзя».
+ */
+export const notificationPreferences = pgTable(
+  'notification_preferences',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: varchar('type', { length: 50 }).notNull(),
+    emailEnabled: boolean('email_enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('uq_notification_preferences_user_type').on(t.userId, t.type)],
+)
+
+export type NotificationEmail = typeof notificationEmails.$inferSelect
+export type NewNotificationEmail = typeof notificationEmails.$inferInsert
+export type NotificationPreference = typeof notificationPreferences.$inferSelect
+export type NewNotificationPreference = typeof notificationPreferences.$inferInsert
+
 export type Legend = typeof legends.$inferSelect
 export type NewLegend = typeof legends.$inferInsert
 export type SeniorResume = typeof seniorResumes.$inferSelect
