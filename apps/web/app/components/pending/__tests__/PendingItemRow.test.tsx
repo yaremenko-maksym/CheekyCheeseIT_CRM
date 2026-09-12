@@ -57,7 +57,10 @@ interface ItemOverrides {
   subjectId?: string
   title?: string
   proposedBy?: string
-  waitingFor?: string[]
+  /** `| undefined` explicitly (the project runs `exactOptionalPropertyTypes`):
+   * one case below passes the KEY with an undefined VALUE, which is a shape
+   * the row has to survive and a different one from omitting the key. */
+  waitingFor?: string[] | undefined
   createdAt?: string
   actions?: PendingItem['actions']
   link?: string
