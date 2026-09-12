@@ -29,7 +29,7 @@ const mockNavigate = vi.fn()
 // statements would otherwise have run. A plain `const` here is a genuine
 // TDZ crash (verified live), not just a style preference.
 const { capturedRouteRegistrations } = vi.hoisted(() => ({
-  capturedRouteRegistrations: [] as Array<{ path: string; options: unknown }>,
+  capturedRouteRegistrations: [] as Array<{ path: string | undefined; options: unknown }>,
 }))
 vi.mock('@tanstack/react-router', async (orig) => {
   const real = await orig<typeof import('@tanstack/react-router')>()
@@ -37,7 +37,7 @@ vi.mock('@tanstack/react-router', async (orig) => {
     ...real,
     useNavigate: () => mockNavigate,
     Link: real.Link,
-    createFileRoute: ((path: string) => {
+    createFileRoute: ((path: Parameters<typeof real.createFileRoute>[0]) => {
       const factory = real.createFileRoute(path)
       return (options: Parameters<typeof factory>[0]) => {
         capturedRouteRegistrations.push({ path, options })
