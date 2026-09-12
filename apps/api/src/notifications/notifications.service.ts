@@ -41,11 +41,11 @@ import {
 import type { DrizzleTx } from '../database/types'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import {
-  approvalChecksFor,
+  approvalIdFromData,
+  approvalIdsToCheck,
   classifyApprovalRow,
   computeSubjectState,
   groupSubjectIds,
-  liveApprovalKey,
   type SubjectRef,
   type SubjectResolution,
   type SubjectState,
@@ -394,6 +394,11 @@ export class NotificationsService {
    * `status`, не только сам факт «строка не погашена» — `classifyApprovalRow`
    * решает по нему, живая строка это или УЖЕ РЕШЁННАЯ этим же подтверждающим
    * (см. doc-комментарий `computeSubjectState`).
+   *
+   * QA-H-1 (fix-раунд 8, #664): и читает их ПО ИДЕНТИФИКАТОРАМ СТРОК, а не по
+   * идентификатору объекта. Запрос по объекту возвращал живое поколение
+   * согласования на уведомление о ЛЮБОМ поколении — старое предложение доли
+   * оставалось активным рядом с новым, с другим процентом и рабочей кнопкой.
    */
   private async resolveSubjectStates(
     rows: (typeof notifications.$inferSelect)[],
@@ -403,6 +408,9 @@ export class NotificationsService {
       type: r.type,
       subjectType: (r.subjectType as NotificationSubjectType | null) ?? null,
       subjectId: r.subjectId ?? null,
+      // QA-H-1 (круг 3): уведомление опознаёт СТРОКУ согласования, а не её
+      // описание — см. `approvalIdFromData`.
+      approvalId: approvalIdFromData(r.data),
     }))
 
     const statesByType = new Map<NotificationSubjectType, Map<string, SubjectState>>()
@@ -410,41 +418,27 @@ export class NotificationsService {
       statesByType.set(subjectType, await this.loadSubjectStates(subjectType, ids))
     }
 
-    const liveApprovalKeys = new Set<string>()
-    const decidedApprovalKeys = new Set<string>()
-    const checks = approvalChecksFor(refs)
-    if (checks.length > 0) {
+    const liveApprovalIds = new Set<string>()
+    const decidedApprovalIds = new Set<string>()
+    const approvalIds = approvalIdsToCheck(refs)
+    if (approvalIds.length > 0) {
       const live = await this.db.db
-        .select({
-          subjectType: approvals.subjectType,
-          subjectId: approvals.subjectId,
-          approverUserId: approvals.approverUserId,
-          status: approvals.status,
-        })
+        .select({ id: approvals.id, status: approvals.status })
         .from(approvals)
-        .where(
-          and(
-            isNull(approvals.supersededAt),
-            inArray(
-              approvals.subjectId,
-              checks.map((c) => c.subjectId),
-            ),
-          ),
-        )
+        .where(and(isNull(approvals.supersededAt), inArray(approvals.id, approvalIds)))
       for (const row of live) {
-        const key = liveApprovalKey(row.subjectType, row.subjectId, row.approverUserId)
         const classification = classifyApprovalRow(row.status)
-        if (classification === 'live') liveApprovalKeys.add(key)
-        else if (classification === 'decided') decidedApprovalKeys.add(key)
+        if (classification === 'live') liveApprovalIds.add(row.id)
+        else if (classification === 'decided') decidedApprovalIds.add(row.id)
         // 'superseded' (CANCELLED, defensively — см. doc-комментарий
-        // `classifyApprovalRow`) не попадает ни в один набор: такой ключ
+        // `classifyApprovalRow`) не попадает ни в один набор: такую строку
         // `computeSubjectState` разрешит как `approvalSuperseded`, тем же
-        // путём, что и полностью отсутствующая строка.
+        // путём, что и полностью отсутствующая.
       }
     }
 
     return refs.map((ref) =>
-      computeSubjectState(ref, statesByType, liveApprovalKeys, decidedApprovalKeys),
+      computeSubjectState(ref, statesByType, liveApprovalIds, decidedApprovalIds),
     )
   }
 

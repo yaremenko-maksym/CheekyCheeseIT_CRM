@@ -161,6 +161,28 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 
+  // COPY-L-7 (copy-review круг 3, #664): деталь этого типа снята — она
+  // повторяла заголовок («Контракт на подпись» / «Ваш контракт»). Пустой
+  // `<p>` вместо неё был бы тем же дефектом с другой стороны: пустая строка
+  // занимает высоту и ритм списка. Проверяется отсутствием самого узла, а не
+  // пустым текстом.
+  it('деталь не рисуется вовсе — заголовок уже сказал всё, что в ней было', async () => {
+    items = [
+      makeNotification({
+        type: 'DOCUMENT_SIGN_REQUIRED',
+        subjectType: 'EMPLOYEE_CONTRACT',
+        data: { documentTitle: 'Ваш контракт' },
+        subjectMissing: false,
+      }),
+    ]
+    await openBell()
+
+    expect(screen.getByTestId(`notification-item-${UUID}-title`)).toHaveTextContent(
+      'Контракт на подпись',
+    )
+    expect(screen.queryByTestId(`notification-item-${UUID}-detail`)).toBeNull()
+  })
+
   it('контракт ещё ждёт подписи: кнопка «Подписать контракт», ведёт в визард', async () => {
     items = [
       makeNotification({
@@ -514,12 +536,15 @@ describe('корзина удаляет строку и не открывает 
  * Postgre, `notifications.realdb.integration.spec.ts`).
  */
 describe('согласование по живому объекту больше не актуально (ORCH-2)', () => {
-  it('отозвано/заменено: «Предложение отозвано», кнопка не ведёт никуда', async () => {
+  it('погашено: «Решение больше не требуется», кнопка не ведёт никуда', async () => {
     items = [makeNotification({ type: 'SHARE_CONFIRM_REQUIRED', approvalSuperseded: true })]
     await openBell()
 
+    // COPY-M-9 (copy-review круг 3): не «Предложение отозвано» — в это
+    // состояние ведут четыре пути, и два из них не отзыв (пересоздали,
+    // погасил отказ соседа).
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Предложение отозвано',
+      'Решение больше не требуется',
     )
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).not.toHaveBeenCalled()

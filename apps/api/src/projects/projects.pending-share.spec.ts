@@ -18,6 +18,7 @@ import { ProjectsService } from './projects.service'
 import { projectFinanceSettings, projects, transactions } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -230,8 +231,11 @@ function buildHarness(
   const projectAuditLogService = { record: vi.fn(async () => undefined) }
   const usersService = {}
   const approvals = {
-    proposeInTx: vi.fn(async () => {
+    proposeInTx: vi.fn(async (tx: unknown, input: { approverUserIds: string[] }) => {
       lockOrder.push('approvals:proposeInTx')
+      // QA-H-1 (круг 3): двойник отвечает тем же, чем Postgres, — строкой на
+      // каждого подтверждающего; производитель берёт из неё идентификатор.
+      return makeProposeInTxStub()(tx, input)
     }),
     approveInTx: vi.fn(async () => {
       lockOrder.push('approvals:approveInTx')
@@ -454,6 +458,8 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
       proposedPercent: 30,
       previousPercent: null,
       projectName: 'Acme Corp',
+      // QA-H-1 (круг 3): идентификатор ОТКРЫВШЕЙСЯ строки согласования.
+      approvalId: 'approval-1',
     })
   })
 

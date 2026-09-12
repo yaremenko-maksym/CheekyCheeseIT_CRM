@@ -75,6 +75,15 @@ type NotifyPendingShareInput = {
    * уведомление, пережившее проект (§7.4), осталось бы безымянным.
    */
   projectName: string | null
+  /**
+   * QA-H-1 (manual-qa круг 3, #664): строка `approvals`, которую это
+   * уведомление и представляет. Берётся из возврата
+   * `ApprovalsService.proposeInTx` — то есть это ИМЕННО та строка, что
+   * открылась сейчас, а не «согласование по такому-то объекту вообще».
+   * Повторное предложение открывает новое поколение строк, и без этого
+   * идентификатора старое уведомление оставалось активным рядом с новым.
+   */
+  approvalId: string
 }
 
 @Injectable()
@@ -1100,7 +1109,7 @@ export class ProjectsService {
       // Stryker disable next-line ConditionalExpression: defensive-only — a single-row `.insert(...).values({...}).returning()` with no `WHERE` cannot return an empty array on a real Postgres (it either inserts the one row or the whole INSERT throws), so no mock or integration fixture can construct the `!inserted` branch without lying about what Postgres does. Same class as the "practically unreachable, kept for type-narrowing" defensive branches already accepted elsewhere in this codebase (e.g. `pending-settlement.service.ts`'s own `if (!source)` comment).
       if (!inserted) throw new Error('Failed to insert project')
 
-      await this.approvals.proposeInTx(tx, {
+      const approvalRows = await this.approvals.proposeInTx(tx, {
         subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
         subjectId: inserted.id,
         approverUserIds,
@@ -1120,10 +1129,18 @@ export class ProjectsService {
       await this.notifications.emitInTx(tx, async (sp) => {
         await this.notifications.createManyInTx(
           sp,
-          approverUserIds
-            .filter((approverId) => approverId !== (currentUser.impersonatorId ?? currentUser.id))
-            .map((approverId) => ({
-              userId: approverId,
+          // QA-H-1 (круг 3): список строится из СТРОК СОГЛАСОВАНИЯ, а не из
+          // `approverUserIds`. Это те же люди — `proposeInTx` вставляет по
+          // строке на каждого, — но у строки есть ещё и идентификатор, который
+          // уведомление обязано унести с собой: иначе повторное предложение
+          // (новое поколение строк) не погасит старое уведомление, и
+          // подтверждающий увидит два активных с разными цифрами. Запасного
+          // значения здесь нет и не нужно: неоткуда взяться подтверждающему
+          // без своей строки.
+          approvalRows
+            .filter((row) => row.approverUserId !== (currentUser.impersonatorId ?? currentUser.id))
+            .map((row) => ({
+              userId: row.approverUserId,
               type: 'PROJECT_CONFIRM_REQUIRED' as const,
               title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
               subjectType: 'PROJECT' as const,
@@ -1131,7 +1148,7 @@ export class ProjectsService {
               // ORCH-3 (fix-round 7): `companyName`, не `projects.name` — попап
               // называет проект тем же словом, что экран «Ждут решения» (copy r2 на
               // #667). Ключ данных `projectName` остаётся, меняется только источник.
-              data: { projectName: inserted.companyName },
+              data: { projectName: inserted.companyName, approvalId: row.id },
             })),
         )
       })
@@ -1388,6 +1405,7 @@ export class ProjectsService {
           projectName: input.projectName,
           previousPercent: input.previousPercent,
           proposedPercent: input.proposedPercent,
+          approvalId: input.approvalId,
         },
         // Ключа НЕТ намеренно: повторное предложение обязано спросить заново —
         // именно это и означает `supersededAt` на предыдущем поколении строк
@@ -1420,12 +1438,14 @@ export class ProjectsService {
     projectName: string | null,
   ): Promise<void> {
     await this.db.db.transaction(async (tx) => {
-      await this.approvals.proposeInTx(tx, {
+      const [approval] = await this.approvals.proposeInTx(tx, {
         subjectType: ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
         subjectId: projectId,
         approverUserIds: [approverUserId],
         proposedByUserId: actorId,
       })
+      // Stryker disable next-line ConditionalExpression: defensive-only — `proposeInTx` вставляет по строке на каждого подтверждающего и возвращает `.returning()`; при непустом `approverUserIds` пустой массив на настоящем Postgres невозможен.
+      if (!approval) throw new Error('Failed to open senior-share approval')
       await tx
         .update(projects)
         .set({ pendingSeniorSharePercentOverride: proposedValue, updatedAt: new Date() })
@@ -1442,6 +1462,7 @@ export class ProjectsService {
         proposedPercent: proposedValue,
         previousPercent: previousValue,
         projectName,
+        approvalId: approval.id,
       })
     })
   }
@@ -2393,12 +2414,14 @@ export class ProjectsService {
     // both share, so the cast is the same shape already used elsewhere in
     // this codebase for the identical mismatch (e.g.
     // `transactions.service.ts`'s `this.db.db as unknown as DrizzleTx`).
-    await this.approvals.proposeInTx(conn as unknown as DrizzleTx, {
+    const [approval] = await this.approvals.proposeInTx(conn as unknown as DrizzleTx, {
       subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
       subjectId: project.id,
       approverUserIds: [interview.seniorId],
       proposedByUserId: currentUser.id,
     })
+    // Stryker disable next-line ConditionalExpression: defensive-only — `proposeInTx` возвращает `.returning()` по строке на подтверждающего; пустой массив при непустом `approverUserIds` на настоящем Postgres невозможен.
+    if (!approval) throw new Error('Failed to open project approval')
 
     // SR-L-1 (security-review круг 1): ВТОРАЯ дверь в черновик проекта — и
     // производитель обязан стоять у обеих. `create` выше уже просит синьора
@@ -2425,7 +2448,8 @@ export class ProjectsService {
           subjectId: project.id,
           // ORCH-3 (fix-round 7): companyName, не projects.name (здесь равны при
           // создании из собеседования, но источник — companyName).
-          data: { projectName: project.companyName },
+          // QA-H-1 (круг 3): плюс идентификатор открывшейся строки согласования.
+          data: { projectName: project.companyName, approvalId: approval.id },
         })
       }
     })

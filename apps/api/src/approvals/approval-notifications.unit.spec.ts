@@ -81,8 +81,15 @@ function makeHarness(row: Record<string, unknown>, opts: { projectName?: string 
         limitCall += 1
         if (limitCall === 1) return [project(fields, row as unknown as Record<string, unknown>)]
         if (limitCall === 2) return [project(fields, { displayName: 'Иван Петров' })]
-        const name = opts.projectName === undefined ? 'Acme' : opts.projectName
-        return name === null ? [] : [project(fields, { name })]
+        // QA-M-4 (manual-qa круг 3, #664): строка проекта несёт ОБА имени, и
+        // они намеренно различаются — уведомление обязано называть проект
+        // `companyName` (тем же словом, что экран «Ждут решения» и список
+        // проектов), а не `projects.name`. Регресс на `name` немедленно виден
+        // в значении `subjectTitle`, а не прячется за одинаковыми строками.
+        const companyName = opts.projectName === undefined ? 'Acme' : opts.projectName
+        return companyName === null
+          ? []
+          : [project(fields, { companyName, name: 'Acme Draft Project' })]
       })
       return chain
     }),

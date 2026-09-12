@@ -14,6 +14,7 @@ import { hashInviteToken } from './invite-token.util'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 type DrizzleDb = { db: NodePgDatabase<typeof schema> }
 
@@ -64,7 +65,7 @@ const makeTeamsService = () =>
 const makeApprovalsService = () =>
   ({
     getStatus: vi.fn().mockResolvedValue('NONE'),
-    proposeInTx: vi.fn().mockResolvedValue(undefined),
+    proposeInTx: makeProposeInTxStub(),
     approveInTx: vi.fn().mockResolvedValue(undefined),
     rejectInTx: vi.fn().mockResolvedValue(undefined),
     // task-648-fix-round-1 (SR-H-1): default "nothing open to cancel"

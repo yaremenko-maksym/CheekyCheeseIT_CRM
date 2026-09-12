@@ -156,6 +156,15 @@ type NotifyPendingShareInput = {
   approverUserId: string
   proposedPercent: number
   previousPercent: number
+  /**
+   * QA-H-1 (manual-qa круг 3, #664): строка `approvals`, которую это
+   * уведомление и представляет. Берётся из возврата
+   * `ApprovalsService.proposeInTx` — то есть это ИМЕННО та строка, что
+   * открылась сейчас, а не «согласование по такому-то объекту вообще».
+   * Повторное предложение открывает новое поколение строк, и без этого
+   * идентификатора старое уведомление оставалось активным рядом с новым.
+   */
+  approvalId: string
 }
 
 @Injectable()
@@ -220,6 +229,7 @@ export class UsersService {
           projectName: null,
           previousPercent: input.previousPercent,
           proposedPercent: input.proposedPercent,
+          approvalId: input.approvalId,
         },
         // Ключа нет намеренно — см. близнеца в `ProjectsService`.
       })
@@ -277,12 +287,14 @@ export class UsersService {
     if (existing.archivedAt) {
       throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
     }
-    await this.approvals.proposeInTx(tx, {
+    const [approval] = await this.approvals.proposeInTx(tx, {
       subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
       subjectId: existing.id,
       approverUserIds: [existing.id],
       proposedByUserId: actorId,
     })
+    // Stryker disable next-line ConditionalExpression: defensive-only — `proposeInTx` вставляет по строке на каждого подтверждающего и возвращает `.returning()`; при непустом `approverUserIds` пустой массив на настоящем Postgres невозможен, и ни мок, ни фикстура не построят эту ветку, не соврав про базу.
+    if (!approval) throw new Error('Failed to open senior-share approval')
     await tx
       .update(users)
       .set({ pendingSeniorSharePercent: requestedPercent, updatedAt: new Date() })
@@ -292,6 +304,7 @@ export class UsersService {
       approverUserId: existing.id,
       proposedPercent: requestedPercent,
       previousPercent: existing.seniorSharePercent,
+      approvalId: approval.id,
     })
     return { pendingSeniorSharePercent: requestedPercent }
   }

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { ApprovalStatus, NotificationSubjectType } from '@crm/shared'
 import {
-  approvalChecksFor,
-  approvalSubjectTypeFor,
+  approvalIdFromData,
+  approvalIdsToCheck,
+  awaitsApproval,
   classifyApprovalRow,
   computeSubjectState,
   groupSubjectIds,
-  liveApprovalKey,
   type SubjectRef,
   type SubjectState,
 } from './notification-subject-resolver'
@@ -16,6 +16,7 @@ const ref = (over: Partial<SubjectRef> = {}): SubjectRef => ({
   type: 'PROJECT_MEMBER_ADDED',
   subjectType: 'PROJECT',
   subjectId: 'p-1',
+  approvalId: 'a-1',
   ...over,
 })
 
@@ -31,23 +32,47 @@ const archived = (
 ): Map<NotificationSubjectType, Map<string, SubjectState>> =>
   new Map(entries.map(([k, pairs]) => [k, new Map(pairs)]))
 
-describe('approvalSubjectTypeFor', () => {
-  it('подтверждение проекта проверяется согласованием PROJECT', () => {
-    expect(approvalSubjectTypeFor('PROJECT_CONFIRM_REQUIRED', 'PROJECT')).toBe('PROJECT')
+describe('awaitsApproval', () => {
+  it('подтверждение проекта и предложение доли зависят от строки согласования', () => {
+    expect(awaitsApproval('PROJECT_CONFIRM_REQUIRED')).toBe(true)
+    expect(awaitsApproval('SHARE_CONFIRM_REQUIRED')).toBe(true)
   })
 
-  it('доля по проекту — PROJECT_SENIOR_SHARE, базовая доля — USER_SENIOR_SHARE', () => {
-    expect(approvalSubjectTypeFor('SHARE_CONFIRM_REQUIRED', 'PROJECT')).toBe('PROJECT_SENIOR_SHARE')
-    expect(approvalSubjectTypeFor('SHARE_CONFIRM_REQUIRED', 'USER')).toBe('USER_SENIOR_SHARE')
+  it('информирующий тип — не зависит', () => {
+    expect(awaitsApproval('TRANSACTION_ADDED')).toBe(false)
+    expect(awaitsApproval('DOCUMENT_SIGN_REQUIRED')).toBe(false)
+  })
+})
+
+/**
+ * QA-H-1 (manual-qa круг 3, #664). `data` — `jsonb`: форму гарантирует запись,
+ * а не чтение, поэтому каждый способ НЕ найти идентификатор проверяется
+ * отдельно. Строка с чужими данными обязана приехать без идентификатора, а не
+ * уронить чтение всего списка.
+ */
+describe('approvalIdFromData', () => {
+  it('идентификатор строки согласования — из данных производителя', () => {
+    expect(approvalIdFromData({ projectName: 'Acme', approvalId: 'a-7' })).toBe('a-7')
   })
 
-  it('доля без вида объекта проверять нечем', () => {
-    expect(approvalSubjectTypeFor('SHARE_CONFIRM_REQUIRED', null)).toBeNull()
-    expect(approvalSubjectTypeFor('SHARE_CONFIRM_REQUIRED', 'TEAM')).toBeNull()
+  it('данных нет вовсе', () => {
+    expect(approvalIdFromData(null)).toBeNull()
+    expect(approvalIdFromData(undefined)).toBeNull()
   })
 
-  it('информирующий тип согласованием не проверяется', () => {
-    expect(approvalSubjectTypeFor('TRANSACTION_ADDED', 'TRANSACTION')).toBeNull()
+  it('данные не объект', () => {
+    expect(approvalIdFromData('a-7')).toBeNull()
+    expect(approvalIdFromData(42)).toBeNull()
+  })
+
+  it('ключа нет', () => {
+    expect(approvalIdFromData({ projectName: 'Acme' })).toBeNull()
+  })
+
+  it('ключ есть, но не строка или пустой', () => {
+    expect(approvalIdFromData({ approvalId: 7 })).toBeNull()
+    expect(approvalIdFromData({ approvalId: null })).toBeNull()
+    expect(approvalIdFromData({ approvalId: '' })).toBeNull()
   })
 })
 
@@ -72,20 +97,23 @@ describe('groupSubjectIds', () => {
   })
 })
 
-describe('approvalChecksFor', () => {
+describe('approvalIdsToCheck', () => {
   it('собирает только строки про согласование и не повторяет одинаковые', () => {
     expect(
-      approvalChecksFor([
-        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
-        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
-        ref({ type: 'SHARE_CONFIRM_REQUIRED', subjectType: 'USER', subjectId: 'u-9' }),
-        ref({ type: 'TEAM_NEW_MEMBER', subjectType: 'TEAM', subjectId: 't-1' }),
-        ref({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: null }),
+      approvalIdsToCheck([
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED', approvalId: 'a-1' }),
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED', approvalId: 'a-1' }),
+        ref({ type: 'SHARE_CONFIRM_REQUIRED', subjectType: 'USER', approvalId: 'a-2' }),
+        // Информирующий тип: у него идентификатора согласования и не бывает,
+        // спрашивать нечего.
+        ref({ type: 'TEAM_NEW_MEMBER', subjectType: 'TEAM', approvalId: 'a-3' }),
+        // QA-H-1: два ПОКОЛЕНИЯ одного предложения — разные строки, и
+        // спрашивать надо про обе. Раньше ключ у них совпадал, и именно это
+        // оставляло старое уведомление активным.
+        ref({ type: 'SHARE_CONFIRM_REQUIRED', subjectType: 'USER', approvalId: 'a-4' }),
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED', approvalId: null }),
       ]),
-    ).toEqual([
-      { approvalSubjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1' },
-      { approvalSubjectType: 'USER_SENIOR_SHARE', subjectId: 'u-9', approverUserId: 'u-1' },
-    ])
+    ).toEqual(['a-1', 'a-2', 'a-4'])
   })
 })
 
@@ -150,7 +178,7 @@ describe('computeSubjectState', () => {
       computeSubjectState(
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
         live([['PROJECT', ['p-1']]]),
-        new Set([liveApprovalKey('PROJECT', 'p-1', 'u-1')]),
+        new Set(['a-1']),
         new Set(),
       ),
     ).toBe('active')
@@ -167,7 +195,7 @@ describe('computeSubjectState', () => {
  * никто не гасил).
  */
 describe('computeSubjectState — объект жив, согласование по нему уже нет (ORCH-2)', () => {
-  it('нет ни живой, ни решённой строки — предложение отозвано', () => {
+  it('нет ни живой, ни решённой строки — решения больше не ждут', () => {
     expect(
       computeSubjectState(
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
@@ -178,37 +206,57 @@ describe('computeSubjectState — объект жив, согласование 
     ).toBe('approvalSuperseded')
   })
 
-  it('живое согласование ДРУГОГО подтверждающего этой строке не помогает — тоже отозвано', () => {
+  it('живая строка ДРУГОГО поколения этой не помогает — решения больше не ждут', () => {
+    // QA-H-1 (manual-qa круг 3, #664) — СУТЬ находки в одной строке. Раньше
+    // ключом была тройка «вид + объект + подтверждающий», одинаковая у обоих
+    // поколений: живое НОВОЕ предложение делало активным и СТАРОЕ уведомление,
+    // и синьор видел два «Предложение по доле» с разными процентами. Теперь
+    // строка опознаётся идентификатором, и чужое поколение ей не засчитывается.
     expect(
       computeSubjectState(
-        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
-        live([['PROJECT', ['p-1']]]),
-        new Set([liveApprovalKey('PROJECT', 'p-1', 'u-2')]),
+        ref({ type: 'SHARE_CONFIRM_REQUIRED', subjectType: 'USER', approvalId: 'a-old' }),
+        live([['USER', ['p-1']]]),
+        new Set(['a-new']),
         new Set(),
       ),
     ).toBe('approvalSuperseded')
   })
 
-  it('этот же подтверждающий уже решил — «решено», а не «отозвано»', () => {
+  it('этот же подтверждающий уже решил — «решено», а не «больше не требуется»', () => {
     expect(
       computeSubjectState(
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
         live([['PROJECT', ['p-1']]]),
         new Set(),
-        new Set([liveApprovalKey('PROJECT', 'p-1', 'u-1')]),
+        new Set(['a-1']),
       ),
     ).toBe('approvalDecided')
   })
 
-  it('решённая строка ЧУЖОГО подтверждающего этой строке не помогает — отозвано', () => {
+  it('решённая строка ЧУЖОГО поколения этой не помогает', () => {
     expect(
       computeSubjectState(
-        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED', approvalId: 'a-old' }),
         live([['PROJECT', ['p-1']]]),
         new Set(),
-        new Set([liveApprovalKey('PROJECT', 'p-1', 'u-2')]),
+        new Set(['a-new']),
       ),
     ).toBe('approvalSuperseded')
+  })
+
+  it('идентификатора строки нет — кнопка остаётся, утверждать нечего', () => {
+    // Написать такую строку могла только сборка до круга 3: оба производителя
+    // кладут идентификатор, и форма данных его требует. Сказать про неё
+    // «решение больше не требуется» значило бы утверждать факт, которого мы не
+    // знаем; страница объекта покажет настоящее состояние предложения.
+    expect(
+      computeSubjectState(
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED', approvalId: null }),
+        live([['PROJECT', ['p-1']]]),
+        new Set(),
+        new Set(),
+      ),
+    ).toBe('active')
   })
 
   it('состояние объекта сильнее живости согласования: архив не путается с отозванным предложением', () => {

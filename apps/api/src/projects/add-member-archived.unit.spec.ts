@@ -23,6 +23,7 @@ import { ProjectsService } from './projects.service'
 import { projectMembers } from '../database/schema'
 import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const ADMIN: SessionUser = {
   id: '22222222-0000-4000-aa00-000000000001',
@@ -188,7 +189,7 @@ describe('MED-3 — createFromInterview does not seat dismissed teammates', () =
   // proposal itself is proven separately (create-from-interview-draft-status
   // .unit.spec.ts).
   function makeService(db: never): ProjectsService {
-    const approvals = { proposeInTx: vi.fn(async () => []) }
+    const approvals = { proposeInTx: makeProposeInTxStub() }
     return new ProjectsService(
       db,
       {} as never,

@@ -18,6 +18,7 @@ import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const SENIOR_ID = 'senior-1'
 const DROP_ID = 'drop-1'
@@ -408,7 +409,7 @@ describe('ProjectsService.create — seniorApprovalPending/dropApprovalPending c
       // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
       // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
       getStatus: vi.fn(async () => 'NONE' as const),
-      proposeInTx: vi.fn(async () => undefined),
+      proposeInTx: makeProposeInTxStub(),
       getPendingApproverIds: vi.fn(async () => new Map<string, Set<string>>()),
     }
     const service = new ProjectsService(

@@ -242,12 +242,20 @@ export class ApprovalsService {
 
     let subjectTitle: string | null = null
     if (needsProjectName) {
+      // QA-M-4 (manual-qa круг 3, #664): `companyName`, а НЕ `projects.name` —
+      // шестое и последнее место, кладущее имя проекта в уведомление; круг 7
+      // (ORCH-3) прошёл мимо него. Цена расхождения видна в одном попапе:
+      // администратор читал «Марта Дрозд — проект QA R3 Draft Project» рядом с
+      // «Проект QA R3 Client Co» — два имени одного проекта в соседних
+      // строках. Попап называет проект тем же словом, что и экран «Ждут
+      // решения» (#667) и список проектов (`ProjectRow.tsx`, где `name` —
+      // мелкая вторая строка).
       const [project] = await tx
-        .select({ name: projects.name })
+        .select({ companyName: projects.companyName })
         .from(projects)
         .where(eq(projects.id, row.subjectId))
         .limit(1)
-      subjectTitle = project?.name ?? null
+      subjectTitle = project?.companyName ?? null
     }
 
     // Имя снимается В МОМЕНТ решения: уведомление живёт дольше объекта (§7.4),

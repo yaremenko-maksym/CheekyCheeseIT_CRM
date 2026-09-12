@@ -654,6 +654,9 @@ describe('NotificationsService', () => {
           projectName: 'Acme',
           previousPercent: 26,
           proposedPercent: 30,
+          // QA-H-1 (круг 3): форма данных этого типа требует идентификатор
+          // строки согласования — без него запись отвергается на границе.
+          approvalId: '11111111-1111-4111-8111-111111111111',
         },
       }
       await svc.create(input)

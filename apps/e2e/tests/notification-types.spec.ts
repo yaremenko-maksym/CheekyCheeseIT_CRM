@@ -39,7 +39,11 @@ const ITEMS = [
     subjectType: 'PROJECT',
     subjectId: PROJECT_ID,
     secondaryId: null,
-    data: { projectName: 'Acme' },
+    // QA-H-1 (manual-qa круг 3, #664): данные этого типа несут идентификатор
+    // СТРОКИ согласования — по нему сервер и решает, актуально ли ещё
+    // уведомление. Без него форма данных не разбирается, и попап показал бы
+    // общий вид по сохранённому заголовку.
+    data: { projectName: 'Acme', approvalId: '99999999-2222-4333-8444-5555555555b1' },
     subjectMissing: false,
     subjectArchived: false,
   },

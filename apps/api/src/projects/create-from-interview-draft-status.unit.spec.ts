@@ -34,6 +34,7 @@ import type { SessionUser } from '@crm/shared'
 import { ProjectsService } from './projects.service'
 import { projects } from '../database/schema'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const ADMIN: SessionUser = {
   id: '33333333-0000-4000-aa00-000000000001',
@@ -77,7 +78,7 @@ function makeService() {
     },
   }))
   const db = { db: { query: { teamMembers: { findMany: teamMembersFindMany } }, insert } }
-  const proposeInTx = vi.fn(async () => [])
+  const proposeInTx = makeProposeInTxStub()
   const approvals = { proposeInTx }
   const service = new ProjectsService(
     db as never,

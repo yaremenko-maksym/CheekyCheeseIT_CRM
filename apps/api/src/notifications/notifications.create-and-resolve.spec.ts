@@ -49,12 +49,11 @@ type Existing = {
   // объекта: автор теста называет состояние явно, а не полагается на молчаливое
   // умолчание, которое гейт мутаций не сможет проверить (незамеченная подмена
   // не сдвинула бы ни один тест).
-  approvals?: {
-    subjectType: string
-    subjectId: string
-    approverUserId: string
-    status: ApprovalStatus
-  }[]
+  //
+  // QA-H-1 (manual-qa круг 3, #664): строка опознаётся СВОИМ идентификатором,
+  // а не тройкой «вид + объект + подтверждающий» — поэтому в фикстуре остались
+  // ровно те два поля, которые сервис и читает.
+  approvals?: { id: string; status: ApprovalStatus }[]
 }
 
 function makeRow(over: Partial<Row> = {}): Row {
@@ -496,7 +495,13 @@ describe('исчезнувший объект вычисляется на чте
 
   it('про согласования спрашивают отдельно — и только когда есть о чём', async () => {
     const h = makeHarness(
-      [makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })],
+      [
+        makeRow({
+          type: 'PROJECT_CONFIRM_REQUIRED',
+          subjectId: 'p-1',
+          data: { projectName: 'Acme', approvalId: 'a-1' },
+        }),
+      ],
       // Проект жив, но живого согласования по нему больше нет: предложение
       // отозвали или погасил отказ соседа.
       { projects: ['p-1'], approvals: [] },
@@ -519,12 +524,19 @@ describe('исчезнувший объект вычисляется на чте
   })
 
   it('согласование живо — кнопка ведёт', async () => {
-    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
-      projects: ['p-1'],
-      approvals: [
-        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'PENDING' },
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'PROJECT_CONFIRM_REQUIRED',
+          subjectId: 'p-1',
+          data: { projectName: 'Acme', approvalId: 'a-1' },
+        }),
       ],
-    })
+      {
+        projects: ['p-1'],
+        approvals: [{ id: 'a-1', status: 'PENDING' }],
+      },
+    )
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
@@ -540,12 +552,19 @@ describe('исчезнувший объект вычисляется на чте
    * зрения этого человека вопрос закрыт им самим, а не выдернут из-под рук.
    */
   it('этот же подтверждающий уже решил — «решено», кнопка недоступна', async () => {
-    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
-      projects: ['p-1'],
-      approvals: [
-        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'APPROVED' },
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'PROJECT_CONFIRM_REQUIRED',
+          subjectId: 'p-1',
+          data: { projectName: 'Acme', approvalId: 'a-1' },
+        }),
       ],
-    })
+      {
+        projects: ['p-1'],
+        approvals: [{ id: 'a-1', status: 'APPROVED' }],
+      },
+    )
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
@@ -561,12 +580,19 @@ describe('исчезнувший объект вычисляется на чте
   })
 
   it('отказ ЭТОГО подтверждающего — тоже «решено» (он ответил, просто отказом)', async () => {
-    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
-      projects: ['p-1'],
-      approvals: [
-        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'REJECTED' },
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'PROJECT_CONFIRM_REQUIRED',
+          subjectId: 'p-1',
+          data: { projectName: 'Acme', approvalId: 'a-1' },
+        }),
       ],
-    })
+      {
+        projects: ['p-1'],
+        approvals: [{ id: 'a-1', status: 'REJECTED' }],
+      },
+    )
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
@@ -580,12 +606,19 @@ describe('исчезнувший объект вычисляется на чте
    * что разбор не путает «отменено» с «решено».
    */
   it('CANCELLED без supersededAt (инвариант нарушен defensively) — «отозвано», не «решено»', async () => {
-    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
-      projects: ['p-1'],
-      approvals: [
-        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'CANCELLED' },
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'PROJECT_CONFIRM_REQUIRED',
+          subjectId: 'p-1',
+          data: { projectName: 'Acme', approvalId: 'a-1' },
+        }),
       ],
-    })
+      {
+        projects: ['p-1'],
+        approvals: [{ id: 'a-1', status: 'CANCELLED' }],
+      },
+    )
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
@@ -594,12 +627,19 @@ describe('исчезнувший объект вычисляется на чте
   })
 
   it('про живость согласования спрашивают ИМЕННО про этот объект', async () => {
-    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
-      projects: ['p-1'],
-      approvals: [
-        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'PENDING' },
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'PROJECT_CONFIRM_REQUIRED',
+          subjectId: 'p-1',
+          data: { projectName: 'Acme', approvalId: 'a-1' },
+        }),
       ],
-    })
+      {
+        projects: ['p-1'],
+        approvals: [{ id: 'a-1', status: 'PENDING' }],
+      },
+    )
 
     await h.svc.listForUser('u-1', { limit: 10 })
 
@@ -608,7 +648,11 @@ describe('исчезнувший объект вычисляется на чте
     const approvalWhere = h.whereClauses.find((w) => w.table === 'approvals')
     expect(approvalWhere, 'запрос к согласованиям обязан нести условие').toBeDefined()
     const compiled = compileWhere(approvalWhere!.sql)
-    expect(compiled.params).toContain('p-1')
+    // QA-H-1 (круг 3): условие — по идентификатору СТРОКИ согласования, а не
+    // по идентификатору объекта. Запрос по объекту возвращал живое НОВОЕ
+    // поколение на уведомление о СТАРОМ, и старое оставалось активным.
+    expect(compiled.params).toContain('a-1')
+    expect(compiled.params).not.toContain('p-1')
     expect(compiled.sql).toContain('superseded_at')
   })
 

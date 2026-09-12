@@ -3,8 +3,8 @@
  * архивировали, документ удалили, согласование погашено через `supersededAt` —
  * кнопка обязана вести к честному «объекта больше нет», а не в белый экран.
  *
- * Здесь — ЧИСТАЯ половина этого правила: какие объекты надо проверить, каким
- * видом согласования это проверяется и как из результатов проверок получается
+ * Здесь — ЧИСТАЯ половина этого правила: какие объекты надо проверить, какие
+ * строки согласования прочитать и как из результатов проверок получается
  * ответ «объекта больше нет». Половина с запросами живёт в
  * `NotificationsService.resolveSubjectMissing` — ей нужна база, и она тривиальна
  * ровно потому, что решение принимается здесь.
@@ -37,27 +37,51 @@ export type SubjectRef = {
   type: string
   subjectType: NotificationSubjectType | null
   subjectId: string | null
+  /**
+   * QA-H-1 (manual-qa круг 3, #664): идентификатор КОНКРЕТНОЙ строки
+   * `approvals`, о которой это уведомление. Берётся из `data.approvalId`
+   * (`approvalIdFromData`), кладётся производителем. `null` — строка написана
+   * сборкой, которая его ещё не клала (см. `computeSubjectState`).
+   */
+  approvalId: string | null
 }
 
 /**
- * Вид согласования, живость которого делает этот тип уведомления актуальным.
- * `null` = уведомление не про согласование, живость проверять нечем и незачем.
+ * Типы, чья актуальность зависит от живости строки согласования.
  *
- * Значения совпадают с `ProjectsService.APPROVAL_SUBJECT_TYPE` /
- * `SENIOR_SHARE_SUBJECT_TYPE` / `UsersService.SENIOR_SHARE_SUBJECT_TYPE` —
- * это те же три строки, которыми открываются предложения (позиции 4 и 5).
+ * QA-H-1 (manual-qa круг 3, #664). Здесь стоял `approvalSubjectTypeFor`,
+ * который возвращал ВИД согласования (`PROJECT` / `PROJECT_SENIOR_SHARE` /
+ * `USER_SENIOR_SHARE`) — он был частью ключа, которым уведомление
+ * сопоставлялось со строкой `approvals`. Ключом была тройка «вид + объект +
+ * подтверждающий», и в ней не было ничего, что различало бы ПОКОЛЕНИЯ: два
+ * предложения по одной и той же доле одному и тому же синьору давали один и
+ * тот же ключ. Живой прогон показал цену: предложить 30%, потом 35% — и оба
+ * уведомления показываются активными, с разными процентами и двумя рабочими
+ * кнопками.
+ *
+ * Теперь опознаётся СТРОКА (`approvalId` в данных), а не её описание,
+ * поэтому виду согласования здесь делать нечего: остался вопрос «этот тип
+ * вообще про согласование?», а на него отвечает `boolean`. Заодно исчезла
+ * дублирующая карта видов, которую надо было держать в согласии с тремя
+ * константами в `ProjectsService` / `UsersService`.
  */
-export function approvalSubjectTypeFor(
-  type: string,
-  subjectType: NotificationSubjectType | null,
-): string | null {
-  if (type === 'PROJECT_CONFIRM_REQUIRED') return 'PROJECT'
-  if (type === 'SHARE_CONFIRM_REQUIRED') {
-    if (subjectType === 'PROJECT') return 'PROJECT_SENIOR_SHARE'
-    if (subjectType === 'USER') return 'USER_SENIOR_SHARE'
-    return null
-  }
-  return null
+export function awaitsApproval(type: string): boolean {
+  return type === 'PROJECT_CONFIRM_REQUIRED' || type === 'SHARE_CONFIRM_REQUIRED'
+}
+
+/**
+ * Идентификатор строки согласования из данных уведомления (`data.approvalId`).
+ *
+ * `data` — `jsonb`, то есть `unknown` по определению: форму гарантирует Zod на
+ * записи (`notificationDataSchemaFor`), а не чтение. Поэтому здесь разбор, а
+ * не приведение типа: строка, чьи данные не той формы, обязана приехать без
+ * идентификатора, а не уронить чтение всего списка (AC2 — тот же принцип, что
+ * у `renderNotification`).
+ */
+export function approvalIdFromData(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const value = (data as Record<string, unknown>)['approvalId']
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 /** Группирует идентификаторы по виду объекта — по одному запросу на вид. */
@@ -72,15 +96,6 @@ export function groupSubjectIds(rows: SubjectRef[]): Map<NotificationSubjectType
   return new Map([...byType].map(([k, v]) => [k, [...v]]))
 }
 
-/** Ключ живого согласования: вид + объект + тот, кого спрашивают. */
-export function liveApprovalKey(
-  approvalSubjectType: string,
-  subjectId: string,
-  approverUserId: string,
-): string {
-  return `${approvalSubjectType}\u0000${subjectId}\u0000${approverUserId}`
-}
-
 /**
  * ORCH-2 (fix-раунд 6, #664). Строка `approvals` с `supersededAt IS NULL`
  * (иначе её здесь не было бы — см. запрос в `NotificationsService`)
@@ -88,7 +103,7 @@ export function liveApprovalKey(
  * же подтверждающий уже ответил, но генерацию никто не гасил). Разница важна
  * для подписи: живая даёт активную кнопку, решённая — «Решение уже принято»,
  * а всё остальное (нет строки вовсе, либо она погашена, либо `CANCELLED`) —
- * «Предложение отозвано» (см. `computeSubjectState`).
+ * «Решение больше не требуется» (COPY-M-9, круг 3; см. `computeSubjectState`).
  *
  * Разбор ИСЧЕРПЫВАЮЩИЙ, тем же приёмом, что у `computeSubjectState` ниже:
  * `CANCELLED` сегодня всегда приходит С супersededAt (`cancelInTx` ставит оба
@@ -115,22 +130,18 @@ export function classifyApprovalRow(status: ApprovalStatus): ApprovalRowClassifi
   }
 }
 
-/** Какие согласования вообще надо проверить на живость для этой пачки строк. */
-export function approvalChecksFor(
-  rows: SubjectRef[],
-): { approvalSubjectType: string; subjectId: string; approverUserId: string }[] {
+/**
+ * Какие строки согласования надо прочитать для этой пачки уведомлений — по
+ * идентификаторам, без повторов (одним запросом на весь список).
+ */
+export function approvalIdsToCheck(rows: SubjectRef[]): string[] {
   const seen = new Set<string>()
-  const out: { approvalSubjectType: string; subjectId: string; approverUserId: string }[] = []
   for (const row of rows) {
-    if (row.subjectId === null) continue
-    const approvalSubjectType = approvalSubjectTypeFor(row.type, row.subjectType)
-    if (approvalSubjectType === null) continue
-    const key = liveApprovalKey(approvalSubjectType, row.subjectId, row.userId)
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push({ approvalSubjectType, subjectId: row.subjectId, approverUserId: row.userId })
+    if (!awaitsApproval(row.type)) continue
+    if (row.approvalId === null) continue
+    seen.add(row.approvalId)
   }
-  return out
+  return [...seen]
 }
 
 /**
@@ -167,8 +178,8 @@ export type SubjectResolution = SubjectState | 'missing' | 'approvalSuperseded' 
 export function computeSubjectState(
   row: SubjectRef,
   statesByType: Map<NotificationSubjectType, Map<string, SubjectState>>,
-  liveApprovalKeys: Set<string>,
-  decidedApprovalKeys: Set<string>,
+  liveApprovalIds: Set<string>,
+  decidedApprovalIds: Set<string>,
 ): SubjectResolution {
   if (row.subjectType === null || row.subjectId === null) return 'active'
   const state = statesByType.get(row.subjectType)?.get(row.subjectId)
@@ -191,14 +202,20 @@ export function computeSubjectState(
       throw new Error(`computeSubjectState: неизвестное состояние ${String(exhaustive)}`)
     }
   }
-  const approvalSubjectType = approvalSubjectTypeFor(row.type, row.subjectType)
-  if (approvalSubjectType === null) return 'active'
-  const key = liveApprovalKey(approvalSubjectType, row.subjectId, row.userId)
-  if (liveApprovalKeys.has(key)) return 'active'
+  if (!awaitsApproval(row.type)) return 'active'
+  // QA-H-1: уведомление без идентификатора строки согласования опознать
+  // нечем — и сказать про него «решение больше не требуется» значило бы
+  // утверждать факт, которого мы не знаем. Кнопка остаётся: она ведёт на
+  // страницу объекта, где настоящее состояние предложения и показано. Такую
+  // строку может написать только сборка до этого круга — оба производителя
+  // кладут идентификатор, и форма данных (`notificationDataSchemaFor`) его
+  // требует.
+  if (row.approvalId === null) return 'active'
+  if (liveApprovalIds.has(row.approvalId)) return 'active'
   // ORCH-2: «решено» проверяется ОТДЕЛЬНО от «нет живой строки вовсе» — тот
   // же приём, что различил архив и удаление. Ответившему подтверждающему
   // говорят, что он уже ответил, а не что предложение отозвали у него из-под
   // рук.
-  if (decidedApprovalKeys.has(key)) return 'approvalDecided'
+  if (decidedApprovalIds.has(row.approvalId)) return 'approvalDecided'
   return 'approvalSuperseded'
 }

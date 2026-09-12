@@ -13,6 +13,7 @@ import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import type { NotificationsService } from '../notifications/notifications.service'
 import { makePassThroughEmitInTx } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
@@ -96,7 +97,7 @@ function buildCreateHarness(dropId?: string) {
     { record: vi.fn(async () => undefined) } as never,
     {} as never,
     hrAccess,
-    { proposeInTx: vi.fn(async () => undefined) } as never,
+    { proposeInTx: makeProposeInTxStub() } as never,
     notifications,
   )
   return { service, created, dto: dropId ? { ...MINIMAL_DTO, dropId } : MINIMAL_DTO }
@@ -189,7 +190,7 @@ function buildFromInterviewHarness() {
     { record: vi.fn(async () => undefined) } as never,
     {} as never,
     new HrAccessService(db as never),
-    { proposeInTx: vi.fn(async () => undefined) } as never,
+    { proposeInTx: makeProposeInTxStub() } as never,
     notifications,
   )
   const interview = {
