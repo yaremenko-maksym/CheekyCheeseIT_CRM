@@ -102,6 +102,7 @@ describe('describeNotification — подробности из данных, н�
       projectName: 'Acme',
       previousPercent: 26,
       proposedPercent: 30,
+      approvalId: uuid,
     })
     expect(describeNotification('SHARE_CONFIRM_REQUIRED', data)).toBe('26% → 30% · проект Acme')
   })
@@ -129,7 +130,7 @@ describe('renderNotification — клиент выводит подписи и �
       type: 'PROJECT_CONFIRM_REQUIRED',
       subjectType: 'PROJECT',
       subjectId: uuid,
-      data: { projectName: 'Acme' },
+      data: { projectName: 'Acme', approvalId: uuid },
     })
     expect(rendered.title).toBe('Проект ждёт решения')
     expect(rendered.detail).toBe('Проект Acme')
@@ -214,39 +215,61 @@ describe('describeNotification — все ветки, чтобы гейт мут
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'VALIDATED', rejectionReasonPreview: null },
-      'Доход валидирован: 10,00 USD',
+      // COPY-L-6 (copy-review круг 3): «Доход» из детали снят — заголовок
+      // типа уже «Решение по доходу», и слово занимало бюджет строки дважды.
+      'Валидирован: 10,00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReasonPreview: null },
-      'Доход отклонён: 10,00 USD',
+      'Отклонён: 10,00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReasonPreview: 'Нет чека' },
-      // COPY-M-3: превью причины — в кавычках-«ёлочках». COPY-M-7 / UX-M-2:
-      // причина — ДО суммы, иначе закрывающая кавычка уезжает за `line-clamp-2`.
-      'Доход отклонён: «Нет чека» — 10,00 USD',
+      // COPY-M-3: превью причины — в кавычках-«ёлочках». COPY-L-6 (круг 3):
+      // факты первым рядом, цитата — вторым, как у `APPROVAL_REJECTED`. Раньше
+      // оба факта и цитата делили одни и те же два ряда `line-clamp-2`, и
+      // цитате оставалось одиннадцать знаков — из фразы человека доезжал
+      // обрывок слова. Порядок (цитата первой) — как у `APPROVAL_REJECTED`:
+      // обратный терял бы цитату целиком на суммах от тысячи, см. тест ниже.
+      '«Нет чека»\nОтклонён: 10,00 USD',
     ],
     ['TEAM_MEMBER_ADDED', { teamName: 'Alpha' }, 'Команда Alpha'],
     ['PROJECT_MEMBER_ADDED', { projectName: 'Acme' }, 'Проект Acme'],
     // COPY-H-6: кто пришёл — вперёд, имя команды — в хвост.
     ['TEAM_NEW_MEMBER', { teamName: 'Alpha', memberName: 'Иван' }, 'Иван · команда Alpha'],
-    ['PROJECT_CONFIRM_REQUIRED', { projectName: 'Acme' }, 'Проект Acme'],
+    ['PROJECT_CONFIRM_REQUIRED', { projectName: 'Acme', approvalId: uuid }, 'Проект Acme'],
     [
       'SHARE_CONFIRM_REQUIRED',
-      { scope: 'BASE', projectName: null, previousPercent: null, proposedPercent: 30 },
+      {
+        scope: 'BASE',
+        projectName: null,
+        previousPercent: null,
+        proposedPercent: 30,
+        approvalId: uuid,
+      },
       // COPY-H-3: «доля по умолчанию», а «не задана» вместо «по умолчанию»
       // для значения — иначе одно слово в двух ролях в одной строке.
       'Доля по умолчанию: не задана → 30%',
     ],
     [
       'SHARE_CONFIRM_REQUIRED',
-      { scope: 'PROJECT', projectName: null, previousPercent: 26, proposedPercent: null },
+      {
+        scope: 'PROJECT',
+        projectName: null,
+        previousPercent: 26,
+        proposedPercent: null,
+        approvalId: uuid,
+      },
       // COPY-H-6: проценты вперёд, имя проекта в хвосте.
       '26% → не задана · проект без названия',
     ],
-    ['DOCUMENT_SIGN_REQUIRED', { documentTitle: 'Ваш контракт' }, 'Ваш контракт'],
+    // COPY-L-7 (copy-review круг 3): деталь была подмножеством заголовка
+    // («Контракт на подпись» + «Ваш контракт»), и «ваш» — единственное новое
+    // слово, очевидное по построению: чужие контракты в личные уведомления не
+    // приходят. Строку, которую можно удалить без потери смысла, удаляют.
+    ['DOCUMENT_SIGN_REQUIRED', { documentTitle: 'Ваш контракт' }, null],
     [
       'APPROVAL_CONFIRMED',
       { approverName: 'Иван', subjectKind: 'BASE_SHARE', subjectTitle: null },
@@ -761,7 +784,7 @@ describe('цитата причины доезжает до читателя ц�
       subjectTitle: 'Acme Corporation',
       reasonPreview: longReason,
     })
-    const visible = visibleInPopup(detail)
+    const visible = visibleInPopup(detail!)
     expect(visible.startsWith('«')).toBe(true)
     expect(visible).toContain('дублирует существу')
     expect(visible).toContain('Иван Петров')
@@ -774,10 +797,10 @@ describe('цитата причины доезжает до читателя ц�
       subjectTitle: 'Acme Corporation',
       reasonPreview: longReason,
     })
-    const quoteLine = detail.split('\n')[0]!
+    const quoteLine = detail!.split('\n')[0]!
     expect(quoteLine.endsWith('…»')).toBe(true)
     expect(Array.from(quoteLine).length).toBeLessThanOrEqual(NOTIFICATION_DETAIL_LINE_CHARS)
-    expect(visibleInPopup(detail)).toContain(quoteLine)
+    expect(visibleInPopup(detail!)).toContain(quoteLine)
   })
 
   it('отказ по доходу: причина ДО суммы, обе «ёлочки» в видимой части', () => {
@@ -789,7 +812,7 @@ describe('цитата причины доезжает до читателя ц�
         'Не тот проект, я заявил по другому — переоформите на FinTrack, пожалуйста',
       ),
     })
-    const visible = visibleInPopup(describeNotification('TRANSACTION_STATUS_CHANGED', data))
+    const visible = visibleInPopup(describeNotification('TRANSACTION_STATUS_CHANGED', data)!)
     expect(visible).toContain('«')
     expect(visible).toContain('»')
     expect(visible).toContain('600,00 USDT')
@@ -831,7 +854,7 @@ describe('цитата причины доезжает до читателя ц�
         rejectionReasonPreview: longReason,
       }),
     )
-    for (const detail of [rejected, income]) {
+    for (const detail of [rejected!, income!]) {
       const quote = detail.slice(detail.indexOf('«'), detail.indexOf('»') + 1)
       expect(quote.length).toBeGreaterThan(2)
       expect(visibleInPopup(detail)).toContain(quote)
@@ -930,7 +953,7 @@ describe('архивный объект — своя подпись, кнопк�
  * два честных ответа вместо одного неверного.
  */
 describe('согласование по живому объекту больше не актуально (ORCH-2)', () => {
-  it('отозвано/заменено — «Предложение отозвано», кнопка недоступна, href null', () => {
+  it('погашено (отозвано, заменено, погасил отказ соседа) — «Решение больше не требуется»', () => {
     expect(
       notificationActions({
         ...base,
@@ -939,7 +962,7 @@ describe('согласование по живому объекту больше
         subjectId: uuid,
         approvalSuperseded: true,
       }),
-    ).toEqual([{ label: 'Предложение отозвано', href: null, disabled: true }])
+    ).toEqual([{ label: 'Решение больше не требуется', href: null, disabled: true }])
   })
 
   it('уже решено этим же подтверждающим — «Решение уже принято», не «отозвано»', () => {
@@ -965,7 +988,7 @@ describe('согласование по живому объекту больше
         subjectId: uuid,
         approvalSuperseded: true,
       }),
-    ).toEqual([{ label: 'Предложение отозвано', href: null, disabled: true }])
+    ).toEqual([{ label: 'Решение больше не требуется', href: null, disabled: true }])
   })
 
   it('исчезнувший объект сильнее — «удалён» не подменяется «отозвано»', () => {
@@ -1056,10 +1079,11 @@ describe('гейт мутаций круга 5 — то, что проходил
     ).toBe('«Первая вторая»\nИван — проект Acme')
   })
 
-  it('бюджет цитаты в отказе по доходу — ДВЕ строки клипа минус занятое, не половина строки', () => {
-    // Мутант менял умножение на деление (`22 * 2` → `22 / 2`), бюджет уходил в
-    // минус и упирался в нижний предел — цитата сжималась до семи знаков.
-    // Проверяется точной строкой: «содержит кавычку» переживало и мутанта.
+  it('цитата в отказе по доходу занимает ровно свой ряд клипа (COPY-L-6)', () => {
+    // Круг 5 пинил здесь арифметику общего бюджета (`22 * 2` минус занятое).
+    // COPY-L-6 эту арифметику убрал вместе с дефектом, который она
+    // обслуживала: у цитаты теперь СВОЙ ряд, и пинится он — точной строкой,
+    // потому что «содержит кавычку» переживает любую подмену границы.
     const data = notificationDataSchemaFor('TRANSACTION_STATUS_CHANGED').parse({
       amount: '600.000000',
       currency: 'USDT',
@@ -1067,8 +1091,23 @@ describe('гейт мутаций круга 5 — то, что проходил
       rejectionReasonPreview: 'Не тот проект, я заявил по другому — переоформите на FinTrack',
     })
     expect(describeNotification('TRANSACTION_STATUS_CHANGED', data)).toBe(
-      'Доход отклонён: «Не тот прое…» — 600,00 USDT',
+      '«Не тот проект, я за…»\nОтклонён: 600,00 USDT',
     )
+  })
+
+  it('цитата видна и на четырёхзначной сумме — ряд фактов её не вытесняет', () => {
+    // Ровно тот случай, из-за которого порядок «факты, потом цитата» отвергнут:
+    // «Отклонён: 1 234,50 USDT» — 23 знака, то есть ДВА ряда клипа, и цитате
+    // третьего ряда не осталось бы. С цитатой первой она видна при любой сумме.
+    const data = notificationDataSchemaFor('TRANSACTION_STATUS_CHANGED').parse({
+      amount: '1234.500000',
+      currency: 'USDT',
+      status: 'REJECTED',
+      rejectionReasonPreview: 'Не тот проект',
+    })
+    const detail = describeNotification('TRANSACTION_STATUS_CHANGED', data)!
+    expect(detail.split('\n')[0]).toBe('«Не тот проект»')
+    expect(visibleInPopup(detail)).toContain('«Не тот проект»')
   })
 
   it.each([

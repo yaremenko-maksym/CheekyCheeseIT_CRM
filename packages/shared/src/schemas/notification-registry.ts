@@ -220,6 +220,21 @@ const textPreview = z
 
 const percent = z.number().int().min(0).max(100).nullable()
 
+/**
+ * QA-H-1 (manual-qa круг 3, #664). Строка согласования, о которой это
+ * уведомление, — именно СТРОКА, а не «согласование по такому-то объекту для
+ * такого-то подтверждающего».
+ *
+ * Разница не формальная: повторное предложение доли не отменяет предыдущее, а
+ * открывает НОВОЕ ПОКОЛЕНИЕ строк (`ApprovalsService.proposeInTx` гасит
+ * прежние через `supersededAt` и вставляет новые). Пока уведомление
+ * опознавалось тройкой «вид + объект + подтверждающий», оба поколения
+ * сходились в один ключ, и живой синьор видел два активных «Предложение по
+ * доле» с разными процентами, каждое с рабочей кнопкой. Идентификатор строки
+ * различает поколения — и погашенное поколение честно деградирует.
+ */
+const approvalId = z.string().uuid()
+
 const dataSchemas = {
   TRANSACTION_ADDED: z.object({
     ...moneyFields,
@@ -233,12 +248,13 @@ const dataSchemas = {
   TEAM_MEMBER_ADDED: z.object({ teamName: objectName }),
   PROJECT_MEMBER_ADDED: z.object({ projectName: objectName }),
   TEAM_NEW_MEMBER: z.object({ teamName: objectName, memberName: objectName }),
-  PROJECT_CONFIRM_REQUIRED: z.object({ projectName: objectName }),
+  PROJECT_CONFIRM_REQUIRED: z.object({ projectName: objectName, approvalId }),
   SHARE_CONFIRM_REQUIRED: z.object({
     scope: z.enum(['PROJECT', 'BASE']),
     projectName: objectName.nullable(),
     previousPercent: percent,
     proposedPercent: percent,
+    approvalId,
   }),
   DOCUMENT_SIGN_REQUIRED: z.object({ documentTitle: objectName }),
   APPROVAL_CONFIRMED: z.object({
@@ -375,10 +391,21 @@ function subjectPhrase(
   return kind === 'PROJECT' ? `проект ${named}` : `доля по проекту ${named}`
 }
 
+/**
+ * Подробная строка под заголовком — или её ОТСУТСТВИЕ.
+ *
+ * COPY-L-7 (copy-review круг 3, #664): `null` — полноправный ответ, а не
+ * признак ошибки. У `DOCUMENT_SIGN_REQUIRED` деталь была подмножеством
+ * заголовка («Контракт на подпись» / «Ваш контракт»), и правило §6 скилла
+ * `copywriting` про строку, которую можно удалить без потери смысла, не знает
+ * исключений для строк, которые просто «уже написаны». Попап пустую деталь не
+ * рисует (`notifications-bell.tsx` проверяет `view.detail`), поэтому пустого
+ * `<p>` не появится.
+ */
 export function describeNotification<T extends NewNotificationType>(
   type: T,
   data: NotificationDataByType[T],
-): string {
+): string | null {
   switch (type) {
     case 'TRANSACTION_ADDED': {
       // COPY-H-6: полезное (сумма) вперёд, имя объекта — в хвост, где его не
@@ -393,20 +420,35 @@ export function describeNotification<T extends NewNotificationType>(
       // `PENDING → VALIDATED`; «проверка транзакции» стоит там же в списке
       // _Избегать_. Это первый текст, который увидят все сотрудники, и он
       // обязан говорить теми же словами, что и остальной интерфейс.
-      if (d.status === 'VALIDATED') return `Доход валидирован: ${money(d)}`
+      // COPY-L-6 (copy-review круг 3): слово «Доход» из детали снято — его
+      // уже сказал заголовок типа («Решение по доходу»), а в детали оно
+      // занимало бюджет строки, за который платила цитата причины.
+      if (d.status === 'VALIDATED') return `Валидирован: ${money(d)}`
       // COPY-M-3: превью причины — слова конкретного человека, а не системы;
       // кавычки-«ёлочки» отделяют чужую речь от интерфейса.
-      if (d.rejectionReasonPreview === null) return `Доход отклонён: ${money(d)}`
+      if (d.rejectionReasonPreview === null) return `Отклонён: ${money(d)}`
       // UX-M-2 (design-review круг 2): на живом кадре 320 закрывающая «»»
       // отсутствовала — `line-clamp-2` срезал её вместе с хвостом причины,
       // потому что цитата стояла ПОСЛЕДНЕЙ. Причина уходит вперёд суммы, а её
       // бюджет считается из того, что в этой же строке занято: сумма нужна
       // целиком (COPY-H-4), цитата усекается до остатка.
-      const head = 'Доход отклонён: '
-      const tail = ` — ${money(d)}`
-      const budget =
-        NOTIFICATION_DETAIL_LINE_CHARS * NOTIFICATION_DETAIL_LINES - head.length - tail.length
-      return `${head}${quoteWithinBudget(d.rejectionReasonPreview, budget)}${tail}`
+      //
+      // COPY-L-6 (круг 3): у цитаты теперь СВОЙ ряд целиком
+      // (`NOTIFICATION_DETAIL_LINE_CHARS`), факты — вторым рядом. Кругом
+      // раньше оба факта и цитата делили одни и те же два ряда
+      // `line-clamp-2`, и бюджетом цитаты оставалось одиннадцать знаков:
+      // читатель узнавал, что причина есть, но не какую.
+      //
+      // Порядок — ТОТ ЖЕ, что у `APPROVAL_REJECTED`, и это не вкусовое
+      // совпадение. Задание круга 8 предлагало обратный (`Отклонён: сумма` /
+      // цитата), но он теряет цитату ЦЕЛИКОМ на любой сумме от тысячи:
+      // «Отклонён: 1 234,50 USDT» — 23 знака, то есть уже два ряда клипа, и
+      // третьего ряда не существует. Это было бы хуже исходной находки
+      // (та резала цитату до одиннадцати знаков, а не выбрасывала её). Само
+      // тело ревью описывает удачное решение соседнего типа теми же словами:
+      // «цитата получила СВОЙ ряд (22 знака), факты — второй». Пинится
+      // тестом на четырёхзначной сумме.
+      return `${quoteWithinBudget(d.rejectionReasonPreview, NOTIFICATION_DETAIL_LINE_CHARS)}\nОтклонён: ${money(d)}`
     }
     case 'TEAM_MEMBER_ADDED': {
       const d = data as NotificationDataByType['TEAM_MEMBER_ADDED']
@@ -437,8 +479,13 @@ export function describeNotification<T extends NewNotificationType>(
         : `${change} · проект ${d.projectName ?? 'без названия'}`
     }
     case 'DOCUMENT_SIGN_REQUIRED': {
-      const d = data as NotificationDataByType['DOCUMENT_SIGN_REQUIRED']
-      return d.documentTitle
+      // COPY-L-7 (copy-review круг 3, #664): детали НЕТ. Она несла
+      // `documentTitle` — «Ваш контракт», то есть заголовок этой же строки
+      // («Контракт на подпись») плюс слово «ваш», очевидное по построению:
+      // чужие контракты в личные уведомления не приходят. Поле в данных
+      // остаётся — оно общее с экраном ожиданий (#667) и с письмом
+      // (позиция 7), где у строки нет своего заголовка.
+      return null
     }
     case 'APPROVAL_CONFIRMED': {
       const d = data as NotificationDataByType['APPROVAL_CONFIRMED']
@@ -616,7 +663,17 @@ export type RenderableNotification = {
  * «Решение уже принято» читаются одинаково что для проекта, что для доли по
  * пользователю.
  */
-const APPROVAL_SUPERSEDED_LABEL = 'Предложение отозвано'
+/**
+ * COPY-M-9 (copy-review круг 3, #664). Здесь стояло «Предложение отозвано» —
+ * утверждение об отзыве там, где отзыва не было. Состояние выводится из
+ * «живой строки согласования для ЭТОГО подтверждающего больше нет», а туда
+ * ведут четыре пути, и два из них — не отзыв: предложение пересоздали
+ * (новое поколение, QA-H-1) и его погасил отказ соседа (`rejectInTx`,
+ * решение #5 — у черновика проекта подтверждающих штатно двое). Подпись
+ * сказана ровно про то, что читателю нужно знать и что система действительно
+ * знает: от него больше ничего не ждут.
+ */
+const APPROVAL_SUPERSEDED_LABEL = 'Решение больше не требуется'
 const APPROVAL_DECIDED_LABEL = 'Решение уже принято'
 
 export function notificationActions(n: RenderableNotification): NotificationAction[] {
