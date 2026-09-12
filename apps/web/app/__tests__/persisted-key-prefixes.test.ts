@@ -6,7 +6,8 @@
  * so any change to the allow-list is caught immediately (no stale mirror drift).
  */
 import { describe, it, expect } from 'vitest'
-import { PERSISTED_KEY_PREFIXES } from '../routes/__root'
+import type { Query } from '@tanstack/react-query'
+import { PERSISTED_KEY_PREFIXES, shouldDehydrateQuery } from '../routes/__root'
 import { PENDING_QUERY_KEY } from '../hooks/use-pending-items'
 
 // PII-bearing keys that were removed in the security audit and must NEVER return.
@@ -79,17 +80,18 @@ describe('PERSISTED_KEY_PREFIXES — PII exclusion (security audit Fix#1)', () =
   // never reaches whatever `shouldDehydrateQuery` decides gets written to
   // `crm-query-cache`, not just that the key's literal string is absent from
   // a Set.
+  //
+  // SR-L-4 (PR #667 fix-round 2): imports the REAL `shouldDehydrateQuery`
+  // from `__root.tsx` instead of a same-file copy of the predicate — a copy
+  // proves nothing about `__root.tsx` itself: change ITS keying (e.g.
+  // `queryKey[1]`) or add an `||` branch there and a mirrored copy here
+  // stays green while `pendingPercent` starts landing in `crm-query-cache`.
   it('AC3: shouldDehydrateQuery rejects a successful `pending` query outright — pendingPercent never reaches the dehydrated snapshot', () => {
-    const shouldDehydrateQuery = (query: {
-      state: { status: string }
-      queryKey: readonly unknown[]
-    }) => query.state.status === 'success' && PERSISTED_KEY_PREFIXES.has(String(query.queryKey[0]))
-
     const pendingQuery = {
       state: { status: 'success' as const },
       queryKey: PENDING_QUERY_KEY,
       data: { mine: [{ kind: 'SHARE_APPROVAL', pendingPercent: 30 }], proposedByMe: [] },
-    }
+    } as unknown as Query
 
     expect(shouldDehydrateQuery(pendingQuery)).toBe(false)
   })

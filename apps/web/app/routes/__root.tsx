@@ -1,5 +1,6 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
+import type { Query } from '@tanstack/react-query'
 import { createQueryClient } from '../lib/query-client'
 import { persister } from '../lib/persister'
 import { TelemetryProvider } from '../lib/telemetry'
@@ -33,6 +34,15 @@ export const PERSISTED_KEY_PREFIXES = new Set<string>([
   'tos-versions-all',
 ])
 
+// SR-L-4 (PR #667 fix-round 2): exported so `persisted-key-prefixes.test.ts`'s
+// AC3 case can import the REAL predicate instead of maintaining its own copy
+// — a copy proves nothing about this file: change the key this app persists
+// on (e.g. `queryKey[1]` instead of `[0]`) and a same-file mirror stays green
+// while `pendingPercent` starts landing in `crm-query-cache`.
+export function shouldDehydrateQuery(query: Query): boolean {
+  return query.state.status === 'success' && PERSISTED_KEY_PREFIXES.has(String(query.queryKey[0]))
+}
+
 export const Route = createRootRoute({
   component: RootDocument,
 })
@@ -55,9 +65,7 @@ function RootDocument() {
             // Persist only successfully resolved queries whose key prefix is in the
             // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
             // transient and never rehydrated into a fresh session.
-            shouldDehydrateQuery: (query) =>
-              query.state.status === 'success' &&
-              PERSISTED_KEY_PREFIXES.has(String(query.queryKey[0])),
+            shouldDehydrateQuery,
           },
         }}
       >
