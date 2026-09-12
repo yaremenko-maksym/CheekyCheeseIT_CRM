@@ -643,6 +643,8 @@ jobs:
             apps/api/drizzle/manual/2026-09-03_pending_senior_share.sql \
             apps/api/drizzle/manual/2026-09-04_approval_status_cancelled.sql \
             apps/api/drizzle/manual/2026-09-07_notification_subjects.sql \
+            apps/api/drizzle/manual/2026-09-12_notification_emails.sql \
+            apps/api/drizzle/manual/2026-09-12_notification_preferences.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2157,6 +2159,37 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-09-07_notification_subjects.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-09-07_notification_subjects.sql
+
+      # task-notification-email-delivery (position 7a): two NEW tables —
+      # `notification_emails` (the outbox a notification's email is queued
+      # into, in the same transaction as the notification) and
+      # `notification_preferences` (per-user email channel switches). Both are
+      # brand-new: nothing backfilled, nothing rewritten, and no deployed code
+      # touches either until this same PR's image ships. Same reasoning as the
+      # copy steps above for why this wiring is Coder-authored in this PR
+      # (CR-H-2, code-review PR #624: the migration and its wiring ship
+      # together or prod 500s the moment the image lands).
+      - name: Copy notification email outbox DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-09-12_notification_emails.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-09-12_notification_emails.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-09-12_notification_emails.sql
+
+      - name: Copy notification preferences DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-09-12_notification_preferences.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-09-12_notification_preferences.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-09-12_notification_preferences.sql
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
@@ -3839,6 +3872,56 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$NOTIFICATION_SUBJECTS_FILE"
             echo "==> notification subject columns DDL applied successfully"
+
+            # ── task-notification-email-delivery: email outbox ──
+            # A NEW table plus its enum type and two indexes. Nothing is
+            # backfilled and no deployed code touches it until this PR's image
+            # ships. Idempotent: `CREATE TABLE IF NOT EXISTS` +
+            # `CREATE INDEX IF NOT EXISTS` + a DO-block guard on the enum
+            # (Postgres has no `CREATE TYPE IF NOT EXISTS`) — safe to re-run
+            # forever.
+            # Source: apps/api/drizzle/manual/2026-09-12_notification_emails.sql
+            NOTIFICATION_EMAILS_FILE="/opt/crm/apps/api/drizzle/manual/2026-09-12_notification_emails.sql"
+
+            if [ ! -f "$NOTIFICATION_EMAILS_FILE" ]; then
+              echo "ERROR: DDL file not found at $NOTIFICATION_EMAILS_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying notification email outbox DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$NOTIFICATION_EMAILS_FILE"
+            echo "==> notification email outbox DDL applied successfully"
+
+            # ── task-notification-email-delivery: channel preferences ──
+            # A NEW table holding only the DEVIATION from the default (absence
+            # of a row means "email on"). Nothing backfilled. Idempotent:
+            # `CREATE TABLE IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT
+            # EXISTS`.
+            # Source: apps/api/drizzle/manual/2026-09-12_notification_preferences.sql
+            NOTIFICATION_PREFERENCES_FILE="/opt/crm/apps/api/drizzle/manual/2026-09-12_notification_preferences.sql"
+
+            if [ ! -f "$NOTIFICATION_PREFERENCES_FILE" ]; then
+              echo "ERROR: DDL file not found at $NOTIFICATION_PREFERENCES_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying notification preferences DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$NOTIFICATION_PREFERENCES_FILE"
+            echo "==> notification preferences DDL applied successfully"
 
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
             # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS

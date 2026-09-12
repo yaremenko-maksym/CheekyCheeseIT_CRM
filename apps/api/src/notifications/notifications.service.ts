@@ -33,6 +33,7 @@ import {
   approvals,
   employeeContracts,
   nonDeletedTransactions,
+  notificationEmails,
   notifications,
   projects,
   teams,
@@ -50,6 +51,7 @@ import {
   type SubjectResolution,
   type SubjectState,
 } from './notification-subject-resolver'
+import { decideEnqueue } from './notification-email-outbox'
 
 /**
  * Что производитель кладёт в запись. §7.1: тип события и идентификаторы
@@ -187,7 +189,87 @@ export class NotificationsService {
       if (values.dedupeKey !== null) return null
       throw new Error('Failed to insert notification')
     }
+
+    // Позиция 7a, AC1: письмо встаёт в очередь ТОЙ ЖЕ транзакцией. Не
+    // дисциплина, а свойство: откатилось событие — откатились и уведомление,
+    // и письмо. Письмо о несостоявшемся событии недопустимо ровно так же,
+    // как уведомление о нём.
+    //
+    // Порядок значим: строка очереди ссылается на уведомление, поэтому она
+    // может появиться только ПОСЛЕ него — и только если оно действительно
+    // появилось (погашенное идемпотентностью вернулось выше как `null`, и
+    // второго письма не будет).
+    await this.enqueueEmailInTx(tx, row.id, values.userId, values.type)
+
     return this.mapNotification(row, 'active')
+  }
+
+  /**
+   * Поставить письмо по уже вставленному уведомлению.
+   *
+   * **Не имеет права уронить событие** — та же граница, что у `refuse()`
+   * (SR-H-1, security-review круг 1, #664): цена ошибки в КАНАЛЕ не равна
+   * цене ошибки в самом событии. Проект не должен перестать создаваться
+   * из-за того, что очередь писем недоступна. Отказ при этом громкий —
+   * `logger.error` плюс строка в телеметрии, которая доезжает до дайджеста.
+   *
+   * В отличие от `refuse()`, здесь достаточно `try/catch` без савепойнта:
+   * весь путь производителя УЖЕ обёрнут во вложенную транзакцию
+   * (`emitInTx`), и ошибка Postgres, абортившая бы транзакцию события,
+   * откатывается до её савепойнта. Собственный савепойнт добавил бы второй
+   * круг отката там, где первый уже есть.
+   */
+  private async enqueueEmailInTx(
+    tx: DrizzleTx,
+    notificationId: string,
+    userId: string,
+    type: string,
+  ): Promise<void> {
+    try {
+      // Настройка канала здесь НЕ читается — её смотрит отправщик, в момент
+      // отправки (§5 задания, SPEC-H-2 / CR-H-2 / SR-M-2). Круг 1 решал это
+      // здесь, и человек, включивший канал между событием и отправкой,
+      // письма уже не получал: строки не было и появиться ей было негде.
+      //
+      // Состояние получателя, наоборот, смотрится ОБА раза: архивированному
+      // строка заводится сразу пропущенной (крону она не достанется вовсе), а
+      // архив, случившийся позже, ловит уже отправщик.
+      const [recipient] = await tx
+        .select({ archivedAt: users.archivedAt })
+        .from(users)
+        .where(eq(users.id, userId))
+
+      const decision = decideEnqueue(type, recipient?.archivedAt != null)
+
+      await tx
+        .insert(notificationEmails)
+        .values({
+          notificationId,
+          userId,
+          status: decision.status,
+          // Строка заводится ВСЕГДА, даже когда письма не будет: «строки нет»
+          // не отвечает на вопрос, почему сотруднику не пришло письмо про X
+          // (§1 задания — `SKIPPED` + `skip_reason`).
+          skipReason: decision.status === 'SKIPPED' ? decision.skipReason : null,
+        })
+        // Одно письмо на уведомление: повторная постановка — ничего, а не
+        // второе письмо. Индекс `uq_notification_emails_notification`.
+        .onConflictDoNothing({ target: notificationEmails.notificationId })
+        .returning()
+    } catch (err) {
+      this.logger.error(
+        `Failed to enqueue notification email (the event and its notification are NOT rolled back): ${
+          err instanceof Error ? err.message : String(err)
+        } [type=${type}]`,
+      )
+      this.report({
+        source: 'API',
+        message: 'Notification email not queued',
+        route: '/api/notifications',
+        userId,
+        meta: { type },
+      })
+    }
   }
 
   /**

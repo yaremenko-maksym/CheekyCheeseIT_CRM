@@ -38,6 +38,8 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { renderEmailLayout } from '../common/email-layout'
+import { escapeHtml, trustedHtml } from '../common/escape-html'
 import type { Env } from '../config/env'
 import { ResendMailerService } from '../contact/resend-mailer.service'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
@@ -56,21 +58,6 @@ export interface SendInviteInput {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-/**
- * Escapes the one piece of admin-entered free text this template
- * interpolates (`displayName`) — same defense `ContactService.escapeHtml`
- * applies to the visitor's message, for the same reason: it lands in an
- * HTML body viewed in a real mail client.
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 @Injectable()
@@ -138,46 +125,46 @@ export class PersonalEmailInviteMailerService {
     // (COPY-M-5); outer table is `width="100%" max-width:480px` with a
     // viewport meta tag so a mobile client scales it instead of forcing a
     // horizontal scrollbar (COPY-M-9, measured at 320px).
-    const html = `<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-</head>
-<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:32px 0;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
-          <tr>
-            <td style="padding:32px 32px 24px 32px;">
-              <p style="margin:0 0 16px 0;font-size:16px;line-height:24px;color:#18181b;">
-                ${firstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.
-              </p>
-              <p style="margin:0 0 4px 0;font-size:16px;line-height:24px;color:#18181b;">
-                Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.
-              </p>
-              <p style="margin:0 0 24px 0;font-size:16px;line-height:24px;color:#18181b;">
-                Пока не подтвердите, вход работает только по рабочему.
-              </p>
-              <table role="presentation" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="border-radius:6px;background-color:#18181b;">
-                    <a href="${link}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:bold;">Подтвердить адрес</a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin:24px 0 0 0;font-size:16px;line-height:24px;color:#18181b;">
-                Если письмо пришло по ошибке, <strong>не переходите по ссылке</strong>.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+    // Каркас — общий (`common/email-layout.ts`), тот же, что у писем
+    // уведомлений (SPEC-M-2, spec-review PR #673): «письма от нас выглядят
+    // одним отправителем» (§12) не должно держаться на том, что две копии
+    // таблицы правят синхронно. Разметка этого письма от переезда НЕ
+    // изменилась — ни байта, что и проверяет эталон в спеке.
+    //
+    // `trustedHtml` на всех трёх блоках и на оговорке (SR-L-8, security-review
+    // PR #673 круг 2): это литеральные строки, которые пишет разработчик, не
+    // подстановка данных — `firstName` внутри первой строки уже прошёл
+    // `escapeHtml` выше, и оборачивать результат ЕЩЁ раз значило бы
+    // экранировать дважды. `trustedHtml` — явная, грепаемая пометка «за эту
+    // строку поручился код, а не пользователь», а не тихий обход типа.
+    const html = renderEmailLayout({
+      blocks: [
+        {
+          html: trustedHtml(
+            `${firstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
+          ),
+          spaceAfter: 16,
+        },
+        {
+          html: trustedHtml(
+            'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
+          ),
+          // Четыре, а не шестнадцать: эта строка и следующая — одна мысль,
+          // разбитая на две для читаемости.
+          spaceAfter: 4,
+        },
+        {
+          html: trustedHtml('Пока не подтвердите, вход работает только по рабочему.'),
+          spaceAfter: 24,
+        },
+      ],
+      button: { href: link, label: 'Подтвердить адрес' },
+      // Защитная оговорка, а не вежливость (§11) — полным весом и жирным
+      // (COPY-M-5, PR #623), поэтому `<strong>` внутри готового HTML.
+      footer: trustedHtml(
+        'Если письмо пришло по ошибке, <strong>не переходите по ссылке</strong>.',
+      ),
+    })
 
     const text = [
       `${rawFirstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,

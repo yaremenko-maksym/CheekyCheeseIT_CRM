@@ -18,8 +18,9 @@
  *
  * Security-critical (this endpoint sends real email — see task file
  * "Особое внимание"):
- *   - `stripCrlf` removes `\r`/`\n` from every value that lands in an email
- *     HEADER-adjacent field (`subject`, the visible `name`/`company`/`email`
+ *   - `stripCrlf` (now `common/strip-crlf.ts` — the notification mailer needs
+ *     the same control, see SR-M-1 on PR #673) removes `\r`/`\n` from every
+ *     value that lands in an email HEADER-adjacent field (`subject`, the visible `name`/`company`/`email`
  *     lines, and `replyTo`) — defense against header-injection even though
  *     Resend's API is JSON (not raw SMTP), because unsanitized `\r\n` inside
  *     a JSON string value would still let a submitter smuggle extra header-
@@ -40,6 +41,8 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { eq } from 'drizzle-orm'
 import { contactRequestSchema } from '@crm/shared'
+import { escapeHtml } from '../common/escape-html'
+import { stripCrlf } from '../common/strip-crlf'
 import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { users } from '../database/schema'
@@ -51,19 +54,6 @@ import { ResendMailerService, type SendEmailInput } from './resend-mailer.servic
 const MAX_SEND_ATTEMPTS = 2
 /** Backoff before the single retry attempt. */
 const RETRY_BACKOFF_MS = 500
-
-function stripCrlf(value: string): string {
-  return value.replace(/[\r\n]+/g, ' ').trim()
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))

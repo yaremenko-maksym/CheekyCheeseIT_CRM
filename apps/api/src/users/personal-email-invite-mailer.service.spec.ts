@@ -183,6 +183,61 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(call.html.match(/<a /g)).toHaveLength(1)
   })
 
+  it('the HTML is exactly this — the layout moved to a shared helper and must not have shifted', async () => {
+    // SPEC-M-2 (spec-review PR #673): каркас письма вынесен в
+    // `common/email-layout.ts` и теперь общий с десятью письмами уведомлений.
+    // Перенос обязан быть побайтовым: у письма два независимых вызывающих, и
+    // правка ради одного молча меняла бы второе, а увидеть это можно только в
+    // чужом почтовом клиенте, когда письмо уже ушло.
+    //
+    // Эталон целиком, а не `toContain`: гейт мутаций показал, что пять
+    // отдельных проверок «содержит фразу» пропускают опустошение любого из
+    // абзацев и подмену отступа — то есть каркас держался ни на чём.
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(INPUT)
+    const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as SendEmailInput
+    expect(call.html).toBe(`<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <p style="margin:0 0 16px 0;font-size:16px;line-height:24px;color:#18181b;">
+                Иван, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.
+              </p>
+              <p style="margin:0 0 4px 0;font-size:16px;line-height:24px;color:#18181b;">
+                Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.
+              </p>
+              <p style="margin:0 0 24px 0;font-size:16px;line-height:24px;color:#18181b;">
+                Пока не подтвердите, вход работает только по рабочему.
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="border-radius:6px;background-color:#18181b;">
+                    <a href="https://app.cheekycheese.tech/api/auth/invite/${INPUT.rawToken}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:bold;">Подтвердить адрес</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:24px 0 0 0;font-size:16px;line-height:24px;color:#18181b;">
+                Если письмо пришло по ошибке, <strong>не переходите по ссылке</strong>.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`)
+  })
+
   it('spec §11: the last line is the protective disclaimer, not a thank-you', async () => {
     const { svc, mailer } = makeHarness()
     await svc.sendInvite(INPUT)

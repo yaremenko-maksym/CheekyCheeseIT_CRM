@@ -1,0 +1,261 @@
+import { describe, expect, it } from 'vitest'
+import {
+  ACTION_REQUIRED_NOTIFICATION_TYPES,
+  ADMIN_NOTIFICATION_TYPES,
+  INFORMING_NOTIFICATION_TYPES,
+  NEW_NOTIFICATION_TYPES,
+} from './notification-registry'
+import {
+  isEmailChannelLocked,
+  notificationPreferencesResponseSchema,
+  updateNotificationPreferencesSchema,
+} from './notification-preferences'
+
+/**
+ * Настройки каналов — позиция 7a, §3 решение 6 («каналы настраивает сам
+ * сотрудник») и §3 допущение «письма про подтверждения и подписи отключить
+ * нельзя — приглушить можно, выключить нет».
+ *
+ * Форма проверяется здесь, в общем пакете, потому что `locked` — не свойство
+ * пользователя и не строка в базе, а свойство ТИПА: он выводится из состава
+ * `ACTION_REQUIRED_NOTIFICATION_TYPES`, который живёт в реестре рядом. Запись
+ * «выключено» для такого типа не должна существовать ни в базе, ни в теле
+ * запроса, и запрет обязан читаться одинаково сервером и клиентом (7b).
+ */
+describe('isEmailChannelLocked', () => {
+  it('заперт для каждого типа, требующего действия', () => {
+    for (const type of ACTION_REQUIRED_NOTIFICATION_TYPES) {
+      expect(isEmailChannelLocked(type)).toBe(true)
+    }
+  })
+
+  it('свободен для каждого информирующего типа', () => {
+    for (const type of INFORMING_NOTIFICATION_TYPES) {
+      expect(isEmailChannelLocked(type)).toBe(false)
+    }
+  })
+
+  it('свободен для уведомлений админу', () => {
+    // Админ узнаёт об отказе письмом, но это не «требует действия» в смысле
+    // §7.2 — процесс не встаёт, если он читает их только в CRM.
+    for (const type of ADMIN_NOTIFICATION_TYPES) {
+      expect(isEmailChannelLocked(type)).toBe(false)
+    }
+  })
+
+  it('ровно три типа заперты — не больше и не меньше', () => {
+    const locked = NEW_NOTIFICATION_TYPES.filter((t) => isEmailChannelLocked(t))
+    expect(locked).toEqual([
+      'PROJECT_CONFIRM_REQUIRED',
+      'SHARE_CONFIRM_REQUIRED',
+      'DOCUMENT_SIGN_REQUIRED',
+    ])
+  })
+})
+
+describe('updateNotificationPreferencesSchema', () => {
+  it('принимает выключение информирующего типа', () => {
+    const parsed = updateNotificationPreferencesSchema.parse({
+      items: [{ type: 'TRANSACTION_ADDED', emailEnabled: false }],
+    })
+    expect(parsed.items[0]).toEqual({ type: 'TRANSACTION_ADDED', emailEnabled: false })
+  })
+
+  it('отвергает выключение письма у типа, требующего действия', () => {
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'SHARE_CONFIRM_REQUIRED', emailEnabled: false }],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('принимает включение у типа, требующего действия — он и так включён', () => {
+    // Запрет односторонний: «приглушить можно, выключить нет». Запрос,
+    // который просит ВКЛЮЧИТЬ уже включённое, — не попытка обойти правило, и
+    // отвечать на него отказом значило бы ломать клиента, который шлёт всю
+    // форму целиком.
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'DOCUMENT_SIGN_REQUIRED', emailEnabled: true }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('отвергает неизвестный тип', () => {
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'INVOICE_SIGN_REQUIRED', emailEnabled: false }],
+    })
+    // Три старых типа (инвойсы, вакансии) настройками не управляются: у них
+    // нет письма вовсе, и молча принять для них запись значило бы завести
+    // настройку, которая ни на что не влияет.
+    expect(result.success).toBe(false)
+  })
+
+  it('принимает пачку РАЗНЫХ типов', () => {
+    // Пара к тесту про дубли ниже. Без неё проверка уникальности проходила бы
+    // и тогда, когда она сравнивает не типы, а что угодно одинаковое: на
+    // запросе из одного элемента любая такая подмена неотличима.
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false },
+        { type: 'TEAM_NEW_MEMBER', emailEnabled: false },
+        { type: 'PROJECT_MEMBER_ADDED', emailEnabled: true },
+      ],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('отвергает повторяющийся тип в одном запросе', () => {
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false },
+        { type: 'TRANSACTION_ADDED', emailEnabled: true },
+      ],
+    })
+    // Иначе исход зависит от порядка применения, и пользователь не знает,
+    // какая из двух записей победила.
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('Каждый тип уведомления можно указать только один раз')
+  })
+
+  it('отвергает пачку, где ХОТЯ БЫ ОДИН запертый тип выключают', () => {
+    // Запрет проверяется по КАЖДОМУ элементу, а не по наличию хотя бы одного
+    // законного: клиент присылает форму целиком, и одна запрещённая строка
+    // среди девяти законных обязана отвергнуть запрос.
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false },
+        { type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: false },
+      ],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('отказ называет причину ПО-РУССКИ, а не отвергает молча', () => {
+    // Сообщение — часть контракта: его читает 7b, чтобы показать человеку,
+    // почему переключатель не поддался. Пустой текст отказа неотличим от
+    // поломки сервера, английский — от отладочного вывода (SPEC-H-5 / CR-H-5 /
+    // COPY-H-3: `ZodExceptionFilter` отдаёт эту строку клиенту дословно).
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'SHARE_CONFIRM_REQUIRED', emailEnabled: false }],
+    })
+    expect(issueMessages(result)).toContain(
+      'Письма о запросах на подтверждение и подпись отключить нельзя',
+    )
+  })
+
+  it('все четыре отказа обходятся без латиницы и без ссылок на внутренние документы', () => {
+    // Проверяется свойство, а не вторая копия строки: латиница в
+    // пользовательском тексте — то, чем отличался круг 1, а «(spec §3)»
+    // читателю интерфейса не сообщает ничего. Расширено на границы длины
+    // массива (COPY-L-6, copy-review PR #673 круг 2) — те же ветки, что и
+    // `.refine()`, только раньше их в цепочке.
+    const duplicate = updateNotificationPreferencesSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false },
+        { type: 'TRANSACTION_ADDED', emailEnabled: true },
+      ],
+    })
+    const locked = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'DOCUMENT_SIGN_REQUIRED', emailEnabled: false }],
+    })
+    const empty = updateNotificationPreferencesSchema.safeParse({ items: [] })
+    const tooMany = updateNotificationPreferencesSchema.safeParse({
+      items: Array.from({ length: NEW_NOTIFICATION_TYPES.length + 1 }, (_, i) => ({
+        type: NEW_NOTIFICATION_TYPES[i % NEW_NOTIFICATION_TYPES.length]!,
+        emailEnabled: true,
+      })),
+    })
+    for (const message of [
+      ...issueMessages(duplicate),
+      ...issueMessages(locked),
+      ...issueMessages(empty),
+      ...issueMessages(tooMany),
+    ]) {
+      expect(message).not.toMatch(/[A-Za-z]/)
+      expect(message).not.toContain('§')
+    }
+  })
+
+  it('неизвестный тип отвергается русским текстом, а не дефолтом Zod', () => {
+    // Дефолт перечисляет допустимые значения по-английски — а именно это и
+    // увидит человек, если 7b пошлёт устаревший тип из старого бандла.
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'NOT_A_REAL_TYPE', emailEnabled: true }],
+    })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('Неизвестный тип уведомления')
+  })
+
+  it('отвергает пустой список текстом, а не тишиной', () => {
+    // COPY-L-6: `.min(1)` без своего сообщения отдавал дефолт Zod
+    // («Too small: expected array to have >=1 items») — английский и прямо
+    // клиенту, тем же каналом, что и COPY-H-3.
+    const result = updateNotificationPreferencesSchema.safeParse({ items: [] })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('Укажите хотя бы одну настройку')
+  })
+
+  it('отвергает пачку длиннее списка типов текстом, а не тишиной', () => {
+    // COPY-L-6: `.max(...)` без своего сообщения отдавал дефолт Zod
+    // («Too big: expected array to have <=10 items»).
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: Array.from({ length: NEW_NOTIFICATION_TYPES.length + 1 }, (_, i) => ({
+        type: NEW_NOTIFICATION_TYPES[i % NEW_NOTIFICATION_TYPES.length]!,
+        emailEnabled: true,
+      })),
+    })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('Слишком много настроек в одном запросе')
+  })
+})
+
+describe('notificationPreferencesResponseSchema', () => {
+  it('несёт все десять типов с признаком locked', () => {
+    const payload = {
+      items: NEW_NOTIFICATION_TYPES.map((type) => ({
+        type,
+        emailEnabled: true,
+        locked: isEmailChannelLocked(type),
+      })),
+    }
+    const parsed = notificationPreferencesResponseSchema.parse(payload)
+    expect(parsed.items).toHaveLength(10)
+  })
+
+  it('отвергает ответ, где у запертого типа письмо выключено', () => {
+    const result = notificationPreferencesResponseSchema.safeParse({
+      items: [{ type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: false, locked: true }],
+    })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('A locked type can never report email as disabled')
+  })
+
+  it('отвергает ответ, где ОДНА строка из многих врёт про locked', () => {
+    // По каждой строке, а не по наличию хотя бы одной честной: ответ из десяти
+    // элементов, где соврала одна, — испорченный ответ целиком.
+    const result = notificationPreferencesResponseSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: true, locked: false },
+        { type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: true, locked: false },
+      ],
+    })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain(
+      '`locked` must be derived from the type, not sent independently',
+    )
+  })
+
+  it('отвергает ответ, где ОДНА строка из многих выключает запертое письмо', () => {
+    const result = notificationPreferencesResponseSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false, locked: false },
+        { type: 'DOCUMENT_SIGN_REQUIRED', emailEnabled: false, locked: true },
+      ],
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+/** Тексты причин отказа — часть контракта, а не украшение (их читает 7b). */
+function issueMessages(result: { success: boolean; error?: { issues: { message: string }[] } }) {
+  return result.error?.issues.map((i) => i.message) ?? []
+}

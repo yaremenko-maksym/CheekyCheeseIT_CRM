@@ -75,6 +75,20 @@ export const ACTION_REQUIRED_NOTIFICATION_TYPES = [
   'DOCUMENT_SIGN_REQUIRED',
 ] as const
 
+/**
+ * От читателя ждут ОТВЕТА — не «посмотреть», а решить.
+ *
+ * Отдельный предикат, потому что этим свойством типа пользуются два разных
+ * решения, и путать их нельзя: кнопка письма ведёт таким типам на `/pending`
+ * (экран, где ответ вообще можно дать), а настройка почты у них заперта (§3).
+ * Второе выводится из первого — `isEmailChannelLocked` зовёт эту функцию, а не
+ * повторяет список, — но обратное неверно: запрут когда-нибудь канал у
+ * информирующего типа, и маршрут кнопки от этого измениться не должен.
+ */
+export function isActionRequiredNotificationType(type: string): boolean {
+  return (ACTION_REQUIRED_NOTIFICATION_TYPES as readonly string[]).includes(type)
+}
+
 /** Админу (§7.2) — без этого об отказе узнают, только зайдя посмотреть. */
 export const ADMIN_NOTIFICATION_TYPES = ['APPROVAL_CONFIRMED', 'APPROVAL_REJECTED'] as const
 
