@@ -64,9 +64,16 @@
 -- 1. Delivery state. QUEUED -> SENT, or QUEUED -> FAILED after the attempt
 --    ceiling. No SENDING — see the header for why the claim is a lease.
 -- -----------------------------------------------------------------------------
+-- `to_regtype`, and not `SELECT 1 FROM pg_type WHERE typname = …`: the latter
+-- matches the name in ANY schema, so it would skip the CREATE while the type
+-- is still unreachable from the current `search_path` — and the CREATE TABLE
+-- below would then fail with "type does not exist". `to_regtype` resolves the
+-- name exactly the way the CREATE TABLE below will, which is the condition
+-- that actually matters. Caught by executing the file twice in
+-- `notification-email-migrations.integration.spec.ts`, not by reading it.
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'notification_email_status') THEN
+  IF to_regtype('notification_email_status') IS NULL THEN
     CREATE TYPE notification_email_status AS ENUM ('QUEUED', 'SENT', 'FAILED');
   END IF;
 END
