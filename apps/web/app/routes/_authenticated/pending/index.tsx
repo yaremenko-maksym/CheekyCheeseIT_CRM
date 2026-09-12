@@ -209,6 +209,7 @@ export function PendingPage() {
                     icon={HelpCircle}
                     items={visibleMine.filter((i) => !KIND_SECTIONS.some((s) => s.kind === i.kind))}
                     zone="mine"
+                    // Stryker disable next-line ArrowFunction: dead by design, not merely untested — AC6 ("не гадает" at unrecognized kinds) means `PendingItemRow.renderActions`'s fallback for an unrecognized kind renders ONLY `OpenLink` (never approve/reject/cancel), and `OpenLink` never calls `onActed`. This wiring exists for structural parity with the other `PendingKindSection` call sites, but nothing in this bucket can ever invoke it.
                     onActed={(i) => handleActed(i, 'mine')}
                   />
                 </div>
@@ -247,6 +248,7 @@ export function PendingPage() {
                       (i) => !KIND_SECTIONS.some((s) => s.kind === i.kind),
                     )}
                     zone="proposedByMe"
+                    // Stryker disable next-line ArrowFunction: same as the mine-zone «Другое» block above — dead by design, not merely untested. See that directive's comment for the full reasoning.
                     onActed={(i) => handleActed(i, 'proposedByMe')}
                   />
                 </div>
