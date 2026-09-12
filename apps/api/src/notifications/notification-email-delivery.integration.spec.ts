@@ -58,6 +58,51 @@ async function wipe(): Promise<void> {
   await db.delete(users).where(inArray(users.id, ALL_USERS))
 }
 
+/**
+ * Соседние спеки тоже кладут письма в очередь — таблица одна на всю базу, а
+ * захват по построению ГЛОБАЛЬНЫЙ (крон ничего не знает про наших
+ * пользователей). Поэтому утверждения — про НАШУ строку, а не про размер
+ * пачки. Первый полный прогон интеграционной сьюты это и показал: два теста,
+ * зелёные в одиночку, покраснели в общем прогоне.
+ *
+ * Захват чужих строк безвреден: единственная спека, которая вообще смотрит на
+ * `notification_emails`, — эта; остальные уведомления только создают.
+ */
+const CLAIM_BATCH = 100
+
+/** Положить письмо в очередь и вернуть id его строки. */
+async function queueFor(userId: string): Promise<string> {
+  await db.transaction(async (tx) => {
+    await service.createInTx(tx, notificationInput(userId))
+  })
+  const [row] = await db
+    .select({ id: notificationEmails.id })
+    .from(notificationEmails)
+    .where(eq(notificationEmails.userId, userId))
+  if (!row) throw new Error(`письмо для ${userId} не встало в очередь`)
+  return row.id
+}
+
+/** Захватывать, пока в пачке не окажется наша строка. */
+async function claimUntilFound(id: string) {
+  for (let pass = 0; pass < 10; pass++) {
+    const batch = await repo.claimDue(CLAIM_BATCH)
+    const mine = batch.find((r) => r.id === id)
+    if (mine) return mine
+    if (batch.length === 0) break
+  }
+  throw new Error(`строка ${id} не попала ни в одну пачку захвата`)
+}
+
+/** Наша строка очередью НЕ отдаётся — сколько бы проходов ни сделали. */
+async function expectNotClaimable(id: string): Promise<void> {
+  for (let pass = 0; pass < 3; pass++) {
+    const batch = await repo.claimDue(CLAIM_BATCH)
+    expect(batch.map((r) => r.id)).not.toContain(id)
+    if (batch.length === 0) return
+  }
+}
+
 function notificationInput(userId: string) {
   return {
     userId,
@@ -182,18 +227,15 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
 
   it('AC3: письмо уходит на личный адрес, когда он есть', async () => {
     expect((await repo.addressesFor(USER_A)).length).toBe(2)
-    await db.transaction(async (tx) => {
-      await service.createInTx(tx, notificationInput(USER_A))
-    })
+    const id = await queueFor(USER_A)
 
-    const [claimed] = await repo.claimDue(10)
-    expect(claimed).toBeDefined()
-    await repo.markSent(claimed!.id, 'a.personal@gmail.com')
+    const claimed = await claimUntilFound(id)
+    await repo.markSent(claimed.id, 'a.personal@gmail.com')
 
     const [row] = await db
       .select()
       .from(notificationEmails)
-      .where(eq(notificationEmails.id, claimed!.id))
+      .where(eq(notificationEmails.id, claimed.id))
     expect(row!.status).toBe('SENT')
     expect(row!.sentToEmail).toBe('a.personal@gmail.com')
     expect(row!.sentAt).not.toBeNull()
@@ -216,103 +258,93 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
     const before = (
       await db.select().from(notificationEmails).where(eq(notificationEmails.userId, USER_A))
     )[0]!
-    const claimed = await repo.claimDue(10)
+    // Захват — операция ГЛОБАЛЬНАЯ (крон не знает про наших пользователей), а
+    // на общей scratch-базе соседние спеки тоже кладут письма в очередь.
+    // Поэтому утверждения — про НАШУ строку, а не про размер пачки: иначе
+    // спека зелёная в одиночку и красная в общем прогоне (именно так она и
+    // упала при первом полном прогоне интеграционной сьюты).
+    const claimed = await claimUntilFound(before.id)
 
-    expect(claimed).toHaveLength(1)
-    expect(claimed[0]!.attempts).toBe(1)
+    expect(claimed.attempts).toBe(1)
     const after = (
-      await db.select().from(notificationEmails).where(eq(notificationEmails.id, claimed[0]!.id))
+      await db.select().from(notificationEmails).where(eq(notificationEmails.id, claimed.id))
     )[0]!
     expect(after.nextAttemptAt.getTime()).toBeGreaterThan(before.nextAttemptAt.getTime())
   })
 
   it('AC2: захваченная строка не берётся повторно, пока жива аренда', async () => {
-    await db.transaction(async (tx) => {
-      await service.createInTx(tx, notificationInput(USER_A))
-    })
+    const id = await queueFor(USER_A)
 
-    expect(await repo.claimDue(10)).toHaveLength(1)
+    await claimUntilFound(id)
     // Второй проход крона через 15 секунд — строка ещё в аренде.
-    expect(await repo.claimDue(10)).toHaveLength(0)
+    await expectNotClaimable(id)
   })
 
   it('AC2: захват несёт с собой содержание уведомления', async () => {
-    await db.transaction(async (tx) => {
-      await service.createInTx(tx, notificationInput(USER_A))
-    })
-    const [claimed] = await repo.claimDue(10)
+    const id = await queueFor(USER_A)
+    const claimed = await claimUntilFound(id)
 
-    expect(claimed!.notification.type).toBe('PROJECT_CONFIRM_REQUIRED')
-    expect(claimed!.notification.subjectType).toBe('PROJECT')
-    expect(claimed!.notification.data).toMatchObject({ projectName: 'Мобильный банк' })
+    expect(claimed.notification.type).toBe('PROJECT_CONFIRM_REQUIRED')
+    expect(claimed.notification.subjectType).toBe('PROJECT')
+    expect(claimed.notification.data).toMatchObject({ projectName: 'Мобильный банк' })
   })
 
   it('AC2: SKIP LOCKED разводит два одновременных захвата по разным строкам', async () => {
     // Два процесса API берут очередь одновременно. Без `SKIP LOCKED` второй
     // либо ждал бы первого на блокировке, либо взял бы ту же строку — и
     // письмо ушло бы дважды.
-    await db.transaction(async (tx) => {
-      await service.createInTx(tx, notificationInput(USER_A))
-    })
-    await db.transaction(async (tx) => {
-      await service.createInTx(tx, notificationInput(USER_B))
-    })
+    await queueFor(USER_A)
+    await queueFor(USER_B)
 
     const [first, second] = await Promise.all([repo.claimDue(1), repo.claimDue(1)])
 
     const ids = [...first.map((r) => r.id), ...second.map((r) => r.id)]
     expect(ids).toHaveLength(2)
+    // Главное утверждение: одна и та же строка не досталась обоим.
     expect(new Set(ids).size).toBe(2)
   })
 
   it('AC2: похороненная строка больше не всплывает в очереди', async () => {
-    await db.transaction(async (tx) => {
-      await service.createInTx(tx, notificationInput(USER_A))
-    })
-    const [claimed] = await repo.claimDue(10)
-    await repo.markFailed(claimed!.id, 'Resend API HTTP 422')
+    const id = await queueFor(USER_A)
+    const claimed = await claimUntilFound(id)
+    await repo.markFailed(claimed.id, 'Resend API HTTP 422')
 
     // Срок аренды истёк — но статус уже не QUEUED, и частичный индекс строку
     // не отдаёт.
     await db
       .update(notificationEmails)
       .set({ nextAttemptAt: new Date(Date.now() - 60_000) })
-      .where(eq(notificationEmails.id, claimed!.id))
+      .where(eq(notificationEmails.id, claimed.id))
 
-    expect(await repo.claimDue(10)).toHaveLength(0)
+    await expectNotClaimable(id)
   })
 
   it('AC2: отложенная строка возвращается, когда срок подошёл', async () => {
-    await db.transaction(async (tx) => {
-      await service.createInTx(tx, notificationInput(USER_A))
-    })
-    const [claimed] = await repo.claimDue(10)
-    await repo.scheduleRetry(claimed!.id, 'Resend API HTTP 500', 1)
+    const id = await queueFor(USER_A)
+    const claimed = await claimUntilFound(id)
+    await repo.scheduleRetry(claimed.id, 'Resend API HTTP 500', 1)
 
-    expect(await repo.claimDue(10)).toHaveLength(0)
+    await expectNotClaimable(id)
 
     await db
       .update(notificationEmails)
       .set({ nextAttemptAt: new Date(Date.now() - 1000) })
-      .where(eq(notificationEmails.id, claimed!.id))
+      .where(eq(notificationEmails.id, claimed.id))
 
-    const again = await repo.claimDue(10)
-    expect(again).toHaveLength(1)
-    expect(again[0]!.attempts).toBe(2)
+    const again = await claimUntilFound(id)
+    expect(again.attempts).toBe(2)
   })
 
   it('AC2: отложить похороненную строку нельзя', async () => {
-    await db.transaction(async (tx) => {
-      await service.createInTx(tx, notificationInput(USER_A))
-    })
-    const [claimed] = await repo.claimDue(10)
-    await repo.markFailed(claimed!.id, 'no email address')
-    await repo.scheduleRetry(claimed!.id, 'Resend API HTTP 500', 2)
+    const id = await queueFor(USER_A)
+    const claimed = await claimUntilFound(id)
+    await repo.markFailed(claimed.id, 'no email address')
+    await repo.scheduleRetry(claimed.id, 'Resend API HTTP 500', 2)
 
     const [row] = await db
       .select()
       .from(notificationEmails)
-      .where(eq(notificationEmails.id, claimed!.id))
+      .where(eq(notificationEmails.id, claimed.id))
     expect(row!.status).toBe('FAILED')
     expect(row!.lastError).toBe('no email address')
   })
