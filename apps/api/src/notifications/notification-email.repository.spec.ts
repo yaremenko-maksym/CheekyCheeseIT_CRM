@@ -93,4 +93,26 @@ describe('OutboxRepository — предикат status=QUEUED на марках'
 
     expect(sets[0]).toMatchObject({ status: 'SENT', sentToEmail: 'a@example.com' })
   })
+
+  it('markSkipped ставит терминальный статус и причину в SET', () => {
+    // Тот же пробел, что и у markSent выше, но на markSkipped: `.where()`
+    // проверяет только предикат отбора, а `status: 'SKIPPED'` в `.set()`
+    // никто не видел — гейт мутаций поймал ровно это (StringLiteral →
+    // `''`, ObjectLiteral → `{}` на этой строке пережили прогон).
+    const { db, sets } = makeCapturingDb()
+    const repo = new OutboxRepository(db)
+
+    void repo.markSkipped('e-5', 'CHANNEL_OFF')
+
+    expect(sets[0]).toMatchObject({ status: 'SKIPPED', skipReason: 'CHANNEL_OFF' })
+  })
+
+  it('markFailed ставит терминальный статус и причину в SET', () => {
+    const { db, sets } = makeCapturingDb()
+    const repo = new OutboxRepository(db)
+
+    void repo.markFailed('e-6', 'Resend API HTTP 500')
+
+    expect(sets[0]).toMatchObject({ status: 'FAILED', lastError: 'Resend API HTTP 500' })
+  })
 })
