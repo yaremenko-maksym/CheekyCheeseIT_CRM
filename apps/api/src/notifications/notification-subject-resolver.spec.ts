@@ -97,6 +97,30 @@ describe('approvalIdFromData', () => {
       validUuid.toUpperCase(),
     )
   })
+
+  /**
+   * mutation-gate (fix-раунд 9, #664). `UUID_SHAPE` без якорей `^`/`$`
+   * ловила бы uuid ГДЕ УГОДНО внутри строки — «строка не той формы» осталась
+   * бы дырой ровно там, где регэксп и заведён: значение, к которому спереди
+   * или сзади приклеен мусор, доехало бы до `inArray(approvals.id, …)`
+   * целиком, включая мусор, и Postgres всё равно уронил бы запрос `22P02`.
+   */
+  it('SR-M-18: мусор ДО или ПОСЛЕ валидного uuid — не проходит (якоря `^`/`$` обязательны)', () => {
+    expect(approvalIdFromData({ approvalId: `xxx${validUuid}` })).toBeNull()
+    expect(approvalIdFromData({ approvalId: `${validUuid}xxx` })).toBeNull()
+  })
+
+  /**
+   * mutation-gate (fix-раунд 9, #664). Проверка формы ничего не стоит, если
+   * до неё не дошла проверка ТИПА: `RegExp.test` приводит аргумент к строке
+   * сам, поэтому объект с намеренно кривым `toString()` прошёл бы форму, не
+   * будучи строкой, — и функция вернула бы ЭТОТ ОБЪЕКТ вместо `string | null`,
+   * нарушив собственную сигнатуру.
+   */
+  it('SR-M-18: не-строка с toString(), похожим на uuid, — всё равно null (typeof обязателен)', () => {
+    const fakeUuidLike = { toString: () => validUuid }
+    expect(approvalIdFromData({ approvalId: fakeUuidLike })).toBeNull()
+  })
 })
 
 /**
