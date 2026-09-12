@@ -1128,7 +1128,10 @@ export class ProjectsService {
               title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
               subjectType: 'PROJECT' as const,
               subjectId: inserted.id,
-              data: { projectName: inserted.name },
+              // ORCH-3 (fix-round 7): `companyName`, не `projects.name` — попап
+              // называет проект тем же словом, что экран «Ждут решения» (copy r2 на
+              // #667). Ключ данных `projectName` остаётся, меняется только источник.
+              data: { projectName: inserted.companyName },
             })),
         )
       })
@@ -1890,7 +1893,9 @@ export class ProjectsService {
         // few lines below (security-review round 2, authz-hardening).
         currentUser.impersonatorId ?? currentUser.id,
         project.seniorSharePercentOverride ?? null,
-        project.name,
+        // ORCH-3 (fix-round 7): companyName, не projects.name — параметр остаётся
+        // projectName (см. NotifyPendingShareInput/proposeSeniorShareChange).
+        project.companyName,
       )
     }
     // task-648-fix-round-2 (SR-H-2): there is deliberately NO `else` branch
@@ -2253,7 +2258,8 @@ export class ProjectsService {
                   title: NOTIFICATION_TITLES.PROJECT_MEMBER_ADDED,
                   subjectType: 'PROJECT',
                   subjectId: projectId,
-                  data: { projectName: project.name },
+                  // ORCH-3 (fix-round 7): companyName, не projects.name.
+                  data: { projectName: project.companyName },
                 },
               ]
         await this.notifications.createManyInTx(sp, notify)
@@ -2417,7 +2423,9 @@ export class ProjectsService {
           title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
           subjectType: 'PROJECT',
           subjectId: project.id,
-          data: { projectName: project.name },
+          // ORCH-3 (fix-round 7): companyName, не projects.name (здесь равны при
+          // создании из собеседования, но источник — companyName).
+          data: { projectName: project.companyName },
         })
       }
     })

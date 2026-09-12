@@ -9185,14 +9185,21 @@ export class TransactionsService {
    * Название проекта снимается В МОМЕНТ события: уведомление живёт дольше
    * объекта (§7.4), и строка о том, что было, не должна становиться безымянной,
    * когда проект архивировали.
+   *
+   * ORCH-3 (fix-round 7): `companyName`, не `projects.name` — тот же экран
+   * «Ждут решения» называет проект именем компании (copy r2 на #667), и
+   * попап о деньгах обязан говорить тем же словом. Без фолбэка на `name`:
+   * `companyName` — NOT NULL в схеме и `z.string().min(1)` на обоих путях
+   * `.insert(projects)` (`create`/`createFromInterview`) — пустым не бывает;
+   * фолбэк был бы недостижимой веткой (допущение раунда 7).
    */
   private async loadProjectName(projectId: string | null): Promise<string | null> {
     if (projectId === null) return null
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, projectId),
-      columns: { name: true },
+      columns: { companyName: true },
     })
-    return project?.name ?? null
+    return project?.companyName ?? null
   }
 
   private async recordCreationAudit(

@@ -101,7 +101,11 @@ function makeHarness(tx: TxRow, projectName: string | null = 'Acme') {
             findFirstArgs.push({ scope: 'projects', ...(args ?? {}) })
             if (args?.where === undefined) return undefined
             if (projectName === null) return undefined
-            return pickColumns(args, { id: 'proj-1', name: projectName })
+            // ORCH-3 (fix-round 7): производитель читает `companyName`, не
+            // `name` — строка ниже намеренно называет колонку так же, как
+            // производитель её запрашивает (см. проверку колонок в самом
+            // низу файла).
+            return pickColumns(args, { id: 'proj-1', companyName: projectName })
           },
         },
       },
@@ -263,7 +267,7 @@ describe('«транзакция добавлена»', () => {
           transactions: {
             findFirst: async (args?: { where?: unknown }) => (args ? tx : undefined),
           },
-          projects: { findFirst: async () => ({ name: 'Acme' }) },
+          projects: { findFirst: async () => ({ companyName: 'Acme' }) },
         },
         // Рядом с производителем на том же пути живёт запись в аудит — без неё
         // молчание проверялось бы на упавшем соседе, а не на производителе.
@@ -289,7 +293,9 @@ describe('«транзакция добавлена»', () => {
     // деньги; запрос без списка колонок притащил бы весь профиль проекта.
     expect(txRead?.['where']).toBeDefined()
     expect(projectRead?.['where']).toBeDefined()
-    expect(projectRead?.['columns']).toEqual({ name: true })
+    // ORCH-3 (fix-round 7): `companyName`, не `name` — попап должен называть
+    // проект тем же словом, что и экран «Ждут решения» (copy r2 на #667).
+    expect(projectRead?.['columns']).toEqual({ companyName: true })
   })
 })
 

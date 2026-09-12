@@ -443,12 +443,17 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
     // `tx` первым аргументом — запись уведомления пишется в той же
     // транзакции, что и предложение. Название проекта передаётся сюда
     // вызывающим, у которого строка уже на руках.
+    //
+    // ORCH-3 (fix-round 7): `companyName` ('Acme Corp'), не `name` ('Acme
+    // Project') — оба поля намеренно различаются в `projectRow` выше, чтобы
+    // эта проверка ловила регресс на `project.name` (попап должен называть
+    // проект тем же словом, что и экран «Ждут решения», copy r2 на #667).
     expect(spy).toHaveBeenCalledWith(h.txHandle, {
       subjectId: 'proj-1',
       approverUserId: 'senior-1',
       proposedPercent: 30,
       previousPercent: null,
-      projectName: 'Acme Project',
+      projectName: 'Acme Corp',
     })
   })
 

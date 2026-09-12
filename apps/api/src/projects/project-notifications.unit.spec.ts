@@ -114,7 +114,7 @@ function lookupUser(_args: unknown, rows: Record<string, unknown>) {
 }
 
 describe('«ждёт решения: новый проект»', () => {
-  it('уходит приглашённому подтверждающему — с названием проекта в данных', async () => {
+  it('уходит приглашённому подтверждающему — с названием КОМПАНИИ в данных', async () => {
     userLookupCall = 0
     const h = buildCreateHarness()
     await h.service.create(h.dto, ADMIN)
@@ -126,7 +126,10 @@ describe('«ждёт решения: новый проект»', () => {
       title: 'Проект ждёт решения',
       subjectType: 'PROJECT',
       subjectId: 'proj-new',
-      data: { projectName: 'Acme' },
+      // ORCH-3 (fix-round 7): `companyName` ('Acme Corp' в `MINIMAL_DTO`),
+      // не `name` ('Acme') — регрессия на `inserted.name` ловится тем, что
+      // DTO намеренно несёт разные значения.
+      data: { projectName: 'Acme Corp' },
     })
   })
 
@@ -213,6 +216,11 @@ describe('«ждёт решения: новый проект» — вторая 
       title: 'Проект ждёт решения',
       subjectType: 'PROJECT',
       subjectId: 'proj-from-interview',
+      // ORCH-3 (fix-round 7): производитель читает `project.companyName`
+      // (см. `createFromInterview`), но на ЭТОМ пути `name` и `companyName`
+      // намеренно равны обе — `interview.companyName` — и различить их этот
+      // тест не может; регрессия ловится соседними тестами `create`/
+      // `addMember`, где значения различаются.
       data: { projectName: 'Acme' },
     })
   })
@@ -246,6 +254,9 @@ function buildAddMemberHarness(memberRole = 'JUNIOR') {
           findFirst: async () => ({
             id: 'proj-1',
             name: 'Acme',
+            // ORCH-3 (fix-round 7): различается от `name` намеренно — иначе
+            // регрессия на `project.name` в производителе не ловилась бы.
+            companyName: 'Acme Corp',
             seniorId: SENIOR_ID,
             senior: null,
             drop: null,
@@ -279,7 +290,7 @@ function buildAddMemberHarness(memberRole = 'JUNIOR') {
 }
 
 describe('«вас добавили в проект»', () => {
-  it('уходит добавленному, с названием проекта — и никому больше', async () => {
+  it('уходит добавленному, с названием КОМПАНИИ — и никому больше', async () => {
     const h = buildAddMemberHarness()
     await h.service.addMember('proj-1', 'junior-1', ADMIN)
 
@@ -291,7 +302,9 @@ describe('«вас добавили в проект»', () => {
       title: 'Вас добавили в проект',
       subjectType: 'PROJECT',
       subjectId: 'proj-1',
-      data: { projectName: 'Acme' },
+      // ORCH-3 (fix-round 7): `companyName`, не `name` — см. комментарий у
+      // мока `projects.findFirst` выше.
+      data: { projectName: 'Acme Corp' },
     })
   })
 
