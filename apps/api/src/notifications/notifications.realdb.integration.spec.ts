@@ -6,6 +6,7 @@ import { renderNotification } from '@crm/shared'
 import type { RenderableNotification } from '@crm/shared'
 
 import { NotificationsService } from './notifications.service'
+import { ApprovalsService } from '../approvals/approvals.service'
 import { DatabaseService } from '../database/database.service'
 import * as schema from '../database/schema'
 import {
@@ -294,19 +295,25 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       // живым не только когда исчез проект, но и когда подтверждать уже
       // нечего. Обе половины проверяет `computeSubjectMissing`, и без этой
       // строки тест доказывал бы только вторую.
-      await db.insert(approvals).values({
-        subjectType: 'PROJECT',
-        subjectId: DOOMED_PROJECT_ID,
-        approverUserId: SENIOR_ID,
-        proposedByUserId: ADMIN_ID,
-      })
+      const [doomedApproval] = await db
+        .insert(approvals)
+        .values({
+          subjectType: 'PROJECT',
+          subjectId: DOOMED_PROJECT_ID,
+          approverUserId: SENIOR_ID,
+          proposedByUserId: ADMIN_ID,
+        })
+        .returning()
+      if (!doomedApproval) throw new Error('[notifications-realdb] согласование не вставилось')
       await service.create({
         userId: SENIOR_ID,
         type: 'PROJECT_CONFIRM_REQUIRED',
         title: 'Проект ждёт решения',
         subjectType: 'PROJECT',
         subjectId: DOOMED_PROJECT_ID,
-        data: { projectName: 'Проект, который удалят' },
+        // QA-H-1 (круг 3): форма данных этого типа требует идентификатор
+        // строки согласования.
+        data: { projectName: 'Проект, который удалят', approvalId: doomedApproval.id },
       })
 
       const before = await service.listForUser(SENIOR_ID, { limit: 10 })
@@ -338,13 +345,17 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
      * что делает `ApprovalsService.propose()` при повторном предложении —
      * старая генерация гасится, новая никогда не переписывает старые строки.
      */
-    it('предложение погашено (отозвано/заменено) → «Предложение отозвано», не «Проект удалён»', async () => {
-      await db.insert(approvals).values({
-        subjectType: 'PROJECT_SENIOR_SHARE',
-        subjectId: PROJECT_ID,
-        approverUserId: SENIOR_ID,
-        proposedByUserId: ADMIN_ID,
-      })
+    it('предложение погашено → «Решение больше не требуется», не «Проект удалён»', async () => {
+      const [approvalRow] = await db
+        .insert(approvals)
+        .values({
+          subjectType: 'PROJECT_SENIOR_SHARE',
+          subjectId: PROJECT_ID,
+          approverUserId: SENIOR_ID,
+          proposedByUserId: ADMIN_ID,
+        })
+        .returning()
+      if (!approvalRow) throw new Error('[notifications-realdb] строка согласования не вставилась')
       await service.create({
         userId: SENIOR_ID,
         type: 'SHARE_CONFIRM_REQUIRED',
@@ -356,6 +367,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
           projectName: 'Живой проект',
           previousPercent: 26,
           proposedPercent: 30,
+          // QA-H-1 (круг 3): уведомление несёт идентификатор СВОЕЙ строки.
+          approvalId: approvalRow.id,
         },
       })
 
@@ -378,7 +391,9 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       expect(item?.approvalSuperseded).toBe(true)
       expect(item?.approvalDecided).toBe(false)
       expect(renderNotification(item as RenderableNotification).actions).toEqual([
-        { label: 'Предложение отозвано', href: null, disabled: true },
+        // COPY-M-9 (copy-review круг 3): не «Предложение отозвано» — отзыв лишь
+        // один из четырёх путей в это состояние.
+        { label: 'Решение больше не требуется', href: null, disabled: true },
       ])
 
       // Без per-test wipe в этом файле (только `beforeAll`/`afterAll`) —
@@ -402,12 +417,16 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
      * рук.
      */
     it('подтверждающий уже решил (approved) → «Решение уже принято», не «отозвано»', async () => {
-      await db.insert(approvals).values({
-        subjectType: 'PROJECT_SENIOR_SHARE',
-        subjectId: PROJECT_ID,
-        approverUserId: SENIOR_ID,
-        proposedByUserId: ADMIN_ID,
-      })
+      const [approvalRow] = await db
+        .insert(approvals)
+        .values({
+          subjectType: 'PROJECT_SENIOR_SHARE',
+          subjectId: PROJECT_ID,
+          approverUserId: SENIOR_ID,
+          proposedByUserId: ADMIN_ID,
+        })
+        .returning()
+      if (!approvalRow) throw new Error('[notifications-realdb] строка согласования не вставилась')
       await service.create({
         userId: SENIOR_ID,
         type: 'SHARE_CONFIRM_REQUIRED',
@@ -419,6 +438,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
           projectName: 'Живой проект',
           previousPercent: 26,
           proposedPercent: 30,
+          approvalId: approvalRow.id,
         },
       })
 
@@ -447,6 +467,90 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
           ),
         )
       await db.delete(approvals).where(eq(approvals.subjectId, PROJECT_ID))
+    })
+
+    /**
+     * QA-H-1 (manual-qa круг 3, #664) — ГЛАВНЫЙ тест этого круга, и он на
+     * настоящем Postgres не по обычаю, а по необходимости: дефект жил в
+     * СТЫКЕ двух поколений строк `approvals`, а поколения порождает
+     * `ApprovalsService.propose` (гасит прежние `supersededAt`, вставляет
+     * новые — «повторное предложение не переписывает старые строки», §4.1).
+     * Мок этого не исполняет: он вернул бы ровно то, что в него положили.
+     *
+     * Воспроизведение — дословно из отчёта живого прогона: предложить 30%,
+     * потом 35%. До правки оба уведомления резолвились в ОДИН ключ
+     * («вид + объект + подтверждающий»), обе записи показывались активными, и
+     * синьор видел два «Предложение по доле» с разными цифрами и двумя
+     * рабочими кнопками.
+     */
+    it('повторное предложение доли: старое уведомление гаснет, новое активно (QA-H-1)', async () => {
+      const approvalsService = new ApprovalsService({ db } as unknown as DatabaseService, service)
+      const proposeShare = () =>
+        approvalsService.propose({
+          subjectType: 'USER_SENIOR_SHARE',
+          subjectId: SENIOR_ID,
+          approverUserIds: [SENIOR_ID],
+          proposedByUserId: ADMIN_ID,
+        })
+      const notifyShare = (approvalId: string, proposedPercent: number) =>
+        service.create({
+          userId: SENIOR_ID,
+          type: 'SHARE_CONFIRM_REQUIRED',
+          title: 'Предложение по доле',
+          subjectType: 'USER',
+          subjectId: SENIOR_ID,
+          data: {
+            scope: 'BASE',
+            projectName: null,
+            previousPercent: 26,
+            proposedPercent,
+            approvalId,
+          },
+        })
+
+      const [first] = await proposeShare()
+      if (!first) throw new Error('[notifications-realdb] первое предложение не открылось')
+      await notifyShare(first.id, 30)
+
+      // Второе предложение — НЕ отмена: `propose` гасит первое поколение и
+      // открывает новое, ровно как `adminUpdateUser` при повторной правке доли.
+      const [second] = await proposeShare()
+      if (!second) throw new Error('[notifications-realdb] второе предложение не открылось')
+      expect(second.id).not.toBe(first.id)
+      await notifyShare(second.id, 35)
+
+      const list = await service.listForUser(SENIOR_ID, { limit: 10 })
+      const shareItems = list.items.filter((n) => n.type === 'SHARE_CONFIRM_REQUIRED')
+      expect(shareItems).toHaveLength(2)
+      const percentOf = (n: (typeof shareItems)[number]) =>
+        (n.data as { proposedPercent: number }).proposedPercent
+      const stale = shareItems.find((n) => percentOf(n) === 30)
+      const fresh = shareItems.find((n) => percentOf(n) === 35)
+
+      // Старое: строка его поколения погашена — решения по нему больше не ждут.
+      expect(stale?.subjectMissing).toBe(false)
+      expect(stale?.approvalDecided).toBe(false)
+      expect(stale?.approvalSuperseded).toBe(true)
+      expect(renderNotification(stale as RenderableNotification).actions).toEqual([
+        { label: 'Решение больше не требуется', href: null, disabled: true },
+      ])
+
+      // Новое: живое, кнопка ведёт в профиль, где предложение и лежит.
+      expect(fresh?.approvalSuperseded).toBe(false)
+      expect(fresh?.approvalDecided).toBe(false)
+      expect(renderNotification(fresh as RenderableNotification).actions).toEqual([
+        { label: 'Открыть предложение', href: `/profile/${SENIOR_ID}`, disabled: false },
+      ])
+
+      await db
+        .delete(notifications)
+        .where(
+          and(
+            eq(notifications.userId, SENIOR_ID),
+            eq(notifications.type, 'SHARE_CONFIRM_REQUIRED'),
+          ),
+        )
+      await db.delete(approvals).where(eq(approvals.subjectId, SENIOR_ID))
     })
 
     /**
