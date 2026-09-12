@@ -6,8 +6,9 @@
  * so any change to the allow-list is caught immediately (no stale mirror drift).
  */
 import { describe, it, expect } from 'vitest'
-import { PERSISTED_KEY_PREFIXES } from '../routes/__root'
-import { PENDING_APPROVALS_QUERY_KEY } from '../hooks/use-project-approvals'
+import type { Query } from '@tanstack/react-query'
+import { PERSISTED_KEY_PREFIXES, shouldDehydrateQuery } from '../routes/__root'
+import { PENDING_QUERY_KEY } from '../hooks/use-pending-items'
 
 // PII-bearing keys that were removed in the security audit and must NEVER return.
 const FORBIDDEN_PII_PREFIXES = ['teams', 'team', 'user-team'] as const
@@ -65,17 +66,58 @@ describe('PERSISTED_KEY_PREFIXES — PII exclusion (security audit Fix#1)', () =
     expect(shouldDehydrate('user-profile')).toBe(false)
   })
 
-  // SR-L-5 / CR-bm-2 (PR #646 fix-round 4). The regression guard in
-  // use-project-approvals.test.ts ("PENDING_APPROVALS_QUERY_KEY (SR-M-6,
-  // fix-round 3)") only compares the key's first element against the LITERAL
-  // string `'projects'` — it would stay green even if someone renamed the
-  // allow-list's OWN entries and left `'approvals'` completely absent from
-  // BOTH, or added `'approvals'` to the allow-list itself (a real regression
-  // of SR-M-6's whole point: DROP's IndexedDB must never fill with the full
-  // `ProjectDto` this widget's query returns). This test checks the REAL
-  // constant instead of a copy of its literal key, so a future allow-list
-  // change is caught here, not just by a same-file mirror.
-  it('SR-L-5 / CR-bm-2: PENDING_APPROVALS_QUERY_KEY is NOT in the allow-list', () => {
-    expect(PERSISTED_KEY_PREFIXES.has(String(PENDING_APPROVALS_QUERY_KEY[0]))).toBe(false)
+  // SR-L-5 / CR-bm-2 (PR #646 fix-round 4), carried forward by
+  // task-pending-screen onto the key that replaced PENDING_APPROVALS_QUERY_KEY.
+  // Checks the REAL constant instead of a copy of its literal key, so a
+  // future allow-list change is caught here, not just by a same-file mirror.
+  it("SR-L-5 / CR-bm-2: PENDING_APPROVALS_QUERY_KEY's successor is NOT in the allow-list", () => {
+    expect(PERSISTED_KEY_PREFIXES.has(String(PENDING_QUERY_KEY[0]))).toBe(false)
+  })
+
+  // AC3 (task-pending-screen, client half): the ACTUAL dehydrate predicate
+  // __root.tsx uses, exercised against a real successful `pending` query
+  // carrying a SHARE_APPROVAL item's `pendingPercent` — proves that field
+  // never reaches whatever `shouldDehydrateQuery` decides gets written to
+  // `crm-query-cache`, not just that the key's literal string is absent from
+  // a Set.
+  //
+  // SR-L-4 (PR #667 fix-round 2): imports the REAL `shouldDehydrateQuery`
+  // from `__root.tsx` instead of a same-file copy of the predicate — a copy
+  // proves nothing about `__root.tsx` itself: change ITS keying (e.g.
+  // `queryKey[1]`) or add an `||` branch there and a mirrored copy here
+  // stays green while `pendingPercent` starts landing in `crm-query-cache`.
+  it('AC3: shouldDehydrateQuery rejects a successful `pending` query outright — pendingPercent never reaches the dehydrated snapshot', () => {
+    const pendingQuery = {
+      state: { status: 'success' as const },
+      queryKey: PENDING_QUERY_KEY,
+      data: { mine: [{ kind: 'SHARE_APPROVAL', pendingPercent: 30 }], proposedByMe: [] },
+    } as unknown as Query
+
+    expect(shouldDehydrateQuery(pendingQuery)).toBe(false)
+  })
+
+  // mutation-gate (PR #667 fix-round 2): the AC3 case above only exercises
+  // ONE outcome (false, via a disallowed key) — a mutant that forces
+  // shouldDehydrateQuery to unconditionally return false, or that deletes
+  // the status check entirely, changes nothing that single case can see.
+  // These two pin the OTHER dimension: an allow-listed key still needs
+  // status === 'success' (not merely truthy/present), and a genuinely
+  // dehydratable query must come back true, not just "not this false case".
+  it('shouldDehydrateQuery: an allow-listed key with status "success" is true', () => {
+    const query = {
+      state: { status: 'success' as const },
+      queryKey: ['projects'],
+    } as unknown as Query
+
+    expect(shouldDehydrateQuery(query)).toBe(true)
+  })
+
+  it('shouldDehydrateQuery: an allow-listed key that is still pending (not "success") is false', () => {
+    const query = {
+      state: { status: 'pending' as const },
+      queryKey: ['projects'],
+    } as unknown as Query
+
+    expect(shouldDehydrateQuery(query)).toBe(false)
   })
 })

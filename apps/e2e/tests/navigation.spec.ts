@@ -248,9 +248,14 @@ test.describe('HR sidebar navigation', () => {
 })
 
 // ---------------------------------------------------------------------------
-// JUNIOR sidebar navigation (phase 2 UX: exactly 5 items)
+// JUNIOR sidebar navigation (phase 2 UX, extended by task-pending-screen)
 // Дашборд / Команда / Проекты / Собеседования are HIDDEN for JUNIOR.
-// Visible: Мой проект · Легенда · Финансы · Документы · Профиль.
+// Visible: Мой проект · Легенда · Ждут решения · Финансы · Документы · Профиль.
+// «Ждут решения» (task-pending-screen, task addendum: "пункт в сайдбаре у
+// всех ролей — у каждой есть хотя бы контракт") is the one item on this list
+// route-access.ts marks ALL_ROLES rather than a JUNIOR-specific allow-list —
+// not tested below by name (pending.spec.ts covers the nav item generically,
+// not per-role), but its presence is why this list is no longer "exactly 5".
 // ---------------------------------------------------------------------------
 
 // Routes that JUNIOR actually sees in the sidebar (junior-nav testid).

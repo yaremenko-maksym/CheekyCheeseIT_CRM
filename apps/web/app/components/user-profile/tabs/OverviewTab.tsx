@@ -101,8 +101,8 @@ function PendingBaseShareBanner({
 }) {
   const [rejectOpen, setRejectOpen] = useState(false)
   const [reason, setReason] = useState('')
-  const approveMutation = useApproveSeniorShareChange(userId)
-  const rejectMutation = useRejectSeniorShareChange(userId)
+  const approveMutation = useApproveSeniorShareChange('user', userId)
+  const rejectMutation = useRejectSeniorShareChange('user', userId)
 
   const handleReject = () => {
     rejectMutation.mutate(reason, {
@@ -162,7 +162,17 @@ function PendingBaseShareBanner({
                 this dialog's own toast says one line later. What is rejected
                 is the proposal to change it. */}
             <DialogTitle>Отклонить предложение</DialogTitle>
-            <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
+            {/* CR-M-3 (#667 code review round 2): «Админ», the word the
+                toast this very dialog fires already uses, and the word its
+                twin on /pending (`SeniorShareApprovalActions`) says —
+                verbatim the same sentence. Both dialogs reject the same
+                proposal through the same hook; one action must not name the
+                same role two ways in two consecutive replies. The
+                obligation of the reason is already carried by the «Причина
+                отказа *» label and the disabled confirm button. */}
+            <DialogDescription>
+              Админ увидит причину и сможет предложить другой процент.
+            </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
             {/* task-648-fix-round-1 (COPY-M-8): a placeholder disappears on

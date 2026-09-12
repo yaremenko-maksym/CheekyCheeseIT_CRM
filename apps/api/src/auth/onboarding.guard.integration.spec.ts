@@ -99,6 +99,14 @@ class TestController {
     return { ok: true, scope: 'onboarding-contract-pdf' }
   }
 
+  // SR-M-1 (PR #667 fix-round 2): sentinel for the real /api/pending route —
+  // deliberately NOT in bypassPrefixes (decision 6, task-pending-screen-
+  // integration.md). See case 10/11 below.
+  @Get('pending')
+  pending() {
+    return { ok: true, scope: 'pending' }
+  }
+
   @Get('health')
   @Public()
   health() {
@@ -366,6 +374,57 @@ describe('OnboardingGuard + JwtAuthGuard (integration / real request lifecycle)'
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ ok: true, scope: 'onboarding-contract-pdf' })
     expect(onboardingServiceMock.getStatus).not.toHaveBeenCalled()
+  })
+
+  it('case 10 (SR-M-1, PR #667 fix-round 2): pre-onboarding SENIOR → GET /api/pending → 403 ONBOARDING_REQUIRED (NOT bypassed)', async () => {
+    // Pins decision 6 (task-pending-screen-integration.md): /api/pending is
+    // deliberately NOT in bypassPrefixes — CONTRACT_TO_SIGN items on that
+    // screen are unreachable pre-onboarding anyway (the redirect gate sends
+    // the user to /onboarding first), so there is no legitimate reason for
+    // a future edit to add this bypass. Before this test the ONLY evidence
+    // for the 403 was a hand-typed measurement in the PR body's "Допущения"
+    // section (security review SR-M-1) — a future bypass addition would
+    // pass every other gate green and silently reverse decision 6.
+    onboardingServiceMock.getStatus.mockResolvedValue({
+      requiresContract: true,
+      requiresTos: true,
+      contractTemplate: null,
+      tosVersion: null,
+      tosUpdateAvailable: false,
+      latestTosVersion: null,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/pending',
+      cookies: { jwt: signFor(seniorPayload) },
+    })
+
+    expect(res.statusCode).toBe(403)
+    const body = res.json() as { error?: string; missing?: string[] }
+    expect(body.error).toBe('ONBOARDING_REQUIRED')
+    expect(body.missing).toEqual(['contract', 'tos'])
+  })
+
+  it('case 11 (SR-M-1, PR #667 fix-round 2): SENIOR after full onboarding → GET /api/pending → 200', async () => {
+    onboardingServiceMock.getStatus.mockResolvedValue({
+      requiresContract: false,
+      requiresTos: false,
+      contractTemplate: null,
+      tosVersion: null,
+      tosUpdateAvailable: false,
+      latestTosVersion: null,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/pending',
+      cookies: { jwt: signFor(seniorPayload) },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ ok: true, scope: 'pending' })
+    expect(onboardingServiceMock.getStatus).toHaveBeenCalledTimes(1)
   })
 })
 

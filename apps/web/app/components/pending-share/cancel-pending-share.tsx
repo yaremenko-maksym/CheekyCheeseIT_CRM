@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { api } from '@/lib/axios'
 import { seniorShareErrorMessage } from '@/hooks/use-user-profile'
+import { PENDING_QUERY_KEY } from '@/hooks/use-pending-items'
 
 /**
  * task-648-fix-round-2 (SR-H-2 / SPEC-H-2 / CR-H-3 / UX-H-3(r2) / QA-HIGH-2).
@@ -67,6 +68,13 @@ export function useCancelPendingShare(scope: PendingShareScope, id: string) {
       void qc.invalidateQueries({ queryKey: ['projects', id] })
       void qc.invalidateQueries({ queryKey: ['projects'] })
     }
+    // Scope-independent, like `useApproveSeniorShareChange`'s own matching
+    // line: a cancelled proposal is gone from `GET /pending` for everyone,
+    // and the /pending screen is where an ADMIN cancels it from
+    // (task-pending-screen AC4 — "строка ушла из proposedByMe"). Without
+    // this, the row stayed on screen until the next natural refetch —
+    // measured live, that is how the E2E for that AC failed.
+    void qc.invalidateQueries({ queryKey: PENDING_QUERY_KEY })
   }
 
   return useMutation({
@@ -122,6 +130,7 @@ export function CancelPendingShareButton({
   scope,
   id,
   pendingPercent,
+  onActed,
 }: {
   scope: PendingShareScope
   id: string
@@ -132,6 +141,21 @@ export function CancelPendingShareButton({
    * round 1 left behind.
    */
   pendingPercent: number
+  /**
+   * task-667-mutation-web (real defect, not just a mutation-gate assertion
+   * gap): the /pending screen's OWN doc comment promises every action here
+   * an INSTANT local-dismiss on success — "makes AC4's «строка исчезла»
+   * instant instead of waiting on the invalidated query's round trip" — and
+   * the task spec's AC4 names this exact control: "ADMIN «Отозвать» долю →
+   * строка ушла из proposedByMe". `ProjectApprovalActions` and
+   * `SeniorShareApprovalActions` both already take this same optional
+   * callback for the same reason; this component alone was missing it, so
+   * a cancel only ever cleared the row after the invalidated `/pending`
+   * query's refetch actually landed, same as before task-pending-screen —
+   * silent everywhere `usePendingItems` isn't refetching synchronously
+   * (every unit test that mocks it, and any slow network in production).
+   */
+  onActed?: () => void
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const cancelMutation = useCancelPendingShare(scope, id)
@@ -162,7 +186,7 @@ export function CancelPendingShareButton({
         // to `true` and watching "the confirmation closes" stay green. Deleted
         // rather than suppressed: a line that cannot change behaviour is not a
         // line worth explaining.
-        onConfirm={() => cancelMutation.mutate()}
+        onConfirm={() => cancelMutation.mutate(undefined, { onSuccess: () => onActed?.() })}
       />
     </>
   )

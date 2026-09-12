@@ -92,6 +92,11 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
 
   // Онбординг — доступен всем аутентифицированным (гейт по статусу отдельно).
   { prefix: '/onboarding', roles: ALL_ROLES },
+
+  // «Ждут решения» (task-pending-screen, позиция 7c) — доступен всем ролям:
+  // у каждой есть хотя бы контракт на подпись (JUNIOR/HR/ACCOUNTANT), проект
+  // или доля (SENIOR/DROP), либо раздел «Ждут решения других» (ADMIN).
+  { prefix: '/pending', roles: ALL_ROLES },
 ]
 
 /**

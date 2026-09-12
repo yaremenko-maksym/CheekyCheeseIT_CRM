@@ -962,7 +962,21 @@ jobs:
             # path — a live-backend spec (real HTTP round-trips, no mocking) costs
             # more per test than a mocked one, so this is watched, not assumed safe
             # forever, but there is real headroom today.
-            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts tests/project-status-filter-ui.spec.ts
+            #
+            # tests/pending.spec.ts (task-pending-screen, position 7c,
+            # feat/pending-screen-web3, not yet merged as of this line
+            # landing): the /pending screen aggregates PROJECT_APPROVAL rows
+            # among others, and its own AC4 project-approve/reject tests share
+            # the exact same real-API/real-UI, no-mocking pattern as
+            # project-status-filter-ui.spec.ts right above — same screen
+            # family (project draft confirmation), grouped by pattern AND by
+            # domain. Wired ahead of the merge on purpose, same precedent as
+            # tests/crm-tab-title.spec.ts in the auth-nav shard (PR #528): the
+            # guard (scripts/devops/check-e2e-shard-coverage.py) parses
+            # `files:` as plain text regardless of whether the file exists on
+            # disk yet, so listing it here now is a no-op today and
+            # self-activates the moment this branch merges.
+            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts tests/project-status-filter-ui.spec.ts tests/pending.spec.ts
           - name: finance
             # company-share-cta.spec.ts (task-company-share-cta, PR #445): CTA
             # strip + two-step payout modal for the senior's company-share
