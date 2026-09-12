@@ -155,6 +155,9 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
       <PendingItemRow item={item({ actions: ['open'] })} zone="proposedByMe" onActed={vi.fn()} />,
     )
     expect(metaText()).not.toMatch(/Ждём:/)
+    // Positive half: the line still EXISTS and carries the давность. Without
+    // this, an empty meta would satisfy the negative above just as well.
+    expect(metaLines()).toEqual([expect.stringMatching(/^.+назад$/)])
   })
 
   it('multiple names in waitingFor are joined with ", " — not concatenated bare', () => {
@@ -547,6 +550,31 @@ describe('PendingItemRow — row wrapper: shared base classes, zone-specific cla
   })
 })
 
+describe('PendingItemRow — COPY-M-3: «предложено» also covers the defensive no-currentPercent shape', () => {
+  it('proposedByMe without currentPercent: «Предложено Y%», never the `mine` form «Предлагают Y%»', () => {
+    const shareItem = item({
+      kind: 'SHARE_APPROVAL',
+      subjectType: 'PROJECT',
+      pendingPercent: 30,
+      waitingFor: ['Олексій Коваленко'],
+      actions: ['cancel'],
+    }) as Extract<PendingItem, { kind: 'SHARE_APPROVAL' }>
+    const { currentPercent: _unused, ...withoutCurrentPercent } = shareItem
+    render(
+      <PendingItemRow
+        item={withoutCurrentPercent as unknown as PendingItem}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(metaLines()).toEqual([
+      'Предложено 30%',
+      expect.stringMatching(/^Ждём: Олексій Коваленко · .+назад$/),
+    ])
+    expect(metaText()).not.toMatch(/Предлагают/)
+  })
+})
+
 describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does not repeat the name', () => {
   it('drops the «Ждём: …» segment — the title already names the senior («Доля по умолчанию — Имя»)', () => {
     render(
@@ -633,6 +661,23 @@ describe('PendingItemRow — COPY-M-5: the segments that must not break mid-phra
     )
 
     expect(screen.getByText('Сейчас 26% → предложено 30%')).toHaveClass('whitespace-nowrap')
+  })
+
+  it('the `mine` «X% → Y%» pair is nowrapped too — same phrase, same rule, other zone', () => {
+    render(
+      <PendingItemRow
+        item={item({
+          kind: 'SHARE_APPROVAL',
+          subjectType: 'USER',
+          currentPercent: 26,
+          pendingPercent: 30,
+        })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Сейчас 26% → предлагают 30%')).toHaveClass('whitespace-nowrap')
   })
 
   it('the name in «Ждём: …» is NOT nowrapped — a long list of names still has to wrap somewhere', () => {

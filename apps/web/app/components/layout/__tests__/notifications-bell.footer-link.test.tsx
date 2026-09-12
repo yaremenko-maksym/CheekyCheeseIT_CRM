@@ -12,7 +12,7 @@
  * pixel height is re-checked live in the browser (Playwright) — see the
  * fix-round-3 screenshots.
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -67,6 +67,17 @@ describe('NotificationsBell — UX-M-1: the footer link is the hit box, not the 
 
     expect(link.className).toMatch(/\bflex\b/)
     expect(link.className).not.toMatch(/\binline-flex\b/)
+  })
+
+  it('clicking it closes the popup — the link is a way OUT of the bell, not a second surface', async () => {
+    const link = await renderBellOpen()
+    expect(screen.getByTestId('notifications-bell-dropdown')).toBeInTheDocument()
+
+    link.click()
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('notifications-bell-dropdown')).not.toBeInTheDocument(),
+    )
   })
 
   it('the <footer> no longer holds the vertical padding that used to fake the size', async () => {

@@ -245,6 +245,29 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     )
   })
 
+  it('a project name that is not a string is ignored — «Доля по проекту «123»» would be a defect, not a degradation', async () => {
+    mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, name: 123 } })
+    renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'))
+  })
+
+  it('an EMPTY project name is ignored as well — «Доля по проекту «» теперь 41%» is worse than saying nothing', async () => {
+    mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, name: '' } })
+    renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'))
+  })
+
+  it('a user-scope response carrying a stray `name` never leaks it into the base-share sentence', async () => {
+    mockPost.mockResolvedValue({
+      data: { user: { seniorSharePercent: 30 }, name: 'TechFlow' },
+    })
+    renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь 30%'))
+  })
+
   it('user scope, reject: «по доле по умолчанию» — there is no project to name', async () => {
     mockPost.mockResolvedValue({ data: {} })
     renderProbe(() => useRejectSeniorShareChange('user', USER_ID), 'ошиблись')

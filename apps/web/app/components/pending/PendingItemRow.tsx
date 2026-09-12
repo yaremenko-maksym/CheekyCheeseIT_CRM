@@ -43,12 +43,21 @@ function shareScopeOf(item: PendingItem): 'user' | 'project' {
 type MetaSegment = { text: string; nowrap?: boolean }
 
 /**
+ * A line always has at least one segment — every branch of `metaLinesFor`
+ * below ends with the relative time. Spelled as a non-empty tuple so the
+ * JSX key can read `line[0].text` outright: an `?.` there would be an
+ * unfalsifiable branch (no input can produce an empty line), which the
+ * mutation gate rightly reports as a surviving mutant.
+ */
+type MetaLine = [MetaSegment, ...MetaSegment[]]
+
+/**
  * Lines, not a string: a `proposedByMe` share row puts the numbers on their
  * own line and «Ждём: …» on the next, exactly as design spec §6.4 draws it.
  * That also removes the longest string on the screen as a class, rather than
  * making it break in a nicer place.
  */
-function metaLinesFor(item: PendingItem, zone: PendingZone): MetaSegment[][] {
+function metaLinesFor(item: PendingItem, zone: PendingZone): MetaLine[] {
   const rel: MetaSegment = { text: fmtRelative(item.createdAt), nowrap: true }
   const waiting: MetaSegment | null = item.waitingFor?.length
     ? { text: `Ждём: ${item.waitingFor.join(', ')}` }
@@ -251,7 +260,7 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
         )}
         <div data-testid={`pending-item-meta-${item.subjectId}`}>
           {metaLinesFor(item, zone).map((line) => (
-            <p key={line[0]?.text} className="mt-0.5 text-[11.5px] text-muted-foreground">
+            <p key={line[0].text} className="mt-0.5 text-[11.5px] text-muted-foreground">
               {line.map((seg, i) => (
                 <Fragment key={seg.text}>
                   {i > 0 ? ' · ' : null}

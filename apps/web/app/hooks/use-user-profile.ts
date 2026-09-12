@@ -221,10 +221,16 @@ export function useChangePersonalEmail(userId: string) {
  * `loadForResponse`), and `name` is the field `PendingService` titles the
  * share row with («Доля по проекту «{name}»»), not `companyName`. Returns
  * `null` rather than throwing on a 204/`{}`: an unnamed sentence is a
- * degradation, ««undefined»» in front of the user is a defect.
+ * degradation, ««undefined»» in front of the user is a defect — and the same
+ * goes for an empty or non-string `name`, which is why both are checked here
+ * rather than left to the caller's truthiness (callers compare to `null`, so
+ * an empty string WOULD have reached the user as «по проекту «»»).
+ *
+ * Takes no `scope`: a user-scope response has no top-level `name` to find,
+ * and the user-scope sentences never interpolate one — a `scope === 'user'`
+ * early return here was a branch no test could ever distinguish.
  */
-function projectNameOf(scope: PendingShareScope, data: unknown): string | null {
-  if (scope === 'user') return null
+function projectNameOf(data: unknown): string | null {
   const name = (data as ProjectDetailDto | undefined)?.name
   return typeof name === 'string' && name.length > 0 ? name : null
 }
@@ -282,11 +288,11 @@ export function useApproveSeniorShareChange(scope: PendingShareScope, id: string
       // address said which one; on `/pending` several proposals sit next to
       // each other and the row acted on vanishes as the toast appears.
       // «Доля по умолчанию» is also exactly how the row is titled there.
-      const projectName = projectNameOf(scope, data)
+      const projectName = projectNameOf(data)
       toast.success(
         scope === 'user'
           ? `Доля по умолчанию теперь ${percent}%`
-          : projectName
+          : projectName !== null
             ? `Доля по проекту «${projectName}» теперь ${percent}%`
             : `Доля по проекту теперь ${percent}%`,
       )
@@ -331,12 +337,12 @@ export function useRejectSeniorShareChange(scope: PendingShareScope, id: string)
       // implied — the reject endpoint returns the updated `ProjectDetailDto`,
       // so the project can be named from the same response. The tail
       // («действует прежний процент. Админ увидит причину») is unchanged.
-      const projectName = projectNameOf(scope, data)
+      const projectName = projectNameOf(data)
       const tail = 'отклонено — действует прежний процент. Админ увидит причину'
       toast.success(
         scope === 'user'
           ? `Предложение по доле по умолчанию ${tail}`
-          : projectName
+          : projectName !== null
             ? `Предложение по проекту «${projectName}» ${tail}`
             : `Предложение ${tail}`,
       )
