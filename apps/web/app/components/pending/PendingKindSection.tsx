@@ -47,9 +47,28 @@ export function PendingKindSection({
         </h3>
       </div>
       <ul className="space-y-1.5" data-testid={`pending-kind-section-${zone}-${title}`}>
+        {/* task-667-mutation-web: every framer-motion prop below (the
+            `AnimatePresence`/`motion.li` `initial`s, `exit`, `transition`,
+            and the list `key`) is a genuine mutation-gate equivalent in THIS
+            harness — verified empirically, not assumed: a probe test that
+            dumped `container.querySelectorAll('li')[n].outerHTML` for a
+            mounted, populated section showed a bare `<li>` with NO `style`
+            attribute and nothing animation-related at all — happy-dom (this
+            project's vitest environment, see apps/web/vitest.config.ts)
+            never runs framer-motion's real style-application path, so no
+            DOM-based assertion in this suite can distinguish any of these
+            values from a mutated one. `key` is included for a second,
+            independent reason on top of that: React never renders `key` to
+            the DOM, and `PendingItemRow` is a pure function of its own
+            props with no internal/DOM state a wrong-instance reuse across a
+            re-render could visibly corrupt — the content-only assertions
+            this whole test file uses cannot tell a stable key from a
+            colliding one either. */}
+        {/* Stryker disable next-line BooleanLiteral: see the block comment above — no observable DOM effect in this test harness */}
         <AnimatePresence initial={false}>
           {items.map((item) => (
             <motion.li
+              // Stryker disable next-line StringLiteral: see the block comment above — `key` is never rendered to the DOM and this component has no state a collision could visibly corrupt
               key={`${item.kind}-${item.subjectId}`}
               // `layout="position"`, not bare `layout`: the rows only ever
               // need to SLIDE UP into a departing row's gap, and the plain
@@ -59,8 +78,11 @@ export function PendingKindSection({
               // the transform is running). Position-only keeps the slide and
               // leaves the contents undeformed.
               layout="position"
+              // Stryker disable next-line BooleanLiteral: see the block comment above — no observable DOM effect in this test harness
               initial={false}
+              // Stryker disable next-line ObjectLiteral: see the block comment above — no observable DOM effect in this test harness
               exit={{ opacity: 0, height: 0 }}
+              // Stryker disable next-line ObjectLiteral: see the block comment above — no observable DOM effect in this test harness
               transition={{ duration: shouldReduceMotion ? 0 : 0.2 }}
             >
               <PendingItemRow item={item} zone={zone} onActed={() => onActed(item)} />

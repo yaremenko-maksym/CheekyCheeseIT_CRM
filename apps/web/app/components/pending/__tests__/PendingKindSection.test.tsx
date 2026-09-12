@@ -85,4 +85,33 @@ describe('PendingKindSection', () => {
       'border-amber-500/30',
     )
   })
+
+  it('the heading is focusable programmatically (tabIndex -1) but not in the Tab order (design spec §12)', () => {
+    render(
+      <PendingKindSection
+        title="Проекты"
+        icon={Briefcase}
+        items={[item({ subjectId: 'p1' })]}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('heading', { level: 3, name: 'Проекты' })).toHaveAttribute(
+      'tabindex',
+      '-1',
+    )
+  })
+
+  it('the <ul> carries its own zone+title-scoped testid, independent of the heading’s', () => {
+    render(
+      <PendingKindSection
+        title="Проекты"
+        icon={Briefcase}
+        items={[item({ subjectId: 'p1' })]}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('pending-kind-section-mine-Проекты')).toBeInTheDocument()
+  })
 })
