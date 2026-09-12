@@ -435,12 +435,21 @@ describe('исчезнувший объект вычисляется на чте
     expect(list.items[0]?.subjectMissing).toBe(false)
   })
 
-  it('объекта нет — строка честно говорит об этом', async () => {
+  it('объекта нет — строка честно говорит об этом, и только этим', async () => {
     const h = makeHarness([makeRow()], { projects: [] })
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
-    expect(list.items[0]?.subjectMissing).toBe(true)
+    // Гейт мутаций круга 6: четыре флага DTO выводятся из ОДНОГО состояния
+    // (`SUBJECT_FLAGS`) — проверка одного `subjectMissing` оставляла
+    // остальные три необнаруженными (подмена `false → true` в записи
+    // `missing` не двигала ни один тест).
+    expect(list.items[0]).toMatchObject({
+      subjectMissing: true,
+      subjectArchived: false,
+      approvalSuperseded: false,
+      approvalDecided: false,
+    })
   })
 
   it('из двух строк «исчезла» ровно одна — а не обе и не ни одной', async () => {
@@ -496,10 +505,16 @@ describe('исчезнувший объект вычисляется на чте
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
     // ORCH-2 (fix-раунд 6, #664): раньше это была ложь «объект удалён» —
-    // проект жив, отозвано было только предложение по нему.
-    expect(list.items[0]?.subjectMissing).toBe(false)
-    expect(list.items[0]?.approvalSuperseded).toBe(true)
-    expect(list.items[0]?.approvalDecided).toBe(false)
+    // проект жив, отозвано было только предложение по нему. Все четыре поля
+    // проверены (гейт мутаций круга 6): запись `approvalSuperseded` в
+    // `SUBJECT_FLAGS` несёт и `subjectArchived: false`, непроверенное
+    // отдельным `expect` подменялось на `true` незамеченным.
+    expect(list.items[0]).toMatchObject({
+      subjectMissing: false,
+      subjectArchived: false,
+      approvalSuperseded: true,
+      approvalDecided: false,
+    })
     expect(h.askedTables).toContain('approvals')
   })
 
@@ -534,9 +549,15 @@ describe('исчезнувший объект вычисляется на чте
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
-    expect(list.items[0]?.subjectMissing).toBe(false)
-    expect(list.items[0]?.approvalDecided).toBe(true)
-    expect(list.items[0]?.approvalSuperseded).toBe(false)
+    // Гейт мутаций круга 6: запись `approvalDecided` в `SUBJECT_FLAGS` несёт
+    // и `subjectArchived: false` — без отдельной проверки подмена на `true`
+    // не двигала ни один тест.
+    expect(list.items[0]).toMatchObject({
+      subjectMissing: false,
+      subjectArchived: false,
+      approvalDecided: true,
+      approvalSuperseded: false,
+    })
   })
 
   it('отказ ЭТОГО подтверждающего — тоже «решено» (он ответил, просто отказом)', async () => {
@@ -776,13 +797,20 @@ describe('архив читается колонкой, а не отсекает
     expect(compileWhere(where!.sql).sql).not.toContain('archived_at')
   })
 
-  it('архивный проект: кнопки нет, но и «удалён» про него не говорят', async () => {
+  it('архивный проект: кнопки нет, но и «удалён» про него не говорят, и не про согласование', async () => {
     const h = makeHarness([makeRow({ subjectId: 'p-1' })], { projects: [archivedRow('p-1')] })
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
-    expect(list.items[0]?.subjectArchived).toBe(true)
-    expect(list.items[0]?.subjectMissing).toBe(false)
+    // Гейт мутаций круга 6: запись `archived` в `SUBJECT_FLAGS` несёт четыре
+    // поля — двух явных (`archived`/`missing`) недостаточно, чтобы заметить
+    // подмену `approvalSuperseded`/`approvalDecided` с `false` на `true`.
+    expect(list.items[0]).toMatchObject({
+      subjectArchived: true,
+      subjectMissing: false,
+      approvalSuperseded: false,
+      approvalDecided: false,
+    })
   })
 
   it('архивная команда — то же самое (QA-L-2)', async () => {
