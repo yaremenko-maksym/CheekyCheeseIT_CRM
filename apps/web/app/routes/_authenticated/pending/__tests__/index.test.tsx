@@ -7,20 +7,44 @@
  * them for REAL (under a QueryClient) to prove the page wires kind → row →
  * action correctly, without re-testing each action's own mutation mechanics.
  */
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { PendingItem } from '@crm/shared'
 import { api } from '@/lib/axios'
-import { PendingPage } from '../index'
+import { PendingPage, focusSelectorsAfterActing } from '../index'
 
 const mockPost = api.post as ReturnType<typeof vi.fn>
 
 const mockNavigate = vi.fn()
+// Captures every `createFileRoute(path)(options)` call this module makes at
+// import time, while still delegating to the REAL implementation — the
+// route registration itself (path string + `{ component }`) is otherwise
+// never read by anything in this file (mutation gate: line 22 of ../index).
+// `vi.hoisted` (not a plain `const`): `createFileRoute(...)(...)` runs
+// SYNCHRONOUSLY as part of evaluating `../index`'s own module body — which
+// happens while resolving THIS file's `import { PendingPage } from
+// '../index'`, i.e. before any of this file's own top-level `const`
+// statements would otherwise have run. A plain `const` here is a genuine
+// TDZ crash (verified live), not just a style preference.
+const { capturedRouteRegistrations } = vi.hoisted(() => ({
+  capturedRouteRegistrations: [] as Array<{ path: string; options: unknown }>,
+}))
 vi.mock('@tanstack/react-router', async (orig) => {
   const real = await orig<typeof import('@tanstack/react-router')>()
-  return { ...real, useNavigate: () => mockNavigate, Link: real.Link }
+  return {
+    ...real,
+    useNavigate: () => mockNavigate,
+    Link: real.Link,
+    createFileRoute: ((path: string) => {
+      const factory = real.createFileRoute(path)
+      return (options: Parameters<typeof factory>[0]) => {
+        capturedRouteRegistrations.push({ path, options })
+        return factory(options)
+      }
+    }) as typeof real.createFileRoute,
+  }
 })
 
 vi.mock('@/lib/axios', () => ({
@@ -85,6 +109,65 @@ beforeEach(() => {
   refetchSpy.mockReset()
 })
 
+describe('/pending — route registration', () => {
+  it('registers exactly at /_authenticated/pending/ with PendingPage as the component', () => {
+    expect(capturedRouteRegistrations).toHaveLength(1)
+    expect(capturedRouteRegistrations[0]).toEqual({
+      path: '/_authenticated/pending/',
+      options: { component: PendingPage },
+    })
+  })
+})
+
+describe('/pending — focusSelectorsAfterActing (pure function, direct)', () => {
+  const p1 = item({ subjectId: 'p1' })
+  const p2 = item({ subjectId: 'p2' })
+
+  it('acted item has a next row in the same section: candidate list starts with that row', () => {
+    expect(focusSelectorsAfterActing([p1, p2], p1, 'mine')).toEqual([
+      '[data-testid="pending-item-row-PROJECT_APPROVAL-p2"]',
+      '[data-testid="pending-kind-heading-mine-Проекты"]',
+      '#pending-mine-heading',
+      '[data-testid="pending-page"]',
+    ])
+  })
+
+  it('acted item is the LAST one in the section: no next-row candidate at all', () => {
+    expect(focusSelectorsAfterActing([p1], p1, 'mine')).toEqual([
+      '[data-testid="pending-kind-heading-mine-Проекты"]',
+      '#pending-mine-heading',
+      '[data-testid="pending-page"]',
+    ])
+  })
+
+  it('acted item is not even IN the given section (defensive): same as "no next", not section[0]', () => {
+    // `section` here holds a DIFFERENT item than `acted` — `index` is -1.
+    // A wrong "not found" check would fall through to `section[index + 1]`
+    // and incorrectly surface p2 as the "next" row.
+    expect(focusSelectorsAfterActing([p2], p1, 'mine')).toEqual([
+      '[data-testid="pending-kind-heading-mine-Проекты"]',
+      '#pending-mine-heading',
+      '[data-testid="pending-page"]',
+    ])
+  })
+
+  it('zone "proposedByMe" points at the OTHERS heading, not the mine one', () => {
+    expect(focusSelectorsAfterActing([p1], p1, 'proposedByMe')).toEqual([
+      '[data-testid="pending-kind-heading-proposedByMe-Проекты"]',
+      '#pending-others-heading',
+      '[data-testid="pending-page"]',
+    ])
+  })
+
+  it('an unrecognized kind does not throw (sectionTitleOf falls back safely, not `.find(...).title`)', () => {
+    const weird = { ...p1, kind: 'SOMETHING_NEW' } as unknown as PendingItem
+    expect(() => focusSelectorsAfterActing([weird], weird, 'mine')).not.toThrow()
+    expect(focusSelectorsAfterActing([weird], weird, 'mine')[0]).toBe(
+      '[data-testid="pending-kind-heading-mine-Другое"]',
+    )
+  })
+})
+
 describe('/pending — AC6 states', () => {
   it('loading: shows the skeleton, not the page content', () => {
     mockState = { ...mockState, isLoading: true }
@@ -125,6 +208,35 @@ describe('/pending — AC6 states', () => {
     expect(screen.queryByTestId('pending-empty')).not.toBeInTheDocument()
     expect(screen.getByText('Ждут решения других')).toBeInTheDocument()
     expect(screen.queryByText('Ждут вашего решения')).not.toBeInTheDocument()
+  })
+
+  it('every §12 focus target renders tabIndex=-1: loading root, error root, main root, both zone headings', () => {
+    mockState = { ...mockState, isLoading: true }
+    const { unmount: unmountLoading } = renderPage()
+    expect(screen.getByTestId('pending-page')).toHaveAttribute('tabindex', '-1')
+    unmountLoading()
+
+    mockState = { ...mockState, isLoading: false, isError: true }
+    const { unmount: unmountError } = renderPage()
+    expect(screen.getByTestId('pending-page')).toHaveAttribute('tabindex', '-1')
+    unmountError()
+
+    mockState = {
+      ...mockState,
+      isError: false,
+      mine: [item({ subjectId: 'p1' })],
+      proposedByMe: [item({ kind: 'SHARE_APPROVAL', pendingPercent: 30, actions: ['cancel'] })],
+    }
+    renderPage()
+    expect(screen.getByTestId('pending-page')).toHaveAttribute('tabindex', '-1')
+    expect(screen.getByRole('heading', { name: 'Ждут вашего решения' })).toHaveAttribute(
+      'tabindex',
+      '-1',
+    )
+    expect(screen.getByRole('heading', { name: 'Ждут решения других' })).toHaveAttribute(
+      'tabindex',
+      '-1',
+    )
   })
 })
 
@@ -272,5 +384,196 @@ describe('/pending — §12: focus after a row disappears', () => {
     })
 
     expect(screen.getByTestId('pending-page')).toHaveFocus()
+  })
+})
+
+describe('/pending — dismissal pruning on a fresh fetch', () => {
+  it('does NOT prune a dismissal for an item that is STILL in `mine` — only a VANISHED id should be pruned', async () => {
+    const user = userEvent.setup()
+    mockState = {
+      ...mockState,
+      mine: [
+        item({ subjectId: 'p1', title: 'Acme Corp' }),
+        item({ subjectId: 'p2', title: 'Globex' }),
+      ],
+      dataUpdatedAt: 1,
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <PendingPage />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p1'))
+    })
+    expect(screen.queryByText('Acme Corp')).not.toBeInTheDocument()
+
+    // A fresh fetch lands — p1 is STILL in `mine` (waiting on the OTHER
+    // invited approver, say). The dismissal must survive: p1 stays hidden.
+    mockState = { ...mockState, dataUpdatedAt: 2 }
+    rerender(
+      <QueryClientProvider client={qc}>
+        <PendingPage />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByText('Acme Corp')).not.toBeInTheDocument()
+    expect(screen.getByText('Globex')).toBeInTheDocument()
+  })
+
+  it('DOES prune a dismissal once the item has actually vanished from `mine` — a later re-proposal is visible again', async () => {
+    const user = userEvent.setup()
+    mockState = {
+      ...mockState,
+      mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
+      dataUpdatedAt: 1,
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <PendingPage />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p1'))
+    })
+    expect(screen.queryByText('Acme Corp')).not.toBeInTheDocument()
+
+    // p1 vanishes from a fresh fetch (server resolved it) — dismissal is
+    // pruned. It then comes back under a NEW id-colliding proposal.
+    mockState = { ...mockState, mine: [], dataUpdatedAt: 2 }
+    rerender(
+      <QueryClientProvider client={qc}>
+        <PendingPage />
+      </QueryClientProvider>,
+    )
+    mockState = {
+      ...mockState,
+      mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
+      dataUpdatedAt: 3,
+    }
+    rerender(
+      <QueryClientProvider client={qc}>
+        <PendingPage />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByText('Acme Corp')).toBeInTheDocument()
+  })
+})
+
+describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
+  it('cancelling a share from «Ждут решения других» removes ONLY that row and moves focus within the OTHERS zone', async () => {
+    const user = userEvent.setup()
+    mockPost.mockReset()
+    mockPost.mockResolvedValue({ data: {} })
+    mockState = {
+      ...mockState,
+      proposedByMe: [
+        item({
+          kind: 'SHARE_APPROVAL',
+          subjectId: 's1',
+          title: 'Доля 1',
+          waitingFor: ['Senior One'],
+          pendingPercent: 30,
+          actions: ['cancel'],
+        }),
+        // A DIFFERENT kind on purpose — `CancelPendingShareButton`'s own
+        // trigger testid is scope-only (`cancel-pending-share-project`, no
+        // id), so a second SHARE_APPROVAL row here would make that testid
+        // ambiguous. A PROJECT_APPROVAL row proves "removed ONLY that row"
+        // just as well, without touching the thing this test isn't about.
+        item({ subjectId: 'p2', title: 'Some Project', actions: ['open'] }),
+      ],
+    }
+    renderPage()
+
+    // Same shape as cancel-pending-share.test.tsx's own `withdraw()` helper:
+    // the confirm button needs `findByTestId` (retries), not `getByTestId`
+    // — the AlertDialog's portal content is not synchronously present the
+    // instant the trigger click's state update commits.
+    await user.click(screen.getByTestId('cancel-pending-share-project'))
+    await act(async () => {
+      await user.click(await screen.findByTestId('cancel-pending-share-confirm-button-project'))
+    })
+
+    // Removed from `visibleOther` specifically (not left over from `visibleMine`,
+    // which a `.filter(proposedByMe)` → `mine`-shaped mutant would produce).
+    expect(screen.queryByText('Доля 1')).not.toBeInTheDocument()
+    expect(screen.getByText('Some Project')).toBeInTheDocument()
+    // s1 was the ONLY item in «Доли» — that section's own heading vanishes
+    // along with it, so focus falls through to the OTHERS zone heading
+    // (never the mine-zone one). A `zone === 'mine' ? visibleMine :
+    // visibleOther` mutant would misroute this into the empty mine list,
+    // landing on '#pending-mine-heading' instead — but that section does
+    // not even render (visibleMine is empty), so focus would fall all the
+    // way to the page root; either way, not this assertion.
+    expect(screen.getByRole('heading', { name: 'Ждут решения других' })).toHaveFocus()
+  })
+})
+
+describe('/pending — proposedByMe grouping across kinds', () => {
+  it('groups by Проекты → Доли, skips Контракты entirely, and buckets an unknown kind under Другое', () => {
+    mockState = {
+      ...mockState,
+      proposedByMe: [
+        item({ subjectId: 'proj-1', title: 'Acme Corp', actions: ['open'] }),
+        item({
+          kind: 'SHARE_APPROVAL',
+          subjectId: 'share-1',
+          title: 'Доля по умолчанию',
+          pendingPercent: 30,
+          actions: ['cancel'],
+        }),
+        {
+          ...item({ subjectId: 'weird-1', title: 'Mystery item' }),
+          kind: 'SOMETHING_NEW',
+        } as unknown as PendingItem,
+      ],
+    }
+    renderPage()
+
+    // Zone-scoped testids (`pending-kind-heading-proposedByMe-*`) rather
+    // than a bare role/text query — this section alone has three headings
+    // and their exact zone-qualified identity is the point being tested.
+    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Проекты')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Доли')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Другое')).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('pending-kind-heading-proposedByMe-Контракты'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Acme Corp')).toBeInTheDocument()
+    expect(screen.getByText('Доля по умолчанию')).toBeInTheDocument()
+    expect(screen.getByText('Mystery item')).toBeInTheDocument()
+  })
+
+  it('a known-kind item never leaks into the proposedByMe Другое bucket', () => {
+    mockState = {
+      ...mockState,
+      proposedByMe: [item({ subjectId: 'proj-1', title: 'Acme Corp', actions: ['open'] })],
+    }
+    renderPage()
+    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Проекты')).toBeInTheDocument()
+    expect(screen.queryByTestId('pending-kind-heading-proposedByMe-Другое')).not.toBeInTheDocument()
+  })
+
+  it('visibleOther feeds the proposedByMe sections — a mine-zone item of the SAME kind never leaks across zones', () => {
+    mockState = {
+      ...mockState,
+      mine: [item({ subjectId: 'mine-1', title: 'Mine Corp' })],
+      proposedByMe: [item({ subjectId: 'other-1', title: 'Other Corp', actions: ['open'] })],
+    }
+    renderPage()
+
+    // `<section aria-labelledby>` maps to the ARIA "region" role, named by
+    // the referenced heading — a role query stays within Testing Library's
+    // API (no raw `.closest()` node access).
+    const mineSection = screen.getByRole('region', { name: 'Ждут вашего решения' })
+    const othersSection = screen.getByRole('region', { name: 'Ждут решения других' })
+    expect(within(mineSection).getByText('Mine Corp')).toBeInTheDocument()
+    expect(within(mineSection).queryByText('Other Corp')).not.toBeInTheDocument()
+    expect(within(othersSection).getByText('Other Corp')).toBeInTheDocument()
+    expect(within(othersSection).queryByText('Mine Corp')).not.toBeInTheDocument()
   })
 })

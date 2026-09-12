@@ -130,6 +130,7 @@ export function CancelPendingShareButton({
   scope,
   id,
   pendingPercent,
+  onActed,
 }: {
   scope: PendingShareScope
   id: string
@@ -140,6 +141,21 @@ export function CancelPendingShareButton({
    * round 1 left behind.
    */
   pendingPercent: number
+  /**
+   * task-667-mutation-web (real defect, not just a mutation-gate assertion
+   * gap): the /pending screen's OWN doc comment promises every action here
+   * an INSTANT local-dismiss on success — "makes AC4's «строка исчезла»
+   * instant instead of waiting on the invalidated query's round trip" — and
+   * the task spec's AC4 names this exact control: "ADMIN «Отозвать» долю →
+   * строка ушла из proposedByMe". `ProjectApprovalActions` and
+   * `SeniorShareApprovalActions` both already take this same optional
+   * callback for the same reason; this component alone was missing it, so
+   * a cancel only ever cleared the row after the invalidated `/pending`
+   * query's refetch actually landed, same as before task-pending-screen —
+   * silent everywhere `usePendingItems` isn't refetching synchronously
+   * (every unit test that mocks it, and any slow network in production).
+   */
+  onActed?: () => void
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const cancelMutation = useCancelPendingShare(scope, id)
@@ -170,7 +186,7 @@ export function CancelPendingShareButton({
         // to `true` and watching "the confirmation closes" stay green. Deleted
         // rather than suppressed: a line that cannot change behaviour is not a
         // line worth explaining.
-        onConfirm={() => cancelMutation.mutate()}
+        onConfirm={() => cancelMutation.mutate(undefined, { onSuccess: () => onActed?.() })}
       />
     </>
   )

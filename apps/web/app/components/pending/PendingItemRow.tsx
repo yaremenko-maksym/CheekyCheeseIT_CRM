@@ -119,6 +119,7 @@ function renderActions(item: PendingItem, zone: PendingZone, onActed: () => void
           scope={shareScopeOf(item)}
           id={item.subjectId}
           pendingPercent={item.pendingPercent ?? 0}
+          onActed={onActed}
         />
       )
     }

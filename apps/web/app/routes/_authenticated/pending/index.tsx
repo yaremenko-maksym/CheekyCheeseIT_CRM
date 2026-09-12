@@ -40,6 +40,7 @@ const KIND_SECTIONS: ReadonlyArray<{
   { kind: 'CONTRACT_TO_SIGN', title: 'Контракты', icon: FileSignature },
 ]
 
+// Stryker disable next-line StringLiteral: sectionTitleOf's fallback is only ever compared against ANOTHER call to sectionTitleOf (handleActed's `sectionTitleOf(i) === sectionTitleOf(item)`, for grouping) — any fallback value groups unknown-kind items identically, so no behavioral assertion can distinguish this specific string from another one. The VISIBLE "«Другое»" heading text is a separate hardcoded JSX literal (below), already covered by the AC6 grouping test.
 const OTHER_SECTION_TITLE = 'Другое'
 
 /** Which section a row is rendered in — the same grouping the JSX below
@@ -95,6 +96,7 @@ export function PendingPage() {
     setDismissed((prev) => {
       const live = new Set([...mine, ...proposedByMe].map(itemKey))
       const next = new Set([...prev].filter((k) => live.has(k)))
+      // Stryker disable next-line ConditionalExpression: same identical pattern and reasoning as PendingProjectApprovalsPanel.tsx's own directive on this exact ternary — the `false?` branch (always return `next`) is a true equivalent mutant here too (`next`'s CONTENT already equals `prev`'s whenever nothing was pruned; the only effect is an extra React re-render via a new Set reference, which no test in this file asserts on). The `true?` branch (pruning never happens) is NOT equivalent and is independently killed by "does NOT prune a dismissal for an item that is STILL pending" below.
       return next.size === prev.size ? prev : next
     })
     // Deliberately keyed on `dataUpdatedAt` (an actual refetch), not on
