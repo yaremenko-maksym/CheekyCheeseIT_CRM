@@ -16,7 +16,11 @@
  *  - markAllRead flips every unread row for the user
  */
 import { NotFoundException } from '@nestjs/common'
-import { describe, expect, it } from 'vitest'
+import { PgDialect } from 'drizzle-orm/pg-core'
+import { describe, expect, it, vi } from 'vitest'
+import type { ApprovalStatus } from '@crm/shared'
+import { approvals, projects } from '../database/schema'
+import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { NotificationsService } from './notifications.service'
 
 interface NotifRow {
@@ -28,6 +32,13 @@ interface NotifRow {
   link: string | null
   readAt: Date | null
   createdAt: Date
+  // Позиция 6 — структурные идентификаторы. Три старых типа несут null во всех,
+  // и именно так они и переносятся: без потери и без переписывания.
+  subjectType: string | null
+  subjectId: string | null
+  secondaryId: string | null
+  data: unknown
+  dedupeKey: string | null
 }
 
 function makeHarness(seed: Partial<NotifRow>[] = []) {
@@ -40,6 +51,11 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
     link: s.link ?? null,
     readAt: s.readAt ?? null,
     createdAt: s.createdAt ?? new Date(2026, 4, 25 + i),
+    subjectType: s.subjectType ?? null,
+    subjectId: s.subjectId ?? null,
+    secondaryId: s.secondaryId ?? null,
+    data: s.data ?? null,
+    dedupeKey: s.dedupeKey ?? null,
   }))
 
   // Routing: callers signal which scope they want via these flags BEFORE
@@ -101,9 +117,14 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
           from: (_t: unknown) => listBuilder,
         }
       },
+      // `create` теперь открывает свою транзакцию и делегирует в `createInTx`
+      // (тот же приём, что `ApprovalsService.propose` / `proposeInTx`), поэтому
+      // заглушка отдаёт тот же объект-базу — в памяти транзакция ничего не
+      // меняет, а вызовы идут по тому же пути, что и в бою.
+      transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => cb(db.db),
       insert: (_t: unknown) => ({
-        values: (v: Record<string, unknown>) => ({
-          returning: async () => {
+        values: (v: Record<string, unknown>) => {
+          const insertRow = () => {
             const row: NotifRow = {
               id: `n-new-${rows.length}`,
               userId: v['userId'] as string,
@@ -113,11 +134,34 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
               link: (v['link'] as string | null) ?? null,
               readAt: null,
               createdAt: new Date(),
+              subjectType: (v['subjectType'] as string | null) ?? null,
+              subjectId: (v['subjectId'] as string | null) ?? null,
+              secondaryId: (v['secondaryId'] as string | null) ?? null,
+              data: v['data'] ?? null,
+              dedupeKey: (v['dedupeKey'] as string | null) ?? null,
             }
             rows.push(row)
             return [row]
-          },
-        }),
+          }
+          return {
+            returning: async () => insertRow(),
+            // Частичный уникальный индекс (user_id, dedupe_key) — заглушка
+            // повторяет ЕГО семантику, а не «любой конфликт»: строка без ключа
+            // не сталкивается ни с чем.
+            onConflictDoNothing: (_target: unknown) => ({
+              returning: async () => {
+                const key = (v['dedupeKey'] as string | null) ?? null
+                if (
+                  key !== null &&
+                  rows.some((r) => r.userId === v['userId'] && r.dedupeKey === key)
+                ) {
+                  return []
+                }
+                return insertRow()
+              },
+            }),
+          }
+        },
       }),
       update: (_t: unknown) => ({
         set: (v: Record<string, unknown>) => ({
@@ -169,14 +213,34 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
   }
   ;(ctx as CtxAug).pendingMarkReadId = null
   ;(ctx as CtxAug).pendingDeleteId = null
-  return { db, ctx: ctx as CtxAug, rows }
+  // Заглушка телеметрии возвращается наружу: SR-H-1 сделал её единственным
+  // наблюдаемым следом пропущенного уведомления, и тесты обязаны уметь этот
+  // след прочитать.
+  const telemetry = makeTelemetryErrorsStub()
+  return { db, ctx: ctx as CtxAug, rows, telemetry }
+}
+
+/**
+ * Журнал — второй наблюдаемый выход пропущенного уведомления (первый —
+ * телеметрия). Сообщение в нём проверяется ПО СОДЕРЖАНИЮ: «отказ произошёл» и
+ * «отказ понятен» — разные свойства, и пустая строка удовлетворяет только
+ * первому. Возвращается список сообщений, а не сам шпион, чтобы утверждение
+ * читалось про текст (тот же приём, что в `transaction-notifications.unit.spec.ts`).
+ */
+function spyOnLoggerErrors(svc: NotificationsService): string[] {
+  const messages: string[] = []
+  const logger = (svc as unknown as { logger: { error: (m: string) => void } }).logger
+  vi.spyOn(logger, 'error').mockImplementation((m: string) => {
+    messages.push(String(m))
+  })
+  return messages
 }
 
 describe('NotificationsService', () => {
   describe('create', () => {
     it('inserts a new row with default-null readAt', async () => {
       const { db } = makeHarness()
-      const svc = new NotificationsService(db)
+      const svc = new NotificationsService(db, makeTelemetryErrorsStub())
       const result = await svc.create({
         userId: 'u-1',
         type: 'INVOICE_SIGN_REQUIRED',
@@ -184,72 +248,60 @@ describe('NotificationsService', () => {
         body: 'Hello',
         link: '/somewhere',
       })
-      expect(result.title).toBe('Test')
-      expect(result.readAt).toBeNull()
-      expect(result.type).toBe('INVOICE_SIGN_REQUIRED')
+      expect(result?.title).toBe('Test')
+      expect(result?.readAt).toBeNull()
+      expect(result?.type).toBe('INVOICE_SIGN_REQUIRED')
     })
 
     it('accepts null link (no-link notification)', async () => {
       const { db } = makeHarness()
-      const svc = new NotificationsService(db)
+      const svc = new NotificationsService(db, makeTelemetryErrorsStub())
       const result = await svc.create({
         userId: 'u-1',
         type: 'INVOICE_SIGN_REQUIRED',
         title: 'No link',
         link: null,
       })
-      expect(result.link).toBeNull()
+      expect(result?.link).toBeNull()
     })
 
     it('accepts a valid relative link starting with /', async () => {
       const { db } = makeHarness()
-      const svc = new NotificationsService(db)
+      const svc = new NotificationsService(db, makeTelemetryErrorsStub())
       const result = await svc.create({
         userId: 'u-1',
         type: 'INVOICE_SIGNED',
         title: 'Signed',
         link: '/finance/invoices/abc',
       })
-      expect(result.link).toBe('/finance/invoices/abc')
+      expect(result?.link).toBe('/finance/invoices/abc')
     })
 
-    it('rejects an external http link (open-redirect risk)', async () => {
-      const { db } = makeHarness()
-      const svc = new NotificationsService(db)
-      await expect(
-        svc.create({
-          userId: 'u-1',
-          type: 'INVOICE_SIGN_REQUIRED',
-          title: 'Phish',
-          link: 'http://evil.com',
+    // SR-H-1: опасная ссылка по-прежнему НЕ доезжает до базы — менялась не
+    // строгость проверки, а цена отказа. Раньше здесь стоял `rejects.toThrow`,
+    // то есть 400 вызывающему и откат его транзакции; теперь запись просто не
+    // создаётся, а отказ виден в телеметрии.
+    it.each([
+      ['внешняя http-ссылка (open-redirect)', 'http://evil.com'],
+      ['javascript: (XSS)', 'javascript:alert(1)'],
+      ['ссылка без ведущего слеша', 'finance/invoices/123'],
+    ])('%s: запись не создаётся, событие не падает', async (_name, link) => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const result = await svc.create({
+        userId: 'u-1',
+        type: 'INVOICE_SIGN_REQUIRED',
+        title: 'Phish',
+        link,
+      })
+      expect(result).toBeNull()
+      expect(h.rows).toHaveLength(0)
+      expect(h.telemetry.recordError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'API',
+          message: expect.stringContaining('Invalid notification link'),
         }),
-      ).rejects.toThrow('Invalid notification link')
-    })
-
-    it('rejects a javascript: link (XSS risk)', async () => {
-      const { db } = makeHarness()
-      const svc = new NotificationsService(db)
-      await expect(
-        svc.create({
-          userId: 'u-1',
-          type: 'INVOICE_SIGN_REQUIRED',
-          title: 'XSS',
-          link: 'javascript:alert(1)',
-        }),
-      ).rejects.toThrow('Invalid notification link')
-    })
-
-    it('rejects a link without leading slash', async () => {
-      const { db } = makeHarness()
-      const svc = new NotificationsService(db)
-      await expect(
-        svc.create({
-          userId: 'u-1',
-          type: 'INVOICE_SIGN_REQUIRED',
-          title: 'Bad',
-          link: 'finance/invoices/123',
-        }),
-      ).rejects.toThrow('Invalid notification link')
+      )
     })
   })
 
@@ -263,7 +315,7 @@ describe('NotificationsService', () => {
 
     it('scopes to userId — does not leak other users', async () => {
       const h = makeHarness(seedAll)
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.scopeUserId = 'u-1'
       h.ctx.scopeUnreadOnly = false
       const res = await svc.listForUser('u-1', { unreadOnly: false, limit: 10 })
@@ -273,7 +325,7 @@ describe('NotificationsService', () => {
 
     it('unreadOnly=true filters to unread', async () => {
       const h = makeHarness(seedAll)
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.scopeUserId = 'u-1'
       h.ctx.scopeUnreadOnly = true
       const res = await svc.listForUser('u-1', { unreadOnly: true, limit: 10 })
@@ -283,7 +335,7 @@ describe('NotificationsService', () => {
 
     it('respects limit', async () => {
       const h = makeHarness(seedAll)
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.scopeUserId = 'u-1'
       h.ctx.scopeUnreadOnly = false
       const res = await svc.listForUser('u-1', { unreadOnly: false, limit: 1 })
@@ -292,17 +344,216 @@ describe('NotificationsService', () => {
 
     it('unreadCount matches actual unread set for that user', async () => {
       const h = makeHarness(seedAll)
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.scopeUserId = 'u-1'
       const res = await svc.listForUser('u-1', { unreadOnly: false, limit: 10 })
       expect(res.unreadCount).toBe(2)
     })
   })
 
+  /**
+   * SR-L-8 (security-review круг 6, #664, defense-in-depth). Запрос к
+   * `approvals` держит связь с получателем ТОЛЬКО через `approverUserId` в
+   * `where` — без него пара «уведомление одного пользователя, строка
+   * согласования другого» отличалась бы от «строки нет вовсе» только
+   * дисциплиной производителей, а не структурой запроса. Строка чужого
+   * подтверждающего обязана читаться КАК ОТСУТСТВУЮЩАЯ — `approvalSuperseded`,
+   * тем же путём, что и полностью погашенная.
+   *
+   * Условия отбора раскрываются в настоящий SQL и ПРИМЕНЯЮТСЯ к строкам —
+   * как их применила бы база, а не «заглушка отдаёт всё, что дали» (тот же
+   * приём, что в `contract-notifications.unit.spec.ts` / `users.service.spec.ts`
+   * — `PgDialect().sqlToQuery` вместо разбора внутренностей drizzle руками).
+   */
+  describe('resolveSubjectStates (private) — approvals scoped to the recipient (SR-L-8)', () => {
+    // SR-M-18 (тот же круг, #664): `approvalIdFromData` теперь требует форму
+    // uuid, поэтому тестовые идентификаторы обязаны быть настоящими uuid —
+    // иначе `approvalIdFromData` вернул бы `null` ДО того, как запрос к
+    // `approvals` вообще случится, и тест прошёл бы по неверной причине.
+    const APPROVAL_UUID = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+
+    const APPROVALS_COLUMNS: Record<string, string> = {
+      id: 'id',
+      superseded_at: 'supersededAt',
+      approver_user_id: 'approverUserId',
+    }
+    const PROJECTS_COLUMNS: Record<string, string> = {
+      id: 'id',
+      archived_at: 'archivedAt',
+    }
+
+    function matchesWhere(
+      condition: unknown,
+      row: Record<string, unknown>,
+      columns: Record<string, string>,
+    ): boolean {
+      const compiled = new PgDialect().sqlToQuery(
+        condition as Parameters<PgDialect['sqlToQuery']>[0],
+      )
+      // A bare single-condition compile (e.g. a lone `inArray(...)`) is NOT
+      // wrapped in parens and its own trailing `)` must survive; only an
+      // `and(...)`-wrapped multi-condition compile starts with `(` — strip
+      // that matching pair, and only that pair.
+      const inner =
+        compiled.sql.startsWith('(') && compiled.sql.endsWith(')')
+          ? compiled.sql.slice(1, -1)
+          : compiled.sql
+      for (const part of inner.split(/\s+and\s+/i)) {
+        const isNullMatch = /"[^"]+"\."([^"]+)"\s+is\s+null/i.exec(part)
+        if (isNullMatch) {
+          const field = columns[isNullMatch[1] as string]
+          if (field === undefined) throw new Error(`заглушка не знает колонку: ${isNullMatch[1]}`)
+          if (row[field] !== null) return false
+          continue
+        }
+        const inMatch = /"[^"]+"\."([^"]+)"\s+in\s+\(([^)]+)\)/i.exec(part)
+        if (inMatch) {
+          const field = columns[inMatch[1] as string]
+          if (field === undefined) throw new Error(`заглушка не знает колонку: ${inMatch[1]}`)
+          const values = (inMatch[2] as string)
+            .split(',')
+            .map((p) => compiled.params[Number(p.trim().slice(1)) - 1])
+          if (!values.includes(row[field])) return false
+          continue
+        }
+        const eqMatch = /"[^"]+"\."([^"]+)"\s*=\s*\$(\d+)/.exec(part)
+        if (eqMatch) {
+          const field = columns[eqMatch[1] as string]
+          if (field === undefined) throw new Error(`заглушка не знает колонку: ${eqMatch[1]}`)
+          if (row[field] !== compiled.params[Number(eqMatch[2]) - 1]) return false
+          continue
+        }
+        throw new Error(`заглушка не понимает условие: ${part}`)
+      }
+      return true
+    }
+
+    type ApprovalSeed = {
+      id: string
+      status: ApprovalStatus
+      approverUserId: string
+      supersededAt: Date | null
+    }
+    type ProjectSeed = { id: string; archivedAt: Date | null }
+
+    function callResolveSubjectStates(
+      recipientUserId: string,
+      notifRows: {
+        userId: string
+        type: string
+        subjectType: string | null
+        subjectId: string | null
+        data: unknown
+      }[],
+      approvalSeeds: ApprovalSeed[],
+      projectSeeds: ProjectSeed[],
+    ) {
+      const db = {
+        db: {
+          select: (_fields?: unknown) => ({
+            from: (t: unknown) => {
+              if (t === approvals) {
+                return {
+                  where: async (cond: unknown) =>
+                    approvalSeeds
+                      .filter((r) =>
+                        matchesWhere(
+                          cond,
+                          r as unknown as Record<string, unknown>,
+                          APPROVALS_COLUMNS,
+                        ),
+                      )
+                      .map((r) => ({ id: r.id, status: r.status })),
+                }
+              }
+              if (t === projects) {
+                return {
+                  where: async (cond: unknown) =>
+                    projectSeeds.filter((r) =>
+                      matchesWhere(cond, r as unknown as Record<string, unknown>, PROJECTS_COLUMNS),
+                    ),
+                }
+              }
+              throw new Error('resolveSubjectStates harness: unexpected table in .from()')
+            },
+          }),
+        },
+      }
+      const svc = new NotificationsService(
+        db as unknown as ConstructorParameters<typeof NotificationsService>[0],
+        makeTelemetryErrorsStub(),
+      )
+      const resolve = (
+        svc as unknown as {
+          resolveSubjectStates: (userId: string, rows: unknown[]) => Promise<unknown[]>
+        }
+      ).resolveSubjectStates.bind(svc)
+      return resolve(recipientUserId, notifRows)
+    }
+
+    it('approval строки того же получателя — предложение активно', async () => {
+      const [state] = await callResolveSubjectStates(
+        'u-1',
+        [
+          {
+            userId: 'u-1',
+            type: 'SHARE_CONFIRM_REQUIRED',
+            subjectType: 'PROJECT',
+            subjectId: 'p-1',
+            data: { approvalId: APPROVAL_UUID },
+          },
+        ],
+        [{ id: APPROVAL_UUID, status: 'PENDING', approverUserId: 'u-1', supersededAt: null }],
+        [{ id: 'p-1', archivedAt: null }],
+      )
+      expect(state).toBe('active')
+    })
+
+    it('approval строки ДРУГОГО подтверждающего — как отсутствующая, не оживляет уведомление', async () => {
+      // Живая строка существует и не погашена — но принадлежит ЧУЖОМУ
+      // подтверждающему. Без `eq(approverUserId, userId)` в `where` она нашлась
+      // бы и дала 'active'; со связью — не находится вовсе, ровно как
+      // погашенная (см. doc-комментарий `computeSubjectState`).
+      const [state] = await callResolveSubjectStates(
+        'u-1',
+        [
+          {
+            userId: 'u-1',
+            type: 'SHARE_CONFIRM_REQUIRED',
+            subjectType: 'PROJECT',
+            subjectId: 'p-1',
+            data: { approvalId: APPROVAL_UUID },
+          },
+        ],
+        [{ id: APPROVAL_UUID, status: 'PENDING', approverUserId: 'u-OTHER', supersededAt: null }],
+        [{ id: 'p-1', archivedAt: null }],
+      )
+      expect(state).toBe('approvalSuperseded')
+    })
+
+    it('approval строка того же получателя, но уже решённая — «Решение уже принято»', async () => {
+      const [state] = await callResolveSubjectStates(
+        'u-1',
+        [
+          {
+            userId: 'u-1',
+            type: 'SHARE_CONFIRM_REQUIRED',
+            subjectType: 'PROJECT',
+            subjectId: 'p-1',
+            data: { approvalId: APPROVAL_UUID },
+          },
+        ],
+        [{ id: APPROVAL_UUID, status: 'APPROVED', approverUserId: 'u-1', supersededAt: null }],
+        [{ id: 'p-1', archivedAt: null }],
+      )
+      expect(state).toBe('approvalDecided')
+    })
+  })
+
   describe('markRead', () => {
     it('marks a single notification as read', async () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-1', readAt: null }])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'n1'
       h.ctx.pendingMarkReadId = 'n1'
       await svc.markRead('u-1', 'n1')
@@ -312,7 +563,7 @@ describe('NotificationsService', () => {
     it('is idempotent (already-read row is no-op)', async () => {
       const past = new Date('2026-05-01')
       const h = makeHarness([{ id: 'n1', userId: 'u-1', readAt: past }])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'n1'
       h.ctx.pendingMarkReadId = 'n1'
       await svc.markRead('u-1', 'n1')
@@ -321,14 +572,14 @@ describe('NotificationsService', () => {
 
     it('throws 404 (not 403) when caller is not the owner — existence oracle (SEC-10)', async () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'n1'
       await expect(svc.markRead('u-1', 'n1')).rejects.toThrow(NotFoundException)
     })
 
     it('throws 404 when notification does not exist', async () => {
       const h = makeHarness([])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'nope'
       await expect(svc.markRead('u-1', 'nope')).rejects.toThrow(NotFoundException)
     })
@@ -342,7 +593,7 @@ describe('NotificationsService', () => {
         { id: 'n3', userId: 'u-1', readAt: new Date('2026-05-01') },
         { id: 'n4', userId: 'u-2', readAt: null },
       ])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markAllForUserId = 'u-1'
       await svc.markAllRead('u-1')
       expect(h.rows[0]!.readAt).not.toBeNull()
@@ -358,7 +609,7 @@ describe('NotificationsService', () => {
         { id: 'n1', userId: 'u-1', readAt: null },
         { id: 'n2', userId: 'u-1', readAt: null },
       ])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.deleteId = 'n1'
       h.ctx.pendingDeleteId = 'n1'
       await svc.delete('u-1', 'n1')
@@ -369,7 +620,7 @@ describe('NotificationsService', () => {
 
     it('throws 404 (not 403) when the caller is not the owner — existence oracle (SEC-10)', async () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.deleteId = 'n1'
       await expect(svc.delete('u-1', 'n1')).rejects.toThrow(NotFoundException)
       // Row still present after the failed call
@@ -378,9 +629,443 @@ describe('NotificationsService', () => {
 
     it('throws 404 when the notification does not exist', async () => {
       const h = makeHarness([])
-      const svc = new NotificationsService(h.db)
+      const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.deleteId = 'nope'
       await expect(svc.delete('u-1', 'nope')).rejects.toThrow(NotFoundException)
+    })
+  })
+
+  // ── Позиция 6 ────────────────────────────────────────────────────────────
+
+  describe('структурные идентификаторы', () => {
+    it('кладёт вид объекта, идентификаторы и данные — не готовый текст кнопки', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const created = await svc.create({
+        userId: 'u-1',
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Вас добавили в проект',
+        subjectType: 'PROJECT',
+        subjectId: 'p-1',
+        data: { projectName: 'Acme' },
+      })
+      expect(created?.subjectType).toBe('PROJECT')
+      expect(created?.subjectId).toBe('p-1')
+      expect(created?.data).toEqual({ projectName: 'Acme' })
+      expect(created?.subjectMissing).toBe(false)
+    })
+
+    it('данные, не подходящие форме своего типа, до базы не доезжают', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const result = await svc.create({
+        userId: 'u-1',
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Вас добавили в проект',
+        subjectType: 'PROJECT',
+        subjectId: 'p-1',
+        data: { projectName: 42 },
+      })
+      expect(result).toBeNull()
+      expect(h.rows).toHaveLength(0)
+    })
+
+    /**
+     * SR-H-1 (security-review круг 1), вторая половина: производитель не имеет
+     * права вето над событием. Раньше эта ветка бросала `BadRequestException`
+     * внутри транзакции события — и легальное длинное значение (причина отказа,
+     * имя проекта) откатывало сам отказ или само создание проекта.
+     */
+    describe('битые данные не отменяют событие, но отказ громкий', () => {
+      it('вызывающий получает null вместо исключения — его транзакция жива', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        // `createInTx` — ровно тот путь, которым идут пять производителей
+        // внутри транзакции своего события.
+        const result = await svc.createInTx({} as never, {
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          data: { projectName: 42 },
+        })
+        expect(result).toBeNull()
+        expect(h.rows).toHaveLength(0)
+      })
+
+      it('пропуск уходит в телеметрию — тип и получатель названы, данные нет', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        await svc.create({
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          subjectType: 'PROJECT',
+          data: { projectName: 42 },
+        })
+        expect(h.telemetry.recordError).toHaveBeenCalledWith({
+          source: 'API',
+          message: expect.stringContaining('Invalid notification data for PROJECT_MEMBER_ADDED'),
+          route: '/api/notifications',
+          userId: 'u-1',
+          meta: { type: 'PROJECT_MEMBER_ADDED', subjectType: 'PROJECT' },
+        })
+      })
+
+      it('в журнале названы тип и получатель — иначе не найти сломавшегося производителя', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        const logged = spyOnLoggerErrors(svc)
+
+        await svc.create({
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          data: { projectName: 42 },
+        })
+
+        // Пропуск — это отказ, и он обязан быть читаемым: пустая строка в
+        // журнале сообщает ровно столько же, сколько молчание.
+        expect(logged).toHaveLength(1)
+        expect(logged[0]).toContain('Уведомление пропущено')
+        expect(logged[0]).toContain('PROJECT_MEMBER_ADDED')
+        expect(logged[0]).toContain('u-1')
+      })
+
+      it('отказ телеметрии тоже не роняет событие — и сам попадает в журнал', async () => {
+        const h = makeHarness()
+        vi.mocked(h.telemetry.recordError).mockRejectedValueOnce(new Error('telemetry down'))
+        const svc = new NotificationsService(h.db, h.telemetry)
+        const logged = spyOnLoggerErrors(svc)
+
+        const result = await svc.create({
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          data: { projectName: 42 },
+        })
+
+        expect(result).toBeNull()
+        expect(h.rows).toHaveLength(0)
+        // Две строки: сам пропуск и отказ канала, в который он не доехал.
+        // Без второй «телеметрия молча не работает» выглядит как «ошибок нет».
+        // SR-L-4 (круг 3): телеметрия больше не ждётся под транзакцией, её
+        // отказ приходит отдельным микротаском — отсюда `waitFor`.
+        await vi.waitFor(() => expect(logged).toHaveLength(2))
+        expect(logged[1]).toContain('Телеметрия не приняла отказ уведомления')
+        expect(logged[1]).toContain('telemetry down')
+      })
+
+      it('причина отказа в пять тысяч символов уведомление пропускает, а не отменяет отказ', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        const result = await svc.createInTx({} as never, {
+          userId: 'admin-1',
+          type: 'APPROVAL_REJECTED',
+          title: 'Предложение отклонено',
+          // Производитель обязан усечь превью сам; если он этого не сделал —
+          // страдает уведомление, а не решение синьора.
+          data: {
+            approverName: 'Иван',
+            subjectKind: 'PROJECT',
+            subjectTitle: 'Acme',
+            reasonPreview: 'я'.repeat(5000),
+          },
+        })
+        expect(result).toBeNull()
+        expect(h.rows).toHaveLength(0)
+        expect(h.telemetry.recordError).toHaveBeenCalledTimes(1)
+      })
+
+      it('имя проекта в 255 символов — легальная длина колонки — уведомление создаёт', async () => {
+        const h = makeHarness()
+        const svc = new NotificationsService(h.db, h.telemetry)
+        const created = await svc.create({
+          userId: 'u-1',
+          type: 'PROJECT_MEMBER_ADDED',
+          title: 'Вас добавили в проект',
+          subjectType: 'PROJECT',
+          subjectId: 'p-1',
+          data: { projectName: 'я'.repeat(255) },
+        })
+        expect(created).not.toBeNull()
+        expect(h.rows).toHaveLength(1)
+        expect(h.telemetry.recordError).not.toHaveBeenCalled()
+      })
+    })
+
+    it('данные старого типа никакой формой не проверяются — три старых типа не сломаны', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const created = await svc.create({
+        userId: 'u-1',
+        type: 'INVOICE_SIGN_REQUIRED',
+        title: 'Инвойс ожидает вашей подписи',
+        link: '/documents?category=INVOICE',
+        data: { whatever: true },
+      })
+      expect(created?.subjectType).toBeNull()
+      expect(created?.link).toBe('/documents?category=INVOICE')
+    })
+  })
+
+  describe('идемпотентность', () => {
+    it('второй раз с тем же ключом не создаёт вторую строку', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const input = {
+        userId: 'u-1',
+        type: 'TRANSACTION_ADDED' as const,
+        title: 'Вам добавили транзакцию',
+        subjectType: 'TRANSACTION' as const,
+        subjectId: 't-1',
+        data: { amount: '10.00', currency: 'USD', projectName: null },
+        dedupeKey: 'TRANSACTION_ADDED:t-1',
+      }
+      expect(await svc.create(input)).not.toBeNull()
+      expect(await svc.create(input)).toBeNull()
+      expect(h.rows).toHaveLength(1)
+    })
+
+    it('тот же ключ ДРУГОМУ получателю — отдельная строка', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const input = {
+        type: 'TRANSACTION_ADDED' as const,
+        title: 'Вам добавили транзакцию',
+        subjectType: 'TRANSACTION' as const,
+        subjectId: 't-1',
+        data: { amount: '10.00', currency: 'USD', projectName: null },
+        dedupeKey: 'TRANSACTION_ADDED:t-1',
+      }
+      await svc.create({ ...input, userId: 'u-1' })
+      await svc.create({ ...input, userId: 'u-2' })
+      expect(h.rows).toHaveLength(2)
+    })
+
+    it('без ключа дубли разрешены — повторное предложение обязано спросить заново', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const input = {
+        userId: 'u-1',
+        type: 'SHARE_CONFIRM_REQUIRED' as const,
+        title: 'Предложение по доле',
+        subjectType: 'PROJECT' as const,
+        subjectId: 'p-1',
+        data: {
+          scope: 'PROJECT' as const,
+          projectName: 'Acme',
+          previousPercent: 26,
+          proposedPercent: 30,
+          // QA-H-1 (круг 3): форма данных этого типа требует идентификатор
+          // строки согласования — без него запись отвергается на границе.
+          approvalId: '11111111-1111-4111-8111-111111111111',
+        },
+      }
+      await svc.create(input)
+      await svc.create(input)
+      expect(h.rows).toHaveLength(2)
+    })
+  })
+
+  describe('createManyInTx', () => {
+    it('одна пачка получателей — по строке на каждого', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      await h.db.db.transaction(async (tx: unknown) =>
+        svc.createManyInTx(tx as Parameters<typeof svc.createManyInTx>[0], [
+          { userId: 'u-1', type: 'TEAM_NEW_MEMBER', title: 'В команде новый участник' },
+          { userId: 'u-2', type: 'TEAM_NEW_MEMBER', title: 'В команде новый участник' },
+        ]),
+      )
+      expect(h.rows.map((r) => r.userId)).toEqual(['u-1', 'u-2'])
+    })
+  })
+  /**
+   * SR-H-2 (security-review круг 2). `refuse()` круга 1 закрыл ТОЛЬКО разбор
+   * данных: бросок на пути производителя до `createInTx` (или из самого
+   * `tx.insert`) по-прежнему летел внутрь транзакции события и откатывал её —
+   * на `fda3f11f` это роняло переход собеседования в HIRED вместе с созданием
+   * проекта.
+   *
+   * `emitInTx` — шов, на котором это кончается: путь производителя целиком
+   * выполняется во ВЛОЖЕННОЙ транзакции (в Postgres — `SAVEPOINT`), и ошибка
+   * откатывает ровно её. Простого `try/catch` тут мало: ошибка Postgres
+   * (невалидный jsonb — SR-M-3) абортит саму транзакцию, и перехват в JS её не
+   * воскрешает — все последующие запросы события падали бы с «current
+   * transaction is aborted».
+   */
+  describe('emitInTx — путь производителя во вложенной транзакции', () => {
+    it('бросок производителя до вставки не долетает до вызывающего', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      spyOnLoggerErrors(svc)
+
+      await expect(
+        svc.emitInTx(h.db.db as never, async () => {
+          throw new Error('резолв адресатов упал')
+        }),
+      ).resolves.toBeUndefined()
+    })
+
+    it('путь идёт во ВЛОЖЕННОЙ транзакции, а не в транзакции события', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const nested = vi.spyOn(h.db.db, 'transaction')
+
+      await svc.emitInTx(h.db.db as never, async (sp) => {
+        await svc.createInTx(sp, {
+          userId: 'u-1',
+          type: 'TEAM_MEMBER_ADDED',
+          title: 'Вас добавили в команду',
+          data: { teamName: 'Команда' },
+        })
+      })
+
+      // Без вложенной транзакции откатывать было бы нечего, кроме транзакции
+      // события — то есть ровно то вето, которое снимаем.
+      expect(nested).toHaveBeenCalledTimes(1)
+      expect(h.rows).toHaveLength(1)
+    })
+
+    it('в журнале и текст ошибки, и трасса — иначе не найти сломавшегося производителя', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw new Error('резолв адресатов упал')
+      })
+
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain('резолв адресатов упал')
+      // Бросок может случиться ДО сборки payload — тогда стек единственный,
+      // кто называет производителя.
+      expect(logged[0]).toMatch(/\n\s+at /)
+    })
+
+    it('Error без трассы — в журнале остаётся хотя бы его текст', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      const bare = new Error('трассы нет')
+      delete (bare as { stack?: string }).stack
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw bare
+      })
+
+      expect(logged[0]).toContain('трассы нет')
+    })
+
+    it('брошенная не-Error причина тоже читается в журнале', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw 'строкой тоже бросают'
+      })
+
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain('строкой тоже бросают')
+    })
+
+    it('пропуск уходит в телеметрию — короткой формой, без стека', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, h.telemetry)
+      spyOnLoggerErrors(svc)
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw new Error('резолв адресатов упал')
+      })
+
+      expect(h.telemetry.recordError).toHaveBeenCalledWith({
+        source: 'API',
+        message: 'Notification producer failed — Error: резолв адресатов упал',
+        route: '/api/notifications',
+      })
+    })
+
+    /**
+     * SR-L-4 (security-review круг 2). Телеметрия пишет через тот же пул, а
+     * захват ВТОРОЙ коннекции из-под открытой транзакции — классическая форма
+     * pool-deadlock, стоит отказам пойти пачкой. Значит, ждать её под
+     * транзакцией нельзя: неразрешённый промис телеметрии не имеет права
+     * задержать событие.
+     */
+    it('не ждёт телеметрию под транзакцией — исчерпанный пул не держит событие', async () => {
+      const h = makeHarness()
+      vi.mocked(h.telemetry.recordError).mockReturnValue(new Promise<void>(() => {}))
+      const svc = new NotificationsService(h.db, h.telemetry)
+      spyOnLoggerErrors(svc)
+
+      await expect(
+        svc.emitInTx(h.db.db as never, async () => {
+          throw new Error('boom')
+        }),
+      ).resolves.toBeUndefined()
+      expect(h.telemetry.recordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('отказ самой телеметрии не роняет событие', async () => {
+      const h = makeHarness()
+      vi.mocked(h.telemetry.recordError).mockRejectedValue(new Error('телеметрия недоступна'))
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      await expect(
+        svc.emitInTx(h.db.db as never, async () => {
+          throw new Error('boom')
+        }),
+      ).resolves.toBeUndefined()
+      // Первая строка — сам отказ производителя, вторая — отказ канала
+      // наблюдения; обе пишутся, ни одна не бросает.
+      await vi.waitFor(() => expect(logged).toHaveLength(2))
+      expect(logged[1]).toContain('телеметрия недоступна')
+    })
+
+    it('не-Error отказ телеметрии тоже читается в журнале', async () => {
+      const h = makeHarness()
+      vi.mocked(h.telemetry.recordError).mockRejectedValue('канал лёг строкой')
+      const svc = new NotificationsService(h.db, h.telemetry)
+      const logged = spyOnLoggerErrors(svc)
+
+      await svc.emitInTx(h.db.db as never, async () => {
+        throw new Error('boom')
+      })
+
+      await vi.waitFor(() => expect(logged).toHaveLength(2))
+      expect(logged[1]).toContain('канал лёг строкой')
+    })
+
+    /**
+     * SR-L-6 (security-review круг 3, #664). Тест выше («отказ самой
+     * телеметрии не роняет событие») проверяет `recordError` ОТКЛОНЯЮЩИЙСЯ
+     * асинхронно — это уже проходит через `.catch()` внутри `report()`. Этот
+     * тест — про ДРУГОЕ: `report()` бросает СИНХРОННО, до того как успевает
+     * что-либо зачейнить, потому что `this.telemetry` вообще недостижим (то
+     * самое «собранный руками сервис без DI», на котором круг 2 поймал
+     * SR-H-2). До правки этот бросок улетал бы из `catch`-блока `emitInTx`
+     * наружу — то есть в транзакцию события.
+     */
+    it('SR-L-6: если сам обработчик отказа бросает синхронно (телеметрия недостижима), событие всё равно не страдает', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, undefined as never)
+      const logged = spyOnLoggerErrors(svc)
+
+      await expect(
+        svc.emitInTx(h.db.db as never, async () => {
+          throw new Error('резолв адресатов упал')
+        }),
+      ).resolves.toBeUndefined()
+
+      // Первая строка — сам отказ производителя (как и раньше); вторая —
+      // отказ ЕГО ОБРАБОТЧИКА, доказывающая, что внутренний try/catch
+      // реально сработал, а не то, что `report()` тихо не вызывался вовсе.
+      expect(logged).toHaveLength(2)
+      expect(logged[0]).toContain('резолв адресатов упал')
+      expect(logged[1]).toContain('Обработчик отказа уведомлений сам упал')
     })
   })
 })

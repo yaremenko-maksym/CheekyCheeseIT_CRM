@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray, or } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
@@ -16,6 +16,13 @@ import { ApprovalsService } from '../approvals/approvals.service'
 import { approvals, interviews, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+// SR-H-2 (security-review круг 2): производитель `PROJECT_CONFIRM_REQUIRED`
+// живёт на ТОМ ЖЕ пути, что и переход в HIRED, — значит, его падение обязано
+// проверяться здесь же, на живой базе, а не только на двойниках.
+import { NotificationsService } from '../notifications/notifications.service'
+import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
+import { notifications as notificationsTable } from '../database/schema'
 
 /**
  * BIZ-07 — HIRED idempotency: repeated HIRED transitions must NOT create
@@ -128,7 +135,18 @@ describe.skipIf(!hasDatabaseUrl())(
       // `ApprovalsService` too — `createFromInterview` now calls
       // `proposeInTx`, which throws on `this.approvals === undefined`.
       const projectsSvc = Object.create(ProjectsService.prototype) as ProjectsService
-      Object.assign(projectsSvc, { db: dbSvc, approvals: new ApprovalsService(dbSvc) })
+      Object.assign(projectsSvc, {
+        db: dbSvc,
+        approvals: new ApprovalsService(dbSvc, makeNotificationsStub()),
+        // SR-H-2 (security-review круг 2): круг 2 добавил на путь
+        // `createFromInterview` производителя `PROJECT_CONFIRM_REQUIRED`, а
+        // заглушку сюда — нет. `this.notifications` оставалось `undefined`, и
+        // `TypeError` изнутри транзакции события откатывал ВЕСЬ переход в
+        // HIRED: четыре теста этой спеки краснели на `Integration Tests
+        // (Postgres)`, то есть инвариант BIZ-07 на ветке не проверялся ничем.
+        // Тот же приём, что кругом раньше применили к `approvals`.
+        notifications: makeNotificationsStub(),
+      })
       svc = new InterviewsService(dbSvc, projectsSvc)
     }, 30_000)
 
@@ -245,6 +263,52 @@ describe.skipIf(!hasDatabaseUrl())(
         where: eq(projects.seniorId, SENIOR.id),
       })
       expect(projectRows).toHaveLength(2)
+    })
+
+    /**
+     * SR-H-2 (security-review круг 2) — структурная половина находки.
+     *
+     * Заглушка выше чинит ЭТУ спеку; она не отвечает на вопрос, что будет,
+     * когда производитель сломается в бою. Здесь производитель бросает
+     * НАСТОЯЩИЙ `Error` до вставки, а `emitInTx` исполняет его путь во
+     * вложенной транзакции (`SAVEPOINT`): откатывается ровно она.
+     *
+     * До правки этот тест краснел ровно так же, как краснел CI: переход в
+     * HIRED откатывался вместе с проектом и `created_project_id`.
+     */
+    it('производитель, кидающий Error до вставки, не отменяет ни HIRED, ни проект', async () => {
+      const realNotifications = new NotificationsService(dbSvc, makeTelemetryErrorsStub())
+      // Молчим в журнале: отказ здесь ожидаемый, а его громкость проверяется
+      // юнитами `notifications.service.spec.ts`.
+      vi.spyOn(
+        (realNotifications as unknown as { logger: { error: (m: string) => void } }).logger,
+        'error',
+      ).mockImplementation(() => {})
+      vi.spyOn(realNotifications, 'createInTx').mockImplementation(() => {
+        throw new Error('производитель упал ДО вставки')
+      })
+
+      const explodingProjects = Object.create(ProjectsService.prototype) as ProjectsService
+      Object.assign(explodingProjects, {
+        db: dbSvc,
+        approvals: new ApprovalsService(dbSvc, makeNotificationsStub()),
+        notifications: realNotifications,
+      })
+      const explodingSvc = new InterviewsService(dbSvc, explodingProjects)
+
+      const moved = await explodingSvc.move(CARD_A_ID, { stage: 'HIRED', position: 0 }, ADMIN)
+
+      expect(moved.stage).toBe('HIRED')
+      expect(moved.createdProjectId).toBeTruthy()
+      const projectRows = await dbSvc.db.query.projects.findMany({
+        where: eq(projects.seniorId, SENIOR.id),
+      })
+      expect(projectRows).toHaveLength(1)
+      // Уведомления нет — и это ЕДИНСТВЕННОЕ, что потерялось.
+      const notifRows = await dbSvc.db.query.notifications.findMany({
+        where: eq(notificationsTable.userId, SENIOR.id),
+      })
+      expect(notifRows).toHaveLength(0)
     })
 
     it('created_project_id has a partial unique index — DB rejects second non-null value for same interview', async () => {

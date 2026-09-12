@@ -17,6 +17,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const SENIOR_ID = 'senior-1'
 const DROP_ID = 'drop-1'
@@ -126,6 +128,7 @@ function buildService(projectRows: ReturnType<typeof draftProject>[]) {
     {} as never,
     hrAccess,
     approvals as never,
+    makeNotificationsStub(),
   )
   return { service, approvals }
 }
@@ -203,6 +206,7 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
 
     const result = await service.findAll(sessionFor(ADMIN_ID, 'ADMIN'), { archived: false })
@@ -261,6 +265,7 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
 
     const result = await service.findAll(sessionFor(ADMIN_ID, 'ADMIN'), { archived: false })
@@ -300,6 +305,7 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
 
     const result = await service.findOne(PROJECT_ID, sessionFor(ADMIN_ID, 'ADMIN'))
@@ -346,6 +352,7 @@ describe('ProjectsService — seniorApprovalPending/dropApprovalPending on findA
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
 
     const result = await service.findOne(PROJECT_ID, sessionFor(DROP_VIEWER_ID, 'DROP'))
@@ -402,7 +409,7 @@ describe('ProjectsService.create — seniorApprovalPending/dropApprovalPending c
       // findOne/update/loadForResponse for ADMIN/SENIOR viewers — 'NONE' here,
       // this file is not about share proposals (same stub as draft-visibility.unit.spec.ts).
       getStatus: vi.fn(async () => 'NONE' as const),
-      proposeInTx: vi.fn(async () => undefined),
+      proposeInTx: makeProposeInTxStub(),
       getPendingApproverIds: vi.fn(async () => new Map<string, Set<string>>()),
     }
     const service = new ProjectsService(
@@ -411,6 +418,7 @@ describe('ProjectsService.create — seniorApprovalPending/dropApprovalPending c
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
 
     const result = await service.create(
@@ -467,6 +475,7 @@ describe('ProjectsService.update — seniorApprovalPending/dropApprovalPending o
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
     return { service, approvals }
   }

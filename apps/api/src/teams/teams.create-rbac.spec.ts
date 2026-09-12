@@ -21,6 +21,7 @@ import type * as schema from '../database/schema'
 import type { SessionUser } from '@crm/shared'
 import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -193,7 +194,7 @@ function makeService(db: DrizzleDb): TeamsService {
   const auditLog = {
     record: vi.fn().mockResolvedValue(undefined),
   } as unknown as TeamAuditLogService
-  return new TeamsService(db as never, {} as never, auditLog)
+  return new TeamsService(db as never, {} as never, auditLog, makeNotificationsStub())
 }
 
 // ── AC1 Tests ────────────────────────────────────────────────────────────────

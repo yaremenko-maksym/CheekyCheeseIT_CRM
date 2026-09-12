@@ -10,6 +10,7 @@ import { uniqueViolationConstraint } from '../database/pg-errors'
 import { approvals, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * The CONSTRAINT name of a Postgres CHECK violation (SQLSTATE 23514) in
@@ -87,7 +88,7 @@ describe.skipIf(!hasDatabaseUrl())('ApprovalsService — against real Postgres',
       pool,
       db,
     })
-    svc = new ApprovalsService(dbSvc)
+    svc = new ApprovalsService(dbSvc, makeNotificationsStub())
 
     await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
     await dbSvc.db.insert(users).values([

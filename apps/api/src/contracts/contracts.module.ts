@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
 import { PdfModule } from '../common/pdf/pdf.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { ContractTemplatesController } from './contract-templates.controller'
 import { ContractTemplatesService } from './contract-templates.service'
 import { EmployeeContractsController } from './employee-contracts.controller'
@@ -19,7 +20,9 @@ import { ContractPdfService } from './contract-pdf.service'
  * (sign requirement + contractReady check) without importing controllers.
  */
 @Module({
-  imports: [DatabaseModule, forwardRef(() => AuthModule), PdfModule],
+  // task-notification-types-producers (позиция 6): EmployeeContractsService —
+  // производитель «ждёт решения: документ на подпись».
+  imports: [DatabaseModule, forwardRef(() => AuthModule), PdfModule, NotificationsModule],
   controllers: [
     ContractTemplatesController,
     SignedContractsController,

@@ -38,6 +38,7 @@ import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Test IDs — stable namespace hrjoin- ────────────────────────────────────
 const HR_OWN_TEAM_ID = '5a100005-0000-4000-aa00-000000000001' // HR_A belongs here
@@ -74,7 +75,12 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const teamAuditLog = new TeamAuditLogService(dbSvc)
       const auditLog = new AuditLogService(dbSvc)
-      const teamsService = new TeamsService(dbSvc, {} as never, teamAuditLog)
+      const teamsService = new TeamsService(
+        dbSvc,
+        {} as never,
+        teamAuditLog,
+        makeNotificationsStub(),
+      )
       usersService = new UsersService(
         dbSvc,
         {} as never,
@@ -87,6 +93,7 @@ describe.skipIf(!hasDatabaseUrl())(
         // task-pending-share fix-round-1 (CR-H-1): working stub, see the
         // sibling comment in archived-entitlement.realdb.integration.spec.ts.
         { getStatus: async () => 'NONE' as const } as never,
+        makeNotificationsStub(),
       )
       // TeamsService needs UsersService back for OTHER methods (not exercised
       // here) — forwardRef in prod DI, plain field assignment is enough here.

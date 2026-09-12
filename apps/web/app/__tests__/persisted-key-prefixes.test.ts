@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest'
 import type { Query } from '@tanstack/react-query'
 import { PERSISTED_KEY_PREFIXES, shouldDehydrateQuery } from '../routes/__root'
 import { PENDING_QUERY_KEY } from '../hooks/use-pending-items'
+import { notificationsQueryKey } from '../hooks/use-notifications-api'
 
 // PII-bearing keys that were removed in the security audit and must NEVER return.
 const FORBIDDEN_PII_PREFIXES = ['teams', 'team', 'user-team'] as const
@@ -119,5 +120,25 @@ describe('PERSISTED_KEY_PREFIXES — PII exclusion (security audit Fix#1)', () =
     } as unknown as Query
 
     expect(shouldDehydrateQuery(query)).toBe(false)
+  })
+
+  /**
+   * task-notification-types-producers (позиция 6). Уведомления с позиции 6
+   * несут суммы, проценты и причины отказа — то есть ровно то, что §10 зовёт
+   * раскрытием. Их список НИКОГДА не должен оседать в IndexedDB: браузер
+   * переживает выход из системы, а запись о чужих деньгах — не должна.
+   *
+   * Проверяется НАСТОЯЩИЙ ключ из `notificationsQueryKey`, а не его литерал:
+   * переименуют ключ — тест поедет вместе с ним, и добавление его в
+   * allow-list всё равно останется красным.
+   */
+  it('notificationsQueryKey is NOT in the allow-list — money never reaches IndexedDB', () => {
+    expect(PERSISTED_KEY_PREFIXES.has(String(notificationsQueryKey()[0]))).toBe(false)
+    // Все формы ключа, а не одна: фильтры меняют ХВОСТ ключа, а решение
+    // принимается по его первому элементу — значит, ни одна форма не проходит.
+    expect(PERSISTED_KEY_PREFIXES.has(String(notificationsQueryKey({ unreadOnly: true })[0]))).toBe(
+      false,
+    )
+    expect(PERSISTED_KEY_PREFIXES.has(String(notificationsQueryKey({ limit: 50 })[0]))).toBe(false)
   })
 })

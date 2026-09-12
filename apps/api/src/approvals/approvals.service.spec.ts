@@ -22,6 +22,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { ApprovalsService } from './approvals.service'
 import { approvals } from '../database/schema'
 import type { DatabaseService } from '../database/database.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const SUBJECT_TYPE = 'TEST_SUBJECT'
 const SUBJECT_ID = 'b1000000-0000-4000-a000-000000000001'
@@ -126,7 +127,7 @@ function makeService(txHandle: Record<string, unknown>) {
   const db = {
     db: { transaction: vi.fn((cb: (tx: unknown) => unknown) => cb(txHandle)) },
   } as unknown as DatabaseService
-  return new ApprovalsService(db)
+  return new ApprovalsService(db, makeNotificationsStub())
 }
 
 /** Runs `fn`, returns the rejection it throws (never the resolved value). */
@@ -176,7 +177,7 @@ function serializeSqlCondition(condition: unknown): string {
 
 describe('ApprovalsService — input validation runs before any DB call', () => {
   it('propose() rejects an empty approverUserIds array', async () => {
-    const service = new ApprovalsService(makePoisonedDb())
+    const service = new ApprovalsService(makePoisonedDb(), makeNotificationsStub())
     await expect(
       service.propose({
         subjectType: SUBJECT_TYPE,
@@ -188,7 +189,7 @@ describe('ApprovalsService — input validation runs before any DB call', () => 
   })
 
   it('propose() rejects duplicate approverUserIds', async () => {
-    const service = new ApprovalsService(makePoisonedDb())
+    const service = new ApprovalsService(makePoisonedDb(), makeNotificationsStub())
     await expect(
       service.propose({
         subjectType: SUBJECT_TYPE,
@@ -200,7 +201,7 @@ describe('ApprovalsService — input validation runs before any DB call', () => 
   })
 
   it('reject() rejects a blank reason', async () => {
-    const service = new ApprovalsService(makePoisonedDb())
+    const service = new ApprovalsService(makePoisonedDb(), makeNotificationsStub())
     await expect(
       service.reject({
         subjectType: SUBJECT_TYPE,
@@ -212,7 +213,7 @@ describe('ApprovalsService — input validation runs before any DB call', () => 
   })
 
   it('reject() rejects a missing reason field entirely', async () => {
-    const service = new ApprovalsService(makePoisonedDb())
+    const service = new ApprovalsService(makePoisonedDb(), makeNotificationsStub())
     await expect(
       service.reject({
         subjectType: SUBJECT_TYPE,
@@ -691,7 +692,10 @@ describe('ApprovalsService.getStatus', () => {
 describe('ApprovalsService.getRejectionReasons', () => {
   it('empty input never touches the DB (the caller-side guard exists for this, but the internal one is a backstop)', async () => {
     const select = vi.fn()
-    const service = new ApprovalsService({ db: { select } } as unknown as DatabaseService)
+    const service = new ApprovalsService(
+      { db: { select } } as unknown as DatabaseService,
+      makeNotificationsStub(),
+    )
 
     const result = await service.getRejectionReasons(SUBJECT_TYPE, [])
 
@@ -709,7 +713,10 @@ describe('ApprovalsService.getRejectionReasons', () => {
       where: vi.fn(() => Promise.resolve(rows)),
     }
     const select = vi.fn(() => chain)
-    const service = new ApprovalsService({ db: { select } } as unknown as DatabaseService)
+    const service = new ApprovalsService(
+      { db: { select } } as unknown as DatabaseService,
+      makeNotificationsStub(),
+    )
 
     const result = await service.getRejectionReasons(SUBJECT_TYPE, ['proj-1', 'proj-2', 'proj-3'])
 
@@ -749,9 +756,12 @@ describe('ApprovalsService.getRejectionReasons', () => {
       from: vi.fn(() => chain),
       where: vi.fn(() => Promise.resolve([{ subjectId: 'proj-1', rejectionReason: null }])),
     }
-    const service = new ApprovalsService({
-      db: { select: vi.fn(() => chain) },
-    } as unknown as DatabaseService)
+    const service = new ApprovalsService(
+      {
+        db: { select: vi.fn(() => chain) },
+      } as unknown as DatabaseService,
+      makeNotificationsStub(),
+    )
 
     const result = await service.getRejectionReasons(SUBJECT_TYPE, ['proj-1'])
 
@@ -768,7 +778,10 @@ describe('ApprovalsService.getRejectionReasons', () => {
 describe('ApprovalsService.getPendingApproverIds', () => {
   it('empty input never touches the DB (the caller-side guard exists for this, but the internal one is a backstop)', async () => {
     const select = vi.fn()
-    const service = new ApprovalsService({ db: { select } } as unknown as DatabaseService)
+    const service = new ApprovalsService(
+      { db: { select } } as unknown as DatabaseService,
+      makeNotificationsStub(),
+    )
 
     const result = await service.getPendingApproverIds(SUBJECT_TYPE, [])
 
@@ -787,7 +800,10 @@ describe('ApprovalsService.getPendingApproverIds', () => {
       where: vi.fn(() => Promise.resolve(rows)),
     }
     const select = vi.fn(() => chain)
-    const service = new ApprovalsService({ db: { select } } as unknown as DatabaseService)
+    const service = new ApprovalsService(
+      { db: { select } } as unknown as DatabaseService,
+      makeNotificationsStub(),
+    )
 
     const result = await service.getPendingApproverIds(SUBJECT_TYPE, ['proj-1', 'proj-2', 'proj-3'])
 
@@ -822,9 +838,12 @@ describe('ApprovalsService.getPendingApproverIds', () => {
       from: vi.fn(() => chain),
       where: vi.fn(() => Promise.resolve(rows)),
     }
-    const service = new ApprovalsService({
-      db: { select: vi.fn(() => chain) },
-    } as unknown as DatabaseService)
+    const service = new ApprovalsService(
+      {
+        db: { select: vi.fn(() => chain) },
+      } as unknown as DatabaseService,
+      makeNotificationsStub(),
+    )
 
     const result = await service.getPendingApproverIds(SUBJECT_TYPE, ['proj-1'])
 

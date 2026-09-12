@@ -76,6 +76,7 @@ import {
   teams as teamsTable,
   users as usersTable,
 } from '../database/schema'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 interface ProjectFixture {
   id: string
@@ -291,6 +292,7 @@ function buildService(
     usersService as never,
     new HrAccessService(db as never),
     approvals as never,
+    makeNotificationsStub(),
   )
   // Stub findOne so we don't reconstruct the full mapProject chain after archive.
   vi.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
@@ -614,6 +616,7 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
       usersService as never,
       new HrAccessService(db as never),
       approvals as never,
+      makeNotificationsStub(),
     )
 
     const result = await service.findOne('proj-1', adminUser)

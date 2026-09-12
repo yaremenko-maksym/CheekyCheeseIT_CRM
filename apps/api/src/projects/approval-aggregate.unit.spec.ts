@@ -31,6 +31,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ApprovalGroupStatus, SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const SENIOR_ID = 'senior-1'
 const DROP_ID = 'drop-1'
@@ -194,6 +195,7 @@ function buildService(
     usersService as never,
     hrAccess,
     approvals as never,
+    makeNotificationsStub(),
   )
   return { service, approvals, teamMembersFindMany }
 }

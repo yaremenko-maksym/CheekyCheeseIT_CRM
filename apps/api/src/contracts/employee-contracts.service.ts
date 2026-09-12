@@ -13,8 +13,9 @@ import type {
   CustomVariable,
   SessionUser,
 } from '@crm/shared'
-import { CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
+import { CONTRACT_VARIABLE_DESCRIPTIONS, NOTIFICATION_TITLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import { contractTemplates, employeeContracts, tosAcceptances } from '../database/schema'
 import type { EmployeeContract } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -61,6 +62,9 @@ export class EmployeeContractsService {
   constructor(
     private readonly db: DatabaseService,
     private readonly contractTemplatesService: ContractTemplatesService,
+    // task-notification-types-producers (позиция 6). Производитель «ждёт
+    // решения: документ на подпись».
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -158,13 +162,70 @@ export class EmployeeContractsService {
       )
     }
 
-    const [updated] = await this.db.db
-      .update(employeeContracts)
-      .set({ status: 'READY_TO_SIGN', updatedAt: new Date() })
-      .where(eq(employeeContracts.id, contract.id))
-      .returning()
+    // task-notification-types-producers (позиция 6): DRAFT → READY_TO_SIGN —
+    // ровно тот момент, когда от сотрудника начинают ждать подписи, и
+    // единственный переход, о котором ему нужно узнать. Переход и уведомление
+    // — одна транзакция: договора, ждущего подписи без просьбы подписать (и
+    // просьбы без договора), не существует.
+    // CR-M-2 (код-ревью круг 1): ключ идемпотентности считается из строки,
+    // прочитанной ДО перехода. Раньше он строился на `row.updatedAt` — то
+    // есть на значении, которое пишет ТА ЖЕ операция, которую он должен
+    // дедуплицировать: два одновременных вызова получали два разных ключа, и
+    // частичный индекс дубль не ловил.
+    //
+    // Версия в ключе сохранена намеренно: возврат договора в черновик и
+    // повторная подготовка — НОВАЯ просьба подписать, и она обязана доехать.
+    // Без версии её погасил бы индекс, пока живо старое уведомление.
+    const dedupeKey = `DOCUMENT_SIGN_REQUIRED:${contract.id}:DRAFT@${contract.updatedAt.toISOString()}`
 
-    if (!updated) throw new Error('Failed to mark contract ready')
+    const updated = await this.db.db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(employeeContracts)
+        .set({ status: 'READY_TO_SIGN', updatedAt: new Date() })
+        // Условие на статус — здесь, а не только в прочитанном выше guard'е:
+        // `getActiveOrThrow` читает строку обычным `findFirst` (без
+        // `FOR UPDATE`), поэтому два одновременных вызова проходят его оба.
+        // Разделяет их ровно этот `WHERE`: второй получает пустой
+        // `.returning()` и падает на ветке ниже, не создав второй просьбы.
+        .where(and(eq(employeeContracts.id, contract.id), eq(employeeContracts.status, 'DRAFT')))
+        .returning()
+
+      // SR-L-5 (security-review круг 2): проигравший гонку получает 409, а не
+      // 500. Исход гонки — «договор уже не черновик», то есть РОВНО то, что
+      // сообщает guard выше по методу; отвечать на одну и ту же ситуацию то
+      // отказом клиента, то отказом сервера значит показывать легитимную
+      // одновременность как поломку — в том числе в телеметрии ошибок.
+      if (!row) {
+        throw new ConflictException(
+          'Cannot mark ready: contract is no longer DRAFT (concurrent update)',
+        )
+      }
+
+      // SR-H-2 (круг 2): путь производителя — во вложенной транзакции.
+      // Переход в READY_TO_SIGN уже случился; уронить его из-за того, что
+      // просьба подписать не собралась, — та самая цена, которую круг 2
+      // запретил платить. Savepoint оставляет инвариант «нет договора, ждущего
+      // подписи, без просьбы» там, где он держится (откат события уносит и
+      // запись), и снимает обратное вето.
+      await this.notifications.emitInTx(tx, async (sp) => {
+        await this.notifications.createInTx(sp, {
+          userId,
+          type: 'DOCUMENT_SIGN_REQUIRED',
+          title: NOTIFICATION_TITLES.DOCUMENT_SIGN_REQUIRED,
+          subjectType: 'EMPLOYEE_CONTRACT',
+          subjectId: row.id,
+          // COPY-M-5 (copy-review круг 1, #664): один документ под тремя
+          // именами («документ» / «договор» / «контракт») на пути в один
+          // переход, и «Договор с сотрудником» написан с точки зрения
+          // кадровика — читает же его сам сотрудник, про свой контракт.
+          data: { documentTitle: 'Ваш контракт' },
+          dedupeKey,
+        })
+      })
+
+      return row
+    })
+
     return updated
   }
 

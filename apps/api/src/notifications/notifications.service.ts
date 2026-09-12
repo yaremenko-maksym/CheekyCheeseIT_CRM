@@ -17,21 +17,76 @@
  * notification types only requires appending to the enum + a single emitter
  * call site.
  */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type {
   Notification as NotificationDto,
   NotificationListFilters,
+  NotificationSubjectType,
   NotificationType,
   NotificationsListResponse,
 } from '@crm/shared'
+import { isNewNotificationType, notificationDataSchemaFor } from '@crm/shared'
 import { safeNotificationLinkSchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { notifications } from '../database/schema'
+import {
+  approvals,
+  employeeContracts,
+  nonDeletedTransactions,
+  notifications,
+  projects,
+  teams,
+  users,
+} from '../database/schema'
+import type { DrizzleTx } from '../database/types'
+import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
+import {
+  approvalIdFromData,
+  approvalIdsToCheck,
+  classifyApprovalRow,
+  computeSubjectState,
+  groupSubjectIds,
+  type SubjectRef,
+  type SubjectResolution,
+  type SubjectState,
+} from './notification-subject-resolver'
+
+/**
+ * Что производитель кладёт в запись. §7.1: тип события и идентификаторы
+ * объектов — НЕ готовые кнопки и НЕ готовый текст подробностей.
+ *
+ * `title` при этом остаётся и обязателен: это НЕЙТРАЛЬНЫЙ заголовок без сумм и
+ * процентов, один на тип (`NOTIFICATION_TITLES`). Он же — то единственное, что
+ * позиция 7 имеет право положить в письмо: письмо уходит на личную почту вне
+ * нашего контура, и цифры туда не идут (§10).
+ */
+export type CreateNotificationInput = {
+  userId: string
+  type: NotificationType
+  title: string
+  body?: string | null
+  link?: string | null
+  subjectType?: NotificationSubjectType | null
+  subjectId?: string | null
+  secondaryId?: string | null
+  /** Факты события. Форма задана `notificationDataSchemaFor(type)`. */
+  data?: unknown
+  /**
+   * Идемпотентность там, где событие может повториться (`<TYPE>:<subjectId>`).
+   * `undefined` = дублей не боимся: повторное предложение доли ОБЯЗАНО спросить
+   * заново, и глушить его было бы потерянным подтверждением.
+   */
+  dedupeKey?: string | null
+}
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly db: DatabaseService) {}
+  private readonly logger = new Logger(NotificationsService.name)
+
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly telemetry: TelemetryErrorsService,
+  ) {}
 
   /**
    * Insert a new notification row. The schema enum is the single source of
@@ -42,37 +97,238 @@ export class NotificationsService {
    * (relative path only, no '://' or 'javascript:') before insert to prevent
    * storing open-redirect or XSS payloads.
    */
-  async create(input: {
-    userId: string
-    type: NotificationType
-    title: string
-    body?: string | null
-    link?: string | null
-  }): Promise<NotificationDto> {
+  async create(input: CreateNotificationInput): Promise<NotificationDto | null> {
+    return this.db.db.transaction((tx) => this.createInTx(tx, input))
+  }
+
+  /**
+   * Тот же код, но ВНУТРИ транзакции, которую открыл вызывающий. Именно этим
+   * пользуются производители: «каждый вызов производителя — внутри той же
+   * транзакции, что и событие, либо после её коммита с явным обоснованием;
+   * уведомление о несостоявшемся событии недопустимо». Внутри транзакции это
+   * не дисциплина, а свойство: откатилось событие — откатилась и запись.
+   *
+   * `create()` выше — тонкая обёртка, открывающая свою транзакцию, чтобы две
+   * точки входа не могли разойтись (тот же приём, что у
+   * `ApprovalsService.propose` / `proposeInTx`).
+   *
+   * Возвращает `null`, когда запись погашена идемпотентностью — вызывающему это
+   * знать не обязательно, но и врать «создал» нельзя.
+   */
+  async createInTx(tx: DrizzleTx, input: CreateNotificationInput): Promise<NotificationDto | null> {
     // Validate link server-side before insert (defence-in-depth: shared schema
     // also validates on the DTO layer, but the service is the last gate before DB).
     if (input.link != null) {
       const result = safeNotificationLinkSchema.safeParse(input.link)
       if (!result.success) {
-        throw new BadRequestException(
+        return this.refuse(
+          input,
+          // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
           `Invalid notification link: ${result.error.issues[0]?.message ?? 'invalid'}`,
         )
       }
     }
 
-    const [row] = await this.db.db
-      .insert(notifications)
-      .values({
-        userId: input.userId,
-        type: input.type,
-        title: input.title,
-        body: input.body ?? null,
-        link: input.link ?? null,
-      })
-      .returning()
+    // Данные разбираются формой СВОЕГО типа прямо здесь — последний рубеж перед
+    // базой, ровно как со ссылкой выше. Клиент, встретив неразбираемые данные,
+    // покажет общий вид (AC2) и не упадёт; но пропускать в базу заведомо
+    // нечитаемую запись — значит соглашаться, что кнопка у неё не появится.
+    if (isNewNotificationType(input.type) && input.data !== undefined && input.data !== null) {
+      const parsed = notificationDataSchemaFor(input.type).safeParse(input.data)
+      if (!parsed.success) {
+        // `issues` непустой всегда, когда разбор не удался, — это свойство
+        // самой Zod, а не наше допущение. Значит, снятие `?.` не наблюдается
+        // ничем: списка с нулём причин отказа не порождает ни одна форма, и
+        // запасное «invalid» недостижимо. Оставлено страховкой на случай смены
+        // библиотеки — но проверить его нечем.
+        return this.refuse(
+          input,
+          // Stryker disable next-line OptionalChaining: issues[0] существует всегда при неудачном разборе — мутант ненаблюдаем
+          `Invalid notification data for ${input.type}: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
+        )
+      }
+    }
 
-    if (!row) throw new Error('Failed to insert notification')
-    return this.mapNotification(row)
+    const values = {
+      userId: input.userId,
+      type: input.type,
+      title: input.title,
+      body: input.body ?? null,
+      link: input.link ?? null,
+      subjectType: input.subjectType ?? null,
+      subjectId: input.subjectId ?? null,
+      secondaryId: input.secondaryId ?? null,
+      data: input.data ?? null,
+      dedupeKey: input.dedupeKey ?? null,
+    }
+
+    // Идемпотентность по (type, subjectId, userId): ключ несёт первые два,
+    // частичный уникальный индекс `uq_notifications_user_dedupe` добавляет
+    // получателя. `DO NOTHING` вместо предварительного SELECT — иначе между
+    // проверкой и вставкой остаётся окно, в которое повторная доставка
+    // события пролезает целиком.
+    const rows =
+      values.dedupeKey === null
+        ? await tx.insert(notifications).values(values).returning()
+        : await tx
+            .insert(notifications)
+            .values(values)
+            .onConflictDoNothing({
+              target: [notifications.userId, notifications.dedupeKey],
+              // Предикат ЧАСТИЧНОГО индекса — без него Postgres не сопоставит
+              // конфликт с `uq_notifications_user_dedupe` и упадёт на
+              // «no unique or exclusion constraint matching».
+              where: sql`${notifications.dedupeKey} IS NOT NULL`,
+            })
+            .returning()
+
+    const row = rows[0]
+    if (!row) {
+      if (values.dedupeKey !== null) return null
+      throw new Error('Failed to insert notification')
+    }
+    return this.mapNotification(row, 'active')
+  }
+
+  /**
+   * Уведомление не имеет права вето над событием (SR-H-1, security-review
+   * круг 1).
+   *
+   * Пять производителей из шести зовут `createInTx` ВНУТРИ транзакции самого
+   * события — это осознанный выбор: «уведомление о несостоявшемся событии
+   * недопустимо». Но у выбора была вторая половина, которую никто не проверял:
+   * пока эта ветка БРОСАЛА, неудачный разбор данных откатывал и саму
+   * транзакцию. Синьор не мог отказать, потому что причина отказа оказалась
+   * длиннее потолка формы уведомления; проект не создавался из-за длины
+   * названия. Цена ошибки в описании события равнялась цене ошибки в самом
+   * событии — несоразмерно.
+   *
+   * Поэтому: запись пропускается, событие живёт. Пропуск при этом громкий —
+   * `logger.error` в консоли сервера И строка в телеметрии ошибок, которая
+   * доезжает до дайджеста. Тихо потерянное уведомление было бы вторым концом
+   * той же палки.
+   *
+   * Возвращается `null` — тот же ответ, что и у погашенной идемпотентностью
+   * записи: вызывающему не нужно различать «не создал, потому что дубль» и
+   * «не создал, потому что данные не той формы», а нужно не упасть.
+   */
+  private refuse(input: CreateNotificationInput, reason: string): null {
+    this.logger.error(
+      `Уведомление пропущено (событие не откатываем): ${reason} [type=${input.type} userId=${input.userId}]`,
+    )
+    this.report({
+      source: 'API',
+      message: `Notification skipped — ${reason}`,
+      route: '/api/notifications',
+      userId: input.userId,
+      // Ни `title`, ни `data` сюда не едут: дайджест уходит в отдельный
+      // репозиторий, а форма данных уже названа типом и сообщением.
+      meta: { type: input.type, subjectType: input.subjectType ?? null },
+    })
+    return null
+  }
+
+  /**
+   * Путь производителя целиком — во ВЛОЖЕННОЙ транзакции (SR-H-2,
+   * security-review круг 2).
+   *
+   * `refuse()` круга 1 снял вето только у ФОРМЫ ДАННЫХ: неудачный `safeParse`
+   * перестал бросать. Всё остальное на пути производителя — резолв адресатов,
+   * сборка payload, сам `INSERT` — вето сохраняло. На `fda3f11f` это ловилось
+   * исполнением: `TypeError` в производителе `createFromInterview` откатывал
+   * переход собеседования в HIRED вместе с созданием проекта.
+   *
+   * Почему вложенная транзакция, а не просто `try/catch`: ошибка Postgres
+   * (например, одинокий суррогат в `jsonb` — SR-M-3) абортит САМУ транзакцию.
+   * Перехват в JS её не воскрешает: любой следующий запрос события упадёт с
+   * «current transaction is aborted, commands ignored until end of transaction
+   * block». Вложенная транзакция в Drizzle — это `SAVEPOINT` (см.
+   * `node-postgres/session`: `savepoint spN` … `rollback to savepoint spN`), и
+   * откат к ней возвращает транзакцию события в рабочее состояние.
+   *
+   * Инвариант «уведомление о несостоявшемся событии недопустимо» при этом
+   * цел: savepoint вложен В транзакцию события, поэтому откат события
+   * по-прежнему уносит и запись.
+   */
+  async emitInTx(tx: DrizzleTx, produce: (sp: DrizzleTx) => Promise<void>): Promise<void> {
+    try {
+      await tx.transaction(async (sp) => {
+        await produce(sp)
+      })
+    } catch (err) {
+      // SR-L-6 (security-review круг 3, #664): весь смысл шва — ничто на
+      // пути производителя не вправе уронить событие. `produce()` этим
+      // свойством уже обладает (см. выше); ЕГО ОБРАБОТЧИК — нет: до этой
+      // правки `logger.error` / `report()` выполнялись уже вне `try`, и
+      // бросок оттуда (например, `this.telemetry` недостижим на собранном
+      // руками сервисе без DI) улетел бы в транзакцию события — то самое
+      // вето, которое `emitInTx` снимает для `produce()`. Наблюдение не
+      // имеет права быть громче самого события, поэтому у него свой,
+      // отдельный `try/catch`.
+      try {
+        // Трасса, а не только текст: бросок может случиться ДО сборки
+        // payload, когда ни типа, ни получателя ещё нет, и тогда
+        // единственное, что называет сломавшегося производителя, — стек.
+        this.logger.error(
+          `Путь производителя уведомлений упал (событие не откатываем): ${
+            err instanceof Error ? (err.stack ?? err.message) : String(err)
+          }`,
+        )
+        this.report({
+          source: 'API',
+          // В телеметрию — короткая форма: дайджест уходит в отдельный
+          // репозиторий, и стек там не нужен, а `fingerprint` считается от
+          // сообщения.
+          message: `Notification producer failed — ${String(err)}`,
+          route: '/api/notifications',
+        })
+      } catch (handlerErr) {
+        // Дальше падать некуда: событие продолжается независимо от того,
+        // что случилось с самим наблюдением.
+        this.logger.error(
+          `Обработчик отказа уведомлений сам упал (наблюдение потеряно, событие не откатываем): ${
+            handlerErr instanceof Error ? handlerErr.message : String(handlerErr)
+          }`,
+        )
+      }
+    }
+  }
+
+  /**
+   * Телеметрия отказа — БЕЗ `await` (SR-L-4, security-review круг 2).
+   *
+   * Оба вызывающих работают из-под открытой транзакции события, а
+   * `TelemetryErrorsService` пишет через тот же пул (`max: 10`). Ждать вторую
+   * коннекцию, держа первую под транзакцией, — классическая форма
+   * pool-deadlock, стоит отказам пойти пачкой. Канал наблюдения не имеет права
+   * задержать событие, поэтому запись отпускается в фон, а её собственный
+   * отказ остаётся в журнале.
+   */
+  private report(payload: Parameters<TelemetryErrorsService['recordError']>[0]): void {
+    void this.telemetry.recordError(payload).catch((err: unknown) => {
+      this.logger.error(
+        `Телеметрия не приняла отказ уведомления: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    })
+  }
+
+  /**
+   * Пачка получателей одного события. Отдельный метод, а не цикл на стороне
+   * производителя, потому что «кому уходит» — свойство события, и держать его
+   * в одном месте дешевле, чем повторять цикл в пяти модулях.
+   *
+   * Границы отката (SR-H-2, круг 2). Пачка идёт ВНУТРИ того же savepoint, что
+   * и остальной путь производителя, — значит отказ базы на одном получателе
+   * уносит всю пачку, но не событие. Савепойнт на каждого получателя не
+   * заведён намеренно: получатели одного события отличаются только
+   * идентификатором, и payload, который Postgres отверг у одного, он отвергнет
+   * у всех — цена дробления (savepoint на строку) платилась бы всегда, а
+   * спасала бы только в случае, которого по построению не бывает.
+   */
+  async createManyInTx(tx: DrizzleTx, inputs: CreateNotificationInput[]): Promise<void> {
+    for (const input of inputs) {
+      await this.createInTx(tx, input)
+    }
   }
 
   /**
@@ -110,9 +366,164 @@ export class NotificationsService {
 
     const unreadCount = unreadRows[0]?.count ?? 0
 
+    // §7.4. Считается ЗДЕСЬ, а не на каждой целевой странице: страниц пять, а
+    // список один, и состояние объекта — свойство записи на момент чтения, а
+    // не свойство маршрута.
+    // Состояния приходят СПИСКОМ в порядке строк, а не картой по
+    // идентификатору: карта требовала бы запасного значения на случай
+    // «состояния нет», которого не бывает, — и это запасное значение было бы
+    // веткой, которую не исполняет ни один тест.
+    const states = await this.resolveSubjectStates(userId, rows)
+
     return {
-      items: rows.map((r) => this.mapNotification(r)),
+      items: rows.map((r, index) => this.mapNotification(r, states[index]!)),
       unreadCount,
+    }
+  }
+
+  /**
+   * Половина §7.4 с запросами. Решение принимает
+   * `notification-subject-resolver.ts` — здесь только по одному запросу на
+   * встреченный вид объекта плюс один на живость согласований.
+   *
+   * Транзакции читаются через `non_deleted_transactions` (VIEW), а не из
+   * `transactions`: этот модуль вне `finance/**`, и мягко удалённая транзакция
+   * для него не существует — ровно то, что нужно сказать про кнопку.
+   *
+   * ORCH-2 (fix-раунд 6, #664): запрос к `approvals` теперь читает и
+   * `status`, не только сам факт «строка не погашена» — `classifyApprovalRow`
+   * решает по нему, живая строка это или УЖЕ РЕШЁННАЯ этим же подтверждающим
+   * (см. doc-комментарий `computeSubjectState`).
+   *
+   * QA-H-1 (fix-раунд 8, #664): и читает их ПО ИДЕНТИФИКАТОРАМ СТРОК, а не по
+   * идентификатору объекта. Запрос по объекту возвращал живое поколение
+   * согласования на уведомление о ЛЮБОМ поколении — старое предложение доли
+   * оставалось активным рядом с новым, с другим процентом и рабочей кнопкой.
+   *
+   * SR-L-8 (security-review круг 6, #664, defense-in-depth). `userId` —
+   * получатель ВСЕХ строк `rows` (единственный вызывающий — `listForUser`,
+   * который уже скопил их по этому получателю), и запрос к `approvals`
+   * связывает найденную строку с НИМ через `approverUserId`, а не полагается
+   * на дисциплину производителей (сегодня она верна — см. security-review
+   * дельты — но структурный инвариант дешевле держать в запросе, чем в
+   * доверии). Строка чужого подтверждающего читается КАК ОТСУТСТВУЮЩАЯ.
+   */
+  private async resolveSubjectStates(
+    userId: string,
+    rows: (typeof notifications.$inferSelect)[],
+  ): Promise<SubjectResolution[]> {
+    const refs: SubjectRef[] = rows.map((r) => ({
+      userId: r.userId,
+      type: r.type,
+      subjectType: (r.subjectType as NotificationSubjectType | null) ?? null,
+      subjectId: r.subjectId ?? null,
+      // QA-H-1 (круг 3): уведомление опознаёт СТРОКУ согласования, а не её
+      // описание — см. `approvalIdFromData`.
+      approvalId: approvalIdFromData(r.data),
+    }))
+
+    const statesByType = new Map<NotificationSubjectType, Map<string, SubjectState>>()
+    for (const [subjectType, ids] of groupSubjectIds(refs)) {
+      statesByType.set(subjectType, await this.loadSubjectStates(subjectType, ids))
+    }
+
+    const liveApprovalIds = new Set<string>()
+    const decidedApprovalIds = new Set<string>()
+    const approvalIds = approvalIdsToCheck(refs)
+    if (approvalIds.length > 0) {
+      const live = await this.db.db
+        .select({ id: approvals.id, status: approvals.status })
+        .from(approvals)
+        .where(
+          and(
+            isNull(approvals.supersededAt),
+            inArray(approvals.id, approvalIds),
+            eq(approvals.approverUserId, userId),
+          ),
+        )
+      for (const row of live) {
+        const classification = classifyApprovalRow(row.status)
+        if (classification === 'live') liveApprovalIds.add(row.id)
+        else if (classification === 'decided') decidedApprovalIds.add(row.id)
+        // 'superseded' (CANCELLED, defensively — см. doc-комментарий
+        // `classifyApprovalRow`) не попадает ни в один набор: такую строку
+        // `computeSubjectState` разрешит как `approvalSuperseded`, тем же
+        // путём, что и полностью отсутствующая.
+      }
+    }
+
+    return refs.map((ref) =>
+      computeSubjectState(ref, statesByType, liveApprovalIds, decidedApprovalIds),
+    )
+  }
+
+  /**
+   * Состояние каждого запрошенного объекта. Отсутствие в карте — «объекта
+   * больше нет».
+   *
+   * QA-M-3 / QA-L-2 (manual-qa круг 2, #664): у проекта, команды и профиля
+   * есть колонка `archived_at`, и раньше запрос её не читал — архивированная
+   * строка находилась и выдавалась за живую. Здесь она читается ОДНИМ И ТЕМ
+   * ЖЕ способом для всех трёх видов: три копии одного условия расходятся
+   * молча, а один механизм — нет.
+   */
+  private async loadSubjectStates(
+    subjectType: NotificationSubjectType,
+    ids: string[],
+  ): Promise<Map<string, SubjectState>> {
+    const byArchivedAt = (rows: { id: string; archivedAt: Date | null }[]) =>
+      new Map<string, SubjectState>(
+        rows.map((r) => [r.id, r.archivedAt === null ? 'active' : 'archived']),
+      )
+    switch (subjectType) {
+      case 'PROJECT': {
+        const found = await this.db.db
+          .select({ id: projects.id, archivedAt: projects.archivedAt })
+          .from(projects)
+          .where(inArray(projects.id, ids))
+        return byArchivedAt(found)
+      }
+      case 'TEAM': {
+        const found = await this.db.db
+          .select({ id: teams.id, archivedAt: teams.archivedAt })
+          .from(teams)
+          .where(inArray(teams.id, ids))
+        return byArchivedAt(found)
+      }
+      case 'USER': {
+        const found = await this.db.db
+          .select({ id: users.id, archivedAt: users.archivedAt })
+          .from(users)
+          .where(inArray(users.id, ids))
+        return byArchivedAt(found)
+      }
+      case 'TRANSACTION': {
+        // У транзакции архива нет — есть мягкое удаление, и оно уже отрезано
+        // самим представлением `non_deleted_transactions`.
+        const found = await this.db.db
+          .select({ id: nonDeletedTransactions.id })
+          .from(nonDeletedTransactions)
+          .where(inArray(nonDeletedTransactions.id, ids))
+        return new Map<string, SubjectState>(found.map((r) => [r.id, 'active']))
+      }
+      default: {
+        // QA-M-1 (manual-qa круг 1, #664). `DOCUMENT_SIGN_REQUIRED` — единственный
+        // тип с этим видом объекта, и «объект существует» для НЕГО означает не
+        // «строка не удалена» (контракты в этой системе не удаляются —
+        // `EmployeeContractsService` только меняет `status`), а «контракт всё ещё
+        // ждёт подписи». Без этого условия кнопка «Подписать контракт» оставалась
+        // бы активной и после того, как сотрудник контракт уже подписал (или
+        // администратор откатил его обратно в черновик) — деградация (§7.4) для
+        // этого типа была фактически мертва: строка контракта живёт всегда, и
+        // общий запрос «строка есть?» был бы всегда `true`.
+        const found = await this.db.db
+          .select({ id: employeeContracts.id })
+          .from(employeeContracts)
+          .where(
+            and(inArray(employeeContracts.id, ids), eq(employeeContracts.status, 'READY_TO_SIGN')),
+          )
+        return new Map<string, SubjectState>(found.map((r) => [r.id, 'active']))
+      }
     }
   }
 
@@ -176,7 +587,58 @@ export class NotificationsService {
   // Mapping
   // -------------------------------------------------------------------------
 
-  private mapNotification(row: typeof notifications.$inferSelect): NotificationDto {
+  /**
+   * Четыре булевых поля DTO выводятся из ОДНОГО состояния и только здесь —
+   * поэтому «исчез и в архиве одновременно» (или «отозвано и уже решено
+   * разом» — ORCH-2, fix-раунд 6, #664) невозможно по построению, а не по
+   * договорённости.
+   *
+   * Таблицей, а не парой сравнений: пять состояний и их флаги видны рядом, и
+   * состояние, которого в таблице нет, роняет разбор сразу, а не превращается
+   * молча в «живой». Умолчания у параметра нет намеренно — вызывающий обязан
+   * сказать, о каком состоянии речь (гейт мутаций круга 5: подмена значения по
+   * умолчанию не меняла ни одного теста).
+   */
+  private static readonly SUBJECT_FLAGS: Record<
+    SubjectResolution,
+    {
+      missing: boolean
+      archived: boolean
+      approvalSuperseded: boolean
+      approvalDecided: boolean
+    }
+  > = {
+    active: { missing: false, archived: false, approvalSuperseded: false, approvalDecided: false },
+    archived: {
+      missing: false,
+      archived: true,
+      approvalSuperseded: false,
+      approvalDecided: false,
+    },
+    missing: { missing: true, archived: false, approvalSuperseded: false, approvalDecided: false },
+    approvalSuperseded: {
+      missing: false,
+      archived: false,
+      approvalSuperseded: true,
+      approvalDecided: false,
+    },
+    approvalDecided: {
+      missing: false,
+      archived: false,
+      approvalSuperseded: false,
+      approvalDecided: true,
+    },
+  }
+
+  private mapNotification(
+    row: typeof notifications.$inferSelect,
+    state: SubjectResolution,
+  ): NotificationDto {
+    // Явной проверки на `undefined` здесь НЕТ намеренно: таблица покрывает все
+    // пять состояний, `computeSubjectState` роняет разбор на любом другом, а
+    // обращение к полю отсутствующей записи упадёт само. Ветка «а вдруг» была
+    // бы веткой, которую не исполняет ни один тест (гейт мутаций круга 5).
+    const flags = NotificationsService.SUBJECT_FLAGS[state]
     return {
       id: row.id,
       type: row.type as NotificationType,
@@ -185,6 +647,14 @@ export class NotificationsService {
       link: row.link ?? null,
       readAt: row.readAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
+      subjectType: (row.subjectType as NotificationSubjectType | null) ?? null,
+      subjectId: row.subjectId ?? null,
+      secondaryId: row.secondaryId ?? null,
+      data: row.data ?? null,
+      subjectMissing: flags.missing,
+      subjectArchived: flags.archived,
+      approvalSuperseded: flags.approvalSuperseded,
+      approvalDecided: flags.approvalDecided,
     }
   }
 }

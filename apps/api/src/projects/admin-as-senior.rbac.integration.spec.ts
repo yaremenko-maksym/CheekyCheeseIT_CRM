@@ -33,6 +33,7 @@ import { LegendsService } from '../legends/legends.service'
 import { legends, projectMembers, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * Admin-as-Senior RBAC integration spec — real DB.
@@ -284,7 +285,8 @@ class TestDatabaseModule {}
           new HrAccessService(db),
           // task-project-draft-status: real ApprovalsService against the same
           // real DB — this is an integration spec, not a mock.
-          new ApprovalsService(db),
+          new ApprovalsService(db, makeNotificationsStub()),
+          makeNotificationsStub(),
         ),
       inject: [DatabaseService, ProjectAuditLogService, UsersService],
     },

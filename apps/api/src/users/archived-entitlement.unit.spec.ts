@@ -54,6 +54,7 @@ import {
 } from './archived-entitlement'
 import { UsersService } from './users.service'
 import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const ARCHIVED_AT = new Date('2026-01-31T00:00:00.000Z')
 
@@ -100,6 +101,7 @@ function makeService(db: never): UsersService {
     // task-pending-share fix-round-1 (CR-H-1): working stub, see the
     // sibling comment in archived-entitlement.realdb.integration.spec.ts.
     { getStatus: async () => 'NONE' as const } as never,
+    makeNotificationsStub(),
   )
 }
 

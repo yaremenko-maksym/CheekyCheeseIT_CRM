@@ -31,6 +31,7 @@ import type { InvoicesService } from '../../invoices/invoices.service'
 import type { DocumentsService } from '../../documents/documents.service'
 import type { NbuCurrencyService } from '../nbu-currency.service'
 import type { EtherscanService } from '../etherscan.service'
+import type { NotificationsService } from '../../notifications/notifications.service'
 
 export interface MakeTransactionsServiceOverrides {
   db: DatabaseService
@@ -38,6 +39,13 @@ export interface MakeTransactionsServiceOverrides {
   documentsService?: DocumentsService
   nbuCurrencyService?: NbuCurrencyService
   etherscanService?: EtherscanService
+  /**
+   * task-notification-types-producers (позиция 6). По умолчанию — заглушка,
+   * которая ничего не делает: подавляющее большинство спек про деньги, а не про
+   * уведомления, и им не должно быть дела до нового шва. Спеки, которые
+   * проверяют производителя, передают свой шпион.
+   */
+  notificationsService?: NotificationsService
 }
 
 /** Default no-op stub for InvoicesService — covers auto-create paths. */
@@ -96,6 +104,18 @@ function makeDefaultEtherscanStub(): EtherscanService {
   } as unknown as EtherscanService
 }
 
+/** Default no-op stub for NotificationsService — producer paths stay silent. */
+function makeDefaultNotificationsStub(): NotificationsService {
+  return {
+    create: vi.fn().mockResolvedValue(null),
+    createInTx: vi.fn().mockResolvedValue(null),
+    createManyInTx: vi.fn().mockResolvedValue(undefined),
+    emitInTx: vi.fn(async (tx: unknown, produce: (sp: unknown) => Promise<void>) => {
+      await produce(tx)
+    }),
+  } as unknown as NotificationsService
+}
+
 /**
  * Build a TransactionsService with the given overrides.
  * `db` is required; all other deps default to no-op stubs.
@@ -109,6 +129,7 @@ export function makeTransactionsService(
     documentsService = makeDefaultDocumentsStub(),
     nbuCurrencyService = makeDefaultNbuStub(),
     etherscanService = makeDefaultEtherscanStub(),
+    notificationsService = makeDefaultNotificationsStub(),
   } = overrides
 
   return new TransactionsService(
@@ -117,5 +138,6 @@ export function makeTransactionsService(
     documentsService,
     nbuCurrencyService,
     etherscanService,
+    notificationsService,
   )
 }

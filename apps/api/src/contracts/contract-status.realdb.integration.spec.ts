@@ -30,6 +30,7 @@ import { ContractTemplatesService } from './contract-templates.service'
 import { employeeContracts, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ---------------------------------------------------------------------------
 // Template IDs are resolved dynamically from the target DB in beforeAll.
@@ -95,7 +96,7 @@ describe.skipIf(!hasDatabaseUrl())('EmployeeContractsService.getMyStatus — rea
 
     // ContractTemplatesService is injected but NOT called by getMyStatus — pass a stub
     const stubTemplatesSvc = {} as ContractTemplatesService
-    ecSvc = new EmployeeContractsService(dbSvc, stubTemplatesSvc)
+    ecSvc = new EmployeeContractsService(dbSvc, stubTemplatesSvc, makeNotificationsStub())
 
     // Seed
     await db

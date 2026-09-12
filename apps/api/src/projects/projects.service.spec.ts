@@ -23,6 +23,8 @@ import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { projectFinanceSettings, projects } from '../database/schema'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -251,7 +253,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
   // ones below, which override it per-case. `approveInTx`/`rejectInTx` are
   // exercised by projects.pending-share.spec.ts, not here.
   const approvals = {
-    proposeInTx: vi.fn(async () => undefined),
+    proposeInTx: makeProposeInTxStub(),
     getStatus: vi.fn(async () => 'NONE' as const),
     // task-648-fix-round-2 (SR-H-2): `update()` no longer cancels anything —
     // withdrawing a proposal is explicit only. Kept on the mock (the
@@ -269,6 +271,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     usersService as never,
     new HrAccessService(db as never),
     approvals as never,
+    makeNotificationsStub(),
   )
 
   return {
@@ -839,7 +842,7 @@ function buildHrScopingHarness({
   // ones below, which override it per-case. `approveInTx`/`rejectInTx` are
   // exercised by projects.pending-share.spec.ts, not here.
   const approvals = {
-    proposeInTx: vi.fn(async () => undefined),
+    proposeInTx: makeProposeInTxStub(),
     getStatus: vi.fn(async () => 'NONE' as const),
     // task-648-fix-round-2 (SR-H-2): `update()` no longer cancels anything —
     // withdrawing a proposal is explicit only. Kept on the mock (the
@@ -857,6 +860,7 @@ function buildHrScopingHarness({
     usersService as never,
     new HrAccessService(db as never),
     approvals as never,
+    makeNotificationsStub(),
   )
 
   return {

@@ -17,6 +17,8 @@ import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { projectFinanceSettings, projects, transactions } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -229,8 +231,11 @@ function buildHarness(
   const projectAuditLogService = { record: vi.fn(async () => undefined) }
   const usersService = {}
   const approvals = {
-    proposeInTx: vi.fn(async () => {
+    proposeInTx: vi.fn(async (tx: unknown, input: { approverUserIds: string[] }) => {
       lockOrder.push('approvals:proposeInTx')
+      // QA-H-1 (круг 3): двойник отвечает тем же, чем Postgres, — строкой на
+      // каждого подтверждающего; производитель берёт из неё идентификатор.
+      return makeProposeInTxStub()(tx, input)
     }),
     approveInTx: vi.fn(async () => {
       lockOrder.push('approvals:approveInTx')
@@ -253,6 +258,7 @@ function buildHarness(
     usersService as never,
     new HrAccessService(db as never),
     approvals as never,
+    makeNotificationsStub(),
   )
 
   return {
@@ -437,11 +443,23 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
     )
     await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
     expect(spy).toHaveBeenCalledTimes(1)
-    expect(spy).toHaveBeenCalledWith({
+    // task-notification-types-producers (позиция 6): шов заполнен и получил
+    // `tx` первым аргументом — запись уведомления пишется в той же
+    // транзакции, что и предложение. Название проекта передаётся сюда
+    // вызывающим, у которого строка уже на руках.
+    //
+    // ORCH-3 (fix-round 7): `companyName` ('Acme Corp'), не `name` ('Acme
+    // Project') — оба поля намеренно различаются в `projectRow` выше, чтобы
+    // эта проверка ловила регресс на `project.name` (попап должен называть
+    // проект тем же словом, что и экран «Ждут решения», copy r2 на #667).
+    expect(spy).toHaveBeenCalledWith(h.txHandle, {
       subjectId: 'proj-1',
       approverUserId: 'senior-1',
       proposedPercent: 30,
       previousPercent: null,
+      projectName: 'Acme Corp',
+      // QA-H-1 (круг 3): идентификатор ОТКРЫВШЕЙСЯ строки согласования.
+      approvalId: 'approval-1',
     })
   })
 
@@ -509,6 +527,7 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
     )
     await h.service.update('proj-1', { seniorSharePercentOverride: 40 }, adminUser)
     expect(spy).toHaveBeenCalledWith(
+      h.txHandle,
       expect.objectContaining({ proposedPercent: 40, previousPercent: 25 }),
     )
   })

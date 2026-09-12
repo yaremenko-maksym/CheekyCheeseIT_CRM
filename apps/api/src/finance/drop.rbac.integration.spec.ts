@@ -39,6 +39,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 /**
  * DROP RBAC — real-backend integration spec (real DB, no mocks).
@@ -308,7 +309,8 @@ class TestDatabaseModule {}
     // call back into it.
     {
       provide: TeamsService,
-      useFactory: (db: DatabaseService) => new TeamsService(db, {} as never),
+      useFactory: (db: DatabaseService) =>
+        new TeamsService(db, {} as never, {} as never, makeNotificationsStub()),
       inject: [DatabaseService],
     },
     { provide: TEAMS_SERVICE, useExisting: TeamsService },
@@ -318,7 +320,14 @@ class TestDatabaseModule {}
     {
       provide: ProjectsService,
       useFactory: (db: DatabaseService) =>
-        new ProjectsService(db, {} as ProjectAuditLogService, {} as never, new HrAccessService(db)),
+        new ProjectsService(
+          db,
+          {} as ProjectAuditLogService,
+          {} as never,
+          new HrAccessService(db),
+          {} as never,
+          makeNotificationsStub(),
+        ),
       inject: [DatabaseService],
     },
     { provide: PROJECTS_SERVICE, useExisting: ProjectsService },

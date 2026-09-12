@@ -114,6 +114,7 @@ import type { S3Service } from '../documents/s3.service'
 import type { CompressionService } from '../documents/compression.service'
 import type { HrAccessService } from '../common/hr-access.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /** In-memory S3 fake — no real bucket needed for this spec. */
@@ -230,7 +231,7 @@ describe.skipIf(!hasDatabaseUrl())(
         {} as unknown as CompressionService,
         {} as unknown as HrAccessService,
       )
-      const notifications = new NotificationsService(dbService)
+      const notifications = new NotificationsService(dbService, makeTelemetryErrorsStub())
       const fakeConfig = {
         get: () => 'https://verify.test',
       } as unknown as ConfigService<Env, true>

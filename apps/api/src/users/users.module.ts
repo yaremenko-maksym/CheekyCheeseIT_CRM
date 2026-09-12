@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module'
 import { ContactModule } from '../contact/contact.module'
 import { DatabaseModule } from '../database/database.module'
 import { FinanceModule } from '../finance/finance.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { TeamsModule } from '../teams/teams.module'
 import { ProjectsModule } from '../projects/projects.module'
 import { TelemetryModule } from '../telemetry/telemetry.module'
@@ -24,6 +25,12 @@ import { UsersService } from './users.service'
     // forwardRef) — ApprovalsModule only depends on DatabaseModule, so there
     // is no cycle to break.
     ApprovalsModule,
+    // task-notification-types-producers (позиция 6): производитель «ждёт
+    // решения: новая доля» для базовой доли. Обычный импорт, как и
+    // ApprovalsModule выше и по той же причине: NotificationsModule — лист
+    // графа, он зависит только от DatabaseModule (см. его собственный
+    // комментарий о том, почему из него убран AuthModule).
+    NotificationsModule,
     forwardRef(() => AuthModule),
     forwardRef(() => FinanceModule),
     forwardRef(() => TeamsModule),

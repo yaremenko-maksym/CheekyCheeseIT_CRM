@@ -34,6 +34,7 @@ import { AuditLogService } from './audit-log.service'
 import { userAuditLog, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Test IDs — namespace acra- ─────────────────────────────────────────────
 const ACCOUNTANT_ID = '5b100003-0000-4000-aa00-000000000001'
@@ -97,6 +98,7 @@ describe.skipIf(!hasDatabaseUrl())(
         {} as never,
         {} as never,
         approvals,
+        makeNotificationsStub(),
       )
 
       await db

@@ -16,6 +16,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { CreateProjectDto, SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
@@ -80,13 +82,14 @@ function buildHarness() {
   const auditLog = { record: vi.fn(async () => undefined) }
   const usersService = {}
   const hrAccess = new HrAccessService(db as never)
-  const approvals = { proposeInTx: vi.fn(async () => undefined) }
+  const approvals = { proposeInTx: makeProposeInTxStub() }
   const service = new ProjectsService(
     db as never,
     auditLog as never,
     usersService as never,
     hrAccess,
     approvals as never,
+    makeNotificationsStub(),
   )
   return { service, approvals, getCapturedValues: () => capturedValues }
 }

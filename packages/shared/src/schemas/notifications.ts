@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NEW_NOTIFICATION_TYPES, notificationSubjectTypeSchema } from './notification-registry'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -17,6 +18,11 @@ export const notificationTypeSchema = z.enum([
   'INVOICE_SIGN_REQUIRED', // counterparty must click "Подписать"
   'INVOICE_SIGNED', // ADMIN tracking — counterparty completed the sign
   'VACANCY_APPLICATION', // task-vacancies-api — ADMIN/HR: new public vacancy application
+  // ── The ten types of the notifications-and-confirmations spec §7.2 ────────
+  // (position 6). Their human-visible text lives in `notification-registry.ts`
+  // — this enum only names the events. Order matches the spec's own grouping:
+  // informing, action-required, admin-facing.
+  ...NEW_NOTIFICATION_TYPES,
 ])
 export type NotificationType = z.infer<typeof notificationTypeSchema>
 
@@ -73,6 +79,67 @@ export const notificationSchema = z.object({
   link: safeNotificationLinkSchema,
   readAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
+  // ── §7.1: тип события и идентификаторы объектов ──────────────────────────
+  // `link` перестал быть источником правды для действия: кнопки и их подписи
+  // клиент выводит из `type` + `subjectType` + `subjectId`
+  // (`notification-registry.ts`). Колонка `link` осталась ради трёх старых
+  // типов и как запасной путь для типа, которого клиент ещё не знает.
+  subjectType: notificationSubjectTypeSchema.nullable(),
+  subjectId: z.string().uuid().nullable(),
+  /**
+   * Второй участник события, когда он есть: новый участник команды в
+   * `TEAM_NEW_MEMBER`, подтвердивший сотрудник в `APPROVAL_*`. Отдельной
+   * колонкой, а не внутри `data`, потому что по нему строится адресация, а не
+   * текст.
+   */
+  secondaryId: z.string().uuid().nullable(),
+  /**
+   * Факты события (суммы, проценты, снятые на момент события названия) — из
+   * них клиент строит подробную строку. Форма зависит от `type`; разбирается
+   * `notificationDataSchemaFor(type)`. `unknown`, а не конкретная форма,
+   * потому что запись типа, которого клиент ещё не знает, обязана доехать и
+   * отрендериться общим видом, а не уронить разбор всего списка.
+   */
+  data: z.unknown().nullable(),
+  /**
+   * §7.4: объекта, о котором уведомление, больше нет (удалён). Считается
+   * сервером при чтении списка — клиент рисует честное «Проект удалён»
+   * вместо кнопки в белый экран.
+   *
+   * ORCH-2 (fix-раунд 6, #664): раньше это поле ТАКЖЕ становилось `true`,
+   * когда объект жив, но согласование по нему погашено, — «Проект удалён»
+   * на живом проекте, чьё предложение просто отозвали. Эта ложь ушла в
+   * `approvalSuperseded` / `approvalDecided` ниже: у объекта и у согласования
+   * разная судьба, и подпись обязана называть ровно ту, что произошла.
+   */
+  subjectMissing: z.boolean(),
+  /**
+   * QA-M-3 / QA-L-2 (manual-qa круг 2, #664): объект цел, но убран в архив.
+   * Отдельное поле, а не разновидность `subjectMissing`, потому что разными
+   * будут и подпись, и правда: «Проект удалён» на архивном проекте — ложь, и
+   * именно на неё жаловался живой прогон. Все четыре булевых поля выводятся
+   * сервером из ОДНОГО состояния (`NotificationsService.mapNotification`),
+   * поэтому «исчез и в архиве сразу» (или «отозвано и решено сразу») не
+   * бывает.
+   */
+  subjectArchived: z.boolean(),
+  /**
+   * ORCH-2 (fix-раунд 6, #664). Объект (`subjectType`/`subjectId`) жив, но
+   * ЭТО КОНКРЕТНОЕ предложение по нему больше не актуально — отозвали,
+   * заменили новым, или погасил отказ соседа (см.
+   * `notification-subject-resolver.ts#computeSubjectState`). Применимо
+   * только к типам, привязанным к согласованию (`PROJECT_CONFIRM_REQUIRED`,
+   * `SHARE_CONFIRM_REQUIRED`) — у остальных всегда `false`.
+   */
+  approvalSuperseded: z.boolean(),
+  /**
+   * ORCH-2 (fix-раунд 6, #664). Как и `approvalSuperseded`, но подтверждающий
+   * УЖЕ ОТВЕТИЛ на это предложение (одобрил или отклонил), и генерацию никто
+   * не гасил — вопрос закрыт с его стороны, а не отозван у него из-под рук.
+   * Разница важна для подписи: «Решение уже принято», а не «Предложение
+   * отозвано».
+   */
+  approvalDecided: z.boolean(),
 })
 export type Notification = z.infer<typeof notificationSchema>
 

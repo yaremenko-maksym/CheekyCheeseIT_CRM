@@ -67,6 +67,7 @@ import { ProjectsService } from '../projects/projects.service'
 import type { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { HrAccessService } from '../common/hr-access.service'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ---------------------------------------------------------------------------
 // Personas — namespace bd5e0000-*
@@ -178,6 +179,8 @@ describe.skipIf(!hasDatabaseUrl())(
         {} as ProjectAuditLogService,
         {} as never,
         new HrAccessService(dbSvc),
+        {} as never,
+        makeNotificationsStub(),
       )
 
       for (const u of [ADMIN_1, ACCOUNTANT_1, SENIOR_1, DROP_1]) {

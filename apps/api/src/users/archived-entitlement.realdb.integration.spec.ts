@@ -72,6 +72,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Stable id namespace ae88- (archived-entitlement, backlog 88) ────────────
 const ADMIN_ID = 'ae880000-0000-4000-aa00-000000000001'
@@ -185,7 +186,12 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
     const auditLog = new AuditLogService(dbSvc)
     const teamAuditLogService = new TeamAuditLogService(dbSvc)
     const projectAuditLogService = new ProjectAuditLogService(dbSvc)
-    const teamsService = new TeamsService(dbSvc, {} as never, teamAuditLogService)
+    const teamsService = new TeamsService(
+      dbSvc,
+      {} as never,
+      teamAuditLogService,
+      makeNotificationsStub(),
+    )
     usersService = new UsersService(
       dbSvc,
       {} as never,
@@ -201,6 +207,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
       // share-visible-viewer scenario here doesn't reproduce this round's CI
       // failure.
       { getStatus: async () => 'NONE' as const } as never,
+      makeNotificationsStub(),
     )
     ;(teamsService as unknown as { usersService: UsersService }).usersService = usersService
     projectsService = new ProjectsService(
@@ -212,7 +219,8 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
       // mock — `createFromInterview` now proposes an approval, and this is a
       // real-DB spec; the double would just hide whether the real write
       // actually lands.
-      new ApprovalsService(dbSvc),
+      new ApprovalsService(dbSvc, makeNotificationsStub()),
+      makeNotificationsStub(),
     )
   })
 

@@ -642,6 +642,7 @@ jobs:
             apps/api/drizzle/manual/2026-09-02_user_email_invites.sql \
             apps/api/drizzle/manual/2026-09-03_pending_senior_share.sql \
             apps/api/drizzle/manual/2026-09-04_approval_status_cancelled.sql \
+            apps/api/drizzle/manual/2026-09-07_notification_subjects.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2137,6 +2138,25 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-09-04_approval_status_cancelled.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-09-04_approval_status_cancelled.sql
+
+      # task-notification-types-producers (position 6): five additive nullable
+      # columns + one PARTIAL unique index on `notifications`. Nothing reads
+      # them until this same PR's image ships, and nothing is backfilled — the
+      # three pre-existing notification types keep NULL everywhere and keep
+      # rendering from their stored `link`. Zero data risk. Same reasoning as
+      # the copy steps above for why this wiring is Coder-authored in this PR
+      # (CR-H-2, code-review PR #624: the migration and its wiring ship
+      # together or prod 500s the moment the image lands).
+      - name: Copy notification subject columns DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-09-07_notification_subjects.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-09-07_notification_subjects.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-09-07_notification_subjects.sql
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
@@ -3794,6 +3814,31 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$APPROVAL_STATUS_CANCELLED_FILE"
             echo "==> approval_status CANCELLED DDL applied successfully"
+
+            # ── task-notification-types-producers: notification subjects ──
+            # Five additive nullable columns + one PARTIAL unique index on
+            # `notifications`. No backfill, no rewrite: the three pre-existing
+            # notification types keep NULL in every new column, which is the
+            # correct historical fact. Idempotent: `ADD COLUMN IF NOT EXISTS`
+            # + `CREATE UNIQUE INDEX IF NOT EXISTS` — safe to re-run forever.
+            # Source: apps/api/drizzle/manual/2026-09-07_notification_subjects.sql
+            NOTIFICATION_SUBJECTS_FILE="/opt/crm/apps/api/drizzle/manual/2026-09-07_notification_subjects.sql"
+
+            if [ ! -f "$NOTIFICATION_SUBJECTS_FILE" ]; then
+              echo "ERROR: DDL file not found at $NOTIFICATION_SUBJECTS_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying notification subject columns DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$NOTIFICATION_SUBJECTS_FILE"
+            echo "==> notification subject columns DDL applied successfully"
 
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
             # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS

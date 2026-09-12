@@ -17,6 +17,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const SENIOR_ID = 'senior-invited'
 const OTHER_SENIOR_ID = 'senior-not-invited'
@@ -135,6 +136,7 @@ function buildService(invitedIds: Set<string>) {
     usersService as never,
     hrAccess,
     approvals as never,
+    makeNotificationsStub(),
   )
   return { service, approvals }
 }

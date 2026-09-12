@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { EmployeeContract } from '../database/schema'
 import { EmployeeContractsService } from './employee-contracts.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,7 @@ function makeService(
   const service = new EmployeeContractsService(
     db as unknown as Parameters<typeof EmployeeContractsService.prototype.constructor>[0],
     templates as unknown as Parameters<typeof EmployeeContractsService.prototype.constructor>[1],
+    makeNotificationsStub(),
   )
   return { service, db, templates }
 }

@@ -32,6 +32,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 const SENIOR_ID = 'senior-1'
 const DROP_ID = 'drop-1'
@@ -154,6 +155,7 @@ describe('ProjectsService — rejectionReason on findAll/findOne (task-project-s
       usersService as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
     return { service, approvals }
   }
@@ -244,6 +246,7 @@ describe('ProjectsService — rejectionReason on findAll/findOne (task-project-s
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
 
     const result = await service.findAll(sessionFor(ADMIN_ID, 'ADMIN'), { archived: false })
@@ -304,6 +307,7 @@ describe('ProjectsService — rejectionReason genuinely gated behind visibility,
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
     return { service, approvals }
   }
@@ -377,6 +381,7 @@ describe('ProjectsService.rejectDraft — rejectionReason on the response (task-
       usersService as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
     return { service }
   }
@@ -462,6 +467,7 @@ describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR
       usersService as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
     return { service, approvals }
   }
@@ -528,6 +534,7 @@ describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR
       {} as never,
       hrAccess,
       approvals as never,
+      makeNotificationsStub(),
     )
     return { service, approvals }
   }

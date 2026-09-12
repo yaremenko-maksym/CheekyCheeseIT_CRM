@@ -5,6 +5,7 @@ import type * as schema from '../database/schema'
 import type { SessionUser } from '@crm/shared'
 import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
+import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 type DrizzleDb = { db: NodePgDatabase<typeof schema> }
 
@@ -157,7 +158,7 @@ function makeDb({
 function makeService(db: ReturnType<typeof makeDb>): TeamsService {
   const usersService = {} as never
   const auditLog = new TeamAuditLogService(db as never)
-  return new TeamsService(db as never, usersService, auditLog)
+  return new TeamsService(db as never, usersService, auditLog, makeNotificationsStub())
 }
 
 // ---------------------------------------------------------------------------
@@ -302,8 +303,10 @@ describe('TeamsService.addMember', () => {
     const service = makeService(db)
     await expect(service.addMember('team-1', 'junior-1', adminUser)).resolves.toBeUndefined()
     // Re-add reactivates the existing row (leftAt -> null) — no fresh insert.
-    expect(db.db.update).toHaveBeenCalled()
-    expect(db.db.insert).not.toHaveBeenCalled()
+    // task-notification-types-producers (позиция 6): обе ветки добавления теперь
+    // идут внутри транзакции, поэтому и проверяем построители транзакции.
+    expect(db.db._tx.update).toHaveBeenCalled()
+    expect(db.db._tx.insert).not.toHaveBeenCalled()
   })
 
   it('throws NotFoundException for unknown user', async () => {

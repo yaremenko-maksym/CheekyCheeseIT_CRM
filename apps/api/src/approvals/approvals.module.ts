@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { DatabaseModule } from '../database/database.module'
+import { NotificationsModule } from '../notifications/notifications.module'
 import { ApprovalsService } from './approvals.service'
 
 /**
@@ -9,7 +10,9 @@ import { ApprovalsService } from './approvals.service'
  * от меня ждут" screen and any HTTP surface are position 7.
  */
 @Module({
-  imports: [DatabaseModule],
+  // task-notification-types-producers (позиция 6): основание согласований само
+  // сообщает автору предложения о решении сотрудника — один шов вместо шести.
+  imports: [DatabaseModule, NotificationsModule],
   providers: [ApprovalsService],
   exports: [ApprovalsService],
 })
