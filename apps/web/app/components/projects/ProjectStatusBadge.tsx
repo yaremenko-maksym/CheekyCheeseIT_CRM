@@ -117,8 +117,19 @@ export function ProjectStatusBadge({ project }: { project: ProjectStatusBadgeInp
     >
       {/* UX-M-1 / UX-L-1 (fix-round 2): unconditional, unlike ProjectRow.tsx's
           own width-gated Clock (`hidden … xl:inline`) — this badge lives
-          alone in the header's `flex-wrap` row, not a ~86px table column. */}
-      {Icon && <Icon className="h-3 w-3" aria-hidden data-testid={`${testId}-icon`} />}
+          alone in the header's `flex-wrap` row, not a ~86px table column.
+          UX-M-2 (fix-round 2, designer circle 2): `shrink-0` is required
+          here, not decorative — without it, the icon is a normal flex item
+          with a default `min-width: auto`, so when the header's own
+          `min-w-0` ancestor (`$projectId.tsx`) squeezes this badge below
+          its content width (measured live: 768px viewport wraps "Ждёт
+          решения" to two lines and narrows the badge to ~95px), flexbox
+          shrinks the icon's WIDTH only — its explicit `h-3` height survives
+          untouched because height is the cross axis in a row layout — and
+          the Clock renders as a squashed 8.2×12px oval instead of a 12×12
+          circle. `ProjectRow.tsx` already uses this exact same fix for the
+          same reason on its own icons (avatars, status dots) one file over. */}
+      {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden data-testid={`${testId}-icon`} />}
       {info.label}
     </Badge>
   )
