@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { ProjectApprovalActions } from '@/components/projects/ProjectApprovalActions'
 import { CancelPendingShareButton } from '@/components/pending-share/cancel-pending-share'
 import { SeniorShareApprovalActions } from '@/components/pending/SeniorShareApprovalActions'
-import type { PendingItem } from '@crm/shared'
+import type { PendingItem, PendingItemOrUnknown } from '@crm/shared'
 
 export type PendingZone = 'mine' | 'proposedByMe'
 
@@ -57,11 +57,15 @@ type MetaLine = [MetaSegment, ...MetaSegment[]]
  * That also removes the longest string on the screen as a class, rather than
  * making it break in a nicer place.
  */
-function metaLinesFor(item: PendingItem, zone: PendingZone): MetaLine[] {
+function metaLinesFor(item: PendingItemOrUnknown, zone: PendingZone): MetaLine[] {
   const rel: MetaSegment = { text: fmtRelative(item.createdAt), nowrap: true }
-  const waiting: MetaSegment | null = item.waitingFor?.length
-    ? { text: `Ждём: ${item.waitingFor.join(', ')}` }
-    : null
+  // `in` rather than a plain read: COPY-L-6's degraded row (`kind: 'UNKNOWN'`)
+  // carries no `waitingFor` at all — it carries nothing beyond the four
+  // structural fields.
+  const waiting: MetaSegment | null =
+    'waitingFor' in item && item.waitingFor?.length
+      ? { text: `Ждём: ${item.waitingFor.join(', ')}` }
+      : null
 
   if (item.kind === 'PROJECT_APPROVAL') {
     if (zone === 'proposedByMe') {
@@ -91,7 +95,14 @@ function metaLinesFor(item: PendingItem, zone: PendingZone): MetaLine[] {
       // the title now names them («Доля по умолчанию — Имя»). Printing
       // «Ждём: Имя» two lines below repeated the same name twice.
       const who = item.subjectType === 'USER' ? null : waiting
-      return [[lead], who ? [who, rel] : [rel]]
+      // COPY-M-8 (fix-round 4): the two-line split earns its keep at THREE
+      // segments (numbers + «Ждём: …» + давность), which is the case
+      // COPY-M-5 measured. Once COPY-M-4 removes «Ждём» there are two left,
+      // and keeping them apart gave давность — the least significant token
+      // on the screen — a whole line, in a zone whose neighbouring rows
+      // print their meta on one. At 320px nothing changes (the wrap moves
+      // to the « · » either way); at 768+ it is one line less per row.
+      return who ? [[lead], [who, rel]] : [[lead, rel]]
     }
     const lead: MetaSegment = {
       text:
@@ -108,7 +119,7 @@ function metaLinesFor(item: PendingItem, zone: PendingZone): MetaLine[] {
   return [[rel]]
 }
 
-function OpenLink({ item, primary }: { item: PendingItem; primary?: boolean }) {
+function OpenLink({ item, primary }: { item: PendingItemOrUnknown; primary?: boolean }) {
   const navigate = useNavigate()
   // Same try/catch + hard-navigation fallback as notifications-bell.tsx's
   // `handleItemClick` — `item.link` is server data, not a route literal
@@ -136,8 +147,8 @@ function OpenLink({ item, primary }: { item: PendingItem; primary?: boolean }) {
   )
 }
 
-function renderActions(item: PendingItem, zone: PendingZone, onActed: () => void) {
-  const has = (a: PendingItem['actions'][number]) => item.actions.includes(a)
+function renderActions(item: PendingItemOrUnknown, zone: PendingZone, onActed: () => void) {
+  const has = (a: PendingItemOrUnknown['actions'][number]) => item.actions.includes(a)
 
   if (item.kind === 'PROJECT_APPROVAL') {
     if (zone === 'mine' && has('approve') && has('reject')) {
@@ -189,7 +200,7 @@ function renderActions(item: PendingItem, zone: PendingZone, onActed: () => void
 }
 
 export interface PendingItemRowProps {
-  item: PendingItem
+  item: PendingItemOrUnknown
   zone: PendingZone
   onActed: () => void
 }
@@ -280,12 +291,27 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
             text-amber-300/70` and not the `tabular-nums font-medium` of a
             SHARE_APPROVAL row — here the percent is context for the
             decision, not the decision itself. */}
-        {item.kind === 'PROJECT_APPROVAL' && zone === 'mine' && item.viewerSharePercent != null && (
-          <p className="mt-0.5 text-[11px] text-amber-300/70">
-            Ваша доля: {item.viewerSharePercent}%
-            {item.seniorName ? ` · синьор: ${item.seniorName}` : ''}
-          </p>
-        )}
+        {/* COPY-M-12 (fix-round 4): and the NEGATIVE half of it, verbatim
+            from the widget as well. A missing figure gets a whole
+            replacement sentence rather than silence: these are the same rows
+            the widget lists, so a DROP reading «Доля неизвестна» on the
+            dashboard and nothing here — with «Подтвердить» under both — is
+            the blind «да» UX-H-1 exists to prevent, just in its other
+            branch. `line-clamp-2`, not `truncate`, for the same reason the
+            widget uses it (#646 fix-round 4: at 320px truncate cut off the
+            actionable half of the sentence). */}
+        {item.kind === 'PROJECT_APPROVAL' &&
+          zone === 'mine' &&
+          (item.viewerSharePercent != null ? (
+            <p className="mt-0.5 text-[11px] text-amber-300/70">
+              Ваша доля: {item.viewerSharePercent}%
+              {item.seniorName ? ` · синьор: ${item.seniorName}` : ''}
+            </p>
+          ) : (
+            <p className="mt-0.5 line-clamp-2 text-[11px] text-amber-300/70">
+              Доля неизвестна. Обновите страницу.
+            </p>
+          ))}
       </div>
       <div className="w-full sm:w-auto sm:flex-none">{renderActions(item, zone, onActed)}</div>
     </div>

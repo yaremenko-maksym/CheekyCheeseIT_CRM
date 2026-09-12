@@ -295,8 +295,13 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
+    // COPY-M-8 (fix-round 4): with «Ждём: …» gone there are two segments
+    // left, not three — and two segments share ONE line, exactly as the
+    // neighbouring row in the same zone prints them. The two-line split
+    // (COPY-M-5) exists to keep a THREE-segment meta from breaking
+    // mid-phrase, not to give давность a line of its own.
     expect(metaText()).not.toMatch(/ждём:|Ждём:/)
-    expect(metaLines()).toEqual(['Сейчас 26% → предложено 30%', expect.stringMatching(/^.+назад$/)])
+    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
   })
 
   it('multiple names in waitingFor are joined with ", "', () => {
@@ -594,7 +599,10 @@ describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does
     )
     expect(screen.getByText('Доля по умолчанию — Олексій Коваленко')).toBeInTheDocument()
     expect(metaText()).not.toMatch(/Ждём/)
-    expect(metaLines()).toEqual(['Сейчас 26% → предложено 30%', expect.stringMatching(/^.+назад$/)])
+    // COPY-M-8 (fix-round 4): and what is left collapses back onto ONE line —
+    // dropping «Ждём» left two segments, and a third text line for the
+    // relative time alone weighed a timestamp the same as the percentages.
+    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
   })
 
   it('a PROJECT-scope share in the same zone DOES keep «Ждём: …» — nothing else names the approver there', () => {
@@ -757,7 +765,7 @@ describe('PendingItemRow — UX-H-1: the share line on a PROJECT_APPROVAL row of
     expect(screen.queryByText(/синьор:/)).not.toBeInTheDocument()
   })
 
-  it('ADMIN (viewerSharePercent null) gets no share line at all — they are party to neither side', () => {
+  it('COPY-M-12: an unknown share says so — the same whole sentence the widget shows, never silence next to a «Подтвердить»', () => {
     render(
       <PendingItemRow
         item={item({ proposedBy: 'Maksym Yaremenko', viewerSharePercent: null })}
@@ -765,6 +773,12 @@ describe('PendingItemRow — UX-H-1: the share line on a PROJECT_APPROVAL row of
         onActed={vi.fn()}
       />,
     )
+    // Verbatim `PendingProjectApprovalsPanel`'s own `else` branch: these are
+    // literally the same rows (the widget is `mine` filtered to
+    // PROJECT_APPROVAL), so a DROP must not read «Доля неизвестна» on the
+    // dashboard and nothing at all one click away, with the same
+    // «Подтвердить» under both.
+    expect(screen.getByText('Доля неизвестна. Обновите страницу.')).toBeInTheDocument()
     expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
   })
 

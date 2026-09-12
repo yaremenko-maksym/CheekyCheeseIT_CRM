@@ -241,3 +241,73 @@ export const pendingResponseSchema = z.object({
   proposedByMe: z.array(pendingItemSchema),
 })
 export type PendingResponse = z.infer<typeof pendingResponseSchema>
+
+// ---------------------------------------------------------------------------
+// Client-side leniency — COPY-L-6 (PR #667 fix-round 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * COPY-L-6. Two decisions of fix-round 3 pulled against each other: CR-M-1
+ * made the client `.parse()` the response (right — it is what strips a
+ * future server-side leak at this boundary), while COPY-L-4 gave an
+ * unrecognised `kind` an honest title («Запрос на действие»). Together they
+ * meant the fallback text could never render: a discriminated union rejects
+ * an unknown `kind` outright, so a deployed API one version ahead of a
+ * cached bundle put the WHOLE screen into its error state — «Не удалось
+ * загрузить, что ждёт решения», while everything but one row had in fact
+ * loaded. That is the exact deploy-window scenario the design spec's §6.5
+ * wrote the degradation for.
+ *
+ * The resolution keeps both halves honest:
+ *   - the server keeps `pendingResponseSchema` — STRICT. It only ever emits
+ *     kinds it builds itself, so a stray `kind` there is a bug, not a
+ *     version skew.
+ *   - the client reads `pendingResponseClientSchema` — an unknown `kind`
+ *     becomes ONE degraded row among working ones.
+ *
+ * `kind` is normalised to the literal `'UNKNOWN'` rather than passed
+ * through, so the union stays discriminable (a `z.string()` discriminant
+ * would silently defeat narrowing on every `item.kind === 'PROJECT_APPROVAL'`
+ * in the app). Everything except the structural minimum is dropped: a
+ * percent, a name or an `actions` entry belonging to a flow this bundle has
+ * never heard of has no honest rendering here, and «чувствительные поля не
+ * пропускать» is the safer default at a boundary whose whole purpose is to
+ * stop unvalidated JSON. `title` is dropped with them — it is written for a
+ * UI this build does not have, and the row's own fallback («Запрос на
+ * действие») is the honest thing to show instead.
+ */
+const KNOWN_PENDING_KINDS: readonly string[] = pendingItemKindSchema.options
+
+export const unknownPendingItemSchema = z
+  .object({
+    /** Refined so a KNOWN kind can never fall down here: a malformed
+     * PROJECT_APPROVAL must still fail the parse loudly (CR-M-1), not
+     * quietly become a nameless row. */
+    kind: z.string().refine((k) => !KNOWN_PENDING_KINDS.includes(k)),
+    /** The minimum a row needs to exist at all: a React key / testid… */
+    subjectId: z.string().uuid(),
+    /** …and the one fact every row's meta line prints. */
+    createdAt: z.string().datetime(),
+  })
+  .transform((row) => ({
+    kind: 'UNKNOWN' as const,
+    subjectId: row.subjectId,
+    createdAt: row.createdAt,
+    /** Empty on purpose — `PendingItemRow` renders «Запрос на действие». */
+    title: '',
+    /** No buttons: this build cannot know what any of them would do. */
+    actions: [] as PendingItemAction[],
+    link: '',
+  }))
+
+export type UnknownPendingItem = z.infer<typeof unknownPendingItemSchema>
+
+/** What every `/pending` consumer in `apps/web` actually holds. */
+export const pendingItemClientSchema = z.union([pendingItemSchema, unknownPendingItemSchema])
+export type PendingItemOrUnknown = z.infer<typeof pendingItemClientSchema>
+
+export const pendingResponseClientSchema = z.object({
+  mine: z.array(pendingItemClientSchema),
+  proposedByMe: z.array(pendingItemClientSchema),
+})
+export type PendingResponseClient = z.infer<typeof pendingResponseClientSchema>

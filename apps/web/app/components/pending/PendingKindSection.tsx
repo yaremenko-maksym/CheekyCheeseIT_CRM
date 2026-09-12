@@ -1,14 +1,14 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { LucideIcon } from 'lucide-react'
 import { PendingItemRow, type PendingZone } from '@/components/pending/PendingItemRow'
-import type { PendingItem } from '@crm/shared'
+import type { PendingItemOrUnknown } from '@crm/shared'
 
 export interface PendingKindSectionProps {
   title: string
   icon: LucideIcon
-  items: PendingItem[]
+  items: PendingItemOrUnknown[]
   zone: PendingZone
-  onActed: (item: PendingItem) => void
+  onActed: (item: PendingItemOrUnknown) => void
 }
 
 /**

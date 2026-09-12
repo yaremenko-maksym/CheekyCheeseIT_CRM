@@ -218,6 +218,56 @@ describe('usePendingItems — SR-M-2: «не спрашивали» is not «н�
   })
 })
 
+describe('usePendingItems — COPY-L-6: an unknown kind degrades to one row, it does not fail the screen', () => {
+  const knownRow = {
+    kind: 'PROJECT_APPROVAL',
+    approvalId: '00000000-0000-4000-8000-0000000000a1',
+    subjectType: 'PROJECT',
+    subjectId: '00000000-0000-4000-8000-0000000000b1',
+    title: 'Acme',
+    viewerSharePercent: null,
+    seniorName: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    actions: ['approve', 'reject'],
+    link: '/projects/00000000-0000-4000-8000-0000000000b1',
+  }
+
+  it('a row of a kind this bundle has never heard of arrives stripped, next to the rows that still work', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        mine: [
+          knownRow,
+          {
+            kind: 'PAYOUT_TO_CONFIRM',
+            subjectId: '00000000-0000-4000-8000-0000000000c1',
+            title: 'Выплата на подтверждение',
+            createdAt: '2026-01-02T00:00:00.000Z',
+            actions: ['approve'],
+            link: '/finance/x',
+            amountUsd: 1200,
+          },
+        ],
+        proposedByMe: [],
+      },
+    })
+
+    const { result } = renderHook(() => usePendingItems(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.isError).toBe(false)
+    expect(result.current.mine).toHaveLength(2)
+    expect(result.current.mine[0]).toEqual(knownRow)
+    expect(result.current.mine[1]).toEqual({
+      kind: 'UNKNOWN',
+      subjectId: '00000000-0000-4000-8000-0000000000c1',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      title: '',
+      actions: [],
+      link: '',
+    })
+  })
+})
+
 describe('usePendingItems — CR-M-1: the response is parsed, not merely typed', () => {
   it('a response whose shape does not match `pendingResponseSchema` fails the query instead of reaching the UI', async () => {
     mockGet.mockResolvedValue({

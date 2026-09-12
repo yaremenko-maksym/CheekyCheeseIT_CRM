@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/axios'
 import { useOnboardingGate } from '@/context/onboarding'
-import { pendingResponseSchema } from '@crm/shared'
+import { pendingResponseClientSchema } from '@crm/shared'
 
 /**
  * task-pending-screen (position 7c). Client side of `GET /pending` — the one
@@ -49,6 +49,16 @@ export const PENDING_QUERY_KEY = ['pending'] as const
  * the guard lets through anyway, reads `isComplete: true` with no extra
  * round-trip (`useOnboardingGate` short-circuits on role).
  *
+ * COPY-L-6 (fix-round 4): the parse is the CLIENT one
+ * (`pendingResponseClientSchema`), which differs from the server's strict
+ * schema in exactly one way — a row whose `kind` this bundle does not know
+ * becomes one stripped row («Запрос на действие», no buttons) instead of
+ * rejecting the whole response. Without it, CR-M-1's parse and COPY-L-4's
+ * fallback text contradicted each other: a deployed API one version ahead of
+ * a cached bundle put the entire screen into its error state, claiming
+ * nothing loaded when only one row was new. See the schema's own doc for why
+ * a known kind with a malformed payload still fails loudly.
+ *
  * CR-M-1 (fix-round 3): the response is `.parse()`d, like ~9 other hooks in
  * this folder. The union in `pending.ts` is what makes a future server-side
  * leak "get silently stripped at this exact boundary instead of reaching the
@@ -61,7 +71,8 @@ export function usePendingItems() {
   const gate = useOnboardingGate()
   const query = useQuery({
     queryKey: PENDING_QUERY_KEY,
-    queryFn: () => api.get<unknown>('/pending').then((r) => pendingResponseSchema.parse(r.data)),
+    queryFn: () =>
+      api.get<unknown>('/pending').then((r) => pendingResponseClientSchema.parse(r.data)),
     enabled: gate.isComplete,
   })
   const mine = query.data?.mine ?? []

@@ -16,7 +16,12 @@
  * OWN object shape — the tests below assert the shape, not just the values.
  */
 import { describe, expect, it } from 'vitest'
-import { pendingItemKindSchema, pendingItemSchema, pendingResponseSchema } from './pending'
+import {
+  pendingItemKindSchema,
+  pendingItemSchema,
+  pendingResponseClientSchema,
+  pendingResponseSchema,
+} from './pending'
 
 const uuid1 = 'a0000000-0000-4000-8000-000000000001'
 const uuid2 = 'a0000000-0000-4000-8000-000000000002'
@@ -255,5 +260,78 @@ describe('pendingResponseSchema', () => {
 
   it('rejects a response missing proposedByMe — never omitted, task file: "одна форма ответа"', () => {
     expect(() => pendingResponseSchema.parse({ mine: [] })).toThrow()
+  })
+})
+
+describe('COPY-L-6 (PR #667 fix-round 4): an unknown `kind` degrades, it does not take the screen down', () => {
+  const futureItem = {
+    kind: 'PAYOUT_TO_CONFIRM',
+    subjectId: uuid2,
+    title: 'Выплата на подтверждение',
+    createdAt,
+    actions: ['approve', 'open'],
+    link: '/finance/whatever',
+    // The fields a future kind might legitimately carry — and which must NOT
+    // reach a row that has no idea what they mean.
+    pendingPercent: 30,
+    viewerSharePercent: 9,
+    seniorName: 'Oleksiy Kovalenko',
+    amountUsd: 1200,
+  }
+
+  it('the STRICT response schema still rejects it — the server only ever emits kinds it builds itself', () => {
+    expect(pendingResponseSchema.safeParse({ mine: [futureItem], proposedByMe: [] }).success).toBe(
+      false,
+    )
+  })
+
+  it('the CLIENT schema keeps every known row and degrades only the unknown one', () => {
+    const parsed = pendingResponseClientSchema.parse({
+      mine: [projectApprovalItem, futureItem, contractItem],
+      proposedByMe: [],
+    })
+
+    expect(parsed.mine).toHaveLength(3)
+    expect(parsed.mine[0]).toEqual(projectApprovalItem)
+    expect(parsed.mine[2]).toEqual(contractItem)
+    expect(parsed.mine[1]).toEqual({
+      kind: 'UNKNOWN',
+      subjectId: uuid2,
+      createdAt,
+      title: '',
+      actions: [],
+      link: '',
+    })
+  })
+
+  it('carries NOTHING across but the structural minimum — no percent, no name, no action, no link', () => {
+    const parsed = pendingResponseClientSchema.parse({ mine: [futureItem], proposedByMe: [] })
+    const degraded = parsed.mine[0]
+
+    expect(JSON.stringify(degraded)).not.toMatch(/30|1200|Kovalenko|finance/)
+    expect(degraded?.actions).toEqual([])
+  })
+
+  it('a row that lacks even the structural minimum fails the parse — a row with no id and no date cannot be rendered at all', () => {
+    expect(
+      pendingResponseClientSchema.safeParse({
+        mine: [projectApprovalItem, { kind: 'PAYOUT_TO_CONFIRM' }],
+        proposedByMe: [],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('a MALFORMED row of a KNOWN kind still fails — degradation is for kinds we do not know, not for payloads we do', () => {
+    expect(
+      pendingResponseClientSchema.safeParse({
+        mine: [{ ...projectApprovalItem, viewerSharePercent: 'девять' }],
+        proposedByMe: [],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('degrades in `proposedByMe` too — the observer zone reads the same payload', () => {
+    const parsed = pendingResponseClientSchema.parse({ mine: [], proposedByMe: [futureItem] })
+    expect(parsed.proposedByMe[0]?.kind).toBe('UNKNOWN')
   })
 })

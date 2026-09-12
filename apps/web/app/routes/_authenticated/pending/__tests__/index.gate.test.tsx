@@ -120,6 +120,52 @@ describe('/pending — the screen does not answer before it has asked', () => {
     expect(screen.getByText('Ничего не ждёт вашего решения')).toBeInTheDocument()
   })
 
+  it('COPY-L-6: a row of an unknown kind degrades to «Запрос на действие» without taking the working rows down', async () => {
+    routeGet({
+      onboarding: () => Promise.resolve({ data: COMPLETE_STATUS }),
+      pending: () =>
+        Promise.resolve({
+          data: {
+            mine: [
+              {
+                kind: 'PROJECT_APPROVAL',
+                approvalId: '00000000-0000-4000-8000-0000000000a1',
+                subjectType: 'PROJECT',
+                subjectId: '00000000-0000-4000-8000-0000000000b1',
+                title: 'TechCorp AI',
+                viewerSharePercent: null,
+                seniorName: null,
+                createdAt: '2026-01-01T00:00:00.000Z',
+                actions: ['open'],
+                link: '/projects/00000000-0000-4000-8000-0000000000b1',
+              },
+              {
+                kind: 'PAYOUT_TO_CONFIRM',
+                subjectId: '00000000-0000-4000-8000-0000000000c1',
+                title: 'Выплата 1200$ на подтверждение',
+                createdAt: '2026-01-02T00:00:00.000Z',
+                actions: ['approve', 'open'],
+                link: '/finance/x',
+              },
+            ],
+            proposedByMe: [],
+          },
+        }),
+    })
+    renderPage()
+
+    // The working row is untouched…
+    expect(await screen.findByText('TechCorp AI')).toBeInTheDocument()
+    // …and the unknown one is a single honest row under «Другое», with no
+    // buttons and none of its own payload showing through.
+    expect(screen.getByText('Запрос на действие')).toBeInTheDocument()
+    expect(screen.queryByText(/1200/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('pending-item-open-00000000-0000-4000-8000-0000000000c1'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pending-error')).not.toBeInTheDocument()
+  })
+
   it('ADMIN skips the gate entirely (no status round-trip) and still reaches the empty state', async () => {
     mockRole = 'ADMIN'
     routeGet({ onboarding: () => Promise.reject(new Error('never asked')) })

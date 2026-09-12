@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PendingKindSection } from '@/components/pending/PendingKindSection'
 import type { PendingZone } from '@/components/pending/PendingItemRow'
-import type { PendingItem, PendingItemKind } from '@crm/shared'
+import type { PendingItemKind, PendingItemOrUnknown } from '@crm/shared'
 import { usePendingItems } from '@/hooks/use-pending-items'
 
 export const Route = createFileRoute('/_authenticated/pending/')({
@@ -26,7 +26,7 @@ export const Route = createFileRoute('/_authenticated/pending/')({
 /** Composite key — `subjectId` alone isn't unique across kinds (a project id
  * and a PROJECT_SENIOR_SHARE subjectId are different id spaces, but nothing
  * stops them colliding by chance). */
-function itemKey(item: PendingItem): string {
+function itemKey(item: PendingItemOrUnknown): string {
   return `${item.kind}:${item.subjectId}`
 }
 
@@ -45,7 +45,7 @@ const OTHER_SECTION_TITLE = 'Другое'
 
 /** Which section a row is rendered in — the same grouping the JSX below
  * applies, extracted so the focus chain asks the question once. */
-function sectionTitleOf(item: PendingItem): string {
+function sectionTitleOf(item: PendingItemOrUnknown): string {
   return KIND_SECTIONS.find((s) => s.kind === item.kind)?.title ?? OTHER_SECTION_TITLE
 }
 
@@ -65,8 +65,8 @@ function sectionTitleOf(item: PendingItem): string {
  * deliberate one.)
  */
 export function focusSelectorsAfterActing(
-  section: PendingItem[],
-  acted: PendingItem,
+  section: PendingItemOrUnknown[],
+  acted: PendingItemOrUnknown,
   zone: PendingZone,
 ): string[] {
   const index = section.findIndex((i) => itemKey(i) === itemKey(acted))
@@ -108,7 +108,7 @@ export function PendingPage() {
   const visibleMine = mine.filter((i) => !dismissed.has(itemKey(i)))
   const visibleOther = proposedByMe.filter((i) => !dismissed.has(itemKey(i)))
 
-  function handleActed(item: PendingItem, zone: PendingZone) {
+  function handleActed(item: PendingItemOrUnknown, zone: PendingZone) {
     const list = zone === 'mine' ? visibleMine : visibleOther
     const section = list.filter((i) => sectionTitleOf(i) === sectionTitleOf(item))
     setFocusSelectors(focusSelectorsAfterActing(section, item, zone))
