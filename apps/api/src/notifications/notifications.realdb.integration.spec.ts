@@ -375,7 +375,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
      * не пробивать `OnboardingGuard` — вместо этого честная деградация ПОСЛЕ
      * подписи, тем же механизмом, что и у остальных девяти типов (§7.4).
      */
-    it('контракт подписан → «Контракт подписан», не «Контракт удалён», кнопка недоступна', async () => {
+    it('контракт подписан → «Подпись больше не требуется», не «Контракт удалён», кнопка недоступна', async () => {
       await db.insert(employeeContracts).values({
         id: CONTRACT_ID,
         userId: NEWCOMER_ID,
@@ -418,7 +418,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       expect(signed).toBeDefined()
       expect(signed?.subjectMissing).toBe(true)
       expect(renderNotification(signed as RenderableNotification).actions).toEqual([
-        { label: 'Контракт подписан', href: null, disabled: true },
+        { label: 'Подпись больше не требуется', href: null, disabled: true },
       ])
 
       // Подчистить за собой: следующий прогон этого же файла не должен

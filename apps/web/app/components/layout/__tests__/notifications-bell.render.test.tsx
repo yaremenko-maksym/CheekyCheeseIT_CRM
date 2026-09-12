@@ -138,7 +138,7 @@ describe('попап рисует строку по типу', () => {
 // ---------------------------------------------------------------------------
 
 describe('DOCUMENT_SIGN_REQUIRED — честная деградация после подписи (QA-M-1)', () => {
-  it('подписанный контракт: подпись «Контракт подписан», кнопка недоступна', async () => {
+  it('подпись больше не нужна: честная подпись вместо утверждения о факте, кнопка недоступна', async () => {
     items = [
       makeNotification({
         type: 'DOCUMENT_SIGN_REQUIRED',
@@ -150,7 +150,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Контракт подписан',
+      'Подпись больше не требуется',
     )
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).not.toHaveBeenCalled()
@@ -231,7 +231,7 @@ describe('деталь с суммой набрана моноширинными
 
     const detail = screen.getByTestId(`notification-item-${UUID}-detail`)
     expect(detail.className).toContain('whitespace-pre-wrap')
-    expect(detail.textContent).toBe('Иван Петров — проект Acme\n«Не тот проект»')
+    expect(detail.textContent).toBe('«Не тот проект»\nИван Петров — проект Acme')
   })
 })
 

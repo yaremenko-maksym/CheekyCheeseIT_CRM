@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   ACTION_REQUIRED_NOTIFICATION_TYPES,
+  NOTIFICATION_DETAIL_LINES,
+  NOTIFICATION_DETAIL_LINE_CHARS,
   NOTIFICATION_TITLES,
   describeNotification,
   notificationActions,
@@ -105,7 +107,7 @@ describe('describeNotification — подробности из данных, н�
   // COPY-H-6 + COPY-M-3: причина — отдельной строкой (не приклеена к имени
   // проекта после двоеточия) и в кавычках-«ёлочках» (слова человека, не
   // системы).
-  it('отклонение несёт причину отдельной строкой, в кавычках', () => {
+  it('отклонение несёт причину ПЕРВОЙ строкой, в кавычках (COPY-M-7 / UX-M-2)', () => {
     const data = notificationDataSchemaFor('APPROVAL_REJECTED').parse({
       approverName: 'Иван Петров',
       subjectTitle: 'Acme',
@@ -113,7 +115,7 @@ describe('describeNotification — подробности из данных, н�
       reasonPreview: 'Доля не та',
     })
     expect(describeNotification('APPROVAL_REJECTED', data)).toBe(
-      'Иван Петров — проект Acme\n«Доля не та»',
+      '«Доля не та»\nИван Петров — проект Acme',
     )
   })
 })
@@ -220,8 +222,9 @@ describe('describeNotification — все ветки, чтобы гейт мут
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReasonPreview: 'Нет чека' },
-      // COPY-M-3: превью причины — в кавычках-«ёлочках».
-      'Доход отклонён: 10,00 USD — «Нет чека»',
+      // COPY-M-3: превью причины — в кавычках-«ёлочках». COPY-M-7 / UX-M-2:
+      // причина — ДО суммы, иначе закрывающая кавычка уезжает за `line-clamp-2`.
+      'Доход отклонён: «Нет чека» — 10,00 USD',
     ],
     ['TEAM_MEMBER_ADDED', { teamName: 'Alpha' }, 'Команда Alpha'],
     ['PROJECT_MEMBER_ADDED', { projectName: 'Acme' }, 'Проект Acme'],
@@ -500,7 +503,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
         data: { documentTitle: 'Ваш контракт с компанией' },
         subjectMissing: true,
       }),
-    ).toEqual([{ label: 'Контракт подписан', href: null, disabled: true }])
+    ).toEqual([{ label: 'Подпись больше не требуется', href: null, disabled: true }])
   })
 
   it('контракт ещё ждёт подписи — кнопка ведёт в визард, как и раньше', () => {
@@ -705,7 +708,7 @@ describe('SR-H-1 — потолки формы совпадают с потол�
     ).toBe('Иван — проект Acme')
   })
 
-  it('отказ с превью причины выносит её отдельной строкой в кавычках (COPY-H-6/COPY-M-3)', () => {
+  it('отказ с превью причины ставит её ПЕРВОЙ строкой в кавычках (COPY-M-7)', () => {
     expect(
       describeNotification('APPROVAL_REJECTED', {
         approverName: 'Иван',
@@ -713,6 +716,127 @@ describe('SR-H-1 — потолки формы совпадают с потол�
         subjectTitle: 'Acme',
         reasonPreview: 'Доля не та',
       }),
-    ).toBe('Иван — проект Acme\n«Доля не та»')
+    ).toBe('«Доля не та»\nИван — проект Acme')
+  })
+})
+
+/**
+ * COPY-M-7 (copy-review круг 2) + UX-M-2 (design-review круг 2), #664.
+ *
+ * Обе находки — про одно: причина отказа, ради которой круг 1 заводил кавычки
+ * и перенос строки, до читателя не доезжала. Попап показывает ДВЕ строки
+ * (`line-clamp-2`) по ~30 знаков — а «кто — по какому объекту» съедал обе,
+ * и причина жила на третьей, которой нет. У второго типа с цитатой
+ * (`TRANSACTION_STATUS_CHANGED`) хвост клипа срезал закрывающую «ёлочку»,
+ * превращая чужую речь в обрыв строки.
+ *
+ * Поэтому тесты здесь проверяют не «строка равна такой-то», а ЧТО ИЗ НЕЁ
+ * ВИДНО: `visibleInPopup` повторяет арифметику клипа, которой мерил дизайнер.
+ */
+function visibleInPopup(detail: string): string {
+  const out: string[] = []
+  for (const paragraph of detail.split('\n')) {
+    const points = Array.from(paragraph)
+    const rows = Math.max(1, Math.ceil(points.length / NOTIFICATION_DETAIL_LINE_CHARS))
+    for (let row = 0; row < rows; row++) {
+      if (out.length === NOTIFICATION_DETAIL_LINES) return out.join('')
+      out.push(
+        points
+          .slice(row * NOTIFICATION_DETAIL_LINE_CHARS, (row + 1) * NOTIFICATION_DETAIL_LINE_CHARS)
+          .join(''),
+      )
+    }
+  }
+  return out.join('')
+}
+
+describe('цитата причины доезжает до читателя целиком (COPY-M-7 / UX-M-2)', () => {
+  const longReason = notificationTextPreview(
+    'дублирует существующий проект того же клиента, я такой уже веду с марта, ' +
+      'давайте обсудим на созвоне в четверг и решим, кто из нас его забирает',
+  )
+
+  it('отказ по доле: видна причина, а не одно только имя согласующего', () => {
+    const detail = describeNotification('APPROVAL_REJECTED', {
+      approverName: 'Иван Петров',
+      subjectKind: 'PROJECT_SHARE',
+      subjectTitle: 'Acme Corporation',
+      reasonPreview: longReason,
+    })
+    const visible = visibleInPopup(detail)
+    expect(visible.startsWith('«')).toBe(true)
+    expect(visible).toContain('дублирует существующий')
+    expect(visible).toContain('Иван Петров')
+  })
+
+  it('отказ по доле: закрывающая «ёлочка» видна, многоточие — ВНУТРИ кавычек', () => {
+    const detail = describeNotification('APPROVAL_REJECTED', {
+      approverName: 'Иван Петров',
+      subjectKind: 'PROJECT_SHARE',
+      subjectTitle: 'Acme Corporation',
+      reasonPreview: longReason,
+    })
+    const quoteLine = detail.split('\n')[0]!
+    expect(quoteLine.endsWith('…»')).toBe(true)
+    expect(Array.from(quoteLine).length).toBeLessThanOrEqual(NOTIFICATION_DETAIL_LINE_CHARS)
+    expect(visibleInPopup(detail)).toContain(quoteLine)
+  })
+
+  it('отказ по доходу: причина ДО суммы, обе «ёлочки» в видимой части', () => {
+    const data = notificationDataSchemaFor('TRANSACTION_STATUS_CHANGED').parse({
+      amount: '600.000000',
+      currency: 'USDT',
+      status: 'REJECTED',
+      rejectionReasonPreview: notificationTextPreview(
+        'Не тот проект, я заявил по другому — переоформите на FinTrack, пожалуйста',
+      ),
+    })
+    const visible = visibleInPopup(describeNotification('TRANSACTION_STATUS_CHANGED', data))
+    expect(visible).toContain('«')
+    expect(visible).toContain('»')
+    expect(visible).toContain('600,00 USDT')
+  })
+
+  it('короткая причина не усекается вовсе — многоточия там взяться неоткуда', () => {
+    const detail = describeNotification('APPROVAL_REJECTED', {
+      approverName: 'Иван',
+      subjectKind: 'PROJECT',
+      subjectTitle: 'Acme',
+      reasonPreview: 'Не тот клиент',
+    })
+    expect(detail).toBe('«Не тот клиент»\nИван — проект Acme')
+  })
+
+  it('перевод строки внутри причины не уносит закрывающую кавычку на третий ряд', () => {
+    const detail = describeNotification('APPROVAL_REJECTED', {
+      approverName: 'Иван',
+      subjectKind: 'PROJECT',
+      subjectTitle: 'Acme',
+      reasonPreview: 'Первая\nвторая\nтретья',
+    })
+    expect(detail).toBe('«Первая вторая третья»\nИван — проект Acme')
+  })
+
+  it('вся цитата целиком помещается в видимую часть на каждом из двух типов', () => {
+    const rejected = describeNotification('APPROVAL_REJECTED', {
+      approverName: 'Иван Петров',
+      subjectKind: 'PROJECT_SHARE',
+      subjectTitle: 'Acme Corporation',
+      reasonPreview: longReason,
+    })
+    const income = describeNotification(
+      'TRANSACTION_STATUS_CHANGED',
+      notificationDataSchemaFor('TRANSACTION_STATUS_CHANGED').parse({
+        amount: '1500.000000',
+        currency: 'USDT',
+        status: 'REJECTED',
+        rejectionReasonPreview: longReason,
+      }),
+    )
+    for (const detail of [rejected, income]) {
+      const quote = detail.slice(detail.indexOf('«'), detail.indexOf('»') + 1)
+      expect(quote.length).toBeGreaterThan(2)
+      expect(visibleInPopup(detail)).toContain(quote)
+    }
   })
 })
