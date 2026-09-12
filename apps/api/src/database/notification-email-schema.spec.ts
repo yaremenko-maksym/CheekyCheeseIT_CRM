@@ -12,14 +12,71 @@
  * пересказ руками. Живая Postgres тут не нужна — `getTableConfig` чисто
  * компиляционная интроспекция.
  */
-import { getTableConfig } from 'drizzle-orm/pg-core'
+import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 
-import { notificationEmails, notificationPreferences } from './schema'
+import { notificationEmailStatusEnum, notificationEmails, notificationPreferences } from './schema'
+
+/**
+ * Полная форма колонки: имя, SQL-тип, обязательность, умолчание.
+ *
+ * Таблица целиком, а не выборочные утверждения: `varchar(255)` вместо
+ * `varchar(200)`, `timestamp` без часового пояса, потерянный `NOT NULL` — всё
+ * это молча расходится с миграцией, которую применяют на проде, и увидеть
+ * расхождение можно только сравнив ОБА описания с третьим — вот с этим.
+ *
+ * Ожидаемое выписано руками из решений задачи, а не снято с самого объекта:
+ * снимок согласился бы с любой правкой.
+ */
+/** Имена колонок индекса — сам индекс хранит выражения, а не имена. */
+function columnNamesOf(idx: { config: { columns: unknown[] } } | undefined): string[] {
+  return (idx?.config.columns ?? []).map((c) => (c as { name?: string }).name ?? String(c))
+}
+
+function shapeOf(table: Parameters<typeof getTableConfig>[0]) {
+  return getTableConfig(table).columns.map((c) => ({
+    name: c.name,
+    type: c.getSQLType(),
+    notNull: c.notNull,
+    hasDefault: c.hasDefault,
+  }))
+}
 
 describe('notification_emails — форма объявления', () => {
   it('называется notification_emails', () => {
     expect(getTableConfig(notificationEmails).name).toBe('notification_emails')
+  })
+
+  it('колонки — ровно эти, ровно таких типов', () => {
+    expect(shapeOf(notificationEmails)).toEqual([
+      { name: 'id', type: 'uuid', notNull: true, hasDefault: true },
+      { name: 'notification_id', type: 'uuid', notNull: true, hasDefault: false },
+      { name: 'user_id', type: 'uuid', notNull: true, hasDefault: false },
+      { name: 'status', type: 'notification_email_status', notNull: true, hasDefault: true },
+      { name: 'attempts', type: 'integer', notNull: true, hasDefault: true },
+      {
+        name: 'next_attempt_at',
+        type: 'timestamp with time zone',
+        notNull: true,
+        hasDefault: true,
+      },
+      { name: 'sent_at', type: 'timestamp with time zone', notNull: false, hasDefault: false },
+      // 255 — та же длина, что у `user_emails.email`: сюда попадает ровно
+      // значение оттуда, и более короткая колонка обрезала бы адрес.
+      { name: 'sent_to_email', type: 'varchar(255)', notNull: false, hasDefault: false },
+      { name: 'last_error', type: 'varchar(200)', notNull: false, hasDefault: false },
+      { name: 'created_at', type: 'timestamp with time zone', notNull: true, hasDefault: true },
+      { name: 'updated_at', type: 'timestamp with time zone', notNull: true, hasDefault: true },
+    ])
+  })
+
+  it('статус доставки — три значения в этом порядке', () => {
+    // `SENDING` здесь нет намеренно: захват выражается арендой, а не статусом
+    // (см. комментарий к enum в `schema.ts`). Появись он — это осознанная
+    // смена механики, и падать здесь она обязана.
+    expect(notificationEmailStatusEnum.enumValues).toEqual(['QUEUED', 'SENT', 'FAILED'])
+    expect(notificationEmailStatusEnum.enumName).toBe('notification_email_status')
   })
 
   it('строка умирает вместе со своим уведомлением (ON DELETE CASCADE)', () => {
@@ -65,6 +122,45 @@ describe('notification_emails — форма объявления', () => {
     const idx = indexes.find((i) => i.config.name === 'idx_notification_emails_due')
     expect(idx).toBeDefined()
     expect(idx?.config.unique).toBeFalsy()
+    // Именно по сроку: индекс по любой другой колонке не помог бы выборке
+    // «созревшие, самые старые вперёд».
+    expect(columnNamesOf(idx)).toEqual(['next_attempt_at'])
+  })
+
+  it('индекс срока — ЧАСТИЧНЫЙ, только по QUEUED', () => {
+    // Отправленные и похороненные строки копятся навсегда. Без предиката
+    // индекс растёт вместе с ними, и крон платит за них каждые 15 секунд.
+    // Плюс предикат обязан совпадать с условием выборки, иначе Postgres
+    // индексом просто не воспользуется.
+    const { indexes } = getTableConfig(notificationEmails)
+    const idx = indexes.find((i) => i.config.name === 'idx_notification_emails_due')
+    const where = new PgDialect().sqlToQuery(idx!.config.where as SQL).sql
+    expect(where).toContain('status')
+    expect(where).toContain("'QUEUED'")
+  })
+
+  it('уникальный индекс стоит на notification_id, а не на чём-то ещё', () => {
+    const { indexes } = getTableConfig(notificationEmails)
+    const idx = indexes.find((i) => i.config.name === 'uq_notification_emails_notification')
+    expect(columnNamesOf(idx)).toEqual(['notification_id'])
+  })
+
+  it('ключи ведут к уведомлению и к пользователю', () => {
+    const { foreignKeys } = getTableConfig(notificationEmails)
+    const refs = foreignKeys.map((fk) => {
+      const r = fk.reference()
+      return {
+        from: r.columns.map((c) => c.name),
+        to: getTableConfig(r.foreignTable).name,
+        toColumns: r.foreignColumns.map((c) => c.name),
+      }
+    })
+    expect(refs).toEqual(
+      expect.arrayContaining([
+        { from: ['notification_id'], to: 'notifications', toColumns: ['id'] },
+        { from: ['user_id'], to: 'users', toColumns: ['id'] },
+      ]),
+    )
   })
 
   it('адрес и текст ошибки — ограниченной длины (в журнал уходит не всё подряд)', () => {
@@ -88,6 +184,18 @@ describe('notification_emails — форма объявления', () => {
 describe('notification_preferences — форма объявления', () => {
   it('называется notification_preferences', () => {
     expect(getTableConfig(notificationPreferences).name).toBe('notification_preferences')
+  })
+
+  it('колонки — ровно эти, ровно таких типов', () => {
+    expect(shapeOf(notificationPreferences)).toEqual([
+      { name: 'id', type: 'uuid', notNull: true, hasDefault: true },
+      { name: 'user_id', type: 'uuid', notNull: true, hasDefault: false },
+      // 50 — та же длина, что у `notifications.type`: это те же значения.
+      { name: 'type', type: 'varchar(50)', notNull: true, hasDefault: false },
+      { name: 'email_enabled', type: 'boolean', notNull: true, hasDefault: true },
+      { name: 'created_at', type: 'timestamp with time zone', notNull: true, hasDefault: true },
+      { name: 'updated_at', type: 'timestamp with time zone', notNull: true, hasDefault: true },
+    ])
   })
 
   it('одна строка на пару (пользователь, тип)', () => {

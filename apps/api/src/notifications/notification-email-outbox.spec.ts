@@ -86,16 +86,28 @@ describe('pickEmailAddress', () => {
 })
 
 describe('backoffMs', () => {
-  it('растёт с каждой попыткой', () => {
-    expect(backoffMs(2)).toBeGreaterThan(backoffMs(1))
-    expect(backoffMs(3)).toBeGreaterThan(backoffMs(2))
+  it.each([
+    [1, 60_000],
+    [2, 120_000],
+    [3, 240_000],
+    [4, 480_000],
+    [5, 960_000],
+  ])('после %i-й неудачи ждать %i мс', (attempt, expected) => {
+    // Значения выписаны, а не вычислены той же формулой: удвоение от минуты —
+    // решение, и проверка, повторяющая формулу, согласилась бы с любой другой.
+    expect(backoffMs(attempt)).toBe(expected)
   })
 
   it('первая пауза не короче минуты — провайдер, ответивший 429, не станет добрее через секунду', () => {
     expect(backoffMs(1)).toBeGreaterThanOrEqual(60_000)
   })
 
-  it('пауза имеет потолок — иначе пятая попытка уходит за горизонт', () => {
-    expect(backoffMs(MAX_EMAIL_ATTEMPTS)).toBeLessThanOrEqual(60 * 60 * 1000)
+  it('пауза имеет потолок в час', () => {
+    // Потолок нужен, чтобы пятая попытка случилась в тот же рабочий день.
+    // Проверяется ЗА пределом удвоений, иначе потолок неотличим от их
+    // отсутствия: на пятой попытке 960 000 мс до него ещё не доходит.
+    expect(backoffMs(MAX_EMAIL_ATTEMPTS)).toBeLessThan(60 * 60 * 1000)
+    expect(backoffMs(10)).toBe(60 * 60 * 1000)
+    expect(backoffMs(99)).toBe(60 * 60 * 1000)
   })
 })

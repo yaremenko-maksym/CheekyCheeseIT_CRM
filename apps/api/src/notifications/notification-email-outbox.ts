@@ -66,6 +66,13 @@ export interface AddressRow {
 export function pickEmailAddress(rows: readonly AddressRow[]): string | null {
   return (
     rows.find((r) => r.kind === 'PERSONAL')?.email ??
+    // Вторая проверка вида НЕ наблюдаема сегодня: у `user_email_kind` ровно два
+    // значения, личное уже отобрано строкой выше, значит любое оставшееся —
+    // рабочее, и `rows.find(() => true)` дал бы тот же ответ на любом входе.
+    // Оставлено явным намеренно: заведи кто-нибудь третий вид (скажем,
+    // `BILLING`), условие отсеет его, а «первая попавшаяся строка» молча
+    // отправила бы письмо о деньгах в бухгалтерию контрагента.
+    // Stryker disable next-line ConditionalExpression: у вида ровно два значения и личное отобрано выше — отличить `kind === 'WORK'` от `true` нечем; условие защищает от ТРЕТЬЕГО вида, которого пока нет
     rows.find((r) => r.kind === 'WORK')?.email ??
     null
   )

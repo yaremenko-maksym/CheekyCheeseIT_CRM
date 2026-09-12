@@ -283,6 +283,28 @@ describe('эталон: ветки, которых в таблице выше б
     expect(mail.text).toBe(`Бухгалтер подтвердил заявленный доход.\n\n${mail.buttonHref}`)
   })
 
+  it('процент ПО ПРОЕКТУ, но имя проекта не снято — говорим как про базовый', () => {
+    // Две независимые причины обойтись без имени: базовая доля (`scope`) и
+    // потерянное имя (`projectName === null`). Достаточно ЛЮБОЙ: тема «по
+    // проекту «»» — мусор. Этот случай отличает «или» от «и».
+    const mail = renderNotificationEmail(
+      {
+        ...sourceFor('SHARE_CONFIRM_REQUIRED'),
+        data: {
+          scope: 'PROJECT',
+          projectName: null,
+          previousPercent: 26,
+          proposedPercent: 30,
+          approvalId: '22222222-2222-4222-8222-222222222222',
+        },
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.subject).toBe('Запрос на смену базового процента')
+    expect(mail.text.startsWith('Вам предлагают изменить базовый процент.')).toBe(true)
+    expect(mail.subject).not.toContain('«»')
+  })
+
   it('транзакция без проекта — тема без имени проекта', () => {
     const mail = renderNotificationEmail(
       {

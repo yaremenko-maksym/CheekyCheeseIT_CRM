@@ -1,6 +1,13 @@
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { NEW_NOTIFICATION_TYPES, notificationPreferencesResponseSchema } from '@crm/shared'
 import { NotificationPreferencesService } from './notification-preferences.service'
+
+/** Текст SQL-фрагмента — единственный способ увидеть, что в нём написано. */
+function compiled(fragment: unknown): string {
+  return new PgDialect().sqlToQuery(fragment as SQL).sql
+}
 
 /**
  * Настройки каналов — AC5 позиции 7a.
@@ -14,34 +21,65 @@ import { NotificationPreferencesService } from './notification-preferences.servi
  */
 function makeService(seed: { userId: string; type: string; emailEnabled: boolean }[] = []) {
   const rows = seed.map((s) => ({ ...s }))
+  /** Что сервис попросил у базы — по нему проверяется, что он просит нужное. */
+  const calls = {
+    selectedFields: [] as string[],
+    inserts: 0,
+    insertedValues: [] as Record<string, unknown>[],
+    conflictTarget: [] as string[],
+    conflictSet: {} as Record<string, unknown>,
+  }
   const db = {
     db: {
-      select: (_f?: unknown) => ({
-        from: (_t: unknown) => ({
-          where: async (_p: unknown) => rows.filter((r) => r.userId === scope.userId),
-        }),
-      }),
+      // Заглушка ПРОЕЦИРУЕТ по запрошенным полям, а не отдаёт строку целиком:
+      // сервис, забывший попросить `emailEnabled`, обязан получить строку без
+      // него — иначе проверка «сохранённое выключение видно» проходила бы и
+      // тогда, когда сервис читает не те колонки.
+      select: (fields?: Record<string, { name: string }>) => {
+        const names = Object.keys(fields ?? {})
+        calls.selectedFields = names
+        return {
+          from: (_t: unknown) => ({
+            where: async (_p: unknown) =>
+              rows
+                .filter((r) => r.userId === 'u-1')
+                .map((r) => {
+                  const projected: Record<string, unknown> = {}
+                  for (const n of names) projected[n] = (r as Record<string, unknown>)[n]
+                  return projected
+                }),
+          }),
+        }
+      },
       insert: (_t: unknown) => ({
-        values: (vals: Record<string, unknown>[]) => ({
-          onConflictDoUpdate: async (_c: unknown) => {
-            for (const v of vals) {
-              const existing = rows.find((r) => r.userId === v['userId'] && r.type === v['type'])
-              if (existing) existing.emailEnabled = v['emailEnabled'] as boolean
-              else
-                rows.push({
-                  userId: v['userId'] as string,
-                  type: v['type'] as string,
-                  emailEnabled: v['emailEnabled'] as boolean,
-                })
-            }
-          },
-        }),
+        values: (vals: Record<string, unknown>[]) => {
+          calls.inserts += 1
+          calls.insertedValues = vals
+          return {
+            onConflictDoUpdate: async (c: {
+              target: { name: string }[]
+              set: Record<string, unknown>
+            }) => {
+              calls.conflictTarget = (c.target ?? []).map((col) => col.name)
+              calls.conflictSet = c.set ?? {}
+              for (const v of vals) {
+                const existing = rows.find((r) => r.userId === v['userId'] && r.type === v['type'])
+                if (existing) existing.emailEnabled = v['emailEnabled'] as boolean
+                else
+                  rows.push({
+                    userId: v['userId'] as string,
+                    type: v['type'] as string,
+                    emailEnabled: v['emailEnabled'] as boolean,
+                  })
+              }
+            },
+          }
+        },
       }),
     },
   }
-  const scope = { userId: 'u-1' }
   const service = new NotificationPreferencesService(db as never)
-  return { service, rows, scope }
+  return { service, rows, calls }
 }
 
 describe('чтение настроек', () => {
@@ -120,10 +158,47 @@ describe('запись настроек', () => {
     expect(rows[0]!.emailEnabled).toBe(true)
   })
 
-  it('пустой запрос ничего не пишет', async () => {
-    const { service, rows } = makeService()
+  it('пустой запрос вообще НЕ ходит в базу', async () => {
+    // Не «ничего не записал», а «не пытался»: `INSERT … VALUES ()` без строк —
+    // синтаксическая ошибка Postgres, и разница между «не пошёл» и «пошёл с
+    // пустым списком» тут не стилистическая.
+    const { service, rows, calls } = makeService()
     await service.updateForUser('u-1', { items: [] })
+    expect(calls.inserts).toBe(0)
     expect(rows).toHaveLength(0)
+  })
+
+  it('читает ровно те колонки, из которых строит ответ', async () => {
+    const { service, calls } = makeService()
+    await service.listForUser('u-1')
+    expect(calls.selectedFields.sort()).toEqual(['emailEnabled', 'type'])
+  })
+
+  it('конфликт разрешается по паре (пользователь, тип), а значение берётся из запроса', async () => {
+    // Цель конфликта — тот же индекс `uq_notification_preferences_user_type`.
+    // Промахнись он мимо, Postgres упал бы на «no unique constraint matching»;
+    // а `set` без `excluded` перезаписал бы значение старым.
+    const { service, calls } = makeService()
+    await service.updateForUser('u-1', {
+      items: [{ type: 'TRANSACTION_ADDED', emailEnabled: false }],
+    })
+    expect(calls.conflictTarget).toEqual(['user_id', 'type'])
+    expect(String(compiled(calls.conflictSet['emailEnabled']))).toContain('excluded.email_enabled')
+    expect(calls.conflictSet['updatedAt']).toBeInstanceOf(Date)
+  })
+
+  it('в базу уходит именно то, что прислал клиент', async () => {
+    const { service, calls } = makeService()
+    await service.updateForUser('u-1', {
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false },
+        { type: 'TEAM_NEW_MEMBER', emailEnabled: true },
+      ],
+    })
+    expect(calls.insertedValues).toEqual([
+      { userId: 'u-1', type: 'TRANSACTION_ADDED', emailEnabled: false },
+      { userId: 'u-1', type: 'TEAM_NEW_MEMBER', emailEnabled: true },
+    ])
   })
 
   it('пишет ровно тому пользователю, который спросил', async () => {

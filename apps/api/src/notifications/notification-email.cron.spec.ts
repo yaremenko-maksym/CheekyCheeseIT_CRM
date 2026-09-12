@@ -105,9 +105,9 @@ function makeService(opts: {
       if (opts.send) await opts.send(input)
     },
   }
-  const recorded: { message: string; route: string }[] = []
+  const recorded: Record<string, unknown>[] = []
   const telemetry = {
-    recordError: (p: { message: string; route: string }) => {
+    recordError: (p: Record<string, unknown>) => {
       recorded.push(p)
       return Promise.resolve()
     },
@@ -244,8 +244,14 @@ describe('отправщик — отказы и ретраи', () => {
     await service.drainOnce()
 
     expect(recorded).toHaveLength(1)
-    expect(recorded[0]!.message).toBe('Notification email gave up after retries')
-    expect(recorded[0]!.route).toBe('/api/notifications')
+    expect(recorded[0]!).toEqual({
+      source: 'API',
+      message: 'Notification email gave up after retries',
+      route: '/api/notifications',
+      // Причина и тип — то, по чему сдачу вообще можно диагностировать в
+      // дайджесте. Ни адреса, ни текста письма здесь нет и быть не должно.
+      meta: { reason: 'Resend API HTTP 500', type: 'PROJECT_CONFIRM_REQUIRED' },
+    })
   })
 
   it('отложенная попытка телеметрию НЕ будит', async () => {
@@ -279,6 +285,55 @@ describe('отправщик — отказы и ретраи', () => {
 
     expect(gw.failed[0]!.reason).toBe('Resend API HTTP 422')
     expect(gw.failed[0]!.reason).not.toContain('ivan@gmail.com')
+  })
+
+  it('ошибка без ответа провайдера записывается КЛАССОМ, а не текстом', async () => {
+    // Сетевой сбой (`TypeError: fetch failed`) не имеет статуса HTTP. Писать
+    // его текст в базу нельзя тем же соображением, что и тело ответа, а знать,
+    // что это была за поломка, полезно — остаётся имя класса.
+    const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
+    const { service } = makeService({
+      gateway: gw,
+      send: async () => {
+        throw new TypeError('fetch failed: getaddrinfo ENOTFOUND api.resend.com')
+      },
+    })
+
+    await service.drainOnce()
+
+    expect(gw.failed[0]!.reason).toBe('TypeError')
+    expect(gw.failed[0]!.reason).not.toContain('resend.com')
+  })
+
+  it('брошено вообще не исключение — причина «unknown»', async () => {
+    const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
+    const { service } = makeService({
+      gateway: gw,
+      send: async () => {
+        throw 'что-то пошло не так'
+      },
+    })
+
+    await service.drainOnce()
+
+    expect(gw.failed[0]!.reason).toBe('unknown')
+  })
+
+  it('статус вырезается ТОЛЬКО из начала строки', async () => {
+    // Тело ответа провайдера может САМО содержать «Resend API HTTP 200».
+    // Привязка к началу строки — то, что отличает наш собственный формат от
+    // цитаты внутри чужого текста.
+    const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
+    const { service } = makeService({
+      gateway: gw,
+      send: async () => {
+        throw new Error('upstream said: Resend API HTTP 200 was expected')
+      },
+    })
+
+    await service.drainOnce()
+
+    expect(gw.failed[0]!.reason).toBe('Error')
   })
 
   it('человек без единого адреса — строка FAILED сразу, без попыток слать в пустоту', async () => {
