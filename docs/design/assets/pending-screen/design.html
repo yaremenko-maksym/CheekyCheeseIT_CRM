@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>/pending — «Ожидают ответа» — статический design-референс (Mode E, degraded)</title>
+<style>
+  /* ============================================================
+     Токены — 1:1 копия apps/web/app/styles/globals.css (.dark блок).
+     Ничего не придумано: см. docs/design/pending-screen.md §3 (token-map).
+     Amber/emerald ниже — НЕ новые токены, а Tailwind-дефолты, УЖЕ
+     используемые в реальных approval-компонентах этой фичи
+     (PendingProjectApprovalsPanel.tsx, OverviewTab.tsx PendingBaseShareBanner,
+     cancel-pending-share.tsx) — заимствованы 1:1 оттуда, не изобретены здесь.
+     ============================================================ */
+  :root {
+    --background: oklch(0.08 0 0);
+    --card: oklch(0.12 0 0);
+    --surface: oklch(0.16 0.006 85);
+    --surface-foreground: oklch(0.97 0 0);
+    --foreground: oklch(0.97 0 0);
+    --card-foreground: oklch(0.97 0 0);
+    --popover: oklch(0.13 0 0);
+    --popover-foreground: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.58 0 0);
+    --primary: oklch(0.84 0.183 85.3);
+    --primary-foreground: oklch(0.08 0 0);
+    --yellow-muted: oklch(0.72 0.13 85.3);
+    --yellow-subtle: oklch(0.22 0.04 85.3);
+    --avatar-text: oklch(0.84 0.183 85.3);
+    --secondary: oklch(0.2 0 0);
+    --secondary-foreground: oklch(0.97 0 0);
+    --muted: oklch(0.16 0 0);
+    --accent: oklch(0.19 0.012 85);
+    --accent-foreground: oklch(0.97 0 0);
+    --destructive: oklch(0.65 0.21 22.2);
+    --border: oklch(0.22 0.004 85);
+    --input: oklch(0.16 0 0);
+    --ring: oklch(0.84 0.183 85.3);
+    --radius: 0.625rem;
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+    /* Tailwind v4 default amber/emerald — заимствованы из перечисленных выше
+       реальных файлов, не новые токены (см. комментарий блока выше). */
+    --amber-300: oklch(87.9% 0.169 91.605);
+    --amber-400: oklch(82.8% 0.189 84.429);
+    --amber-500: oklch(76.9% 0.188 70.08);
+    --emerald-400: oklch(76.5% 0.177 163.223);
+    --emerald-500: oklch(69.6% 0.17 162.48);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: 'Inter', -apple-system, 'SF Pro Text', ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* tabular-nums — foundation.md §4: числа/деньги/проценты не «прыгают». */
+  .tabular-nums { font-variant-numeric: tabular-nums; }
+
+  /* ── meta-аннотации мокапа (НЕ часть реального UI — подписи для ревьюера) ── */
+  .mockup-label {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 28px 24px 10px;
+    font-family: ui-monospace, 'SF Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--muted-foreground);
+    text-transform: uppercase;
+  }
+  .mockup-label b { color: var(--primary); }
+  .mockup-note {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 16px 24px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted-foreground);
+    border-bottom: 1px dashed var(--border);
+  }
+
+  /* ── упрощённая оболочка CRM (не точный шелл — только контекст) ───────── */
+  .app-shell {
+    max-width: 1600px;
+    margin: 0 auto 8px;
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    min-height: 480px;
+  }
+  .app-shell.mobile { max-width: 320px; }
+  .app-shell.tablet { max-width: 768px; }
+
+  .shell-sidebar {
+    flex: none;
+    width: 52px;
+    background: var(--background);
+    border-right: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+    padding: 12px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .app-shell.mobile .shell-sidebar, .app-shell.tablet .shell-sidebar { display: none; }
+  .shell-nav-item {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-foreground);
+  }
+  .shell-nav-item.active {
+    background: var(--accent);
+    color: var(--foreground);
+    position: relative;
+  }
+  .shell-nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    background: var(--primary);
+    border-radius: 2px;
+  }
+  .shell-nav-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+  }
+
+  .shell-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: var(--background); }
+  .shell-header {
+    flex: none;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 0 16px;
+    border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+    background: var(--background);
+  }
+  .shell-bell {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-foreground);
+  }
+  .shell-avatar {
+    width: 26px; height: 26px; border-radius: 999px;
+    background: var(--yellow-subtle); color: var(--avatar-text);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700;
+  }
+
+  .shell-content {
+    flex: 1 1 auto;
+    padding: 20px 24px 32px;
+    overflow: visible;
+  }
+  .app-shell.mobile .shell-content, .app-shell.tablet .shell-content { padding: 14px 12px 24px; }
+
+  /* ── секции по kind ─────────────────────────────────────────────────── */
+  .zone-title {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 4px;
+  }
+  .zone-caption { font-size: 12px; color: var(--muted-foreground); margin: 0 0 14px; }
+  .zone { margin-bottom: 28px; }
+  .zone:last-child { margin-bottom: 0; }
+
+  .kind-section { margin-bottom: 20px; }
+  .kind-section:last-child { margin-bottom: 0; }
+  .kind-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .kind-header .icon { width: 14px; height: 14px; color: var(--amber-400); flex: none; }
+  .kind-header span {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  .kind-list { display: flex; flex-direction: column; gap: 8px; }
+
+  /* ── строка (row) ───────────────────────────────────────────────────── */
+  .item-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--muted) 45%, transparent);
+  }
+  .item-row.observer {
+    background: color-mix(in oklch, var(--amber-500) 6%, transparent);
+    border-color: color-mix(in oklch, var(--amber-500) 30%, transparent);
+  }
+  .item-main { min-width: 0; flex: 1 1 240px; }
+  .item-title-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .item-title {
+    font-size: 13.5px;
+    font-weight: 500;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 40px;
+    flex: 1 1 auto;
+  }
+  .item-title.wrap-2 {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .item-meta {
+    margin: 2px 0 0;
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .item-share {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: color-mix(in oklch, var(--amber-300) 80%, var(--muted-foreground) 20%);
+  }
+  /* Mode B round 1 (UX-H-1, PR #667) / spec §6.1 — the viewer's own share on
+     a PROJECT_APPROVAL row (`mine`, SENIOR or DROP only). Deliberately
+     dimmer/smaller than .item-share: here the percent is context for the
+     approve/reject decision, not the decision's own subject. */
+  .item-viewer-share {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: color-mix(in oklch, var(--amber-300) 70%, transparent);
+  }
+  .item-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; max-width: 100%; }
+
+  /* ── кнопки — повторяют апрув/реджект контракт из ProjectApprovalActions ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--foreground);
+    white-space: nowrap;
+  }
+  .btn .icon { width: 12px; height: 12px; }
+  .btn-approve { border-color: color-mix(in oklch, var(--emerald-500) 30%, transparent); color: var(--emerald-400); }
+  .btn-reject { border-color: color-mix(in oklch, var(--destructive) 30%, transparent); color: var(--destructive); }
+  .btn-ghost { border-color: transparent; color: var(--muted-foreground); }
+  .btn-primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; font-weight: 600; }
+  .btn-link { border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 500; padding: 0; height: auto; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: var(--radius-sm);
+    font-size: 10px;
+    font-weight: 600;
+    border: 1px solid color-mix(in oklch, var(--amber-500) 40%, transparent);
+    background: color-mix(in oklch, var(--amber-500) 12%, transparent);
+    color: var(--amber-300);
+  }
+
+  /* ── empty / loading / error ───────────────────────────────────────── */
+  .state-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 64px 24px;
+    text-align: center;
+  }
+  .state-block .icon-lg { width: 34px; height: 34px; color: color-mix(in oklch, var(--muted-foreground) 45%, transparent); }
+  .state-title { font-size: 14px; font-weight: 500; margin: 4px 0 0; }
+  .state-caption { font-size: 12px; color: var(--muted-foreground); margin: 0; max-width: 320px; }
+
+  /* ── справочные образцы (nav-бейдж, футер попапа) ─────────────────── */
+  .reference-row { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; padding: 4px 0 20px; }
+  .reference-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--card);
+    padding: 16px;
+    min-width: 220px;
+  }
+  .reference-card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); margin: 0 0 12px; font-weight: 600; }
+  .nav-sample-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .nav-sample-row:last-child { margin-bottom: 0; }
+  .nav-pill {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    background: var(--accent);
+    color: var(--foreground);
+    font-size: 12.5px;
+    font-weight: 500;
+    width: 168px;
+  }
+  .nav-pill .icon { width: 15px; height: 15px; color: var(--primary); }
+  .nav-pill .count {
+    margin-left: auto;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 10px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .bell-popover {
+    width: 280px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--popover);
+    overflow: hidden;
+  }
+  .bell-popover-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  }
+  .bell-popover-header span { font-size: 13px; font-weight: 600; }
+  .bell-popover-body { padding: 14px; font-size: 11.5px; color: var(--muted-foreground); }
+  .bell-popover-footer {
+    border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+    padding: 9px 14px;
+    text-align: center;
+  }
+  .bell-popover-footer a { color: var(--primary); font-size: 12px; font-weight: 500; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+    </symbol>
+    <symbol id="ic-briefcase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+    </symbol>
+    <symbol id="ic-percent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>
+    </symbol>
+    <symbol id="ic-filesign" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h8"/><path d="M14 2v6h6"/><path d="M15 18l2.5-2.5L20 18l-2.5 2.5z"/>
+    </symbol>
+    <symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+    </symbol>
+    <symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 6L9 17l-5-5"/>
+    </symbol>
+    <symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 6L6 18M6 6l12 12"/>
+    </symbol>
+    <symbol id="ic-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+    </symbol>
+    <symbol id="ic-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 12h14M12 5l7 7-7 7"/>
+    </symbol>
+    <symbol id="ic-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 1.7-2 3.3"/><line x1="12" y1="17" x2="12" y2="17.01"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="mockup-note">
+  Статический design-референс (<b>degraded Mode E</b> — Claude Design недоступен агенту).
+  Токены 1:1 из <code>apps/web/app/styles/globals.css</code> (.dark). Разметка — НЕ код для вставки:
+  кодер строит НАШИМИ shadcn/ui-компонентами по <code>docs/design/pending-screen.md</code>, этот файл
+  только показывает целевую компоновку/иерархию/токены. Три вида ниже соответствуют трём состояниям
+  из задания: SENIOR (проект+доля+контракт), ADMIN («ждут ответа других»), пустое.
+</div>
+
+<!-- ═══════════════════════════ ВИД 1 — SENIOR ═══════════════════════════ -->
+<p class="mockup-label">Вид 1 — <b>SENIOR</b> — «Ждёт вашего ответа»: проект, доля, контракт</p>
+<div class="app-shell">
+  <div class="shell-sidebar">
+    <div class="shell-nav-item"><svg class="icon" width="16" height="16"><use href="#ic-briefcase"/></svg></div>
+    <div class="shell-nav-item active" style="position:relative">
+      <svg class="icon" width="16" height="16"><use href="#ic-clock"/></svg>
+      <span class="shell-nav-badge">3</span>
+    </div>
+  </div>
+  <div class="shell-main">
+    <div class="shell-header">
+      <div class="shell-bell"><svg class="icon" width="16" height="16"><use href="#ic-bell"/></svg></div>
+      <div class="shell-avatar">ОК</div>
+    </div>
+    <div class="shell-content" data-testid="pending-page">
+
+      <div class="zone">
+        <p class="zone-title">Ждёт вашего ответа</p>
+        <p class="zone-caption">Всё, что требует вашего решения — подтвердите, отклоните или откройте подробности.</p>
+
+        <div class="kind-section">
+          <div class="kind-header"><svg class="icon" width="14" height="14"><use href="#ic-briefcase"/></svg><span>Проекты</span></div>
+          <div class="kind-list">
+            <div class="item-row" data-testid="pending-item-sample">
+              <div class="item-main">
+                <p class="item-title">TechFlow Solutions</p>
+                <p class="item-meta">Предложил Олексій Коваленко · 2 дня назад</p>
+                <!-- spec §6.1 — viewer-share line, SENIOR case (no "синьор: …" suffix). -->
+                <p class="item-viewer-share">Ваша доля: 26%</p>
+              </div>
+              <div class="item-actions">
+                <button class="btn btn-approve"><svg class="icon" width="12" height="12"><use href="#ic-check"/></svg>Подтвердить</button>
+                <button class="btn btn-reject"><svg class="icon" width="12" height="12"><use href="#ic-x"/></svg>Отклонить</button>
+              </div>
+            </div>
+            <!-- edge case AC7: 80-символьное название не ломает строку -->
+            <div class="item-row">
+              <div class="item-main">
+                <p class="item-title wrap-2">ТОВ «Північно-Східна Інвестиційно-Будівельна Компанія Атлас Логістік Прайм»</p>
+                <p class="item-meta">Предложил Admin CheekyCheese · 5 дней назад</p>
+              </div>
+              <div class="item-actions">
+                <button class="btn btn-approve"><svg class="icon" width="12" height="12"><use href="#ic-check"/></svg>Подтвердить</button>
+                <button class="btn btn-reject"><svg class="icon" width="12" height="12"><use href="#ic-x"/></svg>Отклонить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kind-section">
+          <div class="kind-header"><svg class="icon" width="14" height="14"><use href="#ic-percent"/></svg><span>Доли</span></div>
+          <div class="kind-list">
+            <div class="item-row">
+              <div class="item-main">
+                <p class="item-title">Доля по умолчанию</p>
+                <p class="item-share">Сейчас <b class="tabular-nums">26%</b> → предлагают <b class="tabular-nums">30%</b> · 1 день назад</p>
+              </div>
+              <div class="item-actions">
+                <button class="btn btn-approve"><svg class="icon" width="12" height="12"><use href="#ic-check"/></svg>Подтвердить</button>
+                <button class="btn btn-reject"><svg class="icon" width="12" height="12"><use href="#ic-x"/></svg>Отклонить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kind-section">
+          <div class="kind-header"><svg class="icon" width="14" height="14"><use href="#ic-filesign"/></svg><span>Контракты</span></div>
+          <div class="kind-list">
+            <div class="item-row">
+              <div class="item-main">
+                <div class="item-title-row">
+                  <p class="item-title">Контракт сотрудника</p>
+                  <span class="badge">готов к подписанию</span>
+                </div>
+                <p class="item-meta">6 часов назад</p>
+              </div>
+              <div class="item-actions">
+                <button class="btn btn-primary">Открыть<svg class="icon" width="12" height="12"><use href="#ic-arrow-right"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ ВИД 2 — ADMIN ═══════════════════════════ -->
+<p class="mockup-label">Вид 2 — <b>ADMIN</b> — «Ждут ответа других» (своя зона «Ждёт вас» пуста → скрыта целиком)</p>
+<div class="app-shell">
+  <div class="shell-sidebar">
+    <div class="shell-nav-item"><svg class="icon" width="16" height="16"><use href="#ic-briefcase"/></svg></div>
+    <div class="shell-nav-item" style="position:relative">
+      <svg class="icon" width="16" height="16"><use href="#ic-clock"/></svg>
+      <!-- бейджа нет: mine.length === 0 для ADMIN в этом примере — см. §7 спеки -->
+    </div>
+  </div>
+  <div class="shell-main">
+    <div class="shell-header">
+      <div class="shell-bell"><svg class="icon" width="16" height="16"><use href="#ic-bell"/></svg></div>
+      <div class="shell-avatar">АД</div>
+    </div>
+    <div class="shell-content">
+
+      <div class="zone">
+        <p class="zone-title">Ждут ответа других</p>
+        <p class="zone-caption">Предложено вами и ещё ожидает решения приглашённых.</p>
+
+        <div class="kind-section">
+          <div class="kind-header"><svg class="icon" width="14" height="14"><use href="#ic-briefcase"/></svg><span>Проекты</span></div>
+          <div class="kind-list">
+            <div class="item-row observer">
+              <div class="item-main">
+                <p class="item-title">Нордвік Діджитал</p>
+                <p class="item-meta">Ждём: Ірина Савенко · 3 дня назад</p>
+              </div>
+              <div class="item-actions">
+                <button class="btn btn-ghost">Открыть<svg class="icon" width="12" height="12"><use href="#ic-arrow-right"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kind-section">
+          <div class="kind-header"><svg class="icon" width="14" height="14"><use href="#ic-percent"/></svg><span>Доли</span></div>
+          <div class="kind-list">
+            <div class="item-row observer">
+              <div class="item-main">
+                <p class="item-title">Доля по проекту «TechFlow Solutions»</p>
+                <p class="item-share">Сейчас <b class="tabular-nums">26%</b> → предлагают <b class="tabular-nums">30%</b> · ждём: Олексій Коваленко · 1 день назад</p>
+              </div>
+              <div class="item-actions">
+                <button class="btn btn-reject">Отозвать</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- «Контракты» здесь намеренно не рендерится — proposedByMe никогда
+             не содержит CONTRACT_TO_SIGN (не строка approvals-таблицы, §Данные спеки). -->
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ ВИД 3 — ПУСТО ═══════════════════════════ -->
+<p class="mockup-label">Вид 3 — пустое состояние (любая роль, нечего ждать)</p>
+<div class="app-shell">
+  <div class="shell-sidebar">
+    <div class="shell-nav-item"><svg class="icon" width="16" height="16"><use href="#ic-briefcase"/></svg></div>
+    <div class="shell-nav-item" style="position:relative"><svg class="icon" width="16" height="16"><use href="#ic-clock"/></svg></div>
+  </div>
+  <div class="shell-main">
+    <div class="shell-header">
+      <div class="shell-bell"><svg class="icon" width="16" height="16"><use href="#ic-bell"/></svg></div>
+      <div class="shell-avatar">ЮК</div>
+    </div>
+    <div class="shell-content">
+      <div class="state-block" data-testid="pending-empty">
+        <svg class="icon-lg" width="34" height="34"><use href="#ic-inbox"/></svg>
+        <p class="state-title">Ничего не ждёт вашего ответа</p>
+        <p class="state-caption">Новые проекты, доли и документы на подпись появятся здесь, как только кто-то будет ждать вашего решения.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ СПРАВОЧНО ═══════════════════════════ -->
+<p class="mockup-label">Справочно — nav-бейдж (0 / 1–9 / 10+) и футер попапа колокольчика</p>
+<div class="reference-row" style="max-width:1600px;margin:0 auto;padding-left:24px;padding-right:24px;">
+  <div class="reference-card">
+    <h3>Nav-пункт — 3 состояния счётчика</h3>
+    <div class="nav-sample-row">
+      <div class="nav-pill"><svg class="icon" width="15" height="15"><use href="#ic-clock"/></svg>Ожидают ответа</div>
+      <span class="zone-caption" style="margin:0">0 — бейджа нет</span>
+    </div>
+    <div class="nav-sample-row">
+      <div class="nav-pill"><svg class="icon" width="15" height="15"><use href="#ic-clock"/></svg>Ожидают ответа<span class="count">5</span></div>
+      <span class="zone-caption" style="margin:0">1–9 — точное число</span>
+    </div>
+    <div class="nav-sample-row">
+      <div class="nav-pill"><svg class="icon" width="15" height="15"><use href="#ic-clock"/></svg>Ожидают ответа<span class="count">99+</span></div>
+      <span class="zone-caption" style="margin:0">10+ — до 99, дальше «99+» (конвенция notifications-bell-badge)</span>
+    </div>
+  </div>
+
+  <div class="reference-card" style="padding:0;overflow:hidden;">
+    <div class="bell-popover">
+      <div class="bell-popover-header"><span>Уведомления</span><span class="zone-caption" style="margin:0">Прочитать всё</span></div>
+      <div class="bell-popover-body">… обычные 10 последних уведомлений …</div>
+      <div class="bell-popover-footer">
+        <a href="#">Всё, что ждёт ответа <svg class="icon" width="12" height="12"><use href="#ic-arrow-right"/></svg></a>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

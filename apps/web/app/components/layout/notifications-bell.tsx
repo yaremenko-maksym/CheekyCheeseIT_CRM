@@ -16,10 +16,11 @@
  * notifications.
  */
 import { useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
+  ArrowRight,
   Bell,
   CheckCheck,
   Circle,
@@ -360,6 +361,27 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
             })}
           </ul>
         )}
+
+        {/* task-pending-screen §8 — единственная правка этого файла (позиция
+            6 правит рендер по типу выше, TypeIcon — не толкаться). Виден и
+            при пустом, и при непустом списке уведомлений: это не ещё одно
+            уведомление, а постоянная точка выхода на «Ждут решения», не
+            завязанная на unreadCount/isLoading. */}
+        {/* UX-M-1 (PR #667 fix-round 3): the padding moved from the <footer>
+            onto the <a>. It looked the same either way, but only the anchor is
+            clickable — measured live at 16px tall, under WCAG 2.2 SC 2.5.8's
+            24px and under the ≥44px this popup's own spec (§9.2) promised. */}
+        <footer className="border-t border-border/50 text-center">
+          <Link
+            to="/pending"
+            onClick={() => setOpen(false)}
+            className="flex min-h-11 items-center justify-center gap-1 px-4 py-2.5 text-xs font-medium text-primary hover:underline"
+            data-testid="notifications-bell-footer-pending-link"
+          >
+            Всё, что ждёт решения
+            <ArrowRight className="h-3 w-3" aria-hidden />
+          </Link>
+        </footer>
       </DropdownMenuContent>
     </DropdownMenu>
   )

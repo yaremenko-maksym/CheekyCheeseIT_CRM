@@ -729,6 +729,22 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
     jsonOk(r, { items: [], unreadCount: 0 }),
   )
 
+  // task-pending-screen, PR #667 fix-round 5 — NavSidebar mounts
+  // usePendingItems() unconditionally (badge count) on EVERY authenticated
+  // page via `useOnboardingGate().isComplete` (that gate is already mocked
+  // above via /onboarding/status). Without this mock GET /pending hits the
+  // real backend → 401 → axios interceptor → window.location.href = '/login'
+  // → the test loses its session mid-click (same failure mode as the
+  // notifications mock above). The `$` anchor is required — without it this
+  // pattern would also swallow /pending-settlements/* below (registered
+  // after, so a wider first match would still steal the request).
+  // Shape matches `pendingResponseSchema` in packages/shared/src/schemas/
+  // pending.ts. Mock is role-agnostic (empty for everyone) — specs for the
+  // /pending screen itself (pending.spec.ts) use loginViaApi, not this mock.
+  await page.route(new RegExp(`${API_RE}/pending(\\?.*)?$`), (r) =>
+    jsonOk(r, { mine: [], proposedByMe: [] }),
+  )
+
   // task-drop-company-debt-and-invoices. Senior IOUs are owed by the
   // company — DROP no longer has any debts. Replaced
   // `/pending-settlements/drop` with `/pending-settlements/company`.

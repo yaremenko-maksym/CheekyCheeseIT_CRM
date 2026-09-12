@@ -2,12 +2,26 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type {
   PaymentRequisites,
+  ProjectDetailDto,
   SetNoteDto,
   UpdateProfileDto,
   UserWithPermissionsResponse,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
+// Type-only — no runtime edge, so this does not create the ESM import cycle
+// `cancel-pending-share.tsx` itself imports `seniorShareErrorMessage` FROM
+// this file (see pending-share.ts's own doc for why that class of cycle is
+// taken seriously here). `PendingShareScope` is the single source for the
+// 'user' | 'project' branch both approve/reject below and
+// `useCancelPendingShare` already share — task addendum item 2
+// ("не плодить третий файл с той же scope-веткой").
+import type { PendingShareScope } from '@/components/pending-share/cancel-pending-share'
+// CR-M-2 (fix-round 3): the real constant, not a `['pending']` literal — a
+// rename of the key must reach these two invalidations too, and a literal
+// would have survived one silently (`use-project-approvals.ts` and
+// `cancel-pending-share.tsx` already imported it).
+import { PENDING_QUERY_KEY } from '@/hooks/use-pending-items'
 
 /**
  * task-648-fix-round-1 (COPY-H-4). `ApprovalsService.assertRespondable`'s two
@@ -192,91 +206,167 @@ export function useChangePersonalEmail(userId: string) {
 }
 
 /**
- * task-pending-share (position 5, design spec §4.3). The affected SENIOR
- * confirms a proposed change to their OWN base share % — self-only by
- * construction (the endpoint 404s for anyone who isn't the invited
- * approver, same as `ProjectsService.approveDraft`'s pattern), so this is
- * only ever called with the viewer's own id. Invalidates both query keys
- * `useMe`/`useUser` can be reached through — the acting SENIOR's own
- * session reads via `['user-profile', 'me']`; the `userId`-keyed one is
- * invalidated too for the same defensive reason `useUpdateMe` refreshes
- * `['auth', 'me']` alongside its own key.
+ * task-648-fix-round-1 (COPY-M-3) + task-pending-screen addendum item 2
+ * (2026-09-07: "обобщить пару из use-user-profile.ts параметром scope,
+ * симметрично useCancelPendingShare"). `data` is `UserWithPermissionsResponse`
+ * for `scope: 'user'`, `ProjectDetailDto` for `scope: 'project'` — narrowed
+ * the same way `cancel-pending-share.tsx#effectivePercentOf` already does,
+ * so the toast can always name the real number the server settled on.
  */
-export function useApproveSeniorShareChange(userId: string) {
+/**
+ * COPY-L-1 (fix-round 3): the project's own name, for a toast that has to
+ * survive the row it referred to disappearing. Narrowed exactly like
+ * `confirmedPercentOf` below — both `approve` and `reject` return the same
+ * `ProjectDetailDto` (`ProjectsService.rejectSeniorShareChange` ends in
+ * `loadForResponse`).
+ *
+ * COPY-M-10 (#667 fix-round 4): reads `companyName`, not `name`. Round 3
+ * deliberately mirrored `PendingService`'s share-row title, which at the
+ * time interpolated the project's `name` — and that title was itself the
+ * defect: `name` is the internal label («AI Platform v2»), while the whole
+ * product identifies a project by its company («TechCorp AI») — `ProjectRow`,
+ * the project row on this very screen, `ProjectApprovalActions` and both
+ * project toasts. Both halves moved together; the mirror still holds.
+ *
+ * Returns `null` rather than throwing on a 204/`{}`: an unnamed sentence is
+ * a degradation, ««undefined»» in front of the user is a defect — and the
+ * same goes for an empty or non-string value, which is why both are checked
+ * here rather than left to the caller's truthiness (callers compare to
+ * `null`, so an empty string WOULD have reached the user as «по проекту «»»).
+ *
+ * Takes no `scope`: a user-scope response has no top-level `name` to find,
+ * and the user-scope sentences never interpolate one — a `scope === 'user'`
+ * early return here was a branch no test could ever distinguish.
+ */
+function projectNameOf(data: unknown): string | null {
+  const name = (data as ProjectDetailDto | undefined)?.companyName
+  return typeof name === 'string' && name.length > 0 ? name : null
+}
+
+function confirmedPercentOf(scope: PendingShareScope, data: unknown): number | null {
+  if (scope === 'user') {
+    const percent = (data as UserWithPermissionsResponse | undefined)?.user?.seniorSharePercent
+    return typeof percent === 'number' ? percent : null
+  }
+  const percent = (data as ProjectDetailDto | undefined)?.effectiveSeniorSharePercent
+  return typeof percent === 'number' ? percent : null
+}
+
+/**
+ * task-pending-share (position 5, design spec §4.3), generalized by
+ * task-pending-screen addendum item 2 (2026-09-07) to cover BOTH the
+ * affected SENIOR confirming their own base share % (`scope: 'user'`) and a
+ * SENIOR confirming a project-level override from the `/pending` screen
+ * (`scope: 'project'`, the previously-inline `$projectId.tsx`
+ * `PendingShareApprovalBanner` mutation's twin — see `SeniorShareApprovalActions`,
+ * the new caller this generalization exists for). Self-only by construction
+ * either way (the endpoint 404s for anyone who isn't the invited approver,
+ * same as `ProjectsService.approveDraft`'s pattern) — the caller only ever
+ * supplies the viewer's own id, never someone else's.
+ */
+export function useApproveSeniorShareChange(scope: PendingShareScope, id: string) {
   const qc = useQueryClient()
+  const invalidate = () => {
+    if (scope === 'user') {
+      qc.invalidateQueries({ queryKey: ['user-profile', id] })
+      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+    } else {
+      qc.invalidateQueries({ queryKey: ['projects', id] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    }
+    // Both scopes can appear on the /pending screen's `mine` list.
+    qc.invalidateQueries({ queryKey: PENDING_QUERY_KEY })
+  }
   return useMutation({
-    // Stryker disable next-line ArrowFunction: `.then((r) => r.data)`'s resolved value IS consumed now (onSuccess reads `data.user.seniorSharePercent` for the toast — task-648-fix-round-1 COPY-M-3), so this directive now only needs to cover the narrower "the callback identity itself" mutant, not "the value is never read" — kept because forcing the WHOLE `mutationFn` to `() => undefined` still independently fails the toast-text assertion in OverviewTab.pending-share.test.tsx.
+    // Stryker disable next-line ArrowFunction: `.then((r) => r.data)`'s resolved value IS consumed now (onSuccess reads the confirmed percent for the toast — task-648-fix-round-1 COPY-M-3), so this directive only needs to cover the narrower "the callback identity itself" mutant, not "the value is never read".
     mutationFn: () =>
       api
-        .post<UserWithPermissionsResponse>(`/users/${userId}/senior-share/approve`)
+        .post<UserWithPermissionsResponse | ProjectDetailDto>(
+          scope === 'user' ? `/users/${id}/senior-share/approve` : `/projects/${id}/senior-share/approve`,
+        )
         .then((r) => r.data),
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
-      // task-648-fix-round-1 (COPY-M-3): names the ACTUAL confirmed value
-      // ("новый процент подтверждён" stopped being new the instant it was
-      // confirmed, and was outright false for a clear-override proposal —
-      // nothing "new" was confirmed there) and uses "доля" as the primary
-      // noun (COPY-M-4 — CONTEXT.md's "Доля синьора" entry).
-      toast.success(`Ваша доля теперь ${data.user.seniorSharePercent}%`)
+      invalidate()
+      const percent = confirmedPercentOf(scope, data)
+      // task-648-fix-round-1 (COPY-M-3): names the ACTUAL confirmed value —
+      // "новый процент подтверждён" stopped being new the instant it was
+      // confirmed, and was outright false for a clear-override proposal.
+      // COPY-L-1 (fix-round 3): name the OBJECT. Both sentences were lifted
+      // verbatim from `$projectId.tsx`, a page about ONE project, where the
+      // address said which one; on `/pending` several proposals sit next to
+      // each other and the row acted on vanishes as the toast appears.
+      // «Доля по умолчанию» is also exactly how the row is titled there.
+      const projectName = projectNameOf(data)
+      toast.success(
+        scope === 'user'
+          ? `Доля по умолчанию теперь ${percent}%`
+          : projectName !== null
+            ? `Доля по проекту «${projectName}» теперь ${percent}%`
+            : `Доля по проекту теперь ${percent}%`,
+      )
     },
-    // task-648-fix-round-1 (QA-MED-5): refetch on failure too — the OverviewTab
-    // twin of $projectId.tsx's identical fix. Without this a stale banner from
-    // a proposal already resolved elsewhere (409/404) stayed fully clickable,
-    // showing a number that no longer meant anything.
+    // task-648-fix-round-1 (QA-MED-5): refetch on failure too — a stale
+    // banner/row from a proposal already resolved elsewhere (409/404) must
+    // not stay clickable, showing a number that no longer means anything.
     onError: (e: unknown) => {
       toast.error(seniorShareErrorMessage(e, 'Не удалось подтвердить'))
-      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+      invalidate()
     },
   })
 }
 
-/** Rejection counterpart of `useApproveSeniorShareChange` — reason required (design spec §3 decision 3). */
-export function useRejectSeniorShareChange(userId: string) {
+/** Rejection counterpart of `useApproveSeniorShareChange` — reason required (design spec §3 decision 3). Same `scope` generalization, same reasoning. */
+export function useRejectSeniorShareChange(scope: PendingShareScope, id: string) {
   const qc = useQueryClient()
+  const invalidate = () => {
+    if (scope === 'user') {
+      qc.invalidateQueries({ queryKey: ['user-profile', id] })
+      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+    } else {
+      qc.invalidateQueries({ queryKey: ['projects', id] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    }
+    qc.invalidateQueries({ queryKey: PENDING_QUERY_KEY })
+  }
   return useMutation({
-    // Stryker disable next-line ArrowFunction: the mutated node here is the
-    // WHOLE `mutationFn` value (Stryker replaces it outright with
-    // `() => undefined`) — same reasoning as
-    // useApproveSeniorShareChange's identical directive above, whose comment
-    // sits in the equivalent position (immediately before `mutationFn:`).
-    // A chained `.then((r) => r.data)` here USED to create a SECOND, nested
-    // ArrowFunction node this directive did NOT cover — verified by running
-    // the gate (suppressing only this line left that inner one Surviving).
-    // Rewritten as a block-bodied async function instead of a `.then()`
-    // chain specifically to remove that second node: `reject`'s `onSuccess`
-    // (below) takes no argument — no confirmed-percent to name, unlike
-    // approve's identical shape — so the resolved response body is never
-    // read by anything downstream, and there is now only the one arrow-
-    // function node this comment already accounts for.
+    // Stryker disable next-line ArrowFunction: the mutated node here is the WHOLE `mutationFn` value — `onSuccess` below takes no argument (a rejection has no confirmed percent to name), so the resolved response body is never read by anything downstream.
     mutationFn: async (reason: string) => {
-      const response = await api.post<UserWithPermissionsResponse>(
-        `/users/${userId}/senior-share/reject`,
+      const response = await api.post<unknown>(
+        scope === 'user' ? `/users/${id}/senior-share/reject` : `/projects/${id}/senior-share/reject`,
         { reason },
       )
       return response.data
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
-      // task-648-fix-round-1 (COPY-M-2): names what happens to the money AND
-      // that the reason is visible, matching the dialog's own promise.
-      // task-648-fix-round-2 (COPY-L-5): what is rejected is the PROPOSED
-      // percent, not the доля — the доля stays, that is the whole point. The
-      // dialog two screens up already said it correctly («Отклонить новый
-      // процент»); this now agrees with it.
-      // task-648-fix-round-5 (COPY-M-20): the dialog's own wording moved on
-      // to «Отклонить предложение» — this toast now matches it verbatim
-      // instead of pinning the half-renamed «Новый процент отклонён».
-      toast.success('Предложение отклонено — действует прежний процент. Админ увидит причину')
+    onSuccess: (data) => {
+      invalidate()
+      // task-648-fix-round-5 (COPY-M-20) kept ONE sentence for both scopes,
+      // because the only two callers then were pages about a single subject.
+      // COPY-L-1 (fix-round 3): on `/pending` the subject is no longer
+      // implied — the reject endpoint returns the updated `ProjectDetailDto`,
+      // so the project can be named from the same response. The tail
+      // («действует прежний процент. Админ увидит причину») is unchanged.
+      const projectName = projectNameOf(data)
+      const tail = 'отклонено — действует прежний процент. Админ увидит причину'
+      // COPY-M-9 (fix-round 4): the OBJECT leads, and the object is the
+      // share — «Предложение по проекту «X» отклонено» announced a rejected
+      // PROJECT, which is a different decision living one section above on
+      // the same screen with a toast of its own («Проект отклонён, админ
+      // увидит причину»). The confirming half of this pair already names it
+      // correctly («Доля по проекту «X» теперь 30%»), so the pair was
+      // asymmetric on top of being wrong. The user-scope form also loses its
+      // «по доле по умолчанию» (two «по» in one noun phrase). The unnamed
+      // fallback is untouched — that sentence is #648's and still true.
+      toast.success(
+        scope === 'user'
+          ? `Доля по умолчанию: предложение ${tail}`
+          : projectName !== null
+            ? `Доля по проекту «${projectName}»: предложение ${tail}`
+            : `Предложение ${tail}`,
+      )
     },
-    // task-648-fix-round-1 (QA-MED-5): same refetch-on-failure fix as
-    // useApproveSeniorShareChange above.
     onError: (e: unknown) => {
       toast.error(seniorShareErrorMessage(e, 'Не удалось отклонить'))
-      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+      invalidate()
     },
   })
 }

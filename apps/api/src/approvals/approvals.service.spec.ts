@@ -17,7 +17,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { ConflictException, NotFoundException } from '@nestjs/common'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { ApprovalsService } from './approvals.service'
 import { approvals } from '../database/schema'
@@ -848,5 +848,90 @@ describe('ApprovalsService.getPendingApproverIds', () => {
     const result = await service.getPendingApproverIds(SUBJECT_TYPE, ['proj-1'])
 
     expect(result.get('proj-1')?.size).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-pending-screen (position 7c) — the two "list everything for the
+// /pending screen" queries.
+// ---------------------------------------------------------------------------
+
+/** `.select().from().where().orderBy()` chain — `listPendingForApprover` /
+ * `listPendingProposedBy`'s exact shape (unlike `getPendingApproverIds`,
+ * whose chain resolves at `.where()` with no `.orderBy()` call at all). */
+function makeSelectOrderedChain(rows: unknown[]) {
+  const chain = {
+    from: vi.fn(() => chain),
+    where: vi.fn(() => chain),
+    orderBy: vi.fn().mockResolvedValue(rows),
+  }
+  return chain
+}
+
+describe('ApprovalsService.listPendingForApprover', () => {
+  it('queries live PENDING rows filtered by approverUserId, ordered by createdAt ascending', async () => {
+    const row = makeRow({ approverUserId: SENIOR_ID, proposedByUserId: ADMIN_ID })
+    const chain = makeSelectOrderedChain([row])
+    const select = vi.fn(() => chain)
+    const service = new ApprovalsService({ db: { select } } as unknown as DatabaseService)
+
+    const result = await service.listPendingForApprover(SENIOR_ID)
+
+    const whereArg = chain.where.mock.calls[0]?.[0]
+    const expectedWhere = and(
+      eq(approvals.approverUserId, SENIOR_ID),
+      eq(approvals.status, 'PENDING'),
+      isNull(approvals.supersededAt),
+    )
+    expect(serializeSqlCondition(whereArg)).toBe(serializeSqlCondition(expectedWhere))
+    const orderByArg = chain.orderBy.mock.calls[0]?.[0]
+    expect(serializeSqlCondition(orderByArg)).toBe(serializeSqlCondition(asc(approvals.createdAt)))
+    expect(result).toHaveLength(1)
+    expect(result[0]?.approverUserId).toBe(SENIOR_ID)
+  })
+
+  it('returns an empty array when nothing is live and PENDING for this approver', async () => {
+    const chain = makeSelectOrderedChain([])
+    const service = new ApprovalsService({
+      db: { select: vi.fn(() => chain) },
+    } as unknown as DatabaseService)
+
+    const result = await service.listPendingForApprover(SENIOR_ID)
+
+    expect(result).toEqual([])
+  })
+})
+
+describe('ApprovalsService.listPendingProposedBy', () => {
+  it('queries live PENDING rows filtered by proposedByUserId — NOT approverUserId, the column listPendingForApprover filters on — ordered by createdAt ascending', async () => {
+    const row = makeRow({ proposedByUserId: ADMIN_ID, approverUserId: SENIOR_ID })
+    const chain = makeSelectOrderedChain([row])
+    const select = vi.fn(() => chain)
+    const service = new ApprovalsService({ db: { select } } as unknown as DatabaseService)
+
+    const result = await service.listPendingProposedBy(ADMIN_ID)
+
+    const whereArg = chain.where.mock.calls[0]?.[0]
+    const expectedWhere = and(
+      eq(approvals.proposedByUserId, ADMIN_ID),
+      eq(approvals.status, 'PENDING'),
+      isNull(approvals.supersededAt),
+    )
+    expect(serializeSqlCondition(whereArg)).toBe(serializeSqlCondition(expectedWhere))
+    const orderByArg = chain.orderBy.mock.calls[0]?.[0]
+    expect(serializeSqlCondition(orderByArg)).toBe(serializeSqlCondition(asc(approvals.createdAt)))
+    expect(result).toHaveLength(1)
+    expect(result[0]?.proposedByUserId).toBe(ADMIN_ID)
+  })
+
+  it('returns an empty array when this user proposed nothing still live and PENDING', async () => {
+    const chain = makeSelectOrderedChain([])
+    const service = new ApprovalsService({
+      db: { select: vi.fn(() => chain) },
+    } as unknown as DatabaseService)
+
+    const result = await service.listPendingProposedBy(ADMIN_ID)
+
+    expect(result).toEqual([])
   })
 })

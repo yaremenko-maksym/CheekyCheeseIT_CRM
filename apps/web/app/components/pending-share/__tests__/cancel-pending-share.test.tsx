@@ -199,6 +199,17 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects', 'proj-1'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
   })
+
+  it('invalidates the /pending query on EITHER scope — a cancelled proposal is gone from GET /pending for everyone (task-pending-screen)', async () => {
+    mockPost.mockResolvedValue({ data: { user: { seniorSharePercent: 26 } } })
+    const user = userEvent.setup()
+    const { invalidateSpy } = renderWithClient(
+      <CancelPendingShareButton scope="user" id="senior-1" pendingPercent={55} />,
+    )
+    await withdraw(user, 'user')
+    await waitFor(() => expect(mockPost).toHaveBeenCalled())
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['pending'] })
+  })
 })
 
 describe('PendingShareEditNotice — what the edit dialogs show', () => {
@@ -327,6 +338,25 @@ describe('CancelPendingShareButton — the confirmation step', () => {
       expect(screen.queryByTestId('cancel-pending-share-confirm-user')).toBeNull(),
     )
     expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('onActed fires on a successful cancel — the /pending screen relies on this for an INSTANT local-dismiss, same as the approve/reject actions', async () => {
+    const user = userEvent.setup()
+    const onActed = vi.fn()
+    renderWithClient(
+      <CancelPendingShareButton scope="user" id="senior-1" pendingPercent={45} onActed={onActed} />,
+    )
+    await user.click(screen.getByTestId('cancel-pending-share-user'))
+    await user.click(await screen.findByTestId('cancel-pending-share-confirm-button-user'))
+    await waitFor(() => expect(onActed).toHaveBeenCalledTimes(1))
+  })
+
+  it('onActed is optional — a successful cancel with no onActed prop at all does not throw', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={45} />)
+    await user.click(screen.getByTestId('cancel-pending-share-user'))
+    await user.click(await screen.findByTestId('cancel-pending-share-confirm-button-user'))
+    await waitFor(() => expect(mockPost).toHaveBeenCalled())
   })
 
   it('the in-dialog twin asks the same question, in the same words', async () => {

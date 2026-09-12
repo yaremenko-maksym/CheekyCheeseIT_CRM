@@ -422,8 +422,8 @@ export class ApprovalsService {
 
   /**
    * Everything currently awaiting a response from one approver, across every
-   * subject — the query behind "Экран «что от меня ждут»" (position 7 of the
-   * plan; not built here).
+   * subject — the "mine" half of the query behind "Экран «Ждут решения»"
+   * (task-pending-screen, position 7c — `PendingService.getPending`).
    */
   async listPendingForApprover(approverUserId: string): Promise<Approval[]> {
     const rows = await this.db.db
@@ -432,6 +432,37 @@ export class ApprovalsService {
       .where(
         and(
           eq(approvals.approverUserId, approverUserId),
+          eq(approvals.status, 'PENDING'),
+          isNull(approvals.supersededAt),
+        ),
+      )
+      .orderBy(asc(approvals.createdAt))
+    return rows.map(toApproval)
+  }
+
+  /**
+   * task-pending-screen (position 7c). The "proposedByMe" half of the same
+   * screen — every subject THIS user opened a proposal for that still awaits
+   * someone ELSE's response, across every subject type. Mirrors
+   * `listPendingForApprover` exactly (same PENDING + live filter, same
+   * ordering), scoped by `proposedByUserId` instead of `approverUserId` — the
+   * two columns can differ for the SAME row (an ADMIN proposes, a SENIOR
+   * approves), which is exactly what makes this a distinct, non-overlapping
+   * query rather than a filter over the same result set.
+   *
+   * `PendingService.getPending` calls this ONLY for ADMIN callers (task file
+   * §1: "для остальных ролей — пустой массив, не 403" — every OTHER role
+   * gets `[]` without ever reaching this method, not because the query would
+   * be wrong for them, but because nothing in `mine` for non-ADMIN roles
+   * plausibly has THEM as `proposedByUserId` today).
+   */
+  async listPendingProposedBy(proposedByUserId: string): Promise<Approval[]> {
+    const rows = await this.db.db
+      .select()
+      .from(approvals)
+      .where(
+        and(
+          eq(approvals.proposedByUserId, proposedByUserId),
           eq(approvals.status, 'PENDING'),
           isNull(approvals.supersededAt),
         ),

@@ -423,7 +423,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
       expect(api.post).toHaveBeenCalledWith(`/users/${USER_ID}/senior-share/approve`),
     )
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith(`Ваша доля теперь ${CONFIRMED_PERCENT}%`),
+      expect(toast.success).toHaveBeenCalledWith(`Доля по умолчанию теперь ${CONFIRMED_PERCENT}%`),
     )
   })
 
@@ -563,6 +563,21 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     expect(dialog).not.toHaveTextContent('Отклонить новый процент')
   })
 
+  // CR-M-3 (#667 code review round 2). These hooks are shared with the
+  // /pending screen, whose own dialog and toast say «Админ». Leaving
+  // «администратору» here meant one action naming the same role two ways in
+  // two consecutive replies: the dialog, then its own toast.
+  it('CR-M-3: the reject dialog calls the role «Админ», the same word its toast and the /pending dialog use', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    const dialog = await screen.findByRole('dialog')
+    // Verbatim `SeniorShareApprovalActions`'s description — same decision,
+    // same sentence, wherever it is taken from.
+    expect(dialog).toHaveTextContent('Админ увидит причину и сможет предложить другой процент.')
+    expect(dialog).not.toHaveTextContent('администратору')
+  })
+
   it('reject dialog starts closed, with an empty reason field', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     expect(screen.queryByTestId('pending-base-share-reject-reason')).not.toBeInTheDocument()
@@ -618,7 +633,9 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
         // matches the dialog's own canonical wording verbatim ("Отклонить
         // предложение" two screens up) — "предложение", not "новый
         // процент", is what got rejected.
-        'Предложение отклонено — действует прежний процент. Админ увидит причину',
+        // COPY-M-9 (#667 fix-round 4): and the object leads the sentence,
+        // as it does in the confirming half and in the row itself.
+        'Доля по умолчанию: предложение отклонено — действует прежний процент. Админ увидит причину',
       ),
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })

@@ -25,6 +25,7 @@ import { JobSourcingModule } from './job-sourcing/job-sourcing.module'
 import { InvoicesModule } from './invoices/invoices.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { OnboardingModule } from './onboarding/onboarding.module'
+import { PendingModule } from './pending/pending.module'
 import { ProjectsModule } from './projects/projects.module'
 import { TeamsModule } from './teams/teams.module'
 import { TosModule } from './tos/tos.module'
@@ -109,9 +110,11 @@ import { SeniorResumesModule } from './resumes/resumes.module'
     CspReportsModule,
     // Position 3 of docs/superpowers/specs/2026-09-01-notifications-and-
     // confirmations-design.md — foundation for employee-facing confirmations
-    // (propose/approve/reject). No controller yet; consumed by future
-    // modules (project creation, share change — positions 4/5).
+    // (propose/approve/reject). Consumed by ProjectsModule/UsersModule
+    // (positions 4/5) and by PendingModule below (position 7c).
     ApprovalsModule,
+    // Position 7c of the same plan — GET /pending, the "Ждут решения" screen.
+    PendingModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order

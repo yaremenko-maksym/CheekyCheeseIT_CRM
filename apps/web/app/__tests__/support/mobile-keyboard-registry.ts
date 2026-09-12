@@ -423,6 +423,10 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'testid:pending-base-share-reject-reason':
     'Free-text reason typed by the affected SENIOR when declining a proposed change to their own base share percent.',
 
+  // ---- task-pending-screen: components/pending/SeniorShareApprovalActions.tsx ----
+  'testid:senior-share-reject-reason':
+    'Free-text rejection reason typed by the affected SENIOR declining a pending share change from the /pending screen — same shape as pending-share-reject-reason/pending-base-share-reject-reason above, this is the third mount point for the same action (design spec §5.2 п.1).',
+
   // ---- routes/_authenticated/team/$teamId.tsx ----
   'app/routes/_authenticated/team/$teamId.tsx#id:edit-name': 'Free-text team name.',
   'app/routes/_authenticated/team/$teamId.tsx#id:edit-notes': 'Free-text internal team notes.',
