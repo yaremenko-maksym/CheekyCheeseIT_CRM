@@ -217,4 +217,19 @@ describe('NavSidebar — «Ждут решения» nav item (label, link targe
     const mobileBadge = await screen.findByTestId('nav-pending-badge-mobile')
     expect(mobileBadge).toHaveTextContent('99+')
   })
+
+  // mutation-gate: count=100 alone only distinguishes the mobile ternary's
+  // condition-forced-false mutant from real behaviour — same gap the
+  // desktop pair of tests above closes with an EXACT boundary case (99
+  // itself is the only input where `>` and `>=` disagree).
+  it('mobile Sheet badge shows the exact number "99" at the boundary — not "99+"', async () => {
+    mockIsComplete = true
+    mockMine = Array.from({ length: 99 }, (_, i) => ({ id: String(i) }))
+
+    renderSidebar({ mobileOpen: true })
+
+    const mobileBadge = await screen.findByTestId('nav-pending-badge-mobile')
+    expect(mobileBadge).toHaveTextContent('99')
+    expect(mobileBadge).not.toHaveTextContent('99+')
+  })
 })
