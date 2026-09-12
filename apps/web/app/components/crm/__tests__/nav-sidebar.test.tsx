@@ -19,7 +19,7 @@
  * stale comment claimed without the code doing it.
  */
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import {
   RouterProvider,
@@ -40,8 +40,10 @@ vi.mock('@/context/onboarding', async (orig) => {
   }
 })
 
+let mockMine: unknown[] = []
+
 const usePendingItemsSpy = vi.fn((_enabled?: boolean) => ({
-  mine: [],
+  mine: mockMine,
   proposedByMe: [],
   isLoading: false,
   isError: false,
@@ -88,6 +90,10 @@ function renderSidebar() {
   return render(<RouterProvider router={router} />)
 }
 
+beforeEach(() => {
+  mockMine = []
+})
+
 describe('NavSidebar — SR-L-1: usePendingItems gated on onboarding completion', () => {
   it('pre-onboarding (isComplete=false): usePendingItems is called with enabled=false, not the default true', async () => {
     mockIsComplete = false
@@ -113,5 +119,37 @@ describe('NavSidebar — SR-L-1: usePendingItems gated on onboarding completion'
     await screen.findByRole('navigation')
 
     expect(usePendingItemsSpy).toHaveBeenCalledWith(true)
+  })
+})
+
+// mutation-gate (PR #667 fix-round 2): the «Ждут решения» NAV_ITEMS entry
+// (label/to) and the badge-count ternary that targets it by `item.to ===
+// '/pending'` had no test distinguishing them from any other nav item or
+// from a no-op — nothing here failed if the label text, the link target, or
+// the badge-targeting condition itself broke.
+describe('NavSidebar — «Ждут решения» nav item (label, link target, badge targeting)', () => {
+  it('renders the "Ждут решения" label, linking to /pending', async () => {
+    mockIsComplete = true
+
+    renderSidebar()
+
+    const link = await screen.findByRole('link', { name: 'Ждут решения' })
+    expect(link).toHaveAttribute('href', '/pending')
+  })
+
+  it('badge count attaches to the /pending item ONLY — not to any other nav item', async () => {
+    mockIsComplete = true
+    mockMine = [{ id: '1' }, { id: '2' }]
+
+    renderSidebar()
+
+    // getByTestId (not queryAllByTestId): the ternary must produce EXACTLY
+    // one badge — either the always-true or the `!==`-flipped mutant would
+    // put this same fixed testid on every OTHER nav item too, which fails
+    // this call with "found multiple elements" rather than a clean
+    // assertion mismatch; the always-false / wrong-string mutant instead
+    // leaves no element at all, which also fails this call.
+    const badge = await screen.findByTestId('nav-pending-badge')
+    expect(badge).toHaveTextContent('2')
   })
 })

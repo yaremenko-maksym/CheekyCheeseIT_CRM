@@ -22,6 +22,7 @@ import {
   patchUserSharePercentViaAPI,
   createDropViaAPI,
   cleanupDropViaAPI,
+  onboardDropViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -342,6 +343,16 @@ test.describe('/pending — SR-L-6: dashboard widget reads GET /pending, never G
     })
 
     try {
+      // Backlog item 139 (same requirement drop-distribution.spec.ts's own
+      // comment names): a freshly created DROP has an unsigned contract —
+      // OnboardingGuard's client-side redirect gate sends them to
+      // /onboarding on the VERY FIRST navigation, before the dashboard (and
+      // therefore the widget under test) ever mounts. Measured live: without
+      // this call, `page.goto('/')` renders the onboarding wizard's "Шаг 1
+      // из 2 — Подписание контракта" screen, and the widget's own /pending
+      // fetch never fires at all — this is not a timing race, the dashboard
+      // route never mounts.
+      await onboardDropViaAPI(page, { dropId, dropEmail: email })
       await loginViaApi(page, email)
 
       const requestedUrls: string[] = []

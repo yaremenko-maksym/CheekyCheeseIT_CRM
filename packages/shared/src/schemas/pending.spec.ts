@@ -16,7 +16,7 @@
  * OWN object shape — the tests below assert the shape, not just the values.
  */
 import { describe, expect, it } from 'vitest'
-import { pendingItemSchema, pendingResponseSchema } from './pending'
+import { pendingItemKindSchema, pendingItemSchema, pendingResponseSchema } from './pending'
 
 const uuid1 = 'a0000000-0000-4000-8000-000000000001'
 const uuid2 = 'a0000000-0000-4000-8000-000000000002'
@@ -58,6 +58,25 @@ const contractItem = {
   actions: ['open'] as const,
   link: '/profile',
 }
+
+// mutation-gate (PR #667 fix-round 2): `pendingItemSchema`'s discriminated
+// union checks each `kind` via its OWN `z.literal(...)`, not by referencing
+// `pendingItemKindSchema` — so once the flat-object schema above was split,
+// NOTHING in `pendingItemSchema.parse(...)` exercises this enum's actual
+// string values or member count any more (it stayed alive only as the
+// `PendingItemKind` TS type export, e.g. `KIND_SECTIONS` in the /pending
+// page). Direct tests, not indirection through `pendingItemSchema`.
+describe('pendingItemKindSchema', () => {
+  it('accepts exactly the three known kind values', () => {
+    expect(pendingItemKindSchema.parse('PROJECT_APPROVAL')).toBe('PROJECT_APPROVAL')
+    expect(pendingItemKindSchema.parse('SHARE_APPROVAL')).toBe('SHARE_APPROVAL')
+    expect(pendingItemKindSchema.parse('CONTRACT_TO_SIGN')).toBe('CONTRACT_TO_SIGN')
+  })
+
+  it('rejects a kind outside the closed set', () => {
+    expect(() => pendingItemKindSchema.parse('DROP_SHARE_APPROVAL')).toThrow()
+  })
+})
 
 describe('pendingItemSchema — PROJECT_APPROVAL', () => {
   it('accepts a minimal PROJECT_APPROVAL row (viewerSharePercent/seniorName both null)', () => {

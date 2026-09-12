@@ -95,4 +95,29 @@ describe('PERSISTED_KEY_PREFIXES — PII exclusion (security audit Fix#1)', () =
 
     expect(shouldDehydrateQuery(pendingQuery)).toBe(false)
   })
+
+  // mutation-gate (PR #667 fix-round 2): the AC3 case above only exercises
+  // ONE outcome (false, via a disallowed key) — a mutant that forces
+  // shouldDehydrateQuery to unconditionally return false, or that deletes
+  // the status check entirely, changes nothing that single case can see.
+  // These two pin the OTHER dimension: an allow-listed key still needs
+  // status === 'success' (not merely truthy/present), and a genuinely
+  // dehydratable query must come back true, not just "not this false case".
+  it('shouldDehydrateQuery: an allow-listed key with status "success" is true', () => {
+    const query = {
+      state: { status: 'success' as const },
+      queryKey: ['projects'],
+    } as unknown as Query
+
+    expect(shouldDehydrateQuery(query)).toBe(true)
+  })
+
+  it('shouldDehydrateQuery: an allow-listed key that is still pending (not "success") is false', () => {
+    const query = {
+      state: { status: 'pending' as const },
+      queryKey: ['projects'],
+    } as unknown as Query
+
+    expect(shouldDehydrateQuery(query)).toBe(false)
+  })
 })
