@@ -40,6 +40,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { eq } from 'drizzle-orm'
 import { contactRequestSchema } from '@crm/shared'
+import { escapeHtml } from '../common/escape-html'
 import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { users } from '../database/schema'
@@ -54,15 +55,6 @@ const RETRY_BACKOFF_MS = 500
 
 function stripCrlf(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').trim()
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 function sleep(ms: number): Promise<void> {

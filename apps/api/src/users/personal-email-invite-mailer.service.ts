@@ -38,6 +38,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { escapeHtml } from '../common/escape-html'
 import type { Env } from '../config/env'
 import { ResendMailerService } from '../contact/resend-mailer.service'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
@@ -56,21 +57,6 @@ export interface SendInviteInput {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-/**
- * Escapes the one piece of admin-entered free text this template
- * interpolates (`displayName`) — same defense `ContactService.escapeHtml`
- * applies to the visitor's message, for the same reason: it lands in an
- * HTML body viewed in a real mail client.
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 @Injectable()
