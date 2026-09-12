@@ -61,10 +61,13 @@ describe('usePendingItems', () => {
       mine: [
         {
           kind: 'PROJECT_APPROVAL',
+          approvalId: '00000000-0000-4000-8000-0000000000a1',
           subjectType: 'PROJECT',
           subjectId: 'p1',
           title: 'Acme',
           proposedBy: 'Admin One',
+          viewerSharePercent: null,
+          seniorName: null,
           createdAt: '2026-01-01T00:00:00.000Z',
           actions: ['approve', 'reject'],
           link: '/projects/p1',

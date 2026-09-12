@@ -72,7 +72,33 @@ vi.mock('@/hooks/use-pending-items', async (orig) => {
   return { ...real, usePendingItems: () => mockState }
 })
 
-function item(overrides: Partial<PendingItem>): PendingItem {
+// SR-L-3 (PR #667 fix-round 2): `pendingItemSchema` is now a
+// `z.discriminatedUnion('kind', ...)` — `Partial<PendingItem>` (a union)
+// rejects an override object mixing fields from more than one variant (e.g.
+// `{ kind: 'SHARE_APPROVAL', pendingPercent: 30 }` alone, used throughout
+// this file). This fixture helper stays permissive (every field from every
+// variant, all optional) and the returned object is cast at the end — a
+// test double for "some PendingItem shape", not a compile-time proof that
+// every combination of overrides is a valid PendingItem (pending.spec.ts
+// owns that job for the real schema).
+interface ItemOverrides {
+  kind?: PendingItem['kind']
+  subjectType?: PendingItem['subjectType']
+  subjectId?: string
+  title?: string
+  proposedBy?: string
+  waitingFor?: string[]
+  createdAt?: string
+  actions?: PendingItem['actions']
+  link?: string
+  approvalId?: string
+  viewerSharePercent?: number | null
+  seniorName?: string | null
+  currentPercent?: number
+  pendingPercent?: number
+}
+
+function item(overrides: ItemOverrides): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
     subjectType: 'PROJECT',
@@ -82,8 +108,11 @@ function item(overrides: Partial<PendingItem>): PendingItem {
     createdAt: new Date().toISOString(),
     actions: ['approve', 'reject', 'open'],
     link: '/projects/subj-1',
+    approvalId: '00000000-0000-4000-8000-0000000000a1',
+    viewerSharePercent: null,
+    seniorName: null,
     ...overrides,
-  }
+  } as unknown as PendingItem
 }
 
 function renderPage() {

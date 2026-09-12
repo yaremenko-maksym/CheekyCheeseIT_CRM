@@ -15,7 +15,13 @@ vi.mock('@/components/projects/ProjectApprovalActions', () => ({
   ProjectApprovalActions: () => <div data-testid="stub-actions" />,
 }))
 
-function item(overrides: Partial<PendingItem>): PendingItem {
+// SR-L-3 (PR #667 fix-round 2): this file only ever constructs
+// PROJECT_APPROVAL rows, so a plain `Partial<PendingItem>` narrowed to that
+// one variant (rather than the permissive cast other pending test files use)
+// is enough — the discriminated union does not fight this file at all.
+type ProjectApprovalItem = Extract<PendingItem, { kind: 'PROJECT_APPROVAL' }>
+
+function item(overrides: Partial<ProjectApprovalItem>): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
     subjectType: 'PROJECT',
@@ -24,6 +30,9 @@ function item(overrides: Partial<PendingItem>): PendingItem {
     createdAt: new Date().toISOString(),
     actions: ['approve', 'reject'],
     link: '/projects/subj-1',
+    approvalId: '00000000-0000-4000-8000-0000000000a1',
+    viewerSharePercent: null,
+    seniorName: null,
     ...overrides,
   }
 }

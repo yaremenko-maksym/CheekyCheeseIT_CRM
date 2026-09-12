@@ -54,7 +54,31 @@ vi.mock('@/hooks/use-project-approvals', async (orig) => {
   }
 })
 
-function pendingItem(overrides: Partial<PendingItem>): PendingItem {
+// SR-L-3 (PR #667 fix-round 2): `pendingItemSchema` is now a
+// `z.discriminatedUnion('kind', ...)` — the `kind: 'SHARE_APPROVAL'` override
+// below (line ~122, deliberately WITHOUT currentPercent/pendingPercent —
+// this test only checks that the widget filters non-PROJECT_APPROVAL rows
+// out) does not satisfy `Partial<PendingItem>` any more. Permissive override
+// type + a cast on the return, same pattern as PendingItemRow.test.tsx /
+// pending/__tests__/index.test.tsx.
+interface PendingItemOverrides {
+  kind?: PendingItem['kind']
+  subjectType?: PendingItem['subjectType']
+  subjectId?: string
+  title?: string
+  proposedBy?: string
+  waitingFor?: string[]
+  createdAt?: string
+  actions?: PendingItem['actions']
+  link?: string
+  approvalId?: string
+  viewerSharePercent?: number | null
+  seniorName?: string | null
+  currentPercent?: number
+  pendingPercent?: number
+}
+
+function pendingItem(overrides: PendingItemOverrides): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
     subjectType: 'PROJECT',
@@ -62,12 +86,13 @@ function pendingItem(overrides: Partial<PendingItem>): PendingItem {
     title: 'Acme Corp',
     proposedBy: 'Олексій Коваленко',
     createdAt: '2026-01-01T00:00:00.000Z',
+    approvalId: '00000000-0000-4000-8000-0000000000a1',
     viewerSharePercent: 26,
     seniorName: null,
     actions: ['approve', 'reject', 'open'],
     link: '/projects/00000000-0000-0000-0000-0000000000a1',
     ...overrides,
-  }
+  } as unknown as PendingItem
 }
 
 function renderPanel() {

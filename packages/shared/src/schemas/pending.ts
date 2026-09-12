@@ -57,68 +57,32 @@ export const pendingItemSubjectTypeSchema = z.enum(['USER', 'PROJECT'])
 export type PendingItemSubjectType = z.infer<typeof pendingItemSubjectTypeSchema>
 
 // ---------------------------------------------------------------------------
-// Item
+// Item — one z.object per `kind`, joined with z.discriminatedUnion
 // ---------------------------------------------------------------------------
 
 /**
- * One row on the /pending screen. `currentPercent`/`pendingPercent` are
- * BOTH-or-NEITHER (never one without the other) and present ONLY for
- * `kind: 'SHARE_APPROVAL'` where the VIEWER is the person whose share it is
- * — the affected SENIOR in `mine` (always true there — a share-approval row
- * only ever reaches `mine` when the viewer IS the invited approver), or the
- * ADMIN who proposed it in `proposedByMe` (task file §Что сделать item 1:
- * "в proposedByMe для ADMIN — тоже можно (это он предложил)"). A
- * `PROJECT_APPROVAL` row NEVER carries either field — task file: "в
- * PROJECT_APPROVAL — только название и кто предложил, никаких долей и
- * ставок" — this is what AC3's "no drop percentages anywhere in the JSON
- * for a SENIOR viewer" rests on structurally, not just by omission at
- * read-time (there is no drop-share approval flow at all today — see
- * `PendingService`'s own header comment — so the field could never be
- * populated with a drop figure even if this schema allowed it here).
+ * SR-L-3 (PR #667 fix-round 2, security review round 1): fields shared by
+ * ALL three kinds. Previously this file was a single flat `z.object` where
+ * `currentPercent` / `pendingPercent` / `viewerSharePercent` / `seniorName`
+ * were ALL `.optional()` on every `kind` — the doc comment on that object
+ * claimed the split was "structural, not just by omission at read-time",
+ * which was not true: nothing in the TYPE stopped a future edit to
+ * `PendingService.buildItemForSubject` from attaching a counterparty percent
+ * to a PROJECT_APPROVAL row and having it sail through `.parse()` unchanged.
+ * The only real guards were the branching in `viewerShareOnProject` and the
+ * `collectNumbers(...).not.toContain(...)` assertions in
+ * `pending.integration.spec.ts` — code and tests, not the type.
  *
- * `pendingPercent` is ALWAYS the resolved effective value
- * (`pendingSeniorShareSchema.effectivePercentAfterApproval`'s own
- * definition — task file «Допущения» item 4), never the raw nullable
- * override column: a proposal that clears an override back to the
- * team/user default is a legitimate live proposal with nothing to show as
- * "raw pending value" — the resolved fallback number is what the viewer
- * needs to see.
+ * Splitting into a `z.discriminatedUnion('kind', [...])` makes the doc's
+ * claim true: each kind-specific field below exists ONLY on the variant(s)
+ * that populate it. A field a variant does not declare is not merely absent
+ * when unpopulated — Zod's default object mode ("strip") drops it from the
+ * PARSED result even if present on the input, so a future bug that computes
+ * a stray percent on the wrong branch gets silently stripped at this exact
+ * boundary instead of reaching the client. See `pending.spec.ts`'s
+ * "SR-L-3: strips ..." tests for the three directions of this.
  */
-export const pendingItemSchema = z.object({
-  kind: pendingItemKindSchema,
-  /**
-   * The `approvals.id` row this item was built from. Absent for
-   * `CONTRACT_TO_SIGN` (contracts are not `approvals` rows at all — see
-   * `PendingService`'s header). When `proposedByMe` groups more than one
-   * live approver row under the same subject (a project inviting BOTH a
-   * SENIOR and a DROP, both still undecided), this is one of those rows'
-   * id, not a claim that it is "the" row — `subjectId` is the stable
-   * identifier for the subject itself; this field exists for a React key /
-   * a possible future single-row action, not as a second subject identifier.
-   */
-  approvalId: z.string().uuid().optional(),
-  /**
-   * What this row's `subjectId` — and therefore the row's ACTION — is
-   * scoped to. REQUIRED and closed, deliberately NOT a mirror of the
-   * free-form `approvals.subjectType` column (integration decision 1,
-   * 2026-09-11): the client's only question is which endpoint family the
-   * action goes to (`/users/:id/...` vs `/projects/:id/...`), and the raw
-   * column's three values answer it with two of them meaning the same
-   * thing. `kind` still distinguishes a project APPROVAL from a
-   * project-scoped SHARE proposal, so nothing is lost by collapsing
-   * `'PROJECT'` and `'PROJECT_SENIOR_SHARE'` here.
-   *
-   * Per kind: `PROJECT_APPROVAL` → `'PROJECT'`; `SHARE_APPROVAL` →
-   * `'USER'` for a person's own base share, `'PROJECT'` for a
-   * project-level override; `CONTRACT_TO_SIGN` → `'USER'` (the contract is
-   * the viewer's own — user-scoped, and its `link` is a user-scoped
-   * surface — even though its `subjectId` is the contract row's id).
-   *
-   * Required rather than optional so the client needs no fail-safe default:
-   * PR #667's web half had to guess `'project'` on a missing value, which
-   * would have routed a base-share decision at a project endpoint.
-   */
-  subjectType: pendingItemSubjectTypeSchema,
+const pendingItemBaseSchema = z.object({
   /** The underlying project id / user id / employee_contracts id. */
   subjectId: z.string().uuid(),
   /** "<project name>" / "«Ваша базовая доля»" / "Контракт сотрудника" — see `PendingService` per-kind title choice. */
@@ -127,41 +91,126 @@ export const pendingItemSchema = z.object({
   proposedBy: z.string().optional(),
   /** Who has not yet answered — populated on `proposedByMe` rows only. */
   waitingFor: z.array(z.string()).optional(),
-  /** The LIVE (pre-approval) resolved percent. `SHARE_APPROVAL`-only, see class doc above. */
-  currentPercent: z.number().int().min(0).max(100).optional(),
-  /** The percent this proposal would resolve to if approved. `SHARE_APPROVAL`-only, see class doc above. */
-  pendingPercent: z.number().int().min(0).max(100).optional(),
-  /**
-   * `PROJECT_APPROVAL`-only: the VIEWER'S OWN resolved share on this
-   * project — their senior share when they are the project's senior, their
-   * drop share when they are its drop — never the counterparty's (the same
-   * "SENIOR не видит долю дропа и наоборот" contour `mapProject` enforces).
-   * `null` when the viewer is party to neither side (an ADMIN reading their
-   * own `proposedByMe` list, where the widget showed no share line either).
-   *
-   * Exists because `PendingProjectApprovalsPanel` used to read it off the
-   * full `ProjectDto` (`effectiveSeniorSharePercent` /
-   * `effectiveDropSharePercent`) and SR-L-6 took that whole DTO away from
-   * the DROP dashboard: without this field, closing the leak would have
-   * silently removed the one number a DROP needs to answer "да" with — they
-   * have no route access to `/projects` at all (COPY-M-6, #646 fix-round 2).
-   * Integration decision 2, 2026-09-11.
-   */
-  viewerSharePercent: z.number().int().min(0).max(100).nullable().optional(),
-  /**
-   * `PROJECT_APPROVAL`-only, and populated ONLY for a viewer who is the
-   * project's DROP — who they would be working under is decision-relevant
-   * context for them, and a name is not a share figure. `null` for a SENIOR
-   * viewer (they ARE the senior; the drop's identity stays masked from them
-   * per the same RBAC rule `mapProject` applies) and for ADMIN.
-   */
-  seniorName: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   /** Non-empty — every row has at least `open`. */
   actions: z.array(pendingItemActionSchema).min(1),
   /** Where "Открыть" navigates. A route the viewer's role can reach — `PendingService` picks per kind/viewer. */
   link: z.string(),
 })
+
+/**
+ * The `approvals.id` row this item was built from. Absent for
+ * `CONTRACT_TO_SIGN` (contracts are not `approvals` rows at all — see
+ * `PendingService`'s header) — that variant simply does not declare this
+ * field below, rather than declaring it `.optional()`. When `proposedByMe`
+ * groups more than one live approver row under the same subject (a project
+ * inviting BOTH a SENIOR and a DROP, both still undecided), this is one of
+ * those rows' id, not a claim that it is "the" row — `subjectId` is the
+ * stable identifier for the subject itself; this field exists for a React
+ * key / a possible future single-row action, not as a second subject
+ * identifier.
+ */
+const approvalIdField = z.string().uuid()
+
+export const pendingItemSchema = z.discriminatedUnion('kind', [
+  /**
+   * `currentPercent`/`pendingPercent` do not exist on this variant's shape
+   * at all (task file: "в PROJECT_APPROVAL — только название и кто
+   * предложил, никаких долей и ставок") — see `pendingItemBaseSchema`'s doc
+   * above for what that buys over `.optional()`.
+   */
+  pendingItemBaseSchema.extend({
+    kind: z.literal('PROJECT_APPROVAL'),
+    approvalId: approvalIdField,
+    /**
+     * Per kind: `PROJECT_APPROVAL` → always `'PROJECT'` — integration
+     * decision 1, 2026-09-11 (deliberately not a mirror of the free-form
+     * `approvals.subjectType` column; see `PendingService`'s per-kind
+     * mapping comment for SHARE_APPROVAL's two-way split).
+     */
+    subjectType: z.literal('PROJECT'),
+    /**
+     * The VIEWER'S OWN resolved share on this project — their senior share
+     * when they are the project's senior, their drop share when they are
+     * its drop — never the counterparty's (the same "SENIOR не видит долю
+     * дропа и наоборот" contour `mapProject` enforces). `null` when the
+     * viewer is party to neither side (an ADMIN reading their own
+     * `proposedByMe` list, where the widget showed no share line either).
+     * REQUIRED (not `.optional()`): `PendingService.buildItemForSubject`'s
+     * PROJECT_APPROVAL branch always sets this key, to `null` or a number —
+     * never omits it — so a payload missing the key entirely is malformed,
+     * not merely "no share to show".
+     *
+     * Exists because `PendingProjectApprovalsPanel` used to read it off the
+     * full `ProjectDto` (`effectiveSeniorSharePercent` /
+     * `effectiveDropSharePercent`) and SR-L-6 took that whole DTO away from
+     * the DROP dashboard: without this field, closing the leak would have
+     * silently removed the one number a DROP needs to answer "да" with —
+     * they have no route access to `/projects` at all (COPY-M-6, #646
+     * fix-round 2). Integration decision 2, 2026-09-11.
+     */
+    viewerSharePercent: z.number().int().min(0).max(100).nullable(),
+    /**
+     * Populated ONLY for a viewer who is the project's DROP — who they
+     * would be working under is decision-relevant context for them, and a
+     * name is not a share figure. `null` for a SENIOR viewer (they ARE the
+     * senior; the drop's identity stays masked from them per the same RBAC
+     * rule `mapProject` applies) and for ADMIN. REQUIRED for the same
+     * reason as `viewerSharePercent` above — always set, never omitted.
+     */
+    seniorName: z.string().nullable(),
+  }),
+  /**
+   * `currentPercent`/`pendingPercent` are BOTH required and BOTH-or-NEITHER
+   * by construction (never one without the other — `PendingService`'s two
+   * SHARE_APPROVAL branches always set both together). Present ONLY for
+   * `kind: 'SHARE_APPROVAL'` where the VIEWER is the person whose share it
+   * is — the affected SENIOR in `mine` (always true there — a share-approval
+   * row only ever reaches `mine` when the viewer IS the invited approver),
+   * or the ADMIN who proposed it in `proposedByMe` (task file §Что сделать
+   * item 1: "в proposedByMe для ADMIN — тоже можно (это он предложил)").
+   *
+   * `pendingPercent` is ALWAYS the resolved effective value
+   * (`pendingSeniorShareSchema.effectivePercentAfterApproval`'s own
+   * definition — task file «Допущения» item 4), never the raw nullable
+   * override column: a proposal that clears an override back to the
+   * team/user default is a legitimate live proposal with nothing to show as
+   * "raw pending value" — the resolved fallback number is what the viewer
+   * needs to see.
+   */
+  pendingItemBaseSchema.extend({
+    kind: z.literal('SHARE_APPROVAL'),
+    approvalId: approvalIdField,
+    /**
+     * Per kind: `SHARE_APPROVAL` → `'USER'` for a person's own base share,
+     * `'PROJECT'` for a project-level override (`PendingService` sets the
+     * literal directly per branch — both values are legitimate for this
+     * kind, unlike PROJECT_APPROVAL/CONTRACT_TO_SIGN's fixed single value).
+     * REQUIRED rather than optional so the client needs no fail-safe
+     * default: PR #667's web half had to guess `'project'` on a missing
+     * value, which would have routed a base-share decision at a project
+     * endpoint.
+     */
+    subjectType: pendingItemSubjectTypeSchema,
+    currentPercent: z.number().int().min(0).max(100),
+    pendingPercent: z.number().int().min(0).max(100),
+  }),
+  /**
+   * Contracts are not `approvals` rows (`PendingService.buildContractItem`
+   * queries `employee_contracts` directly) — no `approvalId`, no percent or
+   * share fields exist on this variant at all.
+   */
+  pendingItemBaseSchema.extend({
+    kind: z.literal('CONTRACT_TO_SIGN'),
+    /**
+     * Per kind: `CONTRACT_TO_SIGN` → always `'USER'` — the contract is the
+     * viewer's own — user-scoped, and its `link` (`/profile`) is a
+     * user-scoped surface — even though its `subjectId` is the contract
+     * row's id, not a user id.
+     */
+    subjectType: z.literal('USER'),
+  }),
+])
 export type PendingItem = z.infer<typeof pendingItemSchema>
 
 // ---------------------------------------------------------------------------

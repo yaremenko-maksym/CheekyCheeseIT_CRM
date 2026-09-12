@@ -41,7 +41,34 @@ vi.mock('@/components/pending-share/cancel-pending-share', () => ({
   ),
 }))
 
-function item(overrides: Partial<PendingItem>): PendingItem {
+// SR-L-3 (PR #667 fix-round 2): `pendingItemSchema` is now a
+// `z.discriminatedUnion('kind', ...)` — `Partial<PendingItem>` (a union)
+// distributes over the three variants and rejects an override object that
+// mixes fields from more than one (e.g. `{ kind: 'SHARE_APPROVAL',
+// pendingPercent: 30 }` alone). This fixture helper deliberately stays
+// permissive (every field from every variant, all optional) and the
+// returned object is cast at the end — it is a test double for "some
+// PendingItem shape", not a compile-time proof that every combination of
+// overrides is a valid PendingItem (the real schema tests, pending.spec.ts,
+// own that job).
+interface ItemOverrides {
+  kind?: PendingItem['kind']
+  subjectType?: PendingItem['subjectType']
+  subjectId?: string
+  title?: string
+  proposedBy?: string
+  waitingFor?: string[]
+  createdAt?: string
+  actions?: PendingItem['actions']
+  link?: string
+  approvalId?: string
+  viewerSharePercent?: number | null
+  seniorName?: string | null
+  currentPercent?: number
+  pendingPercent?: number
+}
+
+function item(overrides: ItemOverrides): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
     subjectType: 'PROJECT',
@@ -50,8 +77,11 @@ function item(overrides: Partial<PendingItem>): PendingItem {
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // ~2 days ago
     actions: ['approve', 'reject', 'open'],
     link: '/projects/subj-1',
+    approvalId: '00000000-0000-4000-8000-0000000000a1',
+    viewerSharePercent: null,
+    seniorName: null,
     ...overrides,
-  }
+  } as unknown as PendingItem
 }
 
 describe('PendingItemRow — PROJECT_APPROVAL', () => {
@@ -166,11 +196,18 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
   })
 
   it('mine, currentPercent absent (defensive): "Предлагают Y% · давность", no "Сейчас … →"', () => {
-    const { currentPercent: _unused, ...withoutCurrentPercent } = item({
+    const shareItem = item({
       kind: 'SHARE_APPROVAL',
       pendingPercent: 30,
-    })
-    render(<PendingItemRow item={withoutCurrentPercent} zone="mine" onActed={vi.fn()} />)
+    }) as Extract<PendingItem, { kind: 'SHARE_APPROVAL' }>
+    const { currentPercent: _unused, ...withoutCurrentPercent } = shareItem
+    render(
+      <PendingItemRow
+        item={withoutCurrentPercent as unknown as PendingItem}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
     expect(screen.getByText(/^Предлагают 30% ·/)).toBeInTheDocument()
     expect(screen.queryByText(/Сейчас/)).not.toBeInTheDocument()
   })
