@@ -159,7 +159,9 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
       await page.getByTestId(`senior-share-approve-user-${seniorA.id}`).click()
 
       await expect(page.getByText('Доля по умолчанию')).not.toBeVisible()
-      await expect(page.getByText(/Ваша доля теперь 31%/)).toBeVisible()
+      // COPY-L-1 (fix-round 3): the toast names the object — the row it
+      // refers to disappears in the same moment.
+      await expect(page.getByText(/Доля по умолчанию теперь 31%/)).toBeVisible()
     } finally {
       // Best-effort restore — leaves the seed account at a known percent for
       // the next run rather than at whatever this test proposed.
@@ -188,9 +190,14 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
     await patchUserSharePercentViaAPI(page, seniorB.id, { seniorSharePercent: 33 })
 
     await page.goto('/pending')
-    // Row-anchored: on a `proposedByMe` share row the person's name is BOTH
-    // the title and part of the meta line ("ждём: …"), so matching it as
-    // free text is a strict-mode violation by construction.
+    // Row-anchored: the person's name is in the row title («Доля по
+    // умолчанию — {имя}», COPY-M-4), and the same name also appears in the
+    // users list this ADMIN view renders elsewhere — matching it as free
+    // text is a strict-mode violation by construction.
+    // (Before COPY-M-4 the name was printed twice inside this row alone:
+    // as the whole title AND in the «ждём: …» meta. That duplicate is what
+    // the finding removed; the meta here is now «Сейчас X% → предложено Y%»
+    // on one line and the давность on the next.)
     const row = page.getByTestId(`pending-item-row-SHARE_APPROVAL-${seniorB.id}`)
     await expect(row).toBeVisible()
     await expect(row).toContainText(seniorB.displayName)

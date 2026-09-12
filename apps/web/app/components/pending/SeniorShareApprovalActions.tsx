@@ -97,8 +97,12 @@ export function SeniorShareApprovalActions({
           className="h-11 min-w-11 gap-1 border-emerald-500/30 px-2 text-[11px] text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 sm:h-7"
           onClick={handleApprove}
           disabled={approve.isPending}
+          // COPY-L-3 (fix-round 3): `aria-label` only. The `title` here
+          // duplicated the visible label verbatim; `ProjectApprovalActions`
+          // keeps its own for a reason this component does not have — a
+          // `compact` mode that hides the text (design spec §6.1 never wires
+          // `compact` here).
           aria-label={approveLabel}
-          title={approveLabel}
           data-testid={`senior-share-approve-${scope}-${id}`}
         >
           {approve.isPending ? (
@@ -119,8 +123,8 @@ export function SeniorShareApprovalActions({
           className="h-11 min-w-11 gap-1 border-destructive/30 px-2 text-[11px] text-destructive hover:bg-destructive/10 sm:h-7"
           onClick={() => setRejectOpen(true)}
           disabled={reject.isPending}
+          // COPY-L-3 (fix-round 3): see the approve button above.
           aria-label={rejectLabel}
-          title={rejectLabel}
           data-testid={`senior-share-reject-${scope}-${id}`}
         >
           {reject.isPending ? (
@@ -152,8 +156,18 @@ export function SeniorShareApprovalActions({
       >
         <CrmDialogContent maxWidth="sm:max-w-md">
           <CrmDialogHeader>
-            <DialogTitle>Отклонить предложение</DialogTitle>
-            <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
+            {/* COPY-M-7 (fix-round 3), three fixes against the component this
+                one is declared «визуально 1:1» with (`ProjectApprovalActions`):
+                the title names WHICH proposal (a viewer can hold several at
+                once — base share plus per-project ones); «Админ» is the
+                product's name for the role everywhere else, including the
+                toast that fires a second later; and the required-reason fact
+                is stated once, by the `*` on the label below — the neighbour
+                removed that exact duplicate in #646 fix-round 3. */}
+            <DialogTitle>Отклонить предложение по доле</DialogTitle>
+            <DialogDescription>
+              Админ увидит причину и сможет предложить другой процент.
+            </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody className="space-y-3">
             <div className="space-y-1.5">

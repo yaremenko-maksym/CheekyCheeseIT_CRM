@@ -151,7 +151,12 @@ export function PendingPage() {
           className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-5 text-center"
           data-testid="pending-error"
         >
-          <p className="text-sm text-destructive">Не удалось загрузить список.</p>
+          {/* COPY-L-2 (fix-round 3): this screen calls itself «решение»
+              everywhere — nav item, both headings, the empty state — and
+              «список» appeared exactly once, at the moment the reader least
+              understands what broke. The dashboard widget names the thing
+              too («Не удалось проверить, ждёт ли вас решение по проекту»). */}
+          <p className="text-sm text-destructive">Не удалось загрузить, что ждёт решения.</p>
           <Button
             variant="ghost"
             size="sm"
@@ -177,9 +182,15 @@ export function PendingPage() {
           >
             <Inbox className="h-8 w-8 text-muted-foreground/40" aria-hidden />
             <p className="mt-1 text-sm font-medium">Ничего не ждёт вашего решения</p>
+            {/* COPY-M-6 (fix-round 3): the old subline repeated «вашего
+                решения» one line below the heading, then explained «ничего не
+                ждёт» through «когда будет ждать» — a ring that says nothing
+                when deleted. «документы на подпись» was also a third name for
+                the contract on one screen, and /documents is a different
+                section entirely; the three nouns now match the three sections
+                this screen actually has. */}
             <p className="max-w-xs text-xs text-muted-foreground">
-              Новые проекты, доли и документы на подпись появятся здесь, как только кто-то будет
-              ждать вашего решения.
+              Новые проекты, доли и контракты появятся здесь.
             </p>
           </div>
         ) : (

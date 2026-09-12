@@ -75,6 +75,39 @@ describe('SeniorShareApprovalActions', () => {
     expect(screen.queryAllByRole('paragraph')).toHaveLength(0)
   })
 
+  it('COPY-L-3: the buttons carry no native `title` tooltip — it repeated the visible label verbatim', () => {
+    // `ProjectApprovalActions` keeps its `title` for a reason this component
+    // does not have: a `compact` mode where the label is hidden and only the
+    // icon remains (design spec §6.1 never wires `compact` here). The
+    // accessible name stays on `aria-label`.
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(screen.getByTestId(`senior-share-approve-user-${ID}`)).not.toHaveAttribute('title')
+    expect(screen.getByTestId(`senior-share-reject-user-${ID}`)).not.toHaveAttribute('title')
+    expect(screen.getByTestId(`senior-share-approve-user-${ID}`)).toHaveAttribute(
+      'aria-label',
+      'Подтвердить',
+    )
+  })
+
+  it('COPY-M-7: the reject dialog names WHICH proposal, speaks of «Админ», and does not repeat the required-reason fact', async () => {
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    await userEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+
+    // Object named (a screen can hold several share proposals at once —
+    // base + per-project), the role called by its product name («Админ», as
+    // in the menu item and in the toast that follows a second later), and
+    // «Причина обязательна» gone: the `*` on the label already says it, and
+    // `ProjectApprovalActions` deliberately removed the same duplicate in
+    // #646 fix-round 3.
+    expect(screen.getByText('Отклонить предложение по доле')).toBeInTheDocument()
+    expect(
+      screen.getByText('Админ увидит причину и сможет предложить другой процент.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/администратору/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Причина обязательна/)).not.toBeInTheDocument()
+    expect(screen.getByText('Причина отказа *')).toBeInTheDocument()
+  })
+
   it('onActed is optional — a successful approve with no onActed prop at all does not throw', () => {
     render(<SeniorShareApprovalActions scope="user" id={ID} />)
     act(() => {

@@ -163,7 +163,8 @@ describe('PendingProjectApprovalsPanel', () => {
     expect(screen.getByTestId('pending-project-approvals-panel')).toBeInTheDocument()
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
     expect(screen.getByText('TechFlow Solutions')).toBeInTheDocument()
-    expect(screen.getByText('Предложил Ірина Савенко')).toBeInTheDocument()
+    // COPY-H-1 (fix-round 3): present tense — a displayName carries no gender.
+    expect(screen.getByText('Предлагает Ірина Савенко')).toBeInTheDocument()
     expect(screen.getByTestId('project-approval-approve-p1')).toBeInTheDocument()
     expect(screen.getByTestId('project-approval-reject-p1')).toBeInTheDocument()
     // Row container carries its OWN testid (keyed on subjectId), independent
@@ -173,13 +174,13 @@ describe('PendingProjectApprovalsPanel', () => {
     expect(screen.getByTestId('pending-project-approval-p2')).toBeInTheDocument()
   })
 
-  it('an item with no `proposedBy` renders no "Предложил …" line (fail-safe — should not happen for this kind, but does not crash)', () => {
+  it('an item with no `proposedBy` renders no "Предлагает …" line (fail-safe — should not happen for this kind, but does not crash)', () => {
     // `exactOptionalPropertyTypes` rejects an explicit `undefined` value —
     // destructuring it off is what actually omits the key.
     const { proposedBy: _unused, ...withoutProposedBy } = pendingItem({})
     mockState = { ...mockState, mine: [withoutProposedBy] }
     renderPanel()
-    expect(screen.queryByText(/^Предложил/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Предлагает/)).not.toBeInTheDocument()
   })
 
   it('the widget mount never hides the Confirm/Reject labels — no `compact` prop, at any width', () => {

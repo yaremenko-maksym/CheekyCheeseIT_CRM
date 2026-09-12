@@ -213,6 +213,22 @@ export function useChangePersonalEmail(userId: string) {
  * the same way `cancel-pending-share.tsx#effectivePercentOf` already does,
  * so the toast can always name the real number the server settled on.
  */
+/**
+ * COPY-L-1 (fix-round 3): the project's own name, for a toast that has to
+ * survive the row it referred to disappearing. Narrowed exactly like
+ * `confirmedPercentOf` below — both `approve` and `reject` return the same
+ * `ProjectDetailDto` (`ProjectsService.rejectSeniorShareChange` ends in
+ * `loadForResponse`), and `name` is the field `PendingService` titles the
+ * share row with («Доля по проекту «{name}»»), not `companyName`. Returns
+ * `null` rather than throwing on a 204/`{}`: an unnamed sentence is a
+ * degradation, ««undefined»» in front of the user is a defect.
+ */
+function projectNameOf(scope: PendingShareScope, data: unknown): string | null {
+  if (scope === 'user') return null
+  const name = (data as ProjectDetailDto | undefined)?.name
+  return typeof name === 'string' && name.length > 0 ? name : null
+}
+
 function confirmedPercentOf(scope: PendingShareScope, data: unknown): number | null {
   if (scope === 'user') {
     const percent = (data as UserWithPermissionsResponse | undefined)?.user?.seniorSharePercent
@@ -261,8 +277,18 @@ export function useApproveSeniorShareChange(scope: PendingShareScope, id: string
       // task-648-fix-round-1 (COPY-M-3): names the ACTUAL confirmed value —
       // "новый процент подтверждён" stopped being new the instant it was
       // confirmed, and was outright false for a clear-override proposal.
+      // COPY-L-1 (fix-round 3): name the OBJECT. Both sentences were lifted
+      // verbatim from `$projectId.tsx`, a page about ONE project, where the
+      // address said which one; on `/pending` several proposals sit next to
+      // each other and the row acted on vanishes as the toast appears.
+      // «Доля по умолчанию» is also exactly how the row is titled there.
+      const projectName = projectNameOf(scope, data)
       toast.success(
-        scope === 'user' ? `Ваша доля теперь ${percent}%` : `Доля по проекту теперь ${percent}%`,
+        scope === 'user'
+          ? `Доля по умолчанию теперь ${percent}%`
+          : projectName
+            ? `Доля по проекту «${projectName}» теперь ${percent}%`
+            : `Доля по проекту теперь ${percent}%`,
       )
     },
     // task-648-fix-round-1 (QA-MED-5): refetch on failure too — a stale
@@ -297,12 +323,23 @@ export function useRejectSeniorShareChange(scope: PendingShareScope, id: string)
       )
       return response.data
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       invalidate()
-      // task-648-fix-round-5 (COPY-M-20): same wording on both scopes — the
-      // project-scope banner (`$projectId.tsx`) already used this exact
-      // sentence for its own inline mutation.
-      toast.success('Предложение отклонено — действует прежний процент. Админ увидит причину')
+      // task-648-fix-round-5 (COPY-M-20) kept ONE sentence for both scopes,
+      // because the only two callers then were pages about a single subject.
+      // COPY-L-1 (fix-round 3): on `/pending` the subject is no longer
+      // implied — the reject endpoint returns the updated `ProjectDetailDto`,
+      // so the project can be named from the same response. The tail
+      // («действует прежний процент. Админ увидит причину») is unchanged.
+      const projectName = projectNameOf(scope, data)
+      const tail = 'отклонено — действует прежний процент. Админ увидит причину'
+      toast.success(
+        scope === 'user'
+          ? `Предложение по доле по умолчанию ${tail}`
+          : projectName
+            ? `Предложение по проекту «${projectName}» ${tail}`
+            : `Предложение ${tail}`,
+      )
     },
     onError: (e: unknown) => {
       toast.error(seniorShareErrorMessage(e, 'Не удалось отклонить'))

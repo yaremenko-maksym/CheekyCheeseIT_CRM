@@ -423,7 +423,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
       expect(api.post).toHaveBeenCalledWith(`/users/${USER_ID}/senior-share/approve`),
     )
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith(`Ваша доля теперь ${CONFIRMED_PERCENT}%`),
+      expect(toast.success).toHaveBeenCalledWith(`Доля по умолчанию теперь ${CONFIRMED_PERCENT}%`),
     )
   })
 
@@ -618,7 +618,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
         // matches the dialog's own canonical wording verbatim ("Отклонить
         // предложение" two screens up) — "предложение", not "новый
         // процент", is what got rejected.
-        'Предложение отклонено — действует прежний процент. Админ увидит причину',
+        'Предложение по доле по умолчанию отклонено — действует прежний процент. Админ увидит причину',
       ),
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })

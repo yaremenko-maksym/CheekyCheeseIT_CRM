@@ -139,8 +139,14 @@ export function PendingProjectApprovalsPanel() {
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{item.title}</p>
                 {item.proposedBy ? (
+                  // COPY-H-1 (PR #667 fix-round 3): present tense —
+                  // `proposedBy` is a displayName with no gender attached, so
+                  // the past tense «Предложил Ірина Савенко» was wrong for
+                  // half the names the field can hold. Same resolution #648
+                  // reached for «Подтверждает {имя}», and the same wording
+                  // the /pending row uses for this very item.
                   <p className="truncate text-xs text-muted-foreground">
-                    Предложил {item.proposedBy}
+                    Предлагает {item.proposedBy}
                   </p>
                 ) : null}
                 {/* COPY-L-4 / COPY-L-7 (PR #646 fix-rounds 3-4) are kept

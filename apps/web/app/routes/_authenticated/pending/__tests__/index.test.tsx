@@ -209,6 +209,9 @@ describe('/pending — AC6 states', () => {
     mockState = { ...mockState, isError: true }
     renderPage()
     expect(screen.getByTestId('pending-error')).toBeInTheDocument()
+    // COPY-L-2 (fix-round 3): the screen never calls itself «список»
+    // anywhere else — nav, headings and empty state all say «решение».
+    expect(screen.getByText('Не удалось загрузить, что ждёт решения.')).toBeInTheDocument()
     // Accessible name is the `aria-label` ("Повторить загрузку" — same
     // DropBalanceCard.tsx precedent), not the shorter visible text.
     fireEvent.click(screen.getByRole('button', { name: 'Повторить загрузку' }))
@@ -219,6 +222,10 @@ describe('/pending — AC6 states', () => {
     renderPage()
     expect(screen.getByTestId('pending-empty')).toBeInTheDocument()
     expect(screen.getByText('Ничего не ждёт вашего решения')).toBeInTheDocument()
+    // COPY-M-6 (fix-round 3): the subline stopped explaining «ничего не ждёт»
+    // through «когда будет ждать», and lists exactly the three sections this
+    // screen has — «документы» is a different menu item entirely.
+    expect(screen.getByText('Новые проекты, доли и контракты появятся здесь.')).toBeInTheDocument()
   })
 
   it('mine empty but proposedByMe non-empty (ADMIN with nothing of their own): shows ONLY «Ждут решения других», not the global empty state', () => {

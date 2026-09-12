@@ -94,6 +94,15 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     )
   })
 
+  it('COPY-L-1: names the project when the response carries it — on /pending the row disappears as the toast appears', async () => {
+    mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, name: 'TechFlow' } })
+    renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Доля по проекту «TechFlow» теперь 41%'),
+    )
+  })
+
   it('invalidates the PROJECT + pending queries, never the user-profile ones', async () => {
     mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41 } })
     const { invalidateSpy } = renderProbe(
@@ -127,7 +136,9 @@ describe('useApproveSeniorShareChange — scope: "user" (a response with no `use
     mockPost.mockResolvedValue({ data: {} })
     renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Ваша доля теперь null%'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь null%'),
+    )
   })
 
   it('a response body of `undefined` ALSO resolves to null instead of throwing (distinct from a merely-missing `user` key)', async () => {
@@ -137,7 +148,9 @@ describe('useApproveSeniorShareChange — scope: "user" (a response with no `use
     mockPost.mockResolvedValue({ data: undefined })
     renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Ваша доля теперь null%'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь null%'),
+    )
   })
 
   it('invalidates the user-profile + pending queries, never the project ones', async () => {
@@ -199,5 +212,47 @@ describe('useRejectSeniorShareChange — scope: "user"', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: PENDING_QUERY_KEY })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects', USER_ID] })
+  })
+})
+
+describe('COPY-L-1 — the toast names the object of the decision, not just the number', () => {
+  it('user scope, approve: «Доля по умолчанию теперь X%» — the same object the /pending row is titled with', async () => {
+    mockPost.mockResolvedValue({ data: { user: { seniorSharePercent: 30 } } })
+    renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь 30%'))
+  })
+
+  it('project scope, reject: names the project — the row it referred to is gone by the time it is read', async () => {
+    mockPost.mockResolvedValue({ data: { name: 'TechFlow' } })
+    renderProbe(() => useRejectSeniorShareChange('project', PROJECT_ID), 'слишком поздно')
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        'Предложение по проекту «TechFlow» отклонено — действует прежний процент. Админ увидит причину',
+      ),
+    )
+  })
+
+  it('project scope, reject with no name in the response: falls back to the unnamed sentence rather than ««undefined»»', async () => {
+    mockPost.mockResolvedValue({ data: {} })
+    renderProbe(() => useRejectSeniorShareChange('project', PROJECT_ID), 'слишком поздно')
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        'Предложение отклонено — действует прежний процент. Админ увидит причину',
+      ),
+    )
+  })
+
+  it('user scope, reject: «по доле по умолчанию» — there is no project to name', async () => {
+    mockPost.mockResolvedValue({ data: {} })
+    renderProbe(() => useRejectSeniorShareChange('user', USER_ID), 'ошиблись')
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        'Предложение по доле по умолчанию отклонено — действует прежний процент. Админ увидит причину',
+      ),
+    )
   })
 })
