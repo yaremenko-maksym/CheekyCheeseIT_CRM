@@ -644,7 +644,14 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                 data-testid={`project-row-${project.id}-status-rejected`}
               >
                 <XCircle className="h-3 w-3" aria-hidden />
-                Отклонено
+                {/* COPY-M-1 (PR #670 fix-round 2): was "Отклонено"
+                    (impersonal/neuter) — renamed to "Отклонён" (masculine,
+                    agrees with "проект") to match the project detail page
+                    header badge (`ProjectStatusBadge.tsx`): one object, one
+                    name across both halves of the same click-through
+                    (row → detail page). One symbol shorter too, in the same
+                    ~86px column this file has twice fixed for overflow. */}
+                Отклонён
               </Badge>
               {project.rejectionReason && (
                 // UX-H-1: same fixed max-w-40 fix as pendingCaption above.

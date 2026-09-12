@@ -295,8 +295,10 @@ test.describe('Project status filter — AC3 (confirm/reject) + AC4 (badge/reaso
       await page.goto('/projects?status=REJECTED')
       const row = page.getByTestId(`project-row-${projectId}`)
       await expect(row).toBeVisible()
+      // COPY-M-1 (PR #670 fix-round 2): "Отклонено" → "Отклонён" (masculine,
+      // agrees with "проект"; matches the project detail page badge).
       await expect(row.getByTestId(`project-row-${projectId}-status-rejected`)).toContainText(
-        'Отклонено',
+        'Отклонён',
       )
       await expect(row.getByText('«нет бюджета на Q3»')).toBeVisible()
     } finally {
