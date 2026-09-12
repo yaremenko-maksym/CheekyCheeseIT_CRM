@@ -5,6 +5,7 @@ import {
   INFORMING_NOTIFICATION_TYPES,
 } from '@crm/shared'
 
+import { userEmailKindEnum } from '../database/schema'
 import {
   backoffMs,
   MAX_EMAIL_ATTEMPTS,
@@ -82,6 +83,14 @@ describe('pickEmailAddress', () => {
 
   it('без адресов вовсе — некуда слать', () => {
     expect(pickEmailAddress([])).toBeNull()
+  })
+
+  it('видов адреса ровно два — на этом держится выбор «личный, иначе любой»', () => {
+    // Не украшение: `pickEmailAddress` после отбора личного берёт ПЕРВУЮ
+    // оставшуюся строку, и это верно ровно потому, что оставшаяся может быть
+    // только рабочей. Появится третий вид — тест покраснеет здесь, и выбор
+    // придётся переписать осознанно.
+    expect(userEmailKindEnum.enumValues).toEqual(['WORK', 'PERSONAL'])
   })
 })
 

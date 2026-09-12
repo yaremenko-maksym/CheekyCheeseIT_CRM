@@ -3433,7 +3433,13 @@ export const notificationEmails = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     // Stryker disable next-line StringLiteral: имя свойства совпадает с именем колонки (`status`) — drizzle подставит его вместо пустого, наблюдаемой разницы нет
-    status: notificationEmailStatusEnum('status').notNull().default('QUEUED'),
+    status: notificationEmailStatusEnum('status')
+      // Умолчание НЕ подавлено намеренно: `'QUEUED'` проверяется
+      // `notification-email-schema.spec.ts`, и запись его на отдельной строке —
+      // единственный способ оставить его под мутациями: `disable next-line`
+      // глушит ВСЕ литералы своей строки, а не тот, на который смотрел автор.
+      .notNull()
+      .default('QUEUED'),
     /** Сколько раз отправщик БРАЛ строку в работу. Пять — потолок. */
     // Stryker disable next-line StringLiteral: то же — свойство и колонка называются `attempts`
     attempts: integer('attempts').notNull().default(0),
