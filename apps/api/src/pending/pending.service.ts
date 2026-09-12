@@ -504,7 +504,16 @@ export class PendingService {
         // «Доли» section reads as a project row, not as a share proposal —
         // and it is the wording `PendingShareApprovalBanner` already uses
         // ("доля по проекту"). Integration decision A1, 2026-09-12.
-        title: `Доля по проекту «${project.name}»`,
+        //
+        // COPY-M-10 / COPY-M-11 (fix-round 4): `companyName`, for the same
+        // reason the PROJECT_APPROVAL branch above gives — one project, one
+        // name, on a screen that shows both rows at once. This row used to
+        // ask for a decision about «AI Platform v2» two sections below a row
+        // calling the same project «TechCorp AI», and the reject/approve
+        // toasts mirrored whichever it was. The popup of #664 names it from
+        // its own producer (`projects.service.ts`); aligning that half is
+        // that PR's, tracked as COPY-M-11.
+        title: `Доля по проекту «${project.companyName}»`,
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         currentPercent,

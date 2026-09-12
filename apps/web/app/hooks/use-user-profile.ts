@@ -218,20 +218,28 @@ export function useChangePersonalEmail(userId: string) {
  * survive the row it referred to disappearing. Narrowed exactly like
  * `confirmedPercentOf` below — both `approve` and `reject` return the same
  * `ProjectDetailDto` (`ProjectsService.rejectSeniorShareChange` ends in
- * `loadForResponse`), and `name` is the field `PendingService` titles the
- * share row with («Доля по проекту «{name}»»), not `companyName`. Returns
- * `null` rather than throwing on a 204/`{}`: an unnamed sentence is a
- * degradation, ««undefined»» in front of the user is a defect — and the same
- * goes for an empty or non-string `name`, which is why both are checked here
- * rather than left to the caller's truthiness (callers compare to `null`, so
- * an empty string WOULD have reached the user as «по проекту «»»).
+ * `loadForResponse`).
+ *
+ * COPY-M-10 (#667 fix-round 4): reads `companyName`, not `name`. Round 3
+ * deliberately mirrored `PendingService`'s share-row title, which at the
+ * time interpolated the project's `name` — and that title was itself the
+ * defect: `name` is the internal label («AI Platform v2»), while the whole
+ * product identifies a project by its company («TechCorp AI») — `ProjectRow`,
+ * the project row on this very screen, `ProjectApprovalActions` and both
+ * project toasts. Both halves moved together; the mirror still holds.
+ *
+ * Returns `null` rather than throwing on a 204/`{}`: an unnamed sentence is
+ * a degradation, ««undefined»» in front of the user is a defect — and the
+ * same goes for an empty or non-string value, which is why both are checked
+ * here rather than left to the caller's truthiness (callers compare to
+ * `null`, so an empty string WOULD have reached the user as «по проекту «»»).
  *
  * Takes no `scope`: a user-scope response has no top-level `name` to find,
  * and the user-scope sentences never interpolate one — a `scope === 'user'`
  * early return here was a branch no test could ever distinguish.
  */
 function projectNameOf(data: unknown): string | null {
-  const name = (data as ProjectDetailDto | undefined)?.name
+  const name = (data as ProjectDetailDto | undefined)?.companyName
   return typeof name === 'string' && name.length > 0 ? name : null
 }
 
@@ -339,11 +347,20 @@ export function useRejectSeniorShareChange(scope: PendingShareScope, id: string)
       // («действует прежний процент. Админ увидит причину») is unchanged.
       const projectName = projectNameOf(data)
       const tail = 'отклонено — действует прежний процент. Админ увидит причину'
+      // COPY-M-9 (fix-round 4): the OBJECT leads, and the object is the
+      // share — «Предложение по проекту «X» отклонено» announced a rejected
+      // PROJECT, which is a different decision living one section above on
+      // the same screen with a toast of its own («Проект отклонён, админ
+      // увидит причину»). The confirming half of this pair already names it
+      // correctly («Доля по проекту «X» теперь 30%»), so the pair was
+      // asymmetric on top of being wrong. The user-scope form also loses its
+      // «по доле по умолчанию» (two «по» in one noun phrase). The unnamed
+      // fallback is untouched — that sentence is #648's and still true.
       toast.success(
         scope === 'user'
-          ? `Предложение по доле по умолчанию ${tail}`
+          ? `Доля по умолчанию: предложение ${tail}`
           : projectName !== null
-            ? `Предложение по проекту «${projectName}» ${tail}`
+            ? `Доля по проекту «${projectName}»: предложение ${tail}`
             : `Предложение ${tail}`,
       )
     },

@@ -95,12 +95,26 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
   })
 
   it('COPY-L-1: names the project when the response carries it — on /pending the row disappears as the toast appears', async () => {
-    mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, name: 'TechFlow' } })
+    // COPY-M-10 (fix-round 4): by COMPANY, not by the internal label. The
+    // response carries both here on purpose — this is the assertion that
+    // says which of the two columns the sentence reads.
+    mockPost.mockResolvedValue({
+      data: { effectiveSeniorSharePercent: 41, name: 'AI Platform v2', companyName: 'TechFlow' },
+    })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith('Доля по проекту «TechFlow» теперь 41%'),
     )
+  })
+
+  it('COPY-M-10: the internal label alone never names the toast — the screen calls this project by its company', async () => {
+    mockPost.mockResolvedValue({
+      data: { effectiveSeniorSharePercent: 41, name: 'AI Platform v2' },
+    })
+    renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'))
   })
 
   it('invalidates the PROJECT + pending queries, never the user-profile ones', async () => {
@@ -223,13 +237,18 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь 30%'))
   })
 
-  it('project scope, reject: names the project — the row it referred to is gone by the time it is read', async () => {
-    mockPost.mockResolvedValue({ data: { name: 'TechFlow' } })
+  it('COPY-M-9: project scope, reject — the object comes first, and the object is the SHARE, not the project', async () => {
+    mockPost.mockResolvedValue({ data: { name: 'AI Platform v2', companyName: 'TechFlow' } })
     renderProbe(() => useRejectSeniorShareChange('project', PROJECT_ID), 'слишком поздно')
     await userEvent.click(screen.getByTestId('fire'))
+    // «Предложение по проекту «X» отклонено» said that a PROJECT had been
+    // rejected — which is a different decision living one section above on
+    // the same screen, with its own toast. What was rejected here is the
+    // share proposal, and the confirming half of this very pair («Доля по
+    // проекту «X» теперь 30%») already names it that way.
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Предложение по проекту «TechFlow» отклонено — действует прежний процент. Админ увидит причину',
+        'Доля по проекту «TechFlow»: предложение отклонено — действует прежний процент. Админ увидит причину',
       ),
     )
   })
@@ -246,35 +265,35 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
   })
 
   it('a project name that is not a string is ignored — «Доля по проекту «123»» would be a defect, not a degradation', async () => {
-    mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, name: 123 } })
+    mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, companyName: 123 } })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'))
   })
 
   it('an EMPTY project name is ignored as well — «Доля по проекту «» теперь 41%» is worse than saying nothing', async () => {
-    mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, name: '' } })
+    mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, companyName: '' } })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'))
   })
 
-  it('a user-scope response carrying a stray `name` never leaks it into the base-share sentence', async () => {
+  it('a user-scope response carrying a stray `companyName` never leaks it into the base-share sentence', async () => {
     mockPost.mockResolvedValue({
-      data: { user: { seniorSharePercent: 30 }, name: 'TechFlow' },
+      data: { user: { seniorSharePercent: 30 }, companyName: 'TechFlow' },
     })
     renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь 30%'))
   })
 
-  it('user scope, reject: «по доле по умолчанию» — there is no project to name', async () => {
+  it('COPY-M-9: user scope, reject — «Доля по умолчанию: …», not «по доле по умолчанию» with two «по» in a row', async () => {
     mockPost.mockResolvedValue({ data: {} })
     renderProbe(() => useRejectSeniorShareChange('user', USER_ID), 'ошиблись')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Предложение по доле по умолчанию отклонено — действует прежний процент. Админ увидит причину',
+        'Доля по умолчанию: предложение отклонено — действует прежний процент. Админ увидит причину',
       ),
     )
   })

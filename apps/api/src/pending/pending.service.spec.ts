@@ -682,7 +682,12 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
         // them apart.
         subjectType: 'PROJECT',
         subjectId: PROJECT_ID,
-        title: 'Доля по проекту «GamingTec»',
+        // COPY-M-10 (fix-round 4): by COMPANY («GamingTec Holdings»), not by
+        // the project's internal label («GamingTec»). The PROJECT_APPROVAL
+        // row one section above already names the same project by company,
+        // as does /projects and both project toasts — this row asked for a
+        // decision about that same project under a second name.
+        title: 'Доля по проекту «GamingTec Holdings»',
         proposedBy: undefined,
         waitingFor: ['Senior One'],
         // No project-level override (null) and no PENDING project-level

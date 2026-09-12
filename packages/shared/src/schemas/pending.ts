@@ -95,7 +95,10 @@ const pendingItemBaseSchema = z.object({
    *   SHARE_APPROVAL    → «Доля по умолчанию» (own, in `mine`)
    *                     / «Доля по умолчанию — {имя}» (someone else's, in
    *                       `proposedByMe`)
-   *                     / «Доля по проекту «{name}»»
+   *                     / «Доля по проекту «{companyName}»» (COPY-M-10,
+   *                       fix-round 4 — the company, like every other place
+   *                       this project is named; `name` is the internal
+   *                       label)
    *   CONTRACT_TO_SIGN  → «Ваш контракт»
    */
   title: z.string(),
