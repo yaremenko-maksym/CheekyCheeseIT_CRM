@@ -8,6 +8,7 @@ import { ApprovalsService } from '../approvals/approvals.service'
 import { NotificationsService } from './notifications.service'
 import { approvals, notifications, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { NOTIFICATION_TITLES } from '@crm/shared'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 
@@ -164,6 +165,38 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(row?.rejectionReason).toBe('не подходит')
 
       // Потерялось РОВНО уведомление — и ничего сверх него.
+      const notifRows = await dbSvc.db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.userId, PROPOSER_ID))
+      expect(notifRows).toHaveLength(0)
+    })
+
+    /**
+     * Обратная сторона савепойнта и AC4 задания: вложенная транзакция —
+     * ВНУТРИ транзакции события, а не рядом с ней. Откат события обязан
+     * уносить и запись; иначе шов круга 3 чинил бы одно вето ценой другого
+     * инварианта — «уведомления о несостоявшемся событии не существует».
+     */
+    it('откат события уносит запись, сделанную во вложенной транзакции', async () => {
+      const notificationsSvc = makeQuietNotifications()
+
+      await expect(
+        dbSvc.db.transaction(async (tx) => {
+          await notificationsSvc.emitInTx(tx, async (sp) => {
+            await notificationsSvc.createInTx(sp, {
+              userId: PROPOSER_ID,
+              type: 'PROJECT_MEMBER_ADDED',
+              title: NOTIFICATION_TITLES.PROJECT_MEMBER_ADDED,
+              subjectType: 'PROJECT',
+              subjectId: SUBJECT_ID,
+              data: { projectName: 'Acme' },
+            })
+          })
+          throw new Error('событие не состоялось')
+        }),
+      ).rejects.toThrow('событие не состоялось')
+
       const notifRows = await dbSvc.db
         .select()
         .from(notifications)
