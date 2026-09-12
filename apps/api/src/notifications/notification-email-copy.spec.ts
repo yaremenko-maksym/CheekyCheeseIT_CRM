@@ -163,6 +163,182 @@ describe('десять писем — страж §11', () => {
   })
 })
 
+/**
+ * Эталон десяти писем — тема, текст и подпись кнопки дословно.
+ *
+ * Свойства (ни цифр, ни имён, одна кнопка) проверены выше; они НЕ закрывают
+ * сам текст: письмо, у которого тело стало пустой строкой, все проверки
+ * свойств проходит. А текст здесь и есть предмет задачи — §11 утверждён
+ * владельцем, и молча разойтись с утверждённым он не должен.
+ *
+ * Ожидаемое взято из §11 и задания, а не вычислено тем же кодом, что и
+ * реализация: иначе проверка была бы тавтологией и прошла бы по построению.
+ * Правка формулировки обязана падать здесь — это не хрупкость, а гейт на
+ * текст, который читает `copy-reviewer`.
+ */
+const GOLDEN: Record<NewNotificationType, { subject: string; text: string; button: string }> = {
+  TRANSACTION_ADDED: {
+    subject: 'Вам добавили транзакцию по проекту «Мобильный банк»',
+    text: 'В ваших финансах новая транзакция. Сумма и детали — в CRM.',
+    button: 'Открыть финансы',
+  },
+  TRANSACTION_STATUS_CHANGED: {
+    subject: 'Доход отклонён',
+    text: 'Бухгалтер отклонил заявленный доход. Причина — в CRM.',
+    button: 'Открыть финансы',
+  },
+  TEAM_MEMBER_ADDED: {
+    subject: 'Вас добавили в команду «Ядро платформы»',
+    text: 'Теперь вы участник команды «Ядро платформы».',
+    button: 'Открыть команду',
+  },
+  PROJECT_MEMBER_ADDED: {
+    subject: 'Вас добавили в проект «Мобильный банк»',
+    text: 'Теперь вы участник проекта «Мобильный банк».',
+    button: 'Открыть проект',
+  },
+  TEAM_NEW_MEMBER: {
+    subject: 'В команде «Ядро платформы» новый участник',
+    text: 'К команде «Ядро платформы» присоединился новый участник. Кто — в CRM.',
+    button: 'Открыть команду',
+  },
+  PROJECT_CONFIRM_REQUIRED: {
+    subject: 'Запрос на добавление проекта «Мобильный банк»',
+    text: 'Вас предлагают в проект «Мобильный банк».\nПроект не начнётся, пока участники не ответят.',
+    button: 'Открыть проект',
+  },
+  SHARE_CONFIRM_REQUIRED: {
+    subject: 'Запрос на смену процента по проекту «Мобильный банк»',
+    text: 'Вам предлагают изменить процент по проекту «Мобильный банк».\nСейчас действует прежний процент. Новый вступит в силу только после вашего согласия.',
+    button: 'Открыть предложение',
+  },
+  DOCUMENT_SIGN_REQUIRED: {
+    subject: 'Запрос на подпись: контракт',
+    text: 'Ваш контракт готов и ждёт подписи.',
+    button: 'Подписать контракт',
+  },
+  APPROVAL_CONFIRMED: {
+    subject: 'Ваше предложение принято',
+    text: 'Сотрудник принял проект «Мобильный банк».',
+    button: 'Открыть проект',
+  },
+  APPROVAL_REJECTED: {
+    subject: 'Ваше предложение отклонено',
+    text: 'Сотрудник отклонил смену процента по проекту «Мобильный банк».\nПричина — в CRM.',
+    button: 'Открыть проект',
+  },
+}
+
+describe('эталон: тема, текст и кнопка дословно', () => {
+  it.each(NEW_NOTIFICATION_TYPES)('%s', (type) => {
+    const mail = render(type)
+    const want = GOLDEN[type]
+    expect(mail.subject).toBe(want.subject)
+    // Текст = строки тела, пустая строка, адрес. Сверяется тело: адрес уже
+    // проверен отдельно, и держать его в эталоне значило бы ломать эталон при
+    // смене тестового адреса.
+    expect(mail.text).toBe(`${want.text}\n\n${mail.buttonHref}`)
+    expect(mail.buttonLabel).toBe(want.button)
+  })
+})
+
+describe('эталон: ветки, которых в таблице выше быть не может', () => {
+  it('смена БАЗОВОГО процента — своя тема и своё тело', () => {
+    const mail = renderNotificationEmail(
+      {
+        ...sourceFor('SHARE_CONFIRM_REQUIRED'),
+        subjectType: 'USER',
+        data: {
+          scope: 'BASE',
+          projectName: null,
+          previousPercent: 26,
+          proposedPercent: 30,
+          approvalId: '22222222-2222-4222-8222-222222222222',
+        },
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.subject).toBe('Запрос на смену базового процента')
+    expect(mail.text).toBe(
+      'Вам предлагают изменить базовый процент.\n' +
+        'Сейчас действует прежний процент. Новый вступит в силу только после вашего согласия.\n\n' +
+        `${mail.buttonHref}`,
+    )
+  })
+
+  it('валидированный доход — своя тема и своё тело', () => {
+    const mail = renderNotificationEmail(
+      {
+        ...sourceFor('TRANSACTION_STATUS_CHANGED'),
+        data: {
+          amount: '1500.000000',
+          currency: 'USDT',
+          status: 'VALIDATED',
+          rejectionReasonPreview: null,
+        },
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.subject).toBe('Доход валидирован')
+    expect(mail.text).toBe(`Бухгалтер подтвердил заявленный доход.\n\n${mail.buttonHref}`)
+  })
+
+  it('транзакция без проекта — тема без имени проекта', () => {
+    const mail = renderNotificationEmail(
+      {
+        ...sourceFor('TRANSACTION_ADDED'),
+        data: { amount: '1500.000000', currency: 'USDT', projectName: null },
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.subject).toBe('Вам добавили транзакцию')
+  })
+
+  it('решение по базовой доле — «смену базового процента», а не проект', () => {
+    const mail = renderNotificationEmail(
+      {
+        ...sourceFor('APPROVAL_CONFIRMED'),
+        subjectType: 'USER',
+        data: { approverName: PERSON, subjectKind: 'BASE_SHARE', subjectTitle: null },
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.text).toBe(`Сотрудник принял смену базового процента.\n\n${mail.buttonHref}`)
+    expect(mail.buttonLabel).toBe('Открыть профиль')
+  })
+
+  it('решение по проекту без названия — «проект» без кавычек', () => {
+    // `subjectTitle` допускает `null` (объект переименовали, снимок не сняли).
+    // Дырка «проект «»» читалась бы как поломка.
+    const mail = renderNotificationEmail(
+      {
+        ...sourceFor('APPROVAL_REJECTED'),
+        data: {
+          approverName: PERSON,
+          subjectKind: 'PROJECT',
+          subjectTitle: null,
+          reasonPreview: null,
+        },
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.text.startsWith('Сотрудник отклонил проект.')).toBe(true)
+    expect(mail.text).not.toContain('«»')
+  })
+
+  it('решение по проценту проекта без названия — тоже без пустых кавычек', () => {
+    const mail = renderNotificationEmail(
+      {
+        ...sourceFor('APPROVAL_CONFIRMED'),
+        data: { approverName: PERSON, subjectKind: 'PROJECT_SHARE', subjectTitle: null },
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.text.startsWith('Сотрудник принял смену процента по проекту.')).toBe(true)
+    expect(mail.text).not.toContain('«»')
+  })
+})
+
 describe('темы — единый префикс «Запрос на …» у того, что требует ответа', () => {
   it('проект называет себя по имени', () => {
     expect(render('PROJECT_CONFIRM_REQUIRED').subject).toBe(
@@ -249,6 +425,72 @@ describe('деградация', () => {
     expect(mail.buttonHref).toBe(`${FRONTEND}/finance/invoices/abc`)
   })
 
+  it('тип с неразбираемыми данными говорит, что подробности в CRM', () => {
+    // Текст запасного пути — тоже текст: письмо «» ушло бы как пустое.
+    const mail = renderNotificationEmail(
+      { ...sourceFor('SHARE_CONFIRM_REQUIRED'), data: { scope: 'WRONG' } },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.text).toBe(`Подробности — в CRM.\n\n${mail.buttonHref}`)
+  })
+
+  it('старый тип без сохранённого тела тоже зовёт в CRM', () => {
+    const mail = renderNotificationEmail(
+      {
+        type: 'INVOICE_SIGNED',
+        title: 'Инвойс подписан',
+        body: null,
+        link: '/finance/invoices/abc',
+        subjectType: null,
+        subjectId: null,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.text).toBe(`Подробности — в CRM.\n\n${mail.buttonHref}`)
+  })
+
+  it('старый тип с сохранённым телом печатает ЕГО, а не заглушку', () => {
+    const mail = renderNotificationEmail(
+      {
+        type: 'VACANCY_APPLICATION',
+        title: 'Отклик на вакансию',
+        body: 'Пришёл отклик на вакансию React-разработчика',
+        link: '/vacancies',
+        subjectType: null,
+        subjectId: null,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.text).toBe(`Пришёл отклик на вакансию React-разработчика\n\n${mail.buttonHref}`)
+  })
+
+  it('без ссылки кнопка называется «Открыть CRM»', () => {
+    // Подпись «Открыть команду» на кнопке, ведущей в корень, врала бы о том,
+    // что откроется.
+    const mail = renderNotificationEmail(
+      {
+        type: 'VACANCY_APPLICATION',
+        title: 'Отклик на вакансию',
+        body: null,
+        link: null,
+        subjectType: null,
+        subjectId: null,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.buttonLabel).toBe('Открыть CRM')
+  })
+
+  it('адрес берётся из настройки, а не из константы', () => {
+    const mail = renderNotificationEmail(sourceFor('PROJECT_MEMBER_ADDED'), {
+      frontendUrl: 'https://other.example',
+    })
+    expect(mail.buttonHref.startsWith('https://other.example/')).toBe(true)
+  })
+
   it('без ссылки ведёт в корень CRM, а не в никуда', () => {
     const mail = renderNotificationEmail(
       {
@@ -270,6 +512,66 @@ describe('деградация', () => {
       frontendUrl: 'https://app.cheekycheese.tech/',
     })
     expect(mail.buttonHref).not.toContain('tech//')
+  })
+})
+
+describe('каркас письма (§12: почтовые клиенты — не браузеры)', () => {
+  it('двухстрочное письмо собирается ровно так', () => {
+    // Эталон разметки целиком. Дословно — потому что почтовый клиент не
+    // прощает ни таблиц без `role="presentation"`, ни `max-width` мимо
+    // внешней таблицы, а увидеть это можно только в чужом клиенте, когда
+    // письмо уже ушло. Правка вёрстки обязана падать здесь.
+    const mail = render('PROJECT_CONFIRM_REQUIRED')
+    expect(mail.html).toBe(`<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <p style="margin:0 0 16px 0;font-size:16px;line-height:24px;color:#18181b;">
+                Вас предлагают в проект «${PROJECT}».
+              </p>
+              <p style="margin:0 0 24px 0;font-size:16px;line-height:24px;color:#18181b;">
+                Проект не начнётся, пока участники не ответят.
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="border-radius:6px;background-color:#18181b;">
+                    <a href="${mail.buttonHref}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:bold;">Открыть проект</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`)
+  })
+
+  it('у последней строки отступ больше — она отделяет текст от кнопки', () => {
+    // Односрочное письмо: единственная строка ОДНОВРЕМЕННО первая и
+    // последняя, и отступ у неё обязан быть «последний» (24), а не «первый»
+    // (16). Именно этим односрочное письмо отличает правильную границу от
+    // сдвинутой на единицу.
+    const mail = render('DOCUMENT_SIGN_REQUIRED')
+    expect(mail.html).toContain('margin:0 0 24px 0')
+    expect(mail.html).not.toContain('margin:0 0 16px 0')
+  })
+
+  it('в двухстрочном письме ровно один «последний» отступ', () => {
+    const mail = render('SHARE_CONFIRM_REQUIRED')
+    expect(mail.html.match(/margin:0 0 24px 0/g)).toHaveLength(1)
+    expect(mail.html.match(/margin:0 0 16px 0/g)).toHaveLength(1)
   })
 })
 

@@ -1,6 +1,5 @@
 import { Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { MAX_EMAIL_ATTEMPTS } from './notification-email-outbox'
 import {
   NotificationEmailCronService,
@@ -35,7 +34,26 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
     addresses: new Map<string, { email: string; kind: 'WORK' | 'PERSONAL' }[]>(),
   }
   return {
-    ...state,
+    // Счётчики — ГЕТТЕРАМИ, а не через `...state`: спред копирует число один
+    // раз, и `gw.claims` навсегда остался бы нулём — то есть проверка
+    // «не захватил ни одной строки» проходила бы всегда, даже когда захватил.
+    // Массивы спред скопировал бы по ссылке, но держать две разные механики
+    // рядом — приглашение к той же ошибке.
+    get sent() {
+      return state.sent
+    },
+    get failed() {
+      return state.failed
+    },
+    get retried() {
+      return state.retried
+    },
+    get claims() {
+      return state.claims
+    },
+    get addresses() {
+      return state.addresses
+    },
     claimDue: async (_limit: number) => {
       state.claims += 1
       return state.claims === 1 ? claimed : []
@@ -77,23 +95,35 @@ function makeService(opts: {
   configured?: boolean
   send?: (input: { to: string[]; subject: string }) => Promise<void>
 }) {
-  const sends: { to: string[]; subject: string }[] = []
+  const sends: { to: string[]; subject: string; text: string }[] = []
   const mailer = {
     get isConfigured() {
       return opts.configured ?? true
     },
     send: async (input: { to: string[]; subject: string; text: string; html: string }) => {
-      sends.push({ to: input.to, subject: input.subject })
+      sends.push({ to: input.to, subject: input.subject, text: input.text })
       if (opts.send) await opts.send(input)
     },
+  }
+  const recorded: { message: string; route: string }[] = []
+  const telemetry = {
+    recordError: (p: { message: string; route: string }) => {
+      recorded.push(p)
+      return Promise.resolve()
+    },
+  }
+  // Отвечает ТОЛЬКО на своё имя: заглушка, отдающая адрес на любой ключ, не
+  // заметила бы, что сервис читает не ту настройку.
+  const config = {
+    get: (key: string) => (key === 'FRONTEND_URL' ? 'https://app.cheekycheese.tech' : undefined),
   }
   const service = new NotificationEmailCronService(
     opts.gateway,
     mailer as never,
-    makeTelemetryErrorsStub() as never,
-    { get: () => 'https://app.cheekycheese.tech' } as never,
+    telemetry as never,
+    config as never,
   )
-  return { service, sends }
+  return { service, sends, recorded }
 }
 
 describe('отправщик — успешный путь', () => {
@@ -105,6 +135,8 @@ describe('отправщик — успешный путь', () => {
 
     expect(sends).toHaveLength(1)
     expect(sends[0]!.subject).toBe('Запрос на добавление проекта «Мобильный банк»')
+    // Адрес в письме — из настройки `FRONTEND_URL`, а не из константы в коде.
+    expect(sends[0]!.text).toContain('https://app.cheekycheese.tech/projects/')
     expect(gw.sent).toEqual([{ id: 'e-1', email: 'u-1@cheekycheese.tech' }])
     expect(gw.failed).toHaveLength(0)
   })
@@ -198,6 +230,40 @@ describe('отправщик — отказы и ретраи', () => {
     expect(gw.failed).toHaveLength(0)
   })
 
+  it('сдача после потолка попыток доезжает до телеметрии', async () => {
+    // Человек не узнал о том, о чём должен был. Это событие для дайджеста, и
+    // молчание здесь — второй конец той же палки, что тихо потерянное письмо.
+    const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
+    const { service, recorded } = makeService({
+      gateway: gw,
+      send: async () => {
+        throw new Error('Resend API HTTP 500: boom')
+      },
+    })
+
+    await service.drainOnce()
+
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]!.message).toBe('Notification email gave up after retries')
+    expect(recorded[0]!.route).toBe('/api/notifications')
+  })
+
+  it('отложенная попытка телеметрию НЕ будит', async () => {
+    // Иначе дайджест заполнится обычными повторами, и в нём перестанут
+    // находиться настоящие сдачи.
+    const gw = makeGateway([claimed({ attempts: 1 })])
+    const { service, recorded } = makeService({
+      gateway: gw,
+      send: async () => {
+        throw new Error('Resend API HTTP 429: slow down')
+      },
+    })
+
+    await service.drainOnce()
+
+    expect(recorded).toHaveLength(0)
+  })
+
   it('в базу уходит обеззараженная причина, а не ответ провайдера', async () => {
     // Тело ответа Resend цитирует отвергнутый адрес — ровно те данные,
     // которых этот проект не пишет ни в журнал, ни в базу.
@@ -227,6 +293,60 @@ describe('отправщик — отказы и ретраи', () => {
   })
 })
 
+describe('проход не наезжает на предыдущий', () => {
+  it('второй вызов во время первого не берёт строки повторно', async () => {
+    // Крон тикает каждые 15 секунд; пачка из двадцати писем с медленным
+    // провайдером идёт дольше. Без защиты второй тик захватил бы следующую
+    // пачку поверх первой и удвоил бы нагрузку на провайдера ровно тогда,
+    // когда тот и так не отвечает.
+    const gw = makeGateway([claimed()])
+    let release: () => void = () => undefined
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { service } = makeService({ gateway: gw, send: () => blocked })
+
+    const first = service.handleDue()
+    await service.handleDue() // второй тик, пока первый ещё в отправке
+    expect(gw.claims).toBe(1)
+
+    release()
+    await first
+  })
+
+  it('после завершения прохода следующий снова работает', async () => {
+    // Обратная сторона: флаг обязан сниматься. Не снятый превращает
+    // однократный сбой в вечную остановку очереди.
+    const gw = makeGateway([claimed()])
+    const { service } = makeService({ gateway: gw })
+
+    await service.handleDue()
+    await service.handleDue()
+
+    expect(gw.claims).toBe(2)
+  })
+
+  it('упавший проход тоже отпускает флаг', async () => {
+    const gw = makeGateway()
+    let fail = true
+    gw.claimDue = async () => {
+      if (fail) {
+        fail = false
+        throw new Error('db is down')
+      }
+      return []
+    }
+    const { service } = makeService({ gateway: gw })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.handleDue()
+    await service.handleDue()
+
+    expect(error).toHaveBeenCalledTimes(1)
+    error.mockRestore()
+  })
+})
+
 describe('отправщик без ключа провайдера', () => {
   it('не берёт ни одной строки и предупреждает ОДИН раз', async () => {
     // AC8: событие кладёт строку QUEUED, крон делает один warn и НОЛЬ
@@ -243,7 +363,63 @@ describe('отправщик без ключа провайдера', () => {
     expect(gw.claims).toBe(0)
     expect(sends).toHaveLength(0)
     expect(warn).toHaveBeenCalledTimes(1)
+    // Предупреждение обязано называть ПРИЧИНУ и то, что письма не потеряны:
+    // пустая строка в журнале сообщает ровно столько же, сколько молчание.
+    const said = String(warn.mock.calls[0]?.[0] ?? '')
+    expect(said).toContain('RESEND_API_KEY')
+    expect(said).toContain('notification_emails')
     warn.mockRestore()
+  })
+})
+
+describe('отказы видны в журнале, а не только в базе', () => {
+  it('отложенная попытка называет номер попытки и потолок', async () => {
+    const gw = makeGateway([claimed({ attempts: 2 })])
+    const { service } = makeService({
+      gateway: gw,
+      send: async () => {
+        throw new Error('Resend API HTTP 429: slow down')
+      },
+    })
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    const said = String(warn.mock.calls[0]?.[0] ?? '')
+    expect(said).toContain(`2/${MAX_EMAIL_ATTEMPTS}`)
+    expect(said).toContain('Resend API HTTP 429')
+    expect(said).toContain('e-1')
+    warn.mockRestore()
+  })
+
+  it('сдача называет число попыток и причину', async () => {
+    const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
+    const { service } = makeService({
+      gateway: gw,
+      send: async () => {
+        throw new Error('Resend API HTTP 500: boom')
+      },
+    })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    const said = String(error.mock.calls[0]?.[0] ?? '')
+    expect(said).toContain(String(MAX_EMAIL_ATTEMPTS))
+    expect(said).toContain('Resend API HTTP 500')
+    error.mockRestore()
+  })
+
+  it('отсутствие адреса названо прямо', async () => {
+    const gw = makeGateway([claimed()])
+    gw.addressesFor = async () => []
+    const { service } = makeService({ gateway: gw })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    expect(String(error.mock.calls[0]?.[0] ?? '')).toContain('ни одного адреса')
+    error.mockRestore()
   })
 })
 
@@ -261,6 +437,9 @@ describe('крон не роняет планировщик', () => {
 
     await expect(service.handleDue()).resolves.toBeUndefined()
     expect(error).toHaveBeenCalled()
+    // Сообщение обязано называть, ЧТО упало: «проход отправщика» отличает
+    // этот отказ от любого другого в общем журнале процесса.
+    expect(String(error.mock.calls[0]?.[0] ?? '')).toContain('отправщик')
     error.mockRestore()
   })
 })

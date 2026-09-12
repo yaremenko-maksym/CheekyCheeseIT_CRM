@@ -89,6 +89,20 @@ describe('updateNotificationPreferencesSchema', () => {
     expect(result.success).toBe(false)
   })
 
+  it('принимает пачку РАЗНЫХ типов', () => {
+    // Пара к тесту про дубли ниже. Без неё проверка уникальности проходила бы
+    // и тогда, когда она сравнивает не типы, а что угодно одинаковое: на
+    // запросе из одного элемента любая такая подмена неотличима.
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false },
+        { type: 'TEAM_NEW_MEMBER', emailEnabled: false },
+        { type: 'PROJECT_MEMBER_ADDED', emailEnabled: true },
+      ],
+    })
+    expect(result.success).toBe(true)
+  })
+
   it('отвергает повторяющийся тип в одном запросе', () => {
     const result = updateNotificationPreferencesSchema.safeParse({
       items: [
@@ -99,6 +113,32 @@ describe('updateNotificationPreferencesSchema', () => {
     // Иначе исход зависит от порядка применения, и пользователь не знает,
     // какая из двух записей победила.
     expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('Each notification type may appear at most once')
+  })
+
+  it('отвергает пачку, где ХОТЯ БЫ ОДИН запертый тип выключают', () => {
+    // Запрет проверяется по КАЖДОМУ элементу, а не по наличию хотя бы одного
+    // законного: клиент присылает форму целиком, и одна запрещённая строка
+    // среди девяти законных обязана отвергнуть запрос.
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false },
+        { type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: false },
+      ],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('отказ называет причину, а не отвергает молча', () => {
+    // Сообщение — часть контракта: его читает 7b, чтобы показать человеку,
+    // почему переключатель не поддался. Пустой текст отказа неотличим от
+    // поломки сервера.
+    const result = updateNotificationPreferencesSchema.safeParse({
+      items: [{ type: 'SHARE_CONFIRM_REQUIRED', emailEnabled: false }],
+    })
+    expect(issueMessages(result)).toContain(
+      'Email for approval and signature requests cannot be switched off (spec §3) — it can be muted in the mail client, not disabled here',
+    )
   })
 
   it('отвергает пустой список', () => {
@@ -125,5 +165,36 @@ describe('notificationPreferencesResponseSchema', () => {
       items: [{ type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: false, locked: true }],
     })
     expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('A locked type can never report email as disabled')
+  })
+
+  it('отвергает ответ, где ОДНА строка из многих врёт про locked', () => {
+    // По каждой строке, а не по наличию хотя бы одной честной: ответ из десяти
+    // элементов, где соврала одна, — испорченный ответ целиком.
+    const result = notificationPreferencesResponseSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: true, locked: false },
+        { type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: true, locked: false },
+      ],
+    })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain(
+      '`locked` must be derived from the type, not sent independently',
+    )
+  })
+
+  it('отвергает ответ, где ОДНА строка из многих выключает запертое письмо', () => {
+    const result = notificationPreferencesResponseSchema.safeParse({
+      items: [
+        { type: 'TRANSACTION_ADDED', emailEnabled: false, locked: false },
+        { type: 'DOCUMENT_SIGN_REQUIRED', emailEnabled: false, locked: true },
+      ],
+    })
+    expect(result.success).toBe(false)
   })
 })
+
+/** Тексты причин отказа — часть контракта, а не украшение (их читает 7b). */
+function issueMessages(result: { success: boolean; error?: { issues: { message: string }[] } }) {
+  return result.error?.issues.map((i) => i.message) ?? []
+}

@@ -71,6 +71,13 @@ export class NotificationEmailCronService {
     private readonly telemetry: TelemetryErrorsService,
     config: ConfigService<Env, true>,
   ) {
+    // `{ infer: true }` — подсказка ТИПАМ (`ConfigService<Env, true>` выводит
+    // тип значения по ключу). На исполнение она не влияет никак: `get()`
+    // вернёт то же значение и с `{}`, и с `{ infer: false }`, и без второго
+    // аргумента вовсе. Проверить это тестом нечем — наблюдаемой разницы не
+    // существует; само ИМЯ ключа при этом под тестом (заглушка настроек в
+    // спеке отвечает только на `FRONTEND_URL`).
+    // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` — подсказка компилятору, у неё нет наблюдаемого поведения во время исполнения
     this.frontendUrl = config.get('FRONTEND_URL', { infer: true })
   }
 
