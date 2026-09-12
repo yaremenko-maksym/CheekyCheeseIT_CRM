@@ -11,6 +11,7 @@
  *
  * Хуки данных замоканы: проверяется рендер, а не сеть.
  */
+import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
@@ -23,6 +24,25 @@ let items: Notification[] = []
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
+  // #667 added a footer <Link to="/pending"> — this suite's mock predates it
+  // and only stubbed useNavigate. A simple <a> forwarding children/props is
+  // enough here: the footer is asserted by its own test file
+  // (notifications-bell.footer-link.test.tsx), not by this one.
+  Link: ({
+    children,
+    to,
+    onClick,
+    ...props
+  }: {
+    children?: ReactNode
+    to?: string
+    onClick?: () => void
+    [key: string]: unknown
+  }) => (
+    <a href={to} onClick={onClick} {...props}>
+      {children}
+    </a>
+  ),
 }))
 
 vi.mock('@/hooks/use-notifications-api', () => ({
