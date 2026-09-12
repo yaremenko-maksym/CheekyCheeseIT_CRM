@@ -1,6 +1,5 @@
 import type { ProjectStatus } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 
 /**
  * task-project-page-status-badge (backlog 188). Single source of truth for
@@ -90,7 +89,12 @@ export function ProjectStatusBadge({ project }: { project: ProjectStatusBadgeInp
   return (
     <Badge
       variant={info.variant}
-      className={cn('text-xs', info.className)}
+      // `text-xs` is NOT repeated here — `badgeVariants`' own base class
+      // (badge.tsx) already applies it unconditionally, so adding it again
+      // here would be an equivalent mutant no test could ever kill (verified:
+      // the mutation gate's own first pass on this file flagged exactly
+      // that survivor before this comment was written).
+      className={info.className}
       data-testid={testId}
       data-status={info.status}
     >
