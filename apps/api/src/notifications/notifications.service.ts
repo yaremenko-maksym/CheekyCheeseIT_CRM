@@ -185,7 +185,7 @@ export class NotificationsService {
       if (values.dedupeKey !== null) return null
       throw new Error('Failed to insert notification')
     }
-    return this.mapNotification(row)
+    return this.mapNotification(row, 'active')
   }
 
   /**
@@ -367,10 +367,14 @@ export class NotificationsService {
     // §7.4. Считается ЗДЕСЬ, а не на каждой целевой странице: страниц пять, а
     // список один, и состояние объекта — свойство записи на момент чтения, а
     // не свойство маршрута.
+    // Состояния приходят СПИСКОМ в порядке строк, а не картой по
+    // идентификатору: карта требовала бы запасного значения на случай
+    // «состояния нет», которого не бывает, — и это запасное значение было бы
+    // веткой, которую не исполняет ни один тест.
     const states = await this.resolveSubjectStates(rows)
 
     return {
-      items: rows.map((r) => this.mapNotification(r, states.get(r.id) ?? 'active')),
+      items: rows.map((r, index) => this.mapNotification(r, states[index]!)),
       unreadCount,
     }
   }
@@ -386,7 +390,7 @@ export class NotificationsService {
    */
   private async resolveSubjectStates(
     rows: (typeof notifications.$inferSelect)[],
-  ): Promise<Map<string, SubjectState | 'missing'>> {
+  ): Promise<(SubjectState | 'missing')[]> {
     const refs: SubjectRef[] = rows.map((r) => ({
       userId: r.userId,
       type: r.type,
@@ -423,11 +427,7 @@ export class NotificationsService {
       }
     }
 
-    const states = new Map<string, SubjectState | 'missing'>()
-    for (const [index, ref] of refs.entries()) {
-      states.set(rows[index]!.id, computeSubjectState(ref, statesByType, liveApprovalKeys))
-    }
-    return states
+    return refs.map((ref) => computeSubjectState(ref, statesByType, liveApprovalKeys))
   }
 
   /**
@@ -564,11 +564,30 @@ export class NotificationsService {
    * Два булевых поля DTO выводятся из ОДНОГО состояния и только здесь —
    * поэтому «исчез и в архиве одновременно» невозможно по построению, а не
    * по договорённости.
+   *
+   * Таблицей, а не парой сравнений: три состояния и их флаги видны рядом, и
+   * состояние, которого в таблице нет, роняет разбор сразу, а не превращается
+   * молча в «живой». Умолчания у параметра нет намеренно — вызывающий обязан
+   * сказать, о каком состоянии речь (гейт мутаций круга 5: подмена значения по
+   * умолчанию не меняла ни одного теста).
    */
+  private static readonly SUBJECT_FLAGS: Record<
+    SubjectState | 'missing',
+    { missing: boolean; archived: boolean }
+  > = {
+    active: { missing: false, archived: false },
+    archived: { missing: false, archived: true },
+    missing: { missing: true, archived: false },
+  }
+
   private mapNotification(
     row: typeof notifications.$inferSelect,
-    state: SubjectState | 'missing' = 'active',
+    state: SubjectState | 'missing',
   ): NotificationDto {
+    const flags = NotificationsService.SUBJECT_FLAGS[state]
+    if (flags === undefined) {
+      throw new Error(`mapNotification: неизвестное состояние объекта ${String(state)}`)
+    }
     return {
       id: row.id,
       type: row.type as NotificationType,
@@ -581,8 +600,8 @@ export class NotificationsService {
       subjectId: row.subjectId ?? null,
       secondaryId: row.secondaryId ?? null,
       data: row.data ?? null,
-      subjectMissing: state === 'missing',
-      subjectArchived: state === 'archived',
+      subjectMissing: flags.missing,
+      subjectArchived: flags.archived,
     }
   }
 }

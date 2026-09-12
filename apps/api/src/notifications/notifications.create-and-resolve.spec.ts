@@ -587,7 +587,10 @@ describe('исчезнувший объект вычисляется на чте
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
-    expect(list.items[0]?.subjectMissing).toBe(false)
+    // Оба поля, а не одно: «живой» — это и не исчез, И не в архиве. Гейт
+    // мутаций круга 5 показал цену половинчатой проверки — подмена литерала
+    // `'active'` пустой строкой проходила незамеченной.
+    expect([list.items[0]?.subjectMissing, list.items[0]?.subjectArchived]).toEqual([false, false])
   })
 
   /**
@@ -652,7 +655,7 @@ describe('исчезнувший объект вычисляется на чте
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
-    expect(list.items[0]?.subjectMissing).toBe(false)
+    expect([list.items[0]?.subjectMissing, list.items[0]?.subjectArchived]).toEqual([false, false])
   })
 })
 

@@ -125,7 +125,13 @@ export function computeSubjectState(
   if (row.subjectType === null || row.subjectId === null) return 'active'
   const state = statesByType.get(row.subjectType)?.get(row.subjectId)
   if (state === undefined) return 'missing'
-  if (state === 'archived') return 'archived'
+  // Сравнение ПОЛОЖИТЕЛЬНОЕ и именно с `active`, а не отрицательное с
+  // `archived`: живой объект — единственное состояние, при котором кнопка
+  // имеет право вести куда-то. Всё, в чём мы не уверены, деградирует в
+  // «в архиве» — то есть в отсутствие ссылки, а не в живую ссылку.
+  // Гейт мутаций круга 5 показал, что прежняя форма (`=== 'archived'`) делала
+  // подмену самого литерала `'active'` в запросе НЕВИДИМОЙ для всех тестов.
+  if (state !== 'active') return 'archived'
   const approvalSubjectType = approvalSubjectTypeFor(row.type, row.subjectType)
   if (approvalSubjectType === null) return 'active'
   return liveApprovalKeys.has(liveApprovalKey(approvalSubjectType, row.subjectId, row.userId))
