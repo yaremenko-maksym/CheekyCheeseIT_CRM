@@ -483,7 +483,11 @@ describe('PendingService.getPending — mine, CONTRACT_TO_SIGN', () => {
         // contract row's id — `/profile` is a user-scoped surface.
         subjectType: 'USER',
         subjectId: CONTRACT_ID,
-        title: 'Контракт сотрудника',
+        // COPY-M-1 (fix-round 3): «Ваш контракт», the same name
+        // `ContractActionBar` gives this object one click away. A
+        // CONTRACT_TO_SIGN row only ever reaches `mine`, so "сотрудника" was
+        // the table's name (`employee_contracts`) told to the employee.
+        title: 'Ваш контракт',
         createdAt: '2026-09-05T12:00:00.000Z',
         actions: ['open'],
         link: '/profile',
@@ -614,7 +618,11 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
         approvalId: APPROVAL_ID_1,
         subjectType: 'USER',
         subjectId: SENIOR_ID,
-        title: 'Senior One',
+        // COPY-M-4 (fix-round 3): names the OBJECT of the decision, like the
+        // «Доля по проекту «X»» row next to it in the same section — a bare
+        // display name was the only title on this screen that named a person
+        // instead, and the name was then printed a second time in the meta.
+        title: 'Доля по умолчанию — Senior One',
         proposedBy: undefined,
         waitingFor: ['Senior One'],
         currentPercent: 26,

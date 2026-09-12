@@ -172,7 +172,13 @@ export class PendingService {
       // contract row's id (integration decision 1's per-kind mapping).
       subjectType: 'USER',
       subjectId: row.id,
-      title: 'Контракт сотрудника',
+      // COPY-M-1 (fix-round 3): «Ваш контракт» — the name `ContractActionBar`
+      // already gives this exact object one click away (where «Открыть»
+      // lands). A CONTRACT_TO_SIGN row exists only in `mine`, so the reader
+      // IS the employee: «Контракт сотрудника» was the table's name
+      // (`employee_contracts`) spoken to the person it belongs to, and it
+      // made the screen the third different name for one document.
+      title: 'Ваш контракт',
       createdAt: row.updatedAt.toISOString(),
       // Task file §Что уже есть: "Подпись не переносить на новый экран —
       // строка ведёт туда" — the ONLY action here is navigating to the
@@ -527,8 +533,16 @@ export class PendingService {
         // «Доля по умолчанию» — design spec §6.2's recommended wording, the
         // same words `PendingBaseShareBanner` already says ("долю по
         // умолчанию"). On `proposedByMe` the ADMIN is looking at SOMEONE
-        // ELSE's base share, so there the person's name is the title.
-        title: ctx.isMine ? 'Доля по умолчанию' : senior.displayName,
+        // ELSE's base share, hence the name — but as a QUALIFIER, not as the
+        // whole title (COPY-M-4, fix-round 3): a bare display name was the
+        // one title on this screen that named a person while its neighbour
+        // in the same «Доли» section named an object («Доля по проекту
+        // «X»»), and for USER_SENIOR_SHARE the approver IS the subject, so
+        // the very same name was then repeated in the row's «ждём: …» meta
+        // two lines below. `PendingItemRow` drops that duplicate half now
+        // (see its `metaLinesFor`), which only works because the name is
+        // guaranteed to be here.
+        title: ctx.isMine ? 'Доля по умолчанию' : `Доля по умолчанию — ${senior.displayName}`,
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         currentPercent: senior.seniorSharePercent,

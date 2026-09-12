@@ -53,7 +53,7 @@ const contractItem = {
   kind: 'CONTRACT_TO_SIGN' as const,
   subjectType: 'USER' as const,
   subjectId: uuid2,
-  title: 'Контракт сотрудника',
+  title: 'Ваш контракт',
   createdAt,
   actions: ['open'] as const,
   link: '/profile',

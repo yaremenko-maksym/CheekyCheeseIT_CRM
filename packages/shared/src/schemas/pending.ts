@@ -85,7 +85,19 @@ export type PendingItemSubjectType = z.infer<typeof pendingItemSubjectTypeSchema
 const pendingItemBaseSchema = z.object({
   /** The underlying project id / user id / employee_contracts id. */
   subjectId: z.string().uuid(),
-  /** "<project name>" / "«Ваша базовая доля»" / "Контракт сотрудника" — see `PendingService` per-kind title choice. */
+  /**
+   * The titles `PendingService` actually sends, per kind (COPY-L-5,
+   * fix-round 3 — this list previously named "«Ваша базовая доля»" and
+   * "Контракт сотрудника", neither of which the service has ever sent in
+   * that form, making it a fourth name for the same fact for whoever wrote
+   * the next string off this schema):
+   *   PROJECT_APPROVAL  → the project's `companyName`
+   *   SHARE_APPROVAL    → «Доля по умолчанию» (own, in `mine`)
+   *                     / «Доля по умолчанию — {имя}» (someone else's, in
+   *                       `proposedByMe`)
+   *                     / «Доля по проекту «{name}»»
+   *   CONTRACT_TO_SIGN  → «Ваш контракт»
+   */
   title: z.string(),
   /** Who opened the proposal — populated on `mine` rows only. */
   proposedBy: z.string().optional(),
