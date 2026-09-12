@@ -193,48 +193,61 @@ const BODIES: {
 
   APPROVAL_CONFIRMED: (d) => ({
     subject: 'Ваше предложение принято',
-    lines: [approvalLine(d.subjectKind, d.subjectTitle, 'ACCEPTED')],
+    lines: [acceptedLine(d.subjectKind, d.subjectTitle)],
   }),
 
   APPROVAL_REJECTED: (d) => ({
     subject: 'Ваше предложение отклонено',
     // Причина отказа — в CRM: это слова конкретного человека о деньгах,
     // и уходить на личную почту им незачем (§10).
-    lines: [approvalLine(d.subjectKind, d.subjectTitle, 'REJECTED'), 'Причина — в CRM.'],
+    lines: [rejectedLine(d.subjectKind, d.subjectTitle), 'Причина — в CRM.'],
   }),
 }
 
+type ApprovalSubjectKind = 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE'
+
 /**
- * Общая строка двух писем админу. Сотрудник не назван по имени (то же
- * правило, что и везде), назван ОБЪЕКТ решения — по нему админ и понимает, о
- * каком из своих предложений речь.
+ * Две строки двух писем админу — ДВЕ функции, а не одна с параметром решения.
  *
- * У глагола появился свой объект (COPY-M-3): принимают ПРЕДЛОЖЕНИЕ, а
- * «принял проект» в этой предметной области значит «утвердил проект целиком»,
- * что делает админ, а не тот, кого в проект позвали. Отказ поэтому не
- * зеркалит согласие («отказался ОТ смены», «отказался участвовать В»), и
- * одним параметром `verb` это не выражается — отсюда решение целиком.
+ * Так сделано ради наблюдаемости, и это не догадка: параметр из двух значений
+ * порождает мутанта, которого нельзя убить по построению. Ветвление
+ * `decision === 'ACCEPTED' ? … : …` даёт одну и ту же строку для ЛЮБОГО
+ * не-`'ACCEPTED'` значения, поэтому литерал `'REJECTED'` на месте вызова можно
+ * заменить пустой строкой, и ни один тест этого не заметит — гейт мутаций так и
+ * доложил. Подавление здесь было бы честным, но лишним: у двух предложений и
+ * так разные предлоги («согласился участвовать В» против «отказался ОТ
+ * смены»), то есть общего у них ровно фраза об объекте — она и вынесена.
+ *
+ * Сотрудник не назван по имени (то же правило, что и везде), назван ОБЪЕКТ
+ * решения — по нему админ и понимает, о каком из своих предложений речь.
+ * Глагол получил свой объект (COPY-M-3): принимают ПРЕДЛОЖЕНИЕ, а «принял
+ * проект» в этой предметной области значит «утвердил проект целиком», что
+ * делает админ, а не тот, кого в проект позвали.
  */
-function approvalLine(
-  subjectKind: 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE',
+function acceptedLine(subjectKind: ApprovalSubjectKind, subjectTitle: string | null): string {
+  return subjectKind === 'PROJECT'
+    ? `Сотрудник согласился участвовать ${projectPhrase(subjectTitle)}.`
+    : `Сотрудник согласился на смену ${sharePhrase(subjectKind, subjectTitle)}.`
+}
+
+function rejectedLine(subjectKind: ApprovalSubjectKind, subjectTitle: string | null): string {
+  return subjectKind === 'PROJECT'
+    ? `Сотрудник отказался участвовать ${projectPhrase(subjectTitle)}.`
+    : `Сотрудник отказался от смены ${sharePhrase(subjectKind, subjectTitle)}.`
+}
+
+/** «в проекте «Х»» — или без названия, если снимок его не сохранил. */
+function projectPhrase(subjectTitle: string | null): string {
+  return subjectTitle === null ? 'в проекте' : `в проекте «${subjectTitle}»`
+}
+
+/** «доли по умолчанию» / «доли по проекту «Х»» — объект решения о деньгах. */
+function sharePhrase(
+  subjectKind: 'PROJECT_SHARE' | 'BASE_SHARE',
   subjectTitle: string | null,
-  decision: 'ACCEPTED' | 'REJECTED',
 ): string {
-  if (subjectKind === 'PROJECT') {
-    const where = subjectTitle === null ? 'в проекте' : `в проекте «${subjectTitle}»`
-    return decision === 'ACCEPTED'
-      ? `Сотрудник согласился участвовать ${where}.`
-      : `Сотрудник отказался участвовать ${where}.`
-  }
-  const what =
-    subjectKind === 'BASE_SHARE'
-      ? 'доли по умолчанию'
-      : subjectTitle === null
-        ? 'доли по проекту'
-        : `доли по проекту «${subjectTitle}»`
-  return decision === 'ACCEPTED'
-    ? `Сотрудник согласился на смену ${what}.`
-    : `Сотрудник отказался от смены ${what}.`
+  if (subjectKind === 'BASE_SHARE') return 'доли по умолчанию'
+  return subjectTitle === null ? 'доли по проекту' : `доли по проекту «${subjectTitle}»`
 }
 
 /**

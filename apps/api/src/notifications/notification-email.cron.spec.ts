@@ -149,6 +149,8 @@ function makeService(opts: {
   gateway: OutboxGateway
   configured?: boolean
   send?: (input: { to: string[]; subject: string }) => Promise<void>
+  /** Телеметрия сама отказала — отдельный путь, у него свой тест. */
+  telemetryFails?: Error
 }) {
   const sends: { to: string[]; subject: string; text: string; replyTo: string }[] = []
   const mailer = {
@@ -175,7 +177,7 @@ function makeService(opts: {
   const telemetry = {
     recordError: (p: Record<string, unknown>) => {
       recorded.push(p)
-      return Promise.resolve()
+      return opts.telemetryFails ? Promise.reject(opts.telemetryFails) : Promise.resolve()
     },
   }
   // Отвечает ТОЛЬКО на своё имя: заглушка, отдающая адрес на любой ключ, не
@@ -591,6 +593,55 @@ describe('крон не роняет планировщик', () => {
   })
 })
 
+describe('отказ телеметрии не уносит с собой проход', () => {
+  it('провалившаяся запись в телеметрию остаётся в журнале и не роняет отправщик', async () => {
+    // Единственный путь, который вообще может бросить ПОСЛЕ того как строка уже
+    // похоронена. Без этой проверки `catch` вокруг телеметрии — код, который
+    // никто не исполнял: он либо не нужен, либо не работает, и узнать это можно
+    // только в тот день, когда телеметрия действительно откажет.
+    const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
+    const { service } = makeService({
+      gateway: gw,
+      telemetryFails: new Error('telemetry is down'),
+      send: async () => {
+        throw new Error('Resend API HTTP 500: boom')
+      },
+    })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await expect(service.drainOnce()).resolves.toBeUndefined()
+
+    // Строка похоронена — то есть отказ телеметрии не отменил основную работу.
+    expect(gw.failed).toEqual([{ id: 'e-1', reason: 'Resend API HTTP 500' }])
+    const said = error.mock.calls.map((c) => String(c[0] ?? ''))
+    expect(said.some((m) => m.includes('Telemetry rejected'))).toBe(true)
+    // И называет ПРИЧИНУ отказа телеметрии: пустая строка тут сообщала бы
+    // ровно столько же, сколько молчание.
+    expect(said.some((m) => m.includes('telemetry is down'))).toBe(true)
+    error.mockRestore()
+  })
+
+  it('телеметрия, отказавшая НЕ исключением, тоже названа в журнале', async () => {
+    // `String(e)` вместо `e.message` — ветка, которую даёт `throw 'строка'`.
+    const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
+    const { service } = makeService({
+      gateway: gw,
+      telemetryFails: 'telemetry said no' as unknown as Error,
+      send: async () => {
+        throw new Error('Resend API HTTP 500: boom')
+      },
+    })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    expect(
+      error.mock.calls.map((c) => String(c[0] ?? '')).some((m) => m.includes('telemetry said no')),
+    ).toBe(true)
+    error.mockRestore()
+  })
+})
+
 describe('решение принимается в момент ОТПРАВКИ, а не при постановке (AC6)', () => {
   it('выключенный получателем тип не уходит — SKIPPED/CHANNEL_OFF', async () => {
     // AC6, первая половина. Строка стоит в очереди `QUEUED` — настройку на
@@ -750,6 +801,61 @@ describe('зависший проход не глушит отправщик н�
       expect(warn.mock.calls.some((c) => String(c[0] ?? '').includes('has not finished'))).toBe(
         true,
       )
+
+      warn.mockRestore()
+      release()
+      await first
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('срок зависания — ровно пять минут', () => {
+    // Значение выписано числом, а не формулой: проверка `5 * 60_000` согласилась
+    // бы с любой арифметикой, которой это значение посчитано. Пять минут —
+    // решение (с запасом больше самого долгого возможного прохода: двадцать
+    // писем по десять секунд таймаута), и менять его надо осознанно.
+    expect(SWEEP_STUCK_AFTER_MS).toBe(300_000)
+  })
+
+  it('обычный проход не жалуется на зависание', () => {
+    // Обратная сторона: жалоба на КАЖДОМ тике сообщала бы ровно столько же,
+    // сколько молчание, — а мимо такой проверки проходит условие, снятое
+    // целиком («считать зависшим всегда»).
+    const gw = makeGateway([claimed()])
+    const { service } = makeService({ gateway: gw })
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+    return service.handleDue().then(() => {
+      expect(warn.mock.calls.some((c) => String(c[0] ?? '').includes('has not finished'))).toBe(
+        false,
+      )
+      warn.mockRestore()
+    })
+  })
+
+  it('на самой границе пяти минут проход уже считается зависшим', async () => {
+    // Ровно `SWEEP_STUCK_AFTER_MS`, не больше: без этого случая «меньше срока»
+    // неотличимо от «не больше срока», то есть граница может съехать на тик.
+    vi.useFakeTimers()
+    try {
+      const gw = makeGateway([claimed()])
+      let release: () => void = () => undefined
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const { service } = makeService({ gateway: gw, send: () => blocked })
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+      const first = service.handleDue()
+      vi.setSystemTime(Date.now() + SWEEP_STUCK_AFTER_MS)
+      await service.handleDue()
+
+      expect(gw.claims).toBe(2)
+      // И называет срок в жалобе — минутами, а не миллисекундами: иначе
+      // «5 minutes» превратилось бы в «300000 minutes» незаметно.
+      const said = warn.mock.calls.map((c) => String(c[0] ?? '')).find((m) => m.includes('has not'))
+      expect(said).toContain('5 minutes')
 
       warn.mockRestore()
       release()

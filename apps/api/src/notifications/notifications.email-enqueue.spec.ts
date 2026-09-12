@@ -183,6 +183,27 @@ describe('createInTx ставит письмо в очередь', () => {
     expect(h.emails[0]).toMatchObject({ status: 'SKIPPED', skipReason: 'USER_ARCHIVED' })
   })
 
+  it('исчезнувший получатель не ломает постановку — строка всё равно заводится', async () => {
+    // Гонка с удалением пользователя: строки `users` уже нет, а уведомление
+    // пишется. Читать `archivedAt` у `undefined` значило бы бросок, который
+    // проглотит `catch`, — и письмо молча не появилось бы вовсе. Случай
+    // практически недостижим (`ON DELETE CASCADE` уносит и очередь), но
+    // именно поэтому он и не должен решаться броском.
+    const h = makeHarness()
+    const tx = {
+      ...(h.tx as Record<string, unknown>),
+      select: () => ({ from: () => ({ where: async () => [] }) }),
+    }
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await h.service.createInTx(tx as never, informingInput())
+
+    expect(h.emails).toHaveLength(1)
+    expect(h.emails[0]).toMatchObject({ status: 'QUEUED', skipReason: null })
+    expect(error).not.toHaveBeenCalled()
+    error.mockRestore()
+  })
+
   it('старому типу строка заводится SKIPPED/LEGACY_TYPE, а не пропускается молча', async () => {
     // SPEC-H-1: у трёх старых типов (инвойсы, вакансии) письма нет ни
     // шаблона, ни настройки — но след «письма не полагалось» нужен ровно так
