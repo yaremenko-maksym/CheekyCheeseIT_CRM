@@ -86,16 +86,34 @@ export type NewNotificationType = (typeof NEW_NOTIFICATION_TYPES)[number]
 // ---------------------------------------------------------------------------
 
 export const NOTIFICATION_TITLES: Record<NewNotificationType, string> = {
-  TRANSACTION_ADDED: 'Добавлена транзакция',
-  TRANSACTION_STATUS_CHANGED: 'Статус транзакции изменился',
+  // COPY-L-1 (copy-review круг 1, #664): голос группы «вас добавили…» —
+  // три из пяти информирующих обращаются к читателю, четвёртый был безличным,
+  // хотя адресат по построению — именно получатель денег.
+  TRANSACTION_ADDED: 'Вам добавили транзакцию',
+  // COPY-M-2: заголовок называл поле («статус изменился»), а не событие.
+  // Событие ровно одно — бухгалтер принял или отклонил заявленный доход
+  // (`notifyTransactionStatusChanged` вызывается только из `validateTransaction`).
+  TRANSACTION_STATUS_CHANGED: 'Решение по доходу',
   TEAM_MEMBER_ADDED: 'Вас добавили в команду',
   PROJECT_MEMBER_ADDED: 'Вас добавили в проект',
   TEAM_NEW_MEMBER: 'В команде новый участник',
-  PROJECT_CONFIRM_REQUIRED: 'Ждёт решения: новый проект',
-  SHARE_CONFIRM_REQUIRED: 'Ждёт решения: новая доля',
-  DOCUMENT_SIGN_REQUIRED: 'Ждёт решения: документ на подпись',
-  APPROVAL_CONFIRMED: 'Сотрудник подтвердил',
-  APPROVAL_REJECTED: 'Сотрудник отклонил',
+  // COPY-H-1: префикс «Ждёт решения: » съедал больше половины 24-символьного
+  // бюджета попапа (`w-80`, `truncate`) и обрезался ровно там, где стояло
+  // единственное слово, сообщавшее, чего хотят от человека. Предмет — первым,
+  // ≤19 знаков, семья узнаётся по общему значку (`TypeIcon`), не по префиксу.
+  PROJECT_CONFIRM_REQUIRED: 'Проект ждёт решения',
+  // COPY-H-5: «новая доля» утверждала то, чего ещё нет (решение не принято) —
+  // и расходилась с экраном самого предложения. COPY-H-1 закрывает вместе.
+  SHARE_CONFIRM_REQUIRED: 'Предложение по доле',
+  // COPY-M-5: один и тот же документ назывался «документ» / «договор» /
+  // «контракт» на пути в один переход — сведено к одному слову.
+  DOCUMENT_SIGN_REQUIRED: 'Контракт на подпись',
+  // COPY-H-2: «Сотрудник подтвердил/отклонил» — висящий переходный глагол без
+  // дополнения (тема письма, куда уходит title, ничего не сообщала) И второе
+  // имя одного факта, который #648 уже свёл к «предложению» на пяти
+  // поверхностях. Актор остаётся в деталях (`describeNotification`).
+  APPROVAL_CONFIRMED: 'Предложение подтверждено',
+  APPROVAL_REJECTED: 'Предложение отклонено',
 }
 
 // ---------------------------------------------------------------------------
@@ -242,19 +260,44 @@ export function isNewNotificationType(type: string): type is NewNotificationType
 // Подробности — «что произошло и что от вас нужно» (§7.3)
 // ---------------------------------------------------------------------------
 
+/**
+ * COPY-H-4 / QA-M-1 (copy-review + manual-qa круг 1, #664): `amount` приезжает
+ * из `numeric('amount', { precision: 18, scale: 6 })` как строка вида
+ * `1500.000000` — печать её "as is" уже дважды чинили по итогам живого
+ * тестирования в других потребителях той же колонки (`format-amount.ts`,
+ * `invoices.service.ts#formatAmountForNotification`). Тот же разбор денег,
+ * та же локаль (`ru-RU`, два знака, пробел тысяч, запятая) — «1 500,00 USDT»
+ * вместо «1500.000000 USDT», без расхождения внутри одного попапа.
+ */
 function money(d: { amount: string; currency: string }): string {
-  return `${d.amount} ${d.currency}`
+  const num = Number(d.amount)
+  if (!Number.isFinite(num)) return `${d.amount} ${d.currency}`
+  return `${num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${d.currency}`
 }
 
+/**
+ * COPY-H-3: единственный вызывающий — `describeNotification('SHARE_CONFIRM_REQUIRED')`,
+ * то есть «этот контекст» и есть весь контракт функции. «По умолчанию» здесь
+ * сталкивалось бы с тем же словом в `subjectPhrase` («базовая доля» →
+ * «доля по умолчанию»): `Доля по умолчанию: по умолчанию → 30%` — одно слово
+ * в двух разных ролях в одной строке. «Не задана» разводит смыслы.
+ */
 function percentText(value: number | null): string {
-  return value === null ? 'по умолчанию' : `${value}%`
+  return value === null ? 'не задана' : `${value}%`
 }
 
+/**
+ * COPY-H-3: «базовая доля» — слово, вычищенное copy-review на #648
+ * (`OverviewTab.tsx`, банер `pending-base-share-approval-banner`: «доля по
+ * умолчанию» — тот же термин, что и `CONTEXT.md` статья «Доля синьора»,
+ * «базов*» не встречается больше нигде в `apps/web`). Этот реестр вернул бы
+ * его через `@crm/shared`, ничего не зная об уже принятом решении.
+ */
 function subjectPhrase(
   kind: 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE',
   title: string | null,
 ): string {
-  if (kind === 'BASE_SHARE') return 'базовая доля'
+  if (kind === 'BASE_SHARE') return 'доля по умолчанию'
   const named = title ?? 'без названия'
   return kind === 'PROJECT' ? `проект ${named}` : `доля по проекту ${named}`
 }
@@ -265,8 +308,11 @@ export function describeNotification<T extends NewNotificationType>(
 ): string {
   switch (type) {
     case 'TRANSACTION_ADDED': {
+      // COPY-H-6: полезное (сумма) вперёд, имя объекта — в хвост, где его не
+      // жалко обрезать `line-clamp-2` при длинных именах клиентов (потолок
+      // имени — 255 код-поинтов, а бюджет строки в попапе — ~64 знака).
       const d = data as NotificationDataByType['TRANSACTION_ADDED']
-      return d.projectName === null ? money(d) : `Проект ${d.projectName}: ${money(d)}`
+      return d.projectName === null ? money(d) : `${money(d)} · проект ${d.projectName}`
     }
     case 'TRANSACTION_STATUS_CHANGED': {
       const d = data as NotificationDataByType['TRANSACTION_STATUS_CHANGED']
@@ -275,9 +321,13 @@ export function describeNotification<T extends NewNotificationType>(
       // _Избегать_. Это первый текст, который увидят все сотрудники, и он
       // обязан говорить теми же словами, что и остальной интерфейс.
       if (d.status === 'VALIDATED') return `Доход валидирован: ${money(d)}`
+      // COPY-M-3: превью причины — слова конкретного человека, а не системы;
+      // кавычки-«ёлочки» отделяют чужую речь от интерфейса (и ставят на место
+      // финальное многоточие `notificationTextPreview` — оно внутри цитаты, не
+      // обрыв строки).
       return d.rejectionReasonPreview === null
         ? `Доход отклонён: ${money(d)}`
-        : `Доход отклонён: ${money(d)} — ${d.rejectionReasonPreview}`
+        : `Доход отклонён: ${money(d)} — «${d.rejectionReasonPreview}»`
     }
     case 'TEAM_MEMBER_ADDED': {
       const d = data as NotificationDataByType['TEAM_MEMBER_ADDED']
@@ -288,19 +338,24 @@ export function describeNotification<T extends NewNotificationType>(
       return `Проект ${d.projectName}`
     }
     case 'TEAM_NEW_MEMBER': {
+      // COPY-H-6: полезное (кто пришёл) вперёд, имя команды — в хвост.
       const d = data as NotificationDataByType['TEAM_NEW_MEMBER']
-      return `${d.teamName}: ${d.memberName}`
+      return `${d.memberName} · команда ${d.teamName}`
     }
     case 'PROJECT_CONFIRM_REQUIRED': {
       const d = data as NotificationDataByType['PROJECT_CONFIRM_REQUIRED']
       return `Проект ${d.projectName}`
     }
     case 'SHARE_CONFIRM_REQUIRED': {
+      // COPY-H-6 (только PROJECT-scope — оба процента теряются первыми на
+      // `line-clamp-2`, имя проекта в хвосте обрезать не так жалко) + COPY-H-3
+      // (BASE-scope — «доля по умолчанию», без переворота порядка: тут терять
+      // нечего, значение всего одно).
       const d = data as NotificationDataByType['SHARE_CONFIRM_REQUIRED']
       const change = `${percentText(d.previousPercent)} → ${percentText(d.proposedPercent)}`
       return d.scope === 'BASE'
-        ? `Базовая доля: ${change}`
-        : `Проект ${d.projectName ?? 'без названия'}: ${change}`
+        ? `Доля по умолчанию: ${change}`
+        : `${change} · проект ${d.projectName ?? 'без названия'}`
     }
     case 'DOCUMENT_SIGN_REQUIRED': {
       const d = data as NotificationDataByType['DOCUMENT_SIGN_REQUIRED']
@@ -311,9 +366,13 @@ export function describeNotification<T extends NewNotificationType>(
       return `${d.approverName} — ${subjectPhrase(d.subjectKind, d.subjectTitle)}`
     }
     case 'APPROVAL_REJECTED': {
+      // COPY-H-6 + COPY-M-3: причина — отдельной строкой (`\n`, отрисовывается
+      // `whitespace-pre-wrap` в `notifications-bell.tsx`), а не приклеена после
+      // двоеточия к имени проекта; в кавычках — та же причина, что и в
+      // TRANSACTION_STATUS_CHANGED выше.
       const d = data as NotificationDataByType['APPROVAL_REJECTED']
       const subject = `${d.approverName} — ${subjectPhrase(d.subjectKind, d.subjectTitle)}`
-      return d.reasonPreview === null ? subject : `${subject}: ${d.reasonPreview}`
+      return d.reasonPreview === null ? subject : `${subject}\n«${d.reasonPreview}»`
     }
     default: {
       // CR-M-1 (код-ревью круг 1): одиннадцатый тип обязан ЛОМАТЬ КОМПИЛЯЦИЮ
@@ -348,17 +407,61 @@ export type NotificationAction = {
   disabled: boolean
 }
 
-const ACTION_LABELS: Record<NewNotificationType, string> = {
-  TRANSACTION_ADDED: 'К транзакциям',
-  TRANSACTION_STATUS_CHANGED: 'К транзакциям',
+/**
+ * COPY-M-1 (copy-review круг 1, #664): подпись кнопки — глагол + объект.
+ * «К транзакциям» — предлог, не действие; «Посмотреть и подтвердить» — два
+ * глагола (и обещание исхода, которого может не быть — сотрудник вправе
+ * отклонить); «Открыть» без объекта — ровно случай, который называет
+ * `copywriting`.
+ *
+ * `APPROVAL_CONFIRMED` / `APPROVAL_REJECTED` сюда НЕ входят: их объект — либо
+ * PROJECT, либо USER (см. `approvalNotificationSubject` в API), подпись
+ * обязана называть то, что реально откроется, и решается в `actionLabelFor`.
+ * Держать для них запись в этой карте значило бы держать текст, который
+ * ничто не читает, — и мутационный гейт не увидел бы порчу мёртвой строки.
+ */
+const ACTION_LABELS: Record<
+  Exclude<NewNotificationType, 'APPROVAL_CONFIRMED' | 'APPROVAL_REJECTED'>,
+  string
+> = {
+  TRANSACTION_ADDED: 'Открыть финансы',
+  TRANSACTION_STATUS_CHANGED: 'Открыть финансы',
   TEAM_MEMBER_ADDED: 'Открыть команду',
   PROJECT_MEMBER_ADDED: 'Открыть проект',
   TEAM_NEW_MEMBER: 'Открыть команду',
   PROJECT_CONFIRM_REQUIRED: 'Открыть проект',
-  SHARE_CONFIRM_REQUIRED: 'Посмотреть и подтвердить',
-  DOCUMENT_SIGN_REQUIRED: 'Подписать',
-  APPROVAL_CONFIRMED: 'Открыть',
-  APPROVAL_REJECTED: 'Открыть',
+  SHARE_CONFIRM_REQUIRED: 'Открыть предложение',
+  DOCUMENT_SIGN_REQUIRED: 'Подписать контракт',
+}
+
+/**
+ * Подпись кнопки для «админу» — зависит от вида объекта решения (COPY-M-1):
+ * USER — решение по базовой доле сотрудника, ведёт в его профиль; всё
+ * остальное (PROJECT) — черновик проекта или доля ПО проекту, ведёт в проект.
+ */
+function actionLabelFor(type: NewNotificationType, subjectType: NotificationSubjectType): string {
+  if (type === 'APPROVAL_CONFIRMED' || type === 'APPROVAL_REJECTED') {
+    return subjectType === 'USER' ? 'Открыть профиль' : 'Открыть проект'
+  }
+  return ACTION_LABELS[type]
+}
+
+/**
+ * COPY-M-4 (copy-review круг 1, #664): «Объекта больше нет» — слово из спеки,
+ * которого нет в интерфейсе CRM. Вид объекта в момент показа уже известен
+ * (`n.subjectType`), поэтому честность ничего не теряет от того, чтобы
+ * назвать объект конкретно.
+ */
+const SUBJECT_MISSING_LABELS: Record<NotificationSubjectType, string> = {
+  PROJECT: 'Проект удалён',
+  TEAM: 'Команда удалена',
+  USER: 'Профиль удалён',
+  TRANSACTION: 'Транзакция удалена',
+  EMPLOYEE_CONTRACT: 'Контракт удалён',
+}
+
+function subjectMissingLabel(subjectType: NotificationSubjectType | null): string {
+  return subjectType === null ? 'Этого больше нет в CRM' : SUBJECT_MISSING_LABELS[subjectType]
 }
 
 /** Маршрут объекта. У транзакции и договора своей страницы нет — ведём в список. */
@@ -393,12 +496,23 @@ export function notificationActions(n: RenderableNotification): NotificationActi
   // §7.4: уведомление живёт дольше объекта. Честное «объекта больше нет»
   // вместо кнопки в белый экран.
   if (n.subjectMissing === true) {
-    return [{ label: 'Объекта больше нет', href: null, disabled: true }]
+    // QA-M-1 (manual-qa круг 1, #664): договор в этой системе не удаляется —
+    // единственный практический переход прочь из READY_TO_SIGN (кроме
+    // редкого ручного возврата админом в черновик) — подпись сотрудником.
+    // «Контракт удалён» было бы неправдой; «подписан» — честный ответ на
+    // РЕАЛЬНОЕ событие (см. `EmployeeContractsService` — контракты не
+    // удаляются, только меняют статус). Канал доставки для этого типа —
+    // визард онбординга (см. «Допущения» PR); попап показывает исход
+    // постфактум, когда сотрудник уже прошёл его и снова открыл колокольчик.
+    if (n.type === 'DOCUMENT_SIGN_REQUIRED') {
+      return [{ label: 'Контракт подписан', href: null, disabled: true }]
+    }
+    return [{ label: subjectMissingLabel(n.subjectType), href: null, disabled: true }]
   }
   if (isNewNotificationType(n.type) && n.subjectType !== null && n.subjectId !== null) {
     return [
       {
-        label: ACTION_LABELS[n.type],
+        label: actionLabelFor(n.type, n.subjectType),
         href: notificationHref(n.subjectType, n.subjectId),
         disabled: false,
       },

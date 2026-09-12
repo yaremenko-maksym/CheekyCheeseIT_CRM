@@ -8,7 +8,16 @@ import type { RenderableNotification } from '@crm/shared'
 import { NotificationsService } from './notifications.service'
 import { DatabaseService } from '../database/database.service'
 import * as schema from '../database/schema'
-import { approvals, notifications, projects, teamMembers, teams, users } from '../database/schema'
+import {
+  approvals,
+  contractTemplates,
+  employeeContracts,
+  notifications,
+  projects,
+  teamMembers,
+  teams,
+  users,
+} from '../database/schema'
 import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 
@@ -43,16 +52,23 @@ const NEWCOMER_ID = 'f6a10000-0000-4006-a000-000000000004'
 const TEAM_ID = 'f6a10000-0000-4006-b000-000000000001'
 const PROJECT_ID = 'f6a10000-0000-4006-c000-000000000001'
 const DOOMED_PROJECT_ID = 'f6a10000-0000-4006-c000-000000000002'
+// QA-M-1 (manual-qa круг 1, #664) — контракт NEWCOMER_ID для теста деградации.
+const CONTRACT_ID = 'f6a10000-0000-4006-d000-000000000001'
 const ALL_USER_IDS = [ADMIN_ID, SENIOR_ID, DROP_ID, NEWCOMER_ID]
 
 let pool: Pool
 let db: ReturnType<typeof drizzle<typeof schema>>
 let service: NotificationsService
+// Резолвится динамически в `beforeAll` — id шаблона отличается между `crm_db`
+// и scratch-базами (тот же приём, что в `contract-status.realdb.integration.spec.ts`).
+let juniorTemplateId: string
 
 async function wipe(): Promise<void> {
   await db.delete(notifications).where(inArray(notifications.userId, ALL_USER_IDS))
   await db.delete(approvals).where(inArray(approvals.approverUserId, ALL_USER_IDS))
   await db.delete(teamMembers).where(inArray(teamMembers.userId, ALL_USER_IDS))
+  // FK-safe order: contract row before its owning user.
+  await db.delete(employeeContracts).where(eq(employeeContracts.id, CONTRACT_ID))
   await db.delete(projects).where(inArray(projects.id, [PROJECT_ID, DOOMED_PROJECT_ID]))
   await db.delete(teams).where(eq(teams.id, TEAM_ID))
   await db.delete(users).where(inArray(users.id, ALL_USER_IDS))
@@ -76,6 +92,20 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       { db } as unknown as DatabaseService,
       makeTelemetryErrorsStub(),
     )
+
+    // QA-M-1 (#664): id шаблона JUNIOR резолвится динамически — как и в
+    // `contract-status.realdb.integration.spec.ts`, он отличается между
+    // `crm_db` и scratch-базами; фиксировать литералом означало бы падать на
+    // любой базе, где сид сгенерировал другой id.
+    const junior = await db
+      .select({ id: contractTemplates.id })
+      .from(contractTemplates)
+      .where(eq(contractTemplates.targetRole, 'JUNIOR'))
+      .limit(1)
+    if (!junior[0]) {
+      throw new Error('[notifications-realdb] FAILED — нет ни одного шаблона контракта JUNIOR')
+    }
+    juniorTemplateId = junior[0].id
 
     await wipe()
 
@@ -190,7 +220,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       await service.create({
         userId: DROP_ID,
         type: 'TRANSACTION_ADDED',
-        title: 'Добавлена транзакция',
+        title: 'Вам добавили транзакцию',
         subjectType: 'TRANSACTION',
         subjectId: null,
         data: { amount: '1234.56', currency: 'USDT', projectName: 'Живой проект' },
@@ -214,7 +244,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       await service.create({
         userId: ADMIN_ID,
         type: 'APPROVAL_REJECTED',
-        title: 'Сотрудник отклонил',
+        title: 'Предложение отклонено',
         subjectType: 'PROJECT',
         subjectId: PROJECT_ID,
         data: {
@@ -268,7 +298,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       await service.create({
         userId: SENIOR_ID,
         type: 'PROJECT_CONFIRM_REQUIRED',
-        title: 'Ждёт решения: новый проект',
+        title: 'Проект ждёт решения',
         subjectType: 'PROJECT',
         subjectId: DOOMED_PROJECT_ID,
         data: { projectName: 'Проект, который удалят' },
@@ -290,7 +320,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       expect(deadItem).toBeDefined()
       expect(deadItem?.subjectMissing).toBe(true)
       expect(renderNotification(deadItem as RenderableNotification).actions).toEqual([
-        { label: 'Объекта больше нет', href: null, disabled: true },
+        { label: 'Проект удалён', href: null, disabled: true },
       ])
     })
 
@@ -304,7 +334,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       await service.create({
         userId: SENIOR_ID,
         type: 'SHARE_CONFIRM_REQUIRED',
-        title: 'Ждёт решения: новая доля',
+        title: 'Предложение по доле',
         subjectType: 'PROJECT',
         subjectId: PROJECT_ID,
         data: {
@@ -331,8 +361,70 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       const item = dead.items.find((n) => n.type === 'SHARE_CONFIRM_REQUIRED')
       expect(item?.subjectMissing).toBe(true)
       expect(renderNotification(item as RenderableNotification).actions).toEqual([
-        { label: 'Объекта больше нет', href: null, disabled: true },
+        { label: 'Проект удалён', href: null, disabled: true },
       ])
+    })
+
+    /**
+     * QA-M-1 (manual-qa круг 1, #664). Контракты в этой системе не
+     * удаляются — `EmployeeContractsService` только меняет `status`. Значит
+     * «объект существует» для `DOCUMENT_SIGN_REQUIRED` не может значить
+     * «строка не удалена» (это условие истинно ВСЕГДА, деградация была бы
+     * мертва) — оно обязано значить «контракт ещё ждёт подписи»
+     * (`loadExistingIds`, ветка `EMPLOYEE_CONTRACT`). Решение оркестратора:
+     * не пробивать `OnboardingGuard` — вместо этого честная деградация ПОСЛЕ
+     * подписи, тем же механизмом, что и у остальных девяти типов (§7.4).
+     */
+    it('контракт подписан → «Контракт подписан», не «Контракт удалён», кнопка недоступна', async () => {
+      await db.insert(employeeContracts).values({
+        id: CONTRACT_ID,
+        userId: NEWCOMER_ID,
+        sourceTemplateId: juniorTemplateId,
+        bodyMarkdown: '<p>Тестовый текст контракта</p>',
+        createdByUserId: ADMIN_ID,
+        status: 'READY_TO_SIGN',
+      })
+      await service.create({
+        userId: NEWCOMER_ID,
+        type: 'DOCUMENT_SIGN_REQUIRED',
+        title: 'Контракт на подпись',
+        subjectType: 'EMPLOYEE_CONTRACT',
+        subjectId: CONTRACT_ID,
+        data: { documentTitle: 'Ваш контракт с компанией' },
+      })
+
+      const beforeSigning = await service.listForUser(NEWCOMER_ID, { limit: 10 })
+      const pending = beforeSigning.items.find((n) => n.type === 'DOCUMENT_SIGN_REQUIRED')
+      expect(pending?.subjectMissing).toBe(false)
+      expect(renderNotification(pending as RenderableNotification).actions).toEqual([
+        { label: 'Подписать контракт', href: '/onboarding', disabled: false },
+      ])
+
+      // Реальный переход READY_TO_SIGN → SIGNED — то же, что делает
+      // `EmployeeContractsService.markSigned` (через `getReadyForSigning` +
+      // `UPDATE`); прямой UPDATE здесь достаточен, потому что предмет теста —
+      // реакция `NotificationsService` на СОСТОЯНИЕ таблицы контрактов, а не
+      // сам переход (тот покрыт `contract-notifications.unit.spec.ts` и
+      // `employee-contracts.service.spec.ts`).
+      await db
+        .update(employeeContracts)
+        .set({ status: 'SIGNED' })
+        .where(eq(employeeContracts.id, CONTRACT_ID))
+
+      const afterSigning = await service.listForUser(NEWCOMER_ID, { limit: 10 })
+      const signed = afterSigning.items.find((n) => n.type === 'DOCUMENT_SIGN_REQUIRED')
+      // Сама запись НЕ исчезает и НЕ переименовывается — деградирует только
+      // её кнопка, как и у остальных девяти типов.
+      expect(signed).toBeDefined()
+      expect(signed?.subjectMissing).toBe(true)
+      expect(renderNotification(signed as RenderableNotification).actions).toEqual([
+        { label: 'Контракт подписан', href: null, disabled: true },
+      ])
+
+      // Подчистить за собой: следующий прогон этого же файла не должен
+      // упереться в partial-unique `employee_contracts_one_per_user`.
+      await db.delete(notifications).where(eq(notifications.subjectId, CONTRACT_ID))
+      await db.delete(employeeContracts).where(eq(employeeContracts.id, CONTRACT_ID))
     })
   })
 })

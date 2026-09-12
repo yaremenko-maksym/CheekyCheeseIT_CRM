@@ -163,7 +163,7 @@ describe('«сотрудник подтвердил»', () => {
     expect(h.created[0]).toMatchObject({
       userId: ADMIN_ID,
       type: 'APPROVAL_CONFIRMED',
-      title: 'Сотрудник подтвердил',
+      title: 'Предложение подтверждено',
       subjectType: 'PROJECT',
       subjectId: SUBJECT_ID,
       secondaryId: APPROVER_ID,
@@ -257,7 +257,7 @@ describe('«сотрудник отклонил, с причиной»', () => {
     expect(h.created[0]).toMatchObject({
       userId: ADMIN_ID,
       type: 'APPROVAL_REJECTED',
-      title: 'Сотрудник отклонил',
+      title: 'Предложение отклонено',
     })
     expect(h.created[0]?.['data']).toMatchObject({ reasonPreview: 'Доля не та' })
     expect(String(h.created[0]?.['title'])).not.toContain('Доля не та')

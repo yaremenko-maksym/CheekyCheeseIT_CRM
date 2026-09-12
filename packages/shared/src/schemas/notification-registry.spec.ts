@@ -56,14 +56,25 @@ describe('десять типов — реестр', () => {
     }
   })
 
-  it('три типа, требующие действия, названы одним семейством «Ждёт решения»', () => {
+  /**
+   * COPY-H-1 (copy-review круг 1, #664): семейный префикс «Ждёт решения: »
+   * съедал больше половины 24-символьного бюджета попапа (`w-80`, `truncate`)
+   * и на 320/375/768px обрезал ровно то единственное слово, что сообщало
+   * пользователю, чего от него хотят. Семья теперь узнаётся по общему значку
+   * (`TypeIcon`), а не по префиксу — заголовок обязан помещаться в бюджет
+   * целиком (измерено по скриншотам AC7 — ≤19 знаков).
+   */
+  it('три типа, требующие действия, помещаются в бюджет попапа целиком (COPY-H-1, ≤19 знаков)', () => {
     expect([...ACTION_REQUIRED_NOTIFICATION_TYPES]).toEqual([
       'PROJECT_CONFIRM_REQUIRED',
       'SHARE_CONFIRM_REQUIRED',
       'DOCUMENT_SIGN_REQUIRED',
     ])
     for (const type of ACTION_REQUIRED_NOTIFICATION_TYPES) {
-      expect(NOTIFICATION_TITLES[type].startsWith('Ждёт решения:'), type).toBe(true)
+      expect(Array.from(NOTIFICATION_TITLES[type]).length, type).toBeLessThanOrEqual(19)
+      // Ни один заголовок семьи не начинается со старого общего префикса —
+      // предмет обязан стоять первым словом (COPY-H-1's "предмет первым").
+      expect(NOTIFICATION_TITLES[type].startsWith('Ждёт решения'), type).toBe(false)
     }
   })
 
@@ -79,17 +90,22 @@ describe('десять типов — реестр', () => {
 })
 
 describe('describeNotification — подробности из данных, не из базы', () => {
-  it('доля по проекту: 26% → 30%', () => {
+  // COPY-H-6 (copy-review круг 1, #664): полезное — вперёд, имя объекта — в
+  // хвост, где его не жалко обрезать `line-clamp-2` при длинных именах.
+  it('доля по проекту: полезные проценты вперёд, имя проекта в хвосте', () => {
     const data = notificationDataSchemaFor('SHARE_CONFIRM_REQUIRED').parse({
       scope: 'PROJECT',
       projectName: 'Acme',
       previousPercent: 26,
       proposedPercent: 30,
     })
-    expect(describeNotification('SHARE_CONFIRM_REQUIRED', data)).toBe('Проект Acme: 26% → 30%')
+    expect(describeNotification('SHARE_CONFIRM_REQUIRED', data)).toBe('26% → 30% · проект Acme')
   })
 
-  it('отклонение несёт причину', () => {
+  // COPY-H-6 + COPY-M-3: причина — отдельной строкой (не приклеена к имени
+  // проекта после двоеточия) и в кавычках-«ёлочках» (слова человека, не
+  // системы).
+  it('отклонение несёт причину отдельной строкой, в кавычках', () => {
     const data = notificationDataSchemaFor('APPROVAL_REJECTED').parse({
       approverName: 'Иван Петров',
       subjectTitle: 'Acme',
@@ -97,7 +113,7 @@ describe('describeNotification — подробности из данных, н�
       reasonPreview: 'Доля не та',
     })
     expect(describeNotification('APPROVAL_REJECTED', data)).toBe(
-      'Иван Петров — проект Acme: Доля не та',
+      'Иван Петров — проект Acme\n«Доля не та»',
     )
   })
 })
@@ -111,7 +127,7 @@ describe('renderNotification — клиент выводит подписи и �
       subjectId: uuid,
       data: { projectName: 'Acme' },
     })
-    expect(rendered.title).toBe('Ждёт решения: новый проект')
+    expect(rendered.title).toBe('Проект ждёт решения')
     expect(rendered.detail).toBe('Проект Acme')
     expect(rendered.actions).toEqual([
       { label: 'Открыть проект', href: `/projects/${uuid}`, disabled: false },
@@ -142,7 +158,10 @@ describe('renderNotification — клиент выводит подписи и �
     expect(rendered.detail).toBeNull()
   })
 
-  it('объект исчез — кнопка честно говорит об этом и никуда не ведёт', () => {
+  // COPY-M-4 (copy-review круг 1, #664): «объект» — слово из спеки, не из
+  // интерфейса CRM; вид объекта уже известен в момент показа, честность
+  // ничего не теряет от того, чтобы назвать объект конкретно.
+  it('объект исчез — кнопка честно называет ЕГО ВИД и никуда не ведёт', () => {
     const rendered = renderNotification({
       ...base,
       type: 'PROJECT_MEMBER_ADDED',
@@ -151,7 +170,7 @@ describe('renderNotification — клиент выводит подписи и �
       data: { projectName: 'Acme' },
       subjectMissing: true,
     })
-    expect(rendered.actions).toEqual([{ label: 'Объекта больше нет', href: null, disabled: true }])
+    expect(rendered.actions).toEqual([{ label: 'Проект удалён', href: null, disabled: true }])
   })
 })
 
@@ -179,43 +198,59 @@ describe('describeNotification — все ветки, чтобы гейт мут
     [
       'TRANSACTION_ADDED',
       { amount: '1200.00', currency: 'USD', projectName: 'Acme' },
-      'Проект Acme: 1200.00 USD',
+      // COPY-H-4 (money() — `ru-RU`, тысячи через NBSP, запятая, два знака) +
+      // COPY-H-6 (сумма вперёд, имя проекта в хвосте).
+      '1\u00A0200,00 USD · проект Acme',
     ],
-    ['TRANSACTION_ADDED', { amount: '1200.00', currency: 'USD', projectName: null }, '1200.00 USD'],
+    [
+      'TRANSACTION_ADDED',
+      { amount: '1200.00', currency: 'USD', projectName: null },
+      '1\u00A0200,00 USD',
+    ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'VALIDATED', rejectionReasonPreview: null },
-      'Доход валидирован: 10.00 USD',
+      'Доход валидирован: 10,00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReasonPreview: null },
-      'Доход отклонён: 10.00 USD',
+      'Доход отклонён: 10,00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReasonPreview: 'Нет чека' },
-      'Доход отклонён: 10.00 USD — Нет чека',
+      // COPY-M-3: превью причины — в кавычках-«ёлочках».
+      'Доход отклонён: 10,00 USD — «Нет чека»',
     ],
     ['TEAM_MEMBER_ADDED', { teamName: 'Alpha' }, 'Команда Alpha'],
     ['PROJECT_MEMBER_ADDED', { projectName: 'Acme' }, 'Проект Acme'],
-    ['TEAM_NEW_MEMBER', { teamName: 'Alpha', memberName: 'Иван' }, 'Alpha: Иван'],
+    // COPY-H-6: кто пришёл — вперёд, имя команды — в хвост.
+    ['TEAM_NEW_MEMBER', { teamName: 'Alpha', memberName: 'Иван' }, 'Иван · команда Alpha'],
     ['PROJECT_CONFIRM_REQUIRED', { projectName: 'Acme' }, 'Проект Acme'],
     [
       'SHARE_CONFIRM_REQUIRED',
       { scope: 'BASE', projectName: null, previousPercent: null, proposedPercent: 30 },
-      'Базовая доля: по умолчанию → 30%',
+      // COPY-H-3: «доля по умолчанию», а «не задана» вместо «по умолчанию»
+      // для значения — иначе одно слово в двух ролях в одной строке.
+      'Доля по умолчанию: не задана → 30%',
     ],
     [
       'SHARE_CONFIRM_REQUIRED',
       { scope: 'PROJECT', projectName: null, previousPercent: 26, proposedPercent: null },
-      'Проект без названия: 26% → по умолчанию',
+      // COPY-H-6: проценты вперёд, имя проекта в хвосте.
+      '26% → не задана · проект без названия',
     ],
-    ['DOCUMENT_SIGN_REQUIRED', { documentTitle: 'Договор с сотрудником' }, 'Договор с сотрудником'],
+    [
+      'DOCUMENT_SIGN_REQUIRED',
+      { documentTitle: 'Ваш контракт с компанией' },
+      'Ваш контракт с компанией',
+    ],
     [
       'APPROVAL_CONFIRMED',
       { approverName: 'Иван', subjectKind: 'BASE_SHARE', subjectTitle: null },
-      'Иван — базовая доля',
+      // COPY-H-3: «базовая доля» → «доля по умолчанию» (#648).
+      'Иван — доля по умолчанию',
     ],
     [
       'APPROVAL_CONFIRMED',
@@ -233,23 +268,67 @@ describe('describeNotification — все ветки, чтобы гейт мут
   })
 })
 
+/**
+ * COPY-H-4 / QA-M-2 (copy-review + manual-qa круг 1, #664): `amount` приезжает
+ * из `numeric('amount', { precision: 18, scale: 6 })` как строка вида
+ * `1500.000000` — та самая порча, которую в проекте уже дважды чинили в
+ * других потребителях той же колонки (`format-amount.ts`, `invoices.service.ts`).
+ */
+describe('money() — тот же формат, что и остальное приложение (COPY-H-4 / QA-M-2)', () => {
+  it('шесть нулей после точки из NUMERIC(18,6) не долетают до сотрудника', () => {
+    const data = notificationDataSchemaFor('TRANSACTION_ADDED').parse({
+      amount: '1500.000000',
+      currency: 'USDT',
+      projectName: null,
+    })
+    expect(describeNotification('TRANSACTION_ADDED', data)).toBe('1\u00A0500,00 USDT')
+  })
+
+  it('тысячи — через NBSP, дробная часть — запятой, всегда два знака', () => {
+    const data = notificationDataSchemaFor('TRANSACTION_ADDED').parse({
+      amount: '25.5',
+      currency: 'USD',
+      projectName: null,
+    })
+    expect(describeNotification('TRANSACTION_ADDED', data)).toBe('25,50 USD')
+  })
+
+  it('нечисловой amount не роняет строку — сырой fallback вместо NaN', () => {
+    const data = notificationDataSchemaFor('TRANSACTION_ADDED').parse({
+      amount: 'n/a',
+      currency: 'USD',
+      projectName: null,
+    })
+    expect(describeNotification('TRANSACTION_ADDED', data)).toBe('n/a USD')
+  })
+})
+
 describe('подписи кнопок — по одной на тип, и каждая проверена', () => {
   // Гейт мутаций 2026-09-07: девять подписей из десяти пережили замену на
   // пустую строку. Тест «кнопка появилась» ничего не говорит о том, ЧТО на ней
   // написано, а подпись — это текст для сотрудника, то есть предмет ревью
   // текста ровно так же, как заголовок.
+  //
+  // COPY-M-1 (copy-review круг 1, #664): «глагол + объект» — «К транзакциям»
+  // было предлогом, не действием; «Посмотреть и подтвердить» — два глагола И
+  // обещание исхода, которого может не быть (сотрудник вправе отклонить);
+  // «Открыть»/«Подписать» без объекта — ровно случай, названный `copywriting`.
+  // APPROVAL_CONFIRMED/REJECTED теперь несут ДВЕ строки каждый — подпись
+  // зависит от вида объекта решения (PROJECT vs USER), см. `actionLabelFor`.
   it.each([
-    ['TRANSACTION_ADDED', 'TRANSACTION', 'К транзакциям'],
-    ['TRANSACTION_STATUS_CHANGED', 'TRANSACTION', 'К транзакциям'],
+    ['TRANSACTION_ADDED', 'TRANSACTION', 'Открыть финансы'],
+    ['TRANSACTION_STATUS_CHANGED', 'TRANSACTION', 'Открыть финансы'],
     ['TEAM_MEMBER_ADDED', 'TEAM', 'Открыть команду'],
     ['TEAM_NEW_MEMBER', 'TEAM', 'Открыть команду'],
     ['PROJECT_MEMBER_ADDED', 'PROJECT', 'Открыть проект'],
     ['PROJECT_CONFIRM_REQUIRED', 'PROJECT', 'Открыть проект'],
-    ['SHARE_CONFIRM_REQUIRED', 'PROJECT', 'Посмотреть и подтвердить'],
-    ['DOCUMENT_SIGN_REQUIRED', 'EMPLOYEE_CONTRACT', 'Подписать'],
-    ['APPROVAL_CONFIRMED', 'PROJECT', 'Открыть'],
-    ['APPROVAL_REJECTED', 'PROJECT', 'Открыть'],
-  ] as const)('%s → «%s»', (type, subjectType, label) => {
+    ['SHARE_CONFIRM_REQUIRED', 'PROJECT', 'Открыть предложение'],
+    ['DOCUMENT_SIGN_REQUIRED', 'EMPLOYEE_CONTRACT', 'Подписать контракт'],
+    ['APPROVAL_CONFIRMED', 'PROJECT', 'Открыть проект'],
+    ['APPROVAL_CONFIRMED', 'USER', 'Открыть профиль'],
+    ['APPROVAL_REJECTED', 'PROJECT', 'Открыть проект'],
+    ['APPROVAL_REJECTED', 'USER', 'Открыть профиль'],
+  ] as const)('%s (%s) → «%s»', (type, subjectType, label) => {
     const actions = notificationActions({
       ...base,
       type,
@@ -345,7 +424,88 @@ describe('notificationActions — крайние случаи', () => {
         data: { teamName: 'Alpha' },
         subjectMissing: true,
       }),
-    ).toEqual([{ label: 'Объекта больше нет', href: null, disabled: true }])
+    ).toEqual([{ label: 'Команда удалена', href: null, disabled: true }])
+  })
+})
+
+/**
+ * COPY-M-4 (copy-review круг 1, #664): «Объекта больше нет» — слово из спеки,
+ * которого нет в интерфейсе CRM. Вид объекта в момент показа уже известен
+ * (`subjectType`), поэтому честность ничего не теряет от того, чтобы назвать
+ * объект конкретно. Тип уведомления в этой таблице фиксирован ровно потому,
+ * что подпись при `subjectMissing` зависит ТОЛЬКО от `subjectType` — сама
+ * проверка это и доказывает, перебирая виды объекта под одним типом.
+ */
+describe('subjectMissing — подпись называет вид объекта конкретно (COPY-M-4)', () => {
+  it.each([
+    ['PROJECT', 'Проект удалён'],
+    ['TEAM', 'Команда удалена'],
+    ['USER', 'Профиль удалён'],
+    ['TRANSACTION', 'Транзакция удалена'],
+  ] as const)('%s → «%s»', (subjectType, label) => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_MEMBER_ADDED',
+        subjectType,
+        subjectId: uuid,
+        data: null,
+        subjectMissing: true,
+      }),
+    ).toEqual([{ label, href: null, disabled: true }])
+  })
+
+  it('subjectType неизвестен (тип из будущего без структурного объекта) — общий честный ответ', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'SOMETHING_FROM_THE_FUTURE' as never,
+        subjectType: null,
+        subjectId: null,
+        data: null,
+        link: '/finance',
+        subjectMissing: true,
+      }),
+    ).toEqual([{ label: 'Этого больше нет в CRM', href: null, disabled: true }])
+  })
+})
+
+/**
+ * QA-M-1 (manual-qa круг 1, #664). Контракт в этой системе не удаляется —
+ * `EmployeeContractsService` только меняет `status` (DRAFT → READY_TO_SIGN →
+ * SIGNED, либо ручной откат в DRAFT/CANCELLED администратором). «Контракт
+ * удалён» было бы неправдой; «подписан» — честный ответ на реальный переход.
+ * Backend-половина (когда именно `subjectMissing` становится `true` для
+ * `EMPLOYEE_CONTRACT`) — интеграционный тест на реальном Postgres,
+ * `apps/api/src/notifications/notifications.realdb.integration.spec.ts (AC6)`;
+ * здесь — чистая клиентская половина: КАКОЙ текст показывается, раз уже
+ * решено, что показывать деградацию.
+ */
+describe('DOCUMENT_SIGN_REQUIRED — честная деградация после подписи (QA-M-1)', () => {
+  it('подписанный контракт — не «удалён», а «подписан»; кнопка недоступна', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'DOCUMENT_SIGN_REQUIRED',
+        subjectType: 'EMPLOYEE_CONTRACT',
+        subjectId: uuid,
+        data: { documentTitle: 'Ваш контракт с компанией' },
+        subjectMissing: true,
+      }),
+    ).toEqual([{ label: 'Контракт подписан', href: null, disabled: true }])
+  })
+
+  it('контракт ещё ждёт подписи — кнопка ведёт в визард, как и раньше', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'DOCUMENT_SIGN_REQUIRED',
+        subjectType: 'EMPLOYEE_CONTRACT',
+        subjectId: uuid,
+        data: { documentTitle: 'Ваш контракт с компанией' },
+        subjectMissing: false,
+      }),
+    ).toEqual([{ label: 'Подписать контракт', href: '/onboarding', disabled: false }])
   })
 })
 
@@ -537,7 +697,7 @@ describe('SR-H-1 — потолки формы совпадают с потол�
     ).toBe('Иван — проект Acme')
   })
 
-  it('отказ с превью причины дописывает её после двоеточия', () => {
+  it('отказ с превью причины выносит её отдельной строкой в кавычках (COPY-H-6/COPY-M-3)', () => {
     expect(
       describeNotification('APPROVAL_REJECTED', {
         approverName: 'Иван',
@@ -545,6 +705,6 @@ describe('SR-H-1 — потолки формы совпадают с потол�
         subjectTitle: 'Acme',
         reasonPreview: 'Доля не та',
       }),
-    ).toBe('Иван — проект Acme: Доля не та')
+    ).toBe('Иван — проект Acme\n«Доля не та»')
   })
 })

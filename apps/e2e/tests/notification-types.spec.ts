@@ -94,7 +94,7 @@ test.describe('N1–N3 — попап выводит строку по типу'
     await openBell(asAdmin)
 
     await expect(asAdmin.getByTestId(`notification-item-${KNOWN_ID}-title`)).toHaveText(
-      'Ждёт решения: новый проект',
+      'Проект ждёт решения',
     )
     await expect(asAdmin.getByTestId(`notification-item-${KNOWN_ID}-detail`)).toHaveText(
       'Проект Acme',
@@ -136,8 +136,10 @@ test.describe('N1–N3 — попап выводит строку по типу'
     await asAdmin.goto('/')
     await openBell(asAdmin)
 
+    // COPY-M-4: MISSING_ID — TEAM_NEW_MEMBER/subjectType TEAM → «Команда
+    // удалена», не общее «Объекта больше нет».
     await expect(asAdmin.getByTestId(`notification-item-${MISSING_ID}-action`)).toHaveText(
-      'Объекта больше нет',
+      'Команда удалена',
     )
     await asAdmin.getByTestId(`notification-item-${MISSING_ID}-open`).click()
     // Остались там же, где были: белого экрана и 404 не случилось.

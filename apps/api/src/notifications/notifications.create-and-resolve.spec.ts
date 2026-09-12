@@ -110,6 +110,10 @@ function makeHarness(seed: Row[] = [], existing: Existing = {}, insertReturnsNot
     if (table === approvals) return 'approvals'
     if (table === projects) return 'projects'
     if (table === notifications) return 'notifications'
+    // QA-M-1 (#664): различаем контракты от «other», чтобы проверить, ЧТО
+    // именно спрашивает запрос про существование объекта — не только что он
+    // был задан.
+    if (table === employeeContracts) return 'contracts'
     return 'other'
   }
 
@@ -242,7 +246,7 @@ describe('создание записи: в базу уезжает ровно �
     await h.svc.create({
       userId: 'u-9',
       type: 'SHARE_CONFIRM_REQUIRED',
-      title: 'Ждёт решения: новая доля',
+      title: 'Предложение по доле',
       subjectType: 'PROJECT',
       subjectId: 'p-1',
       data: { scope: 'PROJECT', projectName: 'Acme', previousPercent: 26, proposedPercent: 30 },
@@ -258,7 +262,7 @@ describe('создание записи: в базу уезжает ровно �
     const input = {
       userId: 'u-9',
       type: 'TRANSACTION_ADDED' as const,
-      title: 'Добавлена транзакция',
+      title: 'Вам добавили транзакцию',
       subjectType: 'TRANSACTION' as const,
       subjectId: 'tx-1',
       data: { amount: '100.00', currency: 'USD', projectName: null },
@@ -311,7 +315,7 @@ describe('создание записи: в базу уезжает ровно �
     const h = makeHarness()
     const base = {
       type: 'TRANSACTION_ADDED' as const,
-      title: 'Добавлена транзакция',
+      title: 'Вам добавили транзакцию',
       subjectType: 'TRANSACTION' as const,
       subjectId: 'tx-1',
       data: { amount: '100.00', currency: 'USD', projectName: null },
@@ -496,5 +500,42 @@ describe('исчезнувший объект вычисляется на чте
     // Список читают на каждое открытие колокольчика: запрос «на всякий
     // случай» здесь — постоянная цена ни за что.
     expect(h.askedTables).toEqual(['projects'])
+  })
+
+  /**
+   * QA-M-1 (manual-qa круг 1, #664). Контракты в этой системе не удаляются —
+   * `EmployeeContractsService` только меняет `status`. Значит «объект
+   * существует» для `DOCUMENT_SIGN_REQUIRED` не может значить «строка не
+   * удалена» (это условие истинно ВСЕГДА — деградация была бы мертва) — оно
+   * обязано значить «контракт ещё ждёт подписи».
+   *
+   * Заглушка стола `employeeContracts` (см. `rowsFor` выше) не моделирует
+   * `status` — она проверяет только СПИСОК запрошенных id. Этот тест смотрит
+   * не на результат заглушки, а на скомпилированный SQL самого запроса: он
+   * обязан НЕСТИ условие по статусу, а не просто спросить «эти id есть?».
+   * Функциональная половина (сигнал становится `true` РОВНО после реальной
+   * подписи) — интеграционный тест на реальном Postgres,
+   * `apps/api/src/notifications/notifications.realdb.integration.spec.ts (AC6)`.
+   */
+  it('QA-M-1: контракт «существует» для этого типа значит «ещё ждёт подписи»', async () => {
+    const h = makeHarness(
+      [
+        makeRow({
+          type: 'DOCUMENT_SIGN_REQUIRED',
+          subjectType: 'EMPLOYEE_CONTRACT',
+          subjectId: 'c-1',
+          data: { documentTitle: 'Ваш контракт с компанией' },
+        }),
+      ],
+      { contracts: ['c-1'] },
+    )
+
+    await h.svc.listForUser('u-1', { limit: 10 })
+
+    const contractsWhere = h.whereClauses.find((w) => w.table === 'contracts')
+    expect(contractsWhere, 'запрос к контрактам обязан нести условие').toBeDefined()
+    const compiled = compileWhere(contractsWhere!.sql)
+    expect(compiled.sql).toContain('status')
+    expect(compiled.params).toContain('READY_TO_SIGN')
   })
 })

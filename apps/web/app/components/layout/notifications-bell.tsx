@@ -218,8 +218,12 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
           >
             <Inbox className="h-8 w-8 text-muted-foreground/40" />
             <p className="mt-2 text-sm font-medium">Уведомлений нет</p>
+            {/* COPY-M-6 = UX-M-1 (copy + design review круг 1, #664): строка
+              досталась от #620 и диффом не тронута, но именно этот дифф
+              сделал её ложной — попап теперь несёт не только инвойсы, а
+              «инвойс» вдобавок слово из `_Избегать_` (CONTEXT.md: «Счёт»). */}
             <p className="mt-1 text-xs text-muted-foreground">
-              Здесь появятся события об инвойсах и других задачах
+              Здесь появятся события по вашим проектам, деньгам и документам
             </p>
           </div>
         ) : (
@@ -286,7 +290,16 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
                           popover instead of growing past it. */}
                         {view.detail ? (
                           <p
-                            className="mt-0.5 line-clamp-2 wrap-anywhere text-xs text-muted-foreground"
+                            // UX-L-1 (design review круг 1, #664): `tabular-nums`
+                            // по `foundation.md` §4 — суммы/проценты в этой
+                            // строке не должны «прыгать» на непропорциональных
+                            // цифрах; влияет только на цифровые глифы, не на
+                            // буквы вокруг них. `whitespace-pre-wrap`
+                            // (COPY-H-6/COPY-M-3): `describeNotification`
+                            // выносит причину отказа отдельной строкой (`\n`)
+                            // — без этого класса браузер схлопнул бы перевод
+                            // строки в пробел, и разделение исчезло бы молча.
+                            className="mt-0.5 line-clamp-2 wrap-anywhere whitespace-pre-wrap text-xs tabular-nums text-muted-foreground"
                             data-testid={`notification-item-${n.id}-detail`}
                           >
                             {view.detail}

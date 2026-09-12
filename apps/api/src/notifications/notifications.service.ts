@@ -253,22 +253,41 @@ export class NotificationsService {
         await produce(sp)
       })
     } catch (err) {
-      // Трасса, а не только текст: бросок может случиться ДО сборки payload,
-      // когда ни типа, ни получателя ещё нет, и тогда единственное, что
-      // называет сломавшегося производителя, — стек.
-      this.logger.error(
-        `Путь производителя уведомлений упал (событие не откатываем): ${
-          err instanceof Error ? (err.stack ?? err.message) : String(err)
-        }`,
-      )
-      this.report({
-        source: 'API',
-        // В телеметрию — короткая форма: дайджест уходит в отдельный
-        // репозиторий, и стек там не нужен, а `fingerprint` считается от
-        // сообщения.
-        message: `Notification producer failed — ${String(err)}`,
-        route: '/api/notifications',
-      })
+      // SR-L-6 (security-review круг 3, #664): весь смысл шва — ничто на
+      // пути производителя не вправе уронить событие. `produce()` этим
+      // свойством уже обладает (см. выше); ЕГО ОБРАБОТЧИК — нет: до этой
+      // правки `logger.error` / `report()` выполнялись уже вне `try`, и
+      // бросок оттуда (например, `this.telemetry` недостижим на собранном
+      // руками сервисе без DI) улетел бы в транзакцию события — то самое
+      // вето, которое `emitInTx` снимает для `produce()`. Наблюдение не
+      // имеет права быть громче самого события, поэтому у него свой,
+      // отдельный `try/catch`.
+      try {
+        // Трасса, а не только текст: бросок может случиться ДО сборки
+        // payload, когда ни типа, ни получателя ещё нет, и тогда
+        // единственное, что называет сломавшегося производителя, — стек.
+        this.logger.error(
+          `Путь производителя уведомлений упал (событие не откатываем): ${
+            err instanceof Error ? (err.stack ?? err.message) : String(err)
+          }`,
+        )
+        this.report({
+          source: 'API',
+          // В телеметрию — короткая форма: дайджест уходит в отдельный
+          // репозиторий, и стек там не нужен, а `fingerprint` считается от
+          // сообщения.
+          message: `Notification producer failed — ${String(err)}`,
+          route: '/api/notifications',
+        })
+      } catch (handlerErr) {
+        // Дальше падать некуда: событие продолжается независимо от того,
+        // что случилось с самим наблюдением.
+        this.logger.error(
+          `Обработчик отказа уведомлений сам упал (наблюдение потеряно, событие не откатываем): ${
+            handlerErr instanceof Error ? handlerErr.message : String(handlerErr)
+          }`,
+        )
+      }
     }
   }
 
@@ -446,10 +465,21 @@ export class NotificationsService {
         return new Set(found.map((r) => r.id))
       }
       default: {
+        // QA-M-1 (manual-qa круг 1, #664). `DOCUMENT_SIGN_REQUIRED` — единственный
+        // тип с этим видом объекта, и «объект существует» для НЕГО означает не
+        // «строка не удалена» (контракты в этой системе не удаляются —
+        // `EmployeeContractsService` только меняет `status`), а «контракт всё ещё
+        // ждёт подписи». Без этого условия кнопка «Подписать контракт» оставалась
+        // бы активной и после того, как сотрудник контракт уже подписал (или
+        // администратор откатил его обратно в черновик) — деградация (§7.4) для
+        // этого типа была фактически мертва: строка контракта живёт всегда, и
+        // общий запрос «строка есть?» был бы всегда `true`.
         const found = await this.db.db
           .select({ id: employeeContracts.id })
           .from(employeeContracts)
-          .where(inArray(employeeContracts.id, ids))
+          .where(
+            and(inArray(employeeContracts.id, ids), eq(employeeContracts.status, 'READY_TO_SIGN')),
+          )
         return new Set(found.map((r) => r.id))
       }
     }

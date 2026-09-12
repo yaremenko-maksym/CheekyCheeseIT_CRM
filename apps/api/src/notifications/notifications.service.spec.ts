@@ -559,7 +559,7 @@ describe('NotificationsService', () => {
         const result = await svc.createInTx({} as never, {
           userId: 'admin-1',
           type: 'APPROVAL_REJECTED',
-          title: 'Сотрудник отклонил',
+          title: 'Предложение отклонено',
           // Производитель обязан усечь превью сам; если он этого не сделал —
           // страдает уведомление, а не решение синьора.
           data: {
@@ -613,7 +613,7 @@ describe('NotificationsService', () => {
       const input = {
         userId: 'u-1',
         type: 'TRANSACTION_ADDED' as const,
-        title: 'Добавлена транзакция',
+        title: 'Вам добавили транзакцию',
         subjectType: 'TRANSACTION' as const,
         subjectId: 't-1',
         data: { amount: '10.00', currency: 'USD', projectName: null },
@@ -629,7 +629,7 @@ describe('NotificationsService', () => {
       const svc = new NotificationsService(h.db, h.telemetry)
       const input = {
         type: 'TRANSACTION_ADDED' as const,
-        title: 'Добавлена транзакция',
+        title: 'Вам добавили транзакцию',
         subjectType: 'TRANSACTION' as const,
         subjectId: 't-1',
         data: { amount: '10.00', currency: 'USD', projectName: null },
@@ -646,7 +646,7 @@ describe('NotificationsService', () => {
       const input = {
         userId: 'u-1',
         type: 'SHARE_CONFIRM_REQUIRED' as const,
-        title: 'Ждёт решения: новая доля',
+        title: 'Предложение по доле',
         subjectType: 'PROJECT' as const,
         subjectId: 'p-1',
         data: {
@@ -832,6 +832,35 @@ describe('NotificationsService', () => {
 
       await vi.waitFor(() => expect(logged).toHaveLength(2))
       expect(logged[1]).toContain('канал лёг строкой')
+    })
+
+    /**
+     * SR-L-6 (security-review круг 3, #664). Тест выше («отказ самой
+     * телеметрии не роняет событие») проверяет `recordError` ОТКЛОНЯЮЩИЙСЯ
+     * асинхронно — это уже проходит через `.catch()` внутри `report()`. Этот
+     * тест — про ДРУГОЕ: `report()` бросает СИНХРОННО, до того как успевает
+     * что-либо зачейнить, потому что `this.telemetry` вообще недостижим (то
+     * самое «собранный руками сервис без DI», на котором круг 2 поймал
+     * SR-H-2). До правки этот бросок улетал бы из `catch`-блока `emitInTx`
+     * наружу — то есть в транзакцию события.
+     */
+    it('SR-L-6: если сам обработчик отказа бросает синхронно (телеметрия недостижима), событие всё равно не страдает', async () => {
+      const h = makeHarness()
+      const svc = new NotificationsService(h.db, undefined as never)
+      const logged = spyOnLoggerErrors(svc)
+
+      await expect(
+        svc.emitInTx(h.db.db as never, async () => {
+          throw new Error('резолв адресатов упал')
+        }),
+      ).resolves.toBeUndefined()
+
+      // Первая строка — сам отказ производителя (как и раньше); вторая —
+      // отказ ЕГО ОБРАБОТЧИКА, доказывающая, что внутренний try/catch
+      // реально сработал, а не то, что `report()` тихо не вызывался вовсе.
+      expect(logged).toHaveLength(2)
+      expect(logged[0]).toContain('резолв адресатов упал')
+      expect(logged[1]).toContain('Обработчик отказа уведомлений сам упал')
     })
   })
 })

@@ -120,10 +120,12 @@ describe('«ждёт решения: документ на подпись»', ()
     expect(h.created[0]).toMatchObject({
       userId: 'junior-1',
       type: 'DOCUMENT_SIGN_REQUIRED',
-      title: 'Ждёт решения: документ на подпись',
+      // COPY-H-1/COPY-M-5 (copy-review круг 1, #664): предмет первым, без
+      // семейного префикса; документ назван одним словом на всём пути.
+      title: 'Контракт на подпись',
       subjectType: 'EMPLOYEE_CONTRACT',
       subjectId: 'contract-1',
-      data: { documentTitle: 'Договор с сотрудником' },
+      data: { documentTitle: 'Ваш контракт с компанией' },
     })
   })
 

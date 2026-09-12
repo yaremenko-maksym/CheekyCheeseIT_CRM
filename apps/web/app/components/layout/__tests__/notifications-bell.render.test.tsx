@@ -102,12 +102,14 @@ describe('попап рисует строку по типу', () => {
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent('Открыть')
   })
 
-  it('исчезнувший объект: честная подпись и никакого перехода', async () => {
+  // COPY-M-4 (copy-review круг 1, #664): вид объекта уже известен в момент
+  // показа («Объекта больше нет» — слово из спеки, не из интерфейса CRM).
+  it('исчезнувший объект: честная подпись называет ЕГО ВИД, перехода нет', async () => {
     items = [makeNotification({ subjectMissing: true })]
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Объекта больше нет',
+      'Проект удалён',
     )
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).not.toHaveBeenCalled()
@@ -128,6 +130,108 @@ describe('попап рисует строку по типу', () => {
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
 
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/documents?category=INVOICE' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// QA-M-1 (manual-qa круг 1, #664) — деградация после подписи, на уровне рендера
+// ---------------------------------------------------------------------------
+
+describe('DOCUMENT_SIGN_REQUIRED — честная деградация после подписи (QA-M-1)', () => {
+  it('подписанный контракт: подпись «Контракт подписан», кнопка недоступна', async () => {
+    items = [
+      makeNotification({
+        type: 'DOCUMENT_SIGN_REQUIRED',
+        subjectType: 'EMPLOYEE_CONTRACT',
+        data: { documentTitle: 'Ваш контракт с компанией' },
+        subjectMissing: true,
+      }),
+    ]
+    await openBell()
+
+    expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
+      'Контракт подписан',
+    )
+    await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('контракт ещё ждёт подписи: кнопка «Подписать контракт», ведёт в визард', async () => {
+    items = [
+      makeNotification({
+        type: 'DOCUMENT_SIGN_REQUIRED',
+        subjectType: 'EMPLOYEE_CONTRACT',
+        data: { documentTitle: 'Ваш контракт с компанией' },
+        subjectMissing: false,
+      }),
+    ]
+    await openBell()
+
+    expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
+      'Подписать контракт',
+    )
+    await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/onboarding' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Пустое состояние (COPY-M-6 / UX-M-1, copy+design review круг 1, #664)
+// ---------------------------------------------------------------------------
+
+describe('пустое состояние отражает актуальный каталог событий', () => {
+  it('без уведомлений — подпись не про инвойсы (слово из `_Избегать_`, и диф сделал её ложной)', async () => {
+    items = []
+    await openBell()
+
+    expect(screen.getByTestId('notifications-empty')).toHaveTextContent(
+      'Здесь появятся события по вашим проектам, деньгам и документам',
+    )
+    expect(screen.getByTestId('notifications-empty')).not.toHaveTextContent('инвойс')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Числа не прыгают при обновлении (UX-L-1, design review круг 1, #664)
+// ---------------------------------------------------------------------------
+
+describe('деталь с суммой набрана моноширинными цифрами (tabular-nums, foundation.md §4)', () => {
+  it('строка подробностей несёт `tabular-nums`', async () => {
+    items = [
+      makeNotification({
+        type: 'TRANSACTION_ADDED',
+        subjectType: 'TRANSACTION',
+        data: { amount: '1500.000000', currency: 'USDT', projectName: null },
+      }),
+    ]
+    await openBell()
+
+    const detail = screen.getByTestId(`notification-item-${UUID}-detail`)
+    expect(detail.className).toContain('tabular-nums')
+    expect(detail).toHaveTextContent('1 500,00 USDT') // jest-dom normalizeWhitespace collapses NBSP -> regular space before matching
+  })
+
+  // COPY-H-6/COPY-M-3: причина отказа — отдельной строкой (`\n` в описании),
+  // и `whitespace-pre-wrap` — единственное, что заставляет браузер эту
+  // строку и показать как отдельную, а не схлопнуть в пробел.
+  it('строка подробностей сохраняет перенос строки (`whitespace-pre-wrap`)', async () => {
+    items = [
+      makeNotification({
+        type: 'APPROVAL_REJECTED',
+        subjectType: 'PROJECT',
+        data: {
+          approverName: 'Иван Петров',
+          subjectKind: 'PROJECT',
+          subjectTitle: 'Acme',
+          reasonPreview: 'Не тот проект',
+        },
+      }),
+    ]
+    await openBell()
+
+    const detail = screen.getByTestId(`notification-item-${UUID}-detail`)
+    expect(detail.className).toContain('whitespace-pre-wrap')
+    expect(detail.textContent).toBe('Иван Петров — проект Acme\n«Не тот проект»')
   })
 })
 

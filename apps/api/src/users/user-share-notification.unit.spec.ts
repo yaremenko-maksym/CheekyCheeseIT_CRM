@@ -55,7 +55,9 @@ describe('«ждёт решения: новая доля» — базовая п
     expect(created[0]).toMatchObject({
       userId: 'senior-1',
       type: 'SHARE_CONFIRM_REQUIRED',
-      title: 'Ждёт решения: новая доля',
+      // COPY-H-1/COPY-H-5 (copy-review круг 1, #664): предмет первым, без
+      // семейного префикса.
+      title: 'Предложение по доле',
       subjectType: 'USER',
       subjectId: 'senior-1',
       data: {

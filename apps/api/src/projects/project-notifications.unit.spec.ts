@@ -123,7 +123,7 @@ describe('«ждёт решения: новый проект»', () => {
     expect(h.created[0]).toMatchObject({
       userId: SENIOR_ID,
       type: 'PROJECT_CONFIRM_REQUIRED',
-      title: 'Ждёт решения: новый проект',
+      title: 'Проект ждёт решения',
       subjectType: 'PROJECT',
       subjectId: 'proj-new',
       data: { projectName: 'Acme' },
@@ -210,7 +210,7 @@ describe('«ждёт решения: новый проект» — вторая 
     expect(h.created[0]).toMatchObject({
       userId: SENIOR_ID,
       type: 'PROJECT_CONFIRM_REQUIRED',
-      title: 'Ждёт решения: новый проект',
+      title: 'Проект ждёт решения',
       subjectType: 'PROJECT',
       subjectId: 'proj-from-interview',
       data: { projectName: 'Acme' },
@@ -384,7 +384,7 @@ describe('«ждёт решения: новая доля» — проектна�
     expect(created[0]).toMatchObject({
       userId: SENIOR_ID,
       type: 'SHARE_CONFIRM_REQUIRED',
-      title: 'Ждёт решения: новая доля',
+      title: 'Предложение по доле',
       subjectType: 'PROJECT',
       subjectId: 'proj-1',
       data: {

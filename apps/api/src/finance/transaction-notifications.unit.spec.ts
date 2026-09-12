@@ -150,7 +150,7 @@ describe('«транзакция добавлена»', () => {
     expect(h.created[0]).toMatchObject({
       userId: 'senior-1',
       type: 'TRANSACTION_ADDED',
-      title: 'Добавлена транзакция',
+      title: 'Вам добавили транзакцию',
       subjectType: 'TRANSACTION',
       subjectId: 'tx-1',
       dedupeKey: 'TRANSACTION_ADDED:tx-1',
@@ -305,7 +305,7 @@ describe('«статус транзакции изменился»', () => {
     expect(h.created[0]).toMatchObject({
       userId: 'senior-1',
       type: 'TRANSACTION_STATUS_CHANGED',
-      title: 'Статус транзакции изменился',
+      title: 'Решение по доходу',
       subjectType: 'TRANSACTION',
       subjectId: 'tx-1',
       dedupeKey: 'TRANSACTION_STATUS_CHANGED:tx-1:VALIDATED',

@@ -214,7 +214,11 @@ export class EmployeeContractsService {
           title: NOTIFICATION_TITLES.DOCUMENT_SIGN_REQUIRED,
           subjectType: 'EMPLOYEE_CONTRACT',
           subjectId: row.id,
-          data: { documentTitle: 'Договор с сотрудником' },
+          // COPY-M-5 (copy-review круг 1, #664): один документ под тремя
+          // именами («документ» / «договор» / «контракт») на пути в один
+          // переход, и «Договор с сотрудником» написан с точки зрения
+          // кадровика — читает же его сам сотрудник, про свой контракт.
+          data: { documentTitle: 'Ваш контракт с компанией' },
           dedupeKey,
         })
       })
