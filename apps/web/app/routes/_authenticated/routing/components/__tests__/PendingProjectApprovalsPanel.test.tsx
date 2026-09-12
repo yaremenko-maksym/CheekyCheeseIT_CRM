@@ -141,6 +141,11 @@ describe('PendingProjectApprovalsPanel', () => {
     expect(screen.getByText('Предложил Ірина Савенко')).toBeInTheDocument()
     expect(screen.getByTestId('project-approval-approve-p1')).toBeInTheDocument()
     expect(screen.getByTestId('project-approval-reject-p1')).toBeInTheDocument()
+    // Row container carries its OWN testid (keyed on subjectId), independent
+    // of ProjectApprovalActions' own — a stable hook for anything that needs
+    // "the whole row for id X", not just its action buttons.
+    expect(screen.getByTestId('pending-project-approval-p1')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-project-approval-p2')).toBeInTheDocument()
   })
 
   it('an item with no `proposedBy` renders no "Предложил …" line (fail-safe — should not happen for this kind, but does not crash)', () => {
@@ -233,6 +238,47 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
       </QueryClientProvider>,
     )
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
+  })
+
+  it('does NOT prune a dismissal for an item that is STILL in `mine` on a fresh fetch — only a VANISHED id should be pruned', async () => {
+    const user = userEvent.setup()
+    mockState = {
+      mine: [
+        pendingItem({ subjectId: 'p1', title: 'Acme Corp' }),
+        pendingItem({ subjectId: 'p2', title: 'TechFlow Solutions' }),
+      ],
+      isLoading: false,
+      isError: false,
+      dataUpdatedAt: 1,
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <PendingProjectApprovalsPanel />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      await user.click(screen.getByTestId('project-approval-approve-p1'))
+    })
+    const [, options] = mockApprove.mock.calls[0] as [string, { onSuccess?: (d: unknown) => void }]
+    act(() => options.onSuccess?.({ status: 'ACTIVE' }))
+    expect(screen.queryByText('Acme Corp')).not.toBeInTheDocument()
+
+    // A fresh fetch lands (dataUpdatedAt changes) — p1 is STILL in `mine`
+    // (e.g. waiting on the OTHER invited approver). The dismissal must
+    // survive this fetch (SAME component instance, via `rerender`, so
+    // `dismissedIds` state is preserved): p1 stays hidden, it does not
+    // reappear just because a refetch happened.
+    mockState = { ...mockState, dataUpdatedAt: 2 }
+    rerender(
+      <QueryClientProvider client={qc}>
+        <PendingProjectApprovalsPanel />
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByText('Acme Corp')).not.toBeInTheDocument()
+    expect(screen.getByText('TechFlow Solutions')).toBeInTheDocument()
   })
 })
 

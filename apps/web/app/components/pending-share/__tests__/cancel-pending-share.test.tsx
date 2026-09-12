@@ -199,6 +199,17 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects', 'proj-1'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
   })
+
+  it('invalidates the /pending query on EITHER scope — a cancelled proposal is gone from GET /pending for everyone (task-pending-screen)', async () => {
+    mockPost.mockResolvedValue({ data: { user: { seniorSharePercent: 26 } } })
+    const user = userEvent.setup()
+    const { invalidateSpy } = renderWithClient(
+      <CancelPendingShareButton scope="user" id="senior-1" pendingPercent={55} />,
+    )
+    await withdraw(user, 'user')
+    await waitFor(() => expect(mockPost).toHaveBeenCalled())
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['pending'] })
+  })
 })
 
 describe('PendingShareEditNotice — what the edit dialogs show', () => {
