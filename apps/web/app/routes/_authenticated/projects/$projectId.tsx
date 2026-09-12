@@ -44,6 +44,7 @@ import { getApiErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
+import { ProjectStatusBadge } from '@/components/projects/ProjectStatusBadge'
 import { ProjectCredentialsSection } from '@/components/projects/ProjectCredentialsSection'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
@@ -1387,20 +1388,11 @@ function ProjectDetailPage() {
                 </h1>
                 <p className="text-sm text-muted-foreground truncate mt-0.5">{project.name}</p>
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  {!project.archivedAt && (
-                    <Badge variant="default" className="text-xs">
-                      Активный
-                    </Badge>
-                  )}
-                  {project.archivedAt && (
-                    <Badge
-                      variant="outline"
-                      className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs"
-                      data-testid="project-archived-badge"
-                    >
-                      В архиве
-                    </Badge>
-                  )}
+                  {/* task-project-page-status-badge (backlog 188). Single
+                    source of truth for the label — was `!archivedAt`-only
+                    before, which called a DRAFT/REJECTED project
+                    "Активный" (see ProjectStatusBadge.tsx doc). */}
+                  <ProjectStatusBadge project={project} />
                   {/* Drop role - phase 2. Distinct blue/info badge for drop-
                     projects so it's obvious at a glance that money flows
                     through a DROP user. Hidden for regular senior-projects.
