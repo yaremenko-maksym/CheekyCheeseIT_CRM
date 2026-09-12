@@ -133,4 +133,87 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)
     }
   })
+
+  /**
+   * task-project-page-status-badge (backlog 188). The two API-only tests
+   * above pin the confirmation GATE; this pins the project detail PAGE'S
+   * OWN badge (`apps/web/app/components/projects/ProjectStatusBadge.tsx`)
+   * actually following `status`, not just `archivedAt` — the bug this task
+   * fixes was the header always reading "Активный" for a DRAFT/REJECTED
+   * project. No mocks: the page is driven against the same real API the
+   * two tests above call directly.
+   */
+  test('ADMIN opens a DRAFT project detail page: badge reads "Ждёт решения"; rejecting flips it to "Отклонён"', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { projectId } = await createSeniorProjectViaAPI(page, {
+      name: `Status Badge Reject ${suffix}`,
+      companyName: `Status Badge Reject Co ${suffix}`,
+      skipApproval: true,
+    })
+
+    try {
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await page.goto(`/projects/${projectId}`)
+      const badge = page.getByTestId('project-status-badge')
+      await expect(badge).toHaveText('Ждёт решения')
+      await expect(badge).toHaveAttribute('data-status', 'DRAFT')
+      // The old bug: the header badge ignored `status` and always rendered
+      // this string for any non-archived project.
+      await expect(page.getByText('Активный', { exact: true })).not.toBeVisible()
+
+      // `rejectProjectViaAPI` switches the page's session to the invited
+      // approver (the senior) — only an invited approver may reject.
+      const rejected = await rejectProjectViaAPI(
+        page,
+        projectId,
+        SEED_EMAILS.seniorA,
+        'Условия не подходят',
+      )
+      expect(rejected.status).toBe('REJECTED')
+
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await page.goto(`/projects/${projectId}`)
+      const badgeAfter = page.getByTestId('project-status-badge')
+      await expect(badgeAfter).toHaveText('Отклонён')
+      await expect(badgeAfter).toHaveAttribute('data-status', 'REJECTED')
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)
+    }
+  })
+
+  test('ADMIN opens a DRAFT project detail page: confirming it (senior approves) flips the badge to "Активный"', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const { projectId } = await createSeniorProjectViaAPI(page, {
+      name: `Status Badge Approve ${suffix}`,
+      companyName: `Status Badge Approve Co ${suffix}`,
+      skipApproval: true,
+    })
+
+    try {
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await page.goto(`/projects/${projectId}`)
+      await expect(page.getByTestId('project-status-badge')).toHaveText('Ждёт решения')
+
+      const approved = await approveProjectViaAPI(page, projectId, SEED_EMAILS.seniorA)
+      expect(approved.status).toBe('ACTIVE')
+
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await page.goto(`/projects/${projectId}`)
+      const badgeAfter = page.getByTestId('project-status-badge')
+      await expect(badgeAfter).toHaveText('Активный')
+      await expect(badgeAfter).toHaveAttribute('data-status', 'ACTIVE')
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)
+    }
+  })
 })
