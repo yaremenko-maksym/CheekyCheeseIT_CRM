@@ -1444,7 +1444,7 @@ export class ProjectsService {
         approverUserIds: [approverUserId],
         proposedByUserId: actorId,
       })
-      // Stryker disable next-line ConditionalExpression: defensive-only — `proposeInTx` вставляет по строке на каждого подтверждающего и возвращает `.returning()`; при непустом `approverUserIds` пустой массив на настоящем Postgres невозможен.
+      // Stryker disable next-line all: defensive-only (и условие, и текст сообщения) — `proposeInTx` вставляет по строке на каждого подтверждающего и возвращает `.returning()`; при непустом `approverUserIds` пустой массив на настоящем Postgres невозможен.
       if (!approval) throw new Error('Failed to open senior-share approval')
       await tx
         .update(projects)
@@ -2420,7 +2420,7 @@ export class ProjectsService {
       approverUserIds: [interview.seniorId],
       proposedByUserId: currentUser.id,
     })
-    // Stryker disable next-line ConditionalExpression: defensive-only — `proposeInTx` возвращает `.returning()` по строке на подтверждающего; пустой массив при непустом `approverUserIds` на настоящем Postgres невозможен.
+    // Stryker disable next-line all: defensive-only (и условие, и текст сообщения) — `proposeInTx` возвращает `.returning()` по строке на подтверждающего; пустой массив при непустом `approverUserIds` на настоящем Postgres невозможен.
     if (!approval) throw new Error('Failed to open project approval')
 
     // SR-L-1 (security-review круг 1): ВТОРАЯ дверь в черновик проекта — и

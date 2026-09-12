@@ -123,6 +123,28 @@ describe('describeNotification — подробности из данных, н�
   })
 })
 
+/**
+ * COPY-L-7 (copy-review круг 3, #664). Попап деталь этого типа больше не
+ * показывает — и ровно поэтому `documentTitle` перестал бы проверяться хоть
+ * чем-нибудь (гейт мутаций круга 8 поймал это сразу: `z.object({})` вместо
+ * формы с полем пережил весь прогон). Поле остаётся ОБЯЗАТЕЛЬНЫМ: его читает
+ * экран ожиданий #667 и письмо позиции 7, где у строки нет своего заголовка.
+ * Здесь проверяется именно требование формы, а не текст.
+ */
+describe('DOCUMENT_SIGN_REQUIRED — деталь снята, но название документа обязательно', () => {
+  it('данные без documentTitle не принимаются', () => {
+    expect(notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({}).success).toBe(false)
+  })
+
+  it('с названием — принимаются', () => {
+    expect(
+      notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({
+        documentTitle: 'Ваш контракт',
+      }).success,
+    ).toBe(true)
+  })
+})
+
 describe('renderNotification — клиент выводит подписи и кнопки по типу', () => {
   it('известный тип: заголовок и кнопка выведены, сохранённый заголовок не используется', () => {
     const rendered = renderNotification({

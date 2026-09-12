@@ -293,7 +293,7 @@ export class UsersService {
       approverUserIds: [existing.id],
       proposedByUserId: actorId,
     })
-    // Stryker disable next-line ConditionalExpression: defensive-only — `proposeInTx` вставляет по строке на каждого подтверждающего и возвращает `.returning()`; при непустом `approverUserIds` пустой массив на настоящем Postgres невозможен, и ни мок, ни фикстура не построят эту ветку, не соврав про базу.
+    // Stryker disable next-line all: defensive-only (и условие, и текст сообщения) — `proposeInTx` вставляет по строке на каждого подтверждающего и возвращает `.returning()`; при непустом `approverUserIds` пустой массив на настоящем Postgres невозможен, и ни мок, ни фикстура не построят эту ветку, не соврав про базу.
     if (!approval) throw new Error('Failed to open senior-share approval')
     await tx
       .update(users)
