@@ -26,7 +26,6 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useOnboardingGate } from '@/context/onboarding'
 import { useActiveTeam } from '@/hooks/use-active-team'
 import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { usePendingItems } from '@/hooks/use-pending-items'
@@ -162,17 +161,16 @@ export function NavSidebar({
   // (PENDING_QUERY_KEY) — react-query dedupes the network call instead of
   // firing a second one when the viewer actually opens the page.
   //
-  // SR-L-1 (PR #667 fix-round 2): gated on `isComplete`, same as
-  // `useActiveTeam` two lines up — do NOT call /api/pending while the user
-  // is still in the onboarding wizard. `CrmLayout` renders the full shell
-  // (sidebar included) before the `['onboarding-status']` response lands,
-  // so an ungated call here fires straight into `OnboardingGuard`'s 403
-  // (see onboarding.guard.integration.spec.ts cases 10/11 — /api/pending is
-  // deliberately NOT bypass-listed) — a prior version of this comment
-  // claimed this was already gated "same pattern as useActiveTeam" while
-  // the code below did the opposite.
-  const { isComplete } = useOnboardingGate()
-  const { mine: pendingMine } = usePendingItems(isComplete)
+  // SR-L-5 (PR #667 fix-round 3): the onboarding gate moved INSIDE
+  // `usePendingItems` and this call site takes no argument again. Round 2
+  // passed `useOnboardingGate().isComplete` from here, which looked like a
+  // fix but was not one: react-query's `enabled` disables an observer, not
+  // a query, and `PendingProjectApprovalsPanel` mounts a second, ungated
+  // observer on the same key from the SENIOR/DROP dashboards — so the
+  // request went out anyway on exactly those routes. The gate is now a
+  // property of the query (see the hook's own doc), which is also why three
+  // call sites can no longer disagree about it.
+  const { mine: pendingMine } = usePendingItems()
 
   const items = NAV_ITEMS.filter((item) => {
     if (!item.roles.includes(user.role)) return false

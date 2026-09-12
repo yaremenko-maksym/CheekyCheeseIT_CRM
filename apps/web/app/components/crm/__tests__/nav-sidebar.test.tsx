@@ -12,11 +12,16 @@
  * `OnboardingGuard`'s 403, same class of bug `useActiveTeam` was already
  * fixed for.
  *
- * This test does NOT re-verify that `enabled=false` skips the network call
- * — `use-pending-items.test.ts` already pins that at the hook level. It pins
- * the WIRING: that `NavSidebar` actually forwards `useOnboardingGate()`'s
- * `isComplete` into `usePendingItems(...)`, which is the exact thing the
- * stale comment claimed without the code doing it.
+ * SR-L-5 (fix-round 3) moved the gate INSIDE `usePendingItems`: forwarding
+ * `isComplete` from here fixed nothing, because react-query's `enabled`
+ * disables an observer rather than a query, and the SENIOR/DROP dashboards
+ * mount a second, ungated observer on the same key
+ * (`PendingProjectApprovalsPanel`). So what this file pins now is the
+ * opposite of round 2: that this call site passes NOTHING — a sidebar that
+ * re-acquires its own opinion about the gate is how the three call sites
+ * drifted apart in the first place. Whether a gated query goes to the
+ * network at all is pinned where the gate now lives
+ * (`use-pending-items.test.ts`).
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
@@ -42,7 +47,7 @@ vi.mock('@/context/onboarding', async (orig) => {
 
 let mockMine: unknown[] = []
 
-const usePendingItemsSpy = vi.fn((_enabled?: boolean) => ({
+const usePendingItemsSpy = vi.fn((..._args: unknown[]) => ({
   mine: mockMine,
   proposedByMe: [],
   isLoading: false,
@@ -55,7 +60,11 @@ vi.mock('@/hooks/use-pending-items', async (orig) => {
   const real = await orig<typeof import('@/hooks/use-pending-items')>()
   return {
     ...real,
-    usePendingItems: (enabled?: boolean) => usePendingItemsSpy(enabled),
+    // Spread, not a named parameter: the assertions below are about the
+    // ARITY of the call, and a `(enabled?: boolean) => spy(enabled)` shim
+    // would manufacture an `undefined` argument that the component never
+    // passed, hiding exactly the regression this file guards.
+    usePendingItems: (...args: unknown[]) => usePendingItemsSpy(...args),
   }
 })
 
@@ -94,8 +103,8 @@ beforeEach(() => {
   mockMine = []
 })
 
-describe('NavSidebar — SR-L-1: usePendingItems gated on onboarding completion', () => {
-  it('pre-onboarding (isComplete=false): usePendingItems is called with enabled=false, not the default true', async () => {
+describe('NavSidebar — SR-L-5: the onboarding gate is NOT re-decided at this call site', () => {
+  it('pre-onboarding (isComplete=false): calls usePendingItems() with no argument — the hook owns the gate', async () => {
     mockIsComplete = false
     usePendingItemsSpy.mockClear()
 
@@ -107,10 +116,13 @@ describe('NavSidebar — SR-L-1: usePendingItems gated on onboarding completion'
     // asserting on the hook call.
     await screen.findByRole('navigation')
 
-    expect(usePendingItemsSpy).toHaveBeenCalledWith(false)
+    expect(usePendingItemsSpy).toHaveBeenCalled()
+    for (const call of usePendingItemsSpy.mock.calls) {
+      expect(call).toEqual([])
+    }
   })
 
-  it('post-onboarding (isComplete=true): usePendingItems is called with enabled=true', async () => {
+  it('post-onboarding (isComplete=true): still no argument — the badge reads whatever the gated query holds', async () => {
     mockIsComplete = true
     usePendingItemsSpy.mockClear()
 
@@ -118,7 +130,10 @@ describe('NavSidebar — SR-L-1: usePendingItems gated on onboarding completion'
 
     await screen.findByRole('navigation')
 
-    expect(usePendingItemsSpy).toHaveBeenCalledWith(true)
+    expect(usePendingItemsSpy).toHaveBeenCalled()
+    for (const call of usePendingItemsSpy.mock.calls) {
+      expect(call).toEqual([])
+    }
   })
 })
 

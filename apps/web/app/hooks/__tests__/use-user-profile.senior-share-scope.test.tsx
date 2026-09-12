@@ -27,6 +27,10 @@ vi.mock('sonner', () => ({
 import { api } from '@/lib/axios'
 import { toast } from 'sonner'
 import { useApproveSeniorShareChange, useRejectSeniorShareChange } from '../use-user-profile'
+// CR-M-2 (fix-round 3): assert against the REAL key, not a second copy of
+// its literal — a rename of the constant must turn this test red, which is
+// exactly what a hardcoded ['pending'] on both sides could never do.
+import { PENDING_QUERY_KEY } from '../use-pending-items'
 
 const mockPost = api.post as ReturnType<typeof vi.fn>
 
@@ -100,7 +104,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     await waitFor(() => expect(mockPost).toHaveBeenCalled())
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects', PROJECT_ID] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['pending'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: PENDING_QUERY_KEY })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['user-profile', PROJECT_ID] })
   })
 
@@ -146,7 +150,7 @@ describe('useApproveSeniorShareChange — scope: "user" (a response with no `use
     await waitFor(() => expect(mockPost).toHaveBeenCalled())
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['pending'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: PENDING_QUERY_KEY })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects', USER_ID] })
   })
 })
@@ -173,7 +177,7 @@ describe('useRejectSeniorShareChange — scope: "project" (never exercised via a
     await waitFor(() => expect(mockPost).toHaveBeenCalled())
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects', PROJECT_ID] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['pending'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: PENDING_QUERY_KEY })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['user-profile', PROJECT_ID] })
   })
 })
@@ -193,7 +197,7 @@ describe('useRejectSeniorShareChange — scope: "user"', () => {
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', 'me'] })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['pending'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: PENDING_QUERY_KEY })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects', USER_ID] })
   })
 })

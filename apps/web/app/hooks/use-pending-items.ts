@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/axios'
-import type { PendingResponse } from '@crm/shared'
+import { useOnboardingGate } from '@/context/onboarding'
+import { pendingResponseSchema } from '@crm/shared'
 
 /**
  * task-pending-screen (position 7c). Client side of `GET /pending` — the one
@@ -22,6 +23,12 @@ import type { PendingResponse } from '@crm/shared'
  * never reach IndexedDB. See `__tests__/persisted-key-prefixes.test.ts` for
  * the regression guard against the real allow-list constant (not a copy of
  * its literal keys).
+ *
+ * CR-M-2 (fix-round 3): every invalidation of this query imports THIS
+ * constant — `use-project-approvals.ts`, `cancel-pending-share.tsx` and
+ * `use-user-profile.ts` alike. A `queryKey: ['pending']` literal anywhere
+ * else would survive a rename of the key silently, so
+ * `__tests__/use-pending-items.test.ts` scans the app sources for one.
  */
 export const PENDING_QUERY_KEY = ['pending'] as const
 
@@ -30,12 +37,32 @@ export const PENDING_QUERY_KEY = ['pending'] as const
  * `PendingProjectApprovalsPanel` (SR-L-6) read from — same query key means
  * react-query dedupes the network call across all three mount points
  * instead of each firing its own `GET /pending`.
+ *
+ * SR-L-5 (fix-round 3): the onboarding gate is taken HERE, and the hook
+ * takes no argument, because `enabled: false` disables an OBSERVER, not a
+ * query — one ungated observer anywhere in the tree fetches for everybody.
+ * Round 2 gated only `NavSidebar`, which left the dashboards (where
+ * `PendingProjectApprovalsPanel` mounts unconditionally for SENIOR/DROP —
+ * precisely the roles the finding was about) firing `GET /pending` into
+ * `OnboardingGuard`'s 403 exactly as before. As a property of the query the
+ * gate cannot be desynchronised between the three call sites; ADMIN, whom
+ * the guard lets through anyway, reads `isComplete: true` with no extra
+ * round-trip (`useOnboardingGate` short-circuits on role).
+ *
+ * CR-M-1 (fix-round 3): the response is `.parse()`d, like ~9 other hooks in
+ * this folder. The union in `pending.ts` is what makes a future server-side
+ * leak "get silently stripped at this exact boundary instead of reaching the
+ * client" (its own doc) — until now only the server half honoured it, so a
+ * version skew between a deployed API and a cached bundle would have handed
+ * all three surfaces unvalidated JSON. A failed parse rejects the query,
+ * which the screen already renders as its error state (with «Повторить»).
  */
-export function usePendingItems(enabled = true) {
+export function usePendingItems() {
+  const { isComplete } = useOnboardingGate()
   const query = useQuery({
     queryKey: PENDING_QUERY_KEY,
-    queryFn: () => api.get<PendingResponse>('/pending').then((r) => r.data),
-    enabled,
+    queryFn: () => api.get<unknown>('/pending').then((r) => pendingResponseSchema.parse(r.data)),
+    enabled: isComplete,
   })
   const mine = query.data?.mine ?? []
   const proposedByMe = query.data?.proposedByMe ?? []

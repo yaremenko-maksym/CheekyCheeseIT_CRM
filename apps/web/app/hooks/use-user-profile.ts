@@ -17,6 +17,11 @@ import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
 // `useCancelPendingShare` already share — task addendum item 2
 // ("не плодить третий файл с той же scope-веткой").
 import type { PendingShareScope } from '@/components/pending-share/cancel-pending-share'
+// CR-M-2 (fix-round 3): the real constant, not a `['pending']` literal — a
+// rename of the key must reach these two invalidations too, and a literal
+// would have survived one silently (`use-project-approvals.ts` and
+// `cancel-pending-share.tsx` already imported it).
+import { PENDING_QUERY_KEY } from '@/hooks/use-pending-items'
 
 /**
  * task-648-fix-round-1 (COPY-H-4). `ApprovalsService.assertRespondable`'s two
@@ -240,7 +245,7 @@ export function useApproveSeniorShareChange(scope: PendingShareScope, id: string
       qc.invalidateQueries({ queryKey: ['projects'] })
     }
     // Both scopes can appear on the /pending screen's `mine` list.
-    qc.invalidateQueries({ queryKey: ['pending'] })
+    qc.invalidateQueries({ queryKey: PENDING_QUERY_KEY })
   }
   return useMutation({
     // Stryker disable next-line ArrowFunction: `.then((r) => r.data)`'s resolved value IS consumed now (onSuccess reads the confirmed percent for the toast — task-648-fix-round-1 COPY-M-3), so this directive only needs to cover the narrower "the callback identity itself" mutant, not "the value is never read".
@@ -281,7 +286,7 @@ export function useRejectSeniorShareChange(scope: PendingShareScope, id: string)
       qc.invalidateQueries({ queryKey: ['projects', id] })
       qc.invalidateQueries({ queryKey: ['projects'] })
     }
-    qc.invalidateQueries({ queryKey: ['pending'] })
+    qc.invalidateQueries({ queryKey: PENDING_QUERY_KEY })
   }
   return useMutation({
     // Stryker disable next-line ArrowFunction: the mutated node here is the WHOLE `mutationFn` value — `onSuccess` below takes no argument (a rejection has no confirmed percent to name), so the resolved response body is never read by anything downstream.
