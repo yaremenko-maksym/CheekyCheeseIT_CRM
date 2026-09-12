@@ -3411,6 +3411,14 @@ export const notificationEmailStatusEnum = pgEnum('notification_email_status', [
 export const notificationEmails = pgTable(
   'notification_emails',
   {
+    // Пустое имя колонки drizzle подменяет ИМЕНЕМ СВОЙСТВА, а свойство здесь и
+    // называется `id` — то есть колонка остаётся `id`, и наблюдаемой разницы
+    // нет ни в одном запросе. Тот же случай и та же причина, что у `data` в
+    // `notifications` выше. У `next_attempt_at` / `sent_to_email` и прочих
+    // snake_case-колонок мутант ЖИВЫМ не остаётся: там имя свойства
+    // отличается от имени колонки, и `notification-email-schema.spec.ts` это
+    // ловит.
+    // Stryker disable next-line StringLiteral: drizzle подставляет имя свойства вместо пустого — колонка остаётся `id`
     id: uuid('id').defaultRandom().primaryKey(),
     // Единственный источник содержания письма. CASCADE: получатель удалил
     // уведомление — письмо по нему больше не о чем слать, а собрать текст
@@ -3424,8 +3432,10 @@ export const notificationEmails = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // Stryker disable next-line StringLiteral: имя свойства совпадает с именем колонки (`status`) — drizzle подставит его вместо пустого, наблюдаемой разницы нет
     status: notificationEmailStatusEnum('status').notNull().default('QUEUED'),
     /** Сколько раз отправщик БРАЛ строку в работу. Пять — потолок. */
+    // Stryker disable next-line StringLiteral: то же — свойство и колонка называются `attempts`
     attempts: integer('attempts').notNull().default(0),
     /** Раньше этого момента строку не берут. Он же — срок аренды при захвате. */
     nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).defaultNow().notNull(),
@@ -3478,10 +3488,12 @@ export const notificationEmails = pgTable(
 export const notificationPreferences = pgTable(
   'notification_preferences',
   {
+    // Stryker disable next-line StringLiteral: свойство и колонка называются `id` — drizzle подставит имя свойства, разницы нет
     id: uuid('id').defaultRandom().primaryKey(),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // Stryker disable next-line StringLiteral: свойство и колонка называются `type` — см. выше
     type: varchar('type', { length: 50 }).notNull(),
     emailEnabled: boolean('email_enabled').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

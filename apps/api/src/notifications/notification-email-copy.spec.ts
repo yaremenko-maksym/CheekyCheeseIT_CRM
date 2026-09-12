@@ -283,6 +283,30 @@ describe('эталон: ветки, которых в таблице выше б
     expect(mail.text).toBe(`Бухгалтер подтвердил заявленный доход.\n\n${mail.buttonHref}`)
   })
 
+  it('БАЗОВЫЙ процент с уцелевшим именем проекта — всё равно базовый', () => {
+    // Вид доли решает, а имя проекта — нет. Форма данных допускает эту пару
+    // (`projectName` просто nullable), и если бы читалось только имя, базовое
+    // предложение представилось бы проектным — то есть человеку сообщили бы
+    // не про ту долю, которую меняют.
+    const mail = renderNotificationEmail(
+      {
+        ...sourceFor('SHARE_CONFIRM_REQUIRED'),
+        subjectType: 'USER',
+        data: {
+          scope: 'BASE',
+          projectName: PROJECT,
+          previousPercent: 26,
+          proposedPercent: 30,
+          approvalId: '22222222-2222-4222-8222-222222222222',
+        },
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.subject).toBe('Запрос на смену базового процента')
+    expect(mail.text.startsWith('Вам предлагают изменить базовый процент.')).toBe(true)
+    expect(mail.subject).not.toContain(PROJECT)
+  })
+
   it('процент ПО ПРОЕКТУ, но имя проекта не снято — говорим как про базовый', () => {
     // Две независимые причины обойтись без имени: базовая доля (`scope`) и
     // потерянное имя (`projectName === null`). Достаточно ЛЮБОЙ: тема «по
@@ -529,11 +553,20 @@ describe('деградация', () => {
     expect(mail.buttonHref).toBe(`${FRONTEND}/`)
   })
 
-  it('хвостовой слэш адреса не удваивается', () => {
+  it('хвостовой слэш адреса срезается, а не заменяется чем попало', () => {
+    // Адрес сверяется ЦЕЛИКОМ: «нет двойного слэша» выполняется и для
+    // адреса, склеенного как попало, — а ведёт такая ссылка в никуда.
     const mail = renderNotificationEmail(sourceFor('PROJECT_MEMBER_ADDED'), {
       frontendUrl: 'https://app.cheekycheese.tech/',
     })
-    expect(mail.buttonHref).not.toContain('tech//')
+    expect(mail.buttonHref).toBe(`https://app.cheekycheese.tech/projects/${SUBJECT_ID}`)
+  })
+
+  it('адрес без хвостового слэша остаётся как есть', () => {
+    const mail = renderNotificationEmail(sourceFor('PROJECT_MEMBER_ADDED'), {
+      frontendUrl: 'https://app.cheekycheese.tech',
+    })
+    expect(mail.buttonHref).toBe(`https://app.cheekycheese.tech/projects/${SUBJECT_ID}`)
   })
 })
 

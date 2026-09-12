@@ -39,11 +39,20 @@ function makeHarness(prefRows: { type: string; emailEnabled: boolean }[] = []): 
   const recorded: Record<string, unknown>[] = []
 
   const tx = {
-    select: (_fields?: unknown) => ({
+    // Проецирует по ЗАПРОШЕННЫМ полям: сервис, забывший попросить
+    // `emailEnabled`, обязан получить строку без него — иначе проверка «письмо
+    // не ставится выключенному типу» проходила бы и тогда, когда сервис читает
+    // не те колонки.
+    select: (fields?: Record<string, unknown>) => ({
       from: (table: unknown) => ({
         where: async (_p: unknown) => {
-          if (table === notificationPreferences) return prefRows
-          return []
+          if (table !== notificationPreferences) return []
+          const names = Object.keys(fields ?? {})
+          return prefRows.map((r) => {
+            const projected: Record<string, unknown> = {}
+            for (const n of names) projected[n] = (r as unknown as Record<string, unknown>)[n]
+            return projected
+          })
         },
       }),
     }),

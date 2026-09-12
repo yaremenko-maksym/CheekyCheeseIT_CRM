@@ -423,6 +423,11 @@ describe('отправщик без ключа провайдера', () => {
     const said = String(warn.mock.calls[0]?.[0] ?? '')
     expect(said).toContain('RESEND_API_KEY')
     expect(said).toContain('notification_emails')
+    // И вторую половину: «письма не потеряны, уйдут как только появится ключ».
+    // Без неё читатель журнала знает про поломку и не знает, надо ли что-то
+    // досылать руками.
+    expect(said).toContain('QUEUED')
+    expect(said).toContain('как только ключ появится')
     warn.mockRestore()
   })
 })

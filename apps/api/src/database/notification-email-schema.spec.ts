@@ -221,5 +221,12 @@ describe('notification_preferences — форма объявления', () => {
   it('настройки уходят вместе с пользователем', () => {
     const { foreignKeys } = getTableConfig(notificationPreferences)
     expect(foreignKeys.map((f) => f.onDelete)).toEqual(['cascade'])
+    // Ключ ведёт именно в `users.id`, и сама ссылка РАЗЫМЕНОВЫВАЕТСЯ: без
+    // этого вызова колонка-цель остаётся непроверенной (drizzle резолвит её
+    // лениво, и сломанная ссылка молчит до первого запроса).
+    const ref = foreignKeys[0]!.reference()
+    expect(getTableConfig(ref.foreignTable).name).toBe('users')
+    expect(ref.foreignColumns.map((c) => c.name)).toEqual(['id'])
+    expect(ref.columns.map((c) => c.name)).toEqual(['user_id'])
   })
 })
