@@ -18,6 +18,7 @@ import type { Notification } from '@crm/shared'
 import { NotificationsBell } from '../notifications-bell'
 
 const mockNavigate = vi.fn()
+const mockDelete = vi.fn()
 let items: Notification[] = []
 
 vi.mock('@tanstack/react-router', () => ({
@@ -28,7 +29,7 @@ vi.mock('@/hooks/use-notifications-api', () => ({
   useNotificationsList: () => ({ data: { items, unreadCount: 0 }, isLoading: false }),
   useMarkNotificationRead: () => ({ mutate: vi.fn(), isPending: false }),
   useMarkAllNotificationsRead: () => ({ mutate: vi.fn(), isPending: false }),
-  useDeleteNotification: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteNotification: () => ({ mutate: mockDelete, isPending: false }),
 }))
 
 const UUID = '11111111-2222-4333-8444-555555555555'
@@ -59,6 +60,7 @@ async function openBell() {
 
 beforeEach(() => {
   mockNavigate.mockClear()
+  mockDelete.mockClear()
 })
 
 describe('попап рисует строку по типу', () => {
@@ -480,5 +482,24 @@ describe('архивный объект: своя подпись и никако
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
       'Проект удалён',
     )
+  })
+})
+
+/**
+ * Корзина рядом со строкой. Гейт мутаций круга 5 показал, что её обработчик не
+ * исполнял ни один тест: `onClick` можно было выпотрошить до пустого тела, и
+ * всё оставалось зелёным. Две проверки, и обе нужны: удаление вызвано — и
+ * строка при этом НЕ открылась (`stopPropagation`, иначе тап по корзине и
+ * удалял бы, и уводил со страницы).
+ */
+describe('корзина удаляет строку и не открывает её (AC6)', () => {
+  it('клик по корзине зовёт удаление ровно с этой строкой', async () => {
+    items = [makeNotification({})]
+    await openBell()
+
+    await userEvent.click(screen.getByTestId(`notification-item-${UUID}-delete`))
+
+    expect(mockDelete).toHaveBeenCalledWith(UUID)
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 })
