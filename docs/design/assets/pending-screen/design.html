@@ -264,6 +264,15 @@
     font-size: 11px;
     color: color-mix(in oklch, var(--amber-300) 80%, var(--muted-foreground) 20%);
   }
+  /* Mode B round 1 (UX-H-1, PR #667) / spec §6.1 — the viewer's own share on
+     a PROJECT_APPROVAL row (`mine`, SENIOR or DROP only). Deliberately
+     dimmer/smaller than .item-share: here the percent is context for the
+     approve/reject decision, not the decision's own subject. */
+  .item-viewer-share {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: color-mix(in oklch, var(--amber-300) 70%, transparent);
+  }
   .item-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; max-width: 100%; }
 
   /* ── кнопки — повторяют апрув/реджект контракт из ProjectApprovalActions ── */
@@ -447,6 +456,8 @@
               <div class="item-main">
                 <p class="item-title">TechFlow Solutions</p>
                 <p class="item-meta">Предложил Олексій Коваленко · 2 дня назад</p>
+                <!-- spec §6.1 — viewer-share line, SENIOR case (no "синьор: …" suffix). -->
+                <p class="item-viewer-share">Ваша доля: 26%</p>
               </div>
               <div class="item-actions">
                 <button class="btn btn-approve"><svg class="icon" width="12" height="12"><use href="#ic-check"/></svg>Подтвердить</button>
