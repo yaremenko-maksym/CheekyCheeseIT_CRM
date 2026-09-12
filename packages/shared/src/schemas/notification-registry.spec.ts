@@ -924,6 +924,106 @@ describe('архивный объект — своя подпись, кнопк�
 })
 
 /**
+ * ORCH-2 (fix-раунд 6, #664). Живой прогон круга 5 (открытый вопрос в теле
+ * PR) поймал ложь: живой проект, чьё предложение отозвали, получал «Проект
+ * удалён» — подпись объекта на состоянии согласования. Два новых поля дают
+ * два честных ответа вместо одного неверного.
+ */
+describe('согласование по живому объекту больше не актуально (ORCH-2)', () => {
+  it('отозвано/заменено — «Предложение отозвано», кнопка недоступна, href null', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'SHARE_CONFIRM_REQUIRED',
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+        approvalSuperseded: true,
+      }),
+    ).toEqual([{ label: 'Предложение отозвано', href: null, disabled: true }])
+  })
+
+  it('уже решено этим же подтверждающим — «Решение уже принято», не «отозвано»', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_CONFIRM_REQUIRED',
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+        approvalDecided: true,
+      }),
+    ).toEqual([{ label: 'Решение уже принято', href: null, disabled: true }])
+  })
+
+  it('подпись одна и та же независимо от вида объекта — доля по пользователю', () => {
+    // В отличие от subjectMissing/subjectArchived, здесь нет карты по
+    // NotificationSubjectType: подпись описывает СОГЛАСОВАНИЕ, а не объект.
+    expect(
+      notificationActions({
+        ...base,
+        type: 'SHARE_CONFIRM_REQUIRED',
+        subjectType: 'USER',
+        subjectId: uuid,
+        approvalSuperseded: true,
+      }),
+    ).toEqual([{ label: 'Предложение отозвано', href: null, disabled: true }])
+  })
+
+  it('исчезнувший объект сильнее — «удалён» не подменяется «отозвано»', () => {
+    // Сервер такой пары не выдаёт (все четыре поля — из одного состояния), но
+    // порядок веток закреплён отдельно: иначе его молча переставят.
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_CONFIRM_REQUIRED',
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+        subjectMissing: true,
+        approvalSuperseded: true,
+      }),
+    ).toEqual([{ label: 'Проект удалён', href: null, disabled: true }])
+  })
+
+  it('архивный объект сильнее — «в архиве» не подменяется «отозвано»', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_CONFIRM_REQUIRED',
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+        subjectArchived: true,
+        approvalSuperseded: true,
+      }),
+    ).toEqual([{ label: 'Проект в архиве', href: null, disabled: true }])
+  })
+
+  it('решено сильнее отозвано — если оба true, читатель видит «решено»', () => {
+    // Сервер тоже не выдаёт эту пару (одно состояние → одна пара флагов), но
+    // порядок веток `notificationActions` закреплён явно.
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_CONFIRM_REQUIRED',
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+        approvalDecided: true,
+        approvalSuperseded: true,
+      }),
+    ).toEqual([{ label: 'Решение уже принято', href: null, disabled: true }])
+  })
+
+  it('ничего из этого не выставлено — кнопка ведёт как обычно', () => {
+    expect(
+      notificationActions({
+        ...base,
+        type: 'PROJECT_CONFIRM_REQUIRED',
+        subjectType: 'PROJECT',
+        subjectId: uuid,
+      }),
+    ).toEqual([{ label: 'Открыть проект', href: `/projects/${uuid}`, disabled: false }])
+  })
+})
+
+/**
  * Пять выживших мутантов первого прогона гейта на этом круге. Каждый — не
  * придирка инструмента, а настоящая дыра: мутант менял поведение, и ни один
  * тест этого не замечал.

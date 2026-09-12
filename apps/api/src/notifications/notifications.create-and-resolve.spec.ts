@@ -12,6 +12,7 @@
  */
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import type { ApprovalStatus } from '@crm/shared'
 
 import { makeTelemetryErrorsStub } from '../telemetry/__test-helpers__/telemetry-errors-stub'
 import { NotificationsService } from './notifications.service'
@@ -43,7 +44,17 @@ type Existing = {
   users?: ExistingRow[]
   transactions?: string[]
   contracts?: string[]
-  approvals?: { subjectType: string; subjectId: string; approverUserId: string }[]
+  // ORCH-2 (fix-раунд 6, #664): `status` обязателен, а не по умолчанию
+  // `PENDING`, — тем же приёмом, что и `SubjectState` у остальных видов
+  // объекта: автор теста называет состояние явно, а не полагается на молчаливое
+  // умолчание, которое гейт мутаций не сможет проверить (незамеченная подмена
+  // не сдвинула бы ни один тест).
+  approvals?: {
+    subjectType: string
+    subjectId: string
+    approverUserId: string
+    status: ApprovalStatus
+  }[]
 }
 
 function makeRow(over: Partial<Row> = {}): Row {
@@ -484,25 +495,89 @@ describe('исчезнувший объект вычисляется на чте
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
-    expect(list.items[0]?.subjectMissing).toBe(true)
+    // ORCH-2 (fix-раунд 6, #664): раньше это была ложь «объект удалён» —
+    // проект жив, отозвано было только предложение по нему.
+    expect(list.items[0]?.subjectMissing).toBe(false)
+    expect(list.items[0]?.approvalSuperseded).toBe(true)
+    expect(list.items[0]?.approvalDecided).toBe(false)
     expect(h.askedTables).toContain('approvals')
   })
 
   it('согласование живо — кнопка ведёт', async () => {
     const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
       projects: ['p-1'],
-      approvals: [{ subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1' }],
+      approvals: [
+        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'PENDING' },
+      ],
     })
 
     const list = await h.svc.listForUser('u-1', { limit: 10 })
 
     expect(list.items[0]?.subjectMissing).toBe(false)
+    expect(list.items[0]?.approvalSuperseded).toBe(false)
+    expect(list.items[0]?.approvalDecided).toBe(false)
+  })
+
+  /**
+   * ORCH-2 (fix-раунд 6, #664). Строка есть, `supersededAt` не тронут — но
+   * ЭТОТ подтверждающий уже ответил (`status` сдвинулся с `PENDING`), и
+   * генерацию никто не гасил. Ответ обязан отличаться от «отозвано»: с точки
+   * зрения этого человека вопрос закрыт им самим, а не выдернут из-под рук.
+   */
+  it('этот же подтверждающий уже решил — «решено», кнопка недоступна', async () => {
+    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
+      projects: ['p-1'],
+      approvals: [
+        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'APPROVED' },
+      ],
+    })
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items[0]?.subjectMissing).toBe(false)
+    expect(list.items[0]?.approvalDecided).toBe(true)
+    expect(list.items[0]?.approvalSuperseded).toBe(false)
+  })
+
+  it('отказ ЭТОГО подтверждающего — тоже «решено» (он ответил, просто отказом)', async () => {
+    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
+      projects: ['p-1'],
+      approvals: [
+        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'REJECTED' },
+      ],
+    })
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items[0]?.approvalDecided).toBe(true)
+  })
+
+  /**
+   * ORCH-2 — ветка defensively (см. `classifyApprovalRow`): `CANCELLED`
+   * сегодня всегда приходит вместе с `supersededAt`, и заглушка здесь
+   * специально нарушает этот инвариант (сервиса, не базы), чтобы доказать,
+   * что разбор не путает «отменено» с «решено».
+   */
+  it('CANCELLED без supersededAt (инвариант нарушен defensively) — «отозвано», не «решено»', async () => {
+    const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
+      projects: ['p-1'],
+      approvals: [
+        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'CANCELLED' },
+      ],
+    })
+
+    const list = await h.svc.listForUser('u-1', { limit: 10 })
+
+    expect(list.items[0]?.approvalSuperseded).toBe(true)
+    expect(list.items[0]?.approvalDecided).toBe(false)
   })
 
   it('про живость согласования спрашивают ИМЕННО про этот объект', async () => {
     const h = makeHarness([makeRow({ type: 'PROJECT_CONFIRM_REQUIRED', subjectId: 'p-1' })], {
       projects: ['p-1'],
-      approvals: [{ subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1' }],
+      approvals: [
+        { subjectType: 'PROJECT', subjectId: 'p-1', approverUserId: 'u-1', status: 'PENDING' },
+      ],
     })
 
     await h.svc.listForUser('u-1', { limit: 10 })

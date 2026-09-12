@@ -42,10 +42,12 @@ import type { DrizzleTx } from '../database/types'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import {
   approvalChecksFor,
+  classifyApprovalRow,
   computeSubjectState,
   groupSubjectIds,
   liveApprovalKey,
   type SubjectRef,
+  type SubjectResolution,
   type SubjectState,
 } from './notification-subject-resolver'
 
@@ -387,10 +389,15 @@ export class NotificationsService {
    * Транзакции читаются через `non_deleted_transactions` (VIEW), а не из
    * `transactions`: этот модуль вне `finance/**`, и мягко удалённая транзакция
    * для него не существует — ровно то, что нужно сказать про кнопку.
+   *
+   * ORCH-2 (fix-раунд 6, #664): запрос к `approvals` теперь читает и
+   * `status`, не только сам факт «строка не погашена» — `classifyApprovalRow`
+   * решает по нему, живая строка это или УЖЕ РЕШЁННАЯ этим же подтверждающим
+   * (см. doc-комментарий `computeSubjectState`).
    */
   private async resolveSubjectStates(
     rows: (typeof notifications.$inferSelect)[],
-  ): Promise<(SubjectState | 'missing')[]> {
+  ): Promise<SubjectResolution[]> {
     const refs: SubjectRef[] = rows.map((r) => ({
       userId: r.userId,
       type: r.type,
@@ -404,6 +411,7 @@ export class NotificationsService {
     }
 
     const liveApprovalKeys = new Set<string>()
+    const decidedApprovalKeys = new Set<string>()
     const checks = approvalChecksFor(refs)
     if (checks.length > 0) {
       const live = await this.db.db
@@ -411,6 +419,7 @@ export class NotificationsService {
           subjectType: approvals.subjectType,
           subjectId: approvals.subjectId,
           approverUserId: approvals.approverUserId,
+          status: approvals.status,
         })
         .from(approvals)
         .where(
@@ -423,11 +432,20 @@ export class NotificationsService {
           ),
         )
       for (const row of live) {
-        liveApprovalKeys.add(liveApprovalKey(row.subjectType, row.subjectId, row.approverUserId))
+        const key = liveApprovalKey(row.subjectType, row.subjectId, row.approverUserId)
+        const classification = classifyApprovalRow(row.status)
+        if (classification === 'live') liveApprovalKeys.add(key)
+        else if (classification === 'decided') decidedApprovalKeys.add(key)
+        // 'superseded' (CANCELLED, defensively — см. doc-комментарий
+        // `classifyApprovalRow`) не попадает ни в один набор: такой ключ
+        // `computeSubjectState` разрешит как `approvalSuperseded`, тем же
+        // путём, что и полностью отсутствующая строка.
       }
     }
 
-    return refs.map((ref) => computeSubjectState(ref, statesByType, liveApprovalKeys))
+    return refs.map((ref) =>
+      computeSubjectState(ref, statesByType, liveApprovalKeys, decidedApprovalKeys),
+    )
   }
 
   /**
@@ -561,31 +579,54 @@ export class NotificationsService {
   // -------------------------------------------------------------------------
 
   /**
-   * Два булевых поля DTO выводятся из ОДНОГО состояния и только здесь —
-   * поэтому «исчез и в архиве одновременно» невозможно по построению, а не
-   * по договорённости.
+   * Четыре булевых поля DTO выводятся из ОДНОГО состояния и только здесь —
+   * поэтому «исчез и в архиве одновременно» (или «отозвано и уже решено
+   * разом» — ORCH-2, fix-раунд 6, #664) невозможно по построению, а не по
+   * договорённости.
    *
-   * Таблицей, а не парой сравнений: три состояния и их флаги видны рядом, и
+   * Таблицей, а не парой сравнений: пять состояний и их флаги видны рядом, и
    * состояние, которого в таблице нет, роняет разбор сразу, а не превращается
    * молча в «живой». Умолчания у параметра нет намеренно — вызывающий обязан
    * сказать, о каком состоянии речь (гейт мутаций круга 5: подмена значения по
    * умолчанию не меняла ни одного теста).
    */
   private static readonly SUBJECT_FLAGS: Record<
-    SubjectState | 'missing',
-    { missing: boolean; archived: boolean }
+    SubjectResolution,
+    {
+      missing: boolean
+      archived: boolean
+      approvalSuperseded: boolean
+      approvalDecided: boolean
+    }
   > = {
-    active: { missing: false, archived: false },
-    archived: { missing: false, archived: true },
-    missing: { missing: true, archived: false },
+    active: { missing: false, archived: false, approvalSuperseded: false, approvalDecided: false },
+    archived: {
+      missing: false,
+      archived: true,
+      approvalSuperseded: false,
+      approvalDecided: false,
+    },
+    missing: { missing: true, archived: false, approvalSuperseded: false, approvalDecided: false },
+    approvalSuperseded: {
+      missing: false,
+      archived: false,
+      approvalSuperseded: true,
+      approvalDecided: false,
+    },
+    approvalDecided: {
+      missing: false,
+      archived: false,
+      approvalSuperseded: false,
+      approvalDecided: true,
+    },
   }
 
   private mapNotification(
     row: typeof notifications.$inferSelect,
-    state: SubjectState | 'missing',
+    state: SubjectResolution,
   ): NotificationDto {
     // Явной проверки на `undefined` здесь НЕТ намеренно: таблица покрывает все
-    // три состояния, `computeSubjectState` роняет разбор на любом другом, а
+    // пять состояний, `computeSubjectState` роняет разбор на любом другом, а
     // обращение к полю отсутствующей записи упадёт само. Ветка «а вдруг» была
     // бы веткой, которую не исполняет ни один тест (гейт мутаций круга 5).
     const flags = NotificationsService.SUBJECT_FLAGS[state]
@@ -603,6 +644,8 @@ export class NotificationsService {
       data: row.data ?? null,
       subjectMissing: flags.missing,
       subjectArchived: flags.archived,
+      approvalSuperseded: flags.approvalSuperseded,
+      approvalDecided: flags.approvalDecided,
     }
   }
 }

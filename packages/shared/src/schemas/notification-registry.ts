@@ -603,7 +603,21 @@ export type RenderableNotification = {
   data: unknown
   subjectMissing?: boolean
   subjectArchived?: boolean
+  /** ORCH-2 (fix-раунд 6, #664) — см. `notificationSchema` для полного описания. */
+  approvalSuperseded?: boolean
+  approvalDecided?: boolean
 }
+
+/**
+ * ORCH-2 (fix-раунд 6, #664). Фиксированный текст, один на оба лейбла:
+ * подпись описывает СОГЛАСОВАНИЕ, а не вид объекта (в отличие от
+ * `subjectMissingLabel`/`subjectArchivedLabel`), поэтому карты по
+ * `NotificationSubjectType` здесь не нужно — «Предложение отозвано» и
+ * «Решение уже принято» читаются одинаково что для проекта, что для доли по
+ * пользователю.
+ */
+const APPROVAL_SUPERSEDED_LABEL = 'Предложение отозвано'
+const APPROVAL_DECIDED_LABEL = 'Решение уже принято'
 
 export function notificationActions(n: RenderableNotification): NotificationAction[] {
   // §7.4: уведомление живёт дольше объекта. Честное «объекта больше нет»
@@ -631,6 +645,22 @@ export function notificationActions(n: RenderableNotification): NotificationActi
   // врать в одну или в другую сторону.
   if (n.subjectArchived === true) {
     return [{ label: subjectArchivedLabel(n.subjectType), href: null, disabled: true }]
+  }
+  // ORCH-2 (fix-раунд 6, #664): ПОСЛЕ объекта (missing/archived) и отдельно
+  // от него — у объекта и у согласования по нему разная судьба. Архивный
+  // проект с погашенным предложением получает «Проект в архиве» (проверено
+  // раньше по конструкции — `computeSubjectState` возвращает `archived` до
+  // того, как вообще посмотрит на согласование), а не «Предложение
+  // отозвано»: подпись описывает то, что заметнее и вернее — сам объект.
+  //
+  // `approvalDecided` — ПЕРЕД `approvalSuperseded`: решённое подтверждающим
+  // предложение честнее назвать «решено», а не «отозвано» — с его стороны
+  // вопрос закрыт, а не выдернут из-под рук.
+  if (n.approvalDecided === true) {
+    return [{ label: APPROVAL_DECIDED_LABEL, href: null, disabled: true }]
+  }
+  if (n.approvalSuperseded === true) {
+    return [{ label: APPROVAL_SUPERSEDED_LABEL, href: null, disabled: true }]
   }
   if (isNewNotificationType(n.type) && n.subjectType !== null && n.subjectId !== null) {
     return [

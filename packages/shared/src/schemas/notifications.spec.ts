@@ -27,6 +27,8 @@ const validNotification = {
   data: null,
   subjectMissing: false,
   subjectArchived: false,
+  approvalSuperseded: false,
+  approvalDecided: false,
 }
 
 describe('notificationTypeSchema', () => {

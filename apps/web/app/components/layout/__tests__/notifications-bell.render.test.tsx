@@ -49,6 +49,8 @@ function makeNotification(over: Partial<Notification>): Notification {
     data: { projectName: 'Acme' },
     subjectMissing: false,
     subjectArchived: false,
+    approvalSuperseded: false,
+    approvalDecided: false,
     ...over,
   } as Notification
 }
@@ -500,6 +502,37 @@ describe('корзина удаляет строку и не открывает 
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-delete`))
 
     expect(mockDelete).toHaveBeenCalledWith(UUID)
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * ORCH-2 (fix-раунд 6, #664). Живой объект, но КОНКРЕТНОЕ предложение по
+ * нему больше не актуально — раньше это была та же ложь «Проект удалён», что
+ * QA-M-3 нашёл для архива. Клиентская половина: правильный текст показан и
+ * клик никуда не ведёт (backend-половина — интеграционный тест на реальном
+ * Postgre, `notifications.realdb.integration.spec.ts`).
+ */
+describe('согласование по живому объекту больше не актуально (ORCH-2)', () => {
+  it('отозвано/заменено: «Предложение отозвано», кнопка не ведёт никуда', async () => {
+    items = [makeNotification({ type: 'SHARE_CONFIRM_REQUIRED', approvalSuperseded: true })]
+    await openBell()
+
+    expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
+      'Предложение отозвано',
+    )
+    await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('уже решено этим же подтверждающим: «Решение уже принято», не «отозвано»', async () => {
+    items = [makeNotification({ type: 'PROJECT_CONFIRM_REQUIRED', approvalDecided: true })]
+    await openBell()
+
+    expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
+      'Решение уже принято',
+    )
+    await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 })

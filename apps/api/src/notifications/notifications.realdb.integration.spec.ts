@@ -329,7 +329,16 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       ])
     })
 
-    it('согласование погашено через supersededAt → та же честная кнопка', async () => {
+    /**
+     * ORCH-2 (fix-раунд 6, #664). Открытый вопрос круга 5 (тело PR, «Открытый
+     * вопрос (не находка круга, не чинил)»): живой проект, чьё предложение по
+     * доле отозвали или заменили новым, получал «Проект удалён» — ложь про
+     * ЖИВОЙ объект, унаследованная от того же класса дефекта, что QA-M-3
+     * нашёл для архива. Погашение (`supersededAt`) воспроизводит РОВНО то,
+     * что делает `ApprovalsService.propose()` при повторном предложении —
+     * старая генерация гасится, новая никогда не переписывает старые строки.
+     */
+    it('предложение погашено (отозвано/заменено) → «Предложение отозвано», не «Проект удалён»', async () => {
       await db.insert(approvals).values({
         subjectType: 'PROJECT_SENIOR_SHARE',
         subjectId: PROJECT_ID,
@@ -351,9 +360,9 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       })
 
       const live = await service.listForUser(SENIOR_ID, { limit: 10 })
-      expect(live.items.find((n) => n.type === 'SHARE_CONFIRM_REQUIRED')?.subjectMissing).toBe(
-        false,
-      )
+      const liveItem = live.items.find((n) => n.type === 'SHARE_CONFIRM_REQUIRED')
+      expect(liveItem?.subjectMissing).toBe(false)
+      expect(liveItem?.approvalSuperseded).toBe(false)
 
       // Погашение — не удаление строки: предикат `superseded_at IS NULL` и
       // есть то, что отличает живое предложение от отработавшего.
@@ -364,10 +373,80 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
 
       const dead = await service.listForUser(SENIOR_ID, { limit: 10 })
       const item = dead.items.find((n) => n.type === 'SHARE_CONFIRM_REQUIRED')
-      expect(item?.subjectMissing).toBe(true)
+      // Объект (проект) жив — это НЕ то же самое, что «объект удалён».
+      expect(item?.subjectMissing).toBe(false)
+      expect(item?.approvalSuperseded).toBe(true)
+      expect(item?.approvalDecided).toBe(false)
       expect(renderNotification(item as RenderableNotification).actions).toEqual([
-        { label: 'Проект удалён', href: null, disabled: true },
+        { label: 'Предложение отозвано', href: null, disabled: true },
       ])
+
+      // Без per-test wipe в этом файле (только `beforeAll`/`afterAll`) —
+      // следующий тест ищет ТУ ЖЕ пару (userId, type) и обязан найти СВОЮ
+      // строку, а не эту, уже отработавшую.
+      await db
+        .delete(notifications)
+        .where(
+          and(
+            eq(notifications.userId, SENIOR_ID),
+            eq(notifications.type, 'SHARE_CONFIRM_REQUIRED'),
+          ),
+        )
+      await db.delete(approvals).where(eq(approvals.subjectId, PROJECT_ID))
+    })
+
+    /**
+     * ORCH-2. Соседний случай: строка есть, `supersededAt` не тронут, но ЭТОТ
+     * подтверждающий уже ответил. Ответ обязан отличаться от «отозвано» —
+     * решение принял он сам, а не кто-то отозвал предложение у него из-под
+     * рук.
+     */
+    it('подтверждающий уже решил (approved) → «Решение уже принято», не «отозвано»', async () => {
+      await db.insert(approvals).values({
+        subjectType: 'PROJECT_SENIOR_SHARE',
+        subjectId: PROJECT_ID,
+        approverUserId: SENIOR_ID,
+        proposedByUserId: ADMIN_ID,
+      })
+      await service.create({
+        userId: SENIOR_ID,
+        type: 'SHARE_CONFIRM_REQUIRED',
+        title: 'Предложение по доле',
+        subjectType: 'PROJECT',
+        subjectId: PROJECT_ID,
+        data: {
+          scope: 'PROJECT',
+          projectName: 'Живой проект',
+          previousPercent: 26,
+          proposedPercent: 30,
+        },
+      })
+
+      // Решение самого подтверждающего — статус сдвигается с PENDING,
+      // `supersededAt` НЕ трогаем: строка остаётся текущей генерацией.
+      await db
+        .update(approvals)
+        .set({ status: 'APPROVED', decidedAt: new Date() })
+        .where(and(eq(approvals.subjectId, PROJECT_ID), isNull(approvals.supersededAt)))
+
+      const list = await service.listForUser(SENIOR_ID, { limit: 10 })
+      const item = list.items.find((n) => n.type === 'SHARE_CONFIRM_REQUIRED')
+      expect(item?.subjectMissing).toBe(false)
+      expect(item?.approvalSuperseded).toBe(false)
+      expect(item?.approvalDecided).toBe(true)
+      expect(renderNotification(item as RenderableNotification).actions).toEqual([
+        { label: 'Решение уже принято', href: null, disabled: true },
+      ])
+
+      await db
+        .delete(notifications)
+        .where(
+          and(
+            eq(notifications.userId, SENIOR_ID),
+            eq(notifications.type, 'SHARE_CONFIRM_REQUIRED'),
+          ),
+        )
+      await db.delete(approvals).where(eq(approvals.subjectId, PROJECT_ID))
     })
 
     /**

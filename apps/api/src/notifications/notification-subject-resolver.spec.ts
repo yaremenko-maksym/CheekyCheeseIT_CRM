@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { NotificationSubjectType } from '@crm/shared'
+import type { ApprovalStatus, NotificationSubjectType } from '@crm/shared'
 import {
   approvalChecksFor,
   approvalSubjectTypeFor,
+  classifyApprovalRow,
   computeSubjectState,
   groupSubjectIds,
   liveApprovalKey,
@@ -95,6 +96,7 @@ describe('computeSubjectState', () => {
         ref({ type: 'INVOICE_SIGN_REQUIRED', subjectType: null, subjectId: null }),
         live([]),
         new Set(),
+        new Set(),
       ),
     ).toBe('active')
   })
@@ -108,6 +110,7 @@ describe('computeSubjectState', () => {
         ref({ subjectType: null, subjectId: 'p-1' }),
         live([['PROJECT', ['p-1']]]),
         new Set(),
+        new Set(),
       ),
     ).toBe('active')
   })
@@ -119,30 +122,27 @@ describe('computeSubjectState', () => {
         ref({ subjectType: 'PROJECT', subjectId: null }),
         live([['PROJECT', ['p-1']]]),
         new Set(),
+        new Set(),
       ),
     ).toBe('active')
   })
 
   it('объект на месте — не исчез', () => {
-    expect(computeSubjectState(ref(), live([['PROJECT', ['p-1']]]), new Set())).toBe('active')
+    expect(computeSubjectState(ref(), live([['PROJECT', ['p-1']]]), new Set(), new Set())).toBe(
+      'active',
+    )
   })
 
   it('объекта нет среди существующих — исчез', () => {
-    expect(computeSubjectState(ref(), live([['PROJECT', ['p-2']]]), new Set())).toBe('missing')
+    expect(computeSubjectState(ref(), live([['PROJECT', ['p-2']]]), new Set(), new Set())).toBe(
+      'missing',
+    )
   })
 
   it('вида объекта не спрашивали вовсе — исчез', () => {
-    expect(computeSubjectState(ref(), live([['TEAM', ['p-1']]]), new Set())).toBe('missing')
-  })
-
-  it('проект жив, но согласование погашено — кнопка честно говорит, что вести некуда', () => {
-    expect(
-      computeSubjectState(
-        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
-        live([['PROJECT', ['p-1']]]),
-        new Set(),
-      ),
-    ).toBe('missing')
+    expect(computeSubjectState(ref(), live([['TEAM', ['p-1']]]), new Set(), new Set())).toBe(
+      'missing',
+    )
   })
 
   it('проект жив и согласование живо — не исчез', () => {
@@ -151,18 +151,77 @@ describe('computeSubjectState', () => {
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
         live([['PROJECT', ['p-1']]]),
         new Set([liveApprovalKey('PROJECT', 'p-1', 'u-1')]),
+        new Set(),
       ),
     ).toBe('active')
   })
+})
 
-  it('живое согласование ДРУГОГО подтверждающего этой строке не помогает', () => {
+/**
+ * ORCH-2 (fix-раунд 6, #664). Раньше «проект жив, но согласование по нему
+ * больше не актуально» было ОДНИМ ответом («missing») — тем же, что и
+ * «проекта нет вовсе». Живой прогон круга 5 поймал это как ложь: «Проект
+ * удалён» на существующем проекте, чьё предложение просто отозвали. Теперь
+ * два разных ответа: «отозвано» (нет живой строки для ЭТОГО подтверждающего)
+ * и «решено» (строка есть, но статус её сдвинулся с PENDING, а генерацию
+ * никто не гасил).
+ */
+describe('computeSubjectState — объект жив, согласование по нему уже нет (ORCH-2)', () => {
+  it('нет ни живой, ни решённой строки — предложение отозвано', () => {
+    expect(
+      computeSubjectState(
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
+        live([['PROJECT', ['p-1']]]),
+        new Set(),
+        new Set(),
+      ),
+    ).toBe('approvalSuperseded')
+  })
+
+  it('живое согласование ДРУГОГО подтверждающего этой строке не помогает — тоже отозвано', () => {
     expect(
       computeSubjectState(
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
         live([['PROJECT', ['p-1']]]),
         new Set([liveApprovalKey('PROJECT', 'p-1', 'u-2')]),
+        new Set(),
       ),
-    ).toBe('missing')
+    ).toBe('approvalSuperseded')
+  })
+
+  it('этот же подтверждающий уже решил — «решено», а не «отозвано»', () => {
+    expect(
+      computeSubjectState(
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
+        live([['PROJECT', ['p-1']]]),
+        new Set(),
+        new Set([liveApprovalKey('PROJECT', 'p-1', 'u-1')]),
+      ),
+    ).toBe('approvalDecided')
+  })
+
+  it('решённая строка ЧУЖОГО подтверждающего этой строке не помогает — отозвано', () => {
+    expect(
+      computeSubjectState(
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
+        live([['PROJECT', ['p-1']]]),
+        new Set(),
+        new Set([liveApprovalKey('PROJECT', 'p-1', 'u-2')]),
+      ),
+    ).toBe('approvalSuperseded')
+  })
+
+  it('состояние объекта сильнее живости согласования: архив не путается с отозванным предложением', () => {
+    // Тот же порядок, что и у QA-M-3/QA-L-2 ниже для «удалён» — архив решает
+    // РАНЬШЕ, чем разбор вообще доходит до вопроса про согласование.
+    expect(
+      computeSubjectState(
+        ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
+        archived([['PROJECT', [['p-1', 'archived']]]]),
+        new Set(),
+        new Set(),
+      ),
+    ).toBe('archived')
   })
 })
 
@@ -180,7 +239,12 @@ describe('computeSubjectState', () => {
 describe('computeSubjectState — архив это не удаление (QA-M-3 / QA-L-2)', () => {
   it('архивный проект — «в архиве», а не «удалён»', () => {
     expect(
-      computeSubjectState(ref(), archived([['PROJECT', [['p-1', 'archived']]]]), new Set()),
+      computeSubjectState(
+        ref(),
+        archived([['PROJECT', [['p-1', 'archived']]]]),
+        new Set(),
+        new Set(),
+      ),
     ).toBe('archived')
   })
 
@@ -189,6 +253,7 @@ describe('computeSubjectState — архив это не удаление (QA-M-
       computeSubjectState(
         ref({ type: 'TEAM_MEMBER_ADDED', subjectType: 'TEAM', subjectId: 't-1' }),
         archived([['TEAM', [['t-1', 'archived']]]]),
+        new Set(),
         new Set(),
       ),
     ).toBe('archived')
@@ -199,6 +264,7 @@ describe('computeSubjectState — архив это не удаление (QA-M-
       computeSubjectState(
         ref({ type: 'APPROVAL_CONFIRMED', subjectType: 'USER', subjectId: 'u-9' }),
         archived([['USER', [['u-9', 'archived']]]]),
+        new Set(),
         new Set(),
       ),
     ).toBe('archived')
@@ -212,6 +278,7 @@ describe('computeSubjectState — архив это не удаление (QA-M-
       computeSubjectState(
         ref({ type: 'PROJECT_CONFIRM_REQUIRED' }),
         archived([['PROJECT', [['p-1', 'archived']]]]),
+        new Set(),
         new Set(),
       ),
     ).toBe('archived')
@@ -230,6 +297,7 @@ describe('computeSubjectState — архив это не удаление (QA-M-
             ],
           ],
         ]),
+        new Set(),
         new Set(),
       ),
     ).toBe('active')
@@ -252,6 +320,39 @@ describe('computeSubjectState — неизвестное состояние ро
     const broken = new Map([
       ['PROJECT', new Map([['p-1', 'ЧТО-ТО ТРЕТЬЕ' as SubjectState]])],
     ]) as Map<NotificationSubjectType, Map<string, SubjectState>>
-    expect(() => computeSubjectState(ref(), broken, new Set())).toThrow('ЧТО-ТО ТРЕТЬЕ')
+    expect(() => computeSubjectState(ref(), broken, new Set(), new Set())).toThrow('ЧТО-ТО ТРЕТЬЕ')
+  })
+})
+
+/**
+ * ORCH-2 (fix-раунд 6, #664). Строка `approvals` с `supersededAt IS NULL`
+ * классифицируется по `status` — живая ждёт ответа, решённая уже получила
+ * его от ЭТОГО подтверждающего. `CANCELLED` проверяется defensively: сегодня
+ * она всегда приходит вместе с `supersededAt` (`ApprovalsService.cancelInTx`
+ * ставит оба поля одной записью), но это инвариант сервиса, а не базы —
+ * явная ветка не даёт ему молча стать «живым», если инвариант когда-нибудь
+ * нарушат.
+ */
+describe('classifyApprovalRow', () => {
+  it('PENDING — живая', () => {
+    expect(classifyApprovalRow('PENDING')).toBe('live')
+  })
+
+  it('APPROVED — решённая', () => {
+    expect(classifyApprovalRow('APPROVED')).toBe('decided')
+  })
+
+  it('REJECTED — тоже решённая (подтверждающий ответил, просто отказом)', () => {
+    expect(classifyApprovalRow('REJECTED')).toBe('decided')
+  })
+
+  it('CANCELLED — не живая и не решённая (сегодня defensively, см. doc-комментарий)', () => {
+    expect(classifyApprovalRow('CANCELLED')).toBe('superseded')
+  })
+
+  it('неизвестный статус роняет разбор, а не становится «живым»', () => {
+    expect(() => classifyApprovalRow('ЧТО-ТО ЧЕТВЁРТОЕ' as ApprovalStatus)).toThrow(
+      'ЧТО-ТО ЧЕТВЁРТОЕ',
+    )
   })
 })

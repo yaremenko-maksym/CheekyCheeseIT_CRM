@@ -14,7 +14,7 @@
  * так что правило, спрятанное внутри метода с запросами, осталось бы
  * непроверенным. Здесь оно проверяется без базы вообще.
  */
-import type { NotificationSubjectType } from '@crm/shared'
+import type { ApprovalStatus, NotificationSubjectType } from '@crm/shared'
 
 /**
  * Состояние объекта, о котором уведомление.
@@ -81,6 +81,40 @@ export function liveApprovalKey(
   return `${approvalSubjectType}\u0000${subjectId}\u0000${approverUserId}`
 }
 
+/**
+ * ORCH-2 (fix-раунд 6, #664). Строка `approvals` с `supersededAt IS NULL`
+ * (иначе её здесь не было бы — см. запрос в `NotificationsService`)
+ * классифицируется в одно из двух: ЖИВАЯ (ещё ждёт ответа) или РЕШЁННАЯ (этот
+ * же подтверждающий уже ответил, но генерацию никто не гасил). Разница важна
+ * для подписи: живая даёт активную кнопку, решённая — «Решение уже принято»,
+ * а всё остальное (нет строки вовсе, либо она погашена, либо `CANCELLED`) —
+ * «Предложение отозвано» (см. `computeSubjectState`).
+ *
+ * Разбор ИСЧЕРПЫВАЮЩИЙ, тем же приёмом, что у `computeSubjectState` ниже:
+ * `CANCELLED` сегодня всегда приходит С супersededAt (`cancelInTx` ставит оба
+ * поля одной записью), то есть под фильтром `isNull(supersededAt)` такая
+ * строка уже не должна встретиться, — но это инвариант СЕРВИСА, а не базы (нет
+ * CHECK-ограничения), и явная ветка здесь defensively не даёт ему молча стать
+ * «живым», если инвариант когда-нибудь нарушат.
+ */
+export type ApprovalRowClassification = 'live' | 'decided' | 'superseded'
+
+export function classifyApprovalRow(status: ApprovalStatus): ApprovalRowClassification {
+  switch (status) {
+    case 'PENDING':
+      return 'live'
+    case 'APPROVED':
+    case 'REJECTED':
+      return 'decided'
+    case 'CANCELLED':
+      return 'superseded'
+    default: {
+      const exhaustive: never = status
+      throw new Error(`classifyApprovalRow: неизвестный статус ${String(exhaustive)}`)
+    }
+  }
+}
+
 /** Какие согласования вообще надо проверить на живость для этой пачки строк. */
 export function approvalChecksFor(
   rows: SubjectRef[],
@@ -100,28 +134,42 @@ export function approvalChecksFor(
 }
 
 /**
- * Итог. Три ответа вместо двух:
- *   - `missing` — объект исчез (строки нет среди найденных) ЛИБО это
- *     уведомление про согласование, а живого согласования уже нет (погашено
- *     `supersededAt` — предложение отозвали, пересоздали или погасил отказ
- *     соседа);
+ * Итог. Пять ответов вместо трёх (ORCH-2, fix-раунд 6, #664, расширяет
+ * QA-M-3/QA-L-2):
+ *   - `missing` — объект исчез (строки нет среди найденных);
  *   - `archived` — объект цел, но работа по нему закончена (QA-M-3/QA-L-2);
+ *   - `approvalDecided` — объект жив, это уведомление про согласование, и
+ *     ЭТОТ подтверждающий уже ответил (`classifyApprovalRow` → `decided`), но
+ *     генерацию никто не гасил — вопрос закрыт с его стороны;
+ *   - `approvalSuperseded` — объект жив, уведомление про согласование, а
+ *     живого ответа для этого подтверждающего больше нет: предложение
+ *     отозвали, пересоздали, погасил отказ соседа, либо строки не нашлось
+ *     вовсе;
  *   - `active` — всё на месте, кнопка ведёт куда обещает.
+ *
+ * Раньше два последних состояния были одним «missing» — «Проект удалён» на
+ * ЖИВОМ проекте, чьё предложение просто отозвали. Та же ложь, которую
+ * QA-M-3/QA-L-2 нашёл для архива, только для согласования: подпись обязана
+ * описывать то, что произошло, а не одалживать чужой смысл у соседнего
+ * состояния.
  *
  * Строка БЕЗ структурного объекта (три старых типа) — не «исчезла»: у неё
  * никогда и не было объекта, её кнопка идёт по сохранённой ссылке.
  *
  * Порядок проверок содержателен, а не случаен: состояние ОБЪЕКТА решает
  * раньше живости согласования. Подпись выводится из вида объекта («Проект в
- * архиве»), и сказать про архивный проект «Проект удалён» только потому, что
- * предложение по нему погашено, — ровно та ложь, ради которой заведена
- * находка.
+ * архиве»), и сказать про архивный проект «Проект удалён» (или «Предложение
+ * отозвано») только потому, что предложение по нему погашено, — ровно та
+ * ложь, ради которой заведена находка.
  */
+export type SubjectResolution = SubjectState | 'missing' | 'approvalSuperseded' | 'approvalDecided'
+
 export function computeSubjectState(
   row: SubjectRef,
   statesByType: Map<NotificationSubjectType, Map<string, SubjectState>>,
   liveApprovalKeys: Set<string>,
-): SubjectState | 'missing' {
+  decidedApprovalKeys: Set<string>,
+): SubjectResolution {
   if (row.subjectType === null || row.subjectId === null) return 'active'
   const state = statesByType.get(row.subjectType)?.get(row.subjectId)
   if (state === undefined) return 'missing'
@@ -145,7 +193,12 @@ export function computeSubjectState(
   }
   const approvalSubjectType = approvalSubjectTypeFor(row.type, row.subjectType)
   if (approvalSubjectType === null) return 'active'
-  return liveApprovalKeys.has(liveApprovalKey(approvalSubjectType, row.subjectId, row.userId))
-    ? 'active'
-    : 'missing'
+  const key = liveApprovalKey(approvalSubjectType, row.subjectId, row.userId)
+  if (liveApprovalKeys.has(key)) return 'active'
+  // ORCH-2: «решено» проверяется ОТДЕЛЬНО от «нет живой строки вовсе» — тот
+  // же приём, что различил архив и удаление. Ответившему подтверждающему
+  // говорят, что он уже ответил, а не что предложение отозвали у него из-под
+  // рук.
+  if (decidedApprovalKeys.has(key)) return 'approvalDecided'
+  return 'approvalSuperseded'
 }
