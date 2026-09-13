@@ -97,11 +97,10 @@ test.describe('Notification settings tab — position 7b', () => {
 // ---------------------------------------------------------------------------
 
 const RESPONSIVE_WIDTHS = [320, 375, 768, 1024, 1280, 1440, 1920]
+const MOBILE_WIDTHS = [320, 375]
 
 test.describe('Notification settings tab — responsive (AC6)', () => {
-  test('no horizontal overflow at any standard width; mobile switch hit area >=44x44', async ({
-    page,
-  }) => {
+  test('no horizontal overflow at any standard width', async ({ page }) => {
     await loginViaApi(page, SEED_EMAILS.seniorA)
     await page.goto('/profile?tab=notifications')
     await expect(page.getByTestId('notification-settings-desktop')).toBeVisible()
@@ -112,17 +111,25 @@ test.describe('Notification settings tab — responsive (AC6)', () => {
         () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
       )
       expect(noOverflow, `horizontal overflow at width ${width}`).toBe(true)
+    }
+  })
 
-      if (width < 768) {
-        const mobile = page.getByTestId('notification-settings-mobile')
-        await expect(mobile).toBeVisible()
-        const sw = mobile
-          .getByTestId('notification-row-mobile-TRANSACTION_ADDED')
-          .getByRole('switch')
-        const box = await sw.boundingBox()
-        expect(box?.width ?? 0, `switch hit width at ${width}`).toBeGreaterThanOrEqual(44)
-        expect(box?.height ?? 0, `switch hit height at ${width}`).toBeGreaterThanOrEqual(44)
-      }
+  test('mobile switch hit area is >=44x44 on 320/375', async ({ page }) => {
+    // Separate test (not a conditional inside the overflow loop above) —
+    // `eslint-plugin-playwright`'s `no-conditional-expect` forbids an
+    // `expect()` gated behind an `if`; two unconditional loops over two
+    // width sets is the same coverage without the conditional.
+    await loginViaApi(page, SEED_EMAILS.seniorA)
+    await page.goto('/profile?tab=notifications')
+
+    for (const width of MOBILE_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 })
+      const mobile = page.getByTestId('notification-settings-mobile')
+      await expect(mobile).toBeVisible()
+      const sw = mobile.getByTestId('notification-row-mobile-TRANSACTION_ADDED').getByRole('switch')
+      const box = await sw.boundingBox()
+      expect(box?.width ?? 0, `switch hit width at ${width}`).toBeGreaterThanOrEqual(44)
+      expect(box?.height ?? 0, `switch hit height at ${width}`).toBeGreaterThanOrEqual(44)
     }
   })
 })
