@@ -10,6 +10,7 @@ import type { Query } from '@tanstack/react-query'
 import { PERSISTED_KEY_PREFIXES, shouldDehydrateQuery } from '../routes/__root'
 import { PENDING_QUERY_KEY } from '../hooks/use-pending-items'
 import { notificationsQueryKey } from '../hooks/use-notifications-api'
+import { NOTIFICATION_PREFERENCES_QUERY_KEY } from '../hooks/use-notification-preferences'
 
 // PII-bearing keys that were removed in the security audit and must NEVER return.
 const FORBIDDEN_PII_PREFIXES = ['teams', 'team', 'user-team'] as const
@@ -140,5 +141,16 @@ describe('PERSISTED_KEY_PREFIXES — PII exclusion (security audit Fix#1)', () =
       false,
     )
     expect(PERSISTED_KEY_PREFIXES.has(String(notificationsQueryKey({ limit: 50 })[0]))).toBe(false)
+  })
+
+  // SR-L-1 (security-review, fix-round 2, PR #675). task-notification-
+  // settings-ui: whether a type's email channel is on/off is per-session-
+  // fresh data — the same class of thing `notificationsQueryKey` above is
+  // pinned against, and the same reason: a stale IndexedDB snapshot from a
+  // PREVIOUS session's toggles must never be what a NEW session's tab
+  // renders before the real GET lands. Checks the ACTUAL exported constant,
+  // not a copy of its literal string — a rename travels with it.
+  it('NOTIFICATION_PREFERENCES_QUERY_KEY is NOT in the allow-list', () => {
+    expect(PERSISTED_KEY_PREFIXES.has(String(NOTIFICATION_PREFERENCES_QUERY_KEY[0]))).toBe(false)
   })
 })

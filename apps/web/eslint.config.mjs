@@ -109,6 +109,23 @@ export default [
       // Both are read INSIDE a row already obtained with `screen.getByTestId`,
       // so the portal-blindness this rule guards against cannot occur here.
       'app/components/layout/__tests__/notifications-bell.render.test.tsx',
+      // task-notification-settings-ui (position 7b): the Radix `Switch`
+      // thumb is a plain `<span>` with no role or accessible name — the
+      // track/thumb token classes it asserts on (design spec §3) have no
+      // queryable surface other than reaching the child node directly.
+      'app/components/ui/__tests__/switch.test.tsx',
+      // task-notification-settings-ui (position 7b), fix-round 2, PR #675:
+      // same class as notifications-bell above — the `lucide-react` lock
+      // icon on a disabled tab is an `<svg aria-hidden>` with no role and no
+      // accessible name by construction; "this tab has a lock icon" has no
+      // accessible-query form.
+      'app/components/ui/__tests__/animated-tabs.test.tsx',
+      // Same class as OverviewTab.share-card above: walks up from the
+      // labelled tab button (found by role) to its surrounding scroll
+      // wrapper — a plain styled `<div>` with no role, added purely to hide
+      // a native scrollbar (UX-H-1). Giving it a testid would be a product
+      // change for a test-only need.
+      'app/components/user-profile/__tests__/UserProfileShell.notifications-tab.test.tsx',
     ],
     plugins: {
       'testing-library': testingLibrary,

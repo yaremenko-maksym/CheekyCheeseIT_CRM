@@ -13,6 +13,14 @@ export const tabKeySchema = z.enum([
   // task-resume-base: canonical structured CV. Surfaced ONLY on a SENIOR
   // card (the resume is a senior artefact) — see UsersAccessService.
   'resume',
+  // task-notification-settings-ui (position 7b): the SELF-only "Уведомления"
+  // channel-preferences tab. Never appears in `getViewPermissions().tabs`
+  // (UsersAccessService) — added purely for type-safety of the frontend's
+  // own `visibleTabs` array (UserProfileShell adds it client-side,
+  // unconditionally, for `mode === 'self'`; see the comment there). Kept in
+  // this enum, not a separate ad-hoc union, so `TabKey` stays the single
+  // type both call sites agree on.
+  'notifications',
 ])
 
 export const actionKeySchema = z.enum([

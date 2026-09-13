@@ -22,6 +22,17 @@ const searchSchema = z.object({
       'contract',
       // task-resume-base — deep-linkable so HR can share a link to a senior's resume.
       'resume',
+      // SR-L-3 (security-review, fix-round 2, PR #675): 'notifications' must
+      // be a VALID search value here even though this route never renders
+      // that tab — without it, `?tab=notifications` on a foreign profile
+      // failed `validateSearch` outright (TanStack Router's search-parse
+      // error boundary, not the app's own fallback-to-Overview logic AC1
+      // describes for every other unavailable tab). Adding it here just
+      // lets the value parse; `UserProfileShell`'s existing
+      // `visibleTabs.includes(tab) ? tab : visibleTabs[0]` fallback (already
+      // exercised for any other tab `view` mode doesn't have) does the
+      // actual "→ Обзор" redirect — no new logic needed on this side.
+      'notifications',
     ])
     .default('overview'),
 })

@@ -16,6 +16,8 @@ const searchSchema = z.object({
       'contract',
       // task-resume-base — deep-linkable so "открой мне своё резюме" is a URL.
       'resume',
+      // task-notification-settings-ui (position 7b) — /profile?tab=notifications.
+      'notifications',
     ])
     .default('overview'),
 })

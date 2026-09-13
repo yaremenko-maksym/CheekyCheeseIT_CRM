@@ -7,6 +7,7 @@ import {
 } from './notification-registry'
 import {
   isEmailChannelLocked,
+  notificationPreferencesResponseClientSchema,
   notificationPreferencesResponseSchema,
   updateNotificationPreferencesSchema,
 } from './notification-preferences'
@@ -255,7 +256,165 @@ describe('notificationPreferencesResponseSchema', () => {
   })
 })
 
+/**
+ * notificationPreferencesResponseClientSchema — SR-M-1/CR-M-2 (fix-round 2,
+ * PR #675). The strict schema above stays server-side; the client hook
+ * (`use-notification-preferences.ts`) parses THIS one instead, so an
+ * unrecognised `type` degrades to one row (design spec §7 / AC2) rather
+ * than throwing the whole tab into its error state.
+ */
+describe('notificationPreferencesResponseClientSchema', () => {
+  it('accepts all ten known types, same as the strict schema', () => {
+    const payload = {
+      items: NEW_NOTIFICATION_TYPES.map((type) => ({
+        type,
+        emailEnabled: true,
+        locked: isEmailChannelLocked(type),
+      })),
+    }
+    const parsed = notificationPreferencesResponseClientSchema.parse(payload)
+    expect(parsed.items).toHaveLength(10)
+  })
+
+  it('accepts a well-formed item whose type is genuinely unknown', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
+      items: [{ type: 'FUTURE_TYPE_XYZ', emailEnabled: true, locked: false }],
+    })
+    expect(result.success).toBe(true)
+    expect(result.data?.items[0]).toEqual({
+      type: 'FUTURE_TYPE_XYZ',
+      emailEnabled: true,
+      locked: false,
+    })
+  })
+
+  // Guards against a schema collapsed to `z.object({})` (accepts anything):
+  // an unknown-type row missing its required fields must still fail, not
+  // silently pass through as "close enough to unknown".
+  it('rejects an unknown-type item missing required fields', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
+      items: [{ type: 'FUTURE_TYPE_XYZ' }],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  // SR-L-5 (security-review, fix-round 3, PR #675): `preferenceViewUnknown`
+  // is a plain `z.object` (never `.passthrough()`/`.looseObject()`), so an
+  // extra key an unrecognised server payload might carry is DROPPED by
+  // Zod's default strict-shape parsing, not smuggled through to whatever
+  // reads `.data` on the client. Pinned explicitly rather than left to
+  // Zod's default: a future `.passthrough()` added for some other reason
+  // (e.g. to forward an extra field some OTHER caller wants) would silently
+  // widen this specific branch too, since the object schema is shared.
+  it('strips an extra key from an unknown-type item instead of passing it through', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
+      items: [
+        {
+          type: 'FUTURE_TYPE_XYZ',
+          emailEnabled: true,
+          locked: false,
+          extra: 'smuggled-field',
+        },
+      ],
+    })
+    expect(result.success).toBe(true)
+    expect(result.data?.items[0]).toEqual({
+      type: 'FUTURE_TYPE_XYZ',
+      emailEnabled: true,
+      locked: false,
+    })
+    expect(result.data?.items[0]).not.toHaveProperty('extra')
+  })
+
+  // Guards against the wrapping `z.object({ items: ... })` collapsed to
+  // `z.object({})` — a response with no `items` key at all must fail, not
+  // parse as "an empty object is fine".
+  it('rejects a response with no `items` key at all', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({})
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a KNOWN type whose `locked` disagrees with the type, with the exact reason and field path', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
+      items: [{ type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: true, locked: false }],
+    })
+    expect(result.success).toBe(false)
+    const issue = result.error?.issues[0] as { message: string; path: unknown[] } | undefined
+    expect(issue?.message).toBe('`locked` must be derived from the type, not sent independently')
+    // The path names WHICH field is wrong (index 0, `locked`) — a mutant
+    // emptying the path array, or renaming the field name, would still
+    // leave `success: false` unchanged; only the path/message content
+    // exposes it.
+    expect(issue?.path).toEqual(['items', 0, 'locked'])
+  })
+
+  it('rejects a KNOWN locked type reporting email as disabled, with the exact reason and field path', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
+      items: [{ type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: false, locked: true }],
+    })
+    expect(result.success).toBe(false)
+    const issue = result.error?.issues[0] as { message: string; path: unknown[] } | undefined
+    expect(issue?.message).toBe('A locked type can never report email as disabled')
+    expect(issue?.path).toEqual(['items', 0, 'emailEnabled'])
+  })
+
+  it('never enforces the locked/emailEnabled invariant on an unknown type (nothing to derive it from)', () => {
+    // A deliberately "inconsistent-looking" unknown-type row — locked=true
+    // with emailEnabled=false would fail the KNOWN-type invariant, but this
+    // type isn't in the registry, so there is no `isEmailChannelLocked`
+    // answer to check it against.
+    const result = notificationPreferencesResponseClientSchema.safeParse({
+      items: [{ type: 'FUTURE_TYPE_XYZ', emailEnabled: false, locked: true }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  // Union-nested message: `preferenceViewUnknown`'s own `.refine()` rejects
+  // a KNOWN type reaching its branch (reachable only when that same known
+  // type ALSO fails the strict branch on some other field) — proves this
+  // guard fires with its OWN message, not silently passing via an emptied
+  // `{ message: ... }` options object.
+  it('a malformed KNOWN-type row is rejected with its own explicit reason, not silently accepted as unknown', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
+      items: [{ type: 'TRANSACTION_ADDED', emailEnabled: 'not-a-boolean', locked: false }],
+    })
+    expect(result.success).toBe(false)
+    expect(unionBranchMessages(result)).toContain(
+      'a known type must go through the strict branch, not this one',
+    )
+  })
+})
+
 /** Тексты причин отказа — часть контракта, а не украшение (их читает 7b). */
 function issueMessages(result: { success: boolean; error?: { issues: { message: string }[] } }) {
   return result.error?.issues.map((i) => i.message) ?? []
+}
+
+/**
+ * Zod nests a failed union branch's own issues under `issue.errors[branchIndex]`
+ * rather than surfacing them at the top level of `.issues` — this digs
+ * through every branch of every top-level `invalid_union` issue to collect
+ * every message any branch produced, so a test can assert on a SPECIFIC
+ * branch's reason without hard-coding which array index that branch lives
+ * at (a detail of union member order, not of this test's actual claim).
+ */
+function unionBranchMessages(result: {
+  success: boolean
+  error?: { issues: unknown[] }
+}): string[] {
+  const issues = (result.error?.issues ?? []) as Array<{
+    code?: string
+    message?: string
+    errors?: Array<Array<{ message: string }>>
+  }>
+  const messages: string[] = []
+  for (const issue of issues) {
+    if (issue.message) messages.push(issue.message)
+    if (issue.code === 'invalid_union' && issue.errors) {
+      for (const branch of issue.errors) {
+        for (const branchIssue of branch) messages.push(branchIssue.message)
+      }
+    }
+  }
+  return messages
 }

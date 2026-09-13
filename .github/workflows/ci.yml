@@ -986,7 +986,21 @@ jobs:
             # `files:` as plain text regardless of whether the file exists on
             # disk yet, so listing it here now is a no-op today and
             # self-activates the moment this branch merges.
-            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts tests/project-status-filter-ui.spec.ts tests/pending.spec.ts
+            #
+            # tests/notification-settings.spec.ts (task-notification-settings-ui,
+            # position 7b, feat/notification-settings-ui): a DIFFERENT screen
+            # (profile "Уведомления" tab, not project confirmation) — placed here
+            # by PATTERN, not domain, unlike pending.spec.ts right above. Same
+            # real-API/real-UI shape as project-status-filter-ui.spec.ts (dev-login
+            # via `loginViaApi`, `page.request.put()` against a live
+            # `/api/notifications/preferences`, zero `page.route` mocking) — the
+            # RBAC group-visibility and reload-persists assertions specifically need
+            # the real backend (7a), the exact gap `playwright-patterns` calls out.
+            # This shard has the most measured headroom of the eight (2:16-3:01 vs
+            # misc's 5:31-6:28) for exactly the class of spec (live-backend) that
+            # costs more per test than a mocked one — same tradeoff already made for
+            # pending.spec.ts above, just without the domain match.
+            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts tests/project-status-filter-ui.spec.ts tests/pending.spec.ts tests/notification-settings.spec.ts
           - name: finance
             # company-share-cta.spec.ts (task-company-share-cta, PR #445): CTA
             # strip + two-step payout modal for the senior's company-share

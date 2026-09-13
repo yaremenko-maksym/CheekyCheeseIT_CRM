@@ -4,7 +4,9 @@ import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { ShieldOff, UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import type { TabKey } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { cn } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +33,7 @@ import { RequisitesTab } from './tabs/RequisitesTab'
 import { TeamTab } from './tabs/TeamTab'
 import { ContractTab } from './contract/ContractTab'
 import { ResumeTab } from './resume/ResumeTab'
+import { NotificationSettingsTab } from './tabs/NotificationSettingsTab'
 
 const TAB_LABELS: Record<string, string> = {
   overview: 'Обзор',
@@ -42,6 +45,7 @@ const TAB_LABELS: Record<string, string> = {
   documents: 'Документы',
   contract: 'Контракт',
   resume: 'Резюме',
+  notifications: 'Уведомления',
 }
 
 export interface UserProfileShellProps {
@@ -162,11 +166,38 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   // The backend still decides whether the tab is offered at all, so a non-SENIOR
   // self-view never gets it.
   const SELF_ALLOWED_TABS = ['overview', 'requisites', 'contract', 'resume'] as const
-  const visibleTabs = !permissions
+  // task-notification-settings-ui (position 7b): 'notifications' is added
+  // client-side, UNCONDITIONALLY on top of whatever the backend sends for
+  // `mode === 'self'`, rather than through the SELF_ALLOWED_TABS intersection
+  // above. Reasoning (docs/design/notification-settings.md §0.1/§12, A1):
+  // the backend's `getViewPermissions().tabs` (7a) never learned about this
+  // tab (verified — no 'notifications' string anywhere in
+  // users-access.service.ts), and adding it there is apps/api, out of this
+  // task's zone-of-write. "Каналы настраивает сам сотрудник" (task file) has
+  // no stated role exception besides the in-tab admin-group gate, so every
+  // self profile gets the tab unconditionally — reversible A1 decision,
+  // recorded here and in the PR body, not escalated.
+  //
+  // SR-M-2 (security-review, fix-round 2, PR #675): `mode === 'view'` filters
+  // 'notifications' out of whatever the backend sends, EXPLICITLY, rather
+  // than relying solely on "the backend never sends it there" — that
+  // single-layer defense would have gone silently stale the moment
+  // `getViewPermissions().tabs` ever grows a 'notifications' entry for ANY
+  // role (now typeable at all, since this same PR adds it to `tabKeySchema`),
+  // at which point an ADMIN on `/profile/$userId` would get a tab that reads
+  // and writes the ADMIN's OWN preferences while looking like it controls the
+  // viewed employee's — a false write, not a cross-user leak, but still wrong
+  // (the component takes no `userId`; the endpoint resolves the session
+  // user). The render gate below adds the matching `mode === 'self'` check on
+  // the other side of the same belief.
+  const visibleTabs: TabKey[] = !permissions
     ? []
     : mode === 'self'
-      ? permissions.tabs.filter((t) => (SELF_ALLOWED_TABS as readonly string[]).includes(t))
-      : permissions.tabs
+      ? [
+          ...permissions.tabs.filter((t) => (SELF_ALLOWED_TABS as readonly string[]).includes(t)),
+          'notifications',
+        ]
+      : permissions.tabs.filter((t) => t !== 'notifications')
 
   const activeTab = visibleTabs.includes(tab as never) ? tab : (visibleTabs[0] ?? 'overview')
 
@@ -223,7 +254,21 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
             // this scrolled with zero visual affordance (confirmed live: the
             // last tab was silently clipped even at 1024px on an 8-tab
             // profile, e.g. ADMIN viewing a SENIOR).
-            <div className="relative overflow-x-auto pb-1 scroll-fade-x">
+            // UX-H-1 (design review, PR #675 fix-round 2): the native
+            // scrollbar this container would otherwise show on a
+            // non-touch pointer (mouse/trackpad) is hidden — `scroll-fade-x`
+            // already carries the "more to scroll" affordance, a bare
+            // scrollbar underneath it is a second, uglier signal for the
+            // exact same fact. Scoped to THIS instance (arbitrary variant on
+            // the wrapper), not the shared `.scroll-fade-x` utility itself —
+            // other current/future callers of that class keep their default
+            // scrollbar unless they opt in the same way.
+            <div
+              className={cn(
+                'relative overflow-x-auto pb-1 scroll-fade-x',
+                '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+              )}
+            >
               <AnimatedTabs
                 tabs={visibleTabs.map((t) => ({ value: t, label: tabLabel(t) }))}
                 value={activeTab}
@@ -362,6 +407,37 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               {activeTab === 'resume' && visibleTabs.includes('resume') && (
                 <ResumeTab userId={profileUser.id} onDirtyChange={handleResumeDirtyChange} />
               )}
+              {
+                // This whole three-clause condition is over-determined by
+                // construction, and the mutation gate's report is the proof:
+                // collapsing ANY prefix of it (just the first clause, the
+                // first two, or all three) to a literal `true` silences 5
+                // separate ConditionalExpression mutants below, and none of
+                // them is independently observable — not because the tests
+                // are missing a case, but because `visibleTabs` (above) can
+                // only ever GAIN `'notifications'` in the `mode === 'self'`
+                // branch (the `view` branch explicitly filters it back out,
+                // SR-M-2), and `activeTab` (above) can only ever equal a tab
+                // that is already a member of `visibleTabs`. So
+                // `activeTab === 'notifications'` ALONE already implies both
+                // `mode === 'self'` AND `visibleTabs.includes('notifications')`
+                // — the other two clauses can never independently flip the
+                // outcome once that one holds. What each clause changing
+                // `===` to `!==` (or similar) still catches — see the
+                // "Killed EqualityOperator/LogicalOperator" entries in the
+                // mutation report for this line — is real: this comment
+                // only concerns the specific "replace with the literal
+                // `true`/`false`" mutant shape. Kept as three clauses anyway
+                // for the SAME reason every sibling tab gate in this file
+                // repeats its own `visibleTabs.includes(...)` next to its
+                // `activeTab === '<tab>'` check (see `resume`/`contract`/
+                // etc. above) — one consistent per-tab idiom, not a special
+                // case for this tab alone.
+                // Stryker disable next-line ConditionalExpression: see comment above — silences 5 mutants (documented, not a blind blanket).
+                mode === 'self' &&
+                  activeTab === 'notifications' &&
+                  visibleTabs.includes('notifications') && <NotificationSettingsTab />
+              }
             </>
           )
         )}
