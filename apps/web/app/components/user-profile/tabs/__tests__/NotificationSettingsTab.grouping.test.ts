@@ -83,7 +83,7 @@ describe('groupPreferences', () => {
     const items = [row('APPROVAL_CONFIRMED'), row('APPROVAL_REJECTED')]
     const groups = groupPreferences(items, true)
     const admin = groups.find((g) => g.key === 'admin')
-    expect(admin?.title).toBe('Решения по вашим предложениям')
+    expect(admin?.title).toBe('Ваши предложения')
     expect(admin?.rows.map((r) => r.type)).toEqual(['APPROVAL_CONFIRMED', 'APPROVAL_REJECTED'])
   })
 

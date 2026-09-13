@@ -88,7 +88,7 @@ describe('NotificationSettingsTab — loading/error states', () => {
 
 describe('NotificationSettingsTab — AC2 grouping + titles', () => {
   it('renders all ten types, titles matching the shared NOTIFICATION_TITLES map', () => {
-    // ADMIN viewer so the "Решения по вашим предложениям" group (and its two types)
+    // ADMIN viewer so the "Ваши предложения" group (and its two types)
     // also renders — this assertion is about every type's TITLE, not about
     // role-gating (that's the two admin-visibility tests below).
     viewerRole = 'ADMIN'
@@ -118,12 +118,12 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows "Решения по вашим предложениям" group for an ADMIN viewer', () => {
+  it('shows "Ваши предложения" group for an ADMIN viewer', () => {
     viewerRole = 'ADMIN'
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-desktop'))
     expect(scope.getByTestId('notification-group-admin')).toBeInTheDocument()
-    expect(scope.getByText('Решения по вашим предложениям')).toBeInTheDocument()
+    expect(scope.getByText('Ваши предложения')).toBeInTheDocument()
     expect(scope.getByText(NOTIFICATION_TITLES.APPROVAL_CONFIRMED)).toBeInTheDocument()
   })
 
@@ -131,7 +131,7 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
   // that can be `proposedByUserId` on a project, and therefore the OTHER
   // actual recipient of these two email types — pins that the group is
   // gated on a SET of roles, not `=== 'ADMIN'` alone.
-  it('shows "Решения по вашим предложениям" group for an HR viewer too', () => {
+  it('shows "Ваши предложения" group for an HR viewer too', () => {
     viewerRole = 'HR'
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-desktop'))
@@ -145,7 +145,7 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
   // override, and the SENIOR who confirms/rejects it is a different user,
   // so ACCOUNTANT receives APPROVAL_CONFIRMED/APPROVAL_REJECTED same as
   // ADMIN/HR would.
-  it('shows "Решения по вашим предложениям" group for an ACCOUNTANT viewer too', () => {
+  it('shows "Ваши предложения" group for an ACCOUNTANT viewer too', () => {
     viewerRole = 'ACCOUNTANT'
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-desktop'))
@@ -153,7 +153,7 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     expect(scope.getByText(NOTIFICATION_TITLES.APPROVAL_CONFIRMED)).toBeInTheDocument()
   })
 
-  it('hides "Решения по вашим предложениям" group for a SENIOR viewer', () => {
+  it('hides "Ваши предложения" group for a SENIOR viewer', () => {
     viewerRole = 'SENIOR'
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-desktop'))
@@ -383,7 +383,7 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     expect(scope.getByText('Требуют ответа')).toBeInTheDocument()
     expect(scope.getByText('Деньги')).toBeInTheDocument()
     expect(scope.getByText('Команда и проекты')).toBeInTheDocument()
-    expect(scope.getByText('Решения по вашим предложениям')).toBeInTheDocument()
+    expect(scope.getByText('Ваши предложения')).toBeInTheDocument()
     for (const item of TEN_TYPES) {
       const title = NOTIFICATION_TITLES[item.type as keyof typeof NOTIFICATION_TITLES]
       expect(scope.getByText(title)).toBeInTheDocument()

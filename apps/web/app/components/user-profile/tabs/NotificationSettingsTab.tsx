@@ -101,8 +101,16 @@ export function groupPreferences(
   // still comes from the backend (it may send the admin-only types to any
   // role by mistake) — the UI is the second, independent line of defense
   // and never renders the group for a role outside {ADMIN, HR} regardless.
+  // COPY-L-5 (copy-review, fix-round 3, PR #675): "Решения по вашим
+  // предложениям" (29 characters, uppercase + tracking-wide) measured on the
+  // live 320px stand under ADMIN — wraps to two lines (boundingBox height
+  // 48px / lineHeight 16px = 2 lines, screenshot `admin320-r3-group.png`).
+  // Renamed to "Ваши предложения" (16 characters — fits one line, matching
+  // the neighboring "Деньги"/"Команда и проекты" headers); the missing half
+  // of the meaning ("decisions ON them") is already carried by the row
+  // titles themselves ("Предложение принято"/"Предложение отклонено").
   if (canSeeAdminGroup) {
-    groups.push({ key: 'admin', title: 'Решения по вашим предложениям', rows: admin })
+    groups.push({ key: 'admin', title: 'Ваши предложения', rows: admin })
   }
   // Pushed unconditionally (no `unknown.length > 0` guard) — the trailing
   // filter below already drops any empty group, admin included when

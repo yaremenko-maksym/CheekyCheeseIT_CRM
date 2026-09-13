@@ -10,7 +10,7 @@
  *
  * AC5. SENIOR toggles a regular type off → survives reload; a locked
  *      (action-required) type cannot be toggled; ADMIN and HR see the
- *      "Решения по вашим предложениям" group, SENIOR does not.
+ *      "Ваши предложения" group, SENIOR does not.
  * AC6. No horizontal overflow at any of the seven standard widths; on
  *      320/375 every switch's hit area is >=44x44px; the tab strip itself
  *      is reachable by clicking through it, not just via deep link
@@ -89,11 +89,11 @@ test.describe('Notification settings tab — position 7b', () => {
     // Still checked — the click was a no-op (locked type never sends PUT).
     await expect(lockedSwitch).toHaveAttribute('aria-checked', 'true')
 
-    // No "Решения по вашим предложениям" group for a SENIOR viewer.
+    // No "Ваши предложения" group for a SENIOR viewer.
     await expect(desktopAfterReload.getByTestId('notification-group-admin')).toHaveCount(0)
   })
 
-  test('ADMIN: sees the "Решения по вашим предложениям" group', async ({ page }) => {
+  test('ADMIN: sees the "Ваши предложения" group', async ({ page }) => {
     await loginViaApi(page, SEED_EMAILS.admin)
     await page.goto('/profile?tab=notifications')
     const desktop = page.getByTestId('notification-settings-desktop')
@@ -104,8 +104,21 @@ test.describe('Notification settings tab — position 7b', () => {
   // SR-M-3 (security-review, fix-round 2, PR #675): HR is the OTHER actual
   // recipient of APPROVAL_CONFIRMED/APPROVAL_REJECTED (whoever proposed the
   // project — ADMIN or HR — not "the admin" specifically).
-  test('HR: sees the "Решения по вашим предложениям" group too', async ({ page }) => {
+  test('HR: sees the "Ваши предложения" group too', async ({ page }) => {
     await loginViaApi(page, SEED_EMAILS.hrA)
+    await page.goto('/profile?tab=notifications')
+    const desktop = page.getByTestId('notification-settings-desktop')
+    await expect(desktop).toBeVisible()
+    await expect(desktop.getByTestId('notification-group-admin')).toBeVisible()
+  })
+
+  // SR-M-4 (security-review, fix-round 3, PR #675): ACCOUNTANT is the third
+  // actual recipient — a finance-scoped `seniorSharePercentOverride` patch
+  // (`projects.service.ts` `update()`) lets ACCOUNTANT propose a share
+  // override, and the confirming SENIOR is a different user, so ACCOUNTANT
+  // receives these two email types same as ADMIN/HR would.
+  test('ACCOUNTANT: sees the "Ваши предложения" group too', async ({ page }) => {
+    await loginViaApi(page, SEED_EMAILS.accountant)
     await page.goto('/profile?tab=notifications')
     const desktop = page.getByTestId('notification-settings-desktop')
     await expect(desktop).toBeVisible()
@@ -137,12 +150,15 @@ test.describe('Notification settings tab — responsive (AC6)', () => {
 
   // UX-H-1 (design review, fix-round 2, PR #675): on 320/375 the profile's
   // tab strip is wider than the viewport (four self-profile tabs no longer
-  // fit) — the fix is `scrollIntoView` on the active tab (mount + change)
-  // plus the pre-existing `overflow-x-auto` wrapper. This test drives the
-  // tab strip the way a person would (click a tab BUTTON, not a deep link),
-  // in BOTH directions, and asserts the just-activated tab actually lands
-  // fully inside the viewport — not just "clickable via Playwright's own
-  // auto-scroll", which would pass even without the fix.
+  // fit). Fix-round 2 scrolled the active tab into view via `scrollIntoView`
+  // on mount/change; fix-round 3 (SR-L-4) replaced that with a hand-computed
+  // `container.scrollLeft` adjustment on the same `overflow-x-auto` wrapper
+  // — same visible outcome, verified below the same way regardless of which
+  // mechanism produces it. This test drives the tab strip the way a person
+  // would (click a tab BUTTON, not a deep link), in BOTH directions, and
+  // asserts the just-activated tab actually lands fully inside the viewport
+  // — not just "clickable via Playwright's own auto-scroll", which would
+  // pass even without the fix.
   test('320px: clicking through the tab strip (Обзор → Уведомления → Обзор) works and scrolls the active tab fully into view', async ({
     page,
   }) => {
