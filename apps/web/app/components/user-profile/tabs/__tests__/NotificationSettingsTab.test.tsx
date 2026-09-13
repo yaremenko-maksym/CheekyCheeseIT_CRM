@@ -139,6 +139,20 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     expect(scope.getByText(NOTIFICATION_TITLES.APPROVAL_CONFIRMED)).toBeInTheDocument()
   })
 
+  // SR-M-4 (security-review, fix-round 3, PR #675): ACCOUNTANT is the third
+  // actual recipient — a finance-scoped `seniorSharePercentOverride` patch
+  // (`projects.service.ts` `update()`) lets ACCOUNTANT propose a share
+  // override, and the SENIOR who confirms/rejects it is a different user,
+  // so ACCOUNTANT receives APPROVAL_CONFIRMED/APPROVAL_REJECTED same as
+  // ADMIN/HR would.
+  it('shows "Решения по вашим предложениям" group for an ACCOUNTANT viewer too', () => {
+    viewerRole = 'ACCOUNTANT'
+    render(<NotificationSettingsTab />)
+    const scope = within(screen.getByTestId('notification-settings-desktop'))
+    expect(scope.getByTestId('notification-group-admin')).toBeInTheDocument()
+    expect(scope.getByText(NOTIFICATION_TITLES.APPROVAL_CONFIRMED)).toBeInTheDocument()
+  })
+
   it('hides "Решения по вашим предложениям" group for a SENIOR viewer', () => {
     viewerRole = 'SENIOR'
     render(<NotificationSettingsTab />)
@@ -176,12 +190,15 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     // via the row's own `data-testid` and its `title` attribute.
     expect(scope.queryByText('FUTURE_TYPE_XYZ')).not.toBeInTheDocument()
     const row = scope.getByTestId('notification-row-desktop-FUTURE_TYPE_XYZ')
-    const title = within(row).getByText('Уведомление')
+    // COPY-L-4 (copy-review, fix-round 3, PR #675): "Уведомление" named
+    // nothing this row didn't already say by being inside the "Уведомления"
+    // tab, in a table whose own column header is "Тип уведомления" — and it
+    // repeated "уведомлени-" a third time together with the explanation
+    // below. "Новый тип" is the one word this generic row actually adds.
+    const title = within(row).getByText('Новый тип')
     expect(title).toBeInTheDocument()
     expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
-    const explanationEl = within(row).getByText(
-      'Новый тип уведомления — настройка появится после обновления.',
-    )
+    const explanationEl = within(row).getByText('Настройка появится после обновления.')
     // Own id+testid pair (independent strings from the shared locked one) —
     // pins both against a mutant that empties either.
     expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-desktop-FUTURE_TYPE_XYZ')
@@ -339,6 +356,26 @@ describe('NotificationSettingsTab — AC4 toggling a regular type', () => {
 // ---------------------------------------------------------------------------
 
 describe('NotificationSettingsTab — mobile card stack (same contract as desktop)', () => {
+  // COPY-M-4 (copy-review, fix-round 3, PR #675): the fact that in-app
+  // notifications are always on is stated ONCE, in the tab subtitle — a
+  // per-row repeat on the mobile card stack (ten identical lines back to
+  // back on a 320px screen, one per card) said nothing the subtitle hadn't
+  // already said above the whole stack. The desktop table keeps its own
+  // per-row "Всегда" cell (COPY-M-3) — there it is a genuine matrix column,
+  // not a lone repeated sentence, so it is unaffected.
+  it('COPY-M-4: never repeats "В приложении — всегда" per card — the fact is stated once, in the subtitle', () => {
+    render(<NotificationSettingsTab />)
+    const mobile = within(screen.getByTestId('notification-settings-mobile'))
+    expect(mobile.queryByText('В приложении — всегда')).not.toBeInTheDocument()
+    // The subtitle above the stack still says it once — the desktop table's
+    // own "В приложении" COLUMN HEADER is a separate, legitimate mention
+    // (per-column label, not a per-row repeat) and is deliberately excluded
+    // by scoping to the subtitle paragraph's own text, not a page-wide regex.
+    expect(
+      screen.getByText('Выберите, о чём присылать письма. В приложении уведомления видны всегда.'),
+    ).toBeInTheDocument()
+  })
+
   it('renders group headings and every title', () => {
     viewerRole = 'ADMIN'
     render(<NotificationSettingsTab />)
@@ -367,11 +404,11 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     // COPY-H-1: raw type is not the visible label anywhere.
     expect(scope.queryByText('FUTURE_TYPE_XYZ')).not.toBeInTheDocument()
     const row = scope.getByTestId('notification-row-mobile-FUTURE_TYPE_XYZ')
-    const title = within(row).getByText('Уведомление')
+    // COPY-L-4: see the desktop test above for why the label shrank to
+    // "Новый тип" and the explanation dropped the repeated "уведомления".
+    const title = within(row).getByText('Новый тип')
     expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
-    const explanationEl = within(row).getByText(
-      'Новый тип уведомления — настройка появится после обновления.',
-    )
+    const explanationEl = within(row).getByText('Настройка появится после обновления.')
     expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-mobile-FUTURE_TYPE_XYZ')
     expect(within(row).getByTestId('notification-pref-explain-mobile-FUTURE_TYPE_XYZ')).toBe(
       explanationEl,

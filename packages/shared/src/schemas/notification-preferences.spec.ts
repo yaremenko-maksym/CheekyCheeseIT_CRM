@@ -298,6 +298,34 @@ describe('notificationPreferencesResponseClientSchema', () => {
     expect(result.success).toBe(false)
   })
 
+  // SR-L-5 (security-review, fix-round 3, PR #675): `preferenceViewUnknown`
+  // is a plain `z.object` (never `.passthrough()`/`.looseObject()`), so an
+  // extra key an unrecognised server payload might carry is DROPPED by
+  // Zod's default strict-shape parsing, not smuggled through to whatever
+  // reads `.data` on the client. Pinned explicitly rather than left to
+  // Zod's default: a future `.passthrough()` added for some other reason
+  // (e.g. to forward an extra field some OTHER caller wants) would silently
+  // widen this specific branch too, since the object schema is shared.
+  it('strips an extra key from an unknown-type item instead of passing it through', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
+      items: [
+        {
+          type: 'FUTURE_TYPE_XYZ',
+          emailEnabled: true,
+          locked: false,
+          extra: 'smuggled-field',
+        },
+      ],
+    })
+    expect(result.success).toBe(true)
+    expect(result.data?.items[0]).toEqual({
+      type: 'FUTURE_TYPE_XYZ',
+      emailEnabled: true,
+      locked: false,
+    })
+    expect(result.data?.items[0]).not.toHaveProperty('extra')
+  })
+
   // Guards against the wrapping `z.object({ items: ... })` collapsed to
   // `z.object({})` — a response with no `items` key at all must fail, not
   // parse as "an empty object is fine".

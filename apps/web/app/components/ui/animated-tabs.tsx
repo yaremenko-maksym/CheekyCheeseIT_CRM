@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
-import { LayoutGroup, motion } from 'framer-motion'
+import { LayoutGroup, motion, useReducedMotion } from 'framer-motion'
 import { Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -25,30 +25,68 @@ export interface AnimatedTabsProps {
   className?: string
 }
 
+/**
+ * SR-L-4 (security-review, fix-round 3, PR #675): finds the nearest REAL
+ * scrollable ancestor of `el` by walking the plain DOM `parentElement`
+ * chain and checking actual geometry (`scrollWidth > clientWidth`) —
+ * deliberately NOT the CSSOM `offsetParent` chain. `AnimatedTabs`'s own
+ * root `<div>` below sets `position: relative` (required for the active
+ * pill's `layoutId` animation), which makes IT the active button's
+ * `offsetParent` — but it is not what actually scrolls; the genuinely
+ * overflowing element is the CONSUMER's own `overflow-x-auto` wrapper
+ * OUTSIDE this component's root (`UserProfileShell.tsx`, `admin/route.tsx`,
+ * `vacancies/$vacancyId.tsx`). A comment that used to live on this function
+ * asserted the previous `scrollIntoView`-based approach could not touch
+ * anything but that one ancestor "by definition" — that is not something
+ * `scrollIntoView` actually guarantees (it walks and can adjust EVERY
+ * scrollable ancestor in the chain needed to satisfy `block`/`inline`, not
+ * only the nearest one), which is the reason this rewrite stopped calling
+ * it altogether and mutates one specific, explicitly-found element instead.
+ */
+function findScrollableAncestor(el: HTMLElement): HTMLElement | null {
+  let node = el.parentElement
+  while (node) {
+    if (node.scrollWidth > node.clientWidth) return node
+    node = node.parentElement
+  }
+  return null
+}
+
 export function AnimatedTabs({ tabs, value, onChange, className }: AnimatedTabsProps) {
   // Unique layout group ID per AnimatedTabs instance so multiple tab bars on the
   // page don't share the same pill animation
   const groupId = useId()
-  // UX-H-1 (design review, PR #675 fix-round 2): a tab bar with more tabs than
-  // fit the viewport (e.g. UserProfileShell's four self-profile tabs at
-  // 320/375) lives inside a `overflow-x-auto` ancestor — scrolling DOES work
-  // (verified: the ancestor's scrollWidth/clientWidth genuinely differ, and a
-  // manual `scrollLeft` change moves the tab into view), but nothing ever
-  // scrolled the CURRENTLY ACTIVE tab into view on mount or on change. A deep
-  // link to a trailing tab (`?tab=notifications`) landed at scroll position 0,
-  // so the just-navigated-to tab sat mostly clipped at the right edge —
-  // technically reachable by a manual swipe, but nothing told the viewer that
-  // swiping was the way to see what they just opened. `scrollIntoView` on the
-  // active button (mount AND every `value` change) makes the active tab
-  // visible without the viewer discovering the gesture on their own; the
-  // `{ block: 'nearest', inline: 'nearest' }` options move ONLY the
-  // horizontal scroll ancestor (this bar's own `overflow-x-auto` wrapper),
-  // never the page's vertical scroll — this component has no idea whether
-  // it's inside a sticky header or not, so it must not touch the page scroll.
+  // UX-H-1 (design review, PR #675 fix-round 2): a tab bar with more tabs
+  // than fit the viewport (e.g. UserProfileShell's four self-profile tabs
+  // at 320/375) lives inside an `overflow-x-auto` ancestor, but nothing
+  // ever scrolled the CURRENTLY ACTIVE tab into view on mount or on
+  // change — a deep link to a trailing tab (`?tab=notifications`) landed
+  // at scroll position 0, clipped mostly out of view at the right edge.
+  //
+  // SR-L-4 (fix-round 3): the original fix used `scrollIntoView`, which
+  // this component has no real control over — depending on the browser and
+  // the DOM it happens to be mounted in, it can walk PAST the intended
+  // horizontal wrapper and adjust an ancestor's scroll in ways this
+  // component never verified (see `findScrollableAncestor` above). This
+  // version instead finds ONE specific ancestor by real geometry and
+  // mutates ONLY its `scrollLeft`, by exactly the amount needed to bring
+  // the active button back inside that ancestor's visible area — the same
+  // "nearest" semantics as before, computed by hand instead of delegated.
   const activeRef = useRef<HTMLButtonElement>(null)
+  const prefersReducedMotion = useReducedMotion()
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [value])
+    const button = activeRef.current
+    if (!button) return
+    const container = findScrollableAncestor(button)
+    if (!container) return
+    const buttonRect = button.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const overflowLeft = containerRect.left - buttonRect.left
+    const overflowRight = buttonRect.right - containerRect.right
+    if (overflowLeft <= 0 && overflowRight <= 0) return
+    container.style.scrollBehavior = prefersReducedMotion ? 'auto' : 'smooth'
+    container.scrollLeft += overflowLeft > 0 ? -overflowLeft : overflowRight
+  }, [value, prefersReducedMotion])
   return (
     <LayoutGroup id={groupId}>
       <div

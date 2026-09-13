@@ -117,7 +117,13 @@ export function groupPreferences(
 // обновления интерфейса") asked the reader to WAIT for something, though
 // there is nothing to wait for and nothing to do — it is a fact about the
 // system, not an instruction. Restated as a fact.
-const UNKNOWN_TYPE_EXPLANATION = 'Новый тип уведомления — настройка появится после обновления.'
+// COPY-L-4 (copy-review, fix-round 3, PR #675): "Новый тип уведомления" here
+// repeated the same two words the ROW LABEL just switched to below
+// (`rowTitle` → "Новый тип") — two adjacent lines both opening with
+// "новый тип уведомления" said the same thing twice before the sentence
+// got to what actually differs (that the setting isn't here yet). Trimmed
+// to the one new fact.
+const UNKNOWN_TYPE_EXPLANATION = 'Настройка появится после обновления.'
 const LOCKED_EXPLANATION =
   'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.'
 
@@ -134,7 +140,7 @@ const LOCKED_EXPLANATION =
 export function rowTitle(row: PreferenceRow): string {
   return KNOWN_TYPES.has(row.type)
     ? NOTIFICATION_TITLES[row.type as NewNotificationType]
-    : 'Уведомление'
+    : 'Новый тип'
 }
 
 export function rowExplanation(row: PreferenceRow): string | null {
@@ -407,12 +413,17 @@ function MobileRow({
         </div>
         <PreferenceSwitch row={row} variant="mobile" onToggle={onToggle} />
       </div>
-      {/* COPY-M-3: object-then-value, the same order the desktop table
-          states it in (column header "В приложении" first, cell value
-          "Всегда" second) — the previous "Всегда — в приложении" led with
-          an adverb that does not distinguish any of the ten rows from one
-          another. */}
-      <p className="text-xs text-muted-foreground">В приложении — всегда</p>
+      {/* COPY-M-3 (fix-round 2): "В приложении — всегда" originally repeated
+          here, object-then-value, matching the desktop table's own column
+          order. COPY-M-4 (fix-round 3) removed it: on the mobile stack it
+          was the SAME sentence on every one of the ten cards back to back —
+          constant across every row, so it told the reader nothing about
+          THIS row that the tab subtitle above the whole stack ("В
+          приложении уведомления видны всегда") had not already said once.
+          The desktop table keeps its own per-row cell — there the sentence
+          shares a matrix row with the "Письмо" column, so it IS per-row
+          information (which channel this line is about), not a standalone
+          repeat. */}
       {inlineExplanation && (
         <p
           id={`notification-pref-explain-mobile-${row.type}`}
@@ -523,11 +534,29 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
 // Root
 // ---------------------------------------------------------------------------
 
+// SR-M-4 (security-review, fix-round 3, PR #675): SR-M-3 widened the gate
+// from ADMIN alone to {ADMIN, HR} on the theory that a project's PROPOSER —
+// the actual `proposedByUserId` recipient of APPROVAL_CONFIRMED/
+// APPROVAL_REJECTED — is whoever created it, and only ADMIN/HR can
+// (`projects.service.ts` `create()`: `role !== 'ADMIN' && role !== 'HR' →
+// Forbidden`). But creating a project is not the only way to become the
+// proposer of a row in this group: `update()` lets ACCOUNTANT send a
+// finance-scoped `seniorSharePercentOverride`-only patch (`hasOnlyOverride`
+// guard, `role !== 'ADMIN' && role !== 'HR' && !(role === 'ACCOUNTANT' &&
+// hasOnlyOverride)` → Forbidden — i.e. ACCOUNTANT IS admitted for that one
+// field), which routes through `proposeSeniorShareChange(...)` and writes
+// `proposedByUserId: <the ACCOUNTANT>`. The confirming SENIOR is a
+// different user, so the early "same person, no notification" exit in
+// `approvals.service.ts` does not apply — the ACCOUNTANT genuinely receives
+// both types, including their email copies, with no row on this tab to
+// turn them off. The set below is the FULL {ADMIN, HR, ACCOUNTANT} — every
+// role `projects.service.ts` lets propose a row this group covers, not
+// just the project-creation path.
+const CAN_SEE_ADMIN_GROUP_ROLES = new Set(['ADMIN', 'HR', 'ACCOUNTANT'])
+
 export function NotificationSettingsTab() {
   const { user: viewer } = useAuth()
-  // SR-M-3: the "admin" group's real recipients are ADMIN and HR (see
-  // `groupPreferences` comment) — not ADMIN alone.
-  const canSeeAdminGroup = viewer?.role === 'ADMIN' || viewer?.role === 'HR'
+  const canSeeAdminGroup = CAN_SEE_ADMIN_GROUP_ROLES.has(viewer?.role ?? '')
   const { data, isLoading, isError, refetch } = useNotificationPreferences()
   const updateMutation = useUpdateNotificationPreference()
 

@@ -111,8 +111,12 @@ describe('rowTitle', () => {
 
   // COPY-H-1 (copy-review, fix-round 2, PR #675): the raw enum value must
   // never be the VISIBLE label — see the comment on `rowTitle` itself.
-  it('unknown type → the generic "Уведомление" label, not the raw type string', () => {
-    expect(rowTitle(row('FUTURE_TYPE_XYZ'))).toBe('Уведомление')
+  // COPY-L-4 (copy-review, fix-round 3, PR #675): "Уведомление" narrowed to
+  // "Новый тип" — the row already sits inside the "Уведомления" tab, in a
+  // table column headed "Тип уведомления"; the one thing this label needs
+  // to add is that the type is new.
+  it('unknown type → the "Новый тип" label, not the raw type string', () => {
+    expect(rowTitle(row('FUTURE_TYPE_XYZ'))).toBe('Новый тип')
   })
 })
 
@@ -124,10 +128,11 @@ describe('rowExplanation', () => {
   })
 
   // COPY-L-1 (copy-review, fix-round 2, PR #675).
+  // COPY-L-4 (copy-review, fix-round 3, PR #675): dropped the repeated
+  // "новый тип уведомления" — the row's own label now says "Новый тип"
+  // right above this sentence.
   it('unlocked unknown type → the "new type" text', () => {
-    expect(rowExplanation(row('FUTURE_TYPE_XYZ'))).toBe(
-      'Новый тип уведомления — настройка появится после обновления.',
-    )
+    expect(rowExplanation(row('FUTURE_TYPE_XYZ'))).toBe('Настройка появится после обновления.')
   })
 
   it('unlocked known type → no explanation', () => {
