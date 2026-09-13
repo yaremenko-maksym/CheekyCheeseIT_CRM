@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import type { TabKey } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { cn } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -175,9 +176,20 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   // task's zone-of-write. "Каналы настраивает сам сотрудник" (task file) has
   // no stated role exception besides the in-tab admin-group gate, so every
   // self profile gets the tab unconditionally — reversible A1 decision,
-  // recorded here and in the PR body, not escalated. `mode === 'view'` is
-  // untouched: permissions.tabs never contains 'notifications' there either
-  // (nobody adds it), so AC1's "no tab in view" holds for free.
+  // recorded here and in the PR body, not escalated.
+  //
+  // SR-M-2 (security-review, fix-round 2, PR #675): `mode === 'view'` filters
+  // 'notifications' out of whatever the backend sends, EXPLICITLY, rather
+  // than relying solely on "the backend never sends it there" — that
+  // single-layer defense would have gone silently stale the moment
+  // `getViewPermissions().tabs` ever grows a 'notifications' entry for ANY
+  // role (now typeable at all, since this same PR adds it to `tabKeySchema`),
+  // at which point an ADMIN on `/profile/$userId` would get a tab that reads
+  // and writes the ADMIN's OWN preferences while looking like it controls the
+  // viewed employee's — a false write, not a cross-user leak, but still wrong
+  // (the component takes no `userId`; the endpoint resolves the session
+  // user). The render gate below adds the matching `mode === 'self'` check on
+  // the other side of the same belief.
   const visibleTabs: TabKey[] = !permissions
     ? []
     : mode === 'self'
@@ -185,7 +197,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
           ...permissions.tabs.filter((t) => (SELF_ALLOWED_TABS as readonly string[]).includes(t)),
           'notifications',
         ]
-      : permissions.tabs
+      : permissions.tabs.filter((t) => t !== 'notifications')
 
   const activeTab = visibleTabs.includes(tab as never) ? tab : (visibleTabs[0] ?? 'overview')
 
@@ -242,7 +254,21 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
             // this scrolled with zero visual affordance (confirmed live: the
             // last tab was silently clipped even at 1024px on an 8-tab
             // profile, e.g. ADMIN viewing a SENIOR).
-            <div className="relative overflow-x-auto pb-1 scroll-fade-x">
+            // UX-H-1 (design review, PR #675 fix-round 2): the native
+            // scrollbar this container would otherwise show on a
+            // non-touch pointer (mouse/trackpad) is hidden — `scroll-fade-x`
+            // already carries the "more to scroll" affordance, a bare
+            // scrollbar underneath it is a second, uglier signal for the
+            // exact same fact. Scoped to THIS instance (arbitrary variant on
+            // the wrapper), not the shared `.scroll-fade-x` utility itself —
+            // other current/future callers of that class keep their default
+            // scrollbar unless they opt in the same way.
+            <div
+              className={cn(
+                'relative overflow-x-auto pb-1 scroll-fade-x',
+                '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+              )}
+            >
               <AnimatedTabs
                 tabs={visibleTabs.map((t) => ({ value: t, label: tabLabel(t) }))}
                 value={activeTab}
@@ -381,9 +407,9 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               {activeTab === 'resume' && visibleTabs.includes('resume') && (
                 <ResumeTab userId={profileUser.id} onDirtyChange={handleResumeDirtyChange} />
               )}
-              {activeTab === 'notifications' && visibleTabs.includes('notifications') && (
-                <NotificationSettingsTab />
-              )}
+              {mode === 'self' &&
+                activeTab === 'notifications' &&
+                visibleTabs.includes('notifications') && <NotificationSettingsTab />}
             </>
           )
         )}
