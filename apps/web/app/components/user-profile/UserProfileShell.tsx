@@ -407,20 +407,26 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               {activeTab === 'resume' && visibleTabs.includes('resume') && (
                 <ResumeTab userId={profileUser.id} onDirtyChange={handleResumeDirtyChange} />
               )}
-              {mode === 'self' &&
-                activeTab === 'notifications' &&
-                // Stryker disable next-line ConditionalExpression: `activeTab`
-                // is derived above as `visibleTabs.includes(tab) ? tab :
-                // visibleTabs[0]` — `activeTab === 'notifications'` can only
-                // be true when 'notifications' was already a member of
-                // `visibleTabs`, so this membership check can never
-                // observably differ from `true` given that invariant. Kept
-                // anyway for the SAME reason every sibling tab gate in this
-                // file repeats its own `visibleTabs.includes(...)` next to
-                // its `activeTab === '<tab>'` check (see `resume`/`contract`/
+              {
+                // `activeTab` is derived above as `visibleTabs.includes(tab)
+                // ? tab : visibleTabs[0]` — `activeTab === 'notifications'`
+                // can only be true when 'notifications' was already a member
+                // of `visibleTabs`, so the trailing
+                // `visibleTabs.includes('notifications')` membership check
+                // below can never observably differ from `true` given that
+                // invariant. Kept anyway for the SAME reason every sibling
+                // tab gate in this file repeats its own
+                // `visibleTabs.includes(...)` next to its
+                // `activeTab === '<tab>'` check (see `resume`/`contract`/
                 // etc. above) — one consistent per-tab idiom, not a special
-                // case for this tab alone.
-                visibleTabs.includes('notifications') && <NotificationSettingsTab />}
+                // case for this tab alone. `mode === 'self'` (SR-M-2) and
+                // `activeTab === 'notifications'` ARE both independently
+                // observable and covered by their own tests.
+                // Stryker disable next-line ConditionalExpression: see comment above.
+                mode === 'self' &&
+                  activeTab === 'notifications' &&
+                  visibleTabs.includes('notifications') && <NotificationSettingsTab />
+              }
             </>
           )
         )}

@@ -306,16 +306,28 @@ describe('notificationPreferencesResponseClientSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('still enforces the two locked/emailEnabled invariants on KNOWN types', () => {
-    const lockedMismatch = notificationPreferencesResponseClientSchema.safeParse({
+  it('rejects a KNOWN type whose `locked` disagrees with the type, with the exact reason and field path', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
       items: [{ type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: true, locked: false }],
     })
-    expect(lockedMismatch.success).toBe(false)
+    expect(result.success).toBe(false)
+    const issue = result.error?.issues[0] as { message: string; path: unknown[] } | undefined
+    expect(issue?.message).toBe('`locked` must be derived from the type, not sent independently')
+    // The path names WHICH field is wrong (index 0, `locked`) — a mutant
+    // emptying the path array, or renaming the field name, would still
+    // leave `success: false` unchanged; only the path/message content
+    // exposes it.
+    expect(issue?.path).toEqual(['items', 0, 'locked'])
+  })
 
-    const lockedButDisabled = notificationPreferencesResponseClientSchema.safeParse({
+  it('rejects a KNOWN locked type reporting email as disabled, with the exact reason and field path', () => {
+    const result = notificationPreferencesResponseClientSchema.safeParse({
       items: [{ type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: false, locked: true }],
     })
-    expect(lockedButDisabled.success).toBe(false)
+    expect(result.success).toBe(false)
+    const issue = result.error?.issues[0] as { message: string; path: unknown[] } | undefined
+    expect(issue?.message).toBe('A locked type can never report email as disabled')
+    expect(issue?.path).toEqual(['items', 0, 'emailEnabled'])
   })
 
   it('never enforces the locked/emailEnabled invariant on an unknown type (nothing to derive it from)', () => {
