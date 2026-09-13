@@ -80,7 +80,7 @@ describe('NotificationSettingsTab — loading/error states', () => {
   it('shows the error message + Повторить, which calls refetch', () => {
     queryState = { data: undefined, isLoading: false, isError: true, refetch: refetchMock }
     render(<NotificationSettingsTab />)
-    expect(screen.getByText('Не удалось загрузить настройки уведомлений.')).toBeInTheDocument()
+    expect(screen.getByText('Не удалось загрузить настройки.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
     expect(refetchMock).toHaveBeenCalledTimes(1)
   })
@@ -88,7 +88,7 @@ describe('NotificationSettingsTab — loading/error states', () => {
 
 describe('NotificationSettingsTab — AC2 grouping + titles', () => {
   it('renders all ten types, titles matching the shared NOTIFICATION_TITLES map', () => {
-    // ADMIN viewer so the "Для администратора" group (and its two types)
+    // ADMIN viewer so the "Решения по вашим предложениям" group (and its two types)
     // also renders — this assertion is about every type's TITLE, not about
     // role-gating (that's the two admin-visibility tests below).
     viewerRole = 'ADMIN'
@@ -118,15 +118,28 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows "Для администратора" group for an ADMIN viewer', () => {
+  it('shows "Решения по вашим предложениям" group for an ADMIN viewer', () => {
     viewerRole = 'ADMIN'
+    render(<NotificationSettingsTab />)
+    const scope = within(screen.getByTestId('notification-settings-desktop'))
+    expect(scope.getByTestId('notification-group-admin')).toBeInTheDocument()
+    expect(scope.getByText('Решения по вашим предложениям')).toBeInTheDocument()
+    expect(scope.getByText(NOTIFICATION_TITLES.APPROVAL_CONFIRMED)).toBeInTheDocument()
+  })
+
+  // SR-M-3 (security-review, fix-round 2, PR #675): HR is the OTHER role
+  // that can be `proposedByUserId` on a project, and therefore the OTHER
+  // actual recipient of these two email types — pins that the group is
+  // gated on a SET of roles, not `=== 'ADMIN'` alone.
+  it('shows "Решения по вашим предложениям" group for an HR viewer too', () => {
+    viewerRole = 'HR'
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-desktop'))
     expect(scope.getByTestId('notification-group-admin')).toBeInTheDocument()
     expect(scope.getByText(NOTIFICATION_TITLES.APPROVAL_CONFIRMED)).toBeInTheDocument()
   })
 
-  it('hides "Для администратора" group for a non-ADMIN viewer (SENIOR)', () => {
+  it('hides "Решения по вашим предложениям" group for a SENIOR viewer', () => {
     viewerRole = 'SENIOR'
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-desktop'))
@@ -158,14 +171,16 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     }
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-desktop'))
-    const title = scope.getByText('FUTURE_TYPE_XYZ')
+    // COPY-H-1 (fix-round 2, PR #675): the visible label is the generic
+    // "Уведомление", never the raw type — but the raw type stays reachable
+    // via the row's own `data-testid` and its `title` attribute.
+    expect(scope.queryByText('FUTURE_TYPE_XYZ')).not.toBeInTheDocument()
+    const row = scope.getByTestId('notification-row-desktop-FUTURE_TYPE_XYZ')
+    const title = within(row).getByText('Уведомление')
     expect(title).toBeInTheDocument()
-    // font-mono signals "this is a raw type code, not translated text"
-    // (design spec §7) — pins the `!known` branch on the DESKTOP layout
-    // specifically (the mobile equivalent is pinned separately below).
-    expect(title.className).toContain('font-mono')
+    expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
     expect(
-      scope.getByText('Новый тип уведомления, ожидайте обновления интерфейса.'),
+      scope.getByText('Новый тип уведомления — настройка появится после обновления.'),
     ).toBeInTheDocument()
     // No header row renders for the untitled trailing "unknown" group on the
     // desktop table (`DesktopGroupHeader` returns `null` when `title` is
@@ -174,22 +189,22 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     expect(scope.queryByTestId('notification-group-unknown')).not.toBeInTheDocument()
   })
 
-  it('a known type on the desktop layout never gets the font-mono treatment', () => {
+  it('a known type never carries a `title` attribute (no raw type to surface)', () => {
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-desktop'))
     const title = scope.getByText('Вам добавили транзакцию')
     expect(title.className).toContain('text-sm')
-    expect(title.className).not.toContain('font-mono')
+    expect(title).not.toHaveAttribute('title')
   })
 
-  it('the switch aria-label names the exact type, not a generic label', () => {
+  it('the switch aria-label leads with the channel, then names the exact type', () => {
     render(<NotificationSettingsTab />)
     const row = within(screen.getByTestId('notification-settings-desktop')).getByTestId(
       'notification-row-desktop-TRANSACTION_ADDED',
     )
     expect(within(row).getByRole('switch')).toHaveAttribute(
       'aria-label',
-      '«Вам добавили транзакцию» — письмо',
+      'Письма: Вам добавили транзакцию',
     )
   })
 
@@ -244,30 +259,44 @@ describe('NotificationSettingsTab — AC3 locked rows', () => {
     expect(mutateMock).not.toHaveBeenCalled()
   })
 
-  it('renders the locked explanation text, referenced by aria-describedby', () => {
+  // COPY-M-2 (copy-review, fix-round 2, PR #675): the explanation is now
+  // rendered ONCE, under the group heading, and every locked switch's
+  // `aria-describedby` points at that single id — not a per-row paragraph.
+  it('renders the shared locked explanation once under the group heading, referenced by every locked switch', () => {
     render(<NotificationSettingsTab />)
-    const row = within(screen.getByTestId('notification-settings-desktop')).getByTestId(
-      'notification-row-desktop-SHARE_CONFIRM_REQUIRED',
-    )
-    const sw = within(row).getByRole('switch')
-    const describedBy = sw.getAttribute('aria-describedby')
-    expect(describedBy).toBeTruthy()
-    // Looked up via the accessible-name query, scoped to THIS row (not
-    // `document.getElementById`, and not an unscoped `screen.getByText` —
-    // all three locked rows share the identical explanation text, so an
-    // unscoped query would hit "multiple elements" across rows AND
-    // breakpoints). Asserts BOTH that the text renders in this row AND that
-    // it carries the exact id `aria-describedby` points at.
-    const explanationEl = within(row).getByText(
+    const desktop = within(screen.getByTestId('notification-settings-desktop'))
+    const group = desktop.getByTestId('notification-group-action-required')
+    const explanationEl = within(group).getByText(
       'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.',
     )
-    expect(explanationEl).toHaveAttribute('id', describedBy)
-    // Same element, reachable by its OWN testid too (not just by text) — pins
-    // the `data-testid` string against a mutant that empties it while the
-    // `id` attribute (a separate string) stays intact.
+    expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-locked-desktop')
+    expect(within(group).getByTestId('notification-pref-explain-locked-desktop')).toBe(
+      explanationEl,
+    )
+    // ALL THREE locked types' switches describedBy the SAME shared id — not
+    // three different ids, and not a leftover per-row id.
+    for (const type of [
+      'PROJECT_CONFIRM_REQUIRED',
+      'SHARE_CONFIRM_REQUIRED',
+      'DOCUMENT_SIGN_REQUIRED',
+    ]) {
+      const row = desktop.getByTestId(`notification-row-desktop-${type}`)
+      expect(within(row).getByRole('switch')).toHaveAttribute(
+        'aria-describedby',
+        'notification-pref-explain-locked-desktop',
+      )
+      // The per-row explanation paragraph no longer exists for a locked row.
+      expect(
+        within(row).queryByTestId(`notification-pref-explain-desktop-${type}`),
+      ).not.toBeInTheDocument()
+    }
+    // The shared paragraph renders exactly ONCE for the whole group, not
+    // once per locked row (the bug COPY-M-2 fixed).
     expect(
-      within(row).getByTestId('notification-pref-explain-desktop-SHARE_CONFIRM_REQUIRED'),
-    ).toBe(explanationEl)
+      desktop.getAllByText(
+        'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.',
+      ),
+    ).toHaveLength(1)
   })
 })
 
@@ -311,14 +340,14 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     expect(scope.getByText('Требуют ответа')).toBeInTheDocument()
     expect(scope.getByText('Деньги')).toBeInTheDocument()
     expect(scope.getByText('Команда и проекты')).toBeInTheDocument()
-    expect(scope.getByText('Для администратора')).toBeInTheDocument()
+    expect(scope.getByText('Решения по вашим предложениям')).toBeInTheDocument()
     for (const item of TEN_TYPES) {
       const title = NOTIFICATION_TITLES[item.type as keyof typeof NOTIFICATION_TITLES]
       expect(scope.getByText(title)).toBeInTheDocument()
     }
   })
 
-  it('an unknown type renders a generic (font-mono) row with the "new type" explanation', () => {
+  it('an unknown type renders a generic row with the "new type" explanation', () => {
     queryState = {
       data: {
         items: [...TEN_TYPES, { type: 'FUTURE_TYPE_XYZ', emailEnabled: true, locked: false }],
@@ -329,10 +358,13 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     }
     render(<NotificationSettingsTab />)
     const scope = within(screen.getByTestId('notification-settings-mobile'))
-    const title = scope.getByText('FUTURE_TYPE_XYZ')
-    expect(title.className).toContain('font-mono')
+    // COPY-H-1: raw type is not the visible label anywhere.
+    expect(scope.queryByText('FUTURE_TYPE_XYZ')).not.toBeInTheDocument()
+    const row = scope.getByTestId('notification-row-mobile-FUTURE_TYPE_XYZ')
+    const title = within(row).getByText('Уведомление')
+    expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
     expect(
-      scope.getByText('Новый тип уведомления, ожидайте обновления интерфейса.'),
+      scope.getByText('Новый тип уведомления — настройка появится после обновления.'),
     ).toBeInTheDocument()
     // The untitled trailing group still gets its wrapping div (unlike the
     // desktop table), but never a visible heading — pins `group.title && (...)`
@@ -341,21 +373,20 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     expect(within(unknownGroup).queryByTestId('notification-group-heading')).not.toBeInTheDocument()
   })
 
-  it('a known type never gets the font-mono treatment, and keeps its base classes', () => {
+  it('a known type never carries a `title` attribute (no raw type to surface)', () => {
     render(<NotificationSettingsTab />)
     const title = within(screen.getByTestId('notification-settings-mobile')).getByText(
       'Вам добавили транзакцию',
     )
     expect(title.className).toContain('text-sm')
     expect(title.className).toContain('font-medium')
-    expect(title.className).not.toContain('font-mono')
+    expect(title).not.toHaveAttribute('title')
   })
 
-  it('locked row: checked, aria-disabled, opacity class, no mutation on click', () => {
+  it('locked row: checked, aria-disabled, opacity class, no mutation on click, describedBy the shared group explanation', () => {
     render(<NotificationSettingsTab />)
-    const row = within(screen.getByTestId('notification-settings-mobile')).getByTestId(
-      'notification-row-mobile-PROJECT_CONFIRM_REQUIRED',
-    )
+    const mobile = within(screen.getByTestId('notification-settings-mobile'))
+    const row = mobile.getByTestId('notification-row-mobile-PROJECT_CONFIRM_REQUIRED')
     const sw = within(row).getByRole('switch')
     expect(sw).toHaveAttribute('aria-checked', 'true')
     expect(sw).toHaveAttribute('aria-disabled', 'true')
@@ -368,15 +399,14 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     fireEvent.click(sw)
     expect(mutateMock).not.toHaveBeenCalled()
 
-    const describedBy = sw.getAttribute('aria-describedby')
-    expect(describedBy).toBeTruthy()
-    // Same id+testid pairing pinned as the desktop layout above — the
-    // mobile explanation paragraph is a SEPARATE JSX element with its own
-    // (independently mutable) `id` and `data-testid` strings.
-    const explanationEl = within(row).getByTestId(
-      'notification-pref-explain-mobile-PROJECT_CONFIRM_REQUIRED',
-    )
-    expect(explanationEl).toHaveAttribute('id', describedBy)
+    // COPY-M-2: describedBy points at the ONE shared group-level id, not a
+    // per-row paragraph — the per-row explanation no longer exists.
+    expect(sw).toHaveAttribute('aria-describedby', 'notification-pref-explain-locked-mobile')
+    expect(
+      within(row).queryByTestId('notification-pref-explain-mobile-PROJECT_CONFIRM_REQUIRED'),
+    ).not.toBeInTheDocument()
+    const explanationEl = mobile.getByTestId('notification-pref-explain-locked-mobile')
+    expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-locked-mobile')
   })
 
   it('toggling an unlocked switch calls the mutation with exactly that type', () => {

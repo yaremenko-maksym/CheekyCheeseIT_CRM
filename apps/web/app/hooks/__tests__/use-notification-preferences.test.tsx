@@ -36,6 +36,7 @@ const RESPONSE = {
   items: [
     { type: 'TRANSACTION_ADDED', emailEnabled: true, locked: false },
     { type: 'PROJECT_CONFIRM_REQUIRED', emailEnabled: true, locked: true },
+    { type: 'PROJECT_MEMBER_ADDED', emailEnabled: false, locked: false },
   ],
 }
 
@@ -179,12 +180,83 @@ describe('useUpdateNotificationPreference', () => {
     )
   })
 
+  // CR-M-1 (code-review, fix-round 2, PR #675): rolling back one mutation
+  // must not clobber a SECOND, sibling mutation's own optimistic write.
+  it('rolling back one failed mutation does not clobber a different row a second, concurrent mutation already wrote', async () => {
+    mockGet.mockResolvedValueOnce({ data: RESPONSE })
+    let rejectFirst!: (e: Error) => void
+    let resolveSecond!: () => void
+    mockPut
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirst = reject
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSecond = () => resolve()
+          }),
+      )
+    const qc = new QueryClient()
+    const { result: queryResult } = renderHook(() => useNotificationPreferences(), {
+      wrapper: wrapper(qc),
+    })
+    await waitFor(() => expect(queryResult.current.isSuccess).toBe(true))
+
+    const { result: mutationA } = renderHook(() => useUpdateNotificationPreference(), {
+      wrapper: wrapper(qc),
+    })
+    const { result: mutationB } = renderHook(() => useUpdateNotificationPreference(), {
+      wrapper: wrapper(qc),
+    })
+
+    // A: toggle TRANSACTION_ADDED off (will fail).
+    act(() => {
+      mutationA.current.mutate({ type: 'TRANSACTION_ADDED', emailEnabled: false })
+    })
+    await waitFor(() => {
+      const cached = qc.getQueryData<typeof RESPONSE>(NOTIFICATION_PREFERENCES_QUERY_KEY)
+      expect(cached?.items.find((i) => i.type === 'TRANSACTION_ADDED')?.emailEnabled).toBe(false)
+    })
+
+    // B: toggle a DIFFERENT row (PROJECT_MEMBER_ADDED) on, while A is still
+    // in flight (will succeed).
+    act(() => {
+      mutationB.current.mutate({ type: 'PROJECT_MEMBER_ADDED', emailEnabled: true })
+    })
+    await waitFor(() => {
+      const cached = qc.getQueryData<typeof RESPONSE>(NOTIFICATION_PREFERENCES_QUERY_KEY)
+      expect(cached?.items.find((i) => i.type === 'PROJECT_MEMBER_ADDED')?.emailEnabled).toBe(true)
+    })
+
+    // A fails.
+    act(() => {
+      rejectFirst(new Error('boom'))
+    })
+    await waitFor(() => expect(mutationA.current.isError).toBe(true))
+
+    // A's OWN row reverted to its pre-mutation value…
+    const afterA = qc.getQueryData<typeof RESPONSE>(NOTIFICATION_PREFERENCES_QUERY_KEY)
+    expect(afterA?.items.find((i) => i.type === 'TRANSACTION_ADDED')?.emailEnabled).toBe(true)
+    // …but B's still-in-flight optimistic row is UNTOUCHED by A's rollback —
+    // a whole-snapshot rollback (the pre-fix behaviour) would have reverted
+    // this back to `false` too, since A's snapshot predates B's write.
+    expect(afterA?.items.find((i) => i.type === 'PROJECT_MEMBER_ADDED')?.emailEnabled).toBe(true)
+
+    act(() => {
+      resolveSecond()
+    })
+    await waitFor(() => expect(mutationB.current.isSuccess).toBe(true))
+  })
+
   it('erroring with no prior snapshot never calls setQueryData at all', async () => {
-    // Pins `if (context?.previous)` directly via a spy — NOT via the
+    // Pins `if (context?.previousItem)` directly via a spy — NOT via the
     // resulting cache state, because `QueryClient.setQueryData(key,
     // undefined)` is a documented no-op (TanStack Query skips writing when
     // the new value is `undefined`), so `if (true)` and `if (context?.
-    // previous)` produce the IDENTICAL observable cache state here even
+    // previousItem)` produce the IDENTICAL observable cache state here even
     // though only one of them actually calls `setQueryData`. The spy sees
     // the call that the cache state cannot.
     mockPut.mockRejectedValueOnce(new Error('boom'))
@@ -202,14 +274,14 @@ describe('useUpdateNotificationPreference', () => {
     expect(setDataSpy).not.toHaveBeenCalled()
   })
 
-  it('never throws in onError when onMutate itself rejected (context is undefined, not just context.previous)', async () => {
-    // `context?.previous` guards against TWO distinct falsy shapes: (1)
-    // `context` is a real object with `previous: undefined` (covered above),
-    // and (2) `context` itself is `undefined` — which only happens if
-    // `onMutate` rejects before returning. Removing the `?.` (leaving plain
-    // `context.previous`) is safe for shape (1) but throws a TypeError for
-    // shape (2) — forcing `cancelQueries` (the first call inside `onMutate`)
-    // to reject reaches exactly that shape.
+  it('never throws in onError when onMutate itself rejected (context is undefined, not just context.previousItem)', async () => {
+    // `context?.previousItem` guards against TWO distinct falsy shapes: (1)
+    // `context` is a real object with `previousItem: undefined` (covered
+    // above), and (2) `context` itself is `undefined` — which only happens
+    // if `onMutate` rejects before returning. Removing the `?.` (leaving
+    // plain `context.previousItem`) is safe for shape (1) but throws a
+    // TypeError for shape (2) — forcing `cancelQueries` (the first call
+    // inside `onMutate`) to reject reaches exactly that shape.
     const qc = new QueryClient()
     vi.spyOn(qc, 'cancelQueries').mockRejectedValueOnce(new Error('cancel failed'))
     const { result: mutationResult } = renderHook(() => useUpdateNotificationPreference(), {

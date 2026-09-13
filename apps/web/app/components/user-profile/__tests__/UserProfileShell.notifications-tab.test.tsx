@@ -136,4 +136,23 @@ describe('UserProfileShell — "Уведомления" tab (AC1)', () => {
     expect(screen.getByTestId('stub-overview')).toBeInTheDocument()
     expect(screen.queryByTestId('stub-notifications')).not.toBeInTheDocument()
   })
+
+  // SR-M-2 (security-review, fix-round 2, PR #675): a SECOND, independent
+  // defense — even if `permissions.tabs` (backend) ever grows a
+  // 'notifications' entry for a self-view role in mode `view` (now
+  // typeable at all, since this PR adds it to `tabKeySchema`), the render
+  // gate is `mode === 'self' && ...`, not "whatever visibleTabs contains".
+  // Before this fix, the ONLY thing keeping a `view` profile's own
+  // preferences off-screen was "the backend never sends it there" — this
+  // test pins that a SECOND belt exists even if that assumption ever goes
+  // stale, without needing a live backend change to prove it (the tab bar
+  // and the body are both driven straight off this array via the mocked
+  // `useUser`/`useMe`).
+  it('mode=view: even if permissions.tabs somehow contains "notifications", neither the tab bar nor the body renders it', () => {
+    queryData = makeData(['overview', 'notifications'])
+    renderShell('view', 'notifications')
+    expect(screen.queryByText('Уведомления')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stub-notifications')).not.toBeInTheDocument()
+    expect(screen.getByTestId('stub-overview')).toBeInTheDocument()
+  })
 })

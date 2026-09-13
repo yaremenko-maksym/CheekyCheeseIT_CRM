@@ -17,6 +17,7 @@ import {
   isRowInteractive,
   rowChecked,
   rowExplanation,
+  rowExplanationId,
   rowTitle,
   type PreferenceRow,
 } from '../NotificationSettingsTab'
@@ -72,17 +73,17 @@ describe('groupPreferences', () => {
     expect(ar?.rows.map((r) => r.type)).toEqual(['PROJECT_CONFIRM_REQUIRED'])
   })
 
-  it('omits the admin group for a non-admin viewer, even when admin-only types are present in the input', () => {
+  it('omits the admin group when canSeeAdminGroup is false, even when admin-only types are present in the input', () => {
     const items = [row('APPROVAL_CONFIRMED'), row('TRANSACTION_ADDED')]
     const groups = groupPreferences(items, false)
     expect(groups.find((g) => g.key === 'admin')).toBeUndefined()
   })
 
-  it('includes the admin group, correctly titled and populated, for an admin viewer', () => {
+  it('includes the admin group, correctly titled and populated, when canSeeAdminGroup is true', () => {
     const items = [row('APPROVAL_CONFIRMED'), row('APPROVAL_REJECTED')]
     const groups = groupPreferences(items, true)
     const admin = groups.find((g) => g.key === 'admin')
-    expect(admin?.title).toBe('Для администратора')
+    expect(admin?.title).toBe('Решения по вашим предложениям')
     expect(admin?.rows.map((r) => r.type)).toEqual(['APPROVAL_CONFIRMED', 'APPROVAL_REJECTED'])
   })
 
@@ -108,8 +109,10 @@ describe('rowTitle', () => {
     expect(rowTitle(row('TRANSACTION_ADDED'))).toBe('Вам добавили транзакцию')
   })
 
-  it('unknown type → the raw type string (no crash, no translation)', () => {
-    expect(rowTitle(row('FUTURE_TYPE_XYZ'))).toBe('FUTURE_TYPE_XYZ')
+  // COPY-H-1 (copy-review, fix-round 2, PR #675): the raw enum value must
+  // never be the VISIBLE label — see the comment on `rowTitle` itself.
+  it('unknown type → the generic "Уведомление" label, not the raw type string', () => {
+    expect(rowTitle(row('FUTURE_TYPE_XYZ'))).toBe('Уведомление')
   })
 })
 
@@ -120,14 +123,44 @@ describe('rowExplanation', () => {
     )
   })
 
+  // COPY-L-1 (copy-review, fix-round 2, PR #675).
   it('unlocked unknown type → the "new type" text', () => {
     expect(rowExplanation(row('FUTURE_TYPE_XYZ'))).toBe(
-      'Новый тип уведомления, ожидайте обновления интерфейса.',
+      'Новый тип уведомления — настройка появится после обновления.',
     )
   })
 
   it('unlocked known type → no explanation', () => {
     expect(rowExplanation(row('TRANSACTION_ADDED'))).toBeNull()
+  })
+})
+
+describe('rowExplanationId', () => {
+  // COPY-M-2 (copy-review, fix-round 2, PR #675): a locked row's
+  // aria-describedby now points at the ONE shared group-level paragraph, not
+  // a per-row id — same id regardless of which of the three locked types
+  // this row is, but distinct per layout (desktop/mobile render the shared
+  // paragraph in two separate DOM subtrees).
+  it('locked row → the shared per-layout id, identical across different locked types', () => {
+    expect(rowExplanationId(row('PROJECT_CONFIRM_REQUIRED', { locked: true }), 'desktop')).toBe(
+      'notification-pref-explain-locked-desktop',
+    )
+    expect(rowExplanationId(row('SHARE_CONFIRM_REQUIRED', { locked: true }), 'desktop')).toBe(
+      'notification-pref-explain-locked-desktop',
+    )
+    expect(rowExplanationId(row('PROJECT_CONFIRM_REQUIRED', { locked: true }), 'mobile')).toBe(
+      'notification-pref-explain-locked-mobile',
+    )
+  })
+
+  it('unlocked unknown type → a per-row, per-type id (unchanged from before COPY-M-2)', () => {
+    expect(rowExplanationId(row('FUTURE_TYPE_XYZ'), 'desktop')).toBe(
+      'notification-pref-explain-desktop-FUTURE_TYPE_XYZ',
+    )
+  })
+
+  it('unlocked known type → no id at all', () => {
+    expect(rowExplanationId(row('TRANSACTION_ADDED'), 'desktop')).toBeUndefined()
   })
 })
 
