@@ -4,6 +4,7 @@ import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { ShieldOff, UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import type { TabKey } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import {
   AlertDialog,
@@ -31,6 +32,7 @@ import { RequisitesTab } from './tabs/RequisitesTab'
 import { TeamTab } from './tabs/TeamTab'
 import { ContractTab } from './contract/ContractTab'
 import { ResumeTab } from './resume/ResumeTab'
+import { NotificationSettingsTab } from './tabs/NotificationSettingsTab'
 
 const TAB_LABELS: Record<string, string> = {
   overview: 'Обзор',
@@ -42,6 +44,7 @@ const TAB_LABELS: Record<string, string> = {
   documents: 'Документы',
   contract: 'Контракт',
   resume: 'Резюме',
+  notifications: 'Уведомления',
 }
 
 export interface UserProfileShellProps {
@@ -162,10 +165,26 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   // The backend still decides whether the tab is offered at all, so a non-SENIOR
   // self-view never gets it.
   const SELF_ALLOWED_TABS = ['overview', 'requisites', 'contract', 'resume'] as const
-  const visibleTabs = !permissions
+  // task-notification-settings-ui (position 7b): 'notifications' is added
+  // client-side, UNCONDITIONALLY on top of whatever the backend sends for
+  // `mode === 'self'`, rather than through the SELF_ALLOWED_TABS intersection
+  // above. Reasoning (docs/design/notification-settings.md §0.1/§12, A1):
+  // the backend's `getViewPermissions().tabs` (7a) never learned about this
+  // tab (verified — no 'notifications' string anywhere in
+  // users-access.service.ts), and adding it there is apps/api, out of this
+  // task's zone-of-write. "Каналы настраивает сам сотрудник" (task file) has
+  // no stated role exception besides the in-tab admin-group gate, so every
+  // self profile gets the tab unconditionally — reversible A1 decision,
+  // recorded here and in the PR body, not escalated. `mode === 'view'` is
+  // untouched: permissions.tabs never contains 'notifications' there either
+  // (nobody adds it), so AC1's "no tab in view" holds for free.
+  const visibleTabs: TabKey[] = !permissions
     ? []
     : mode === 'self'
-      ? permissions.tabs.filter((t) => (SELF_ALLOWED_TABS as readonly string[]).includes(t))
+      ? [
+          ...permissions.tabs.filter((t) => (SELF_ALLOWED_TABS as readonly string[]).includes(t)),
+          'notifications',
+        ]
       : permissions.tabs
 
   const activeTab = visibleTabs.includes(tab as never) ? tab : (visibleTabs[0] ?? 'overview')
@@ -361,6 +380,9 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               )}
               {activeTab === 'resume' && visibleTabs.includes('resume') && (
                 <ResumeTab userId={profileUser.id} onDirtyChange={handleResumeDirtyChange} />
+              )}
+              {activeTab === 'notifications' && visibleTabs.includes('notifications') && (
+                <NotificationSettingsTab />
               )}
             </>
           )
