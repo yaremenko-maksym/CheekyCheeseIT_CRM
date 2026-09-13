@@ -42,11 +42,34 @@ export interface AnimatedTabsProps {
  * scrollable ancestor in the chain needed to satisfy `block`/`inline`, not
  * only the nearest one), which is the reason this rewrite stopped calling
  * it altogether and mutates one specific, explicitly-found element instead.
+ *
+ * SR-L-7 (security-review, fix-round 4, PR #675): geometry alone
+ * (`scrollWidth > clientWidth`) is not proof a node IS a scroll container —
+ * an ancestor styled `overflow: visible` reports the exact same inequality
+ * whenever one of its children spills past its own edge, without that
+ * ancestor scrolling anything at all. Fix-round 3's predicate would stop at
+ * the first such node, mutate a `.scrollLeft` that has no visible effect on
+ * a non-scrolling element, and never reach the CONSUMER's real
+ * `overflow-x-auto` wrapper further up — silently defeating the whole
+ * feature on any DOM shape with an intervening `overflow: visible` box (a
+ * shape this component does not control and cannot assume away). The
+ * predicate now additionally requires the computed `overflow-x` to be
+ * `auto` or `scroll` — the two values that actually make a box a scroll
+ * container per the CSS Overflow spec. The walk also now explicitly stops
+ * AT `document.body` rather than continuing to `document.documentElement`
+ * (`<html>`): finding no real container is a legitimate outcome (a consumer
+ * with no `overflow-x-auto` ancestor at all, e.g. `RequisitesEditForm.tsx`)
+ * and must stay a no-op — mutating `<html>`'s `scroll-behavior` would be a
+ * page-wide side effect this component has no business causing.
  */
 function findScrollableAncestor(el: HTMLElement): HTMLElement | null {
   let node = el.parentElement
   while (node) {
-    if (node.scrollWidth > node.clientWidth) return node
+    const overflowX = getComputedStyle(node).overflowX
+    if ((overflowX === 'auto' || overflowX === 'scroll') && node.scrollWidth > node.clientWidth) {
+      return node
+    }
+    if (node === document.body) return null
     node = node.parentElement
   }
   return null

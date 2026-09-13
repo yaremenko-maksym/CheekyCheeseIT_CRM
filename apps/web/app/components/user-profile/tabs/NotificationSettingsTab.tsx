@@ -100,7 +100,10 @@ export function groupPreferences(
   // one row an HR proposer would need to turn these emails off. Composition
   // still comes from the backend (it may send the admin-only types to any
   // role by mistake) — the UI is the second, independent line of defense
-  // and never renders the group for a role outside {ADMIN, HR} regardless.
+  // and never renders the group for a role outside {ADMIN, HR, ACCOUNTANT}
+  // regardless (SR-L-6, fix-round 4: the set widened again after SR-M-4
+  // below — this comment now matches `CAN_SEE_ADMIN_GROUP_ROLES`, the
+  // single source of truth for who sees this group).
   // COPY-L-5 (copy-review, fix-round 3, PR #675): "Решения по вашим
   // предложениям" (29 characters, uppercase + tracking-wide) measured on the
   // live 320px stand under ADMIN — wraps to two lines (boundingBox height
@@ -131,7 +134,14 @@ export function groupPreferences(
 // "новый тип уведомления" said the same thing twice before the sentence
 // got to what actually differs (that the setting isn't here yet). Trimmed
 // to the one new fact.
-const UNKNOWN_TYPE_EXPLANATION = 'Настройка появится после обновления.'
+// COPY-L-6 (copy-review, fix-round 4, PR #675): after COPY-L-4 dropped
+// "уведомления", the only noun left in the sentence was "обновление" with
+// no stated agent — and "после обновления" alone reads, in this product,
+// as "reload the page" (the label "Новый тип" carries the type context
+// now, not this sentence). One word back ("приложения") names what is
+// actually being waited on without reintroducing the "уведомления" repeat
+// COPY-L-4 removed.
+const UNKNOWN_TYPE_EXPLANATION = 'Настройка появится после обновления приложения.'
 const LOCKED_EXPLANATION =
   'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.'
 

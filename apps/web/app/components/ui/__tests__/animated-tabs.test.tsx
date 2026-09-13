@@ -46,12 +46,35 @@ let buttonRects: Record<string, { left: number; right: number }> = {}
 let scrollIntoViewCalls: number
 let windowScrollToCalls: number
 
+// SR-L-7 (security-review, fix-round 4, PR #675): a SECOND, independent
+// testid-keyed geometry map, on top of `wrapperGeometry` above — needed to
+// give a test more than one candidate ancestor at once (an outer REAL
+// scroll container plus an inner `overflow: visible` box that merely
+// reports the same `scrollWidth > clientWidth` inequality because a child
+// spills past it). Every entry also carries the computed `overflow-x` the
+// new predicate reads; `wrapperGeometry`'s own element (`data-testid=
+// "wrapper"`) keeps defaulting to `auto` below, unchanged, so none of the
+// pre-existing tests need to name an `overflowX` themselves.
+let extraGeometry: Record<
+  string,
+  { scrollWidth: number; clientWidth: number; left: number; right: number; overflowX: string }
+> = {}
+
+// SR-L-7 follow-up: `document.documentElement` (`<html>`) has no
+// `data-testid` to key off of — it needs its OWN slot so a test can make it
+// satisfy the container predicate (overflowing + `auto`/`scroll`) ON
+// PURPOSE, to prove the walk never reaches it. Inert by default (`0/0`,
+// `visible`) so no pre-existing test that never sets this is affected.
+let htmlGeometry = { scrollWidth: 0, clientWidth: 0, left: 0, right: 0, overflowX: 'visible' }
+
 function rect(partial: { left: number; right: number }): DOMRect {
   return { top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, ...partial } as DOMRect
 }
 
 beforeEach(() => {
   wrapperGeometry = { scrollWidth: 0, clientWidth: 0, left: 0, right: 0 }
+  extraGeometry = {}
+  htmlGeometry = { scrollWidth: 0, clientWidth: 0, left: 0, right: 0, overflowX: 'visible' }
   buttonRects = {}
   scrollIntoViewCalls = 0
   windowScrollToCalls = 0
@@ -60,19 +83,30 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'scrollWidth', {
     configurable: true,
     get(this: HTMLElement) {
-      return this.dataset.testid === 'wrapper' ? wrapperGeometry.scrollWidth : 0
+      if (this === document.documentElement) return htmlGeometry.scrollWidth
+      if (this.dataset.testid === 'wrapper') return wrapperGeometry.scrollWidth
+      const extra = this.dataset.testid ? extraGeometry[this.dataset.testid] : undefined
+      return extra ? extra.scrollWidth : 0
     },
   })
   Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
     configurable: true,
     get(this: HTMLElement) {
-      return this.dataset.testid === 'wrapper' ? wrapperGeometry.clientWidth : 0
+      if (this === document.documentElement) return htmlGeometry.clientWidth
+      if (this.dataset.testid === 'wrapper') return wrapperGeometry.clientWidth
+      const extra = this.dataset.testid ? extraGeometry[this.dataset.testid] : undefined
+      return extra ? extra.clientWidth : 0
     },
   })
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    if (this === document.documentElement) {
+      return rect({ left: htmlGeometry.left, right: htmlGeometry.right })
+    }
     if (this.dataset.testid === 'wrapper') {
       return rect({ left: wrapperGeometry.left, right: wrapperGeometry.right })
     }
+    const extra = this.dataset.testid ? extraGeometry[this.dataset.testid] : undefined
+    if (extra) return rect({ left: extra.left, right: extra.right })
     if (this.tagName === 'BUTTON') {
       const label = this.textContent?.trim() ?? ''
       const buttonRect = buttonRects[label]
@@ -80,6 +114,27 @@ beforeEach(() => {
     }
     return rect({ left: 0, right: 0 })
   }
+  // SR-L-7: `findScrollableAncestor` now reads `getComputedStyle(node).
+  // overflowX` — happy-dom applies no real stylesheet in these tests, so
+  // its own computed style would report the CSS default (`visible`) for
+  // every node regardless of Tailwind class names. `wrapper` stands in for
+  // the consumer's real `overflow-x-auto` div and is hard-coded to `auto`
+  // here (matching every pre-existing test, none of which mention
+  // `overflowX` at all); anything in `extraGeometry` reports whatever
+  // `overflowX` that test gave it; `<html>` reports `htmlGeometry`'s;
+  // everything else falls through to happy-dom's real default.
+  const originalGetComputedStyle = window.getComputedStyle.bind(window)
+  window.getComputedStyle = ((el: Element) => {
+    if (el === document.documentElement) {
+      return { overflowX: htmlGeometry.overflowX } as CSSStyleDeclaration
+    }
+    const testid = (el as HTMLElement).dataset?.testid
+    if (testid === 'wrapper') return { overflowX: 'auto' } as CSSStyleDeclaration
+    if (testid && extraGeometry[testid]) {
+      return { overflowX: extraGeometry[testid].overflowX } as CSSStyleDeclaration
+    }
+    return originalGetComputedStyle(el)
+  }) as typeof window.getComputedStyle
   // Still stubbed (not deleted) so a regression that brings `scrollIntoView`
   // back is caught as "it got called" rather than "the test crashed" —
   // happy-dom does not implement it at all.
@@ -296,5 +351,95 @@ describe('AnimatedTabs — SR-L-4: horizontal-only container scroll on the activ
     expect(() =>
       render(<AnimatedTabs tabs={TABS} value="does-not-exist" onChange={vi.fn()} />),
     ).not.toThrow()
+  })
+
+  // SR-L-7 (security-review, fix-round 4, PR #675): an `overflow: visible`
+  // ancestor with an overflowing child reports the exact same `scrollWidth
+  // > clientWidth` inequality a real scroll container does, without
+  // scrolling anything — the pre-round-4 predicate could not tell the two
+  // apart and would stop (and mutate `.scrollLeft`) on the wrong one,
+  // never reaching the real `overflow-x-auto` wrapper one level further
+  // out. `wrapper` (outer, `overflow-x: auto`) and `inner-visible` (its
+  // child, `overflow: visible`) both report overflowing geometry here; only
+  // `wrapper` may end up with a non-zero `scrollLeft`.
+  it('an "overflow: visible" ancestor with an overflowing child is walked past, not selected as the scroll container', () => {
+    wrapperGeometry = { scrollWidth: 1000, clientWidth: 300, left: 0, right: 300 }
+    extraGeometry['inner-visible'] = {
+      scrollWidth: 800,
+      clientWidth: 300,
+      left: 0,
+      right: 300,
+      overflowX: 'visible',
+    }
+    buttonRects = { Bravo: { left: 400, right: 500 } }
+    render(
+      <div data-testid="wrapper">
+        <div data-testid="inner-visible">
+          <AnimatedTabs tabs={TABS} value="b" onChange={vi.fn()} />
+        </div>
+      </div>,
+    )
+    const wrapper = screen.getByTestId('wrapper')
+    const innerVisible = screen.getByTestId('inner-visible')
+    // overflowRight = buttonRect.right(500) - containerRect.right(300) = 200
+    expect(wrapper.scrollLeft).toBe(200)
+    expect(innerVisible.scrollLeft).toBe(0)
+  })
+
+  // SR-L-7: the walk stops AT `document.body` and never continues to
+  // `document.documentElement` (`<html>`) — rendering with no
+  // `overflow-x-auto` ancestor anywhere (e.g. `RequisitesEditForm.tsx`) is
+  // a legitimate "nothing to do" outcome, not a reason to fall back to a
+  // page-wide element. Neither `<body>` nor `<html>` should ever have its
+  // `scroll-behavior` (or anything else) written.
+  it('boundary: no scrollable ancestor anywhere in the tree — <body>/<html> style is never touched', () => {
+    render(<AnimatedTabs tabs={TABS} value="a" onChange={vi.fn()} />)
+    expect(document.body.style.scrollBehavior).toBe('')
+    expect(document.documentElement.style.scrollBehavior).toBe('')
+    expect(document.body.getAttribute('style')).toBeNull()
+  })
+
+  // Mutation-gate follow-up (SR-L-7, fix-round 4, PR #675): every test above
+  // exercises the `'auto'` half of `overflowX === 'auto' || overflowX ===
+  // 'scroll'` — none of them can tell "the `'scroll'` branch was deleted"
+  // apart from "the `'scroll'` branch works", since none of them make
+  // `overflowX` equal `'scroll'` in the first place. `overflow-x: scroll`
+  // (as opposed to `auto`) is a real, valid CSS value for a scroll
+  // container and must be recognized identically.
+  it('an ancestor with `overflow-x: scroll` (not `auto`) is recognized as a valid scroll container too', () => {
+    extraGeometry['scroll-wrapper'] = {
+      scrollWidth: 1000,
+      clientWidth: 300,
+      left: 0,
+      right: 300,
+      overflowX: 'scroll',
+    }
+    buttonRects = { Bravo: { left: 400, right: 500 } }
+    render(
+      <div data-testid="scroll-wrapper">
+        <AnimatedTabs tabs={TABS} value="b" onChange={vi.fn()} />
+      </div>,
+    )
+    const container = screen.getByTestId('scroll-wrapper')
+    // overflowRight = buttonRect.right(500) - containerRect.right(300) = 200
+    expect(container.scrollLeft).toBe(200)
+  })
+
+  // Mutation-gate follow-up (SR-L-7): pins that the walk stops EXACTLY at
+  // `document.body` rather than merely "eventually stopping somewhere
+  // harmless". `<html>` here is deliberately made to satisfy BOTH halves
+  // of the predicate (`overflow-x: auto` AND `scrollWidth > clientWidth`)
+  // — if the body check were ever skipped (or inverted), this is the one
+  // scenario where the walk would keep going, find `<html>` a valid match,
+  // and mutate it. No `wrapper`/`extraGeometry` ancestor exists in this
+  // tree, so the ONLY way `scrollLeft`/`style` could end up written on
+  // anything is if the walk incorrectly reached `<html>`.
+  it('boundary: <html> satisfying the container predicate is still never reached — the walk stops at <body>', () => {
+    htmlGeometry = { scrollWidth: 1000, clientWidth: 300, left: 0, right: 300, overflowX: 'auto' }
+    buttonRects = { Bravo: { left: 400, right: 500 } }
+    render(<AnimatedTabs tabs={TABS} value="b" onChange={vi.fn()} />)
+    expect(document.documentElement.scrollLeft).toBe(0)
+    expect(document.documentElement.style.scrollBehavior).toBe('')
+    expect(document.body.style.scrollBehavior).toBe('')
   })
 })

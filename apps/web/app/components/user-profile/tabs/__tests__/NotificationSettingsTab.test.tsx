@@ -198,7 +198,7 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     const title = within(row).getByText('Новый тип')
     expect(title).toBeInTheDocument()
     expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
-    const explanationEl = within(row).getByText('Настройка появится после обновления.')
+    const explanationEl = within(row).getByText('Настройка появится после обновления приложения.')
     // Own id+testid pair (independent strings from the shared locked one) —
     // pins both against a mutant that empties either.
     expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-desktop-FUTURE_TYPE_XYZ')
@@ -408,7 +408,7 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     // "Новый тип" and the explanation dropped the repeated "уведомления".
     const title = within(row).getByText('Новый тип')
     expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
-    const explanationEl = within(row).getByText('Настройка появится после обновления.')
+    const explanationEl = within(row).getByText('Настройка появится после обновления приложения.')
     expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-mobile-FUTURE_TYPE_XYZ')
     expect(within(row).getByTestId('notification-pref-explain-mobile-FUTURE_TYPE_XYZ')).toBe(
       explanationEl,

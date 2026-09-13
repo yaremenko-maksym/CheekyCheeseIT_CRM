@@ -132,7 +132,9 @@ describe('rowExplanation', () => {
   // "новый тип уведомления" — the row's own label now says "Новый тип"
   // right above this sentence.
   it('unlocked unknown type → the "new type" text', () => {
-    expect(rowExplanation(row('FUTURE_TYPE_XYZ'))).toBe('Настройка появится после обновления.')
+    expect(rowExplanation(row('FUTURE_TYPE_XYZ'))).toBe(
+      'Настройка появится после обновления приложения.',
+    )
   })
 
   it('unlocked known type → no explanation', () => {
