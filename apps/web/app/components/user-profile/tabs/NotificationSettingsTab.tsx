@@ -564,7 +564,7 @@ const CAN_SEE_ADMIN_GROUP_ROLES = new Set(['ADMIN', 'HR', 'ACCOUNTANT'])
 
 export function NotificationSettingsTab() {
   const { user: viewer } = useAuth()
-  const canSeeAdminGroup = CAN_SEE_ADMIN_GROUP_ROLES.has(viewer?.role ?? '')
+  const canSeeAdminGroup = viewer !== null && CAN_SEE_ADMIN_GROUP_ROLES.has(viewer.role)
   const { data, isLoading, isError, refetch } = useNotificationPreferences()
   const updateMutation = useUpdateNotificationPreference()
 

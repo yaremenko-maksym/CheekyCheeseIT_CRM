@@ -13,6 +13,17 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { AnimatedTabs } from '../animated-tabs'
 
+// SR-L-4 mutation-gate follow-up (fix-round 3, PR #675): `container.style.
+// scrollBehavior = prefersReducedMotion ? 'auto' : 'smooth'` needs BOTH
+// branches driven directly — `useReducedMotion` reads `window.matchMedia`,
+// which happy-dom does not implement, so mocking the hook itself (instead
+// of matchMedia) is what makes both branches reachable at all.
+let mockReducedMotion = false
+vi.mock('framer-motion', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('framer-motion')>()
+  return { ...actual, useReducedMotion: () => mockReducedMotion }
+})
+
 const TABS = [
   { value: 'a', label: 'Alpha' },
   { value: 'b', label: 'Bravo' },
@@ -44,6 +55,7 @@ beforeEach(() => {
   buttonRects = {}
   scrollIntoViewCalls = 0
   windowScrollToCalls = 0
+  mockReducedMotion = false
 
   Object.defineProperty(HTMLElement.prototype, 'scrollWidth', {
     configurable: true,
@@ -217,6 +229,64 @@ describe('AnimatedTabs — SR-L-4: horizontal-only container scroll on the activ
     )
     // overflowLeft = containerRect.left(0) - buttonRect.left(-50) = 50
     expect(wrapper.scrollLeft).toBe(150)
+  })
+
+  // Mutation-gate follow-up (fix-round 3, PR #675): the two `<= 0` checks
+  // guarding the early return need their own EXACT-ZERO boundary cases —
+  // a strictly-negative overflow (used by every test above) cannot tell
+  // `<= 0` apart from `< 0`, since both agree everywhere except at 0.
+  it('boundary: overflowLeft exactly 0 (button flush at the left edge) counts as NOT overflowing — no scroll, no style touch', () => {
+    wrapperGeometry = { scrollWidth: 1000, clientWidth: 300, left: 0, right: 300 }
+    // overflowLeft = 0 - 0 = 0; overflowRight = 100 - 300 = -200 (both <= 0).
+    buttonRects = { Alpha: { left: 0, right: 100 } }
+    const { wrapper } = renderInWrapper('a')
+    expect(wrapper.scrollLeft).toBe(0)
+    expect(wrapper.style.scrollBehavior).toBe('')
+  })
+
+  it('boundary: overflowRight exactly 0 (button flush at the right edge) counts as NOT overflowing — no scroll, no style touch', () => {
+    wrapperGeometry = { scrollWidth: 1000, clientWidth: 300, left: 0, right: 300 }
+    // overflowLeft = 0 - 200 = -200; overflowRight = 300 - 300 = 0 (both <= 0).
+    buttonRects = { Alpha: { left: 200, right: 300 } }
+    const { wrapper } = renderInWrapper('a')
+    expect(wrapper.scrollLeft).toBe(0)
+    expect(wrapper.style.scrollBehavior).toBe('')
+  })
+
+  // Mutation-gate follow-up: the ternary picking which side to move by
+  // (`overflowLeft > 0 ? -overflowLeft : overflowRight`) needs its own
+  // EXACT-ZERO case on `overflowLeft` too — every "moves RIGHT" test above
+  // has `overflowLeft` strictly negative, which cannot tell `> 0` apart
+  // from `>= 0` (both agree there); only `overflowLeft === 0` disagrees.
+  it('boundary: overflowLeft exactly 0 while overflowRight is positive still moves by overflowRight, not by -overflowLeft', () => {
+    wrapperGeometry = { scrollWidth: 1000, clientWidth: 300, left: 0, right: 300 }
+    // overflowLeft = 0 - 0 = 0 (not > 0); overflowRight = 350 - 300 = 50.
+    buttonRects = { Alpha: { left: 0, right: 350 } }
+    const { wrapper } = renderInWrapper('a')
+    // If the ternary picked -overflowLeft (i.e. treated 0 as "> 0"), the
+    // delta would be -0 = 0 and scrollLeft would stay 0 instead of 50.
+    expect(wrapper.scrollLeft).toBe(50)
+  })
+
+  // Mutation-gate follow-up: pins BOTH string literals of the ternary that
+  // picks `scrollBehavior` — a StringLiteral mutant emptying either one
+  // passed every test above because none of them asserted on the value.
+  it('sets scrollBehavior to "smooth" when motion is not reduced', () => {
+    mockReducedMotion = false
+    wrapperGeometry = { scrollWidth: 1000, clientWidth: 300, left: 0, right: 300 }
+    buttonRects = { Bravo: { left: 400, right: 500 } }
+    const { wrapper } = renderInWrapper('b')
+    expect(wrapper.scrollLeft).toBe(200)
+    expect(wrapper.style.scrollBehavior).toBe('smooth')
+  })
+
+  it('sets scrollBehavior to "auto" when the viewer prefers reduced motion', () => {
+    mockReducedMotion = true
+    wrapperGeometry = { scrollWidth: 1000, clientWidth: 300, left: 0, right: 300 }
+    buttonRects = { Bravo: { left: 400, right: 500 } }
+    const { wrapper } = renderInWrapper('b')
+    expect(wrapper.scrollLeft).toBe(200)
+    expect(wrapper.style.scrollBehavior).toBe('auto')
   })
 
   // Pins the optional-chaining guard on `activeRef.current` — without it, a
