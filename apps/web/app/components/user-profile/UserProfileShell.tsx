@@ -408,21 +408,32 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
                 <ResumeTab userId={profileUser.id} onDirtyChange={handleResumeDirtyChange} />
               )}
               {
-                // `activeTab` is derived above as `visibleTabs.includes(tab)
-                // ? tab : visibleTabs[0]` — `activeTab === 'notifications'`
-                // can only be true when 'notifications' was already a member
-                // of `visibleTabs`, so the trailing
-                // `visibleTabs.includes('notifications')` membership check
-                // below can never observably differ from `true` given that
-                // invariant. Kept anyway for the SAME reason every sibling
-                // tab gate in this file repeats its own
-                // `visibleTabs.includes(...)` next to its
+                // This whole three-clause condition is over-determined by
+                // construction, and the mutation gate's report is the proof:
+                // collapsing ANY prefix of it (just the first clause, the
+                // first two, or all three) to a literal `true` silences 5
+                // separate ConditionalExpression mutants below, and none of
+                // them is independently observable — not because the tests
+                // are missing a case, but because `visibleTabs` (above) can
+                // only ever GAIN `'notifications'` in the `mode === 'self'`
+                // branch (the `view` branch explicitly filters it back out,
+                // SR-M-2), and `activeTab` (above) can only ever equal a tab
+                // that is already a member of `visibleTabs`. So
+                // `activeTab === 'notifications'` ALONE already implies both
+                // `mode === 'self'` AND `visibleTabs.includes('notifications')`
+                // — the other two clauses can never independently flip the
+                // outcome once that one holds. What each clause changing
+                // `===` to `!==` (or similar) still catches — see the
+                // "Killed EqualityOperator/LogicalOperator" entries in the
+                // mutation report for this line — is real: this comment
+                // only concerns the specific "replace with the literal
+                // `true`/`false`" mutant shape. Kept as three clauses anyway
+                // for the SAME reason every sibling tab gate in this file
+                // repeats its own `visibleTabs.includes(...)` next to its
                 // `activeTab === '<tab>'` check (see `resume`/`contract`/
                 // etc. above) — one consistent per-tab idiom, not a special
-                // case for this tab alone. `mode === 'self'` (SR-M-2) and
-                // `activeTab === 'notifications'` ARE both independently
-                // observable and covered by their own tests.
-                // Stryker disable next-line ConditionalExpression: see comment above.
+                // case for this tab alone.
+                // Stryker disable next-line ConditionalExpression: see comment above — silences 5 mutants (documented, not a blind blanket).
                 mode === 'self' &&
                   activeTab === 'notifications' &&
                   visibleTabs.includes('notifications') && <NotificationSettingsTab />
