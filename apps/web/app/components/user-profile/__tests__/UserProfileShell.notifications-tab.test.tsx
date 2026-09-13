@@ -91,6 +91,19 @@ beforeEach(() => {
 })
 
 describe('UserProfileShell — "Уведомления" tab (AC1)', () => {
+  // UX-H-1 (design review, fix-round 2, PR #675): the tab-bar wrapper hides
+  // the native scrollbar on non-touch pointers (the `scroll-fade-x`
+  // gradient hint already carries the "more to scroll" affordance — a bare
+  // OS scrollbar under it would be a second, redundant signal).
+  it('mode=self: the tab-bar wrapper hides the native scrollbar', () => {
+    queryData = makeData(['overview', 'requisites'])
+    renderShell('self', 'overview')
+    const wrapper = screen.getByText('Уведомления').closest('.overflow-x-auto')
+    expect(wrapper).not.toBeNull()
+    expect(wrapper?.className).toContain('[scrollbar-width:none]')
+    expect(wrapper?.className).toContain('[&::-webkit-scrollbar]:hidden')
+  })
+
   it('mode=self: the tab bar includes "Уведомления", and its body is NOT active by default', () => {
     queryData = makeData(['overview', 'requisites'])
     renderShell('self', 'overview')

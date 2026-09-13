@@ -179,9 +179,15 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     const title = within(row).getByText('Уведомление')
     expect(title).toBeInTheDocument()
     expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
-    expect(
-      scope.getByText('Новый тип уведомления — настройка появится после обновления.'),
-    ).toBeInTheDocument()
+    const explanationEl = within(row).getByText(
+      'Новый тип уведомления — настройка появится после обновления.',
+    )
+    // Own id+testid pair (independent strings from the shared locked one) —
+    // pins both against a mutant that empties either.
+    expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-desktop-FUTURE_TYPE_XYZ')
+    expect(within(row).getByTestId('notification-pref-explain-desktop-FUTURE_TYPE_XYZ')).toBe(
+      explanationEl,
+    )
     // No header row renders for the untitled trailing "unknown" group on the
     // desktop table (`DesktopGroupHeader` returns `null` when `title` is
     // falsy) — unlike the mobile stack, which always wraps a group in a
@@ -363,9 +369,13 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     const row = scope.getByTestId('notification-row-mobile-FUTURE_TYPE_XYZ')
     const title = within(row).getByText('Уведомление')
     expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
-    expect(
-      scope.getByText('Новый тип уведомления — настройка появится после обновления.'),
-    ).toBeInTheDocument()
+    const explanationEl = within(row).getByText(
+      'Новый тип уведомления — настройка появится после обновления.',
+    )
+    expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-mobile-FUTURE_TYPE_XYZ')
+    expect(within(row).getByTestId('notification-pref-explain-mobile-FUTURE_TYPE_XYZ')).toBe(
+      explanationEl,
+    )
     // The untitled trailing group still gets its wrapping div (unlike the
     // desktop table), but never a visible heading — pins `group.title && (...)`
     // in `MobileStack` against a mutant that renders the heading regardless.

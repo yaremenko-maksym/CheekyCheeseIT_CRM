@@ -180,6 +180,50 @@ describe('useUpdateNotificationPreference', () => {
     )
   })
 
+  // Pins the `.find((item) => item.type === type)` predicate in `onMutate`
+  // against a mutant that always matches the FIRST array element regardless
+  // of `type` — invisible in the test above because TRANSACTION_ADDED
+  // already IS the first element of `RESPONSE.items`. Rolling back a
+  // DIFFERENT (non-first) row exposes it: a wrong-row snapshot restored via
+  // `restored` (a full object, not a partial patch) would leave the cache
+  // with two rows sharing one `type` and zero rows for the type that
+  // actually failed.
+  it('rolling back a non-first row restores exactly that row, and leaves every other row byte-for-byte untouched', async () => {
+    mockGet.mockResolvedValueOnce({ data: RESPONSE })
+    mockPut.mockRejectedValueOnce(new Error('boom'))
+    const qc = new QueryClient()
+    const { result: queryResult } = renderHook(() => useNotificationPreferences(), {
+      wrapper: wrapper(qc),
+    })
+    await waitFor(() => expect(queryResult.current.isSuccess).toBe(true))
+
+    const { result: mutationResult } = renderHook(() => useUpdateNotificationPreference(), {
+      wrapper: wrapper(qc),
+    })
+
+    act(() => {
+      // PROJECT_MEMBER_ADDED is RESPONSE.items[2] — not the first element.
+      mutationResult.current.mutate({ type: 'PROJECT_MEMBER_ADDED', emailEnabled: true })
+    })
+
+    await waitFor(() => expect(mutationResult.current.isError).toBe(true))
+
+    const cached = qc.getQueryData<typeof RESPONSE>(NOTIFICATION_PREFERENCES_QUERY_KEY)
+    expect(cached?.items).toHaveLength(3)
+    // The row that actually failed reverted to ITS OWN original value.
+    expect(cached?.items.find((i) => i.type === 'PROJECT_MEMBER_ADDED')).toEqual(
+      RESPONSE.items[2],
+    )
+    // The untouched rows are byte-for-byte identical to their originals —
+    // a mutant that grabbed RESPONSE.items[0] (TRANSACTION_ADDED) as the
+    // "previous" snapshot for this mutation would have overwritten this
+    // slot with TRANSACTION_ADDED's own data during rollback instead.
+    expect(cached?.items.find((i) => i.type === 'TRANSACTION_ADDED')).toEqual(RESPONSE.items[0])
+    expect(cached?.items.find((i) => i.type === 'PROJECT_CONFIRM_REQUIRED')).toEqual(
+      RESPONSE.items[1],
+    )
+  })
+
   // CR-M-1 (code-review, fix-round 2, PR #675): rolling back one mutation
   // must not clobber a SECOND, sibling mutation's own optimistic write.
   it('rolling back one failed mutation does not clobber a different row a second, concurrent mutation already wrote', async () => {
