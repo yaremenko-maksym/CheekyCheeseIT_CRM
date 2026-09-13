@@ -109,6 +109,11 @@ export default [
       // Both are read INSIDE a row already obtained with `screen.getByTestId`,
       // so the portal-blindness this rule guards against cannot occur here.
       'app/components/layout/__tests__/notifications-bell.render.test.tsx',
+      // task-notification-settings-ui (position 7b): the Radix `Switch`
+      // thumb is a plain `<span>` with no role or accessible name — the
+      // track/thumb token classes it asserts on (design spec §3) have no
+      // queryable surface other than reaching the child node directly.
+      'app/components/ui/__tests__/switch.test.tsx',
     ],
     plugins: {
       'testing-library': testingLibrary,

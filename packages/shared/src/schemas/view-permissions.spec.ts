@@ -37,6 +37,38 @@ describe('actionKeySchema — every member is a real, distinct literal', () => {
   })
 })
 
+// task-notification-settings-ui (position 7b): same class of gap as
+// actionKeySchema above — `tabKeySchema` had no per-member pin, so a
+// StringLiteral mutant on the newly-added 'notifications' member (or any
+// other) would survive silently.
+describe('tabKeySchema — every member is a real, distinct literal', () => {
+  const MEMBERS = [
+    'overview',
+    'finance',
+    'projects',
+    'team',
+    'interviews',
+    'requisites',
+    'documents',
+    'audit',
+    'contract',
+    'resume',
+    'notifications',
+  ] as const
+
+  it.each(MEMBERS)('accepts %s', (member) => {
+    expect(tabKeySchema.parse(member)).toBe(member)
+  })
+
+  it('rejects an empty string (the exact shape a StringLiteral mutant produces)', () => {
+    expect(tabKeySchema.safeParse('').success).toBe(false)
+  })
+
+  it('has exactly the members above — nothing added or removed silently', () => {
+    expect(tabKeySchema.options).toEqual(MEMBERS)
+  })
+})
+
 describe('viewPermissionsSchema — smoke', () => {
   it('parses a realistic ADMIN-viewing-JUNIOR permissions payload', () => {
     const parsed = viewPermissionsSchema.parse({
