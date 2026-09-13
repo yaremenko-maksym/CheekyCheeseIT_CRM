@@ -79,7 +79,7 @@ export function isMoneyType(type: string): boolean {
 
 export function groupPreferences(
   items: readonly PreferenceRow[],
-  isAdmin: boolean,
+  canSeeAdminGroup: boolean,
 ): PreferenceGroup[] {
   const actionRequired = items.filter((i) => ACTION_REQUIRED_SET.has(i.type))
   const money = items.filter((i) => INFORMING_SET.has(i.type) && isMoneyType(i.type))
@@ -92,32 +92,80 @@ export function groupPreferences(
     { key: 'money', title: 'Деньги', rows: money },
     { key: 'team', title: 'Команда и проекты', rows: team },
   ]
-  // §2: composition comes from the backend (it may send the admin types to
-  // any role by mistake) — the UI is the second, independent line of
-  // defense and never renders the group for a non-ADMIN viewer regardless.
-  if (isAdmin) {
-    groups.push({ key: 'admin', title: 'Для администратора', rows: admin })
+  // SR-M-3 (security-review, fix-round 2, PR #675): the actual RECIPIENT of
+  // APPROVAL_CONFIRMED/APPROVAL_REJECTED is not "the admin" — it's whoever
+  // PROPOSED the project (`proposedByUserId`, `approvals.service.ts`), and
+  // creating a project is allowed for BOTH ADMIN and HR (`projects.service.
+  // ts`). Gating this group on `role === 'ADMIN'` alone (circle 1) hid the
+  // one row an HR proposer would need to turn these emails off. Composition
+  // still comes from the backend (it may send the admin-only types to any
+  // role by mistake) — the UI is the second, independent line of defense
+  // and never renders the group for a role outside {ADMIN, HR} regardless.
+  if (canSeeAdminGroup) {
+    groups.push({ key: 'admin', title: 'Решения по вашим предложениям', rows: admin })
   }
   // Pushed unconditionally (no `unknown.length > 0` guard) — the trailing
   // filter below already drops any empty group, admin included when
-  // `isAdmin` is true but the backend sent no admin-only types. A separate
-  // length check here would just be the same predicate spelled twice.
+  // `canSeeAdminGroup` is true but the backend sent no admin-only types. A
+  // separate length check here would just be the same predicate spelled
+  // twice.
   groups.push({ key: 'unknown', title: null, rows: unknown })
   return groups.filter((g) => g.rows.length > 0)
 }
 
-const UNKNOWN_TYPE_EXPLANATION = 'Новый тип уведомления, ожидайте обновления интерфейса.'
+// COPY-L-1 (copy-review, fix-round 2, PR #675): the old wording ("ожидайте
+// обновления интерфейса") asked the reader to WAIT for something, though
+// there is nothing to wait for and nothing to do — it is a fact about the
+// system, not an instruction. Restated as a fact.
+const UNKNOWN_TYPE_EXPLANATION = 'Новый тип уведомления — настройка появится после обновления.'
 const LOCKED_EXPLANATION =
   'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.'
 
+// COPY-H-1 (copy-review, fix-round 2, PR #675): an unrecognised `type` used
+// to fall back to the RAW enum value (`PAYOUT_SOMETHING_NEW`) rendered as
+// visible text — an English, underscored machine identifier shown to a
+// Russian-speaking employee (`russian-language.md`), and a SECOND name for
+// whatever this type eventually becomes (the popup's own unknown-type
+// fallback already prints a human title from the notification's own
+// `title` field, not the raw type — see `renderNotification` in
+// `notifications-bell.tsx`). The raw value is still available where it
+// belongs — `data-testid` (below) and the row's `title` attribute
+// (`DesktopRow`/`MobileRow`) — just not as the visible label.
 export function rowTitle(row: PreferenceRow): string {
-  return KNOWN_TYPES.has(row.type) ? NOTIFICATION_TITLES[row.type as NewNotificationType] : row.type
+  return KNOWN_TYPES.has(row.type)
+    ? NOTIFICATION_TITLES[row.type as NewNotificationType]
+    : 'Уведомление'
 }
 
 export function rowExplanation(row: PreferenceRow): string | null {
   if (row.locked) return LOCKED_EXPLANATION
   if (!KNOWN_TYPES.has(row.type)) return UNKNOWN_TYPE_EXPLANATION
   return null
+}
+
+/**
+ * COPY-M-2 (copy-review, fix-round 2, PR #675): the `aria-describedby`
+ * TARGET for a `locked` row is no longer its own per-row paragraph — all
+ * three `locked` rows shared the IDENTICAL sentence, repeated three times in
+ * a row on both layouts (nine lines of text on a 320px screen, a third of
+ * the tab's first viewport). It is rendered ONCE, under the "Требуют
+ * ответа" group heading (`DesktopGroupHeader`/`MobileStack`), and every
+ * `locked` switch's `aria-describedby` points at that single id instead —
+ * one description shared by three elements is valid ARIA, and reads
+ * correctly with a screen reader (a `locked` row's OWN row-level context —
+ * its title, read first — already establishes which type the shared
+ * description is about). An unknown-type row keeps its per-row id: unlike
+ * the fixed `locked` sentence, `UNKNOWN_TYPE_EXPLANATION` is not group-wide
+ * information tied to one shared paragraph — it is this SPECIFIC row's own
+ * explanation, and there is normally exactly one such row anyway.
+ */
+export function rowExplanationId(
+  row: PreferenceRow,
+  variant: 'desktop' | 'mobile',
+): string | undefined {
+  if (row.locked) return `notification-pref-explain-locked-${variant}`
+  if (!KNOWN_TYPES.has(row.type)) return `notification-pref-explain-${variant}-${row.type}`
+  return undefined
 }
 
 /** Locked rows AND unknown-type rows never accept a click — see §7/§9. */
@@ -144,9 +192,7 @@ function PreferenceSwitch({
   onToggle: (type: string, next: boolean) => void
 }) {
   const interactive = isRowInteractive(row)
-  const explanationId = rowExplanation(row)
-    ? `notification-pref-explain-${variant}-${row.type}`
-    : undefined
+  const explanationId = rowExplanationId(row, variant)
   // `exactOptionalPropertyTypes` rejects `onCheckedChange={undefined}` (Radix's
   // prop is typed as a plain function, not `fn | undefined`) — so the locked/
   // unknown-type case omits the prop entirely via conditional spread instead
@@ -190,7 +236,15 @@ function PreferenceSwitch({
       <Switch
         data-testid={`notification-switch-${variant}-${row.type}`}
         checked={rowChecked(row)}
-        aria-label={`«${rowTitle(row)}» — письмо`}
+        // COPY-L-2 (copy-review, fix-round 2, PR #675): a screen reader
+        // announces "«Вам добавили транзакцию» — письмо" as subject-then-
+        // channel, with the quote marks (unannounced by most screen
+        // readers) as the only audible boundary between the two — leading
+        // with the CHANNEL ("Письма: <type>") states what is being
+        // controlled before naming which row it belongs to, matching how
+        // every OTHER control on this screen is announced ("Switch"/
+        // "переключатель" always comes with its purpose stated up front).
+        aria-label={`Письма: ${rowTitle(row)}`}
         aria-disabled={!interactive}
         aria-describedby={explanationId}
         className={cn(!interactive && 'opacity-60 cursor-not-allowed')}
@@ -213,6 +267,21 @@ function DesktopGroupHeader({ group }: { group: PreferenceGroup }) {
         className="bg-muted/40 px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
       >
         {group.title}
+        {/* COPY-M-2: the ONE "locked" explanation for the whole group, not
+            three identical per-row copies — see the comment on
+            `rowExplanationId`. `font-normal normal-case tracking-normal`
+            undoes the header's own uppercase/tracking/weight styling, which
+            this paragraph would otherwise inherit as a child of the same
+            `<td>`. */}
+        {group.key === 'action-required' && (
+          <p
+            id="notification-pref-explain-locked-desktop"
+            data-testid="notification-pref-explain-locked-desktop"
+            className="mt-1 font-normal normal-case tracking-normal text-muted-foreground"
+          >
+            {LOCKED_EXPLANATION}
+          </p>
+        )}
       </td>
     </tr>
   )
@@ -225,7 +294,11 @@ function DesktopRow({
   row: PreferenceRow
   onToggle: (type: string, next: boolean) => void
 }) {
-  const explanation = rowExplanation(row)
+  // `locked`'s explanation moved to the group header (COPY-M-2) — a per-row
+  // paragraph here would duplicate it a third time. The unknown-type
+  // explanation stays per-row (there is normally exactly one such row, and
+  // it is specific to THIS type, unlike the fixed `locked` sentence).
+  const inlineExplanation = row.locked ? null : rowExplanation(row)
   const known = KNOWN_TYPES.has(row.type)
   return (
     <tr
@@ -238,16 +311,23 @@ function DesktopRow({
             <TypeIcon type={row.type as Notification['type']} />
           </span>
           <div className="min-w-0">
-            <p className={cn('text-sm font-medium text-foreground', !known && 'font-mono text-xs')}>
+            {/* COPY-H-1: the raw `type` is no longer the VISIBLE label for an
+                unknown type (see `rowTitle`) — it stays reachable for
+                debugging via `data-testid` (below) and this `title`
+                attribute (a native tooltip, not a UI text string). */}
+            <p
+              className="text-sm font-medium text-foreground"
+              title={!known ? row.type : undefined}
+            >
               {rowTitle(row)}
             </p>
-            {explanation && (
+            {inlineExplanation && (
               <p
                 id={`notification-pref-explain-desktop-${row.type}`}
                 data-testid={`notification-pref-explain-desktop-${row.type}`}
                 className="mt-0.5 text-xs text-muted-foreground"
               >
-                {explanation}
+                {inlineExplanation}
               </p>
             )}
           </div>
@@ -304,7 +384,9 @@ function MobileRow({
   row: PreferenceRow
   onToggle: (type: string, next: boolean) => void
 }) {
-  const explanation = rowExplanation(row)
+  // See `DesktopRow` — `locked`'s explanation now renders once per group,
+  // not per row.
+  const inlineExplanation = row.locked ? null : rowExplanation(row)
   const known = KNOWN_TYPES.has(row.type)
   return (
     <div
@@ -317,24 +399,27 @@ function MobileRow({
             <TypeIcon type={row.type as Notification['type']} />
           </span>
           <p
-            className={cn(
-              'min-w-0 break-words text-sm font-medium text-foreground',
-              !known && 'font-mono text-xs',
-            )}
+            className="min-w-0 break-words text-sm font-medium text-foreground"
+            title={!known ? row.type : undefined}
           >
             {rowTitle(row)}
           </p>
         </div>
         <PreferenceSwitch row={row} variant="mobile" onToggle={onToggle} />
       </div>
-      <p className="text-xs text-muted-foreground">Всегда — в приложении</p>
-      {explanation && (
+      {/* COPY-M-3: object-then-value, the same order the desktop table
+          states it in (column header "В приложении" first, cell value
+          "Всегда" second) — the previous "Всегда — в приложении" led with
+          an adverb that does not distinguish any of the ten rows from one
+          another. */}
+      <p className="text-xs text-muted-foreground">В приложении — всегда</p>
+      {inlineExplanation && (
         <p
           id={`notification-pref-explain-mobile-${row.type}`}
           data-testid={`notification-pref-explain-mobile-${row.type}`}
           className="break-words text-xs text-muted-foreground"
         >
-          {explanation}
+          {inlineExplanation}
         </p>
       )}
     </div>
@@ -359,6 +444,17 @@ function MobileStack({
             >
               {group.title}
             </div>
+          )}
+          {/* COPY-M-2 — same single shared explanation as the desktop table,
+              see `DesktopGroupHeader`. */}
+          {group.key === 'action-required' && (
+            <p
+              id="notification-pref-explain-locked-mobile"
+              data-testid="notification-pref-explain-locked-mobile"
+              className="bg-muted/40 px-4 pb-2 text-xs text-muted-foreground"
+            >
+              {LOCKED_EXPLANATION}
+            </p>
           )}
           {group.rows.map((row) => (
             <MobileRow key={row.type} row={row} onToggle={onToggle} />
@@ -413,7 +509,9 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
       data-testid="notification-settings-error"
     >
       <AlertTriangle className="h-8 w-8 text-destructive/60" />
-      <p className="text-sm text-muted-foreground">Не удалось загрузить настройки уведомлений.</p>
+      {/* COPY-L-3: "уведомлений" repeated the name of the tab this text sits
+          under — dropped, not a meaning change. */}
+      <p className="text-sm text-muted-foreground">Не удалось загрузить настройки.</p>
       <Button size="sm" variant="outline" onClick={onRetry}>
         Повторить
       </Button>
@@ -427,7 +525,9 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
 
 export function NotificationSettingsTab() {
   const { user: viewer } = useAuth()
-  const isAdmin = viewer?.role === 'ADMIN'
+  // SR-M-3: the "admin" group's real recipients are ADMIN and HR (see
+  // `groupPreferences` comment) — not ADMIN alone.
+  const canSeeAdminGroup = viewer?.role === 'ADMIN' || viewer?.role === 'HR'
   const { data, isLoading, isError, refetch } = useNotificationPreferences()
   const updateMutation = useUpdateNotificationPreference()
 
@@ -437,7 +537,7 @@ export function NotificationSettingsTab() {
   // first fetch begins) rather than a path any current test can reach —
   // `data` is otherwise always populated by that point.
   // Stryker disable next-line ArrayDeclaration: unobservable by rendering — see comment above.
-  const groups = data ? groupPreferences(data.items, isAdmin) : []
+  const groups = data ? groupPreferences(data.items, canSeeAdminGroup) : []
 
   // No `KNOWN_TYPES` guard here: `onToggle` is only ever wired to a `Switch`
   // via `interactiveProps` in `PreferenceSwitch`, which itself is only
@@ -452,8 +552,14 @@ export function NotificationSettingsTab() {
     <Card>
       <CardContent className="p-0">
         <div className="border-b border-border/50 px-4 py-3">
+          {/* COPY-M-1: the tab shares its name ("Уведомления") with the bell
+              popup — the FIRST sentence a viewer reads here must say this is
+              a settings screen, not a feed, before the table shows it. The
+              old subtitle's first half ("Письма по типам событий.") said
+              nothing the column header three lines below doesn't already
+              say in three words. */}
           <p className="text-sm text-muted-foreground">
-            Письма по типам событий. В приложении уведомления видны всегда.
+            Выберите, о чём присылать письма. В приложении уведомления видны всегда.
           </p>
         </div>
         {isLoading ? (
