@@ -156,7 +156,37 @@ function PreferenceSwitch({
     ? { onCheckedChange: (next: boolean) => onToggle(row.type, next) }
     : {}
   return (
-    <span className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center">
+    <span
+      data-testid={`notification-switch-wrapper-${variant}-${row.type}`}
+      className={cn(
+        'inline-flex shrink-0 items-center justify-center',
+        // Design spec §8: the tap TARGET must be >=44x44 on mobile, WITHOUT
+        // inflating the visual track (§8's own warning: "иначе трек
+        // визуально «раздувается»"). A plain `min-h-11`/`min-w-11` on the
+        // wrapping span alone would reserve invisible padding the click
+        // never lands on (the Radix Switch button keeps its own h-5/w-9 box
+        // centered inside; clicking the span's edge hits the SPAN, not the
+        // button, since the span has no click handler of its own) — and
+        // applying `min-h-11`/`min-w-11` directly to the BUTTON would work
+        // for hit-testing but also grow its `height`/`width` (CSS min-height
+        // overrides a smaller fixed `height` per spec), visibly puffing up
+        // the track into a near-square blob instead of a pill.
+        //
+        // Fix: grow the button's BORDER-BOX (the actual clickable area)
+        // via invisible padding while keeping its CONTENT-BOX (the visible
+        // track) at the original h-5/w-9 — `box-content` makes `h-5`/`w-9`
+        // describe the content box specifically (Tailwind Preflight
+        // defaults every element to `border-box`, which would otherwise
+        // consume the added padding out of the fixed height/width instead
+        // of growing the box); `bg-clip-content` + `bg-origin-content` keep
+        // the track/thumb paint confined to that original content box, so
+        // the extra padding stays fully transparent. py-3 (12px × 2 = 24px)
+        // brings 20px → 44px; px-1 (4px × 2 = 8px) brings 36px → 44px.
+        // Scoped to <640px — the desktop/tablet table keeps the compact,
+        // dense switch as-is.
+        '[&>button]:max-[639px]:box-content [&>button]:max-[639px]:bg-clip-content [&>button]:max-[639px]:bg-origin-content [&>button]:max-[639px]:px-1 [&>button]:max-[639px]:py-3',
+      )}
+    >
       <Switch
         data-testid={`notification-switch-${variant}-${row.type}`}
         checked={rowChecked(row)}

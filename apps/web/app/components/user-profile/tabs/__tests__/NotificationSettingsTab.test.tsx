@@ -193,6 +193,23 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     )
   })
 
+  it('mobile switch wrapper carries the box-content touch-target recipe (design spec §8)', () => {
+    // Unit-level double for the E2E-verified real effect (boundingBox
+    // >=44x44 in `notification-settings.spec.ts` AC6) — jsdom does not
+    // compute layout, so this pins the RECIPE (every class the fix
+    // depends on) rather than the resulting pixel size.
+    render(<NotificationSettingsTab />)
+    const wrapper = within(screen.getByTestId('notification-settings-mobile')).getByTestId(
+      'notification-switch-wrapper-mobile-TRANSACTION_ADDED',
+    )
+    expect(wrapper.className).toContain('inline-flex')
+    expect(wrapper.className).toContain('box-content')
+    expect(wrapper.className).toContain('bg-clip-content')
+    expect(wrapper.className).toContain('bg-origin-content')
+    expect(wrapper.className).toContain('px-1')
+    expect(wrapper.className).toContain('py-3')
+  })
+
   it('a known, unlocked row shows no explanation text on either layout', () => {
     render(<NotificationSettingsTab />)
     const desktopRow = within(screen.getByTestId('notification-settings-desktop')).getByTestId(
