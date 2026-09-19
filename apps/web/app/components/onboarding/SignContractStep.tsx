@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { AlertTriangle, FileText, Loader2 } from 'lucide-react'
-import type { SignedContractDto } from '@crm/shared'
+import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SignedContractDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -19,6 +19,16 @@ function getInitials(name: string | null | undefined): string {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase()
 }
 
+/**
+ * Бэклог 212. Тот же литерал, что отдаёт сервер в 403 на `POST
+ * /contracts/sign` (`CONTRACT_SIGN_IMPERSONATION_MESSAGE`,
+ * `packages/shared/src/schemas/contracts.ts`) — точка на конце добавлена
+ * так же, как `IMPERSONATION_EXPLANATION` в `NotificationSettingsTab.tsx`
+ * добавляет её к `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE`.
+ */
+const IMPERSONATION_EXPLANATION = `${CONTRACT_SIGN_IMPERSONATION_MESSAGE}.`
+const IMPERSONATION_EXPLANATION_ID = 'sign-contract-explain-impersonating'
+
 interface SignContractStepProps {
   onSuccess: () => void
 }
@@ -33,6 +43,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
 
   const legalNameMissing = !user?.legalFullName?.trim()
   const displayName = user?.legalFullName || user?.displayName || ''
+  /** Бэклог 212 — под «войти как» подпись должен поставить сам сотрудник. */
+  const impersonating = Boolean(user?.impersonating)
 
   // Fetch the preview PDF once user is available. The endpoint is bypass-listed
   // in OnboardingGuard so it works mid-onboarding (spec §2.1).
@@ -95,7 +107,12 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
   }
 
   const isSignDisabled =
-    !confirmed || !blobUrl || pdfError || legalNameMissing || signMutation.isPending
+    !confirmed ||
+    !blobUrl ||
+    pdfError ||
+    legalNameMissing ||
+    impersonating ||
+    signMutation.isPending
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5" data-testid="sign-contract-form">
@@ -232,6 +249,21 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
         </div>
       )}
 
+      {/* Бэклог 212 — под «войти как» подпись недоступна; тот же литерал,
+          что отдаёт сервер в 403 на POST /contracts/sign. */}
+      {impersonating && (
+        <div
+          id={IMPERSONATION_EXPLANATION_ID}
+          role="alert"
+          aria-live="assertive"
+          data-testid="sign-contract-impersonating-banner"
+          className="rounded-md border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-300"
+        >
+          <AlertTriangle className="inline h-4 w-4 mr-2" />
+          {IMPERSONATION_EXPLANATION}
+        </div>
+      )}
+
       {/* Read-only signature block */}
       <div
         className="flex items-center gap-3 rounded-md border border-border bg-muted/20 px-4 py-3"
@@ -258,6 +290,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
               data-testid="sign-button"
               disabled={isSignDisabled}
               aria-disabled={isSignDisabled}
+              aria-describedby={impersonating ? IMPERSONATION_EXPLANATION_ID : undefined}
               className="w-full"
             >
               {signMutation.isPending ? (

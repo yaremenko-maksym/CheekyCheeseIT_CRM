@@ -1,5 +1,6 @@
-import { ConflictException } from '@nestjs/common'
+import { ConflictException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
+import { TOS_ACCEPT_IMPERSONATION_MESSAGE } from '@crm/shared'
 import { TosService } from './tos.service'
 import type { DatabaseService } from '../database/database.service'
 
@@ -241,7 +242,12 @@ describe('TosService', () => {
       const service = new TosService(mockDb as unknown as DatabaseService)
 
       await expect(
-        service.accept({ userId: 'senior-1', ip: '127.0.0.1', userAgent: 'vt' }),
+        service.accept({
+          userId: 'senior-1',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+          impersonatorId: null,
+        }),
       ).rejects.toThrow()
     })
 
@@ -254,7 +260,12 @@ describe('TosService', () => {
       const mockDb = makeDb({ insertedAcceptance: inserted })
       const service = new TosService(mockDb as unknown as DatabaseService)
 
-      const result = await service.accept({ userId: 'senior-1', ip: '10.0.0.1', userAgent: 'curl' })
+      const result = await service.accept({
+        userId: 'senior-1',
+        ip: '10.0.0.1',
+        userAgent: 'curl',
+        impersonatorId: null,
+      })
 
       expect(result.id).toBe('new-acceptance')
       // Verify correct payload passed to insert
@@ -267,7 +278,7 @@ describe('TosService', () => {
       const mockDb = makeDb({ insertedAcceptance: inserted })
       const service = new TosService(mockDb as unknown as DatabaseService)
 
-      await service.accept({ userId: 'senior-1', ip: null, userAgent: null })
+      await service.accept({ userId: 'senior-1', ip: null, userAgent: null, impersonatorId: null })
 
       // accept() must not open a transaction — the whole point of ON CONFLICT DO NOTHING
       // is to be a single atomic statement without a tx wrapper.
@@ -280,12 +291,52 @@ describe('TosService', () => {
       const mockDb = makeDb({ conflictExistingAcceptance: existing })
       const service = new TosService(mockDb as unknown as DatabaseService)
 
-      const result = await service.accept({ userId: 'senior-1', ip: '127.0.0.1', userAgent: 'ua' })
+      const result = await service.accept({
+        userId: 'senior-1',
+        ip: '127.0.0.1',
+        userAgent: 'ua',
+        impersonatorId: null,
+      })
 
       // Must return the existing row, NOT throw
       expect(result.id).toBe('already-accepted')
       // Must not have used a transaction
       expect(mockDb.db.transaction).not.toHaveBeenCalled()
+    })
+
+    describe('impersonation guard (fix-round 3, task-680 SR-M-3)', () => {
+      it('refuses to accept ToS under impersonation — 403, no DB write', async () => {
+        const mockDb = makeDb()
+        const service = new TosService(mockDb as unknown as DatabaseService)
+
+        await expect(
+          service.accept({
+            userId: 'senior-1',
+            ip: '127.0.0.1',
+            userAgent: 'vt',
+            impersonatorId: 'admin-1',
+          }),
+        ).rejects.toThrow(ForbiddenException)
+
+        // Checked before any read/write: neither getCurrent's query nor the
+        // acceptance insert is ever reached.
+        expect(mockDb.db.query.tosVersions.findFirst).not.toHaveBeenCalled()
+        expect(mockDb.db.insert).not.toHaveBeenCalled()
+      })
+
+      it('impersonation refusal carries the exact shared literal', async () => {
+        const mockDb = makeDb()
+        const service = new TosService(mockDb as unknown as DatabaseService)
+
+        await expect(
+          service.accept({
+            userId: 'senior-1',
+            ip: '127.0.0.1',
+            userAgent: 'vt',
+            impersonatorId: 'admin-1',
+          }),
+        ).rejects.toThrow(TOS_ACCEPT_IMPERSONATION_MESSAGE)
+      })
     })
   })
 })

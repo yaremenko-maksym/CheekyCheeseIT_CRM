@@ -58,6 +58,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm
 import type { FastifyRequest } from 'fastify'
 import {
   type ContractTargetRole,
+  INVOICE_SIGN_IMPERSONATION_MESSAGE,
   type InvoiceDto,
   type InvoiceListFilters,
   type InvoiceListItem,
@@ -964,6 +965,17 @@ export class InvoicesService {
     transactionId: string,
     req: FastifyRequest,
   ): Promise<InvoiceDto> {
+    // Fix-раунд 3 (task-680, SR-M-4). Checked FIRST, before the transaction
+    // fetch or any write, so an impersonated sign attempt leaves zero trace
+    // — mirrors the identical guard closed for contract signing
+    // (`SignedContractsService.sign`, SR-M-2) and ToS acceptance
+    // (`TosService.accept`, SR-M-3). `viewer` is the whole `SessionUser`
+    // already (no field-by-field reconstruction like the contracts
+    // controller needed) — `impersonatorId` cannot be dropped in transit.
+    if (viewer.impersonatorId) {
+      throw new ForbiddenException(INVOICE_SIGN_IMPERSONATION_MESSAGE)
+    }
+
     // security-review PR #456 round 2: fetch + write-guard fused into one
     // call (see the `getInvoice` comment above for why this specific pattern
     // exists — round 2 defeated the round-1 two-statement version). A

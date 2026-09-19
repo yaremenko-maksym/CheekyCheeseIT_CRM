@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
@@ -12,12 +12,19 @@ import { TooltipProvider } from '@/components/ui/tooltip'
  *   T4b. Checkbox label says "персональний контракт" (not "MSA-контракт").
  *   T4c. No "MSA" text surfaces to the user (brand-accurate copy).
  *   T4d. Component renders the sign button and confirm checkbox.
+ *   Backlog 212. Under impersonation, the sign button is disabled, the
+ *   explanation is visible, and no sign request is ever sent.
  *
- * WHY vi.mock factories use only literals (no top-level var references):
- *   vitest hoists vi.mock() calls to the top of the file before any const/let
- *   declarations are evaluated. Factories that reference module-level variables
- *   will throw ReferenceError at hoist time. Use vi.fn() inline in factories
- *   and access the mocked module's exports after import to get spy references.
+ * WHY vi.mock factories below reference module-level `let`/`const`
+ * bindings declared AFTER the `vi.mock()` call:
+ *   vitest hoists the `vi.mock()` CALL to the top of the file, but the
+ *   factory function's BODY only runs later, when the mocked module is
+ *   first imported — by which point every top-level `const`/`let` in this
+ *   file has already been initialised. Referencing such a binding is safe
+ *   for either keyword; what would NOT be safe is reading it at the
+ *   `vi.mock()` call site itself (temporal dead zone), which none of these
+ *   factories do. Same pattern as `NotificationSettingsTab.test.tsx`'s
+ *   `viewerImpersonating`.
  */
 
 // ---------------------------------------------------------------------------
@@ -31,18 +38,41 @@ vi.mock('@/lib/axios', () => ({
   },
 }))
 
+/**
+ * Бэклог 212 — a STABLE object reference, mutated in place (never
+ * reassigned to a new literal) via `Object.assign`. `useAuth()`'s mock used
+ * to return a FRESH `{ user: {...} }` literal on every call — unlike the
+ * real hook (TanStack Query caches and returns the SAME object across
+ * renders until the data actually changes). `SignContractStep`'s PDF-fetch
+ * `useEffect(..., [user])` sees a new `user` identity on every re-render
+ * with the fresh-literal mock, so a checkbox click (which re-renders the
+ * component) re-fires the effect, cancels the in-flight fetch, and never
+ * lets `pdfError`/`blobUrl` settle — every `waitFor` in the isolation
+ * matrix below timed out against that mock. A stable reference fixes it at
+ * the root instead of working around it per test.
+ */
+const mockUser: {
+  id: string
+  displayName: string
+  legalFullName: string | null
+  role: 'SENIOR'
+  impersonating: boolean
+} = {
+  id: 'test-user-id',
+  displayName: 'Тестовий Користувач',
+  legalFullName: 'Тестовий Користувач Іванович',
+  role: 'SENIOR',
+  impersonating: false,
+}
+/** Optional-chaining safety net (`user?.impersonating`) — see the null-user test below. */
+let userIsNull = false
+
 vi.mock('@/context/auth', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'test-user-id',
-      displayName: 'Тестовий Користувач',
-      legalFullName: 'Тестовий Користувач Іванович',
-      role: 'SENIOR',
-    },
-  }),
+  useAuth: () => ({ user: userIsNull ? null : mockUser }),
 }))
 
 // Import AFTER vi.mock declarations so hoisting resolves correctly.
+import { CONTRACT_SIGN_IMPERSONATION_MESSAGE } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { SignContractStep } from './SignContractStep'
 
@@ -68,6 +98,11 @@ function wrapper({ children }: { children: React.ReactNode }) {
 describe('SignContractStep', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    Object.assign(mockUser, {
+      legalFullName: 'Тестовий Користувач Іванович',
+      impersonating: false,
+    })
+    userIsNull = false
 
     // Default: api.get resolves with a Blob — component won't enter error state.
     vi.mocked(api.get).mockResolvedValue({
@@ -109,5 +144,142 @@ describe('SignContractStep', () => {
 
     expect(screen.getByTestId('sign-button')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-checkbox')).toBeInTheDocument()
+  })
+
+  describe('under impersonation (backlog 212)', () => {
+    beforeEach(() => {
+      mockUser.impersonating = true
+    })
+
+    it('disables the sign button and shows the explanation; no request is sent', async () => {
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      const button = screen.getByTestId('sign-button')
+      expect(button).toBeDisabled()
+      expect(button).toHaveAttribute('aria-disabled', 'true')
+      // Exact id (not just "some" describedby) — pins the shared literal's
+      // id constant against the StringLiteral mutant that empties it.
+      expect(button).toHaveAttribute('aria-describedby', 'sign-contract-explain-impersonating')
+
+      const banner = screen.getByTestId('sign-contract-impersonating-banner')
+      expect(banner).toHaveTextContent(`${CONTRACT_SIGN_IMPERSONATION_MESSAGE}.`)
+      expect(banner).toHaveAttribute('id', 'sign-contract-explain-impersonating')
+
+      // Even checking the confirm box (the only other gate) must not
+      // enable the sign request — impersonation overrides every other
+      // condition.
+      const checkbox = screen.getByTestId('confirm-checkbox')
+      checkbox.click()
+
+      expect(screen.getByTestId('sign-button')).toBeDisabled()
+      expect(api.post).not.toHaveBeenCalled()
+    })
+
+    it('stays disabled purely because of impersonation, even with every other gate satisfied', async () => {
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      // Clear every OTHER gate: PDF loaded, box checked, legal name present
+      // (set by the outer beforeEach), pdfError false (default) — isolates
+      // the `impersonating` OR-term from the rest of `isSignDisabled`.
+      // PDF "loaded" signal: happy-dom's iframe never fires a real onLoad
+      // (disableIframePageLoading), so isLoadingPdf never flips — but
+      // isSignDisabled only reads `blobUrl`, and createObjectURL is called
+      // synchronously right before setBlobUrl once the fetch resolves.
+      await waitFor(() => expect(globalThis.URL.createObjectURL).toHaveBeenCalled())
+      const checkbox = screen.getByTestId('confirm-checkbox')
+      checkbox.click()
+
+      expect(screen.getByTestId('sign-button')).toBeDisabled()
+    })
+  })
+
+  describe('without impersonation', () => {
+    it('renders no impersonation banner and leaves the sign button gated only by checkbox/PDF', () => {
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      expect(screen.queryByTestId('sign-contract-impersonating-banner')).not.toBeInTheDocument()
+    })
+
+    it('handles a null user without throwing (optional-chaining safety, backlog 212)', () => {
+      userIsNull = true
+
+      expect(() => render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })).not.toThrow()
+      // No impersonation is possible without a session user.
+      expect(screen.queryByTestId('sign-contract-impersonating-banner')).not.toBeInTheDocument()
+    })
+  })
+
+  /**
+   * Бэклог 212 mutation coverage — `isSignDisabled` (SignContractStep.tsx)
+   * ORs six independent gates together. Each test below flips EXACTLY ONE
+   * gate away from "all clear" (confirmed + PDF loaded + no pdfError + legal
+   * name present + not impersonating) and asserts the button is disabled —
+   * isolating that gate's contribution kills both the OR↔AND
+   * (LogicalOperator) and the literal-replacement (BooleanLiteral /
+   * ConditionalExpression) mutants Stryker generates for this line.
+   */
+  describe('isSignDisabled — one-gate-at-a-time isolation (backlog 212)', () => {
+    it('enabled once every gate clears: confirmed + PDF loaded + legal name present + not impersonating', async () => {
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      // PDF "loaded" signal: happy-dom's iframe never fires a real onLoad
+      // (disableIframePageLoading), so isLoadingPdf never flips — but
+      // isSignDisabled only reads `blobUrl`, and createObjectURL is called
+      // synchronously right before setBlobUrl once the fetch resolves.
+      await waitFor(() => expect(globalThis.URL.createObjectURL).toHaveBeenCalled())
+      const checkbox = screen.getByTestId('confirm-checkbox')
+      checkbox.click()
+
+      await waitFor(() => expect(screen.getByTestId('sign-button')).not.toBeDisabled())
+    })
+
+    it('disabled while unconfirmed, even after the PDF has loaded (isolates !confirmed)', async () => {
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      // PDF "loaded" signal: happy-dom's iframe never fires a real onLoad
+      // (disableIframePageLoading), so isLoadingPdf never flips — but
+      // isSignDisabled only reads `blobUrl`, and createObjectURL is called
+      // synchronously right before setBlobUrl once the fetch resolves.
+      await waitFor(() => expect(globalThis.URL.createObjectURL).toHaveBeenCalled())
+      // Checkbox left unchecked.
+      expect(screen.getByTestId('sign-button')).toBeDisabled()
+    })
+
+    it('disabled while the PDF has not loaded yet, even when confirmed (isolates !blobUrl)', () => {
+      // Never resolves within this test — blobUrl stays null.
+      vi.mocked(api.get).mockReturnValue(new Promise(() => {}))
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      const checkbox = screen.getByTestId('confirm-checkbox')
+      checkbox.click()
+
+      expect(screen.getByTestId('sign-button')).toBeDisabled()
+    })
+
+    it('disabled when the PDF preview fails to load, even when confirmed (isolates pdfError)', async () => {
+      vi.mocked(api.get).mockRejectedValue(new Error('boom'))
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      await waitFor(() => expect(screen.getByTestId('pdf-error')).toBeInTheDocument())
+      const checkbox = screen.getByTestId('confirm-checkbox')
+      checkbox.click()
+
+      expect(screen.getByTestId('sign-button')).toBeDisabled()
+    })
+
+    it('disabled when legalFullName is missing, even when confirmed + PDF loaded (isolates legalNameMissing)', async () => {
+      mockUser.legalFullName = null
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      // PDF "loaded" signal: happy-dom's iframe never fires a real onLoad
+      // (disableIframePageLoading), so isLoadingPdf never flips — but
+      // isSignDisabled only reads `blobUrl`, and createObjectURL is called
+      // synchronously right before setBlobUrl once the fetch resolves.
+      await waitFor(() => expect(globalThis.URL.createObjectURL).toHaveBeenCalled())
+      const checkbox = screen.getByTestId('confirm-checkbox')
+      checkbox.click()
+
+      expect(screen.getByTestId('sign-button')).toBeDisabled()
+    })
   })
 })

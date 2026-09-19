@@ -51,3 +51,21 @@ export const tosAcceptanceSchema = z.object({
 export type TosVersionDto = z.infer<typeof tosVersionSchema>
 export type CreateTosVersionDto = z.infer<typeof createTosVersionSchema>
 export type TosAcceptanceDto = z.infer<typeof tosAcceptanceSchema>
+
+/**
+ * Fix-раунд 3 (task-680, SR-M-3, бэклог 212 продолжение). Один литерал на
+ * серверный отказ `POST /tos/accept` под «войти как» (`tos.service.ts`,
+ * `ForbiddenException`) и на клиентское пояснение под кнопкой принятия
+ * (`AcceptTosStep.tsx`) — та же форма и то же место в онбординге, что уже
+ * закрыто для подписи контракта (`CONTRACT_SIGN_IMPERSONATION_MESSAGE`,
+ * `contracts.ts`): владелец решил 2026-09-19, что под «войти как» админ не
+ * принимает решений за сотрудника ни на одном из двух актов согласия
+ * онбординг-гейта.
+ *
+ * Без точки: конвенция сообщений исключений `apps/api` не ставит точку
+ * нигде. Клиент строит СВОЙ текст добавлением точки к этому — тот же приём,
+ * что `IMPERSONATION_EXPLANATION` в `NotificationSettingsTab.tsx` и
+ * `SignContractStep.tsx`.
+ */
+export const TOS_ACCEPT_IMPERSONATION_MESSAGE =
+  'Пока вы вошли как другой сотрудник, принять условия использования за него нельзя — это должен сделать он сам'

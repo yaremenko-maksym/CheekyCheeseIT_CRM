@@ -186,3 +186,23 @@ export const invoiceListFiltersSchema = z.object({
   type: invoiceTypeSchema.optional(),
 })
 export type InvoiceListFilters = z.infer<typeof invoiceListFiltersSchema>
+
+// ---------------------------------------------------------------------------
+// Impersonation guard message
+// ---------------------------------------------------------------------------
+
+/**
+ * Fix-раунд 3 (task-680, SR-M-4, бэклог 212 продолжение). Один литерал на
+ * серверный отказ `POST /invoices/:transactionId/sign` под «войти как»
+ * (`invoices.service.ts`, `ForbiddenException`) и на клиентское пояснение
+ * рядом с кнопкой подписи счёта — та же форма, что уже закрыта для подписи
+ * контракта (`CONTRACT_SIGN_IMPERSONATION_MESSAGE`, `contracts.ts`) и
+ * принятия ToS (`TOS_ACCEPT_IMPERSONATION_MESSAGE`, `tos.ts`): владелец
+ * решил 2026-09-19, что под «войти как» админ не принимает финансовых
+ * решений за сотрудника — счёт с денежной стороной особенно.
+ *
+ * Без точки: конвенция сообщений исключений `apps/api` не ставит точку
+ * нигде (см. `'Инвойс уже подписан'` рядом в `invoices.service.ts`).
+ */
+export const INVOICE_SIGN_IMPERSONATION_MESSAGE =
+  'Пока вы вошли как другой сотрудник, подписать его счёт нельзя — это должен сделать он сам'

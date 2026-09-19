@@ -77,7 +77,15 @@ export class TosController {
   accept(@CurrentUser() user: SessionUser, @Req() request: FastifyRequest) {
     const ip = (request.ip as string | undefined) ?? null
     const userAgent = (request.headers['user-agent'] as string | undefined)?.slice(0, 1000) ?? null
-    return this.service.accept({ userId: user.id, ip, userAgent })
+    // Fix-раунд 3 (task-680, SR-M-3): propagate impersonatorId so the
+    // service can refuse an impersonated accept — mirrors
+    // SignedContractsController.sign's identical propagation (SR-H-1).
+    return this.service.accept({
+      userId: user.id,
+      ip,
+      userAgent,
+      impersonatorId: user.impersonatorId ?? null,
+    })
   }
 
   /**

@@ -14,12 +14,15 @@
  *   │                                                             │
  *   │   Public verify URL: /invoice/v/<id>  (copyable)            │
  *   │ ───────────────────────────────────────────────────────────│
- *   │ FOOTER:  «Закрыть»     [Подписать инвойс]                   │
+ *   │ FOOTER:  «Закрыть»     [Подписать счёт]                     │
  *   └─────────────────────────────────────────────────────────────┘
  *
- * `Подписать` button is rendered only when:
+ * `Подписать` button is rendered (enabled) only when:
  *   - viewer.id === invoice.counterpartyId, AND
- *   - no existing COUNTERPARTY signature.
+ *   - no existing COUNTERPARTY signature, AND
+ *   - the session is not impersonated (backlog 212 / task-680 SR-M-4) — an
+ *     ADMIN under «войти как» sees the same button, disabled, with an
+ *     explanation banner instead of an active sign action.
  *
  * Clicking opens a nested AlertDialog with an "Я ознакомлен и согласен"
  * checkbox; submit calls `useSignInvoice` mutation and on success closes
@@ -31,6 +34,7 @@ import { format, formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Clock,
   ExternalLink,
@@ -39,7 +43,12 @@ import {
   Lock,
   ShieldCheck,
 } from 'lucide-react'
-import type { InvoiceDto, InvoiceSignatureDto, SessionUser } from '@crm/shared'
+import {
+  INVOICE_SIGN_IMPERSONATION_MESSAGE,
+  type InvoiceDto,
+  type InvoiceSignatureDto,
+  type SessionUser,
+} from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -72,6 +81,16 @@ import { getInvoiceTypeLabel } from '@/lib/invoice-labels'
 // Constants — type label lives in shared invoice-labels helper
 // ---------------------------------------------------------------------------
 
+/**
+ * Fix-раунд 3 (task-680, SR-M-4). Тот же литерал, что отдаёт сервер в 403 на
+ * `POST /invoices/:transactionId/sign` (`INVOICE_SIGN_IMPERSONATION_MESSAGE`,
+ * `packages/shared/src/schemas/invoices.ts`) — точка на конце добавлена так
+ * же, как `IMPERSONATION_EXPLANATION` в `SignContractStep.tsx` /
+ * `AcceptTosStep.tsx`.
+ */
+const IMPERSONATION_EXPLANATION = `${INVOICE_SIGN_IMPERSONATION_MESSAGE}.`
+const IMPERSONATION_EXPLANATION_ID = 'invoice-sign-explain-impersonating'
+
 const TYPE_CLASS: Record<InvoiceDto['type'], string> = {
   SENIOR_INCOME: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
   SALARY: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -101,7 +120,7 @@ const SIG_METHOD_LABEL: Record<InvoiceSignatureDto['method'], string> = {
 }
 
 const SIG_METHOD_TOOLTIP: Record<InvoiceSignatureDto['method'], string> = {
-  AUTO_COMPANY: 'Автоматическая электронная подпись компании при выпуске инвойса',
+  AUTO_COMPANY: 'Автоматическая электронная подпись компании при выпуске счёта',
   MANUAL_CLICK: 'Подписано вручную (click + audit) контрагентом',
 }
 
@@ -158,7 +177,7 @@ export function InvoiceDetailDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <CrmDialogContent maxWidth="sm:max-w-6xl" data-testid="invoice-detail-dialog">
-        <DialogDescription className="sr-only">Инвойс</DialogDescription>
+        <DialogDescription className="sr-only">Счёт</DialogDescription>
         {isLoading || !invoice ? (
           <DialogLoadingState error={error} />
         ) : (
@@ -182,7 +201,7 @@ function DialogLoadingState({ error }: { error: Error | null }) {
     return (
       <>
         <CrmDialogHeader>
-          <DialogTitle>Инвойс</DialogTitle>
+          <DialogTitle>Счёт</DialogTitle>
           <DialogDescription>Не удалось загрузить документ</DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-6">
@@ -224,7 +243,10 @@ function InvoiceDetailContent({
 }) {
   const hasCounterpartySig = invoice.signatures.some((s) => s.signerRole === 'COUNTERPARTY')
   const isCounterparty = viewer.id === invoice.counterpartyId
-  const canSign = isCounterparty && !hasCounterpartySig
+  /** Бэклог 212 — под «войти как» подпись счёта должен поставить сам сотрудник. */
+  const impersonating = Boolean(viewer.impersonating)
+  const canSign = isCounterparty && !hasCounterpartySig && !impersonating
+  const blockedByImpersonation = isCounterparty && !hasCounterpartySig && impersonating
 
   // Public verification URL — shown as a copyable link in the body. Same
   // origin as the SPA (TanStack Router root). When the SPA is served from
@@ -352,6 +374,21 @@ function InvoiceDetailContent({
             <InvoicePdfPreview documentId={invoice.documentId} />
           </div>
         </div>
+
+        {/* Бэклог 212 — под «войти как» подпись недоступна; тот же литерал,
+            что отдаёт сервер в 403 на POST /invoices/:transactionId/sign. */}
+        {blockedByImpersonation && (
+          <div
+            id={IMPERSONATION_EXPLANATION_ID}
+            role="alert"
+            aria-live="assertive"
+            data-testid="invoice-sign-impersonating-banner"
+            className="mt-4 rounded-md border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-300"
+          >
+            <AlertTriangle className="inline h-4 w-4 mr-2" />
+            {IMPERSONATION_EXPLANATION}
+          </div>
+        )}
       </CrmDialogBody>
 
       <CrmDialogFooter>
@@ -360,6 +397,16 @@ function InvoiceDetailContent({
         </Button>
         {canSign ? (
           <SignButton invoice={invoice} onSuccess={onClose} />
+        ) : blockedByImpersonation ? (
+          <Button
+            disabled
+            aria-disabled="true"
+            aria-describedby={IMPERSONATION_EXPLANATION_ID}
+            data-testid="invoice-detail-sign-button"
+          >
+            <FileSignature className="mr-2 h-4 w-4" />
+            Подписать счёт
+          </Button>
         ) : hasCounterpartySig ? (
           <Badge
             variant="outline"
@@ -483,7 +530,7 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
           presigned URL + the PDF being a static GET for security. */}
       <iframe
         src={data.url}
-        title="Инвойс PDF"
+        title="PDF счёта"
         className="w-full min-h-[500px] h-full"
         onLoad={handleIframeLoad}
       />
@@ -551,7 +598,7 @@ function SignatureCard({
 }
 
 // ---------------------------------------------------------------------------
-// «Подписать инвойс» button + confirm AlertDialog
+// «Подписать счёт» button + confirm AlertDialog
 // ---------------------------------------------------------------------------
 
 function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: () => void }) {
@@ -573,7 +620,7 @@ function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: ()
     <>
       <Button onClick={() => setConfirmOpen(true)} data-testid="invoice-detail-sign-button">
         <FileSignature className="mr-2 h-4 w-4" />
-        Подписать инвойс
+        Подписать счёт
       </Button>
 
       <AlertDialog
@@ -587,7 +634,7 @@ function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: ()
       >
         <AlertDialogContent data-testid="invoice-sign-confirm-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>Подписать инвойс?</AlertDialogTitle>
+            <AlertDialogTitle>Подписать счёт?</AlertDialogTitle>
             <AlertDialogDescription>
               Подписывая этот документ, вы подтверждаете согласие с его содержимым. После подписи
               документ нельзя отменить.
@@ -612,7 +659,7 @@ function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: ()
               className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
               data-testid="invoice-sign-agree-checkbox"
             />
-            <span>Я ознакомлен и согласен с содержимым инвойса</span>
+            <span>Я ознакомлен и согласен с содержимым счёта</span>
           </label>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={signMutation.isPending}>Отмена</AlertDialogCancel>

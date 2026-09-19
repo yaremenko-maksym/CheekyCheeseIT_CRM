@@ -2,11 +2,22 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Loader2, ScrollText } from 'lucide-react'
-import type { TosVersionDto } from '@crm/shared'
+import { AlertTriangle, Loader2, ScrollText } from 'lucide-react'
+import { TOS_ACCEPT_IMPERSONATION_MESSAGE, type TosVersionDto } from '@crm/shared'
+import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+
+/**
+ * Fix-раунд 3 (task-680, SR-M-3). Тот же литерал, что отдаёт сервер в 403 на
+ * `POST /tos/accept` (`TOS_ACCEPT_IMPERSONATION_MESSAGE`,
+ * `packages/shared/src/schemas/tos.ts`) — точка на конце добавлена так же,
+ * как `IMPERSONATION_EXPLANATION` в `SignContractStep.tsx` /
+ * `NotificationSettingsTab.tsx`.
+ */
+const IMPERSONATION_EXPLANATION = `${TOS_ACCEPT_IMPERSONATION_MESSAGE}.`
+const IMPERSONATION_EXPLANATION_ID = 'accept-tos-explain-impersonating'
 
 interface AcceptTosStepProps {
   /** Called on success instead of navigating — wizard parent decides next step. */
@@ -14,8 +25,11 @@ interface AcceptTosStepProps {
 }
 
 export function AcceptTosStep({ onSuccess }: AcceptTosStepProps) {
+  const { user } = useAuth()
   const [accepted, setAccepted] = useState(false)
   const queryClient = useQueryClient()
+  /** Бэклог 212 — под «войти как» принятие ToS должен сделать сам сотрудник. */
+  const impersonating = Boolean(user?.impersonating)
 
   const { data: tos, isLoading: tosLoading } = useQuery<TosVersionDto>({
     queryKey: ['tos-current'],
@@ -90,10 +104,27 @@ export function AcceptTosStep({ onSuccess }: AcceptTosStepProps) {
         <span className="text-sm leading-snug">Я принимаю Terms of Service</span>
       </label>
 
+      {/* Бэклог 212 — под «войти как» принятие недоступно; тот же литерал,
+          что отдаёт сервер в 403 на POST /tos/accept. */}
+      {impersonating && (
+        <div
+          id={IMPERSONATION_EXPLANATION_ID}
+          role="alert"
+          aria-live="assertive"
+          data-testid="accept-tos-impersonating-banner"
+          className="rounded-md border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-300"
+        >
+          <AlertTriangle className="inline h-4 w-4 mr-2" />
+          {IMPERSONATION_EXPLANATION}
+        </div>
+      )}
+
       {/* Submit */}
       <Button
         data-testid="accept-tos-button"
-        disabled={!accepted || acceptMutation.isPending}
+        disabled={!accepted || impersonating || acceptMutation.isPending}
+        aria-disabled={!accepted || impersonating || acceptMutation.isPending}
+        aria-describedby={impersonating ? IMPERSONATION_EXPLANATION_ID : undefined}
         onClick={() => acceptMutation.mutate()}
         className="w-full"
       >

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import type { ContractPdfService } from './contract-pdf.service'
 import type { EmployeeContractsService } from './employee-contracts.service'
@@ -466,8 +466,56 @@ describe('SignedContractsService', () => {
           typedName: 'X',
           ip: '127.0.0.1',
           userAgent: 'vt',
+          impersonatorId: null,
         }),
       ).rejects.toThrow(BadRequestException)
+    })
+
+    it('refuses to sign under impersonation (backlog 212) — 403, no DB write', async () => {
+      const mockDb = makeDb()
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: 'X',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+          impersonatorId: adminUser.id,
+        }),
+      ).rejects.toThrow(ForbiddenException)
+
+      // Checked before any write: neither the transaction nor
+      // getReadyForSigning is ever reached.
+      expect(mockDb.db.transaction).not.toHaveBeenCalled()
+      expect(empSvc.getReadyForSigning).not.toHaveBeenCalled()
+    })
+
+    it('impersonation refusal carries the exact shared literal (backlog 212)', async () => {
+      const mockDb = makeDb()
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: 'X',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+          impersonatorId: adminUser.id,
+        }),
+      ).rejects.toThrow(CONTRACT_SIGN_IMPERSONATION_MESSAGE)
     })
 
     it('throws 409 CONTRACT_NOT_READY when no READY_TO_SIGN employee_contract', async () => {
@@ -487,6 +535,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: '127.0.0.1',
           userAgent: 'vt',
+          impersonatorId: null,
         }),
       ).rejects.toThrow(ConflictException)
     })
@@ -508,6 +557,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: '127.0.0.1',
           userAgent: 'vt',
+          impersonatorId: null,
         }),
       ).rejects.toThrow(BadRequestException)
     })
@@ -529,6 +579,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: '127.0.0.1',
           userAgent: 'vt',
+          impersonatorId: null,
         }),
       ).rejects.toThrow(BadRequestException)
     })
@@ -549,6 +600,7 @@ describe('SignedContractsService', () => {
         typedName: 'Senior One',
         ip: '10.0.0.5',
         userAgent: 'curl/8.0',
+        impersonatorId: null,
       })
 
       // T4: contract number must match CHK-XXXXXX (6 uppercase hex chars)
@@ -579,6 +631,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       // The tx.insert().values() call must have received the interpolated custom body
@@ -607,6 +660,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       const stored = mockDb.lastInsertValues()
@@ -632,6 +686,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       const stored = mockDb.lastInsertValues()
@@ -664,6 +719,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       // Must be called with (userId, tx) — second arg is the Drizzle tx handle.
@@ -718,6 +774,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       // MED#3: snapshot read must happen AFTER the transaction opens
@@ -743,6 +800,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: null,
           userAgent: null,
+          impersonatorId: null,
         }),
       ).rejects.toThrow(ConflictException)
     })
@@ -772,6 +830,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       // generateContractPdf must have been called once (eager path).
@@ -800,6 +859,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: null,
           userAgent: null,
+          impersonatorId: null,
         }),
       ).resolves.toBeDefined()
     })

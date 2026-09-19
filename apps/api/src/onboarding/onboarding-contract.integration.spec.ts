@@ -8,7 +8,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { OnboardingGuard } from '../auth/onboarding.guard'
@@ -455,6 +455,31 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(hasSigned).toBe(false)
     })
 
+    // ── 3b. Sign under impersonation (backlog 212) — 403, no row created ──────
+
+    it('3b. Impersonated admin cannot sign DMYTRO’s contract — 403, no signed_contracts row', async () => {
+      // DMYTRO is READY_TO_SIGN at this point (beforeAll's idempotent setup) —
+      // the impersonation guard must fire BEFORE getReadyForSigning is even
+      // reached, so this stays true regardless of contract state.
+      const signedSvc = app.get(SignedContractsService)
+
+      await expect(
+        signedSvc.sign({
+          userId: DMYTRO.id,
+          userRole: DMYTRO.role,
+          typedName: 'Марченко Дмитро Олексійович',
+          ip: '127.0.0.1',
+          userAgent: 'vitest-integration',
+          impersonatorId: ADMIN.id,
+        }),
+      ).rejects.toThrow(CONTRACT_SIGN_IMPERSONATION_MESSAGE)
+
+      // AC2 — zero signed_contracts rows for DMYTRO after the refused attempt.
+      const employeeContractsSvc = app.get(EmployeeContractsService)
+      const hasSigned = await employeeContractsSvc.hasSignedContract(DMYTRO.id)
+      expect(hasSigned).toBe(false)
+    })
+
     // ── 4. Sign flow: READY_TO_SIGN → SIGNED → status flips ──────────────────
 
     it('4a. SignedContractsService.sign() transitions READY_TO_SIGN → SIGNED (A3-4 AC1)', async () => {
@@ -467,6 +492,7 @@ describe.skipIf(!hasDatabaseUrl())(
         typedName: 'Марченко Дмитро Олексійович',
         ip: '127.0.0.1',
         userAgent: 'vitest-integration',
+        impersonatorId: null,
       })
 
       expect(result.contractNumber).toBeTruthy()

@@ -133,6 +133,23 @@ export type SignedContractDto = z.infer<typeof signedContractSchema>
 export type SignContractDto = z.infer<typeof signContractSchema>
 
 /**
+ * Бэклог 212. Один литерал на СЕРВЕРНЫЙ отказ `POST /contracts/sign` под
+ * «войти как» (`signed-contracts.service.ts`, `ForbiddenException`) и на
+ * клиентское объяснение под кнопкой подписи (`SignContractStep.tsx`) — та же
+ * форма, что уже приняли для доли (`users.service.ts`
+ * `approveSeniorShareChange`/`rejectSeniorShareChange`) и для настроек
+ * уведомлений (`NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE` рядом).
+ *
+ * Без точки: конвенция сообщений исключений `apps/api` не ставит точку
+ * нигде («Инвойс уже подписан», «Нет доступа к легенде проекта»,
+ * `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE`). `SignContractStep.tsx`
+ * строит СВОЙ текст добавлением точки к этому — тот же приём, что
+ * `IMPERSONATION_EXPLANATION` в `NotificationSettingsTab.tsx`.
+ */
+export const CONTRACT_SIGN_IMPERSONATION_MESSAGE =
+  'Пока вы вошли как другой сотрудник, подписать его контракт нельзя — это должен сделать он сам'
+
+/**
  * Minimal contract DTO returned by GET /api/contracts/me.
  * Used in the JUNIOR hub to display contract status.
  * Moved from an inline interface in project.tsx to shared (task-junior-ux-3-cleanup defer #2).

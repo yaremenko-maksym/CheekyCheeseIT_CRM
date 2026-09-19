@@ -97,7 +97,7 @@ export function InvoiceCard({
         data-testid={`invoice-card-${invoice.transactionId}`}
         role="button"
         tabIndex={0}
-        aria-label={`Открыть инвойс ${invoice.type} на ${formatAmount(invoice.amount, invoice.currency)}`}
+        aria-label={`Открыть счёт ${invoice.type} на ${formatAmount(invoice.amount, invoice.currency)}`}
         onClick={() => onOpen(invoice.transactionId)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {

@@ -8,7 +8,11 @@ import {
 } from '@nestjs/common'
 import { randomBytes } from 'crypto'
 import { and, desc, eq, isNull } from 'drizzle-orm'
-import type { InterpolatableVariableKey, SessionUser } from '@crm/shared'
+import {
+  CONTRACT_SIGN_IMPERSONATION_MESSAGE,
+  type InterpolatableVariableKey,
+  type SessionUser,
+} from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -71,6 +75,7 @@ export class SignedContractsService {
     typedName: _typedName,
     ip,
     userAgent,
+    impersonatorId,
   }: {
     userId: string
     userRole: SessionUser['role']
@@ -78,7 +83,26 @@ export class SignedContractsService {
     typedName: string | undefined
     ip: string | null
     userAgent: string | null
+    /**
+     * Бэклог 212. Set from `SessionUser.impersonatorId` at the controller —
+     * an ADMIN under «войти как» must not be able to sign the impersonated
+     * employee's contract for them, mirroring the identical guard already
+     * closed for the share-change decision (`UsersService
+     * .approveSeniorShareChange`/`rejectSeniorShareChange`) and the project
+     * approve/reject decision (`ProjectsService`, SR-H-5). Checked FIRST,
+     * before `getReadyForSigning` or any DB write, so an impersonated
+     * signing attempt leaves zero trace in `signed_contracts`.
+     *
+     * SR-M-2 (task-680-fix-round-2): required, not optional — a future
+     * caller that forgets to pass it fails to compile instead of silently
+     * passing the guard. The sole caller (`SignedContractsController.sign`)
+     * already resolves `user.impersonatorId ?? null`.
+     */
+    impersonatorId: string | null
   }) {
+    if (impersonatorId) {
+      throw new ForbiddenException(CONTRACT_SIGN_IMPERSONATION_MESSAGE)
+    }
     if (userRole === 'ADMIN') {
       throw new BadRequestException('ADMIN_DOES_NOT_SIGN_CONTRACTS')
     }

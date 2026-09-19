@@ -1,5 +1,11 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { and, desc, eq, sql } from 'drizzle-orm'
+import { TOS_ACCEPT_IMPERSONATION_MESSAGE } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { tosAcceptances, tosVersions } from '../database/schema'
 import type { DrizzleTx } from '../database/types' // still used by publish()
@@ -122,11 +128,32 @@ export class TosService {
     userId,
     ip,
     userAgent,
+    impersonatorId,
   }: {
     userId: string
     ip: string | null
     userAgent: string | null
+    /**
+     * Fix-раунд 3 (task-680, SR-M-3). Set from `SessionUser.impersonatorId`
+     * at the controller — mirrors the identical guard closed for contract
+     * signing (`SignedContractsService.sign`, SR-M-2): an ADMIN under
+     * «войти как» must not be able to record the impersonated employee's
+     * ToS acceptance for them — the row would carry the ADMIN's IP /
+     * user-agent as proof of a consent the employee never gave. Checked
+     * FIRST, before `getCurrent()` or any DB write, so an impersonated
+     * accept attempt leaves zero trace in `tos_acceptances`.
+     *
+     * Required, not optional (SR-M-2 pattern) — a future caller that
+     * forgets to pass it fails to compile instead of silently passing the
+     * guard. The sole caller (`TosController.accept`) already resolves
+     * `user.impersonatorId ?? null`.
+     */
+    impersonatorId: string | null
   }) {
+    if (impersonatorId) {
+      throw new ForbiddenException(TOS_ACCEPT_IMPERSONATION_MESSAGE)
+    }
+
     const active = await this.getCurrent()
     if (!active) throw new NotFoundException('No active ToS version')
 
