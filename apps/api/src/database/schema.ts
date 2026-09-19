@@ -3485,9 +3485,11 @@ export const notificationEmails = pgTable(
     sentToEmail: varchar('sent_to_email', { length: 255 }),
     /**
      * Почему не ушло. Кладётся ТОЛЬКО обеззараженная причина
-     * (`safeErrorReason`: `Resend API HTTP 429` / имя класса ошибки) — тело
-     * ответа Resend цитирует отвергнутый адрес, то есть ровно те данные,
-     * которых этот проект не пишет в журналы.
+     * (`safeErrorReason`: `Resend API HTTP 429` / имя класса ошибки; плюс
+     * сообщение `decideDelivery:` из ветки «шлюз не передал `subjectState`» —
+     * там тоже нет ни адреса, ни темы) — тело ответа Resend цитирует
+     * отвергнутый адрес, то есть ровно те данные, которых этот проект не
+     * пишет в журналы.
      */
     lastError: varchar('last_error', { length: 200 }),
     /**
