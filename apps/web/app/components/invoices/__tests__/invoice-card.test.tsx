@@ -70,6 +70,18 @@ describe('InvoiceCard', () => {
     expect(screen.queryByText('Ожидается ваша подпись')).not.toBeInTheDocument()
   })
 
+  it('aria-label names the invoice type and formatted amount as "счёт" (copy review 5256855157, COPY-L-4)', () => {
+    render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
+    // Accessible name is built from the aria-label; asserting via getByRole
+    // (not getByTestId) so a mutation to the aria-label string itself is
+    // caught, not just the visible text. Amount literal ("1 234,56 USDT")
+    // is written by hand, not derived from formatAmount, so it can't drift
+    // silently together with the code under test.
+    expect(
+      screen.getByRole('button', { name: /Открыть счёт SENIOR_INCOME на 1\s234,56\sUSDT/ }),
+    ).toBeInTheDocument()
+  })
+
   it('calls onOpen with the transactionId when the card is clicked', () => {
     const onOpen = vi.fn()
     render(<InvoiceCard invoice={baseInvoice} onOpen={onOpen} />)
