@@ -34,6 +34,7 @@ import {
   createSeniorIncomeViaAPI,
   approveProjectViaAPI,
   rejectProjectViaAPI,
+  findUserByEmailViaApi,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -164,6 +165,14 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       // The old bug: the header badge ignored `status` and always rendered
       // this string for any non-archived project.
       await expect(page.getByText('Активный', { exact: true })).not.toBeVisible()
+      // task-projects-followups-web (backlog 201, AC7): DRAFT — the header
+      // also names who the approval is still waiting on, same text
+      // `ProjectRow.tsx`'s own caption uses (shared helper). Real display
+      // name fetched from the API, not guessed from the seed email.
+      const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorA)
+      await expect(page.getByTestId('project-header-approval-caption')).toHaveText(
+        `от ${senior?.displayName}`,
+      )
 
       // `rejectProjectViaAPI` switches the page's session to the invited
       // approver (the senior) — only an invited approver may reject.
@@ -180,6 +189,11 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       const badgeAfter = page.getByTestId('project-status-badge')
       await expect(badgeAfter).toHaveText('Отклонён')
       await expect(badgeAfter).toHaveAttribute('data-status', 'REJECTED')
+      // task-projects-followups-web (backlog 201, AC7): REJECTED — ADMIN
+      // sees the reason directly in the header, quoted, same as the row.
+      await expect(page.getByTestId('project-header-rejection-reason')).toHaveText(
+        '«Условия не подходят»',
+      )
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)

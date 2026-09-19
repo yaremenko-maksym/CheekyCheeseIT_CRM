@@ -41,8 +41,8 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
  * (`repeat(4, minmax(0,1fr))`) to need 701.9px — a real, measured break
  * (two-line tab strip) on 640-749px viewports, a width range this repo's
  * E2E suite does not test (only 320/375/768+), which is why the mechanical
- * gate stayed green through it. 'На подтверждении' (113.5px) drops the
- * requirement to 538px.
+ * gate stayed green through it. The 113.5px replacement this fix-round
+ * chose drops the requirement to 538px.
  *
  * UX-M-3(r5) (PR #646 fix-round 5, MED — design review). "Fitting from
  * 640px up" (this comment's own prior claim) was never true: the desktop
@@ -100,10 +100,28 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
  * COPY-M-13 complaint (two wordings inside one device class) more
  * completely than dozakrytie #1 did: there is now exactly one wording per
  * class, not one wording per sub-range within a class.
+ *
+ * COPY-L-11 = COPY-M-2 (backlog 168/201, task-projects-followups-web). The
+ * previous PENDING label above was its own fifth name for the same fact
+ * this tab filters to — the nav item ("/pending"), the row badge
+ * (`ProjectRow.tsx`), and the detail page header badge
+ * (`ProjectStatusBadge.tsx`) all already said "Ждёт решения" / "Ждут
+ * решения" (CONTEXT.md's own canon: "Ждёт решения" per project, "Ждут
+ * решения" for the section that collects them). 'Ждут решения' (12
+ * characters) fits the same 4-column equal-width toggle budget the
+ * COPY-M-2 comment above already measured against (154px was the one that
+ * broke it) — the 113.5px figure quoted there is the OLD 16-character «На
+ * подтверждении»'s own measurement, carried over here as an upper bound,
+ * not a fresh measurement of this shorter 12-character label (CR-L-1,
+ * fix-round 2): a strictly shorter string cannot need a wider container
+ * than the one it replaces, so the bound still holds, but no independent
+ * pixel measurement of THIS label was taken. AC3 is closed empirically by
+ * the green E2E on a live stand, not by this comment. No new layout risk,
+ * one name instead of five.
  */
 export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
   ACTIVE: 'Активные',
-  PENDING: 'На подтверждении',
+  PENDING: 'Ждут решения',
   REJECTED: 'Отклонённые',
   ARCHIVED: 'Архив',
 }

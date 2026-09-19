@@ -45,6 +45,10 @@ import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
 import { ProjectStatusBadge } from '@/components/projects/ProjectStatusBadge'
+import {
+  resolveProjectApprovalCaption,
+  type ProjectApprovalCaptionInput,
+} from '@/components/projects/project-approval-caption'
 import { ProjectCredentialsSection } from '@/components/projects/ProjectCredentialsSection'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
@@ -1011,6 +1015,92 @@ export function PendingShareApprovalBanner({
 }
 
 /**
+ * task-projects-followups-web (backlog 201). The header badge
+ * (`ProjectStatusBadge`) alone said only the bare status word — "Отклонён"
+ * with no reason, "Ждёт решения" with no hint who it is still waiting on —
+ * while the row list (`ProjectRow.tsx`) has always shown both right next to
+ * the badge. This renders the same fact, in the same words: the caption
+ * TEXT comes from `resolveProjectApprovalCaption` (shared with
+ * `ProjectRow.tsx` — see that helper's own doc), only the layout differs
+ * (no column-width budget to defend here, unlike the row's ~86px track).
+ *
+ * `null` (renders nothing) on `ACTIVE`, and on a `REJECTED` project whose
+ * `rejectionReason` this viewer's DTO does not carry — masked to `null`
+ * server-side for every non-ADMIN viewer (SR-M-5), same as the row.
+ *
+ * Exported for a standalone render test — same reason `InfoRow` /
+ * `ProjectEditFields` / `PendingShareApprovalBanner` already are (see that
+ * banner's own doc): mounting the whole 2000+-line route to read one <p>
+ * would be the alternative.
+ */
+export function ProjectHeaderApprovalNote({
+  project,
+  viewerId,
+}: {
+  project: ProjectApprovalCaptionInput & { archivedAt?: string | null }
+  viewerId?: string | null | undefined
+}) {
+  // SR-L-1 (fix-round 2): archival is a separate axis from `status` (see
+  // `resolveProjectApprovalCaption`'s own doc) — `ProjectRow.tsx` branches on
+  // `archivedAt` BEFORE ever reaching the caption helper (its `isArchived`
+  // priority), so a REJECTED-then-archived project shows only the "В архиве"
+  // badge there, never the rejection reason. This caller reads the exact
+  // same DTO shape and must not show a caption the row never would.
+  if (project.archivedAt) return null
+
+  const caption = resolveProjectApprovalCaption(project, viewerId)
+  if (!caption) return null
+
+  if (project.status === 'REJECTED') {
+    return (
+      // COPY-M-3 (fix-round 2): the header has no column-width budget to
+      // defend (unlike the row's ~86px track this line-clamp-2 was
+      // originally sized for) — `title` is a hover-only affordance and does
+      // nothing on a touch screen, so clamping on mobile/tablet made the
+      // tail of the reason unreachable there. Clamped only from `lg:` up,
+      // where the header genuinely does share the row with other content.
+      //
+      // UX-H-1 / COPY-M-5 (fix-round 3): `basis-full lg:basis-auto` so this
+      // paragraph always claims its own line in the badge row's flex-wrap
+      // — on 640-1023 (header now stacked, badge row full-width) a long
+      // reason would otherwise sit on the same line as the domain badge and
+      // shove it around instead of wrapping cleanly under the status badge.
+      //
+      // UX-L-1 / COPY-L-3 (fix-round 3): dropped `mt-1.5` + added
+      // `self-center` — the badge row is `items-center`; the old top margin
+      // pushed this line below the status badge's vertical center (measured:
+      // badge 142-164, caption 148-164 on 1440) instead of centering with it.
+      //
+      // UX-M-1 (fix-round 4): `max-w-prose` was unconditional, so on
+      // ~978-1023 (header stacked since fix-round 3, badge row full-width)
+      // a long (>=250 char) reason's clamped width left enough leftover
+      // space on its own flex line for the domain badge to sit beside it
+      // instead of wrapping below the status badge — `basis-full` alone
+      // doesn't force full width once `max-width` caps the box smaller than
+      // the container. Scoped the cap to `lg:` (paired with `lg:basis-auto`
+      // above) so below `lg` the reason is unconstrained and always claims
+      // the full row.
+      <p
+        className="line-clamp-none basis-full self-center text-xs text-destructive/90 lg:basis-auto lg:line-clamp-2 lg:max-w-prose"
+        title={project.rejectionReason ?? undefined}
+        data-testid="project-header-rejection-reason"
+      >
+        {caption}
+      </p>
+    )
+  }
+
+  return (
+    <p
+      className="max-w-full basis-full self-center text-xs text-amber-300/80 lg:basis-auto"
+      data-testid="project-header-approval-caption"
+    >
+      {caption}
+    </p>
+  )
+}
+
+/**
  * task-drop-share-override-and-receiver (Surface A). Read-only "Доля дропа"
  * widget — twin of `ProjectShareInfo` above for the drop's per-project share.
  * Shows the backend-resolved effective % (override → user default → 5) and an
@@ -1361,7 +1451,15 @@ function ProjectDetailPage() {
             className="pointer-events-none absolute -top-16 -left-16 h-64 w-64 rounded-full opacity-[0.07] blur-3xl"
             style={{ background: '#f5c542' }}
           />
-          <div className="relative flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+          {/* UX-H-1 / COPY-M-5 (fix-round 3): the row flip used to happen at
+            `sm:` (640px) — on a 768px tablet the title column had only
+            ~95px to work with, wrapping the "Ждёт решения" pill's own text
+            and breaking a long rejection reason into 7-20 narrow lines.
+            `scrollWidth <= clientWidth` never caught it because nothing
+            actually overflowed the viewport. Pushed to `lg:` (1024px) so
+            640-1023 stacks the header like 320 does — full-width badge row,
+            buttons on their own line below the title. */}
+          <div className="relative flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between">
             {/* Left: back + logo + title */}
             <div className="flex items-center gap-4 min-w-0">
               <Link to="/projects" className="shrink-0">
@@ -1393,6 +1491,15 @@ function ProjectDetailPage() {
                     before, which called a DRAFT/REJECTED project
                     "Активный" (see ProjectStatusBadge.tsx doc). */}
                   <ProjectStatusBadge project={project} />
+                  {/* task-projects-followups-web (backlog 201, fix-round 2,
+                    COPY-M-1): mounted immediately after the status badge, not
+                    below the whole badge row — "от <синьор>" / the quoted
+                    rejection reason is a grammatical continuation of "Ждёт
+                    решения" / "Отклонён", not a standalone sentence, and
+                    reads as attached to the wrong neighbor (the domain badge)
+                    once the drop/domain badges sit between it and the status
+                    badge it explains. */}
+                  <ProjectHeaderApprovalNote project={project} viewerId={user?.id} />
                   {/* Drop role - phase 2. Distinct blue/info badge for drop-
                     projects so it's obvious at a glance that money flows
                     through a DROP user. Hidden for regular senior-projects.
@@ -1420,7 +1527,7 @@ function ProjectDetailPage() {
             {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
               and former «Завершить» button). Visible to ADMIN/HR (full edit)
               and ACCOUNTANT (override-only edit). */}
-            <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+            <div className="flex items-center gap-2 shrink-0 self-start lg:self-center">
               {canOpenEdit && !project.archivedAt && (
                 <Button
                   size="sm"

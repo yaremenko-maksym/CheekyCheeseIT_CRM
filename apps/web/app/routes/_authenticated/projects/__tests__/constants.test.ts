@@ -17,10 +17,10 @@ describe('PROJECT_STATUS_FILTERS / STATUS_FILTER_LABELS (design spec §2/§5)', 
     expect(PROJECT_STATUS_FILTERS).toEqual(['ACTIVE', 'PENDING', 'REJECTED', 'ARCHIVED'])
   })
 
-  it('desktop labels match the design spec §5 table (COPY-M-2, PR #646 fix-round 2: PENDING shortened from "Ожидают подтверждения" — 154px broke the 4-column equal-width toggle at 640-749px)', () => {
+  it('desktop labels match the design spec §5 table (COPY-L-11 = COPY-M-2, backlog 168/201, task-projects-followups-web: PENDING renamed to "Ждут решения" — one name for the same fact the nav item and both status badges already used, 113.5px stays under the 4-column toggle budget COPY-M-2 originally measured)', () => {
     expect(STATUS_FILTER_LABELS).toEqual({
       ACTIVE: 'Активные',
-      PENDING: 'На подтверждении',
+      PENDING: 'Ждут решения',
       REJECTED: 'Отклонённые',
       ARCHIVED: 'Архив',
     })

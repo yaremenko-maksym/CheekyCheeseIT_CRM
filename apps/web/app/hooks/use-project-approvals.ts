@@ -6,7 +6,7 @@ import { PENDING_QUERY_KEY } from '@/hooks/use-pending-items'
 
 /**
  * task-project-status-filter-ui. Cache key for the "default" (non-archived)
- * project list — backs the /projects page's Активные/На подтверждении/
+ * project list — backs the /projects page's Активные/Ждут решения/
  * Отклонённые tabs (bucketed client-side by `project.status`, see
  * routes/_authenticated/projects/index.tsx).
  *
