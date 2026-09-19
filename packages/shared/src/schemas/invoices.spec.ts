@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  INVOICE_SIGN_IMPERSONATION_MESSAGE,
   invoiceListItemSchema,
   invoiceListResponseSchema,
   invoiceSchema,
@@ -267,5 +268,21 @@ describe('signInvoiceRequestSchema', () => {
     expect(() =>
       signInvoiceRequestSchema.parse({ acknowledge: true, comment: 'looks good' }),
     ).not.toThrow()
+  })
+})
+
+/**
+ * Fix-раунд 3 (task-680, SR-M-4). Литерал — SSOT для серверного 403 на
+ * `POST /invoices/:transactionId/sign` и клиентского пояснения рядом с
+ * кнопкой подписи счёта. Мутационный гейт в `packages/shared` видит ТОЛЬКО
+ * тесты этого пакета — ассертация в `apps/api`/`apps/web` на тот же
+ * импортированный литерал этот мутант не убивает, потому что три пакета
+ * гоняются раздельно (`mutation-gate-runbook.md`, «3-package matrix»).
+ */
+describe('INVOICE_SIGN_IMPERSONATION_MESSAGE', () => {
+  it('точный текст — форма как у отказа по подписи контракта/ToS; без точки на конце', () => {
+    expect(INVOICE_SIGN_IMPERSONATION_MESSAGE).toBe(
+      'Пока вы вошли как другой сотрудник, подписать его счёт нельзя — это должен сделать он сам',
+    )
   })
 })
