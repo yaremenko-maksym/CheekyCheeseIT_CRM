@@ -6,14 +6,14 @@
 
 **Architecture:** Один каталог `packages/shared/src/i18n/locales/{uk,en}/messages.po` на трёх потребителей: веб (React, макросы через Babel-плагин в Vite и Vitest), API и shared (CommonJS, без макросов — дескрипторы с `/* i18n */` и явными id, отдельный экземпляр `i18n` на запрос/получателя). Ошибки API — `{ statusCode, code, params, message }`; клиент переводит по `code`. Локаль: `users.locale` (enum `uk|en`, дефолт `uk`) → `/auth/me` → `I18nProvider`; до входа — cookie `pref_locale` → `navigator.language` → `uk`.
 
-**Tech Stack:** Lingui **6.7.0** (`@lingui/core`, `@lingui/react`, `@lingui/cli`, `@lingui/vite-plugin`, `@lingui/babel-plugin-lingui-macro`) + `eslint-plugin-lingui` 0.16.0, React 18 + Vite 6 + Vitest 4, NestJS 11 + Fastify, Drizzle, Zod 4, pnpm 7.32.4, **Node 22 LTS** (Task 0).
+**Tech Stack:** Lingui **5.9.5** (решение владельца 2026-09-19 после спайков 0b/0c; 6.x — см. Global Constraints) (`@lingui/core`, `@lingui/react`, `@lingui/cli`, `@lingui/vite-plugin`, `@lingui/babel-plugin-lingui-macro`) + `eslint-plugin-lingui` 0.16.0, React 18 + Vite 6 + Vitest 4, NestJS 11 + Fastify, Drizzle, Zod 4, pnpm 7.32.4, **Node 22 LTS** (Task 0).
 
 **Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` (этап 1 выполнен: `docs/architecture/2026-09-19-crm-i18n-audit.md`).
 
 ## Global Constraints
 
-- Lingui 6 требует **Node ≥ 22.19** и поставляется **только ESM**. Владелец 2026-09-19 разрешил поднять Node: Task 0 (DevOps) переводит CI, Dockerfile, `.nvmrc`, `engines` и `version-pins.md` на Node 22 LTS **до** Task 1. `apps/api` и `packages/shared` собираются tsc в CommonJS — Node ≥ 22.12 умеет `require()` ESM-модулей без top-level await, но это надо **доказать спайком** (Task 0b), а не предполагать; спайк красный → `.blocked.md` оркестратору с двумя выходами (Lingui 5.9.5 либо перевод api/shared на `module: node16`), не самовольный выбор.
-- Все пакеты `@lingui/*` — **одной версией 6.7.0**, EXACT-пин; строка в `version-pins.md` (Task 10, добавить уже в Task 1).
+- **Итог спайков 0b/0c (2026-09-19):** Lingui 6 — ESM-only; рантайм `require(esm)` под Node 22 работает в shared и api, но `tsc` с `moduleResolution: Node` не видит его типы (TS2307), а перевод api/shared на `node16` блокирован dual-package типами `drizzle-orm@0.45.2` (57 ошибок в 10 файлах реляционного query-builder). **Решение владельца: Lingui 5.9.5 сейчас** (`main: index.cjs`, `require`-условие, Node ≥ 20 — совместим без правок конфигов; те же макросы `@lingui/core/macro`/`@lingui/react/macro`); апгрейд на 6 — отдельный пункт бэклога с условием «Drizzle публикует единые типы либо api/shared на node16». Node 22 (Task 0) остаётся — он нужен рантайму и будущему апгрейду.
+- Все пакеты `@lingui/*` — **одной версией 5.9.5**, EXACT-пин; строка в `version-pins.md` (Task 10, добавить уже в Task 1).
 - Языки: `uk` (дефолт, `sourceLocale`) и `en`. Исходный текст в коде — украинский; id — хеш от текста (дефолт Lingui), явные id только у кодов ошибок и модульных дескрипторов в shared/api.
 - Русский из продукта убирается **по модулям на этапе 3** — в этом этапе новые/изменённые строки пишутся сразу `uk` + `en`, существующие русские не трогаются, кроме перечисленных в задачах.
 - Ошибки API — коды + `params` без PII; `message` — английский fallback.
@@ -150,14 +150,14 @@ pnpm --filter @crm/api typecheck && pnpm --filter @crm/api build && node -e "req
 - [ ] **Step 1: Установить зависимости одной версией**
 
 ```bash
-pnpm add -w -D @lingui/cli@6.7.0 @lingui/babel-plugin-lingui-macro@6.7.0
-pnpm --filter @crm/web add @lingui/core@6.7.0 @lingui/react@6.7.0
-pnpm --filter @crm/web add -D @lingui/vite-plugin@6.7.0
-pnpm --filter @crm/shared add @lingui/core@6.7.0
-pnpm --filter @crm/api add @lingui/core@6.7.0
+pnpm add -w -D @lingui/cli@5.9.5 @lingui/babel-plugin-lingui-macro@5.9.5
+pnpm --filter @crm/web add @lingui/core@5.9.5 @lingui/react@5.9.5
+pnpm --filter @crm/web add -D @lingui/vite-plugin@5.9.5
+pnpm --filter @crm/shared add @lingui/core@5.9.5
+pnpm --filter @crm/api add @lingui/core@5.9.5
 ```
 
-В каждом `package.json` версия должна быть `"6.7.0"` без `^` (EXACT-пин, как у пары TanStack). Пакеты ESM-only: `lingui.config.ts` в корне и скрипты CLI работают под Node 22 (Task 0).
+В каждом `package.json` версия должна быть `"5.9.5"` без `^` (EXACT-пин, как у пары TanStack).
 
 - [ ] **Step 2: Конфиг Lingui в корне**
 
@@ -269,7 +269,7 @@ Run: `pnpm --filter @crm/web test -- app/lib/__tests__/i18n-smoke.test.tsx` → 
 ```bash
 pnpm typecheck && pnpm lint && pnpm --filter @crm/web test
 git add package.json pnpm-lock.yaml lingui.config.ts turbo.json .gitignore apps/web/package.json apps/web/vite.config.ts apps/web/vitest.config.ts packages/shared/package.json apps/api/package.json packages/shared/src/i18n/locales/uk/messages.po packages/shared/src/i18n/locales/en/messages.po apps/web/app/lib/__tests__/i18n-smoke.test.tsx
-git commit -m "infra(i18n): add Lingui 6.7.0 — config, catalogs, vite/vitest macro plugin, turbo compile step
+git commit -m "infra(i18n): add Lingui 5.9.5 — config, catalogs, vite/vitest macro plugin, turbo compile step
 
 ac_verified: 1"
 ```
@@ -1270,7 +1270,7 @@ ac_verified: 9b"
 **Files:**
 
 - Modify: `.claude/rules/common/russian-language.md` — русский остаётся языком общения с владельцем, PR-обсуждений и отчётов агентов; **продукт** (UI `apps/web`, письма, PDF счетов) — `uk` (дефолт) и `en`; запрет украинского в продукте снимается; логи — английский. Правило «Reviewer → BLOCK» переформулировать: BLOCK на русский текст в **мигрированном** модуле и на любой новый видимый текст без обёртки Lingui.
-- Modify: `.claude/rules/common/version-pins.md` — блок «i18n»: `@lingui/*` **6.7.0** EXACT одной версией (ESM-only, требует Node ≥ 22.19 — см. строку Node 22 из Task 0); `eslint-plugin-lingui 0.16.0`; результат спайка Task 0b одной строкой (как CJS-сборки api/shared подхватывают ESM-пакет).
+- Modify: `.claude/rules/common/version-pins.md` — блок «i18n»: `@lingui/*` **5.9.5** EXACT одной версией; `eslint-plugin-lingui 0.16.0`; почему не 6 (ESM-only + `moduleResolution: Node` в api/shared + dual-типы drizzle при node16) и условие апгрейда.
 - Modify: `.claude/agents/copy-reviewer.md`, `.claude/skills/copywriting/SKILL.md` — CRM теперь двуязычна: вердикт по `uk` и `en` отдельно; «два оригинала» действует на CRM; глоссарий `CONTEXT.md` — источник терминов.
 - Modify: `.claude/skills/playwright-patterns/SKILL.md` — правило: текст в ассертах из каталога (`i18n._()` дескриптора) или testid/роль, литералы запрещены для мигрированных модулей.
 - Modify: `.claude/agents/workflow-registry.md` №8 — после этапа 6 воркфлоу становится аудитом покрытия каталогов.
