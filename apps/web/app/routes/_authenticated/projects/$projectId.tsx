@@ -1037,16 +1037,30 @@ export function ProjectHeaderApprovalNote({
   project,
   viewerId,
 }: {
-  project: ProjectApprovalCaptionInput
+  project: ProjectApprovalCaptionInput & { archivedAt?: string | null }
   viewerId?: string | null | undefined
 }) {
+  // SR-L-1 (fix-round 2): archival is a separate axis from `status` (see
+  // `resolveProjectApprovalCaption`'s own doc) — `ProjectRow.tsx` branches on
+  // `archivedAt` BEFORE ever reaching the caption helper (its `isArchived`
+  // priority), so a REJECTED-then-archived project shows only the "В архиве"
+  // badge there, never the rejection reason. This caller reads the exact
+  // same DTO shape and must not show a caption the row never would.
+  if (project.archivedAt) return null
+
   const caption = resolveProjectApprovalCaption(project, viewerId)
   if (!caption) return null
 
   if (project.status === 'REJECTED') {
     return (
+      // COPY-M-3 (fix-round 2): the header has no column-width budget to
+      // defend (unlike the row's ~86px track this line-clamp-2 was
+      // originally sized for) — `title` is a hover-only affordance and does
+      // nothing on a touch screen, so clamping on mobile/tablet made the
+      // tail of the reason unreachable there. Clamped only from `lg:` up,
+      // where the header genuinely does share the row with other content.
       <p
-        className="mt-1.5 line-clamp-2 max-w-full text-[11px] text-destructive/90"
+        className="mt-1.5 line-clamp-none max-w-prose text-xs text-destructive/90 lg:line-clamp-2"
         title={project.rejectionReason ?? undefined}
         data-testid="project-header-rejection-reason"
       >
@@ -1057,7 +1071,7 @@ export function ProjectHeaderApprovalNote({
 
   return (
     <p
-      className="mt-1.5 max-w-full text-[11px] text-amber-300/80"
+      className="mt-1.5 max-w-full text-xs text-amber-300/80"
       data-testid="project-header-approval-caption"
     >
       {caption}
@@ -1448,6 +1462,15 @@ function ProjectDetailPage() {
                     before, which called a DRAFT/REJECTED project
                     "Активный" (see ProjectStatusBadge.tsx doc). */}
                   <ProjectStatusBadge project={project} />
+                  {/* task-projects-followups-web (backlog 201, fix-round 2,
+                    COPY-M-1): mounted immediately after the status badge, not
+                    below the whole badge row — "от <синьор>" / the quoted
+                    rejection reason is a grammatical continuation of "Ждёт
+                    решения" / "Отклонён", not a standalone sentence, and
+                    reads as attached to the wrong neighbor (the domain badge)
+                    once the drop/domain badges sit between it and the status
+                    badge it explains. */}
+                  <ProjectHeaderApprovalNote project={project} viewerId={user?.id} />
                   {/* Drop role - phase 2. Distinct blue/info badge for drop-
                     projects so it's obvious at a glance that money flows
                     through a DROP user. Hidden for regular senior-projects.
@@ -1469,12 +1492,6 @@ function ProjectDetailPage() {
                     {project.domain}
                   </Badge>
                 </div>
-                {/* task-projects-followups-web (backlog 201): reason the
-                    approval was declined (ADMIN-only — SR-M-5 masking) or
-                    who a DRAFT project is still waiting on — the row list
-                    has always shown this next to the badge, the header
-                    used to say only the bare status word. */}
-                <ProjectHeaderApprovalNote project={project} viewerId={user?.id} />
               </div>
             </div>
 

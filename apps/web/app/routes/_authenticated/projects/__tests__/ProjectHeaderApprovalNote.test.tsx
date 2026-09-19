@@ -17,8 +17,8 @@ const SENIOR_ID = '00000000-0000-0000-0000-0000000000b1'
 const DROP_ID = '00000000-0000-0000-0000-0000000000b2'
 
 function makeProject(
-  overrides: Partial<ProjectApprovalCaptionInput> = {},
-): ProjectApprovalCaptionInput {
+  overrides: Partial<ProjectApprovalCaptionInput & { archivedAt?: string | null }> = {},
+): ProjectApprovalCaptionInput & { archivedAt?: string | null } {
   return {
     status: 'DRAFT',
     rejectionReason: null,
@@ -28,6 +28,7 @@ function makeProject(
     dropName: null,
     seniorApprovalPending: true,
     dropApprovalPending: undefined,
+    archivedAt: null,
     ...overrides,
   }
 }
@@ -82,6 +83,30 @@ describe('ProjectHeaderApprovalNote', () => {
 
   it('ACTIVE — neither the reason nor the caption renders', () => {
     render(<ProjectHeaderApprovalNote project={makeProject({ status: 'ACTIVE' })} />)
+    expect(screen.queryByTestId('project-header-rejection-reason')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('project-header-approval-caption')).not.toBeInTheDocument()
+  })
+
+  it("SR-L-1 (fix-round 2): REJECTED WITH a reason but archivedAt is set — renders nothing, matching ProjectRow.tsx's own isArchived-first priority", () => {
+    render(
+      <ProjectHeaderApprovalNote
+        project={makeProject({
+          status: 'REJECTED',
+          rejectionReason: 'нет бюджета на Q3',
+          archivedAt: '2026-02-01T00:00:00.000Z',
+        })}
+      />,
+    )
+    expect(screen.queryByTestId('project-header-rejection-reason')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('project-header-approval-caption')).not.toBeInTheDocument()
+  })
+
+  it('SR-L-1 (fix-round 2): DRAFT still pending but archivedAt is set — renders nothing', () => {
+    render(
+      <ProjectHeaderApprovalNote
+        project={makeProject({ archivedAt: '2026-02-01T00:00:00.000Z' })}
+      />,
+    )
     expect(screen.queryByTestId('project-header-rejection-reason')).not.toBeInTheDocument()
     expect(screen.queryByTestId('project-header-approval-caption')).not.toBeInTheDocument()
   })

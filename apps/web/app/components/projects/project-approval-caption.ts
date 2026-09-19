@@ -66,13 +66,25 @@ export function resolveProjectApprovalCaption(
   const seniorStillPending = project.seniorApprovalPending ?? true
   const dropStillPending = !!project.dropId && (project.dropApprovalPending ?? true)
 
+  // COPY-M-4 (fix-round 2): `seniorName` is `z.string().nullable()` on the
+  // DTO and the server really does return `null` for it in some paths — an
+  // un-fallbacked `${project.seniorName}` would print the literal "null" on
+  // screen. Symmetric with `dropName`'s own `?? 'дропа'` fallback below.
+  const seniorLabel = project.seniorName || 'синьора'
+
   const pendingCaption =
     seniorStillPending && dropStillPending
-      ? `от ${project.dropName ?? 'дропа'} и ${project.seniorName}`
+      ? `от ${project.dropName ?? 'дропа'} и ${seniorLabel}`
       : seniorStillPending
-        ? `от ${project.seniorName}`
+        ? `от ${seniorLabel}`
         : dropStillPending
-          ? 'от дропа'
+          ? // COPY-M-2 (fix-round 2): symmetric with the "both pending"
+            // branch above — a drop whose senior already confirmed should
+            // not lose its name from the caption when the senior's own name
+            // does not. `dropName` is `null` for a SENIOR viewer (RBAC rule
+            // #2 — masking, unaffected: the fallback is the same one the
+            // masked branch already used before this change).
+            `от ${project.dropName ?? 'дропа'}`
           : null
 
   const viewerIsSenior = !!viewerId && viewerId === project.seniorId

@@ -360,7 +360,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(screen.queryByText(/и дропа/)).not.toBeInTheDocument()
   })
 
-  it('SPEC-M-2: DRAFT drop-project, senior ALREADY approved — caption names only "дропа", not the senior', async () => {
+  it('SPEC-M-2: DRAFT drop-project, senior ALREADY approved, dropName known — caption names the drop (COPY-M-2, fix-round 2: symmetric with the "both pending" branch above — no longer drops the name), not the senior', async () => {
     const project = makeProject({
       status: 'DRAFT',
       dropId: DROP_ID,
@@ -371,8 +371,22 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText('от дропа')).toBeInTheDocument()
+    expect(screen.getByText(`от ${project.dropName}`)).toBeInTheDocument()
     expect(screen.queryByText(new RegExp(`^от ${project.seniorName}`))).not.toBeInTheDocument()
+  })
+
+  it('COPY-M-2 (fix-round 2): DRAFT drop-project, senior ALREADY approved, dropName masked to null (e.g. SENIOR viewer) — caption falls back to generic "дропа"', async () => {
+    const project = makeProject({
+      status: 'DRAFT',
+      dropId: DROP_ID,
+      dropName: null,
+      seniorApprovalPending: false,
+      dropApprovalPending: true,
+    })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-status-pending`)
+    expect(screen.getByText('от дропа')).toBeInTheDocument()
   })
 
   it('DRAFT drop-project, approval fields absent (old cached DTO, pre SPEC-M-2): defaults to "both still pending", drop-first order (COPY-M-1)', async () => {

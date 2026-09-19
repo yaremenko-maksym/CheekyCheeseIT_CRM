@@ -107,11 +107,17 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
  * (`ProjectRow.tsx`), and the detail page header badge
  * (`ProjectStatusBadge.tsx`) all already said "Ждёт решения" / "Ждут
  * решения" (CONTEXT.md's own canon: "Ждёт решения" per project, "Ждут
- * решения" for the section that collects them). 'Ждут решения' (113.5px)
- * fits the same 4-column equal-width toggle budget the COPY-M-2 comment
- * above already measured against (154px was the one that broke it, not
- * the 113.5px ceiling the old label sat under) — no new layout risk, one
- * name instead of five.
+ * решения" for the section that collects them). 'Ждут решения' (12
+ * characters) fits the same 4-column equal-width toggle budget the
+ * COPY-M-2 comment above already measured against (154px was the one that
+ * broke it) — the 113.5px figure quoted there is the OLD 16-character «На
+ * подтверждении»'s own measurement, carried over here as an upper bound,
+ * not a fresh measurement of this shorter 12-character label (CR-L-1,
+ * fix-round 2): a strictly shorter string cannot need a wider container
+ * than the one it replaces, so the bound still holds, but no independent
+ * pixel measurement of THIS label was taken. AC3 is closed empirically by
+ * the green E2E on a live stand, not by this comment. No new layout risk,
+ * one name instead of five.
  */
 export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
   ACTIVE: 'Активные',

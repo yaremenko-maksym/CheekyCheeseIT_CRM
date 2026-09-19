@@ -59,11 +59,24 @@ describe('resolveProjectApprovalCaption', () => {
     expect(caption).toBe('от Nadiya Dropivska и Oleksiy Kovalenko')
   })
 
-  it('DRAFT, drop-project, senior already confirmed (один подтвердил) — third-party caption names only "дропа"', () => {
+  it('DRAFT, drop-project, senior already confirmed (один подтвердил), dropName known — third-party caption names the drop (COPY-M-2: symmetric with the "both pending" branch)', () => {
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
         dropName: 'Nadiya Dropivska',
+        seniorApprovalPending: false,
+        dropApprovalPending: true,
+      }),
+      undefined,
+    )
+    expect(caption).toBe('от Nadiya Dropivska')
+  })
+
+  it('DRAFT, drop-project, senior already confirmed, dropName masked to null (e.g. SENIOR viewer) — third-party caption falls back to generic "дропа"', () => {
+    const caption = resolveProjectApprovalCaption(
+      makeInput({
+        dropId: DROP_ID,
+        dropName: null,
         seniorApprovalPending: false,
         dropApprovalPending: true,
       }),
@@ -126,7 +139,7 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       THIRD_PARTY_ID,
     )
-    expect(caption).toBe('от дропа')
+    expect(caption).toBe('от Nadiya Dropivska')
   })
 
   it('DRAFT, viewer has an id but is NOT the drop, drop already confirmed — third-party caption, NOT the first-person one', () => {
@@ -142,6 +155,25 @@ describe('resolveProjectApprovalCaption', () => {
       THIRD_PARTY_ID,
     )
     expect(caption).toBe('от Oleksiy Kovalenko')
+  })
+
+  it('DRAFT, senior-only project, seniorName is null on the DTO — falls back to "от синьора", never prints "null" (COPY-M-4)', () => {
+    const caption = resolveProjectApprovalCaption(makeInput({ seniorName: null }), undefined)
+    expect(caption).toBe('от синьора')
+    expect(caption).not.toContain('null')
+  })
+
+  it('DRAFT, drop-project, BOTH pending, seniorName is empty string on the DTO — falls back to "от синьора" (COPY-M-4, empty string is also falsy)', () => {
+    const caption = resolveProjectApprovalCaption(
+      makeInput({
+        dropId: DROP_ID,
+        dropName: 'Nadiya Dropivska',
+        dropApprovalPending: true,
+        seniorName: '',
+      }),
+      undefined,
+    )
+    expect(caption).toBe('от Nadiya Dropivska и синьора')
   })
 
   it('REJECTED with a reason (отклонён с причиной) — quoted caption', () => {
