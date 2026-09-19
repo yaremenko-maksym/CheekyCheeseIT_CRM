@@ -530,7 +530,7 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
           presigned URL + the PDF being a static GET for security. */}
       <iframe
         src={data.url}
-        title="Счёт PDF"
+        title="PDF счёта"
         className="w-full min-h-[500px] h-full"
         onLoad={handleIframeLoad}
       />

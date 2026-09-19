@@ -140,10 +140,10 @@ export function useSignInvoice(): UseMutationResult<InvoiceDto, Error, string> {
       void qc.invalidateQueries({ queryKey: invoiceDetailQueryKey(transactionId) })
       void qc.invalidateQueries({ queryKey: ['notifications'] })
       void qc.invalidateQueries({ queryKey: ['documents'] })
-      toast.success('Инвойс подписан')
+      toast.success('Счёт подписан')
     },
     onError: (err: Error) => {
-      toast.error(`Не удалось подписать инвойс: ${err.message}`)
+      toast.error(`Не удалось подписать счёт: ${err.message}`)
     },
   })
 }

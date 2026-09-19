@@ -181,7 +181,7 @@ beforeEach(() => {
 describe('InvoiceDetailDialog', () => {
   it('renders PDF iframe with the presigned URL', async () => {
     renderDialog({ invoice: pendingInvoice })
-    const iframe = (await screen.findByTitle('Счёт PDF')) as HTMLIFrameElement
+    const iframe = (await screen.findByTitle('PDF счёта')) as HTMLIFrameElement
     expect(iframe).toBeInTheDocument()
     expect(iframe.src).toContain('about:blank')
   })
