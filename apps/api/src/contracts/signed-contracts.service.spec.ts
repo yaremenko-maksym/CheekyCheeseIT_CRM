@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import type { ContractPdfService } from './contract-pdf.service'
 import type { EmployeeContractsService } from './employee-contracts.service'
@@ -468,6 +468,53 @@ describe('SignedContractsService', () => {
           userAgent: 'vt',
         }),
       ).rejects.toThrow(BadRequestException)
+    })
+
+    it('refuses to sign under impersonation (backlog 212) — 403, no DB write', async () => {
+      const mockDb = makeDb()
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: 'X',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+          impersonatorId: adminUser.id,
+        }),
+      ).rejects.toThrow(ForbiddenException)
+
+      // Checked before any write: neither the transaction nor
+      // getReadyForSigning is ever reached.
+      expect(mockDb.db.transaction).not.toHaveBeenCalled()
+      expect(empSvc.getReadyForSigning).not.toHaveBeenCalled()
+    })
+
+    it('impersonation refusal carries the exact shared literal (backlog 212)', async () => {
+      const mockDb = makeDb()
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: 'X',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+          impersonatorId: adminUser.id,
+        }),
+      ).rejects.toThrow(CONTRACT_SIGN_IMPERSONATION_MESSAGE)
     })
 
     it('throws 409 CONTRACT_NOT_READY when no READY_TO_SIGN employee_contract', async () => {

@@ -56,6 +56,8 @@ export class SignedContractsController {
       typedName,
       ip,
       userAgent,
+      // Бэклог 212 — see signed-contracts.service.ts `sign()` doc.
+      impersonatorId: user.impersonatorId ?? null,
     })
   }
 

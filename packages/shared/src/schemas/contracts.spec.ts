@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  CONTRACT_SIGN_IMPERSONATION_MESSAGE,
   CONTRACT_VARIABLE_DESCRIPTIONS,
   CONTRACT_VARIABLE_DESCRIPTIONS_BRACED,
   customVariableSchema,
@@ -195,5 +196,21 @@ describe('createContractTemplateSchema', () => {
     })
     expect(result.success).toBe(true)
     expect(result.data?.customVariables).toEqual([])
+  })
+})
+
+/**
+ * Бэклог 212. Литерал — SSOT для серверного 403 на `POST /contracts/sign`
+ * и клиентского объяснения под кнопкой подписи (`SignContractStep.tsx`
+ * добавляет только точку). Мутационный гейт в `packages/shared` видит
+ * ТОЛЬКО тесты этого пакета — ассертация в `apps/api`/`apps/web` на тот же
+ * импортированный литерал этот мутант не убивает, потому что три пакета
+ * гоняются раздельно (`mutation-gate-runbook.md`, «3-package matrix»).
+ */
+describe('CONTRACT_SIGN_IMPERSONATION_MESSAGE', () => {
+  it('точный текст — форма как у отказа по доле; без точки на конце', () => {
+    expect(CONTRACT_SIGN_IMPERSONATION_MESSAGE).toBe(
+      'Пока вы вошли как другой сотрудник, подписать его контракт нельзя — это должен сделать он сам',
+    )
   })
 })
