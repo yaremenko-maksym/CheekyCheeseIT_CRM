@@ -18,7 +18,11 @@
  * получает. Решение, принятое на постановке, обе эти правки игнорирует
  * молча.
  */
-import { isEmailChannelLocked, isNewNotificationType } from '@crm/shared'
+import {
+  isActionRequiredNotificationType,
+  isEmailChannelLocked,
+  isNewNotificationType,
+} from '@crm/shared'
 import type { SubjectResolution } from './notification-subject-resolver'
 
 /** Потолок попыток. Шестой не будет — строка уходит в `FAILED`. */
@@ -152,8 +156,26 @@ export type SendDecision = { send: true; to: string } | { send: false; skipReaso
 export function decideDelivery(type: string, ctx: DeliveryContext): SendDecision {
   if (ctx.archived) return { send: false, skipReason: 'USER_ARCHIVED' }
   if (!isNewNotificationType(type)) return { send: false, skipReason: 'LEGACY_TYPE' }
-  if (ctx.subjectState !== undefined && ctx.subjectState !== 'active') {
-    return { send: false, skipReason: 'STALE' }
+  if (isActionRequiredNotificationType(type)) {
+    // SR-L-1 (PR #678, круг 2): для action-required типа `subjectState`
+    // ОБЯЗАН прийти определённым — единственный вызывающий, умеющий его не
+    // передать (крон), уже подставляет его всегда через
+    // `isActionRequiredNotificationType` в `deliver()`. `undefined` здесь —
+    // не «не проверялось» (как для информирующих типов), а ошибка ВЫЗЫВАЮЩЕГО:
+    // fail-loud throw, а не молчаливый `SKIPPED/STALE` — письмо, пропавшее
+    // из-за бага, не должно быть неотличимо в данных от письма о
+    // несуществующем согласовании (`decideDelivery` не маскирует одно под
+    // другое). Крон ловит это исключение и переводит строку в `FAILED` с
+    // текстом ошибки в `last_error` (без PII — сообщение называет только тип
+    // уведомления).
+    if (ctx.subjectState === undefined) {
+      throw new Error(
+        `decideDelivery: subjectState обязателен для action-required типа "${type}", но не передан`,
+      )
+    }
+    if (ctx.subjectState !== 'active') {
+      return { send: false, skipReason: 'STALE' }
+    }
   }
   // Запертый тип игнорирует запись целиком — §3: «письма про подтверждения и
   // подписи отключить нельзя… иначе процесс встаёт молча». Такая запись не

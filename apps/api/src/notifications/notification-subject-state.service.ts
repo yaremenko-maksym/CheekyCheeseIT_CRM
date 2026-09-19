@@ -159,7 +159,7 @@ export class NotificationSubjectStateService {
           .where(inArray(nonDeletedTransactions.id, ids))
         return new Map<string, SubjectState>(found.map((r) => [r.id, 'active']))
       }
-      default: {
+      case 'EMPLOYEE_CONTRACT': {
         // `DOCUMENT_SIGN_REQUIRED` — единственный тип с этим видом объекта, и
         // «объект существует» для НЕГО означает не «строка не удалена»
         // (контракты не удаляются — `EmployeeContractsService` только меняет
@@ -173,6 +173,15 @@ export class NotificationSubjectStateService {
             and(inArray(employeeContracts.id, ids), eq(employeeContracts.status, 'READY_TO_SIGN')),
           )
         return new Map<string, SubjectState>(found.map((r) => [r.id, 'active']))
+      }
+      default: {
+        // SR-M-1 (PR #678, круг 2): та же идиома, что `classifyApprovalRow`/
+        // `computeSubjectState` в `notification-subject-resolver.ts` —
+        // шестой вид `NotificationSubjectType` красит компиляцию здесь, а не
+        // молча падает в `missing` (для action-required-письма это теперь
+        // `SKIPPED/STALE`, а не «попап показал деградированную карточку»).
+        const exhaustive: never = subjectType
+        throw new Error(`loadSubjectStates: неизвестный вид объекта ${String(exhaustive)}`)
       }
     }
   }

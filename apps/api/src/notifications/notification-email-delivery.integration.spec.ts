@@ -301,7 +301,12 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
 
     const context = await repo.deliveryContextFor(USER_A, 'PROJECT_CONFIRM_REQUIRED')
     expect(context.emailEnabled).toBe(false)
-    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+    // SR-L-1: subjectState обязателен для action-required типа —
+    // этот тест проверяет запертый канал, а не устаревание, поэтому объект
+    // явно живой.
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', { ...context, subjectState: 'active' }),
+    ).toEqual({
       send: true,
       to: 'a.personal@gmail.com',
     })
@@ -373,7 +378,10 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
     const context = await repo.deliveryContextFor(USER_A, 'PROJECT_CONFIRM_REQUIRED')
     expect(context.addresses.length).toBe(2)
     expect(context.archived).toBe(false)
-    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+    // SR-L-1: см. комментарий у соседнего теста «выключено» выше.
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', { ...context, subjectState: 'active' }),
+    ).toEqual({
       send: true,
       to: 'a.personal@gmail.com',
     })
@@ -394,7 +402,10 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
   it('AC3: у пользователя без личного адреса остаётся рабочий', async () => {
     const context = await repo.deliveryContextFor(USER_B, 'PROJECT_CONFIRM_REQUIRED')
     expect(context.addresses.map((r) => r.kind)).toEqual(['WORK'])
-    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+    // SR-L-1: см. комментарий у соседнего теста «выключено» выше.
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', { ...context, subjectState: 'active' }),
+    ).toEqual({
       send: true,
       to: 'b@cheekycheese.tech',
     })
@@ -407,7 +418,10 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
     const context = await repo.deliveryContextFor(USER_NO_MAIL, 'PROJECT_CONFIRM_REQUIRED')
     expect(context.addresses).toEqual([])
     expect(context.archived).toBe(false)
-    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+    // SR-L-1: см. комментарий у соседнего теста «выключено» выше.
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', { ...context, subjectState: 'active' }),
+    ).toEqual({
       send: false,
       skipReason: 'NO_ADDRESS',
     })

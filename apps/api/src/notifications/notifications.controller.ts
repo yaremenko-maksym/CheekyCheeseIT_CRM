@@ -28,6 +28,7 @@ import {
   Query,
 } from '@nestjs/common'
 import {
+  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   notificationListFiltersSchema,
   updateNotificationPreferencesSchema,
   type SessionUser,
@@ -97,9 +98,7 @@ export class NotificationsController {
   @Put('preferences')
   updatePreferences(@CurrentUser() user: SessionUser, @Body() body: unknown) {
     if (user.impersonatorId) {
-      throw new ForbiddenException(
-        'Настройки каналов меняет сам сотрудник — под «войти как» они только для просмотра',
-      )
+      throw new ForbiddenException(NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE)
     }
     const input = updateNotificationPreferencesSchema.parse(body)
     return this.prefs.updateForUser(user.id, input)

@@ -203,7 +203,23 @@ export class NotificationEmailCronService {
     const subjectState = isActionRequiredNotificationType(item.notification.type)
       ? await this.outbox.resolveSubjectState(item.userId, item.notification)
       : undefined
-    const decision = decideDelivery(item.notification.type, { ...context, subjectState })
+    let decision: ReturnType<typeof decideDelivery>
+    try {
+      decision = decideDelivery(item.notification.type, { ...context, subjectState })
+    } catch (err: unknown) {
+      // SR-L-1: `decideDelivery` бросает, если для action-required типа
+      // `subjectState` не пришёл определённым — это ошибка ВЫЗЫВАЮЩЕГО
+      // (текущий шлюз его подставляет всегда, см. условие выше; исключение —
+      // оборонительный рубеж на случай, если реализация `OutboxGateway`
+      // когда-нибудь ошибётся). Строка уходит в `FAILED`, а не проглатывается
+      // молча и не оставляет проход без остатка пачки: без этого catch
+      // исключение вылетело бы из `deliver()` наружу и оборвало бы
+      // необработанные строки текущего прохода до следующего тика.
+      const reason = err instanceof Error ? err.message : 'unknown'
+      await this.outbox.markFailed(item.id, reason)
+      this.logger.error(`decideDelivery failed for id=${item.id}: ${reason}`)
+      return
+    }
     if (!decision.send) {
       await this.outbox.markSkipped(item.id, decision.skipReason)
       this.logSkip(item.id, decision.skipReason)

@@ -17,7 +17,7 @@
  */
 import { render, screen, within, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { NOTIFICATION_TITLES } from '@crm/shared'
+import { NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE, NOTIFICATION_TITLES } from '@crm/shared'
 import { NotificationSettingsTab } from '../NotificationSettingsTab'
 
 let viewerRole: string | null = 'SENIOR'
@@ -496,12 +496,26 @@ describe('NotificationSettingsTab — impersonation (бэклог 205)', () => {
     expect(screen.queryByTestId('notification-settings-impersonating-banner')).toBeNull()
   })
 
-  it('banner renders with the exact server-side 403 text when impersonating', () => {
+  it('banner renders with the exact server-side 403 text when impersonating (COPY-M-1/M-2, PR #678 круг 2)', () => {
     viewerImpersonating = true
     render(<NotificationSettingsTab />)
+    // Один инвариант, а не переписанная строка: клиентский текст — серверный
+    // литерал плюс точка (COPY-M-2), и связка проверяется арифметически, а не
+    // повторным литералом, который может разойтись молча.
     expect(screen.getByTestId('notification-settings-impersonating-banner')).toHaveTextContent(
-      'Настройки каналов меняет сам сотрудник — под «войти как» они только для просмотра',
+      `${NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE}.`,
     )
+  })
+
+  it('COPY-L-1: subtitle under impersonation is descriptive, not an imperative the banner immediately contradicts', () => {
+    viewerImpersonating = true
+    render(<NotificationSettingsTab />)
+    expect(
+      screen.getByText(
+        'Здесь видно, о чём сотруднику присылать письма. В приложении уведомления видны всегда.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Выберите, о чём/)).not.toBeInTheDocument()
   })
 
   it('every switch is actually WIRED to the banner — aria-describedby matches the banner id, not just a coincidentally-equal string', () => {

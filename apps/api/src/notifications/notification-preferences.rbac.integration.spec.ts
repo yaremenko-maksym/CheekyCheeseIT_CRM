@@ -31,6 +31,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { DatabaseService } from '../database/database.service'
@@ -297,9 +298,7 @@ describe.skipIf(!hasDatabaseUrl())('настройки каналов под ш�
 
       expect(res.statusCode).toBe(403)
       const body = res.json<{ message: string }>()
-      expect(body.message).toBe(
-        'Настройки каналов меняет сам сотрудник — под «войти как» они только для просмотра',
-      )
+      expect(body.message).toBe(NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE)
 
       const rows = await db
         .select()

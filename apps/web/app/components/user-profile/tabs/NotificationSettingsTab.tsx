@@ -24,6 +24,7 @@ import {
   ADMIN_NOTIFICATION_TYPES,
   INFORMING_NOTIFICATION_TYPES,
   NEW_NOTIFICATION_TYPES,
+  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   NOTIFICATION_TITLES,
   type NewNotificationType,
   type Notification,
@@ -146,14 +147,19 @@ const LOCKED_EXPLANATION =
   'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.'
 
 /**
- * Бэклог 205. Та же фраза, что отдаёт сервер в 403 на `PUT
- * /notifications/preferences` (`notifications.controller.ts`) — «тем же
- * текстом», не переизложением: расхождение формулировок между кнопкой,
+ * Бэклог 205. Тот же ЛИТЕРАЛ, что отдаёт сервер в 403 на `PUT
+ * /notifications/preferences` (`NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE`,
+ * `packages/shared/src/schemas/notification-preferences.ts`) — не
+ * переизложение своими словами: расхождение формулировок между кнопкой,
  * которая ничего не делает, и причиной, которую видит только сеть, читалось
  * бы как два разных объяснения одного отказа.
+ *
+ * Точка на конце — единственная разница (COPY-M-2, copy-review PR #678 круг
+ * 2): это предложение живёт в прозе карточки рядом с `UNKNOWN_TYPE_EXPLANATION`
+ * и `LOCKED_EXPLANATION`, которые точку ставят; серверная константа — текст
+ * отказа API, где точки не ставит ни одно сообщение `apps/api`.
  */
-const IMPERSONATION_EXPLANATION =
-  'Настройки каналов меняет сам сотрудник — под «войти как» они только для просмотра'
+const IMPERSONATION_EXPLANATION = `${NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE}.`
 /** Один баннер на весь таб — id, на который ссылаются все десять `aria-describedby`. */
 const IMPERSONATION_EXPLANATION_ID = 'notification-pref-explain-impersonating'
 
@@ -662,9 +668,16 @@ export function NotificationSettingsTab() {
               a settings screen, not a feed, before the table shows it. The
               old subtitle's first half ("Письма по типам событий.") said
               nothing the column header three lines below doesn't already
-              say in three words. */}
+              say in three words.
+
+              COPY-L-1 (copy-review PR #678 круг 2): под имперсонацией
+              императив «Выберите…» предлагает действие, которое баннером
+              ниже тут же отменяется — читателю приходится перечитывать.
+              Под имперсонацией подзаголовок описательный, не императив. */}
           <p className="text-sm text-muted-foreground">
-            Выберите, о чём присылать письма. В приложении уведомления видны всегда.
+            {impersonating
+              ? 'Здесь видно, о чём сотруднику присылать письма. В приложении уведомления видны всегда.'
+              : 'Выберите, о чём присылать письма. В приложении уведомления видны всегда.'}
           </p>
           {/* Бэклог 205 — ОДИН баннер объясняет все десять недоступных
               переключателей разом, тем же текстом, что и серверный 403. */}

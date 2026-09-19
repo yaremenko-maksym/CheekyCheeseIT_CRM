@@ -819,6 +819,37 @@ describe('устаревшее согласование не уходит пис
     expect(sends).toHaveLength(0)
     expect(gw.skipped).toEqual([{ id: 'e-1', reason: 'USER_ARCHIVED' }])
   })
+
+  it('SR-L-1: шлюз, забывший состояние для action-required типа, — FAILED, а не необработанное исключение', async () => {
+    // Оборонительный тест: по интерфейсу `OutboxGateway.resolveSubjectState`
+    // всегда возвращает `SubjectResolution` (не `| undefined`), и правильная
+    // реализация никогда не подставит сюда `undefined`. Этот тест — на
+    // случай, если реализация ошибётся: `decideDelivery` бросает (SR-L-1 в
+    // `notification-email-outbox.ts`), и крон обязан поймать это САМ, а не
+    // дать необработанному исключению вырваться из `deliver()` и оборвать
+    // остаток пачки до следующего тика (`handleDue` ловит только на уровне
+    // всего прохода — см. «крон не роняет планировщик» выше).
+    const gw = makeGateway([claimed()])
+    gw.resolveSubjectState = async () => undefined as never
+    const { service, sends } = makeService({ gateway: gw })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(0)
+    expect(gw.skipped).toHaveLength(0)
+    expect(gw.failed).toHaveLength(1)
+    expect(gw.failed[0]?.id).toBe('e-1')
+    expect(gw.failed[0]?.reason).toMatch(/subjectState/)
+    // Без PII: сообщение не может процитировать что-либо, кроме имени типа.
+    expect(gw.failed[0]?.reason).not.toMatch(/@/)
+    // Тот же след и в журнале — тем же приёмом, что у «отказы видны в
+    // журнале, а не только в базе» ниже: строка называет id и причину.
+    const said = String(error.mock.calls[0]?.[0] ?? '')
+    expect(said).toContain('e-1')
+    expect(said).toMatch(/subjectState/)
+    error.mockRestore()
+  })
 })
 
 describe('заголовки письма', () => {

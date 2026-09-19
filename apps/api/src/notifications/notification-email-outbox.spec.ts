@@ -136,8 +136,12 @@ describe('decideDelivery — слать ли это письмо и куда, в
     // процесс встаёт молча». Разбор запроса такую запись не пропустит, но в
     // базу она может попасть мимо API (руками, миграцией, прежней версией) —
     // последний рубеж здесь.
+    //
+    // `subjectState: 'active'` — SR-L-1: у action-required типов это поле
+    // обязательно (иначе `decideDelivery` бросает), и этот тест проверяет
+    // выключенный канал, а не устаревание, поэтому объект здесь живой.
     for (const type of ACTION_REQUIRED_NOTIFICATION_TYPES) {
-      expect(decideDelivery(type, ctx({ emailEnabled: false }))).toEqual({
+      expect(decideDelivery(type, ctx({ emailEnabled: false, subjectState: 'active' }))).toEqual({
         send: true,
         to: 'ivan@cheekycheese.tech',
       })
@@ -253,6 +257,20 @@ describe('decideDelivery — устаревание объекта (бэклог
       skipReason: 'LEGACY_TYPE',
     })
   })
+
+  it.each(ACTION_REQUIRED_NOTIFICATION_TYPES)(
+    'SR-L-1: %s без subjectState — ошибка вызывающего, а не молчаливый STALE',
+    (type) => {
+      // Отсутствие subjectState для action-required типа не значит «не
+      // проверялось» (как для информирующих) — единственный вызывающий,
+      // умеющий забыть его, крон, обязан передавать состояние ВСЕГДА
+      // (`isActionRequiredNotificationType` в `deliver()`). Если кто-то
+      // всё же забудет — громкий throw, а не тихий SKIPPED/STALE: письмо о
+      // несуществующем согласовании и письмо, ошибочно не отправленное
+      // из-за бага вызывающего, не должны быть неотличимы в данных.
+      expect(() => decideDelivery(type, ctx({ subjectState: undefined }))).toThrow(/subjectState/)
+    },
+  )
 })
 
 describe('коды причин пропуска', () => {

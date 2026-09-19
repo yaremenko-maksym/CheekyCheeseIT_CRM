@@ -7,6 +7,7 @@ import {
 } from './notification-registry'
 import {
   isEmailChannelLocked,
+  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   notificationPreferencesResponseClientSchema,
   notificationPreferencesResponseSchema,
   updateNotificationPreferencesSchema,
@@ -418,3 +419,19 @@ function unionBranchMessages(result: {
   }
   return messages
 }
+
+/**
+ * COPY-M-1/M-2 (copy-review PR #678 круг 2). Литерал — SSOT для серверного
+ * 403 и клиентского объяснения (`NotificationSettingsTab.tsx` добавляет
+ * только точку). Мутационный гейт в `packages/shared` видит ТОЛЬКО тесты
+ * этого пакета — ассертация в `apps/api`/`apps/web` на тот же импортированный
+ * литерал этот мутант не убивает, потому что три пакета гоняются раздельно
+ * (`mutation-gate-runbook.md`, «3-package matrix»).
+ */
+describe('NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE', () => {
+  it('точный текст — слово «уведомлений», не «каналов»; без точки на конце', () => {
+    expect(NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE).toBe(
+      'Настройки уведомлений меняет сам сотрудник — под «войти как» они только для просмотра',
+    )
+  })
+})

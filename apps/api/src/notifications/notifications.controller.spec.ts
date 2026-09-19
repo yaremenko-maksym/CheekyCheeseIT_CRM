@@ -13,7 +13,7 @@
  */
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
 import { NotificationsController } from './notifications.controller'
 
 function makeController(): {
@@ -68,7 +68,7 @@ describe('PUT /notifications/preferences под имперсонацией — �
 
     expect(caught).toBeInstanceOf(ForbiddenException)
     expect((caught as ForbiddenException).message).toBe(
-      'Настройки каналов меняет сам сотрудник — под «войти как» они только для просмотра',
+      NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
     )
   })
 
