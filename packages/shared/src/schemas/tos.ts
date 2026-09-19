@@ -68,4 +68,4 @@ export type TosAcceptanceDto = z.infer<typeof tosAcceptanceSchema>
  * `SignContractStep.tsx`.
  */
 export const TOS_ACCEPT_IMPERSONATION_MESSAGE =
-  'Пока вы вошли как другой сотрудник, принять условия за него нельзя — это должен сделать он сам'
+  'Пока вы вошли как другой сотрудник, принять условия использования за него нельзя — это должен сделать он сам'

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -181,7 +181,7 @@ beforeEach(() => {
 describe('InvoiceDetailDialog', () => {
   it('renders PDF iframe with the presigned URL', async () => {
     renderDialog({ invoice: pendingInvoice })
-    const iframe = (await screen.findByTitle('Инвойс PDF')) as HTMLIFrameElement
+    const iframe = (await screen.findByTitle('Счёт PDF')) as HTMLIFrameElement
     expect(iframe).toBeInTheDocument()
     expect(iframe.src).toContain('about:blank')
   })
@@ -197,9 +197,17 @@ describe('InvoiceDetailDialog', () => {
     expect(screen.getByTestId('signature-row-counterparty-pending')).toHaveTextContent(
       'Ожидает подписи',
     )
+    // Fix-round 4 (task-680) — the method tooltip text was renamed from
+    // «…инвойса» to «…счёта»; assert the exact string so a mutation to it
+    // (e.g. StringLiteral -> "") fails the test instead of surviving.
+    expect(
+      within(screen.getByTestId('signature-row-company')).getByTitle(
+        'Автоматическая электронная подпись компании при выпуске счёта',
+      ),
+    ).toBeInTheDocument()
   })
 
-  it('shows the "Подписать инвойс" button for the counterparty when no COUNTERPARTY sig exists', async () => {
+  it('shows the "Подписать счёт" button for the counterparty when no COUNTERPARTY sig exists', async () => {
     renderDialog({ invoice: pendingInvoice, viewer: counterpartyUser })
     expect(await screen.findByTestId('invoice-detail-sign-button')).toBeInTheDocument()
   })
