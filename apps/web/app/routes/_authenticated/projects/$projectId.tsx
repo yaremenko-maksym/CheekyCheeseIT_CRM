@@ -1070,8 +1070,18 @@ export function ProjectHeaderApprovalNote({
       // `self-center` — the badge row is `items-center`; the old top margin
       // pushed this line below the status badge's vertical center (measured:
       // badge 142-164, caption 148-164 on 1440) instead of centering with it.
+      //
+      // UX-M-1 (fix-round 4): `max-w-prose` was unconditional, so on
+      // ~978-1023 (header stacked since fix-round 3, badge row full-width)
+      // a long (>=250 char) reason's clamped width left enough leftover
+      // space on its own flex line for the domain badge to sit beside it
+      // instead of wrapping below the status badge — `basis-full` alone
+      // doesn't force full width once `max-width` caps the box smaller than
+      // the container. Scoped the cap to `lg:` (paired with `lg:basis-auto`
+      // above) so below `lg` the reason is unconstrained and always claims
+      // the full row.
       <p
-        className="line-clamp-none max-w-prose basis-full self-center text-xs text-destructive/90 lg:basis-auto lg:line-clamp-2"
+        className="line-clamp-none basis-full self-center text-xs text-destructive/90 lg:basis-auto lg:line-clamp-2 lg:max-w-prose"
         title={project.rejectionReason ?? undefined}
         data-testid="project-header-rejection-reason"
       >

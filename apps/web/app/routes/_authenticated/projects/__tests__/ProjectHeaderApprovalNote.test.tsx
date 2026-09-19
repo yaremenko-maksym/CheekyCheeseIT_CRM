@@ -141,4 +141,21 @@ describe('ProjectHeaderApprovalNote', () => {
     expect(caption.className).toContain('self-center')
     expect(caption.className).not.toMatch(/(^|\s)mt-1\.5(\s|$)/)
   })
+
+  it('UX-M-1 (fix-round 4): REJECTED reason width cap is scoped to lg — lg:max-w-prose present, bare max-w-prose absent', () => {
+    render(
+      <ProjectHeaderApprovalNote
+        project={makeProject({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' })}
+      />,
+    )
+    const reason = screen.getByTestId('project-header-rejection-reason')
+    expect(reason.className).toContain('lg:max-w-prose')
+    expect(reason.className).not.toMatch(/(^|\s)max-w-prose(\s|$)/)
+  })
+
+  it('UX-M-1 (fix-round 4): DRAFT caption never carried a bare max-w-prose either', () => {
+    render(<ProjectHeaderApprovalNote project={makeProject()} />)
+    const caption = screen.getByTestId('project-header-approval-caption')
+    expect(caption.className).not.toMatch(/(^|\s)max-w-prose(\s|$)/)
+  })
 })
