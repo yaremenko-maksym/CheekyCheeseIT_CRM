@@ -92,8 +92,13 @@ export class SignedContractsService {
      * approve/reject decision (`ProjectsService`, SR-H-5). Checked FIRST,
      * before `getReadyForSigning` or any DB write, so an impersonated
      * signing attempt leaves zero trace in `signed_contracts`.
+     *
+     * SR-M-2 (task-680-fix-round-2): required, not optional — a future
+     * caller that forgets to pass it fails to compile instead of silently
+     * passing the guard. The sole caller (`SignedContractsController.sign`)
+     * already resolves `user.impersonatorId ?? null`.
      */
-    impersonatorId?: string | null
+    impersonatorId: string | null
   }) {
     if (impersonatorId) {
       throw new ForbiddenException(CONTRACT_SIGN_IMPERSONATION_MESSAGE)

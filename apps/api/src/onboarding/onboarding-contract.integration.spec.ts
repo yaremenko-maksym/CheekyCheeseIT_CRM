@@ -492,6 +492,7 @@ describe.skipIf(!hasDatabaseUrl())(
         typedName: 'Марченко Дмитро Олексійович',
         ip: '127.0.0.1',
         userAgent: 'vitest-integration',
+        impersonatorId: null,
       })
 
       expect(result.contractNumber).toBeTruthy()

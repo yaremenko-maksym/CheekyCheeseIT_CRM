@@ -466,6 +466,7 @@ describe('SignedContractsService', () => {
           typedName: 'X',
           ip: '127.0.0.1',
           userAgent: 'vt',
+          impersonatorId: null,
         }),
       ).rejects.toThrow(BadRequestException)
     })
@@ -534,6 +535,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: '127.0.0.1',
           userAgent: 'vt',
+          impersonatorId: null,
         }),
       ).rejects.toThrow(ConflictException)
     })
@@ -555,6 +557,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: '127.0.0.1',
           userAgent: 'vt',
+          impersonatorId: null,
         }),
       ).rejects.toThrow(BadRequestException)
     })
@@ -576,6 +579,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: '127.0.0.1',
           userAgent: 'vt',
+          impersonatorId: null,
         }),
       ).rejects.toThrow(BadRequestException)
     })
@@ -596,6 +600,7 @@ describe('SignedContractsService', () => {
         typedName: 'Senior One',
         ip: '10.0.0.5',
         userAgent: 'curl/8.0',
+        impersonatorId: null,
       })
 
       // T4: contract number must match CHK-XXXXXX (6 uppercase hex chars)
@@ -626,6 +631,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       // The tx.insert().values() call must have received the interpolated custom body
@@ -654,6 +660,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       const stored = mockDb.lastInsertValues()
@@ -679,6 +686,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       const stored = mockDb.lastInsertValues()
@@ -711,6 +719,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       // Must be called with (userId, tx) — second arg is the Drizzle tx handle.
@@ -765,6 +774,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       // MED#3: snapshot read must happen AFTER the transaction opens
@@ -790,6 +800,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: null,
           userAgent: null,
+          impersonatorId: null,
         }),
       ).rejects.toThrow(ConflictException)
     })
@@ -819,6 +830,7 @@ describe('SignedContractsService', () => {
         typedName: '',
         ip: null,
         userAgent: null,
+        impersonatorId: null,
       })
 
       // generateContractPdf must have been called once (eager path).
@@ -847,6 +859,7 @@ describe('SignedContractsService', () => {
           typedName: '',
           ip: null,
           userAgent: null,
+          impersonatorId: null,
         }),
       ).resolves.toBeDefined()
     })
