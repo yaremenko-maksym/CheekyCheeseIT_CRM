@@ -24,6 +24,7 @@ import {
   ADMIN_NOTIFICATION_TYPES,
   INFORMING_NOTIFICATION_TYPES,
   NEW_NOTIFICATION_TYPES,
+  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   NOTIFICATION_TITLES,
   type NewNotificationType,
   type Notification,
@@ -145,6 +146,23 @@ const UNKNOWN_TYPE_EXPLANATION = 'Настройка появится после
 const LOCKED_EXPLANATION =
   'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.'
 
+/**
+ * Бэклог 205. Тот же ЛИТЕРАЛ, что отдаёт сервер в 403 на `PUT
+ * /notifications/preferences` (`NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE`,
+ * `packages/shared/src/schemas/notification-preferences.ts`) — не
+ * переизложение своими словами: расхождение формулировок между кнопкой,
+ * которая ничего не делает, и причиной, которую видит только сеть, читалось
+ * бы как два разных объяснения одного отказа.
+ *
+ * Точка на конце — единственная разница (COPY-M-2, copy-review PR #678 круг
+ * 2): это предложение живёт в прозе карточки рядом с `UNKNOWN_TYPE_EXPLANATION`
+ * и `LOCKED_EXPLANATION`, которые точку ставят; серверная константа — текст
+ * отказа API, где точки не ставит ни одно сообщение `apps/api`.
+ */
+const IMPERSONATION_EXPLANATION = `${NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE}.`
+/** Один баннер на весь таб — id, на который ссылаются все десять `aria-describedby`. */
+const IMPERSONATION_EXPLANATION_ID = 'notification-pref-explain-impersonating'
+
 // COPY-H-1 (copy-review, fix-round 2, PR #675): an unrecognised `type` used
 // to fall back to the RAW enum value (`PAYOUT_SOMETHING_NEW`) rendered as
 // visible text — an English, underscored machine identifier shown to a
@@ -210,13 +228,22 @@ function PreferenceSwitch({
   row,
   variant,
   onToggle,
+  impersonating,
 }: {
   row: PreferenceRow
   variant: 'desktop' | 'mobile'
   onToggle: (type: string, next: boolean) => void
+  /** Бэклог 205 — под «войти как» ни одна строка не принимает клик. */
+  impersonating: boolean
 }) {
-  const interactive = isRowInteractive(row)
-  const explanationId = rowExplanationId(row, variant)
+  const interactive = isRowInteractive(row) && !impersonating
+  // Имперсонация перебивает свою собственную причину (locked/unknown-type):
+  // пока сотрудник просматривается через «войти как», объяснение ОДНО на
+  // все десять строк — то, почему клик не работает СЕЙЧАС, а не то, почему
+  // он не работал бы в обычной сессии.
+  const explanationId = impersonating
+    ? IMPERSONATION_EXPLANATION_ID
+    : rowExplanationId(row, variant)
   // `exactOptionalPropertyTypes` rejects `onCheckedChange={undefined}` (Radix's
   // prop is typed as a plain function, not `fn | undefined`) — so the locked/
   // unknown-type case omits the prop entirely via conditional spread instead
@@ -282,7 +309,13 @@ function PreferenceSwitch({
 // Desktop table (design spec §5.1)
 // ---------------------------------------------------------------------------
 
-function DesktopGroupHeader({ group }: { group: PreferenceGroup }) {
+function DesktopGroupHeader({
+  group,
+  impersonating,
+}: {
+  group: PreferenceGroup
+  impersonating: boolean
+}) {
   if (!group.title) return null
   return (
     <tr data-testid={`notification-group-${group.key}`}>
@@ -296,8 +329,10 @@ function DesktopGroupHeader({ group }: { group: PreferenceGroup }) {
             `rowExplanationId`. `font-normal normal-case tracking-normal`
             undoes the header's own uppercase/tracking/weight styling, which
             this paragraph would otherwise inherit as a child of the same
-            `<td>`. */}
-        {group.key === 'action-required' && (
+            `<td>`. Suppressed under impersonation (бэклог 205) — the ONE
+            shared reason all ten switches are disabled is the impersonation
+            banner above the table, not "these three can't be turned off". */}
+        {group.key === 'action-required' && !impersonating && (
           <p
             id="notification-pref-explain-locked-desktop"
             data-testid="notification-pref-explain-locked-desktop"
@@ -314,9 +349,11 @@ function DesktopGroupHeader({ group }: { group: PreferenceGroup }) {
 function DesktopRow({
   row,
   onToggle,
+  impersonating,
 }: {
   row: PreferenceRow
   onToggle: (type: string, next: boolean) => void
+  impersonating: boolean
 }) {
   // `locked`'s explanation moved to the group header (COPY-M-2) — a per-row
   // paragraph here would duplicate it a third time. The unknown-type
@@ -359,7 +396,12 @@ function DesktopRow({
       </td>
       <td className="w-[120px] px-4 py-3 align-top text-xs text-muted-foreground">Всегда</td>
       <td className="w-[100px] px-4 py-3 align-top">
-        <PreferenceSwitch row={row} variant="desktop" onToggle={onToggle} />
+        <PreferenceSwitch
+          row={row}
+          variant="desktop"
+          onToggle={onToggle}
+          impersonating={impersonating}
+        />
       </td>
     </tr>
   )
@@ -368,9 +410,11 @@ function DesktopRow({
 function DesktopTable({
   groups,
   onToggle,
+  impersonating,
 }: {
   groups: PreferenceGroup[]
   onToggle: (type: string, next: boolean) => void
+  impersonating: boolean
 }) {
   return (
     <div className="hidden overflow-x-auto md:block" data-testid="notification-settings-desktop">
@@ -385,9 +429,14 @@ function DesktopTable({
         <tbody>
           {groups.map((group) => (
             <Fragment key={group.key}>
-              <DesktopGroupHeader group={group} />
+              <DesktopGroupHeader group={group} impersonating={impersonating} />
               {group.rows.map((row) => (
-                <DesktopRow key={row.type} row={row} onToggle={onToggle} />
+                <DesktopRow
+                  key={row.type}
+                  row={row}
+                  onToggle={onToggle}
+                  impersonating={impersonating}
+                />
               ))}
             </Fragment>
           ))}
@@ -404,9 +453,11 @@ function DesktopTable({
 function MobileRow({
   row,
   onToggle,
+  impersonating,
 }: {
   row: PreferenceRow
   onToggle: (type: string, next: boolean) => void
+  impersonating: boolean
 }) {
   // See `DesktopRow` — `locked`'s explanation now renders once per group,
   // not per row.
@@ -429,7 +480,12 @@ function MobileRow({
             {rowTitle(row)}
           </p>
         </div>
-        <PreferenceSwitch row={row} variant="mobile" onToggle={onToggle} />
+        <PreferenceSwitch
+          row={row}
+          variant="mobile"
+          onToggle={onToggle}
+          impersonating={impersonating}
+        />
       </div>
       {/* COPY-M-3 (fix-round 2): "В приложении — всегда" originally repeated
           here, object-then-value, matching the desktop table's own column
@@ -458,9 +514,11 @@ function MobileRow({
 function MobileStack({
   groups,
   onToggle,
+  impersonating,
 }: {
   groups: PreferenceGroup[]
   onToggle: (type: string, next: boolean) => void
+  impersonating: boolean
 }) {
   return (
     <div className="md:hidden" data-testid="notification-settings-mobile">
@@ -476,7 +534,7 @@ function MobileStack({
           )}
           {/* COPY-M-2 — same single shared explanation as the desktop table,
               see `DesktopGroupHeader`. */}
-          {group.key === 'action-required' && (
+          {group.key === 'action-required' && !impersonating && (
             <p
               id="notification-pref-explain-locked-mobile"
               data-testid="notification-pref-explain-locked-mobile"
@@ -486,7 +544,7 @@ function MobileStack({
             </p>
           )}
           {group.rows.map((row) => (
-            <MobileRow key={row.type} row={row} onToggle={onToggle} />
+            <MobileRow key={row.type} row={row} onToggle={onToggle} impersonating={impersonating} />
           ))}
         </div>
       ))}
@@ -575,6 +633,12 @@ const CAN_SEE_ADMIN_GROUP_ROLES = new Set(['ADMIN', 'HR', 'ACCOUNTANT'])
 export function NotificationSettingsTab() {
   const { user: viewer } = useAuth()
   const canSeeAdminGroup = viewer !== null && CAN_SEE_ADMIN_GROUP_ROLES.has(viewer.role)
+  // Бэклог 205: под «войти как» настройки читаются, но не пишутся (§3,
+  // решение 6 — «каналы настраивает сам сотрудник»). `viewer.impersonating`
+  // уже доезжает сюда без расширения `useMe`/`useAuth` — `sessionUserSchema`
+  // несёт его с самого начала (`/auth/me`), просто до сих пор им никто не
+  // пользовался на этом экране.
+  const impersonating = Boolean(viewer?.impersonating)
   const { data, isLoading, isError, refetch } = useNotificationPreferences()
   const updateMutation = useUpdateNotificationPreference()
 
@@ -604,10 +668,32 @@ export function NotificationSettingsTab() {
               a settings screen, not a feed, before the table shows it. The
               old subtitle's first half ("Письма по типам событий.") said
               nothing the column header three lines below doesn't already
-              say in three words. */}
+              say in three words.
+
+              COPY-L-1 (copy-review PR #678 круг 2): под имперсонацией
+              императив «Выберите…» предлагает действие, которое баннером
+              ниже тут же отменяется — читателю приходится перечитывать.
+              Под имперсонацией подзаголовок описательный, не императив. */}
           <p className="text-sm text-muted-foreground">
-            Выберите, о чём присылать письма. В приложении уведомления видны всегда.
+            {impersonating
+              ? 'Здесь видно, о чём сотруднику присылать письма. В приложении уведомления видны всегда.'
+              : 'Выберите, о чём присылать письма. В приложении уведомления видны всегда.'}
           </p>
+          {/* Бэклог 205 — ОДИН баннер объясняет все десять недоступных
+              переключателей разом, тем же текстом, что и серверный 403. */}
+          {impersonating && (
+            <p
+              id={IMPERSONATION_EXPLANATION_ID}
+              data-testid="notification-settings-impersonating-banner"
+              // Единственная тема — тёмная (`design-gate.md` «Тема одна —
+              // тёмная»): один токен, без `dark:`-варианта, тот же
+              // предупреждающий цвет, что у «Ожидается ваша подпись»
+              // (`invoice-card.tsx`).
+              className="mt-2 text-sm text-amber-300"
+            >
+              {IMPERSONATION_EXPLANATION}
+            </p>
+          )}
         </div>
         {isLoading ? (
           <LoadingState />
@@ -615,8 +701,8 @@ export function NotificationSettingsTab() {
           <ErrorState onRetry={() => void refetch()} />
         ) : (
           <>
-            <DesktopTable groups={groups} onToggle={handleToggle} />
-            <MobileStack groups={groups} onToggle={handleToggle} />
+            <DesktopTable groups={groups} onToggle={handleToggle} impersonating={impersonating} />
+            <MobileStack groups={groups} onToggle={handleToggle} impersonating={impersonating} />
           </>
         )}
       </CardContent>

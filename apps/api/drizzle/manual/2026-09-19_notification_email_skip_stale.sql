@@ -1,0 +1,61 @@
+-- =============================================================================
+-- Notification email outbox — STALE skip reason (backlog 208)
+-- =============================================================================
+--
+-- Context
+-- -------
+-- Backlog item 208 (an assumption carried over from PR #673, position 7a):
+-- the sender ships a "requires action" email (PROJECT_CONFIRM_REQUIRED,
+-- SHARE_CONFIRM_REQUIRED, DOCUMENT_SIGN_REQUIRED) exactly as queued, even when
+-- the thing it asks about has already been settled by the time the cron picks
+-- the row up — the proposal was withdrawn, superseded by a new one, decided by
+-- the same approver already, or the contract got signed. The popup
+-- (`notification-subject-resolver.ts` / `NotificationsService.listForUser`)
+-- already tells these cases apart; the sender did not ask it.
+--
+-- This migration adds ONE new label to the existing
+-- `notification_email_skip_reason` enum: `STALE`. Nothing else changes shape —
+-- no new column, no new table.
+--
+-- Why a top-level `ALTER TYPE`, not inside a `DO $$` block
+-- ----------------------------------------------------------------------------
+-- Postgres refuses `ALTER TYPE … ADD VALUE` executed from a function or
+-- procedural block ("ALTER TYPE ... ADD cannot run inside a transaction
+-- block" / "cannot be executed from a function") — the exact same rule
+-- 2026-09-12_notification_emails.sql already documents for the `SENT`/
+-- `SKIPPED` labels of `notification_email_status`. `ADD VALUE IF NOT EXISTS`
+-- makes the statement itself idempotent (a no-op on a database that already
+-- has the label), so no DO-block guard is needed to make re-running safe.
+--
+-- How to apply
+-- ------------
+--   docker compose -f docker-compose.prod.yml exec -T postgres psql \
+--     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+--     < apps/api/drizzle/manual/2026-09-19_notification_email_skip_stale.sql
+--
+-- Wired into .github/workflows/deploy.yml (rollback-preflight file list, SCP
+-- copy step, psql apply step) in this SAME PR — same reason as every DDL file
+-- in this directory: without the new label, the sender's `decideDelivery`
+-- (which now returns `STALE` as a `SkipReason`) would fail the INSERT the
+-- moment this PR's image ships, because `notification_emails.skip_reason` is
+-- typed against the Postgres enum, not just the TypeScript union.
+-- `scripts/devops/check-prod-ddl-wiring.py` verifies both the COPY and the
+-- APPLY step exist.
+--
+-- Data risk: none. Existing rows keep their current `skip_reason` (one of the
+-- four labels that already existed); nothing is rewritten or backfilled.
+-- =============================================================================
+
+ALTER TYPE notification_email_skip_reason ADD VALUE IF NOT EXISTS 'STALE';
+
+-- =============================================================================
+-- VERIFY (after applying):
+--   SELECT enumlabel FROM pg_enum e
+--     JOIN pg_type t ON t.oid = e.enumtypid
+--     WHERE t.typname = 'notification_email_skip_reason'
+--     ORDER BY e.enumsortorder;
+--
+-- Expected: NO_ADDRESS, USER_ARCHIVED, CHANNEL_OFF, LEGACY_TYPE, STALE (five
+-- labels). No query returns any row CONTENT — no personal data is read or
+-- printed by this migration or its verification.
+-- =============================================================================

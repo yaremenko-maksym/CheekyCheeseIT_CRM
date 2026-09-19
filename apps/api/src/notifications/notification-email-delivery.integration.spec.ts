@@ -5,13 +5,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { NotificationsService } from './notifications.service'
 import { decideDelivery } from './notification-email-outbox'
+import { NotificationEmailCronService } from './notification-email.cron'
 import { OutboxRepository } from './notification-email.repository'
 import { DatabaseService } from '../database/database.service'
 import * as schema from '../database/schema'
 import {
+  approvals,
   notificationEmails,
   notificationPreferences,
   notifications,
+  projects,
   userEmails,
   users,
 } from '../database/schema'
@@ -298,7 +301,12 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
 
     const context = await repo.deliveryContextFor(USER_A, 'PROJECT_CONFIRM_REQUIRED')
     expect(context.emailEnabled).toBe(false)
-    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+    // SR-L-1: subjectState обязателен для action-required типа —
+    // этот тест проверяет запертый канал, а не устаревание, поэтому объект
+    // явно живой.
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', { ...context, subjectState: 'active' }),
+    ).toEqual({
       send: true,
       to: 'a.personal@gmail.com',
     })
@@ -370,7 +378,10 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
     const context = await repo.deliveryContextFor(USER_A, 'PROJECT_CONFIRM_REQUIRED')
     expect(context.addresses.length).toBe(2)
     expect(context.archived).toBe(false)
-    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+    // SR-L-1: см. комментарий у соседнего теста «выключено» выше.
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', { ...context, subjectState: 'active' }),
+    ).toEqual({
       send: true,
       to: 'a.personal@gmail.com',
     })
@@ -391,7 +402,10 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
   it('AC3: у пользователя без личного адреса остаётся рабочий', async () => {
     const context = await repo.deliveryContextFor(USER_B, 'PROJECT_CONFIRM_REQUIRED')
     expect(context.addresses.map((r) => r.kind)).toEqual(['WORK'])
-    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+    // SR-L-1: см. комментарий у соседнего теста «выключено» выше.
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', { ...context, subjectState: 'active' }),
+    ).toEqual({
       send: true,
       to: 'b@cheekycheese.tech',
     })
@@ -404,7 +418,10 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
     const context = await repo.deliveryContextFor(USER_NO_MAIL, 'PROJECT_CONFIRM_REQUIRED')
     expect(context.addresses).toEqual([])
     expect(context.archived).toBe(false)
-    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', context)).toEqual({
+    // SR-L-1: см. комментарий у соседнего теста «выключено» выше.
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', { ...context, subjectState: 'active' }),
+    ).toEqual({
       send: false,
       skipReason: 'NO_ADDRESS',
     })
@@ -565,5 +582,149 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
       .from(notificationEmails)
       .where(eq(notificationEmails.userId, USER_A))
     expect(rows[0]!.n).toBe(1)
+  })
+
+  /**
+   * Бэклог 208, AC2 — «предложить долю → отозвать до тика → тик → строка
+   * SKIPPED/STALE, `send` не вызван» на РЕАЛЬНОМ Postgres, гоняя настоящий
+   * `NotificationEmailCronService.drainOnce()` через настоящий
+   * `OutboxRepository` (только HTTP к провайдеру подменён — цена реального
+   * письма в тесте не нужна). Юнит-спека крона доказывает решение через мок
+   * шлюза; здесь — что `resolveSubjectState` реально читает
+   * `approvals`/`projects` и что итоговая строка `notification_emails`
+   * несёт `STALE`, а не что-то другое.
+   *
+   * Вложено в тот же `describe`, а не соседний top-level: `pool`/`db`
+   * закрываются внешним `afterAll` ВЫШЕ — соседний блок стартовал бы уже
+   * после `pool.end()`.
+   */
+  describe('бэклог 208: устаревшее согласование', () => {
+    const PROJECT_ID = 'f7a20000-0000-4007-c000-000000000001'
+    const LIVE_APPROVAL_ID = 'f7a20000-0000-4007-9000-000000000001'
+    const SUPERSEDED_APPROVAL_ID = 'f7a20000-0000-4007-9000-000000000002'
+
+    let cron: NotificationEmailCronService
+
+    function shareNotificationInput(approvalId: string) {
+      return {
+        userId: USER_A,
+        type: 'PROJECT_CONFIRM_REQUIRED' as const,
+        title: 'Проект ждёт решения',
+        subjectType: 'PROJECT' as const,
+        subjectId: PROJECT_ID,
+        data: { projectName: 'Мобильный банк', approvalId },
+      }
+    }
+
+    beforeAll(() => {
+      // Тот же способ создания, что `makeService` в
+      // `notification-email.cron.spec.ts` (unit-мок мейлера) — но здесь он
+      // получает НАСТОЯЩИЙ `repo`, а не мок шлюза, поэтому
+      // `resolveSubjectState` реально ходит в Postgres.
+      const mailer = {
+        isConfigured: true,
+        send: async () => undefined,
+      }
+      const config = {
+        get: (key: string) =>
+          key === 'FRONTEND_URL' ? 'https://app.cheekycheese.tech' : 'hr@cheekycheese.tech',
+      }
+      cron = new NotificationEmailCronService(
+        repo,
+        mailer as never,
+        makeTelemetryErrorsStub() as never,
+        config as never,
+      )
+    })
+
+    beforeEach(async () => {
+      await db.insert(projects).values({
+        id: PROJECT_ID,
+        name: 'Мобильный банк',
+        companyName: 'Mobile Bank LLC',
+        domain: 'FINTECH',
+        startDate: new Date('2026-01-01'),
+        seniorId: USER_A,
+        rate: 100,
+        status: 'ACTIVE',
+      })
+    })
+
+    // `afterEach`, не `afterAll`: внешний `beforeEach` (см. выше в файле)
+    // зовёт `wipe()` перед КАЖДЫМ тестом всего дерева, включая этот
+    // вложенный `describe`, и `wipe()` удаляет `users` — что упало бы на
+    // FK `approvals.approver_user_id`, если бы строка согласования
+    // пережила свой тест.
+    afterEach(async () => {
+      await db
+        .delete(approvals)
+        .where(inArray(approvals.id, [LIVE_APPROVAL_ID, SUPERSEDED_APPROVAL_ID]))
+      await db.delete(projects).where(eq(projects.id, PROJECT_ID))
+    })
+
+    it('контроль: живое предложение — SENT', async () => {
+      await db.insert(approvals).values({
+        id: LIVE_APPROVAL_ID,
+        subjectType: 'PROJECT',
+        subjectId: PROJECT_ID,
+        approverUserId: USER_A,
+        proposedByUserId: USER_B,
+        status: 'PENDING',
+        supersededAt: null,
+      })
+      let id = ''
+      await db.transaction(async (tx) => {
+        const created = await service.createInTx(tx, shareNotificationInput(LIVE_APPROVAL_ID))
+        id = created!.id
+      })
+      const [row] = await db
+        .select({ id: notificationEmails.id })
+        .from(notificationEmails)
+        .where(eq(notificationEmails.notificationId, id))
+
+      // НЕ `claimUntilFound` — он сам захватывает строку (двигает
+      // `next_attempt_at`), и `cron.drainOnce()` ниже уже не нашёл бы её:
+      // `drainOnce` делает захват САМ, внутри себя.
+      await cron.drainOnce()
+
+      const [after] = await db
+        .select()
+        .from(notificationEmails)
+        .where(eq(notificationEmails.id, row!.id))
+      expect(after!.status).toBe('SENT')
+    })
+
+    it('предложение отозвали до тика — SKIPPED/STALE, письма нет', async () => {
+      // "Отозвали" = supersededAt проставлен ДО того, как крон успел взять
+      // строку — ровно то окно, которое AC2 требует проверить.
+      await db.insert(approvals).values({
+        id: SUPERSEDED_APPROVAL_ID,
+        subjectType: 'PROJECT',
+        subjectId: PROJECT_ID,
+        approverUserId: USER_A,
+        proposedByUserId: USER_B,
+        status: 'PENDING',
+        supersededAt: new Date(),
+      })
+
+      let id = ''
+      await db.transaction(async (tx) => {
+        const created = await service.createInTx(tx, shareNotificationInput(SUPERSEDED_APPROVAL_ID))
+        id = created!.id
+      })
+      const [row] = await db
+        .select({ id: notificationEmails.id })
+        .from(notificationEmails)
+        .where(eq(notificationEmails.notificationId, id))
+
+      await cron.drainOnce()
+
+      const [after] = await db
+        .select()
+        .from(notificationEmails)
+        .where(eq(notificationEmails.id, row!.id))
+      expect(after!.status).toBe('SKIPPED')
+      expect(after!.skipReason).toBe('STALE')
+    })
   })
 })

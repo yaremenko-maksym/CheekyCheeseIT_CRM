@@ -17,6 +17,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -27,6 +28,7 @@ import {
   Query,
 } from '@nestjs/common'
 import {
+  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   notificationListFiltersSchema,
   updateNotificationPreferencesSchema,
   type SessionUser,
@@ -80,14 +82,24 @@ export class NotificationsController {
   }
 
   // ---------------------------------------------------------------------------
-  // PUT /api/notifications/preferences   (позиция 7a)
+  // PUT /api/notifications/preferences   (позиция 7a; запрет под имперсонацией — бэклог 205)
   // ---------------------------------------------------------------------------
   // Разбор — `updateNotificationPreferencesSchema`, а не class-validator
   // (правило проекта). Он же отвергает попытку выключить письмо у типа,
   // требующего действия: §3, «приглушить можно, выключить нет».
+  //
+  // Бэклог 205 (SR-L-3, security-review PR #673): под «войти как» сессия —
+  // сотрудника, и без этой проверки админ менял бы ЕГО настройки канала от
+  // ЕГО имени, без единого следа «кто». Решение оркестратора (A1,
+  // обратимо): «каналы настраивает сам сотрудник» (§3, решение 6) — значит
+  // под имперсонацией запись запрещена целиком, а не просто аудируется.
+  // `GET` НЕ запрещён — админ вправе видеть, что настроено, не меняя.
 
   @Put('preferences')
   updatePreferences(@CurrentUser() user: SessionUser, @Body() body: unknown) {
+    if (user.impersonatorId) {
+      throw new ForbiddenException(NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE)
+    }
     const input = updateNotificationPreferencesSchema.parse(body)
     return this.prefs.updateForUser(user.id, input)
   }

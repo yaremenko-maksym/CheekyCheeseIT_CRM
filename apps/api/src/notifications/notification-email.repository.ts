@@ -21,6 +21,9 @@ import {
 import type { NotificationSubjectType } from '@crm/shared'
 import { backoffMs, type DeliveryContext, type SkipReason } from './notification-email-outbox'
 import type { ClaimedEmail, OutboxGateway } from './notification-email.cron'
+import type { NotificationEmailSource } from './notification-email-copy'
+import { approvalIdFromData, type SubjectResolution } from './notification-subject-resolver'
+import { NotificationSubjectStateService } from './notification-subject-state.service'
 
 /**
  * Срок аренды захваченной строки. Больше, чем самый долгий возможный запрос к
@@ -33,7 +36,19 @@ const CLAIM_LEASE_SECONDS = 60
 
 @Injectable()
 export class OutboxRepository implements OutboxGateway {
-  constructor(private readonly db: DatabaseService) {}
+  /**
+   * Тот же приём, что у `NotificationsService.subjectStates`: не DI-параметр
+   * конструктора, а поле, построенное здесь же, — `new OutboxRepository(db)`
+   * с одним аргументом собирают руками несколько спек
+   * (`notification-email.repository.spec.ts`,
+   * `notification-email-delivery.integration.spec.ts`), и добавлять им
+   * второй обязательный параметр ради сервиса без своего состояния незачем.
+   */
+  private readonly subjectStates: NotificationSubjectStateService
+
+  constructor(private readonly db: DatabaseService) {
+    this.subjectStates = new NotificationSubjectStateService(db)
+  }
 
   /**
    * Взять созревшие строки в работу.
@@ -147,6 +162,31 @@ export class OutboxRepository implements OutboxGateway {
       ),
       emailEnabled: pref?.emailEnabled ?? null,
     }
+  }
+
+  /**
+   * Состояние объекта письма — бэклог 208. Вызывается кроном ТОЛЬКО для трёх
+   * типов, требующих действия (`isActionRequiredNotificationType`, гейт живёт
+   * в `NotificationEmailCronService.deliver`, не здесь — см. doc-комментарий
+   * `OutboxGateway.resolveSubjectState`).
+   *
+   * Тем же резолвером, что попап: `SubjectRef` собирается из ровно тех же
+   * четырёх полей, что и в `NotificationsService.resolveSubjectStates`
+   * (`type`, `subjectType`, `subjectId`, `approvalId` из `data`), и запрос
+   * идёт через тот же `NotificationSubjectStateService` — не второй, заново
+   * написанный запрос к тем же таблицам.
+   */
+  async resolveSubjectState(
+    userId: string,
+    notification: NotificationEmailSource,
+  ): Promise<SubjectResolution> {
+    return this.subjectStates.resolveOne(userId, {
+      userId,
+      type: notification.type,
+      subjectType: notification.subjectType,
+      subjectId: notification.subjectId,
+      approvalId: approvalIdFromData(notification.data),
+    })
   }
 
   /**

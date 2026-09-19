@@ -18,7 +18,12 @@
  * получает. Решение, принятое на постановке, обе эти правки игнорирует
  * молча.
  */
-import { isEmailChannelLocked, isNewNotificationType } from '@crm/shared'
+import {
+  isActionRequiredNotificationType,
+  isEmailChannelLocked,
+  isNewNotificationType,
+} from '@crm/shared'
+import type { SubjectResolution } from './notification-subject-resolver'
 
 /** Потолок попыток. Шестой не будет — строка уходит в `FAILED`. */
 export const MAX_EMAIL_ATTEMPTS = 5
@@ -33,8 +38,21 @@ export const MAX_EMAIL_ATTEMPTS = 5
  * под тестом: `notification-email-outbox.spec.ts` сверяет этот перечень с
  * `notificationEmailSkipReasonEnum.enumValues`. Иначе пришлось бы тащить
  * drizzle в модуль, который специально не знает про базу.
+ *
+ * `STALE` (бэклог 208) — согласование или контракт, о котором письмо,
+ * перестали быть актуальными между постановкой в очередь и отправкой:
+ * предложение отозвали, пересоздали, погасил отказ соседа, либо контракт уже
+ * подписан. Отличается от `CHANNEL_OFF` тем, что не про настройку человека, а
+ * от `LEGACY_TYPE` — тем, что у типа есть и шаблон, и объект, просто объект
+ * больше не ждёт ответа.
  */
-export const SKIP_REASONS = ['NO_ADDRESS', 'USER_ARCHIVED', 'CHANNEL_OFF', 'LEGACY_TYPE'] as const
+export const SKIP_REASONS = [
+  'NO_ADDRESS',
+  'USER_ARCHIVED',
+  'CHANNEL_OFF',
+  'LEGACY_TYPE',
+  'STALE',
+] as const
 export type SkipReason = (typeof SKIP_REASONS)[number]
 
 /**
@@ -97,6 +115,20 @@ export interface DeliveryContext {
    * выбор.
    */
   emailEnabled: boolean | null
+  /**
+   * Состояние объекта письма, вычисленное ТЕМ ЖЕ резолвером, что и попап
+   * (`computeSubjectState` / `NotificationSubjectStateService`) — бэклог 208.
+   *
+   * `undefined` значит «не проверялось»: для информирующих и админских типов
+   * (§7.2, «письмо о факте не деградирует») вызывающий (крон) резолвер не
+   * зовёт вовсе, и эта функция обязана пропустить их так же, как раньше —
+   * письмо о случившемся факте не устаревает оттого, что сам факт потом
+   * удалили. Для трёх типов, требующих действия
+   * (`isActionRequiredNotificationType`), вызывающий обязан подставить сюда
+   * настоящий ответ резолвера; `'active'` — единственное значение, при
+   * котором письмо всё ещё уходит.
+   */
+  subjectState?: SubjectResolution | undefined
 }
 
 export type SendDecision = { send: true; to: string } | { send: false; skipReason: SkipReason }
@@ -112,14 +144,39 @@ export type SendDecision = { send: true; to: string } | { send: false; skipReaso
  *    (SR-H-1). Перебивает всё: причина «уволен» объясняет непришедшее письмо,
  *    «нет адреса» — нет.
  * 2. **старый тип** — письма нет вовсе (ни шаблона, ни настройки).
- * 3. **выключенный канал** — человек так решил (AC6). Отличается от «нет
+ * 3. **устарело** (бэклог 208) — объект, о котором письмо, больше не ждёт
+ *    ответа: согласование отозвали/решили, контракт уже подписан. Раньше
+ *    настройки канала — письмо о несостоявшемся событии недопустимо
+ *    независимо от того, включён ли канал (§7.2).
+ * 4. **выключенный канал** — человек так решил (AC6). Отличается от «нет
  *    адреса» тем, что не требует ничьего вмешательства.
- * 4. **нет адреса** — единственная причина, которая означает пробел в данных
+ * 5. **нет адреса** — единственная причина, которая означает пробел в данных
  *    и требует действия администратора.
  */
 export function decideDelivery(type: string, ctx: DeliveryContext): SendDecision {
   if (ctx.archived) return { send: false, skipReason: 'USER_ARCHIVED' }
   if (!isNewNotificationType(type)) return { send: false, skipReason: 'LEGACY_TYPE' }
+  if (isActionRequiredNotificationType(type)) {
+    // SR-L-1 (PR #678, круг 2): для action-required типа `subjectState`
+    // ОБЯЗАН прийти определённым — единственный вызывающий, умеющий его не
+    // передать (крон), уже подставляет его всегда через
+    // `isActionRequiredNotificationType` в `deliver()`. `undefined` здесь —
+    // не «не проверялось» (как для информирующих типов), а ошибка ВЫЗЫВАЮЩЕГО:
+    // fail-loud throw, а не молчаливый `SKIPPED/STALE` — письмо, пропавшее
+    // из-за бага, не должно быть неотличимо в данных от письма о
+    // несуществующем согласовании (`decideDelivery` не маскирует одно под
+    // другое). Крон ловит это исключение и переводит строку в `FAILED` с
+    // текстом ошибки в `last_error` (без PII — сообщение называет только тип
+    // уведомления).
+    if (ctx.subjectState === undefined) {
+      throw new Error(
+        `decideDelivery: subjectState обязателен для action-required типа "${type}", но не передан`,
+      )
+    }
+    if (ctx.subjectState !== 'active') {
+      return { send: false, skipReason: 'STALE' }
+    }
+  }
   // Запертый тип игнорирует запись целиком — §3: «письма про подтверждения и
   // подписи отключить нельзя… иначе процесс встаёт молча». Такая запись не
   // проходит разбор запроса, но в базу может попасть мимо API (руками,

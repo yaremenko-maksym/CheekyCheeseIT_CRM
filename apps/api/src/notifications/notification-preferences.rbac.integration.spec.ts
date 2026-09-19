@@ -31,6 +31,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { DatabaseService } from '../database/database.service'
@@ -257,6 +258,72 @@ describe.skipIf(!hasDatabaseUrl())('настройки каналов под ш�
         .where(inArray(notificationPreferences.userId, [admin!.id]))
       expect(rows).toHaveLength(1)
       expect(rows[0]!.emailEnabled).toBe(true)
+    })
+  })
+
+  /**
+   * Бэклог 205 (SR-L-3, security-review PR #673): под «войти как» JWT несёт
+   * `impersonatorId` — идентификатор РЕАЛЬНОГО админа, поверх сессии
+   * ЦЕЛЕВОГО сотрудника (тот же приём, что боевой `POST /auth/impersonate`
+   * кладёт в токен, см. `auth.controller.ts`). `JwtAuthGuard` это поле не
+   * проверяет и не отвергает — оно просто доезжает до `request.user`, ровно
+   * как в проде.
+   */
+  describe('имперсонация — бэклог 205', () => {
+    const tokenForImpersonated = (target: Persona, impersonatorId: string) =>
+      jwt.sign({ id: target.id, email: target.email, role: target.role, impersonatorId })
+
+    async function putImpersonated(target: Persona, impersonatorId: string, payload: unknown) {
+      return app.inject({
+        method: 'PUT',
+        url: '/api/notifications/preferences',
+        cookies: { jwt: tokenForImpersonated(target, impersonatorId) },
+        payload: payload as object,
+      })
+    }
+
+    async function getImpersonated(target: Persona, impersonatorId: string) {
+      return app.inject({
+        method: 'GET',
+        url: '/api/notifications/preferences',
+        cookies: { jwt: tokenForImpersonated(target, impersonatorId) },
+      })
+    }
+
+    it('PUT под имперсонацией — 403 по-русски, строка в БД не изменилась', async () => {
+      const [admin, senior] = PERSONAS
+      const res = await putImpersonated(senior!, admin!.id, {
+        items: [{ type: 'TRANSACTION_ADDED', emailEnabled: false }],
+      })
+
+      expect(res.statusCode).toBe(403)
+      const body = res.json<{ message: string }>()
+      expect(body.message).toBe(NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE)
+
+      const rows = await db
+        .select()
+        .from(notificationPreferences)
+        .where(inArray(notificationPreferences.userId, [senior!.id]))
+      expect(rows).toHaveLength(0)
+    })
+
+    it('без имперсонации тот же PUT для того же пользователя — 200', async () => {
+      const [, senior] = PERSONAS
+      const res = await put(senior!, {
+        items: [{ type: 'TRANSACTION_ADDED', emailEnabled: false }],
+      })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('GET под имперсонацией — 200, настройки видны (запрет только на запись)', async () => {
+      const [admin, senior] = PERSONAS
+      await put(senior!, { items: [{ type: 'TRANSACTION_ADDED', emailEnabled: false }] })
+
+      const res = await getImpersonated(senior!, admin!.id)
+
+      expect(res.statusCode).toBe(200)
+      const body = res.json<{ items: { type: string; emailEnabled: boolean }[] }>()
+      expect(body.items.find((i) => i.type === 'TRANSACTION_ADDED')?.emailEnabled).toBe(false)
     })
   })
 })

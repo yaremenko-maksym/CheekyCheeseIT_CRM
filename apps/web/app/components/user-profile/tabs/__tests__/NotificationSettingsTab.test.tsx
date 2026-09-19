@@ -17,12 +17,19 @@
  */
 import { render, screen, within, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { NOTIFICATION_TITLES } from '@crm/shared'
+import { NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE, NOTIFICATION_TITLES } from '@crm/shared'
 import { NotificationSettingsTab } from '../NotificationSettingsTab'
 
 let viewerRole: string | null = 'SENIOR'
+/** Бэклог 205 — под «войти как» `/me` отдаёт `impersonating: true`. */
+let viewerImpersonating = false
 vi.mock('@/context/auth', () => ({
-  useAuth: () => ({ user: viewerRole === null ? null : { id: 'viewer-1', role: viewerRole } }),
+  useAuth: () => ({
+    user:
+      viewerRole === null
+        ? null
+        : { id: 'viewer-1', role: viewerRole, impersonating: viewerImpersonating },
+  }),
 }))
 
 const mutateMock = vi.fn()
@@ -56,6 +63,7 @@ const refetchMock = vi.fn()
 beforeEach(() => {
   vi.clearAllMocks()
   viewerRole = 'SENIOR'
+  viewerImpersonating = false
   queryState = {
     data: { items: TEN_TYPES },
     isLoading: false,
@@ -474,5 +482,92 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     const sw = within(row).getByRole('switch')
     expect(sw.className).not.toMatch(/(?:^|\s)opacity-60(?:\s|$)/)
     expect(sw.className).not.toMatch(/(?:^|\s)cursor-not-allowed(?:\s|$)/)
+  })
+})
+
+/**
+ * Бэклог 205 — под «войти как» ни одна из десяти строк не принимает клик, ни
+ * на одном из двух layout'ов, и объяснение — ОДНО и ровно то, что видит
+ * клиент в 403 от `PUT /notifications/preferences`.
+ */
+describe('NotificationSettingsTab — impersonation (бэклог 205)', () => {
+  it('banner is absent for a normal (non-impersonated) session', () => {
+    render(<NotificationSettingsTab />)
+    expect(screen.queryByTestId('notification-settings-impersonating-banner')).toBeNull()
+  })
+
+  it('banner renders with the exact server-side 403 text when impersonating (COPY-M-1/M-2, PR #678 круг 2)', () => {
+    viewerImpersonating = true
+    render(<NotificationSettingsTab />)
+    // Один инвариант, а не переписанная строка: клиентский текст — серверный
+    // литерал плюс точка (COPY-M-2), и связка проверяется арифметически, а не
+    // повторным литералом, который может разойтись молча.
+    expect(screen.getByTestId('notification-settings-impersonating-banner')).toHaveTextContent(
+      `${NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE}.`,
+    )
+  })
+
+  it('COPY-L-1: subtitle under impersonation is descriptive, not an imperative the banner immediately contradicts', () => {
+    viewerImpersonating = true
+    render(<NotificationSettingsTab />)
+    expect(
+      screen.getByText(
+        'Здесь видно, о чём сотруднику присылать письма. В приложении уведомления видны всегда.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Выберите, о чём/)).not.toBeInTheDocument()
+  })
+
+  it('every switch is actually WIRED to the banner — aria-describedby matches the banner id, not just a coincidentally-equal string', () => {
+    viewerImpersonating = true
+    render(<NotificationSettingsTab />)
+    const banner = screen.getByTestId('notification-settings-impersonating-banner')
+    // Reads the banner's OWN id and asserts the switch points at THAT id —
+    // an empty/wrong id on either side would surface here even if both
+    // happened to render, since `aria-describedby` on a `''` id targets no
+    // element at all.
+    expect(banner.id).not.toBe('')
+    const sw = within(screen.getByTestId('notification-settings-desktop')).getByTestId(
+      'notification-switch-desktop-TRANSACTION_ADDED',
+    )
+    expect(sw).toHaveAttribute('aria-describedby', banner.id)
+  })
+
+  it('every desktop switch — locked AND regular — is aria-disabled and un-clickable', () => {
+    viewerImpersonating = true
+    render(<NotificationSettingsTab />)
+    const desktop = within(screen.getByTestId('notification-settings-desktop'))
+    for (const sw of desktop.getAllByRole('switch')) {
+      expect(sw).toHaveAttribute('aria-disabled', 'true')
+    }
+    const regular = desktop.getByTestId('notification-switch-desktop-TRANSACTION_ADDED')
+    fireEvent.click(regular)
+    expect(mutateMock).not.toHaveBeenCalled()
+  })
+
+  it('every mobile switch is aria-disabled too — same session, same rule on both layouts', () => {
+    viewerImpersonating = true
+    render(<NotificationSettingsTab />)
+    const mobile = within(screen.getByTestId('notification-settings-mobile'))
+    for (const sw of mobile.getAllByRole('switch')) {
+      expect(sw).toHaveAttribute('aria-disabled', 'true')
+    }
+  })
+
+  it('a normally-unlocked switch stays CHECKED to its own server value — impersonation disables, it does not lie about state', () => {
+    viewerImpersonating = true
+    render(<NotificationSettingsTab />)
+    const sw = within(screen.getByTestId('notification-settings-desktop')).getByTestId(
+      // PROJECT_MEMBER_ADDED is seeded with emailEnabled: false in TEN_TYPES.
+      'notification-switch-desktop-PROJECT_MEMBER_ADDED',
+    )
+    expect(sw).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('the per-group locked explanation is suppressed — the one impersonation banner replaces it', () => {
+    viewerImpersonating = true
+    render(<NotificationSettingsTab />)
+    expect(screen.queryByTestId('notification-pref-explain-locked-desktop')).toBeNull()
+    expect(screen.queryByTestId('notification-pref-explain-locked-mobile')).toBeNull()
   })
 })

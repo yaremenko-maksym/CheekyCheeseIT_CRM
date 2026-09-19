@@ -3,6 +3,8 @@ import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { OutboxRepository } from './notification-email.repository'
 import type { DatabaseService } from '../database/database.service'
+import { approvals, projects } from '../database/schema'
+import type { NotificationEmailSource } from './notification-email-copy'
 
 /**
  * Предикат статуса на терминальных марках — позиция 7a (SR-L-6,
@@ -114,5 +116,95 @@ describe('OutboxRepository — предикат status=QUEUED на марках'
     void repo.markFailed('e-6', 'Resend API HTTP 500')
 
     expect(sets[0]).toMatchObject({ status: 'FAILED', lastError: 'Resend API HTTP 500' })
+  })
+})
+
+/**
+ * `resolveSubjectState` — бэклог 208. Собирает `SubjectRef` из четырёх полей
+ * письма (`type`, `subjectType`, `subjectId`, `data.approvalId`) и отдаёт их
+ * `NotificationSubjectStateService.resolveOne` — ТОМУ ЖЕ сервису, что и попап
+ * (`NotificationsService`), не второй копии запроса. Полное покрытие всех
+ * веток `loadSubjectStates` — в `notification-subject-state.service.spec.ts`;
+ * здесь — только то, что специфично для ЭТОГО метода: правильная сборка
+ * `SubjectRef` из `NotificationEmailSource`.
+ */
+function makeSelectDb(seed: {
+  projects?: { id: string; archivedAt: Date | null }[]
+  approvals?: { id: string; status: string; approverUserId: string; supersededAt: Date | null }[]
+}): DatabaseService {
+  const db = {
+    db: {
+      select: (_fields?: unknown) => ({
+        from: (t: unknown) => {
+          if (t === projects) {
+            return { where: async () => seed.projects ?? [] }
+          }
+          if (t === approvals) {
+            return {
+              where: async () =>
+                (seed.approvals ?? []).map((r) => ({ id: r.id, status: r.status })),
+            }
+          }
+          throw new Error('makeSelectDb: unexpected table')
+        },
+      }),
+    },
+  }
+  return db as unknown as DatabaseService
+}
+
+function emailSource(over: Partial<NotificationEmailSource> = {}): NotificationEmailSource {
+  return {
+    type: 'PROJECT_CONFIRM_REQUIRED',
+    title: 'Проект ждёт решения',
+    body: null,
+    link: null,
+    subjectType: 'PROJECT',
+    subjectId: 'p-1',
+    data: { approvalId: '3fa85f64-5717-4562-b3fc-2c963f66afa6' },
+    ...over,
+  }
+}
+
+describe('OutboxRepository.resolveSubjectState — бэклог 208', () => {
+  it('проект жив, согласование живое и принадлежит получателю — active', async () => {
+    const db = makeSelectDb({
+      projects: [{ id: 'p-1', archivedAt: null }],
+      approvals: [
+        {
+          id: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+          status: 'PENDING',
+          approverUserId: 'u-1',
+          supersededAt: null,
+        },
+      ],
+    })
+    const repo = new OutboxRepository(db)
+
+    const state = await repo.resolveSubjectState('u-1', emailSource())
+
+    expect(state).toBe('active')
+  })
+
+  it('объект отсутствует — missing', async () => {
+    const db = makeSelectDb({ projects: [] })
+    const repo = new OutboxRepository(db)
+
+    const state = await repo.resolveSubjectState('u-1', emailSource())
+
+    expect(state).toBe('missing')
+  })
+
+  it('data без approvalId — SubjectRef несёт approvalId=null, объект всё равно проверяется', async () => {
+    const db = makeSelectDb({ projects: [{ id: 'p-1', archivedAt: null }] })
+    const repo = new OutboxRepository(db)
+
+    // Уведомление, требующее согласования, но без опознанной строки
+    // (`approvalIdFromData` вернула `null` из-за отсутствия поля) — проверить
+    // согласование нечем, и `computeSubjectState` оставляет объект активным,
+    // раз сам проект жив (см. doc-комментарий `computeSubjectState`, QA-H-1).
+    const state = await repo.resolveSubjectState('u-1', emailSource({ data: {} }))
+
+    expect(state).toBe('active')
   })
 })

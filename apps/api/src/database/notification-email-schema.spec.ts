@@ -97,14 +97,17 @@ describe('notification_emails — форма объявления', () => {
     expect(notificationEmailStatusEnum.enumName).toBe('notification_email_status')
   })
 
-  it('причина пропуска — свой тип с четырьмя кодами задания', () => {
-    // Перечень из §1 задания дословно. Пятый код — не расширение словаря, а
-    // новая причина, о которой должен узнать и `decideDelivery`, и отчёт.
+  it('причина пропуска — свой тип, четыре кода задания плюс STALE (бэклог 208)', () => {
+    // Перечень из §1 задания дословно, плюс пятый код: не расширение
+    // словаря просто так, а новая причина, о которой знает и
+    // `decideDelivery`, и отчёт (`notification-email-outbox.spec.ts`
+    // сверяет этот же перечень с `SKIP_REASONS`).
     expect(notificationEmailSkipReasonEnum.enumValues).toEqual([
       'NO_ADDRESS',
       'USER_ARCHIVED',
       'CHANNEL_OFF',
       'LEGACY_TYPE',
+      'STALE',
     ])
     expect(notificationEmailSkipReasonEnum.enumName).toBe('notification_email_skip_reason')
   })

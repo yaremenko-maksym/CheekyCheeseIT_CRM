@@ -5,6 +5,7 @@ import {
   type DeliveryContext,
   type SkipReason,
 } from './notification-email-outbox'
+import type { SubjectResolution } from './notification-subject-resolver'
 import {
   NotificationEmailCronService,
   SWEEP_STUCK_AFTER_MS,
@@ -34,6 +35,14 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
   /** Контекст получателя, который вернёт `deliveryContextFor`. Тесты его подменяют. */
   context: DeliveryContext
   contextAskedFor: { userId: string; type: string }[]
+  /**
+   * Ответ `resolveSubjectState` (бэклог 208) — по умолчанию `'active'`,
+   * потому что дефолтная `claimed()` уже несёт тип, требующий действия
+   * (`PROJECT_CONFIRM_REQUIRED`), и без «живого» ответа по умолчанию каждый
+   * существующий тест этого файла звал бы недостижимую заглушку.
+   */
+  subjectState: SubjectResolution
+  subjectStateAskedFor: { userId: string; type: string }[]
 } {
   const state = {
     sent: [] as { id: string; email: string }[],
@@ -47,6 +56,8 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
     // через `gw.context = …`.
     contextOverride: null as DeliveryContext | null,
     contextAskedFor: [] as { userId: string; type: string }[],
+    subjectStateOverride: null as SubjectResolution | null,
+    subjectStateAskedFor: [] as { userId: string; type: string }[],
   }
   return {
     // Счётчики — ГЕТТЕРАМИ, а не через `...state`: спред копирует число один
@@ -78,6 +89,15 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
     get contextAskedFor() {
       return state.contextAskedFor
     },
+    get subjectState() {
+      return state.subjectStateOverride ?? 'active'
+    },
+    set subjectState(next: SubjectResolution) {
+      state.subjectStateOverride = next
+    },
+    get subjectStateAskedFor() {
+      return state.subjectStateAskedFor
+    },
     claimDue: async (_limit: number) => {
       state.claims += 1
       return state.claims === 1 ? claimed : []
@@ -89,6 +109,13 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
     deliveryContextFor: async (userId: string, type: string) => {
       state.contextAskedFor.push({ userId, type })
       return state.contextOverride ?? defaultContext(userId)
+    },
+    // Бэклог 208. Крон зовёт этот метод ТОЛЬКО для типов, требующих
+    // действия (см. `deliver()`) — записывается каждый вызов, чтобы тест
+    // «информирующий тип не проверяется» мог утверждать НОЛЬ вызовов.
+    resolveSubjectState: async (userId: string, notification: { type: string }) => {
+      state.subjectStateAskedFor.push({ userId, type: notification.type })
+      return state.subjectStateOverride ?? 'active'
     },
     markSent: async (id: string, email: string) => {
       state.sent.push({ id, email })
@@ -640,6 +667,26 @@ describe('отказ телеметрии не уносит с собой про
     ).toBe(true)
     error.mockRestore()
   })
+
+  it('SR-L-3: то же самое для сдачи ДО отправки — отказ телеметрии не отменяет markFailed', async () => {
+    // Тот же приём, что у соседа выше, применённый ко второму терминальному
+    // пути (SR-L-1 в этом же файле): без этого теста `.catch` вокруг
+    // `recordError` в ветке `decideDelivery` — код, который никто не
+    // исполнял.
+    const gw = makeGateway([claimed()])
+    gw.resolveSubjectState = async () => undefined as never
+    const { service } = makeService({ gateway: gw, telemetryFails: new Error('telemetry is down') })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await expect(service.drainOnce()).resolves.toBeUndefined()
+
+    expect(gw.failed).toHaveLength(1)
+    expect(gw.failed[0]?.id).toBe('e-1')
+    const said = error.mock.calls.map((c) => String(c[0] ?? ''))
+    expect(said.some((m) => m.includes('Telemetry rejected'))).toBe(true)
+    expect(said.some((m) => m.includes('telemetry is down'))).toBe(true)
+    error.mockRestore()
+  })
 })
 
 describe('решение принимается в момент ОТПРАВКИ, а не при постановке (AC6)', () => {
@@ -724,6 +771,129 @@ describe('решение принимается в момент ОТПРАВКИ
 
     expect(sends).toHaveLength(0)
     expect(gw.skipped).toEqual([{ id: 'e-1', reason: 'USER_ARCHIVED' }])
+  })
+})
+
+describe('устаревшее согласование не уходит письмом (бэклог 208)', () => {
+  it('тип, требующий действия, с устаревшим объектом — SKIPPED/STALE, провайдер не вызван', async () => {
+    // Дефолтная `claimed()` уже несёт `PROJECT_CONFIRM_REQUIRED` — один из
+    // трёх типов, требующих действия.
+    const gw = makeGateway([claimed()])
+    gw.subjectState = 'approvalSuperseded'
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(0)
+    expect(gw.skipped).toEqual([{ id: 'e-1', reason: 'STALE' }])
+  })
+
+  it('тип, требующий действия, с активным объектом — уходит как обычно', async () => {
+    const gw = makeGateway([claimed()])
+    gw.subjectState = 'active'
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(1)
+    expect(gw.skipped).toHaveLength(0)
+  })
+
+  it('информирующий тип НЕ зовёт resolveSubjectState вовсе — письмо о факте не деградирует', async () => {
+    // §7.2: письмо о случившемся факте не устаревает оттого, что объект,
+    // о котором оно рассказывает, потом исчез или архивировался. Резолвер
+    // тут дороже, чем нужно, — крон его просто не спрашивает.
+    const gw = makeGateway([claimed({ notification: informing() })])
+    gw.subjectState = 'missing'
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(1)
+    expect(gw.subjectStateAskedFor).toHaveLength(0)
+  })
+
+  it('resolveSubjectState зовётся с получателем и типом ЭТОГО письма', async () => {
+    const gw = makeGateway([claimed({ id: 'e-9', userId: 'u-9' })])
+    const { service } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(gw.subjectStateAskedFor).toEqual([{ userId: 'u-9', type: 'PROJECT_CONFIRM_REQUIRED' }])
+  })
+
+  it('устаревший объект архивированному тоже даёт USER_ARCHIVED, не STALE', async () => {
+    // Архив — самая сильная причина; она перебивает устаревание так же, как
+    // перебивает CHANNEL_OFF и NO_ADDRESS.
+    const gw = makeGateway([claimed()])
+    gw.context = {
+      archived: true,
+      addresses: [{ email: 'ivan@gmail.com', kind: 'PERSONAL' }],
+      emailEnabled: null,
+    }
+    gw.subjectState = 'missing'
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(0)
+    expect(gw.skipped).toEqual([{ id: 'e-1', reason: 'USER_ARCHIVED' }])
+  })
+
+  it('SR-L-1: шлюз, забывший состояние для action-required типа, — FAILED, а не необработанное исключение', async () => {
+    // Оборонительный тест: по интерфейсу `OutboxGateway.resolveSubjectState`
+    // всегда возвращает `SubjectResolution` (не `| undefined`), и правильная
+    // реализация никогда не подставит сюда `undefined`. Этот тест — на
+    // случай, если реализация ошибётся: `decideDelivery` бросает (SR-L-1 в
+    // `notification-email-outbox.ts`), и крон обязан поймать это САМ, а не
+    // дать необработанному исключению вырваться из `deliver()` и оборвать
+    // остаток пачки до следующего тика (`handleDue` ловит только на уровне
+    // всего прохода — см. «крон не роняет планировщик» выше).
+    const gw = makeGateway([claimed()])
+    gw.resolveSubjectState = async () => undefined as never
+    const { service, sends } = makeService({ gateway: gw })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(0)
+    expect(gw.skipped).toHaveLength(0)
+    expect(gw.failed).toHaveLength(1)
+    expect(gw.failed[0]?.id).toBe('e-1')
+    expect(gw.failed[0]?.reason).toMatch(/subjectState/)
+    // Без PII: сообщение не может процитировать что-либо, кроме имени типа.
+    expect(gw.failed[0]?.reason).not.toMatch(/@/)
+    // Тот же след и в журнале — тем же приёмом, что у «отказы видны в
+    // журнале, а не только в базе» ниже: строка называет id и причину.
+    const said = String(error.mock.calls[0]?.[0] ?? '')
+    expect(said).toContain('e-1')
+    expect(said).toMatch(/subjectState/)
+    error.mockRestore()
+  })
+
+  it('SR-L-3: тот же путь доезжает до телеметрии — иначе сдача до отправки не попадает в дайджест', async () => {
+    // Терминальный `FAILED` из сломанного шлюза (SR-L-1) молчал: сосед («сдались
+    // после N попыток») будит телеметрию, а этот — нет. Без записи владелец
+    // узнаёт об этой ветке только вручную читая `notification_emails` (§7.2).
+    const gw = makeGateway([claimed()])
+    gw.resolveSubjectState = async () => undefined as never
+    const { service, sends, recorded } = makeService({ gateway: gw })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(0)
+    expect(gw.failed).toHaveLength(1)
+    expect(gw.failed[0]?.id).toBe('e-1')
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]!).toEqual({
+      source: 'API',
+      message: 'Notification email failed before send (decideDelivery)',
+      route: '/api/notifications',
+      // Причина и тип — как у соседа; ни адреса, ни текста письма.
+      meta: { reason: expect.stringMatching(/subjectState/), type: 'PROJECT_CONFIRM_REQUIRED' },
+    })
+    error.mockRestore()
   })
 })
 

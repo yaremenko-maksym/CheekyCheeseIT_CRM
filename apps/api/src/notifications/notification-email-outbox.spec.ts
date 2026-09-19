@@ -136,8 +136,12 @@ describe('decideDelivery — слать ли это письмо и куда, в
     // процесс встаёт молча». Разбор запроса такую запись не пропустит, но в
     // базу она может попасть мимо API (руками, миграцией, прежней версией) —
     // последний рубеж здесь.
+    //
+    // `subjectState: 'active'` — SR-L-1: у action-required типов это поле
+    // обязательно (иначе `decideDelivery` бросает), и этот тест проверяет
+    // выключенный канал, а не устаревание, поэтому объект здесь живой.
     for (const type of ACTION_REQUIRED_NOTIFICATION_TYPES) {
-      expect(decideDelivery(type, ctx({ emailEnabled: false }))).toEqual({
+      expect(decideDelivery(type, ctx({ emailEnabled: false, subjectState: 'active' }))).toEqual({
         send: true,
         to: 'ivan@cheekycheese.tech',
       })
@@ -198,6 +202,77 @@ describe('decideDelivery — слать ли это письмо и куда, в
   })
 })
 
+describe('decideDelivery — устаревание объекта (бэклог 208)', () => {
+  it('состояние объекта отсутствует (undefined) — тип без проверки, письмо уходит', () => {
+    // Информирующие и админские типы: вызывающий (крон) резолвер для них не
+    // зовёт вовсе — `subjectState` остаётся `undefined`, и это значит «не
+    // проверялось», а не «проверено и оказалось живым».
+    expect(decideDelivery('TRANSACTION_ADDED', ctx({ subjectState: undefined }))).toEqual({
+      send: true,
+      to: 'ivan@cheekycheese.tech',
+    })
+  })
+
+  it.each(['missing', 'archived', 'approvalSuperseded', 'approvalDecided'] as const)(
+    'состояние объекта %s — SKIPPED/STALE, а не CHANNEL_OFF/NO_ADDRESS',
+    (subjectState) => {
+      expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', ctx({ subjectState }))).toEqual({
+        send: false,
+        skipReason: 'STALE',
+      })
+    },
+  )
+
+  it('состояние объекта active — письмо уходит как обычно', () => {
+    expect(decideDelivery('PROJECT_CONFIRM_REQUIRED', ctx({ subjectState: 'active' }))).toEqual({
+      send: true,
+      to: 'ivan@cheekycheese.tech',
+    })
+  })
+
+  it('устарело — раньше архива? нет: архив перебивает и STALE тоже', () => {
+    // Порядок причин: «уволен» — самое сильное основание, и оно объясняет
+    // непришедшее письмо лучше любой другой причины (включая устаревший
+    // объект).
+    expect(
+      decideDelivery('PROJECT_CONFIRM_REQUIRED', ctx({ archived: true, subjectState: 'missing' })),
+    ).toEqual({ send: false, skipReason: 'USER_ARCHIVED' })
+  })
+
+  it('устарело перебивает выключенный канал и отсутствие адреса', () => {
+    // §7.2: актуальность объекта проверяется РАНЬШЕ настройки канала —
+    // письмо о несостоявшемся согласовании недопустимо независимо от того,
+    // включён ли канал или есть ли адрес.
+    expect(
+      decideDelivery(
+        'PROJECT_CONFIRM_REQUIRED',
+        ctx({ subjectState: 'approvalSuperseded', emailEnabled: false, addresses: [] }),
+      ),
+    ).toEqual({ send: false, skipReason: 'STALE' })
+  })
+
+  it('старый тип не доходит до проверки объекта — LEGACY_TYPE перебивает', () => {
+    expect(decideDelivery('INVOICE_SIGN_REQUIRED', ctx({ subjectState: 'missing' }))).toEqual({
+      send: false,
+      skipReason: 'LEGACY_TYPE',
+    })
+  })
+
+  it.each(ACTION_REQUIRED_NOTIFICATION_TYPES)(
+    'SR-L-1: %s без subjectState — ошибка вызывающего, а не молчаливый STALE',
+    (type) => {
+      // Отсутствие subjectState для action-required типа не значит «не
+      // проверялось» (как для информирующих) — единственный вызывающий,
+      // умеющий забыть его, крон, обязан передавать состояние ВСЕГДА
+      // (`isActionRequiredNotificationType` в `deliver()`). Если кто-то
+      // всё же забудет — громкий throw, а не тихий SKIPPED/STALE: письмо о
+      // несуществующем согласовании и письмо, ошибочно не отправленное
+      // из-за бага вызывающего, не должны быть неотличимы в данных.
+      expect(() => decideDelivery(type, ctx({ subjectState: undefined }))).toThrow(/subjectState/)
+    },
+  )
+})
+
 describe('коды причин пропуска', () => {
   it('перечень в коде совпадает с типом в базе', () => {
     // Два описания одного набора — Postgres-enum и союз в TypeScript.
@@ -205,11 +280,12 @@ describe('коды причин пропуска', () => {
     expect([...SKIP_REASONS].sort()).toEqual([...notificationEmailSkipReasonEnum.enumValues].sort())
   })
 
-  it('все четыре причины из задания на месте', () => {
+  it('все пять причин — четыре из задания плюс STALE (бэклог 208) — на месте', () => {
     expect([...SKIP_REASONS].sort()).toEqual([
       'CHANNEL_OFF',
       'LEGACY_TYPE',
       'NO_ADDRESS',
+      'STALE',
       'USER_ARCHIVED',
     ])
   })
