@@ -4,6 +4,7 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import tailwindcss from '@tailwindcss/vite'
 import tsConfigPaths from 'vite-tsconfig-paths'
 import { VitePWA } from 'vite-plugin-pwa'
+import { lingui } from '@lingui/vite-plugin'
 import path from 'path'
 import { pwaRuntimeCaching } from './app/lib/pwa-runtime-caching'
 
@@ -270,7 +271,8 @@ export default defineConfig({
       // ~3.2 MB parsed on first paint → 9 s dashboard + main-thread jank).
       autoCodeSplitting: true,
     }),
-    react(),
+    react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } }),
+    lingui(),
     tailwindcss(),
     tsConfigPaths(),
     VitePWA({

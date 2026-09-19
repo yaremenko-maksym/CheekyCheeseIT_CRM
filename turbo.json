@@ -52,11 +52,11 @@
   "globalDependencies": ["tsconfig.base.json"],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["//#i18n:compile", "^build"],
       "outputs": ["dist/**", ".output/**", ".vinxi/**", "app/routeTree.gen.ts"]
     },
     "dev": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["//#i18n:compile", "^build"],
       "cache": false,
       "persistent": true
     },
@@ -68,15 +68,27 @@
       "dependsOn": ["^build"]
     },
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["//#i18n:compile", "^build"]
     },
     "test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["//#i18n:compile", "^build"],
       "outputs": ["coverage/**"],
       "outputLogs": "new-only"
     },
     "clean": {
       "cache": false
+    },
+    // Root task — see task-i18n-stage2-task1-2 override #3. Compiles the .po
+    // catalogs (packages/shared/src/i18n/locales/*/messages.po) into the
+    // gitignored `messages.ts` that `packages/shared/src/i18n/catalog.ts`
+    // requires. `cache: false` because pnpm i18n:compile is fast (<1s) and
+    // its own inputs already gate re-runs via turbo's task hashing below —
+    // caching the task itself would need to hash the SAME .po inputs anyway,
+    // so it buys nothing and risks a stale compile after a `.po` edit that
+    // turbo's content hash missed (e.g. no-op edits during merge).
+    "//#i18n:compile": {
+      "cache": false,
+      "inputs": ["packages/shared/src/i18n/locales/**/*.po", "lingui.config.ts"]
     }
   }
 }

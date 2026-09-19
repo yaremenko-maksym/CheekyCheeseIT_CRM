@@ -23,6 +23,7 @@
     "@fastify/cookie": "^11.0.2",
     "@fastify/helmet": "^13.0.0",
     "@fastify/multipart": "^10.0.0",
+    "@lingui/core": "5.9.5",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
