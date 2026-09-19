@@ -10,7 +10,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import { Toaster } from 'sonner'
-import type { InvoiceDto, SessionUser } from '@crm/shared'
+import { INVOICE_SIGN_IMPERSONATION_MESSAGE, type InvoiceDto, type SessionUser } from '@crm/shared'
 import { InvoiceDetailDialog } from '../invoice-detail-dialog'
 
 // ---------------------------------------------------------------------------
@@ -63,6 +63,12 @@ const otherUser: SessionUser = {
   id: '00000000-0000-0000-0000-00000000000b',
   role: 'ADMIN',
   displayName: 'Admin',
+}
+
+/** Бэклог 212 (task-680 SR-M-4) — an ADMIN viewing AS the counterparty. */
+const impersonatedCounterpartyUser: SessionUser = {
+  ...counterpartyUser,
+  impersonating: true,
 }
 
 const pendingInvoice: InvoiceDto = {
@@ -241,5 +247,55 @@ describe('InvoiceDetailDialog', () => {
     await userEvent.click(submit)
     expect(mockSign).toHaveBeenCalledTimes(1)
     expect(mockSign).toHaveBeenCalledWith(pendingInvoice.transactionId, expect.any(Object))
+  })
+
+  describe('under impersonation (backlog 212, task-680 SR-M-4)', () => {
+    it('shows the sign button DISABLED with the explanation banner; no request is sent on click', async () => {
+      renderDialog({ invoice: pendingInvoice, viewer: impersonatedCounterpartyUser })
+
+      const btn = await screen.findByTestId('invoice-detail-sign-button')
+      expect(btn).toBeDisabled()
+      expect(btn).toHaveAttribute('aria-disabled', 'true')
+      expect(btn).toHaveAttribute('aria-describedby', 'invoice-sign-explain-impersonating')
+
+      const banner = screen.getByTestId('invoice-sign-impersonating-banner')
+      expect(banner).toHaveTextContent(`${INVOICE_SIGN_IMPERSONATION_MESSAGE}.`)
+      expect(banner).toHaveAttribute('id', 'invoice-sign-explain-impersonating')
+
+      // Neither the ordinary "signed" nor "counterparty-only" badge shows —
+      // this is a THIRD, distinct state.
+      expect(screen.queryByTestId('invoice-detail-signed-badge')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('invoice-detail-counterparty-only-badge')).not.toBeInTheDocument()
+
+      // A disabled button does not fire its onClick handler in the DOM.
+      fireEvent.click(btn)
+      expect(screen.queryByTestId('invoice-sign-confirm-dialog')).not.toBeInTheDocument()
+      expect(mockSign).not.toHaveBeenCalled()
+    })
+
+    it('renders no impersonation banner when NOT impersonating (isolates the impersonating gate)', async () => {
+      renderDialog({ invoice: pendingInvoice, viewer: counterpartyUser })
+      await screen.findByTestId('invoice-detail-sign-button')
+      expect(screen.queryByTestId('invoice-sign-impersonating-banner')).not.toBeInTheDocument()
+    })
+
+    it('shows the counterparty-only badge, not the disabled sign button, for a non-counterparty impersonated viewer', async () => {
+      const impersonatedNonCounterparty: SessionUser = { ...otherUser, impersonating: true }
+      renderDialog({ invoice: pendingInvoice, viewer: impersonatedNonCounterparty })
+
+      await screen.findByTestId('invoice-detail-status')
+      expect(screen.queryByTestId('invoice-detail-sign-button')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('invoice-sign-impersonating-banner')).not.toBeInTheDocument()
+      expect(screen.getByTestId('invoice-detail-counterparty-only-badge')).toBeInTheDocument()
+    })
+
+    it('shows the signed badge, not the disabled sign button, when impersonating after the invoice is already signed', async () => {
+      renderDialog({ invoice: signedInvoice, viewer: impersonatedCounterpartyUser })
+
+      await screen.findByTestId('invoice-detail-status')
+      expect(screen.queryByTestId('invoice-detail-sign-button')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('invoice-sign-impersonating-banner')).not.toBeInTheDocument()
+      expect(screen.getByTestId('invoice-detail-signed-badge')).toBeInTheDocument()
+    })
   })
 })
