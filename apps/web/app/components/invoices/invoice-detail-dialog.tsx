@@ -14,7 +14,7 @@
  *   │                                                             │
  *   │   Public verify URL: /invoice/v/<id>  (copyable)            │
  *   │ ───────────────────────────────────────────────────────────│
- *   │ FOOTER:  «Закрыть»     [Подписать инвойс]                   │
+ *   │ FOOTER:  «Закрыть»     [Подписать счёт]                     │
  *   └─────────────────────────────────────────────────────────────┘
  *
  * `Подписать` button is rendered (enabled) only when:
@@ -120,7 +120,7 @@ const SIG_METHOD_LABEL: Record<InvoiceSignatureDto['method'], string> = {
 }
 
 const SIG_METHOD_TOOLTIP: Record<InvoiceSignatureDto['method'], string> = {
-  AUTO_COMPANY: 'Автоматическая электронная подпись компании при выпуске инвойса',
+  AUTO_COMPANY: 'Автоматическая электронная подпись компании при выпуске счёта',
   MANUAL_CLICK: 'Подписано вручную (click + audit) контрагентом',
 }
 
@@ -177,7 +177,7 @@ export function InvoiceDetailDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <CrmDialogContent maxWidth="sm:max-w-6xl" data-testid="invoice-detail-dialog">
-        <DialogDescription className="sr-only">Инвойс</DialogDescription>
+        <DialogDescription className="sr-only">Счёт</DialogDescription>
         {isLoading || !invoice ? (
           <DialogLoadingState error={error} />
         ) : (
@@ -201,7 +201,7 @@ function DialogLoadingState({ error }: { error: Error | null }) {
     return (
       <>
         <CrmDialogHeader>
-          <DialogTitle>Инвойс</DialogTitle>
+          <DialogTitle>Счёт</DialogTitle>
           <DialogDescription>Не удалось загрузить документ</DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-6">
@@ -405,7 +405,7 @@ function InvoiceDetailContent({
             data-testid="invoice-detail-sign-button"
           >
             <FileSignature className="mr-2 h-4 w-4" />
-            Подписать инвойс
+            Подписать счёт
           </Button>
         ) : hasCounterpartySig ? (
           <Badge
@@ -530,7 +530,7 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
           presigned URL + the PDF being a static GET for security. */}
       <iframe
         src={data.url}
-        title="Инвойс PDF"
+        title="Счёт PDF"
         className="w-full min-h-[500px] h-full"
         onLoad={handleIframeLoad}
       />
@@ -598,7 +598,7 @@ function SignatureCard({
 }
 
 // ---------------------------------------------------------------------------
-// «Подписать инвойс» button + confirm AlertDialog
+// «Подписать счёт» button + confirm AlertDialog
 // ---------------------------------------------------------------------------
 
 function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: () => void }) {
@@ -620,7 +620,7 @@ function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: ()
     <>
       <Button onClick={() => setConfirmOpen(true)} data-testid="invoice-detail-sign-button">
         <FileSignature className="mr-2 h-4 w-4" />
-        Подписать инвойс
+        Подписать счёт
       </Button>
 
       <AlertDialog
@@ -634,7 +634,7 @@ function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: ()
       >
         <AlertDialogContent data-testid="invoice-sign-confirm-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>Подписать инвойс?</AlertDialogTitle>
+            <AlertDialogTitle>Подписать счёт?</AlertDialogTitle>
             <AlertDialogDescription>
               Подписывая этот документ, вы подтверждаете согласие с его содержимым. После подписи
               документ нельзя отменить.
@@ -659,7 +659,7 @@ function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: ()
               className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
               data-testid="invoice-sign-agree-checkbox"
             />
-            <span>Я ознакомлен и согласен с содержимым инвойса</span>
+            <span>Я ознакомлен и согласен с содержимым счёта</span>
           </label>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={signMutation.isPending}>Отмена</AlertDialogCancel>

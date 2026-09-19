@@ -8,7 +8,7 @@
  *   - PAYOUT PAID → backend auto-signs COMPANY side (Maksym ADMIN), creates
  *     INVOICE Document, drops INVOICE_SIGN_REQUIRED notification for SENIOR.
  *   - SENIOR opens /documents?category=INVOICE → clicks invoice card →
- *     InvoiceDetailDialog opens → click «Подписать инвойс» → checkbox →
+ *     InvoiceDetailDialog opens → click «Подписать счёт» → checkbox →
  *     submit.
  *   - Backend re-generates PDF with both signatures → soft-deletes old PDF
  *     → creates new Document → marks invoice SIGNED.
@@ -19,7 +19,7 @@
  *   C1: Notification «INVOICE_SIGN_REQUIRED» bell badge ≥ 1, dropdown shows
  *       it, click navigates to /documents?category=INVOICE&openTx=<txId>.
  *   C2: InvoiceDetailDialog renders COMPANY signature (method=Авто), empty
- *       COUNTERPARTY row («Ожидает подписи»), «Подписать инвойс» button.
+ *       COUNTERPARTY row («Ожидает подписи»), «Подписать счёт» button.
  *   C3: Confirm AlertDialog gates submit on the checkbox.
  *   C4: Submit POSTs /invoices/:txId/sign with empty body, dialog closes.
  *   C5: Public verify /invoice/v/:txId page renders без auth, shows both
