@@ -273,13 +273,20 @@ def test_0800_but_plus_already_sent_at_0730_sends_no_email(config, tmp_path):
     assert run.calls == []
 
 
-def test_resend_error_at_cutoff_still_fires_the_other_alert_layers(config, caplog, tmp_path):
+def test_resend_error_at_cutoff_still_fires_the_other_alert_layers(config, caplog, tmp_path, monkeypatch):
     # Task file test list: "Resend вернул ошибку -> ERROR, остальные слои
     # алерта (п. 10) всё равно срабатывают."
     import logging
 
+    # backlog 159: the issue layer (alert.send_github_issue_alert) only
+    # calls `run` when the script exists AND ALERT_REPO/GH_TOKEN are set —
+    # both need to be true here for this test to still exercise "the issue
+    # layer fired" rather than "the issue layer was quietly unconfigured".
+    monkeypatch.setenv("ALERT_REPO", "owner/repo")
+    monkeypatch.setenv("GH_TOKEN", "ghp_test_token")
     clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))
     script = tmp_path / "post-merge-alert.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
     issue_calls = []
 
     def fake_run(argv, **kwargs):
@@ -341,7 +348,7 @@ def test_handover_email_reason_carries_the_last_recorded_error(config, tmp_path)
     assert "connection refused: host unreachable" in payload["text"]
 
 
-def test_issue_alert_failed_legs_is_a_constant_never_the_raw_last_error(config, tmp_path):
+def test_issue_alert_failed_legs_is_a_constant_never_the_raw_last_error(config, tmp_path, monkeypatch):
     # SR-H-1 (security review 5105061153) fix instruction: "в _issue_alert_env
     # не передавать reason в FAILED_LEGS вообще -- константа, как в workflow"
     # -- post-merge-alert.sh's other callers (ci/deploy/backup/mutation) all
@@ -349,9 +356,14 @@ def test_issue_alert_failed_legs_is_a_constant_never_the_raw_last_error(config, 
     # dynamic error message; this issue only fails open to the PUBLIC repo
     # (see that script's own "ГРАНИЦА КАНАЛА" comment), so FAILED_LEGS must
     # never carry log/error content, masked or not.
+    # backlog 159: the issue layer needs script-exists + ALERT_REPO/GH_TOKEN
+    # to actually invoke `run` — see the sibling test above.
+    monkeypatch.setenv("ALERT_REPO", "owner/repo")
+    monkeypatch.setenv("GH_TOKEN", "ghp_test_token")
     save_state(config.state_file, State(last_error=f"boom near {config.signal_account}"))
     clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))
     script = tmp_path / "post-merge-alert.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
     captured_envs = []
 
     def fake_run(argv, **kwargs):
@@ -376,7 +388,7 @@ def test_issue_alert_failed_legs_is_a_constant_never_the_raw_last_error(config, 
     assert "boom" not in failed_legs  # never echoes the dynamic reason text at all
 
 
-def test_issue_alert_failed_legs_is_a_constant_on_retry_exhaustion_too(config, tmp_path):
+def test_issue_alert_failed_legs_is_a_constant_on_retry_exhaustion_too(config, tmp_path, monkeypatch):
     # Pinning test, not a red/green leak fix like the sibling test above --
     # this call site was never actually reachable by dynamic text (`reason`
     # here has always been the hardcoded literal "all retry attempts
@@ -384,8 +396,13 @@ def test_issue_alert_failed_legs_is_a_constant_on_retry_exhaustion_too(config, t
     # green before AND after the _issue_alert_env refactor; it exists to
     # catch a FUTURE regression if this call site is ever changed to thread
     # a dynamic reason through, the way the cutoff call site used to.
+    # backlog 159: the issue layer needs script-exists + ALERT_REPO/GH_TOKEN
+    # to actually invoke `run` — see test_issue_alert_failed_legs_is_a_constant_never_the_raw_last_error.
+    monkeypatch.setenv("ALERT_REPO", "owner/repo")
+    monkeypatch.setenv("GH_TOKEN", "ghp_test_token")
     clock = FakeClock(_kyiv(2026, 9, 3, 7, 0))
     script = tmp_path / "post-merge-alert.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
     captured_envs = []
 
     results = []

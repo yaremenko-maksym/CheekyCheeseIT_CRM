@@ -114,12 +114,27 @@ def test_send_personal_alert_returns_false_on_signal_cli_failure(config_with_rec
 # ---------------------------------------------------------------------------
 # Layer 3: GitHub issue via post-merge-alert.sh (call-shape only; the script
 # itself is DevOps's zone and is neither modified nor executed for real here)
+#
+# backlog 159: this layer only invokes `run` when BOTH the script exists on
+# disk AND the call env carries ALERT_REPO+GH_TOKEN -- otherwise it must log
+# DEBUG (never ERROR) and return False without ever calling `run`. Tests
+# below that exercise the "call as before" path (file + env present) use
+# _ISSUE_ALERT_ENV so they still test the same call-shape contract as
+# before this gate existed.
 # ---------------------------------------------------------------------------
+
+_ISSUE_ALERT_ENV = {"ALERT_REPO": "owner/repo", "GH_TOKEN": "ghp_test_token"}
+
+
+def _configured_script(tmp_path) -> Path:
+    """A script file that exists on disk -- the "file present" half of the gate."""
+    script = tmp_path / "post-merge-alert.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    return script
 
 
 def test_send_github_issue_alert_sets_kind_signal_plus(tmp_path):
-    script = tmp_path / "post-merge-alert.sh"
-    script.write_text("#!/bin/sh\nexit 0\n")
+    script = _configured_script(tmp_path)
     captured_env = {}
 
     def fake_run(argv, **kwargs):
@@ -128,7 +143,7 @@ def test_send_github_issue_alert_sets_kind_signal_plus(tmp_path):
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     ok = send_github_issue_alert(
-        {"ALERT_REPO": "owner/repo", "RESULT": "failure", "COMMIT_SHA": "0" * 40, "RUN_URL": "n/a"},
+        {**_ISSUE_ALERT_ENV, "RESULT": "failure", "COMMIT_SHA": "0" * 40, "RUN_URL": "n/a"},
         script_path=script,
         run=fake_run,
     )
@@ -138,33 +153,86 @@ def test_send_github_issue_alert_sets_kind_signal_plus(tmp_path):
 
 
 def test_send_github_issue_alert_kind_cannot_be_overridden_by_extra_env(tmp_path):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
     captured_env = {}
 
     def fake_run(argv, **kwargs):
         captured_env.update(kwargs.get("env") or {})
         return subprocess.CompletedProcess(argv, 0, "", "")
 
-    send_github_issue_alert({"KIND": "ci"}, script_path=script, run=fake_run)
+    send_github_issue_alert({**_ISSUE_ALERT_ENV, "KIND": "ci"}, script_path=script, run=fake_run)
     assert captured_env["KIND"] == "signal-plus"
 
 
 def test_send_github_issue_alert_false_on_nonzero_exit(tmp_path):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
 
     def fake_run(argv, **kwargs):
         return subprocess.CompletedProcess(argv, 2, "", "::error:: unknown KIND")
 
-    assert send_github_issue_alert({}, script_path=script, run=fake_run) is False
+    assert send_github_issue_alert(_ISSUE_ALERT_ENV, script_path=script, run=fake_run) is False
 
 
-def test_send_github_issue_alert_false_when_script_missing(tmp_path):
+# --- AC1: the gate itself (file and/or env missing -> DEBUG, False, `run` never called) ---
+
+
+def test_send_github_issue_alert_false_when_script_missing(tmp_path, caplog):
     missing_script = tmp_path / "does-not-exist.sh"
+    calls = []
 
-    def raising_run(argv, **kwargs):
-        raise FileNotFoundError(argv[0])
+    def tracking_run(argv, **kwargs):
+        # A call-tracking fake, not a raising one (same convention as
+        # test_send_personal_alert_noops_when_recipient_not_configured and the
+        # notify_stale_pin no-op tests below): a raising fake would have its
+        # exception caught by send_github_issue_alert's own try/except around
+        # `run` and produce the SAME `False`, masking a removed gate instead
+        # of catching it.
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
 
-    assert send_github_issue_alert({}, script_path=missing_script, run=raising_run) is False
+    with caplog.at_level(logging.DEBUG, logger="signal_plus"):
+        ok = send_github_issue_alert(_ISSUE_ALERT_ENV, script_path=missing_script, run=tracking_run)
+
+    assert ok is False
+    assert calls == []
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("github-issue layer skipped" in r.message and str(missing_script) in r.message for r in debug_records)
+
+
+def test_send_github_issue_alert_false_when_env_missing(tmp_path, caplog):
+    script = _configured_script(tmp_path)
+    calls = []
+
+    def tracking_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    with caplog.at_level(logging.DEBUG, logger="signal_plus"):
+        ok = send_github_issue_alert({}, script_path=script, run=tracking_run)
+
+    assert ok is False
+    assert calls == []
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any(
+        "github-issue layer skipped" in r.message and "ALERT_REPO" in r.message and "GH_TOKEN" in r.message
+        for r in debug_records
+    )
+
+
+def test_send_github_issue_alert_false_when_only_one_of_two_env_vars_set(tmp_path):
+    # "заданы ALERT_REPO + GH_TOKEN" (task file) -- both, not either.
+    script = _configured_script(tmp_path)
+    calls = []
+
+    def tracking_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    ok = send_github_issue_alert({"ALERT_REPO": "owner/repo"}, script_path=script, run=tracking_run)
+    assert ok is False
+    assert calls == []
 
 
 def test_send_github_issue_alert_does_not_leak_the_whole_process_environment(tmp_path, monkeypatch):
@@ -177,14 +245,14 @@ def test_send_github_issue_alert_does_not_leak_the_whole_process_environment(tmp
     monkeypatch.setenv("RESEND_API_KEY", "re_should_not_leak_12345")
     monkeypatch.setenv("SIGNAL_ACCOUNT", "+380501234567")
 
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
     captured_env = {}
 
     def fake_run(argv, **kwargs):
         captured_env.update(kwargs.get("env") or {})
         return subprocess.CompletedProcess(argv, 0, "", "")
 
-    send_github_issue_alert({"RESULT": "failure"}, script_path=script, run=fake_run)
+    send_github_issue_alert({**_ISSUE_ALERT_ENV, "RESULT": "failure"}, script_path=script, run=fake_run)
 
     assert "RESEND_API_KEY" not in captured_env
     assert "SIGNAL_ACCOUNT" not in captured_env
@@ -198,7 +266,7 @@ def test_send_github_issue_alert_does_not_leak_the_whole_process_environment(tmp
 
 
 def test_raise_alert_fires_all_three_layers(config_with_recipient, tmp_path, caplog):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
     dm_calls = []
     issue_calls = []
 
@@ -213,7 +281,7 @@ def test_raise_alert_fires_all_three_layers(config_with_recipient, tmp_path, cap
         outcome = raise_alert(
             config_with_recipient,
             "ERROR: no + today",
-            issue_extra_env={"ALERT_REPO": "owner/repo"},
+            issue_extra_env=_ISSUE_ALERT_ENV,
             script_path=script,
             run=fake_run,
         )
@@ -227,7 +295,7 @@ def test_raise_alert_fires_all_three_layers(config_with_recipient, tmp_path, cap
 
 
 def test_raise_alert_dm_failure_does_not_block_issue_layer(config_with_recipient, tmp_path):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
     issue_calls = []
 
     def selective_run(argv, **kwargs):
@@ -239,7 +307,7 @@ def test_raise_alert_dm_failure_does_not_block_issue_layer(config_with_recipient
     outcome = raise_alert(
         config_with_recipient,
         "ERROR: no + today",
-        issue_extra_env={},
+        issue_extra_env=_ISSUE_ALERT_ENV,
         script_path=script,
         run=selective_run,
     )
@@ -249,7 +317,7 @@ def test_raise_alert_dm_failure_does_not_block_issue_layer(config_with_recipient
 
 
 def test_raise_alert_issue_failure_does_not_block_dm_layer(config_with_recipient, tmp_path):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
     dm_calls = []
 
     def selective_run(argv, **kwargs):
@@ -261,7 +329,7 @@ def test_raise_alert_issue_failure_does_not_block_dm_layer(config_with_recipient
     outcome = raise_alert(
         config_with_recipient,
         "ERROR: no + today",
-        issue_extra_env={},
+        issue_extra_env=_ISSUE_ALERT_ENV,
         script_path=script,
         run=selective_run,
     )
@@ -271,17 +339,45 @@ def test_raise_alert_issue_failure_does_not_block_dm_layer(config_with_recipient
 
 
 def test_raise_alert_without_recipient_still_logs_and_calls_issue(config_without_recipient, tmp_path):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
 
     def fake_run(argv, **kwargs):
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     outcome = raise_alert(
-        config_without_recipient, "ERROR: no + today", issue_extra_env={}, script_path=script, run=fake_run
+        config_without_recipient,
+        "ERROR: no + today",
+        issue_extra_env=_ISSUE_ALERT_ENV,
+        script_path=script,
+        run=fake_run,
     )
     assert outcome.logged is True
     assert outcome.dm_sent is False
     assert outcome.issue_called is True
+
+
+def test_raise_alert_issue_layer_stays_quiet_when_unconfigured(config_without_recipient, tmp_path):
+    # backlog 159: raise_alert's own contract (independent layers, no ERROR
+    # noise from an unconfigured opportunistic layer) must hold through the
+    # full raise_alert() call path, not just inside send_github_issue_alert
+    # directly (covered above).
+    missing_script = tmp_path / "does-not-exist.sh"
+    calls = []
+
+    def tracking_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    outcome = raise_alert(
+        config_without_recipient,
+        "ERROR: no + today",
+        issue_extra_env={},
+        script_path=missing_script,
+        run=tracking_run,
+    )
+    assert outcome.logged is True
+    assert outcome.issue_called is False
+    assert calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +570,7 @@ def test_send_handover_email_false_on_http_post_exception(config_with_email):
 
 
 def test_raise_handover_alert_fires_all_four_layers(config_with_email, tmp_path, caplog):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
     dm_calls = []
     issue_calls = []
 
@@ -493,7 +589,7 @@ def test_raise_handover_alert_fires_all_four_layers(config_with_email, tmp_path,
             config_with_email,
             "ERROR: handover",
             "connection refused",
-            issue_extra_env={},
+            issue_extra_env=_ISSUE_ALERT_ENV,
             script_path=script,
             run=fake_run,
             http_post=fake_http_post,
@@ -508,7 +604,7 @@ def test_raise_handover_alert_fires_all_four_layers(config_with_email, tmp_path,
 
 
 def test_raise_handover_alert_resend_failure_does_not_block_other_layers(config_with_email, tmp_path):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
 
     def fake_run(argv, **kwargs):
         return subprocess.CompletedProcess(argv, 0, "", "")
@@ -520,7 +616,7 @@ def test_raise_handover_alert_resend_failure_does_not_block_other_layers(config_
         config_with_email,
         "ERROR: handover",
         "connection refused",
-        issue_extra_env={},
+        issue_extra_env=_ISSUE_ALERT_ENV,
         script_path=script,
         run=fake_run,
         http_post=raising_http_post,
@@ -531,7 +627,7 @@ def test_raise_handover_alert_resend_failure_does_not_block_other_layers(config_
 
 
 def test_raise_handover_alert_other_layer_failure_does_not_block_email(config_with_email, tmp_path):
-    script = tmp_path / "post-merge-alert.sh"
+    script = _configured_script(tmp_path)
 
     def raising_run(argv, **kwargs):
         raise RuntimeError("signal-cli/script exploded")
@@ -543,7 +639,7 @@ def test_raise_handover_alert_other_layer_failure_does_not_block_email(config_wi
         config_with_email,
         "ERROR: handover",
         "connection refused",
-        issue_extra_env={},
+        issue_extra_env=_ISSUE_ALERT_ENV,
         script_path=script,
         run=raising_run,
         http_post=fake_http_post,
