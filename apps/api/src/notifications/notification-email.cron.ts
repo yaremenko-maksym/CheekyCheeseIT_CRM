@@ -27,11 +27,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
+import { isActionRequiredNotificationType } from '@crm/shared'
 import type { Env } from '../config/env'
 import { ResendMailerService } from '../contact/resend-mailer.service'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import { stripCrlf } from '../common/strip-crlf'
 import { renderNotificationEmail, type NotificationEmailSource } from './notification-email-copy'
+import type { SubjectResolution } from './notification-subject-resolver'
 import {
   decideDelivery,
   MAX_EMAIL_ATTEMPTS,
@@ -55,6 +57,17 @@ export interface ClaimedEmail {
 export interface OutboxGateway {
   claimDue(limit: number): Promise<ClaimedEmail[]>
   deliveryContextFor(userId: string, type: string): Promise<DeliveryContext>
+  /**
+   * Состояние объекта письма — бэклог 208. Зовётся ТОЛЬКО для типов,
+   * требующих действия (`isActionRequiredNotificationType`, см. `deliver()`
+   * ниже); для информирующих и админских писем `deliver()` этот метод не
+   * вызывает вовсе, тем же резолвером, что и попап
+   * (`NotificationSubjectStateService.resolveOne`).
+   */
+  resolveSubjectState(
+    userId: string,
+    notification: NotificationEmailSource,
+  ): Promise<SubjectResolution>
   markSent(id: string, email: string): Promise<void>
   markSkipped(id: string, reason: SkipReason): Promise<void>
   markFailed(id: string, reason: string): Promise<void>
@@ -179,7 +192,18 @@ export class NotificationEmailCronService {
     // строкой прошло до пятнадцати секунд, а при ретраях — часы: человека
     // успели уволить, а канал — включить или выключить.
     const context = await this.outbox.deliveryContextFor(item.userId, item.notification.type)
-    const decision = decideDelivery(item.notification.type, context)
+    // Актуальность ОБЪЕКТА — бэклог 208, тем же приёмом, что и настройка
+    // канала: читается здесь, а не на постановке, потому что предложение
+    // могло погаснуть в этом самом окне. Только для трёх типов, требующих
+    // действия (`isActionRequiredNotificationType`) — письмо о случившемся
+    // ФАКТЕ (информирующие и админские типы) не устаревает оттого, что
+    // объект, о котором оно рассказывает, потом исчез или архивировался: тот
+    // же принцип, по которому попап не прячет карточку архивной команды, а
+    // помечает её архивной.
+    const subjectState = isActionRequiredNotificationType(item.notification.type)
+      ? await this.outbox.resolveSubjectState(item.userId, item.notification)
+      : undefined
+    const decision = decideDelivery(item.notification.type, { ...context, subjectState })
     if (!decision.send) {
       await this.outbox.markSkipped(item.id, decision.skipReason)
       this.logSkip(item.id, decision.skipReason)
@@ -246,11 +270,11 @@ export class NotificationEmailCronService {
   }
 
   /**
-   * След пропуска в журнале — одной строкой и одним уровнем на все четыре
-   * причины.
+   * След пропуска в журнале — одной строкой и одним уровнем на все пять
+   * причин.
    *
-   * `warn`, а не `error`: три причины из четырёх — штатный исход (уволен, сам
-   * выключил, тип без письма), и разводить уровни по причине значило бы
+   * `warn`, а не `error`: штатный исход (уволен, сам выключил, тип без
+   * письма, объект устарел), и разводить уровни по причине значило бы
    * заводить второе правило рядом с `skip_reason`, которое разошлось бы с ним
    * при первой новой причине. Кому нужен разбор — читает колонку, а не уровень
    * журнальной строки. Адреса в строке нет: только идентификатор строки

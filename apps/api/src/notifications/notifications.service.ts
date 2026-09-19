@@ -18,7 +18,7 @@
  * call site.
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   Notification as NotificationDto,
   NotificationListFilters,
@@ -29,28 +29,15 @@ import type {
 import { isNewNotificationType, notificationDataSchemaFor } from '@crm/shared'
 import { safeNotificationLinkSchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import {
-  approvals,
-  employeeContracts,
-  nonDeletedTransactions,
-  notificationEmails,
-  notifications,
-  projects,
-  teams,
-  users,
-} from '../database/schema'
+import { notificationEmails, notifications, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import {
   approvalIdFromData,
-  approvalIdsToCheck,
-  classifyApprovalRow,
-  computeSubjectState,
-  groupSubjectIds,
   type SubjectRef,
   type SubjectResolution,
-  type SubjectState,
 } from './notification-subject-resolver'
+import { NotificationSubjectStateService } from './notification-subject-state.service'
 import { decideEnqueue } from './notification-email-outbox'
 
 /**
@@ -84,11 +71,23 @@ export type CreateNotificationInput = {
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name)
+  /**
+   * Не через DI-параметр конструктора намеренно: `NotificationsService`
+   * инстанцируется руками (без Nest-контейнера) в добром десятке спек
+   * (unit и интеграционных) через `new NotificationsService(db, telemetry)`
+   * — третий обязательный параметр сломал бы все разом ради сервиса, у
+   * которого нет собственного состояния и не должно быть DI-жизненного
+   * цикла отдельно от `db`. `OutboxRepository` строит свой экземпляр той же
+   * строкой, тем же приёмом — один класс, два места создания.
+   */
+  private readonly subjectStates: NotificationSubjectStateService
 
   constructor(
     private readonly db: DatabaseService,
     private readonly telemetry: TelemetryErrorsService,
-  ) {}
+  ) {
+    this.subjectStates = new NotificationSubjectStateService(db)
+  }
 
   /**
    * Insert a new notification row. The schema enum is the single source of
@@ -464,31 +463,11 @@ export class NotificationsService {
   }
 
   /**
-   * Половина §7.4 с запросами. Решение принимает
-   * `notification-subject-resolver.ts` — здесь только по одному запросу на
-   * встреченный вид объекта плюс один на живость согласований.
-   *
-   * Транзакции читаются через `non_deleted_transactions` (VIEW), а не из
-   * `transactions`: этот модуль вне `finance/**`, и мягко удалённая транзакция
-   * для него не существует — ровно то, что нужно сказать про кнопку.
-   *
-   * ORCH-2 (fix-раунд 6, #664): запрос к `approvals` теперь читает и
-   * `status`, не только сам факт «строка не погашена» — `classifyApprovalRow`
-   * решает по нему, живая строка это или УЖЕ РЕШЁННАЯ этим же подтверждающим
-   * (см. doc-комментарий `computeSubjectState`).
-   *
-   * QA-H-1 (fix-раунд 8, #664): и читает их ПО ИДЕНТИФИКАТОРАМ СТРОК, а не по
-   * идентификатору объекта. Запрос по объекту возвращал живое поколение
-   * согласования на уведомление о ЛЮБОМ поколении — старое предложение доли
-   * оставалось активным рядом с новым, с другим процентом и рабочей кнопкой.
-   *
-   * SR-L-8 (security-review круг 6, #664, defense-in-depth). `userId` —
-   * получатель ВСЕХ строк `rows` (единственный вызывающий — `listForUser`,
-   * который уже скопил их по этому получателю), и запрос к `approvals`
-   * связывает найденную строку с НИМ через `approverUserId`, а не полагается
-   * на дисциплину производителей (сегодня она верна — см. security-review
-   * дельты — но структурный инвариант дешевле держать в запросе, чем в
-   * доверии). Строка чужого подтверждающего читается КАК ОТСУТСТВУЮЩАЯ.
+   * Половина §7.4 БЕЗ запросов — только сборка `SubjectRef[]` из строк
+   * уведомления. Решение и запросы живут в `NotificationSubjectStateService`
+   * (бэклог 208): тот же сервис, которым проверяет актуальность крон
+   * (`NotificationEmailCronService`) в момент отправки — ОДИН резолвер на
+   * попап и на письмо, не два расходящихся.
    */
   private async resolveSubjectStates(
     userId: string,
@@ -503,110 +482,7 @@ export class NotificationsService {
       // описание — см. `approvalIdFromData`.
       approvalId: approvalIdFromData(r.data),
     }))
-
-    const statesByType = new Map<NotificationSubjectType, Map<string, SubjectState>>()
-    for (const [subjectType, ids] of groupSubjectIds(refs)) {
-      statesByType.set(subjectType, await this.loadSubjectStates(subjectType, ids))
-    }
-
-    const liveApprovalIds = new Set<string>()
-    const decidedApprovalIds = new Set<string>()
-    const approvalIds = approvalIdsToCheck(refs)
-    if (approvalIds.length > 0) {
-      const live = await this.db.db
-        .select({ id: approvals.id, status: approvals.status })
-        .from(approvals)
-        .where(
-          and(
-            isNull(approvals.supersededAt),
-            inArray(approvals.id, approvalIds),
-            eq(approvals.approverUserId, userId),
-          ),
-        )
-      for (const row of live) {
-        const classification = classifyApprovalRow(row.status)
-        if (classification === 'live') liveApprovalIds.add(row.id)
-        else if (classification === 'decided') decidedApprovalIds.add(row.id)
-        // 'superseded' (CANCELLED, defensively — см. doc-комментарий
-        // `classifyApprovalRow`) не попадает ни в один набор: такую строку
-        // `computeSubjectState` разрешит как `approvalSuperseded`, тем же
-        // путём, что и полностью отсутствующая.
-      }
-    }
-
-    return refs.map((ref) =>
-      computeSubjectState(ref, statesByType, liveApprovalIds, decidedApprovalIds),
-    )
-  }
-
-  /**
-   * Состояние каждого запрошенного объекта. Отсутствие в карте — «объекта
-   * больше нет».
-   *
-   * QA-M-3 / QA-L-2 (manual-qa круг 2, #664): у проекта, команды и профиля
-   * есть колонка `archived_at`, и раньше запрос её не читал — архивированная
-   * строка находилась и выдавалась за живую. Здесь она читается ОДНИМ И ТЕМ
-   * ЖЕ способом для всех трёх видов: три копии одного условия расходятся
-   * молча, а один механизм — нет.
-   */
-  private async loadSubjectStates(
-    subjectType: NotificationSubjectType,
-    ids: string[],
-  ): Promise<Map<string, SubjectState>> {
-    const byArchivedAt = (rows: { id: string; archivedAt: Date | null }[]) =>
-      new Map<string, SubjectState>(
-        rows.map((r) => [r.id, r.archivedAt === null ? 'active' : 'archived']),
-      )
-    switch (subjectType) {
-      case 'PROJECT': {
-        const found = await this.db.db
-          .select({ id: projects.id, archivedAt: projects.archivedAt })
-          .from(projects)
-          .where(inArray(projects.id, ids))
-        return byArchivedAt(found)
-      }
-      case 'TEAM': {
-        const found = await this.db.db
-          .select({ id: teams.id, archivedAt: teams.archivedAt })
-          .from(teams)
-          .where(inArray(teams.id, ids))
-        return byArchivedAt(found)
-      }
-      case 'USER': {
-        const found = await this.db.db
-          .select({ id: users.id, archivedAt: users.archivedAt })
-          .from(users)
-          .where(inArray(users.id, ids))
-        return byArchivedAt(found)
-      }
-      case 'TRANSACTION': {
-        // У транзакции архива нет — есть мягкое удаление, и оно уже отрезано
-        // самим представлением `non_deleted_transactions`.
-        const found = await this.db.db
-          .select({ id: nonDeletedTransactions.id })
-          .from(nonDeletedTransactions)
-          .where(inArray(nonDeletedTransactions.id, ids))
-        return new Map<string, SubjectState>(found.map((r) => [r.id, 'active']))
-      }
-      default: {
-        // QA-M-1 (manual-qa круг 1, #664). `DOCUMENT_SIGN_REQUIRED` — единственный
-        // тип с этим видом объекта, и «объект существует» для НЕГО означает не
-        // «строка не удалена» (контракты в этой системе не удаляются —
-        // `EmployeeContractsService` только меняет `status`), а «контракт всё ещё
-        // ждёт подписи». Без этого условия кнопка «Подписать контракт» оставалась
-        // бы активной и после того, как сотрудник контракт уже подписал (или
-        // администратор откатил его обратно в черновик) — деградация (§7.4) для
-        // этого типа была фактически мертва: строка контракта живёт всегда, и
-        // общий запрос «строка есть?» был бы всегда `true`.
-        const found = await this.db.db
-          .select({ id: employeeContracts.id })
-          .from(employeeContracts)
-          .where(
-            and(inArray(employeeContracts.id, ids), eq(employeeContracts.status, 'READY_TO_SIGN')),
-          )
-        return new Map<string, SubjectState>(found.map((r) => [r.id, 'active']))
-      }
-    }
+    return this.subjectStates.resolveMany(userId, refs)
   }
 
   /**
