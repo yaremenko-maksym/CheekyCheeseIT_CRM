@@ -18,6 +18,12 @@ run or commit to draw them from the way the script's other callers
 that wiring is step 4 (DevOps); this module only shapes the call
 (``KIND=signal-plus`` always set, everything else passed through from the
 caller) — see README.md's "Шаг 4" section.
+
+Backlog 159: until step 4 lands, the script is unreachable and
+``ALERT_REPO``/``GH_TOKEN`` are unset inside the container, so
+:func:`send_github_issue_alert` gates the call on both being present
+(script on disk + env in the call env) and stays quiet at DEBUG otherwise
+— see that function's own docstring.
 """
 from __future__ import annotations
 
@@ -65,6 +71,15 @@ def send_personal_alert(config: Config, message: str, *, run=subprocess.run) -> 
 # to locate/execute itself and the `gh` binary it calls.
 _SUBPROCESS_ENV_PASSTHROUGH = ("PATH", "HOME")
 
+# backlog 159: post-merge-alert.sh's own "Required env" doc header names
+# ALERT_REPO/GH_TOKEN/RESULT/COMMIT_SHA/RUN_URL. RESULT/COMMIT_SHA/RUN_URL
+# always arrive via extra_env (signal_plus.cli._issue_alert_env sets fixed
+# placeholders unconditionally, see that function's own docstring) so they
+# can never be the reason this layer is unconfigured. ALERT_REPO/GH_TOKEN
+# are the two that are opportunistic (cli._issue_alert_env only adds them
+# if os.environ already has them) -- these are the ones worth gating on.
+_REQUIRED_ISSUE_ALERT_ENV = ("ALERT_REPO", "GH_TOKEN")
+
 
 def send_github_issue_alert(
     extra_env: dict[str, str],
@@ -78,10 +93,56 @@ def send_github_issue_alert(
     docstring); ``KIND`` from ``extra_env`` is always overridden to
     ``"signal-plus"`` so a caller cannot accidentally alert under a
     different KIND's issue thread.
+
+    Opportunistic layer (backlog 159): today the signal-plus container has
+    neither the script mounted (``DEFAULT_POST_MERGE_ALERT_SCRIPT`` lives on
+    the CRM HOST, unreachable from inside this container) nor
+    ``ALERT_REPO``/``GH_TOKEN`` wired into its environment (see README's
+    "Шаг 4"). Calling ``run`` anyway produced an ``ERROR`` on every single
+    alert in production (2026-09-06, backlog 159) even though nothing was
+    actually broken -- an unconfigured opportunistic channel is not a
+    failure of THIS layer. So this only calls ``run`` when BOTH the script
+    exists on disk AND the call env actually carries ``ALERT_REPO`` and
+    ``GH_TOKEN`` (the same env dict the subprocess would receive) --
+    otherwise it logs one DEBUG line naming the reason and returns
+    ``False`` without ever invoking ``run``. Once step 4 (DevOps) mounts
+    the script and wires the env, this same check flips the layer on with
+    no code change here.
     """
     call_env = {name: os.environ[name] for name in _SUBPROCESS_ENV_PASSTHROUGH if name in os.environ}
     call_env.update(extra_env)
     call_env["KIND"] = "signal-plus"
+
+    script_exists = script_path.is_file()
+    missing_env = [name for name in _REQUIRED_ISSUE_ALERT_ENV if not call_env.get(name)]
+
+    # SR-M-1 (security review 5255508458, fix-round 2): distinguish "ничего"
+    # (nobody has started configuring this layer -- script AND env both
+    # absent) from "частично" (one side is configured and the other isn't --
+    # step 4 was started and not finished, or finished and then drifted,
+    # e.g. an expired GH_TOKEN scrubbed from the container). The former is
+    # the normal, expected state before step 4 lands and stays quiet at
+    # DEBUG exactly as before. The latter means someone touched this and it
+    # is now broken in a way nothing else observes -- worth a WARNING naming
+    # only what is missing (names/path, never a value), so the channel does
+    # not go silently dark the way `cspViolations` and the mutation-nightly
+    # run once did.
+    if not script_exists and len(missing_env) == len(_REQUIRED_ISSUE_ALERT_ENV):
+        logger.debug(
+            "github-issue layer skipped: %s does not exist and env %s not set",
+            script_path,
+            ", ".join(_REQUIRED_ISSUE_ALERT_ENV),
+        )
+        return False
+    if not script_exists or missing_env:
+        reasons = []
+        if not script_exists:
+            reasons.append(f"{script_path} does not exist")
+        if missing_env:
+            reasons.append(f"missing env {', '.join(missing_env)}")
+        logger.warning("github-issue layer misconfigured: %s", "; ".join(reasons))
+        return False
+
     try:
         completed = run([str(script_path)], env=call_env, capture_output=True, text=True, timeout=30)
     except OSError as exc:
