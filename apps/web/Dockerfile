@@ -11,7 +11,7 @@
 # bundle). The default is /api so all API calls go same-origin through nginx.
 # Override via --build-arg VITE_API_URL=... only if your deployment differs.
 # ============================================================
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 RUN corepack enable && corepack prepare pnpm@7.32.4 --activate
 

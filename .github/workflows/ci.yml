@@ -169,7 +169,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.scope.outputs.code == 'true'
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - uses: actions/cache@v4
@@ -448,7 +448,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.scope.outputs.code == 'true'
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - uses: actions/cache@v4
@@ -703,7 +703,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.scope.outputs.code == 'true'
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - uses: actions/cache@v4
@@ -1208,7 +1208,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.scope.outputs.code == 'true'
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - uses: actions/cache@v4

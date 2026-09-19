@@ -9,7 +9,7 @@
 # calls. If it ever needs API access, same-origin /api proxy on cheekycheese.tech
 # will handle it transparently (nginx is already configured for it).
 # ============================================================
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 RUN corepack enable && corepack prepare pnpm@7.32.4 --activate
 

@@ -18,7 +18,7 @@
 
 # ── Landing builder ───────────────────────────────────────────────────────
 # Base image: mcr.microsoft.com/playwright:v1.59.1-noble (Debian/glibc), NOT
-# node:20-alpine. task-infra-seo-gates: the SEO prerender step below drives
+# node:22-alpine. task-infra-seo-gates: the SEO prerender step below drives
 # headless Chromium (via Playwright) to snapshot each landing route into
 # static HTML for crawlers. Chromium needs glibc + a long list of system libs
 # that Alpine (musl) does not ship, and the official Playwright image bundles
@@ -96,7 +96,7 @@ RUN if grep -q '"build:prerender"' apps/landing/package.json; then \
     fi
 
 # ── CRM builder ───────────────────────────────────────────────────────────
-FROM node:20-alpine AS crm-builder
+FROM node:22-alpine AS crm-builder
 
 RUN corepack enable && corepack prepare pnpm@7.32.4 --activate
 

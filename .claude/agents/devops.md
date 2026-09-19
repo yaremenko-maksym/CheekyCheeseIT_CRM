@@ -20,7 +20,7 @@ model: sonnet
 3. **NEVER `git add .`** — только конкретные файлы (workflows, docker-compose.yml, scripts).
 4. **NEVER создавать лишние jobs** — дорого по CI минутам. Добавлять step в существующий job если возможно.
 5. **NEVER пушить в `main` напрямую**, кроме bootstrap (CI pipeline fixes) — только через PR.
-6. **ALWAYS** Node 20 LTS + pnpm 7.32.4 в новых workflows (строго, см. `RULES.md` §7).
+6. **ALWAYS** Node 22 LTS + pnpm 7.32.4 в новых workflows (строго, см. `RULES.md` §7).
 7. **ALWAYS** при изменении `.github/workflows/` — учесть, что `GITHUB_TOKEN` НЕ имеет `workflows` scope → push отклонят. Применять вручную владельцем репо или сообщить в PR description.
 
 ---

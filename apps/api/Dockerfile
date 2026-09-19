@@ -31,7 +31,7 @@
 # prod image with no verification of either kind is not acceptable
 # (task requirement). Bumping TYPST_VERSION means bumping BOTH shas
 # below, taken from the new release's Releases API response.
-FROM node:20-alpine AS typst
+FROM node:22-alpine AS typst
 ARG TYPST_VERSION=0.15.1
 ARG TARGETARCH
 WORKDIR /typst
@@ -60,7 +60,7 @@ RUN set -eu; \
 # Installs all workspace deps, builds @crm/shared then @crm/api.
 # Turbo dependency order: shared must compile before api (^build).
 # ============================================================
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 # Install pnpm at the exact pin used in the project (packageManager field).
 RUN corepack enable && corepack prepare pnpm@7.32.4 --activate
@@ -95,7 +95,7 @@ RUN pnpm --filter @crm/api --prod deploy /app/prod-deploy
 # Stage 3: runtime
 # Minimal image — only the compiled dist + prod node_modules.
 # ============================================================
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 
 # backlog 113 — build fingerprint for GET /api/health (see
 # apps/api/src/config/env.ts's GIT_COMMIT/BUILD_TIME doc + health.controller.ts
@@ -116,7 +116,7 @@ ARG BUILD_TIME=
 ENV BUILD_TIME=$BUILD_TIME
 
 # Security: don't run the API as root.
-# node user (uid 1000) is built into the node:20-alpine image.
+# node user (uid 1000) is built into the node:22-alpine image.
 USER node
 
 WORKDIR /app
