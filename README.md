@@ -6,7 +6,7 @@ CRM system for reverse-recruiting workspace — multi-agent driven development.
 
 ## Prerequisites
 
-- Node 20 LTS
+- Node 22 LTS (см. `.claude/rules/common/version-pins.md`)
 - pnpm 7.32.4 (`npm install -g pnpm@7.32.4`)
 - Docker (for Postgres + Redis)
 
