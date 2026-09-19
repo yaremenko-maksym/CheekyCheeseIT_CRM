@@ -1,5 +1,8 @@
 /**
- * Идемпотентность двух миграций позиции 7a — AC6.
+ * Идемпотентность миграций позиции 7a — AC6, расширено бэклогом 208
+ * (`2026-09-19_notification_email_skip_stale.sql`, проверяется отдельным
+ * `it()` ниже, вне цикла `it.each(MIGRATIONS)`: та миграция не создаёт
+ * таблицу и не подходит под общее ассерт-условие «таблица на месте»).
  *
  * `deploy.yml` применяет каждый файл `manual/*.sql` НА КАЖДОМ деплое, а не
  * один раз: реестра применённых миграций у нас нет, и «применить ещё раз»
@@ -82,6 +85,41 @@ describe.skipIf(!hasDatabaseUrl())('миграции позиции 7a идем�
     const names = idx.rows.map((r: { indexname: string }) => r.indexname)
     expect(names).toContain('uq_notification_emails_notification')
     expect(names).toContain('idx_notification_emails_due')
+  })
+
+  it('бэклог 208: STALE применяется дважды подряд без ошибок', async () => {
+    // Файл — ОДНА команда (`ALTER TYPE … ADD VALUE IF NOT EXISTS`), top-level,
+    // не в `DO $$`: Postgres запрещает `ALTER TYPE … ADD VALUE` из
+    // процедурного блока (см. заголовок самого файла миграции и прецедент
+    // `2026-09-12_notification_emails.sql`, который по этой же причине
+    // выносит `ADD VALUE` из своих DO-блоков). Требует, чтобы тип уже
+    // существовал — поэтому применяется ПОСЛЕ файлов выше в этом же прогоне
+    // (общая схема, `beforeAll` её не сбрасывает между тестами).
+    const sql = sqlFor('2026-09-19_notification_email_skip_stale.sql')
+    const client = await pool.connect()
+    try {
+      await client.query(`SET search_path TO ${SCHEMA}`)
+      await client.query(sql)
+      // Второй прогон — то, что делает каждый следующий деплой.
+      await client.query(sql)
+
+      // `n.nspname = SCHEMA` — не украшение: без него запрос нашёл бы
+      // ЛЮБОЙ одноимённый тип в БАЗЕ, включая тот, что уже несёт `STALE` в
+      // `public` (эта же scratch-база мигрирована `drizzle-kit push` из
+      // текущего `schema.ts`), и тест прошёл бы, даже если ЭТА миграция в
+      // ЭТОЙ схеме упала бы молча.
+      const labels = await client.query(
+        `SELECT enumlabel FROM pg_enum e
+           JOIN pg_type t ON t.oid = e.enumtypid
+           JOIN pg_namespace n ON n.oid = t.typnamespace
+          WHERE t.typname = 'notification_email_skip_reason' AND n.nspname = $1
+          ORDER BY e.enumsortorder`,
+        [SCHEMA],
+      )
+      expect(labels.rows.map((r: { enumlabel: string }) => r.enumlabel)).toContain('STALE')
+    } finally {
+      client.release()
+    }
   })
 
   it('настройки получили свой уникальный индекс', async () => {
@@ -175,7 +213,11 @@ describe.skipIf(!hasDatabaseUrl())('миграции позиции 7a идем�
     }
   })
 
-  it('причина пропуска — свой тип с четырьмя кодами', async () => {
+  it('причина пропуска — свой тип, четыре кода из круга 1 плюс STALE (бэклог 208)', async () => {
+    // Пятый код появляется здесь потому, что тест выше в этом же файле
+    // («бэклог 208: STALE применяется дважды подряд») уже прогнал
+    // `2026-09-19_notification_email_skip_stale.sql` в ЭТОЙ ЖЕ схеме —
+    // `beforeAll` схему между тестами не пересоздаёт (см. заголовок файла).
     const labels = await pool.query(
       `SELECT enumlabel FROM pg_enum e
          JOIN pg_type t ON t.oid = e.enumtypid
@@ -189,6 +231,7 @@ describe.skipIf(!hasDatabaseUrl())('миграции позиции 7a идем�
       'USER_ARCHIVED',
       'CHANNEL_OFF',
       'LEGACY_TYPE',
+      'STALE',
     ])
   })
 

@@ -5,6 +5,7 @@ import {
   type DeliveryContext,
   type SkipReason,
 } from './notification-email-outbox'
+import type { SubjectResolution } from './notification-subject-resolver'
 import {
   NotificationEmailCronService,
   SWEEP_STUCK_AFTER_MS,
@@ -34,6 +35,14 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
   /** Контекст получателя, который вернёт `deliveryContextFor`. Тесты его подменяют. */
   context: DeliveryContext
   contextAskedFor: { userId: string; type: string }[]
+  /**
+   * Ответ `resolveSubjectState` (бэклог 208) — по умолчанию `'active'`,
+   * потому что дефолтная `claimed()` уже несёт тип, требующий действия
+   * (`PROJECT_CONFIRM_REQUIRED`), и без «живого» ответа по умолчанию каждый
+   * существующий тест этого файла звал бы недостижимую заглушку.
+   */
+  subjectState: SubjectResolution
+  subjectStateAskedFor: { userId: string; type: string }[]
 } {
   const state = {
     sent: [] as { id: string; email: string }[],
@@ -47,6 +56,8 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
     // через `gw.context = …`.
     contextOverride: null as DeliveryContext | null,
     contextAskedFor: [] as { userId: string; type: string }[],
+    subjectStateOverride: null as SubjectResolution | null,
+    subjectStateAskedFor: [] as { userId: string; type: string }[],
   }
   return {
     // Счётчики — ГЕТТЕРАМИ, а не через `...state`: спред копирует число один
@@ -78,6 +89,15 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
     get contextAskedFor() {
       return state.contextAskedFor
     },
+    get subjectState() {
+      return state.subjectStateOverride ?? 'active'
+    },
+    set subjectState(next: SubjectResolution) {
+      state.subjectStateOverride = next
+    },
+    get subjectStateAskedFor() {
+      return state.subjectStateAskedFor
+    },
     claimDue: async (_limit: number) => {
       state.claims += 1
       return state.claims === 1 ? claimed : []
@@ -89,6 +109,13 @@ function makeGateway(claimed: ClaimedEmail[] = []): OutboxGateway & {
     deliveryContextFor: async (userId: string, type: string) => {
       state.contextAskedFor.push({ userId, type })
       return state.contextOverride ?? defaultContext(userId)
+    },
+    // Бэклог 208. Крон зовёт этот метод ТОЛЬКО для типов, требующих
+    // действия (см. `deliver()`) — записывается каждый вызов, чтобы тест
+    // «информирующий тип не проверяется» мог утверждать НОЛЬ вызовов.
+    resolveSubjectState: async (userId: string, notification: { type: string }) => {
+      state.subjectStateAskedFor.push({ userId, type: notification.type })
+      return state.subjectStateOverride ?? 'active'
     },
     markSent: async (id: string, email: string) => {
       state.sent.push({ id, email })
@@ -718,6 +745,73 @@ describe('решение принимается в момент ОТПРАВКИ
       addresses: [{ email: 'ivan@gmail.com', kind: 'PERSONAL' }],
       emailEnabled: false,
     }
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(0)
+    expect(gw.skipped).toEqual([{ id: 'e-1', reason: 'USER_ARCHIVED' }])
+  })
+})
+
+describe('устаревшее согласование не уходит письмом (бэклог 208)', () => {
+  it('тип, требующий действия, с устаревшим объектом — SKIPPED/STALE, провайдер не вызван', async () => {
+    // Дефолтная `claimed()` уже несёт `PROJECT_CONFIRM_REQUIRED` — один из
+    // трёх типов, требующих действия.
+    const gw = makeGateway([claimed()])
+    gw.subjectState = 'approvalSuperseded'
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(0)
+    expect(gw.skipped).toEqual([{ id: 'e-1', reason: 'STALE' }])
+  })
+
+  it('тип, требующий действия, с активным объектом — уходит как обычно', async () => {
+    const gw = makeGateway([claimed()])
+    gw.subjectState = 'active'
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(1)
+    expect(gw.skipped).toHaveLength(0)
+  })
+
+  it('информирующий тип НЕ зовёт resolveSubjectState вовсе — письмо о факте не деградирует', async () => {
+    // §7.2: письмо о случившемся факте не устаревает оттого, что объект,
+    // о котором оно рассказывает, потом исчез или архивировался. Резолвер
+    // тут дороже, чем нужно, — крон его просто не спрашивает.
+    const gw = makeGateway([claimed({ notification: informing() })])
+    gw.subjectState = 'missing'
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(1)
+    expect(gw.subjectStateAskedFor).toHaveLength(0)
+  })
+
+  it('resolveSubjectState зовётся с получателем и типом ЭТОГО письма', async () => {
+    const gw = makeGateway([claimed({ id: 'e-9', userId: 'u-9' })])
+    const { service } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(gw.subjectStateAskedFor).toEqual([{ userId: 'u-9', type: 'PROJECT_CONFIRM_REQUIRED' }])
+  })
+
+  it('устаревший объект архивированному тоже даёт USER_ARCHIVED, не STALE', async () => {
+    // Архив — самая сильная причина; она перебивает устаревание так же, как
+    // перебивает CHANNEL_OFF и NO_ADDRESS.
+    const gw = makeGateway([claimed()])
+    gw.context = {
+      archived: true,
+      addresses: [{ email: 'ivan@gmail.com', kind: 'PERSONAL' }],
+      emailEnabled: null,
+    }
+    gw.subjectState = 'missing'
     const { service, sends } = makeService({ gateway: gw })
 
     await service.drainOnce()
