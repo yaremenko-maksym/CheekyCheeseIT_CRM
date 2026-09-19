@@ -26,7 +26,7 @@
 import { ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyRequest } from 'fastify'
-import type { SessionUser } from '@crm/shared'
+import { INVOICE_SIGN_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
 import { InvoicesService } from './invoices.service'
 import { sha256Hex } from './invoice-pdf.utils'
 // security-review PR #456 round 2: autoCreateForSeniorPayout/autoCreateForPayout
@@ -744,6 +744,30 @@ describe('InvoicesService', () => {
       h.ctrl.findTxId = 'tx-1'
       // SENIOR2 is not the counterparty (receiver is SENIOR.id)
       await expect(h.svc.signInvoice(SENIOR2, 'tx-1', mkReq())).rejects.toThrow(ForbiddenException)
+    })
+
+    describe('impersonation guard (fix-round 3, task-680 SR-M-4)', () => {
+      const impersonated: SessionUser = { ...SENIOR, impersonatorId: ADMIN.id }
+
+      it('refuses to sign under impersonation before the transaction is ever fetched — 403, no write', async () => {
+        // Empty harness — NO transaction exists at all. If the guard were
+        // missing or ran AFTER fetchWritableTransactionOrThrow, this would
+        // throw NotFoundException instead — so a ForbiddenException here
+        // proves the guard is the first thing signInvoice does.
+        const h = buildHarness({ txs: [], sigs: [], users: [], projects: [] })
+
+        await expect(h.svc.signInvoice(impersonated, 'tx-does-not-exist', mkReq())).rejects.toThrow(
+          ForbiddenException,
+        )
+      })
+
+      it('impersonation refusal carries the exact shared literal', async () => {
+        const h = buildHarness({ txs: [], sigs: [], users: [], projects: [] })
+
+        await expect(h.svc.signInvoice(impersonated, 'tx-does-not-exist', mkReq())).rejects.toThrow(
+          INVOICE_SIGN_IMPERSONATION_MESSAGE,
+        )
+      })
     })
 
     it('throws ConflictException when COUNTERPARTY signature already exists', async () => {
