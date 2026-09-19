@@ -110,4 +110,35 @@ describe('ProjectHeaderApprovalNote', () => {
     expect(screen.queryByTestId('project-header-rejection-reason')).not.toBeInTheDocument()
     expect(screen.queryByTestId('project-header-approval-caption')).not.toBeInTheDocument()
   })
+
+  it('UX-H-1 / COPY-M-5 (fix-round 3): REJECTED reason claims its own row on tablet — basis-full lg:basis-auto, no mt-1.5', () => {
+    render(
+      <ProjectHeaderApprovalNote
+        project={makeProject({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' })}
+      />,
+    )
+    const reason = screen.getByTestId('project-header-rejection-reason')
+    expect(reason.className).toContain('basis-full')
+    expect(reason.className).toContain('lg:basis-auto')
+    expect(reason.className).not.toMatch(/(^|\s)mt-1\.5(\s|$)/)
+  })
+
+  it('UX-L-1 / COPY-L-3 (fix-round 3): REJECTED reason is vertically centered with the badge — self-center, no mt-1.5', () => {
+    render(
+      <ProjectHeaderApprovalNote
+        project={makeProject({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' })}
+      />,
+    )
+    const reason = screen.getByTestId('project-header-rejection-reason')
+    expect(reason.className).toContain('self-center')
+  })
+
+  it('UX-H-1 / COPY-M-5 (fix-round 3): DRAFT caption also claims its own row on tablet — basis-full lg:basis-auto, self-center, no mt-1.5', () => {
+    render(<ProjectHeaderApprovalNote project={makeProject()} />)
+    const caption = screen.getByTestId('project-header-approval-caption')
+    expect(caption.className).toContain('basis-full')
+    expect(caption.className).toContain('lg:basis-auto')
+    expect(caption.className).toContain('self-center')
+    expect(caption.className).not.toMatch(/(^|\s)mt-1\.5(\s|$)/)
+  })
 })

@@ -1059,8 +1059,19 @@ export function ProjectHeaderApprovalNote({
       // nothing on a touch screen, so clamping on mobile/tablet made the
       // tail of the reason unreachable there. Clamped only from `lg:` up,
       // where the header genuinely does share the row with other content.
+      //
+      // UX-H-1 / COPY-M-5 (fix-round 3): `basis-full lg:basis-auto` so this
+      // paragraph always claims its own line in the badge row's flex-wrap
+      // — on 640-1023 (header now stacked, badge row full-width) a long
+      // reason would otherwise sit on the same line as the domain badge and
+      // shove it around instead of wrapping cleanly under the status badge.
+      //
+      // UX-L-1 / COPY-L-3 (fix-round 3): dropped `mt-1.5` + added
+      // `self-center` — the badge row is `items-center`; the old top margin
+      // pushed this line below the status badge's vertical center (measured:
+      // badge 142-164, caption 148-164 on 1440) instead of centering with it.
       <p
-        className="mt-1.5 line-clamp-none max-w-prose text-xs text-destructive/90 lg:line-clamp-2"
+        className="line-clamp-none max-w-prose basis-full self-center text-xs text-destructive/90 lg:basis-auto lg:line-clamp-2"
         title={project.rejectionReason ?? undefined}
         data-testid="project-header-rejection-reason"
       >
@@ -1071,7 +1082,7 @@ export function ProjectHeaderApprovalNote({
 
   return (
     <p
-      className="mt-1.5 max-w-full text-xs text-amber-300/80"
+      className="max-w-full basis-full self-center text-xs text-amber-300/80 lg:basis-auto"
       data-testid="project-header-approval-caption"
     >
       {caption}
@@ -1430,7 +1441,15 @@ function ProjectDetailPage() {
             className="pointer-events-none absolute -top-16 -left-16 h-64 w-64 rounded-full opacity-[0.07] blur-3xl"
             style={{ background: '#f5c542' }}
           />
-          <div className="relative flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+          {/* UX-H-1 / COPY-M-5 (fix-round 3): the row flip used to happen at
+            `sm:` (640px) — on a 768px tablet the title column had only
+            ~95px to work with, wrapping the "Ждёт решения" pill's own text
+            and breaking a long rejection reason into 7-20 narrow lines.
+            `scrollWidth <= clientWidth` never caught it because nothing
+            actually overflowed the viewport. Pushed to `lg:` (1024px) so
+            640-1023 stacks the header like 320 does — full-width badge row,
+            buttons on their own line below the title. */}
+          <div className="relative flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between">
             {/* Left: back + logo + title */}
             <div className="flex items-center gap-4 min-w-0">
               <Link to="/projects" className="shrink-0">
@@ -1498,7 +1517,7 @@ function ProjectDetailPage() {
             {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
               and former «Завершить» button). Visible to ADMIN/HR (full edit)
               and ACCOUNTANT (override-only edit). */}
-            <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+            <div className="flex items-center gap-2 shrink-0 self-start lg:self-center">
               {canOpenEdit && !project.archivedAt && (
                 <Button
                   size="sm"
