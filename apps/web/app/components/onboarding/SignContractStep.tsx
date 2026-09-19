@@ -304,14 +304,10 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
             </Button>
           </span>
         </TooltipTrigger>
-        {impersonating ? (
-          <TooltipContent>{IMPERSONATION_EXPLANATION}</TooltipContent>
-        ) : (
-          legalNameMissing && (
-            <TooltipContent>
-              Заполните юридическое ФИО в профиле (обратитесь к администратору)
-            </TooltipContent>
-          )
+        {legalNameMissing && (
+          <TooltipContent>
+            Заполните юридическое ФИО в профиле (обратитесь к администратору)
+          </TooltipContent>
         )}
       </Tooltip>
     </form>
