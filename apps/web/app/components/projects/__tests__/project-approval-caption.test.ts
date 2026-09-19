@@ -13,6 +13,7 @@ import {
 
 const SENIOR_ID = '00000000-0000-0000-0000-0000000000b1'
 const DROP_ID = '00000000-0000-0000-0000-0000000000b2'
+const THIRD_PARTY_ID = '00000000-0000-0000-0000-0000000000c9'
 
 function makeInput(
   overrides: Partial<ProjectApprovalCaptionInput> = {},
@@ -108,6 +109,39 @@ describe('resolveProjectApprovalCaption', () => {
       DROP_ID,
     )
     expect(caption).toBe('Вы подтвердили. Ждём синьора')
+  })
+
+  it("DRAFT, viewer has an id but is NOT the senior (e.g. ADMIN viewing someone else's draft), senior already confirmed — third-party caption, NOT the first-person one", () => {
+    // Kills the `viewerId === project.seniorId` equality check specifically
+    // (both a `&&`→`||` LogicalOperator mutant and a `true`-substitution
+    // ConditionalExpression mutant on `viewerIsSenior`): a truthy but
+    // NON-MATCHING viewerId must still fall through to the generic caption,
+    // not the "Вы подтвердили…" one a broken equality would wrongly produce.
+    const caption = resolveProjectApprovalCaption(
+      makeInput({
+        dropId: DROP_ID,
+        dropName: 'Nadiya Dropivska',
+        seniorApprovalPending: false,
+        dropApprovalPending: true,
+      }),
+      THIRD_PARTY_ID,
+    )
+    expect(caption).toBe('от дропа')
+  })
+
+  it('DRAFT, viewer has an id but is NOT the drop, drop already confirmed — third-party caption, NOT the first-person one', () => {
+    // Same mutant class as above, mirrored onto `viewerIsDrop`'s own
+    // equality check.
+    const caption = resolveProjectApprovalCaption(
+      makeInput({
+        dropId: DROP_ID,
+        dropName: 'Nadiya Dropivska',
+        seniorApprovalPending: true,
+        dropApprovalPending: false,
+      }),
+      THIRD_PARTY_ID,
+    )
+    expect(caption).toBe('от Oleksiy Kovalenko')
   })
 
   it('REJECTED with a reason (отклонён с причиной) — quoted caption', () => {
