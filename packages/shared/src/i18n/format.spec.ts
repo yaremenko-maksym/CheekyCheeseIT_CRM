@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { compareNames, formatDate, formatMoney, formatNumber } from './format'
 
 describe('format', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('formats the same date differently per locale', () => {
     const d = new Date(Date.UTC(2026, 8, 19))
     expect(formatDate(d, 'uk')).toBe(
@@ -32,28 +36,31 @@ describe('format', () => {
     expect(long).not.toBe(formatDate(d, 'en'))
   })
   it('is pinned to UTC regardless of the host timezone', () => {
-    // A date near a day boundary in UTC, so any non-UTC offset renders a
-    // different calendar day. `TZ` is read by Node's Intl per-call (not
-    // cached at process start — verified directly), so overriding it here
-    // deterministically proves `formatDate` always passes `timeZone: 'UTC'`
-    // through, instead of depending on whichever timezone happens to be the
-    // host's default (which may itself already differ from UTC, masking a
-    // regression that drops the option — as it did while this test was
-    // being written: the earlier version of this suite had no case at all
-    // that could tell "timeZone: 'UTC' passed" apart from "no timeZone
-    // option passed" when the two happened to coincide).
-    const originalTz = process.env['TZ']
-    process.env['TZ'] = 'Pacific/Kiritimati' // UTC+14
-    try {
-      const d = new Date(Date.UTC(2026, 8, 19, 22, 30))
-      expect(formatDate(d, 'en')).toBe(
-        new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC' }).format(d),
-      )
-      expect(formatDate(d, 'en')).not.toBe(new Intl.DateTimeFormat('en-GB').format(d))
-    } finally {
-      if (originalTz === undefined) delete process.env['TZ']
-      else process.env['TZ'] = originalTz
-    }
+    // Mutating `process.env.TZ` at runtime and expecting `Intl` to pick up
+    // the new zone is not portable: on the Linux CI runner (host TZ already
+    // `UTC`, ICU zone data cached) the two comparison strings came out
+    // equal and the test stayed green for the wrong reason — see the
+    // `Mutation Gate (@crm/shared)` dry-run failure this test replaces.
+    // Spying on the `Intl.DateTimeFormat` constructor instead proves
+    // `formatDate` always passes `timeZone: 'UTC'` through on the actual
+    // call, independent of whatever zone the host happens to be in.
+    // `vi.spyOn`'s default call-through does not preserve the internal
+    // slots a native `Intl.DateTimeFormat` instance needs (calling it via
+    // the spy's wrapper loses `new.target`), so `.format()` on the result
+    // throws. Forwarding to the real constructor explicitly via
+    // `Reflect.construct` keeps the instance functional while still
+    // recording every call the spy sees.
+    const RealDateTimeFormat = Intl.DateTimeFormat
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+      // Must be a `function`, not an arrow — vitest's mock requires a real
+      // constructor shape to support being invoked with `new`.
+      function (this: unknown, ...args: ConstructorParameters<typeof Intl.DateTimeFormat>) {
+        return Reflect.construct(RealDateTimeFormat, args)
+      },
+    )
+    const d = new Date(Date.UTC(2026, 8, 19, 23, 30))
+    formatDate(d, 'en')
+    expect(spy).toHaveBeenCalledWith('en-GB', expect.objectContaining({ timeZone: 'UTC' }))
   })
   it('formats money with the currency code, two decimals', () => {
     // Two literal exceptions per task-i18n-stage2-task1-2.md override #4 — every
