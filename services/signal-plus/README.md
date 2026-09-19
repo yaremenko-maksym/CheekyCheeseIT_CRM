@@ -205,7 +205,15 @@ prevent the others:
    called with `KIND=signal-plus`. **This script is not modified by
    signal-plus** — it is DevOps's zone. `signal_plus/alert.py` only shapes
    the call; see "Step 4" below for what's still missing to make this layer
-   actually work end to end.
+   actually work end to end. **Opportunistic — gated, not noisy (backlog
+   159):** this layer only calls the script when BOTH it exists on disk
+   AND the call env carries `ALERT_REPO`+`GH_TOKEN` — today, inside the
+   signal-plus container, neither is true (see "Step 4"). Either being
+   missing logs one `DEBUG` line naming the reason and returns without
+   ever invoking the script — never an `ERROR`. Before this gate existed,
+   every single alert printed `ERROR … No such file or directory` in
+   production even though nothing was actually broken; layers 1 and 2
+   still fire, `ERROR` in the log (layer 1) is the actual alert.
 
 **At the handover cutoff specifically** (`HANDOVER_TIME`, default 08:00 —
 requirement 9, rewritten in the task file 2026-09-03, owner decision quoted
@@ -279,11 +287,16 @@ roll-call, not a CI run)"` — since there is no natural analog and
    fabricating a real-looking value seemed worse than an honest placeholder).
 
 Until that lands, layers 1 and 2 (log + personal DM) work as designed;
-layer 3 fails closed — not because of an unrecognized `KIND` anymore (fixed
-above), but because the script isn't reachable from inside the container yet
-and `ALERT_REPO`/`GH_TOKEN` aren't set there either — without blocking the
-other two: `signal_plus.alert.raise_alert` treats every layer as
-independent.
+layer 3 stays quietly disabled — not because of an unrecognized `KIND`
+anymore (fixed above), but because the script isn't reachable from inside
+the container yet and `ALERT_REPO`/`GH_TOKEN` aren't set there either.
+"Quietly" (backlog 159): `signal_plus.alert.send_github_issue_alert` checks
+for both BEFORE calling the script and, if either is missing, logs one
+`DEBUG` line and returns instead of calling it — this used to be an `ERROR`
+on every single alert (`could not invoke … No such file or directory`,
+2026-09-06), which is noise, not a real failure, for a layer that was never
+configured in the first place. None of this blocks the other two:
+`signal_plus.alert.raise_alert` treats every layer as independent.
 
 ## Деплой и линковка
 
