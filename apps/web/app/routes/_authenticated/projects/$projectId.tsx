@@ -45,6 +45,10 @@ import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
 import { ProjectStatusBadge } from '@/components/projects/ProjectStatusBadge'
+import {
+  resolveProjectApprovalCaption,
+  type ProjectApprovalCaptionInput,
+} from '@/components/projects/project-approval-caption'
 import { ProjectCredentialsSection } from '@/components/projects/ProjectCredentialsSection'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
@@ -1011,6 +1015,57 @@ export function PendingShareApprovalBanner({
 }
 
 /**
+ * task-projects-followups-web (backlog 201). The header badge
+ * (`ProjectStatusBadge`) alone said only the bare status word — "Отклонён"
+ * with no reason, "Ждёт решения" with no hint who it is still waiting on —
+ * while the row list (`ProjectRow.tsx`) has always shown both right next to
+ * the badge. This renders the same fact, in the same words: the caption
+ * TEXT comes from `resolveProjectApprovalCaption` (shared with
+ * `ProjectRow.tsx` — see that helper's own doc), only the layout differs
+ * (no column-width budget to defend here, unlike the row's ~86px track).
+ *
+ * `null` (renders nothing) on `ACTIVE`, and on a `REJECTED` project whose
+ * `rejectionReason` this viewer's DTO does not carry — masked to `null`
+ * server-side for every non-ADMIN viewer (SR-M-5), same as the row.
+ *
+ * Exported for a standalone render test — same reason `InfoRow` /
+ * `ProjectEditFields` / `PendingShareApprovalBanner` already are (see that
+ * banner's own doc): mounting the whole 2000+-line route to read one <p>
+ * would be the alternative.
+ */
+export function ProjectHeaderApprovalNote({
+  project,
+  viewerId,
+}: {
+  project: ProjectApprovalCaptionInput
+  viewerId?: string | null | undefined
+}) {
+  const caption = resolveProjectApprovalCaption(project, viewerId)
+  if (!caption) return null
+
+  if (project.status === 'REJECTED') {
+    return (
+      <p
+        className="mt-1.5 line-clamp-2 max-w-full text-[11px] text-destructive/90"
+        title={project.rejectionReason ?? undefined}
+        data-testid="project-header-rejection-reason"
+      >
+        {caption}
+      </p>
+    )
+  }
+
+  return (
+    <p
+      className="mt-1.5 max-w-full text-[11px] text-amber-300/80"
+      data-testid="project-header-approval-caption"
+    >
+      {caption}
+    </p>
+  )
+}
+
+/**
  * task-drop-share-override-and-receiver (Surface A). Read-only "Доля дропа"
  * widget — twin of `ProjectShareInfo` above for the drop's per-project share.
  * Shows the backend-resolved effective % (override → user default → 5) and an
@@ -1414,6 +1469,12 @@ function ProjectDetailPage() {
                     {project.domain}
                   </Badge>
                 </div>
+                {/* task-projects-followups-web (backlog 201): reason the
+                    approval was declined (ADMIN-only — SR-M-5 masking) or
+                    who a DRAFT project is still waiting on — the row list
+                    has always shown this next to the badge, the header
+                    used to say only the bare status word. */}
+                <ProjectHeaderApprovalNote project={project} viewerId={user?.id} />
               </div>
             </div>
 

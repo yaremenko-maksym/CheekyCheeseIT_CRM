@@ -7,6 +7,7 @@ import { ProjectLogo } from './ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { ProjectApprovalActions } from './ProjectApprovalActions'
+import { resolveProjectApprovalCaption } from './project-approval-caption'
 
 export type ProjectRowProps = {
   project: ProjectDto
@@ -81,51 +82,34 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
   // priority for the badge column).
   const isPending = project.status === 'DRAFT'
   const isRejected = project.status === 'REJECTED'
-  // Design spec §7: whoever the viewer is, show it — showing it for the
-  // approver's OWN pending project too is redundant per the design's own
-  // note ("можно не показывать вовсе") but not wrong, and keeping ONE
-  // unconditional render path (no viewerRole branch) is simpler to reason
-  // about and test than suppressing it for exactly one audience.
+  // task-projects-followups-web (backlog 201). Design spec §7: whoever the
+  // viewer is, show it — showing it for the approver's OWN pending project
+  // too is redundant per the design's own note ("можно не показывать
+  // вовсе") but not wrong, and keeping ONE unconditional render path (no
+  // viewerRole branch) is simpler to reason about and test than suppressing
+  // it for exactly one audience.
   //
-  // SPEC-M-2 (PR #646 fix-round 1): names whoever is STILL PENDING
-  // (`seniorApprovalPending`/`dropApprovalPending`, business spec §4.1
-  // partial agreement), not whoever was merely INVITED — a project with
-  // both a senior and a drop stays DRAFT after only one of them decides
-  // (see `PendingProjectApprovalsPanel`'s own dismiss-fix for the same
-  // underlying fact), so the earlier `project.dropId ? "...и дропа" : ...`
-  // kept naming an already-decided drop. `?? true` only matters for a
-  // cached/mocked DTO predating these two fields (`.optional()` on the
-  // schema) — while genuinely DRAFT, "unknown" defaults to "still pending",
-  // never to "already decided".
-  const seniorStillPending = project.seniorApprovalPending ?? true
-  const dropStillPending = !!project.dropId && (project.dropApprovalPending ?? true)
-  // COPY-M-1 (PR #646 fix-round 2): the caption below is capped at
-  // `max-w-40` (160px) and truncated with an ellipsis from the TAIL — a
-  // long senior name used to push "и дропа" past that cap, so a viewer
-  // reading "от Александра Мельниченко…" has no way to tell the drop is
-  // ALSO still pending (SPEC-M-2's whole point — naming everyone who
-  // hasn't decided — silently undone by truncation on exactly the names
-  // long enough to need it). `seniorName` is safe to truncate here because
-  // it is ALSO printed, untruncated up to its own cap, in the row's own
-  // "Синьор" column — losing characters off the END of THIS copy costs
-  // nothing. `dropName` has no such second location on this row, so it (or
-  // the generic "дропа" fallback) goes first, where truncation can never
-  // reach it.
-  const pendingCaption = isPending
-    ? seniorStillPending && dropStillPending
-      ? `от ${project.dropName ?? 'дропа'} и ${project.seniorName}`
-      : seniorStillPending
-        ? `от ${project.seniorName}`
-        : dropStillPending
-          ? 'от дропа'
-          : null
-    : null
+  // Caption TEXT (DRAFT "от <синьор>"/"Вы подтвердили. Ждём …" — SPEC-M-2/
+  // COPY-H-2, PR #646 — or REJECTED "«причина»") is computed by ONE shared
+  // helper, reused verbatim by the project detail page header
+  // ($projectId.tsx's `ProjectHeaderApprovalNote`) — see that helper's own
+  // doc (`project-approval-caption.ts`) for the full per-branch reasoning
+  // (both-pending drop-first ordering, truncation safety, etc.). `null` on
+  // ACTIVE/ARCHIVED and on a REJECTED project this viewer's DTO carries no
+  // reason for (masked server-side, SR-M-5).
+  const approvalCaption = resolveProjectApprovalCaption(project, viewerId)
   // §Что сделать item 3: the card's own Confirm/Reject — for whoever reaches
   // this row AND is actually the invited approver (identity check, not role
   // check — correctly covers the admin-as-senior edge case too). Both ids
   // are already backend-masked per viewer (null for JUNIOR, null for a
   // non-privileged viewer of an admin-owned project), so this can never
   // light up for someone who isn't genuinely the approver.
+  //
+  // `seniorStillPending`/`dropStillPending` stay local (not part of the
+  // shared helper above) — they decide WHICH BUTTON to show, not what text
+  // to render, so extracting them would not remove any copy duplication.
+  const seniorStillPending = project.seniorApprovalPending ?? true
+  const dropStillPending = !!project.dropId && (project.dropApprovalPending ?? true)
   const viewerIsSenior = !!viewerId && viewerId === project.seniorId
   const viewerIsDrop = !!viewerId && viewerId === project.dropId
   // CR-H-1 (PR #646 fix-round 1) / CR-H-1 comment kept accurate for
@@ -145,17 +129,6 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
   // produced a silent 409.
   const canAct =
     isPending && ((viewerIsSenior && seniorStillPending) || (viewerIsDrop && dropStillPending))
-  // COPY-H-2: the viewer already acted (they are an invited approver, but
-  // their OWN half is done) — replace the generic pendingCaption (which
-  // names whoever is STILL pending, useful to ADMIN/a third party) with a
-  // first-person one, symmetric for senior/drop. `null` for anyone who is
-  // not an invited approver at all — they get the generic caption instead.
-  const viewerAlreadyActedCaption =
-    isPending && viewerIsSenior && !seniorStillPending
-      ? 'Вы подтвердили. Ждём дропа'
-      : isPending && viewerIsDrop && !dropStillPending
-        ? 'Вы подтвердили. Ждём синьора'
-        : null
   // §2b: effective share % for SENIOR viewer.
   const seniorSharePct =
     viewerRole === 'SENIOR'
@@ -525,7 +498,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                 <Clock className="hidden h-3 w-3 xl:inline" aria-hidden />
                 Ждёт решения
               </Badge>
-              {(viewerAlreadyActedCaption ?? pendingCaption) && (
+              {approvalCaption && (
                 // UX-H-1 / COPY-H-2 / COPY-M-9 = UX-L-2(r3): see git history
                 // for the original max-w-40 (TransactionRow.tsx:666
                 // precedent) reasoning.
@@ -590,9 +563,9 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                 <p
                   data-testid={`project-row-${project.id}-status-caption`}
                   className="max-w-full truncate text-[11px] text-amber-300/80 lg:whitespace-normal lg:break-words"
-                  title={viewerAlreadyActedCaption ?? pendingCaption ?? undefined}
+                  title={approvalCaption ?? undefined}
                 >
-                  {viewerAlreadyActedCaption ?? pendingCaption}
+                  {approvalCaption}
                 </p>
               )}
               {canAct && (
@@ -653,7 +626,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                     ~86px column this file has twice fixed for overflow. */}
                 Отклонён
               </Badge>
-              {project.rejectionReason && (
+              {approvalCaption && (
                 // UX-H-1: same fixed max-w-40 fix as pendingCaption above.
                 // COPY-M-9 = UX-L-2(r3): same widen-below-lg fix as the
                 // caption above, but SR-M-5 (fix-round 2) made this the
@@ -663,17 +636,24 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                 // estate to show meaningfully more of it (roughly the first
                 // ~40 chars at 160px single-line vs ~2 lines' worth at
                 // full width); `title` still carries the untruncated text
-                // for the cases where even two lines isn't enough.
+                // (raw, no guillemets — those belong to the on-screen copy
+                // only) for the cases where even two lines isn't enough.
                 // `lg:line-clamp-1` (not `lg:truncate`) — mixing `truncate`
                 // (nowrap-based) with `line-clamp` (webkit-box-based) at a
                 // breakpoint boundary leaves stale `display`/`-webkit-*`
                 // properties from the smaller breakpoint active; staying on
                 // the clamp mechanism at both sizes avoids that.
+                //
+                // task-projects-followups-web: `approvalCaption` already
+                // carries the quoted («…») text — see
+                // `resolveProjectApprovalCaption`'s own doc — so this <p>
+                // renders it directly instead of re-wrapping
+                // `project.rejectionReason` in guillemets itself.
                 <p
                   className="line-clamp-2 max-w-full text-[11px] text-destructive/90 lg:line-clamp-1 lg:max-w-40"
-                  title={project.rejectionReason}
+                  title={project.rejectionReason ?? undefined}
                 >
-                  «{project.rejectionReason}»
+                  {approvalCaption}
                 </p>
               )}
               {/* SR-L-7 (PR #646 fix-round 5, LOW). See `reasonPending`'s own

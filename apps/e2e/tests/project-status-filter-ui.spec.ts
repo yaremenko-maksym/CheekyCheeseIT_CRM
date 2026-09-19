@@ -88,14 +88,14 @@ test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
       // All 4 tabs present for ADMIN.
       const tabs = page.getByTestId('projects-status-tabs')
       await expect(tabs.getByRole('tab', { name: 'Активные' })).toBeVisible()
-      await expect(tabs.getByRole('tab', { name: 'На подтверждении' })).toBeVisible()
+      await expect(tabs.getByRole('tab', { name: 'Ждут решения' })).toBeVisible()
       await expect(tabs.getByRole('tab', { name: 'Отклонённые' })).toBeVisible()
       await expect(tabs.getByRole('tab', { name: 'Архив' })).toBeVisible()
 
       // AC2: the draft is invisible on Active, visible on Pending — ADMIN
       // is an "invited approver" population, so this also proves AC2's
       // "viewed by ADMIN" half.
-      await tabs.getByRole('tab', { name: 'На подтверждении' }).click()
+      await tabs.getByRole('tab', { name: 'Ждут решения' }).click()
       await expect(page.getByText(`AC1 Draft Co ${suffix}`)).toBeVisible()
       await expect(page.getByText(`AC1 Active Co ${suffix}`)).not.toBeVisible()
       await expect(page.getByTestId(`project-row-${draftId}-status-pending`)).toBeVisible()
@@ -134,11 +134,11 @@ test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
 
       const tabsMobile = page.getByTestId('projects-status-tabs')
       await expect(tabsMobile.getByRole('tab', { name: 'Активные' })).toBeVisible()
-      await expect(tabsMobile.getByRole('tab', { name: 'На подтверждении' })).toBeVisible()
+      await expect(tabsMobile.getByRole('tab', { name: 'Ждут решения' })).toBeVisible()
       await expect(tabsMobile.getByRole('tab', { name: 'Отклонённые' })).not.toBeVisible()
       await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
 
-      await tabsMobile.getByRole('tab', { name: 'На подтверждении' }).click()
+      await tabsMobile.getByRole('tab', { name: 'Ждут решения' }).click()
       await expect(page.getByText(`AC1 Senior Own Co ${suffix}`)).toBeVisible()
       // AC2: not-my-draft is invisible even on the Pending tab.
       await expect(page.getByText(`AC1 Senior Other Co ${suffix}`)).not.toBeVisible()
@@ -1199,8 +1199,8 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       const expectShort = SHORT_LABEL_WIDTHS.has(width)
       const visibleTabs = expectShort ? shortTabs : fullTabs
       const hiddenTabs = expectShort ? fullTabs : shortTabs
-      const expectedLabel = expectShort ? 'Ждут' : 'На подтверждении'
-      const otherLabel = expectShort ? 'На подтверждении' : 'Ждут'
+      const expectedLabel = expectShort ? 'Ждут' : 'Ждут решения'
+      const otherLabel = expectShort ? 'Ждут решения' : 'Ждут'
 
       await expect(
         visibleTabs,
@@ -1210,8 +1210,15 @@ test.describe('Project status filter — AC5 (responsive)', () => {
         hiddenTabs,
         `${expectShort ? 'full' : 'short'} tablist hidden at ${width}px`,
       ).not.toBeVisible()
+      // COPY-L-11 = COPY-M-2 (backlog 168/201): `exact: true` on both checks
+      // below is load-bearing since this rename — the short label 'Ждут' is
+      // now a literal PREFIX of the full label 'Ждут решения', and
+      // Playwright's `getByRole({ name })` string matching is substring by
+      // default. Without `exact`, the full tab's own accessible name
+      // ("Ждут решения") would satisfy a `{ name: 'Ждут' }` query too,
+      // making the "must NOT be visible" check below a false pass.
       await expect(
-        visibleTabs.getByRole('tab', { name: expectedLabel }),
+        visibleTabs.getByRole('tab', { name: expectedLabel, exact: true }),
         `"${expectedLabel}" label visible at ${width}px`,
       ).toBeVisible()
       // Page-scoped (not container-scoped) — catches a regression where
@@ -1219,7 +1226,7 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       // just what the visible container's own static option data already
       // guarantees.
       await expect(
-        page.getByRole('tab', { name: otherLabel }),
+        page.getByRole('tab', { name: otherLabel, exact: true }),
         `"${otherLabel}" label must NOT be visible anywhere at ${width}px`,
       ).not.toBeVisible()
 

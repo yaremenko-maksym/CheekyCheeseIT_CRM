@@ -71,7 +71,7 @@ function useTeamlessSeniorGate(isSenior: boolean) {
 
 // task-project-status-filter-ui (design spec §2). `status` is the new,
 // canonical filter — deep-linkable so ADMIN can send a colleague a direct
-// link to the «На подтверждении» queue. `archived=true` is kept
+// link to the «Ждут решения» queue. `archived=true` is kept
 // working (NOT removed) for old bookmarks/links — `?archived=true` resolves
 // to `status: 'ARCHIVED'` below, same behaviour as before this task shipped.
 // `z.coerce.boolean()` on `archived` accepts both `boolean` and string
