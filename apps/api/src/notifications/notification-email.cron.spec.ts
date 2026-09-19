@@ -667,6 +667,26 @@ describe('отказ телеметрии не уносит с собой про
     ).toBe(true)
     error.mockRestore()
   })
+
+  it('SR-L-3: то же самое для сдачи ДО отправки — отказ телеметрии не отменяет markFailed', async () => {
+    // Тот же приём, что у соседа выше, применённый ко второму терминальному
+    // пути (SR-L-1 в этом же файле): без этого теста `.catch` вокруг
+    // `recordError` в ветке `decideDelivery` — код, который никто не
+    // исполнял.
+    const gw = makeGateway([claimed()])
+    gw.resolveSubjectState = async () => undefined as never
+    const { service } = makeService({ gateway: gw, telemetryFails: new Error('telemetry is down') })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await expect(service.drainOnce()).resolves.toBeUndefined()
+
+    expect(gw.failed).toHaveLength(1)
+    expect(gw.failed[0]?.id).toBe('e-1')
+    const said = error.mock.calls.map((c) => String(c[0] ?? ''))
+    expect(said.some((m) => m.includes('Telemetry rejected'))).toBe(true)
+    expect(said.some((m) => m.includes('telemetry is down'))).toBe(true)
+    error.mockRestore()
+  })
 })
 
 describe('решение принимается в момент ОТПРАВКИ, а не при постановке (AC6)', () => {
@@ -848,6 +868,31 @@ describe('устаревшее согласование не уходит пис
     const said = String(error.mock.calls[0]?.[0] ?? '')
     expect(said).toContain('e-1')
     expect(said).toMatch(/subjectState/)
+    error.mockRestore()
+  })
+
+  it('SR-L-3: тот же путь доезжает до телеметрии — иначе сдача до отправки не попадает в дайджест', async () => {
+    // Терминальный `FAILED` из broken-shлюза (SR-L-1) молчал: сосед («сдались
+    // после N попыток») будит телеметрию, а этот — нет. Без записи владелец
+    // узнаёт об этой ветке только вручную читая `notification_emails` (§7.2).
+    const gw = makeGateway([claimed()])
+    gw.resolveSubjectState = async () => undefined as never
+    const { service, sends, recorded } = makeService({ gateway: gw })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    expect(sends).toHaveLength(0)
+    expect(gw.failed).toHaveLength(1)
+    expect(gw.failed[0]?.id).toBe('e-1')
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]!).toEqual({
+      source: 'API',
+      message: 'Notification email failed before send (decideDelivery)',
+      route: '/api/notifications',
+      // Причина и тип — как у соседа; ни адреса, ни текста письма.
+      meta: { reason: expect.stringMatching(/subjectState/), type: 'PROJECT_CONFIRM_REQUIRED' },
+    })
     error.mockRestore()
   })
 })

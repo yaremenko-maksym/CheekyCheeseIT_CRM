@@ -218,6 +218,23 @@ export class NotificationEmailCronService {
       const reason = err instanceof Error ? err.message : 'unknown'
       await this.outbox.markFailed(item.id, reason)
       this.logger.error(`decideDelivery failed for id=${item.id}: ${reason}`)
+      // SR-L-3: тот же терминальный след, что у «сдались после N попыток»
+      // ниже — без него эта ветка `FAILED` не попадает в дайджест, и владелец
+      // узнаёт о ней только вручную читая `notification_emails` (§7.2). Ни
+      // адреса, ни текста письма: причина уже без PII (см. `decideDelivery`),
+      // а `type` — один из `ACTION_REQUIRED_NOTIFICATION_TYPES`.
+      void this.telemetry
+        .recordError({
+          source: 'API',
+          message: 'Notification email failed before send (decideDelivery)',
+          route: '/api/notifications',
+          meta: { reason, type: item.notification.type },
+        })
+        .catch((e: unknown) => {
+          this.logger.error(
+            `Telemetry rejected a delivery failure: ${e instanceof Error ? e.message : String(e)}`,
+          )
+        })
       return
     }
     if (!decision.send) {
