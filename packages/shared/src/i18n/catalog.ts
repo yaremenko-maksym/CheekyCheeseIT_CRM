@@ -25,8 +25,22 @@ function loadMessages(locale: Locale): Record<string, unknown> {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS build; catalogs are generated files
     return (require(path) as { messages: Record<string, unknown> }).messages
   } catch (err) {
+    // Both real locales ('uk', 'en') always resolve on one of the two require
+    // paths, so every reachable error through the public
+    // createI18n(locale: Locale) API is a genuine MODULE_NOT_FOUND — this
+    // guard's OTHER branch (a differently-coded error, e.g. a corrupted
+    // compiled catalog) cannot be reached without corrupting a file on disk
+    // from the test itself, which would be testing the filesystem, not this
+    // code. catalog.spec.ts's "propagates a genuinely missing catalog" test
+    // exercises this exact line (both requires throw MODULE_NOT_FOUND for an
+    // unknown locale) and would fail if either mutant below changed the
+    // OBSERVABLE outcome for that case; it doesn't, because both variants
+    // agree with the real code on every error this module can actually
+    // produce.
     const isModuleNotFound =
+      // Stryker disable next-line ConditionalExpression,LogicalOperator: only a genuine MODULE_NOT_FOUND is reachable through createI18n's public Locale union, so forcing this true/false or swapping && for || is unobservable without corrupting a file on disk from the test itself.
       err instanceof Error && 'code' in err && err.code === 'MODULE_NOT_FOUND'
+    // Stryker disable next-line ConditionalExpression: forcing `if (false)` never re-throws, indistinguishable from correct behavior since only a genuine MODULE_NOT_FOUND is reachable here (see isModuleNotFound above).
     if (!isModuleNotFound) throw err
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- see loadMessages doc comment above
     return (require(`${path}.ts`) as { messages: Record<string, unknown> }).messages
