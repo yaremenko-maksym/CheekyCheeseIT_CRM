@@ -173,10 +173,19 @@ def test_send_github_issue_alert_false_on_nonzero_exit(tmp_path):
     assert send_github_issue_alert(_ISSUE_ALERT_ENV, script_path=script, run=fake_run) is False
 
 
-# --- AC1: the gate itself (file and/or env missing -> DEBUG, False, `run` never called) ---
+# --- AC1 + SR-M-1 (security review 5255508458, fix-round 2): the gate now
+# distinguishes three states -- "ничего" (script AND env both absent, the
+# state before anyone starts wiring step 4) stays DEBUG/quiet exactly as
+# before; any "частично" state (one side present, the other not) is now a
+# WARNING naming only var/path names, never a value -- a silently-broken
+# channel once configuration starts is worse than a noisy one (see the dead
+# cspViolations channel and the mutation-nightly incident this mirrors);
+# "всё" (both present) proceeds to `run` (covered by other tests above). ---
 
 
-def test_send_github_issue_alert_false_when_script_missing(tmp_path, caplog):
+def test_send_github_issue_alert_false_when_nothing_configured_stays_quiet(tmp_path, caplog):
+    """"Ничего" state: script never mounted AND env never wired at all --
+    the state before step 4 lands. Stays DEBUG, no WARNING."""
     missing_script = tmp_path / "does-not-exist.sh"
     calls = []
 
@@ -191,7 +200,7 @@ def test_send_github_issue_alert_false_when_script_missing(tmp_path, caplog):
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     with caplog.at_level(logging.DEBUG, logger="signal_plus"):
-        ok = send_github_issue_alert(_ISSUE_ALERT_ENV, script_path=missing_script, run=tracking_run)
+        ok = send_github_issue_alert({}, script_path=missing_script, run=tracking_run)
 
     assert ok is False
     assert calls == []
@@ -200,7 +209,33 @@ def test_send_github_issue_alert_false_when_script_missing(tmp_path, caplog):
     assert any("github-issue layer skipped" in r.message and str(missing_script) in r.message for r in debug_records)
 
 
-def test_send_github_issue_alert_false_when_env_missing(tmp_path, caplog):
+def test_send_github_issue_alert_warns_when_script_missing_but_env_present(tmp_path, caplog):
+    """"Частично" state: env fully wired but the script isn't mounted --
+    someone started step 4 and didn't finish. WARNING, path only, no token
+    value in the message."""
+    missing_script = tmp_path / "does-not-exist.sh"
+    calls = []
+
+    def tracking_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    with caplog.at_level(logging.DEBUG, logger="signal_plus"):
+        ok = send_github_issue_alert(_ISSUE_ALERT_ENV, script_path=missing_script, run=tracking_run)
+
+    assert ok is False
+    assert calls == []
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "github-issue layer misconfigured" in r.message and str(missing_script) in r.message
+        for r in warning_records
+    )
+    assert not any(_ISSUE_ALERT_ENV["GH_TOKEN"] in r.message for r in caplog.records)
+
+
+def test_send_github_issue_alert_warns_when_env_missing_but_script_present(tmp_path, caplog):
+    """"Частично" state: script mounted but env not wired at all -- the
+    other half of a partial step-4 rollout. WARNING naming both var names."""
     script = _configured_script(tmp_path)
     calls = []
 
@@ -213,16 +248,16 @@ def test_send_github_issue_alert_false_when_env_missing(tmp_path, caplog):
 
     assert ok is False
     assert calls == []
-    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
-    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert any(
-        "github-issue layer skipped" in r.message and "ALERT_REPO" in r.message and "GH_TOKEN" in r.message
-        for r in debug_records
+        "github-issue layer misconfigured" in r.message and "ALERT_REPO" in r.message and "GH_TOKEN" in r.message
+        for r in warning_records
     )
 
 
-def test_send_github_issue_alert_false_when_only_one_of_two_env_vars_set(tmp_path):
-    # "заданы ALERT_REPO + GH_TOKEN" (task file) -- both, not either.
+def test_send_github_issue_alert_warns_when_only_one_of_two_env_vars_set(tmp_path, caplog):
+    # "заданы ALERT_REPO + GH_TOKEN" (task file) -- both, not either. Also a
+    # "частично" state -- WARNING naming exactly the missing one.
     script = _configured_script(tmp_path)
     calls = []
 
@@ -230,9 +265,13 @@ def test_send_github_issue_alert_false_when_only_one_of_two_env_vars_set(tmp_pat
         calls.append(argv)
         return subprocess.CompletedProcess(argv, 0, "", "")
 
-    ok = send_github_issue_alert({"ALERT_REPO": "owner/repo"}, script_path=script, run=tracking_run)
+    with caplog.at_level(logging.DEBUG, logger="signal_plus"):
+        ok = send_github_issue_alert({"ALERT_REPO": "owner/repo"}, script_path=script, run=tracking_run)
+
     assert ok is False
     assert calls == []
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("github-issue layer misconfigured" in r.message and "missing env GH_TOKEN" in r.message for r in warning_records)
 
 
 def test_send_github_issue_alert_does_not_leak_the_whole_process_environment(tmp_path, monkeypatch):

@@ -208,12 +208,23 @@ prevent the others:
    actually work end to end. **Opportunistic — gated, not noisy (backlog
    159):** this layer only calls the script when BOTH it exists on disk
    AND the call env carries `ALERT_REPO`+`GH_TOKEN` — today, inside the
-   signal-plus container, neither is true (see "Step 4"). Either being
-   missing logs one `DEBUG` line naming the reason and returns without
-   ever invoking the script — never an `ERROR`. Before this gate existed,
-   every single alert printed `ERROR … No such file or directory` in
-   production even though nothing was actually broken; layers 1 and 2
-   still fire, `ERROR` in the log (layer 1) is the actual alert.
+   signal-plus container, neither is true (see "Step 4"). **Both missing**
+   (the state before step 4 lands) logs one `DEBUG` line naming the reason
+   and returns without ever invoking the script — never an `ERROR`. Before
+   this gate existed, every single alert printed `ERROR … No such file or
+directory` in production even though nothing was actually broken; layers
+   1 and 2 still fire, `ERROR` in the log (layer 1) is the actual alert.
+   **Only one side missing** (security review 5255508458, fix-round 2,
+   backlog 159) — the script is mounted but the env isn't wired, or vice
+   versa — is treated differently: that means someone started configuring
+   this layer and it is now broken in a way no other channel observes (an
+   expired or scrubbed `GH_TOKEN` after step 4 has already landed, for
+   instance), so it logs one `WARNING` line naming only what's missing
+   (variable names / the script path, never a value) instead of staying
+   silent at `DEBUG`. A layer that goes quietly dark once it was working is
+   the same failure mode as the dead `cspViolations` telemetry channel and
+   the mutation-nightly run that stayed red for 20 days unnoticed — this
+   gate exists specifically so this layer doesn't repeat that.
 
 **At the handover cutoff specifically** (`HANDOVER_TIME`, default 08:00 —
 requirement 9, rewritten in the task file 2026-09-03, owner decision quoted
@@ -291,12 +302,15 @@ layer 3 stays quietly disabled — not because of an unrecognized `KIND`
 anymore (fixed above), but because the script isn't reachable from inside
 the container yet and `ALERT_REPO`/`GH_TOKEN` aren't set there either.
 "Quietly" (backlog 159): `signal_plus.alert.send_github_issue_alert` checks
-for both BEFORE calling the script and, if either is missing, logs one
-`DEBUG` line and returns instead of calling it — this used to be an `ERROR`
-on every single alert (`could not invoke … No such file or directory`,
-2026-09-06), which is noise, not a real failure, for a layer that was never
-configured in the first place. None of this blocks the other two:
-`signal_plus.alert.raise_alert` treats every layer as independent.
+for both BEFORE calling the script and, with neither the script nor the env
+present (today's state), logs one `DEBUG` line and returns instead of
+calling it — this used to be an `ERROR` on every single alert (`could not
+invoke … No such file or directory`, 2026-09-06), which is noise, not a
+real failure, for a layer that was never configured in the first place.
+(If only one side gets configured later without the other, that is a
+`WARNING`, not `DEBUG` — see "Alerting" above, fix-round 2.) None of this
+blocks the other two: `signal_plus.alert.raise_alert` treats every layer as
+independent.
 
 ## Деплой и линковка
 

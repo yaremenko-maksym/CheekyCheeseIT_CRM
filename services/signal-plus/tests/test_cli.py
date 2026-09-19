@@ -188,11 +188,19 @@ def test_before_0800_no_email_yet_attempts_continue(config, tmp_path):
     assert email_calls == []
 
 
-def test_at_0800_cutoff_sends_email_exactly_once_and_refuses_plus(config, caplog, tmp_path):
+def test_at_0800_cutoff_sends_email_exactly_once_and_refuses_plus(config, caplog, tmp_path, monkeypatch):
     import logging
 
+    # SR-L-2 (security review 5255508458, fix-round 2): the issue layer
+    # (alert.send_github_issue_alert) only calls `run` when the script
+    # exists AND ALERT_REPO/GH_TOKEN are set -- both need to be true here,
+    # same as the three neighboring tests, or the final "no + send" assert
+    # below is checking an always-empty `run.calls` and can never fail.
+    monkeypatch.setenv("ALERT_REPO", "owner/repo")
+    monkeypatch.setenv("GH_TOKEN", "ghp_test_token")
     clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))  # exactly the default handover cutoff
     script = tmp_path / "post-merge-alert.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
     run = ScriptedRun([_ok()])  # only the issue-alert script call is expected
     email_calls = []
 
@@ -222,6 +230,9 @@ def test_at_0800_cutoff_sends_email_exactly_once_and_refuses_plus(config, caplog
     st = load_state(config.state_file)
     assert st.handover_date == date(2026, 9, 3)
     assert st.last_success_date is None
+    # The issue-alert script (layer 3) actually fired now that it's
+    # configured -- without this the assert below would be vacuously true.
+    assert any(str(script) in c for c in run.calls)
     # No `send` (the "+" group message) was ever attempted past cutoff.
     assert not any("send" in c and "+" in c for c in run.calls)
 

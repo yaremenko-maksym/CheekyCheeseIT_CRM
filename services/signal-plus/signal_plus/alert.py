@@ -113,12 +113,34 @@ def send_github_issue_alert(
     call_env.update(extra_env)
     call_env["KIND"] = "signal-plus"
 
-    if not script_path.is_file():
-        logger.debug("github-issue layer skipped: %s does not exist", script_path)
-        return False
+    script_exists = script_path.is_file()
     missing_env = [name for name in _REQUIRED_ISSUE_ALERT_ENV if not call_env.get(name)]
-    if missing_env:
-        logger.debug("github-issue layer skipped: missing env %s", ", ".join(missing_env))
+
+    # SR-M-1 (security review 5255508458, fix-round 2): distinguish "ничего"
+    # (nobody has started configuring this layer -- script AND env both
+    # absent) from "частично" (one side is configured and the other isn't --
+    # step 4 was started and not finished, or finished and then drifted,
+    # e.g. an expired GH_TOKEN scrubbed from the container). The former is
+    # the normal, expected state before step 4 lands and stays quiet at
+    # DEBUG exactly as before. The latter means someone touched this and it
+    # is now broken in a way nothing else observes -- worth a WARNING naming
+    # only what is missing (names/path, never a value), so the channel does
+    # not go silently dark the way `cspViolations` and the mutation-nightly
+    # run once did.
+    if not script_exists and len(missing_env) == len(_REQUIRED_ISSUE_ALERT_ENV):
+        logger.debug(
+            "github-issue layer skipped: %s does not exist and env %s not set",
+            script_path,
+            ", ".join(_REQUIRED_ISSUE_ALERT_ENV),
+        )
+        return False
+    if not script_exists or missing_env:
+        reasons = []
+        if not script_exists:
+            reasons.append(f"{script_path} does not exist")
+        if missing_env:
+            reasons.append(f"missing env {', '.join(missing_env)}")
+        logger.warning("github-issue layer misconfigured: %s", "; ".join(reasons))
         return False
 
     try:
