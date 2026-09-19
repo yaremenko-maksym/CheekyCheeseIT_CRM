@@ -12,7 +12,7 @@ Single source of truth для версий. **Не дублировать в age
 
 ### Runtime
 
-- **Node:** 20 LTS (строго). Не 21, не 22.
+- **Node:** 22 LTS (строго; поднято 2026-09-19 ради Lingui 6 — ESM-only, требует ≥ 22.19). Не 24.
 - **pnpm:** 7.32.4 (строго).
 
 ### Frontend
@@ -46,7 +46,7 @@ Single source of truth для версий. **Не дублировать в age
 - Vite 6 vs 7: TanStack `@tanstack/router-plugin` совместим только с Vite 6 на момент `^1.168`. Phase 6+ может пересмотреть.
 - TanStack version match: pnpm strict peer-deps валидация ломается при mismatch — `pnpm install` падает.
 - Fastify override: `@fastify/helmet` требует Fastify 5, а NestJS 11 пытается резолвнуть `^4`. Без override — runtime crash на запуске API.
-- Node 20 LTS: GHA runners + Docker images + nest-cli все стабильны на 20. На 22 типы Drizzle могут drift.
+- Node 22 LTS: поднято 2026-09-19 как предпосылка Lingui 6 (ESM-only пакет, требует ≥ 22.19 — на 20 `pnpm install` падал `EBADENGINE`). GHA runners + Docker images (`node:22-alpine`) + nest-cli проверены на 22 в рамках этого апгрейда.
 
 ## Связанные правила
 

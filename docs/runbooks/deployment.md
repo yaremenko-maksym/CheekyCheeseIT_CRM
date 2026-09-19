@@ -548,7 +548,7 @@ dependency и **отсутствует в prod-образе API** (которы�
 docker run --rm \
   --network crm_backend \
   --env-file /opt/crm/.env.production \
-  node:20-alpine \
+  node:22-alpine \
   sh -c "
     npm install -g drizzle-kit &&
     # Нужна схема — смонтировать или использовать другой подход

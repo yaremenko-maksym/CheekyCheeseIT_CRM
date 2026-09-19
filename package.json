@@ -2,6 +2,10 @@
   "name": "cheeky-cheese-crm",
   "private": true,
   "packageManager": "pnpm@7.32.4",
+  "engines": {
+    "node": ">=22.19 <23",
+    "pnpm": "7.32.4"
+  },
   "scripts": {
     "build": "turbo build",
     "shared:build": "turbo run build --filter=@crm/shared",
