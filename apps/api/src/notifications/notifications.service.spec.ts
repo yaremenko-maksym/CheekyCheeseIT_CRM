@@ -15,7 +15,6 @@
  *  - markRead throws 404 for missing notification
  *  - markAllRead flips every unread row for the user
  */
-import { NotFoundException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApprovalStatus } from '@crm/shared'
@@ -601,14 +600,18 @@ describe('NotificationsService', () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
       const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'n1'
-      await expect(svc.markRead('u-1', 'n1')).rejects.toThrow(NotFoundException)
+      await expect(svc.markRead('u-1', 'n1')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'NOTIFICATION_NOT_FOUND', statusCode: 404 }),
+      })
     })
 
     it('throws 404 when notification does not exist', async () => {
       const h = makeHarness([])
       const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.markReadId = 'nope'
-      await expect(svc.markRead('u-1', 'nope')).rejects.toThrow(NotFoundException)
+      await expect(svc.markRead('u-1', 'nope')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'NOTIFICATION_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 
@@ -649,7 +652,9 @@ describe('NotificationsService', () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
       const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.deleteId = 'n1'
-      await expect(svc.delete('u-1', 'n1')).rejects.toThrow(NotFoundException)
+      await expect(svc.delete('u-1', 'n1')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'NOTIFICATION_NOT_FOUND', statusCode: 404 }),
+      })
       // Row still present after the failed call
       expect(h.rows.find((r) => r.id === 'n1')).toBeDefined()
     })
@@ -658,7 +663,9 @@ describe('NotificationsService', () => {
       const h = makeHarness([])
       const svc = new NotificationsService(h.db, h.telemetry)
       h.ctx.deleteId = 'nope'
-      await expect(svc.delete('u-1', 'nope')).rejects.toThrow(NotFoundException)
+      await expect(svc.delete('u-1', 'nope')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'NOTIFICATION_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 
@@ -753,7 +760,7 @@ describe('NotificationsService', () => {
         // Пропуск — это отказ, и он обязан быть читаемым: пустая строка в
         // журнале сообщает ровно столько же, сколько молчание.
         expect(logged).toHaveLength(1)
-        expect(logged[0]).toContain('Уведомление пропущено')
+        expect(logged[0]).toContain('Notification skipped')
         expect(logged[0]).toContain('PROJECT_MEMBER_ADDED')
         expect(logged[0]).toContain('u-1')
       })
@@ -778,7 +785,7 @@ describe('NotificationsService', () => {
         // SR-L-4 (круг 3): телеметрия больше не ждётся под транзакцией, её
         // отказ приходит отдельным микротаском — отсюда `waitFor`.
         await vi.waitFor(() => expect(logged).toHaveLength(2))
-        expect(logged[1]).toContain('Телеметрия не приняла отказ уведомления')
+        expect(logged[1]).toContain('Telemetry did not accept the notification failure')
         expect(logged[1]).toContain('telemetry down')
       })
 
@@ -1092,7 +1099,7 @@ describe('NotificationsService', () => {
       // реально сработал, а не то, что `report()` тихо не вызывался вовсе.
       expect(logged).toHaveLength(2)
       expect(logged[0]).toContain('резолв адресатов упал')
-      expect(logged[1]).toContain('Обработчик отказа уведомлений сам упал')
+      expect(logged[1]).toContain('Notification failure handler itself failed')
     })
   })
 })
