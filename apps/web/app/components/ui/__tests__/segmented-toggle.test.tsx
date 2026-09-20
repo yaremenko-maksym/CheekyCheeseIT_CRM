@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { Coins, Landmark } from 'lucide-react'
@@ -188,6 +188,218 @@ describe('SegmentedToggle', () => {
     second.focus()
     await user.keyboard(' ')
     expect(onChange).toHaveBeenCalledWith('BANK_UAH_FOP')
+  })
+
+  // PR #696 fix-round 1 (CR-M-2, via UX-H-1): ARIA APG roving-tabindex —
+  // one tab stop on the active radio, Arrow/Home/End moves BOTH focus and
+  // selection between options in a single keystroke.
+  describe('roving tabindex + arrow/home/end (radio pairing only)', () => {
+    it('gives the active option tabIndex=0 and the rest tabIndex=-1', () => {
+      render(<Controlled initial="USDT_ERC20" />)
+      expect(screen.getByTestId('payment-method-USDT_ERC20')).toHaveAttribute('tabIndex', '0')
+      expect(screen.getByTestId('payment-method-BANK_UAH_FOP')).toHaveAttribute('tabIndex', '-1')
+    })
+
+    it('ArrowRight moves selection AND focus to the next option', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onChange = vi.fn()
+      render(<Controlled onChange={onChange} />)
+      screen.getByTestId('payment-method-USDT_ERC20').focus()
+      await user.keyboard('{ArrowRight}')
+      expect(onChange).toHaveBeenCalledWith('BANK_UAH_FOP')
+      expect(screen.getByTestId('payment-method-BANK_UAH_FOP')).toHaveFocus()
+    })
+
+    it('ArrowLeft/ArrowUp/ArrowDown wrap around at the ends', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onChange = vi.fn()
+      render(<Controlled initial="USDT_ERC20" onChange={onChange} />)
+      screen.getByTestId('payment-method-USDT_ERC20').focus()
+      // Only two options — ArrowLeft from the first wraps to the last.
+      await user.keyboard('{ArrowLeft}')
+      expect(onChange).toHaveBeenLastCalledWith('BANK_UAH_FOP')
+      expect(screen.getByTestId('payment-method-BANK_UAH_FOP')).toHaveFocus()
+      await user.keyboard('{ArrowDown}')
+      expect(onChange).toHaveBeenLastCalledWith('USDT_ERC20')
+      expect(screen.getByTestId('payment-method-USDT_ERC20')).toHaveFocus()
+    })
+
+    it('Home/End jump to the first/last option', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onChange = vi.fn()
+      render(<Controlled initial="BANK_UAH_FOP" onChange={onChange} />)
+      screen.getByTestId('payment-method-BANK_UAH_FOP').focus()
+      await user.keyboard('{Home}')
+      expect(onChange).toHaveBeenLastCalledWith('USDT_ERC20')
+      expect(screen.getByTestId('payment-method-USDT_ERC20')).toHaveFocus()
+      await user.keyboard('{End}')
+      expect(onChange).toHaveBeenLastCalledWith('BANK_UAH_FOP')
+      expect(screen.getByTestId('payment-method-BANK_UAH_FOP')).toHaveFocus()
+    })
+
+    it('does nothing when the whole toggle is disabled', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onChange = vi.fn()
+      render(<Controlled disabled onChange={onChange} />)
+      screen.getByTestId('payment-method-USDT_ERC20').focus()
+      await user.keyboard('{ArrowRight}')
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    // Three options, controlled, with per-option `disabled` support —
+    // needed to distinguish arrow direction (two options wrap identically
+    // either way) and to exercise the disabled-option skip/edge-case paths
+    // below (PR #696 fix-round 1, mutation-gate findings on `enabledOptions`
+    // filtering, the `currentIndex === -1` fallback, and the ArrowUp case).
+    type Letter = 'a' | 'b' | 'c'
+    function ThreeLetters({
+      initial = 'a' as Letter,
+      onChange,
+      disabledValues = [],
+    }: {
+      initial?: Letter
+      onChange?: (v: Letter) => void
+      disabledValues?: Letter[]
+    }) {
+      const [v, setV] = React.useState<Letter>(initial)
+      return (
+        <SegmentedToggle
+          value={v}
+          onChange={(nv) => {
+            setV(nv)
+            onChange?.(nv)
+          }}
+          options={[
+            { value: 'a', label: 'A', disabled: disabledValues.includes('a') },
+            { value: 'b', label: 'B', disabled: disabledValues.includes('b') },
+            { value: 'c', label: 'C', disabled: disabledValues.includes('c') },
+          ]}
+          ariaLabel="Letters"
+          testId="letters3"
+        />
+      )
+    }
+
+    it('ArrowLeft/ArrowUp move to the PREVIOUS option, not the next (arithmetic direction)', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onChangeLeft = vi.fn()
+      const { unmount } = render(<ThreeLetters initial="b" onChange={onChangeLeft} />)
+      screen.getByTestId('letters3-b').focus()
+      await user.keyboard('{ArrowLeft}')
+      expect(onChangeLeft).toHaveBeenCalledWith('a')
+      unmount()
+
+      const onChangeUp = vi.fn()
+      render(<ThreeLetters initial="b" onChange={onChangeUp} />)
+      screen.getByTestId('letters3-b').focus()
+      await user.keyboard('{ArrowUp}')
+      expect(onChangeUp).toHaveBeenCalledWith('a')
+      expect(screen.getByTestId('letters3-a')).toHaveFocus()
+    })
+
+    it('keyboard navigation skips a disabled option in the middle', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onChange = vi.fn()
+      render(<ThreeLetters initial="a" onChange={onChange} disabledValues={['b']} />)
+      screen.getByTestId('letters3-a').focus()
+      await user.keyboard('{ArrowRight}')
+      expect(onChange).toHaveBeenCalledWith('c')
+      expect(screen.getByTestId('letters3-c')).toHaveFocus()
+    })
+
+    it('falls back to the first enabled option when the currently active option is itself disabled', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onChange = vi.fn()
+      // Synthetic edge case: the active value's own option is disabled, so
+      // it is excluded from `enabledOptions` and `currentIndex` is -1.
+      render(<ThreeLetters initial="a" onChange={onChange} disabledValues={['a']} />)
+      screen.getByTestId('letters3-b').focus()
+      await user.keyboard('{ArrowRight}')
+      // From the -1 fallback (treated as index 0 = 'b'), ArrowRight goes to 'c'.
+      expect(onChange).toHaveBeenCalledWith('c')
+    })
+
+    it('does nothing and does not crash when every option is individually disabled', () => {
+      const onChange = vi.fn()
+      render(<ThreeLetters initial="a" onChange={onChange} disabledValues={['a', 'b', 'c']} />)
+      // Every button is HTML-`disabled` here, so none of them is a valid
+      // focus target (a disabled element cannot receive real focus) — fire
+      // the keydown directly on the container, same node the handler is
+      // actually attached to, instead of routing it through `.focus()`.
+      const container = screen.getByTestId('letters3')
+      expect(() => fireEvent.keyDown(container, { key: 'ArrowRight' })).not.toThrow()
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('does not call onChange when Arrow navigation lands back on the only enabled (already-active) option', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onChange = vi.fn()
+      render(<ThreeLetters initial="b" onChange={onChange} disabledValues={['a', 'c']} />)
+      screen.getByTestId('letters3-b').focus()
+      await user.keyboard('{ArrowRight}')
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('variant="tabs" is unaffected — every tab keeps its own tab stop, arrows do nothing', async () => {
+      const user = userEvent.setup({ delay: null })
+      function TabsLayout() {
+        const [v, setV] = React.useState<'ALL' | 'ACTIVE'>('ALL')
+        return (
+          <SegmentedToggle
+            value={v}
+            onChange={setV}
+            options={[
+              { value: 'ALL', label: 'Все' },
+              { value: 'ACTIVE', label: 'Активные' },
+            ]}
+            ariaLabel="Фильтр"
+            variant="tabs"
+            testId="status-tabs"
+          />
+        )
+      }
+      render(<TabsLayout />)
+      const tabs = screen.getAllByRole('tab')
+      // Native per-button tabbing — tabIndex left undefined (browser default 0),
+      // NOT the roving -1/0 pattern used for the radio pairing.
+      for (const tab of tabs) {
+        expect(tab).not.toHaveAttribute('tabindex')
+      }
+      screen.getByTestId('status-tabs-ALL').focus()
+      await user.keyboard('{ArrowRight}')
+      expect(screen.getByTestId('status-tabs-ALL')).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByTestId('status-tabs-ACTIVE')).toHaveAttribute('aria-selected', 'false')
+    })
+  })
+
+  // PR #696 fix-round 1 (CR-M-3/UX-M-1, via UX-H-1) — 44px touch target on
+  // mobile only; desktop keeps the pre-existing height.
+  it('size="md" buttons carry the mobile-only 44px touch target class', () => {
+    render(<Controlled />)
+    expect(screen.getByTestId('payment-method-USDT_ERC20').className).toContain('min-h-11')
+    expect(screen.getByTestId('payment-method-USDT_ERC20').className).toContain('sm:min-h-0')
+  })
+
+  it('size="sm" buttons do NOT carry the 44px touch target class', () => {
+    function ThreeOptionsSmall() {
+      const [v, setV] = React.useState<'l' | 'c' | 'r'>('c')
+      return (
+        <SegmentedToggle
+          value={v}
+          onChange={setV}
+          options={[
+            { value: 'l', label: 'Left' },
+            { value: 'c', label: 'Center' },
+            { value: 'r', label: 'Right' },
+          ]}
+          ariaLabel="Alignment"
+          testId="align-sm"
+          size="sm"
+        />
+      )
+    }
+    render(<ThreeOptionsSmall />)
+    expect(screen.getByTestId('align-sm-c').className).not.toContain('min-h-11')
   })
 
   it('supports a 3-option layout (sm size)', () => {

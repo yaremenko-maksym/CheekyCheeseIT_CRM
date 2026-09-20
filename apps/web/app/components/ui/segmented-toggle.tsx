@@ -1,4 +1,5 @@
 import { useId, useRef } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { motion } from 'framer-motion'
 import { type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,12 @@ import { cn } from '@/lib/utils'
  *   - role="radio" + `aria-checked` on each button
  *   - Buttons are real <button type="button"> so keyboard Enter/Space works
  *   - Disabled propagates to all buttons
+ *   - `itemRole === 'radio'` (i.e. NOT the `variant="tabs"` pairing) follows
+ *     the ARIA APG radiogroup pattern: one roving tab stop (`tabIndex={0}`
+ *     only on the active option, `-1` on the rest) plus Arrow/Home/End moves
+ *     BOTH focus and selection between options (PR #696 fix-round 1,
+ *     CR-M-2). `variant="tabs"` keeps every tab independently focusable —
+ *     that pairing is unchanged.
  */
 
 export interface SegmentedToggleOption<V extends string> {
@@ -115,8 +122,21 @@ export function SegmentedToggle<V extends string>({
   const autoId = useId()
   const layoutIdRef = useRef(layoutId ?? `segmented-toggle-${autoId}`)
   const pillLayoutId = layoutId ?? layoutIdRef.current
+  // Roving-tabindex target for Arrow/Home/End (see keydown handler below) —
+  // a live map instead of an array-of-refs so lookup by option value stays
+  // O(1) and doesn't depend on render order. Stores `null` on unmount rather
+  // than deleting the key: the only read (`.get(...)?.focus()`, in the
+  // keydown handler) treats a `null` and a missing entry identically, so
+  // branching here would be an untestable if/else with no observable effect
+  // — `Map.set` unconditionally is both simpler and has no equivalent mutant.
+  const buttonRefs = useRef<Map<V, HTMLButtonElement | null>>(new Map())
 
   const sizeStyles = size === 'sm' ? 'px-2 py-1 text-xs gap-1.5' : 'px-3 py-2 text-sm gap-2'
+  // 44px touch target on mobile only (foundation.md §Тач; responsive-design.md
+  // hard-gate) — desktop keeps the existing `py-2` height (UX-M-1, PR #696
+  // fix-round 1). `sm` size stays as-is: it's used in denser layouts that
+  // don't carry the same mobile touch-target expectation.
+  const touchTargetStyles = size === 'md' ? 'min-h-11 sm:min-h-0' : undefined
 
   // Active pill is the solid brand yellow — same `bg-primary` fill used by
   // Button/Badge default variant (owner request 2026-07-24: the active tab
@@ -129,12 +149,66 @@ export function SegmentedToggle<V extends string>({
   const containerRole = role ?? (variant === 'tabs' ? 'tablist' : 'radiogroup')
   const itemRole = containerRole === 'tablist' ? 'tab' : 'radio'
 
+  // ARIA APG radiogroup keyboard pattern — Left/Up moves to the previous
+  // enabled option, Right/Down to the next, Home/End to the first/last;
+  // wraps around at the ends. Moves BOTH selection (`onChange`) and focus
+  // in one keystroke, matching how native radio groups behave. No-op for
+  // `variant="tabs"` (itemRole === 'tab') — each tab keeps its own
+  // independent tab stop, unchanged from before this handler existed.
+  function handleContainerKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (itemRole !== 'radio' || disabled) return
+    const enabledOptions = options.filter((o) => o.disabled !== true)
+    // No separate `enabledOptions.length === 0` early return — `target`
+    // below is already `undefined` in that case (`enabledOptions[NaN]` from
+    // `% 0`, or `enabledOptions[-1]`/`enabledOptions[0]` on an empty array),
+    // and the `if (!target) return` guard three lines down handles it
+    // identically. A second guard that can never diverge from the first is
+    // dead code, not defence-in-depth.
+    const currentIndex = enabledOptions.findIndex((o) => o.value === value)
+    const from = currentIndex === -1 ? 0 : currentIndex
+
+    let targetIndex: number
+    switch (e.key) {
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        targetIndex = (from - 1 + enabledOptions.length) % enabledOptions.length
+        break
+      case 'ArrowRight':
+      case 'ArrowDown':
+        targetIndex = (from + 1) % enabledOptions.length
+        break
+      case 'Home':
+        targetIndex = 0
+        break
+      case 'End':
+        targetIndex = enabledOptions.length - 1
+        break
+      default:
+        return
+    }
+
+    e.preventDefault()
+    const target = enabledOptions[targetIndex]
+    if (!target) return
+    if (target.value !== value) {
+      onChange(target.value)
+    }
+    // Stryker disable next-line OptionalChaining: `target` always comes from
+    // `options` (filtered, never a synthetic value), and EVERY option in
+    // `options` renders a `<button>` below that registers its ref on mount
+    // — `buttonRefs.current.get(target.value)` cannot be `undefined` for a
+    // real render. No test can force this branch without faking a ref map
+    // no real render would ever produce.
+    buttonRefs.current.get(target.value)?.focus()
+  }
+
   return (
     <div
       role={containerRole}
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
       data-testid={testId}
+      onKeyDown={handleContainerKeyDown}
       className={cn(
         'relative grid gap-1 overflow-hidden rounded-lg border border-border bg-muted/60 p-1',
         className,
@@ -157,6 +231,9 @@ export function SegmentedToggle<V extends string>({
         return (
           <button
             key={option.value}
+            ref={(el) => {
+              buttonRefs.current.set(option.value, el)
+            }}
             type="button"
             role={itemRole}
             {...(itemRole === 'tab' ? { 'aria-selected': active } : { 'aria-checked': active })}
@@ -164,6 +241,14 @@ export function SegmentedToggle<V extends string>({
             // then enum value as a last-resort fallback so screen-reader users
             // always have *some* name even if a caller mis-configures the option.
             aria-label={option.ariaLabel ?? (option.label || option.value)}
+            // Roving tabindex (radio pairing only, see handleContainerKeyDown
+            // above): one tab stop on the active option, the rest excluded
+            // from sequential Tab order but still reachable via Arrow/Home/End
+            // (and via a direct programmatic `.focus()`, which ignores
+            // tabIndex — the existing Enter/Space keyboard tests rely on
+            // exactly that). `variant="tabs"` keeps native per-button
+            // tabbing (tabIndex left undefined).
+            tabIndex={itemRole === 'radio' ? (active ? 0 : -1) : undefined}
             disabled={buttonDisabled}
             onClick={() => {
               if (buttonDisabled) return
@@ -186,6 +271,7 @@ export function SegmentedToggle<V extends string>({
               // cover.
               'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               sizeStyles,
+              touchTargetStyles,
               'font-medium',
               active ? activeTextClass : 'text-muted-foreground hover:text-foreground',
               buttonDisabled && 'cursor-not-allowed opacity-50 hover:text-muted-foreground',

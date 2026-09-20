@@ -16,9 +16,21 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { I18nProvider } from '@lingui/react'
+import { i18n } from '@lingui/core'
 import type { PendingSeniorShare, UserProfileDto, ViewPermissions } from '@crm/shared'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { OverviewTab } from '../OverviewTab'
+
+// task-i18n-stage2 (Task 7): `mode='self'` now also mounts
+// `SelfLanguageSection`, which reads the active locale through
+// `@lingui/react`'s `useLingui()` — that hook THROWS without an
+// `I18nProvider` ancestor (see `LanguageSection.test.tsx` / `i18n-smoke.
+// test.tsx` for the same requirement). An empty catalog is enough here:
+// this file never asserts on `<Trans>` text, only that rendering does not
+// throw.
+i18n.load('uk', {})
+i18n.activate('uk')
 
 vi.mock('@/hooks/use-admin-note', () => ({
   useSetAdminNote: () => ({ mutate: vi.fn(), isPending: false }),
@@ -128,11 +140,13 @@ function renderTab(
   authState.id = viewerId
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
-    <QueryClientProvider client={qc}>
-      <TooltipProvider>
-        <OverviewTab user={user} mode={mode} permissions={permissions} data={EMPTY_DATA} />
-      </TooltipProvider>
-    </QueryClientProvider>,
+    <I18nProvider i18n={i18n}>
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <OverviewTab user={user} mode={mode} permissions={permissions} data={EMPTY_DATA} />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </I18nProvider>,
   )
   return { qc }
 }
