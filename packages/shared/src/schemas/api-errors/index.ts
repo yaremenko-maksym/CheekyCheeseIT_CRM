@@ -92,6 +92,19 @@ export type ParamsFor<C extends ApiErrorCode> = (typeof API_ERROR_PARAMS)[C] ext
 export const apiErrorEnvelopeSchema = z.object({
   statusCode: z.number().int(),
   code: z.enum(API_ERROR_CODES),
+  // Stryker disable next-line ArrayDeclaration: task-i18n-stage4-task1
+  // mutation-gate run — mutating this to `z.union([])` (zero members)
+  // survived the suite, but not because nothing tests it: an empty
+  // `z.union([])` throws at SCHEMA-CONSTRUCTION time (verified empirically,
+  // `node -e "require('zod').union([])"` → `TypeError: Cannot read
+  // properties of undefined (reading '_zod')`), i.e. before any `.parse()`
+  // call, before this module even finishes loading. Every test importing
+  // `@crm/shared` would fail to import at all under this mutant — Stryker's
+  // per-test coverage instrumentation has no "module failed to load" outcome
+  // distinct from "survived" for a mutant in this position, so it reports
+  // the loudest possible real-world failure (the whole package crashes) as
+  // an undetected survivor. No test assertion can make this "Killed" through
+  // normal `.safeParse()` means, because the mutated code never reaches one.
   params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
   message: z.string(),
 })

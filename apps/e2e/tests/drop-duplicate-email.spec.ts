@@ -9,8 +9,10 @@
  * Flow:
  *   1. Create a drop via real API (`createDropViaAPI`).
  *   2. Open /users → Добавить → DROP role → fill in the *same* email.
- *   3. Submit → backend returns 409 → frontend shows tailored toast
- *      «Пользователь с таким email уже существует».
+ *   3. Submit → backend returns 409 with code USER_EMAIL_EXISTS → frontend
+ *      shows the catalog-translated toast (task-i18n-stage4-task1 —
+ *      `explainUserMutationError` no longer hardcodes the text, it reads the
+ *      envelope's `code` through `getApiErrorMessage`).
  *   4. Dialog must stay open (operator can fix the email).
  *   5. Change the email → submit again → success (toast «Дроп создан»).
  */
@@ -100,10 +102,11 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
       await conflictResp
 
       // Toast surfaces the tailored 409 message — `sonner` renders a region
-      // attached to the body. The exact wording comes from
-      // `explainUserMutationError` in UserDialog.tsx.
+      // attached to the body. The wording comes from the `USER_EMAIL_EXISTS`
+      // catalog entry (`packages/shared/src/schemas/api-errors/auth-users-projects.ts`),
+      // routed through `explainUserMutationError` in UserDialog.tsx.
       await expect(
-        page.getByText('Пользователь с таким email уже существует', { exact: false }),
+        page.getByText('Користувач із такою електронною адресою вже існує', { exact: false }),
       ).toBeVisible({ timeout: 8_000 })
 
       // Dialog must stay open so the operator can edit the email and retry.

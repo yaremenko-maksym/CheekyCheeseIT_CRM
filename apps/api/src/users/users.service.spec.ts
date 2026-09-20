@@ -2099,6 +2099,49 @@ describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
     const setCall = setMock.mock.calls[0]?.[0] as Record<string, unknown>
     expect(setCall).not.toHaveProperty('locale')
   })
+
+  // task-i18n-stage4-task1 (mutation-gate finding): the "row missing" guard
+  // had no test — every case above updates an EXISTING row, and `makeDb`'s
+  // `updatedUser` option defaults to a real row on `undefined` (a plain JS
+  // default-parameter, not a "no row" signal), so an ad-hoc update-chain
+  // mock is simpler here than fighting that default.
+  it('throws USER_NOT_FOUND when the update affects no row', async () => {
+    const db = {
+      db: {
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
+          }),
+        }),
+      },
+    } as unknown as DrizzleDb
+    const service = makeUsersService(db)
+
+    await expect(service.updateProfile('ghost', { displayName: 'X' })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
+  })
+})
+
+describe('UsersService.updateRequisites', () => {
+  // task-i18n-stage4-task1 (mutation-gate finding): same "row missing" guard
+  // as updateProfile above, also never exercised for this method.
+  it('throws USER_NOT_FOUND when the update affects no row', async () => {
+    const db = {
+      db: {
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
+          }),
+        }),
+      },
+    } as unknown as DrizzleDb
+    const service = makeUsersService(db)
+
+    await expect(
+      service.updateRequisites('ghost', { paymentMethod: 'USDT_ERC20' }),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -3228,6 +3271,23 @@ describe('UsersService.buildProfileView — ForbiddenException on empty tabs', (
     }
     const service = makeServiceForForbiddenCheck(seniorSelf, permissions)
     await expect(service.buildProfileView(viewer as never, 'sr-self-id')).resolves.toBeDefined()
+  })
+
+  // task-i18n-stage4-task1 (mutation-gate finding): the "target not found"
+  // guard (before the accessService call above) had no test — every case in
+  // this block resolves a target row.
+  it('target user not found → USER_NOT_FOUND, never reaches getViewPermissions', async () => {
+    const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const permissions = { tabs: [], actions: [], fields: {} }
+    const service = makeServiceForForbiddenCheck(juniorTarget, permissions)
+    // Override the shared `where` stub to resolve empty — no row found.
+    ;(service as unknown as { db: { db: { where: ReturnType<typeof vi.fn> } } }).db.db.where = vi
+      .fn()
+      .mockResolvedValue([])
+
+    await expect(service.buildProfileView(viewer as never, 'ghost-id')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
   })
 })
 

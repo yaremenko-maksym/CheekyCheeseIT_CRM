@@ -1517,6 +1517,32 @@ describe('AuthController.impersonate / stopImpersonating — SR-M-13 (round-trip
     expect(payload['impersonatorUserEmailId']).toBeUndefined()
   })
 
+  // task-i18n-stage4-task1 (mutation-gate finding): the "target not found"
+  // guard (`if (!target) throw apiError('USER_NOT_FOUND', ...)`) had no
+  // test exercising a MISSING target — only the happy path above, where the
+  // guard's condition is naturally false either way. `makeUsersService(null)`
+  // gives `findById` an unresolvable id.
+  it('impersonate: target user not found → USER_NOT_FOUND, no JWT signed', async () => {
+    const jwtService = makeJwtService()
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(null),
+      jwtService,
+      makeConfig('development'),
+    )
+    const currentUser: JwtPayload = {
+      id: ADMIN_USER.id,
+      email: ADMIN_USER.email,
+      role: 'ADMIN',
+      userEmailId: ADMIN_USER_EMAIL_ID,
+    }
+
+    await expect(
+      controller.impersonate({ userId: TARGET_USER.id }, currentUser, makeReply()),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+    expect(jwtService.sign).not.toHaveBeenCalled()
+  })
+
   it("stopImpersonating: impersonatorUserEmailId present → restored onto the reinstated admin session's userEmailId", async () => {
     const jwtService = makeJwtService()
     const controller = new AuthController(

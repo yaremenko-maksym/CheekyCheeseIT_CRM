@@ -1162,3 +1162,184 @@ describe('ProjectsService.removeMember — HR cross-team IDOR protection', () =>
     ).resolves.not.toThrow()
   })
 })
+
+// ---------------------------------------------------------------------------
+// task-i18n-stage4-task1 (mutation-gate finding, --changed run against
+// bbfab8bf): every `if (!row) throw apiError('X_NOT_FOUND', ...)` guard
+// below had no test constructing the "genuinely missing" case — only tests
+// where the row IS found, which cannot distinguish the guard from
+// `if (false)` (the ConditionalExpression mutant Stryker applies). Each
+// test here is the smallest harness that reaches its one guard and nothing
+// past it — assembled straight from the method's own body (read above), not
+// copied from an existing all-purpose harness, since none of these guards
+// share one.
+// ---------------------------------------------------------------------------
+describe('ProjectsService — not-found / row-state guards (mutation-gate closure)', () => {
+  function makeMinimalService(dbOverrides: Record<string, unknown>): ProjectsService {
+    const db = {
+      db: {
+        query: {
+          projects: { findFirst: vi.fn().mockResolvedValue(undefined) },
+          users: { findFirst: vi.fn().mockResolvedValue(undefined) },
+          documents: { findFirst: vi.fn().mockResolvedValue(undefined) },
+          projectMembers: { findFirst: vi.fn().mockResolvedValue(undefined) },
+          ...dbOverrides,
+        },
+      },
+    }
+    return new ProjectsService(
+      db as never,
+      { record: vi.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      makeNotificationsStub(),
+    )
+  }
+
+  const baseCreateDto = {
+    name: 'Project X',
+    companyName: 'X Corp',
+    domain: 'Other' as const,
+    startDate: '2026-01-01T00:00:00.000Z',
+    seniorId: 'senior-missing',
+    rate: 3000,
+    currency: 'USDT' as const,
+  }
+
+  it('create: SENIOR_NOT_FOUND when seniorId resolves to no row', async () => {
+    const service = makeMinimalService({
+      users: { findFirst: vi.fn().mockResolvedValue(undefined) },
+    })
+    await expect(service.create(baseCreateDto, adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SENIOR_NOT_FOUND' }),
+    })
+  })
+
+  it('create: DROP_NOT_FOUND when dropId resolves to no row (senior found first)', async () => {
+    const seniorRow = { id: 'senior-missing', role: 'SENIOR', archivedAt: null }
+    const usersFindFirst = vi
+      .fn()
+      .mockResolvedValueOnce(seniorRow) // 1st call: senior lookup
+      .mockResolvedValueOnce(undefined) // 2nd call: drop lookup
+    const service = makeMinimalService({ users: { findFirst: usersFindFirst } })
+    await expect(
+      service.create({ ...baseCreateDto, dropId: 'drop-missing' }, adminUser),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'DROP_NOT_FOUND' }) })
+  })
+
+  it('create: USER_NOT_DROP when dropId resolves to a non-DROP user', async () => {
+    const seniorRow = { id: 'senior-missing', role: 'SENIOR', archivedAt: null }
+    const notADropRow = { id: 'drop-x', role: 'JUNIOR', archivedAt: null }
+    const usersFindFirst = vi
+      .fn()
+      .mockResolvedValueOnce(seniorRow)
+      .mockResolvedValueOnce(notADropRow)
+    const service = makeMinimalService({ users: { findFirst: usersFindFirst } })
+    await expect(
+      service.create({ ...baseCreateDto, dropId: 'drop-x' }, adminUser),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_DROP' }) })
+  })
+
+  it('create: DROP_ARCHIVED when the resolved DROP user is archived', async () => {
+    const seniorRow = { id: 'senior-missing', role: 'SENIOR', archivedAt: null }
+    const archivedDropRow = { id: 'drop-x', role: 'DROP', archivedAt: new Date('2026-01-01') }
+    const usersFindFirst = vi
+      .fn()
+      .mockResolvedValueOnce(seniorRow)
+      .mockResolvedValueOnce(archivedDropRow)
+    const service = makeMinimalService({ users: { findFirst: usersFindFirst } })
+    await expect(
+      service.create({ ...baseCreateDto, dropId: 'drop-x' }, adminUser),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'DROP_ARCHIVED' }) })
+  })
+
+  it('create → assertLogoDocument: LOGO_DOCUMENT_NOT_FOUND when logoDocumentId resolves to no row', async () => {
+    const seniorRow = { id: 'senior-missing', role: 'SENIOR', archivedAt: null }
+    const service = makeMinimalService({
+      users: { findFirst: vi.fn().mockResolvedValue(seniorRow) },
+      documents: { findFirst: vi.fn().mockResolvedValue(undefined) },
+    })
+    await expect(
+      service.create({ ...baseCreateDto, logoDocumentId: 'doc-missing' }, adminUser),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LOGO_DOCUMENT_NOT_FOUND' }),
+    })
+  })
+
+  it('findOne: PROJECT_NOT_FOUND when the project row is missing', async () => {
+    const service = makeMinimalService({})
+    await expect(service.findOne('proj-missing', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+    })
+  })
+
+  it('getArchiveImpact: PROJECT_NOT_FOUND when the project row is missing', async () => {
+    const service = makeMinimalService({})
+    await expect(service.getArchiveImpact('proj-missing', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+    })
+  })
+
+  it('addMember: PROJECT_NOT_FOUND when the project row is missing', async () => {
+    const service = makeMinimalService({})
+    await expect(service.addMember('proj-missing', 'user-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+    })
+  })
+
+  it('addMember: USER_NOT_FOUND when the target user row is missing', async () => {
+    const projectRow = { id: 'proj-1', seniorId: 'senior-1', senior: null, drop: null, members: [] }
+    const service = makeMinimalService({
+      projects: { findFirst: vi.fn().mockResolvedValue(projectRow) },
+      users: { findFirst: vi.fn().mockResolvedValue(undefined) },
+    })
+    await expect(service.addMember('proj-1', 'user-missing', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
+  })
+
+  it('addMember: PROJECT_MEMBER_ROLE_RESTRICTED for a role outside JUNIOR/HR/ACCOUNTANT', async () => {
+    const projectRow = { id: 'proj-1', seniorId: 'senior-1', senior: null, drop: null, members: [] }
+    const seniorAsMember = { id: 'user-1', role: 'SENIOR', archivedAt: null }
+    const service = makeMinimalService({
+      projects: { findFirst: vi.fn().mockResolvedValue(projectRow) },
+      users: { findFirst: vi.fn().mockResolvedValue(seniorAsMember) },
+    })
+    await expect(service.addMember('proj-1', 'user-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_MEMBER_ROLE_RESTRICTED' }),
+    })
+  })
+
+  it('addMember: ALREADY_ACTIVE_PROJECT_MEMBER when an active membership row already exists', async () => {
+    const projectRow = { id: 'proj-1', seniorId: 'senior-1', senior: null, drop: null, members: [] }
+    const juniorRowLocal = { id: 'user-1', role: 'JUNIOR', archivedAt: null }
+    const activeMembership = { id: 'pm-1', projectId: 'proj-1', userId: 'user-1', leftAt: null }
+    const service = makeMinimalService({
+      projects: { findFirst: vi.fn().mockResolvedValue(projectRow) },
+      users: { findFirst: vi.fn().mockResolvedValue(juniorRowLocal) },
+      projectMembers: { findFirst: vi.fn().mockResolvedValue(activeMembership) },
+    })
+    await expect(service.addMember('proj-1', 'user-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ALREADY_ACTIVE_PROJECT_MEMBER' }),
+    })
+  })
+
+  it('removeMember: PROJECT_NOT_FOUND when the project row is missing', async () => {
+    const service = makeMinimalService({})
+    await expect(service.removeMember('proj-missing', 'user-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+    })
+  })
+
+  it('removeMember: ACTIVE_MEMBER_NOT_FOUND when there is no active membership row', async () => {
+    const projectRow = { id: 'proj-1', seniorId: 'senior-1', senior: null, drop: null, members: [] }
+    const service = makeMinimalService({
+      projects: { findFirst: vi.fn().mockResolvedValue(projectRow) },
+      projectMembers: { findFirst: vi.fn().mockResolvedValue(undefined) },
+    })
+    await expect(service.removeMember('proj-1', 'user-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ACTIVE_MEMBER_NOT_FOUND' }),
+    })
+  })
+})

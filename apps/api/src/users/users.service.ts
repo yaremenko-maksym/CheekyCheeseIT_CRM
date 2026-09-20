@@ -2005,6 +2005,16 @@ export class UsersService {
         .from(users)
         .where(eq(users.id, id))
         .then((rows) => rows[0])
+      // Stryker disable next-line ConditionalExpression: task-i18n-stage4-task1
+      // mutation-gate finding — provably unreachable, not merely untested.
+      // The guard at the top of this same transaction (`if (!user) throw ...`,
+      // under a `FOR UPDATE` lock) already confirmed this row exists, and the
+      // `tx.update(users)...` a few lines up wrote to that same locked row and
+      // has not committed. No peer transaction can delete a row this one
+      // holds locked, and this method issues no DELETE of its own, so between
+      // that write and this re-read the row cannot have vanished — a unit
+      // mock could only "kill" this mutant by asserting a scenario Postgres
+      // itself rules out.
       if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       return updated
     })
@@ -2023,6 +2033,16 @@ export class UsersService {
         .from(users)
         .where(eq(users.id, id))
         .then((rows) => rows[0])
+      // Stryker disable next-line ConditionalExpression: task-i18n-stage4-task1
+      // mutation-gate finding — provably unreachable, not merely untested.
+      // `unarchivePairTx` just above already confirmed this row exists (its
+      // own `if (!user) throw ...`) and issued a `tx.update(users)...` write
+      // to it within this SAME still-open transaction — an implicit row lock
+      // that holds until commit. No peer transaction can delete a row this
+      // one holds locked, and neither this method nor `unarchivePairTx`
+      // issues a DELETE, so between that write and this re-read the row
+      // cannot have vanished — a unit mock could only "kill" this mutant by
+      // asserting a scenario Postgres itself rules out.
       if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       return updated
     })

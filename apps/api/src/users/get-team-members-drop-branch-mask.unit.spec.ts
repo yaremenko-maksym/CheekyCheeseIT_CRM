@@ -733,4 +733,14 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
       "an unrelated HR from the senior's OTHER team must never leak into a DROP's own roster",
     ).not.toContain(UNRELATED_HR_ID)
   })
+
+  // task-i18n-stage4-task1 (mutation-gate finding): the "target not found"
+  // guard at the top of `getTeamMembersForUser` had no test — every case
+  // above resolves a real target from the store.
+  it('throws USER_NOT_FOUND when the target id resolves to no user row', async () => {
+    const service = buildService({ users: [], teamMembers: [] })
+    await expect(service.getTeamMembersForUser('ghost-id', 'ADMIN')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
+  })
 })

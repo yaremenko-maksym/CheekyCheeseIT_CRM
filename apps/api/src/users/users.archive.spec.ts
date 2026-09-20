@@ -822,6 +822,18 @@ describe('UsersService.unarchive — SENIOR (pair restore)', () => {
       response: expect.objectContaining({ code: 'USER_NOT_ARCHIVED' }),
     })
   })
+
+  // task-i18n-stage4-task1 (mutation-gate finding): `unarchivePairTx`'s OWN
+  // "row missing" guard (called first, inside `unarchive`) had no test — the
+  // BadRequest test above needs the row to EXIST (to assert NOT_ARCHIVED
+  // instead), so it cannot also exercise a genuinely missing row.
+  it('throws NotFoundException for a user id that does not exist at all', async () => {
+    const store = emptyStore()
+    const { service } = buildService(store)
+    await expect(service.unarchive('ghost-id', 'admin-x')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
+  })
 })
 
 describe('UsersService.unarchive — HR / JUNIOR / ADMIN', () => {
@@ -849,6 +861,16 @@ describe('UsersService.unarchive — HR / JUNIOR / ADMIN', () => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.getArchiveImpact', () => {
+  // task-i18n-stage4-task1 (mutation-gate finding): the "row missing" guard
+  // had no test — every case in this describe block uses a seeded user.
+  it('throws USER_NOT_FOUND for a user id that does not exist', async () => {
+    const store = emptyStore()
+    const { service } = buildService(store)
+    await expect(service.getArchiveImpact('ghost-id', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
+  })
+
   it('SENIOR: returns paired cascade counts + named projects', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
