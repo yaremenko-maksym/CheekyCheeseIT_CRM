@@ -19,10 +19,31 @@
  * A companion assertion covers `seniorSharePercent` (SENIOR edit) to prove the
  * sibling field was never broken — only the DROP branch was missing.
  */
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import {
+  render as rtlRender,
+  screen,
+  waitFor,
+  fireEvent,
+  type RenderOptions,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { UserProfileDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3a (Task 1) blast-radius: `UserDialog` renders the shared
+// `TechAutocompleteInput`/`PhoneInput` (`components/ui/`), which now call
+// `useLingui()` — outside this file's own perimeter (`components/users/**`
+// migrates in a later wave). Shadowing `render` wraps every call site with
+// `I18nTestProvider` in one place.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 

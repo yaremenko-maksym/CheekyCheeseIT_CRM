@@ -207,6 +207,10 @@ msgstr "Виберіть дату"
 msgid "Вибрати файл"
 msgstr "Вибрати файл"
 
+#: apps/web/app/components/ui/tech-autocomplete-input.tsx
+msgid "Видалити {tag}"
+msgstr "Видалити {tag}"
+
 #: apps/web/app/components/layout/notifications-bell.tsx
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Видалити сповіщення"
@@ -263,6 +267,10 @@ msgstr "До активної"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Документи"
 msgstr "Документи"
+
+#: apps/web/app/components/ui/tech-autocomplete-input.tsx
+msgid "Досягнуто ліміт {maxItems} тегів"
+msgstr "Досягнуто ліміт {maxItems} тегів"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"
@@ -356,6 +364,10 @@ msgstr "Користувач (синьйор)"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Користувачі"
 msgstr "Користувачі"
+
+#: apps/web/app/components/ui/phone-input.tsx
+msgid "Країну не знайдено"
+msgstr "Країну не знайдено"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Легенда"
@@ -451,6 +463,10 @@ msgstr "Нова версія ToS"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію ToS опубліковано. Користувачі побачать сповіщення."
 msgstr "Нову версію ToS опубліковано. Користувачі побачать сповіщення."
+
+#: apps/web/app/components/ui/phone-input.tsx
+msgid "Номер телефону"
+msgstr "Номер телефону"
 
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Обробка…"
@@ -564,9 +580,17 @@ msgstr "Посилання"
 msgid "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
 msgstr "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
 
+#: apps/web/app/components/ui/tech-autocomplete-input.tsx
+msgid "Почніть вводити технологію..."
+msgstr "Почніть вводити технологію..."
+
 #: apps/web/app/components/ui/command.tsx
 msgid "Пошук і виконання команд"
 msgstr "Пошук і виконання команд"
+
+#: apps/web/app/components/ui/phone-input.tsx
+msgid "Пошук країни..."
+msgstr "Пошук країни..."
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx

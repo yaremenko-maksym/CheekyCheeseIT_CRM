@@ -1,14 +1,25 @@
 import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { TechAutocompleteInput } from '../tech-autocomplete-input'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Controlled wrapper so state updates propagate correctly. */
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
+/**
+ * Controlled wrapper so state updates propagate correctly.
+ *
+ * task-i18n-stage3a (Task 1): wraps with `I18nTestProvider` here (not at
+ * every `render()` call site below) — `TechAutocompleteInput` now calls
+ * `useLingui()` (SPEC-H-1).
+ */
 function Controlled({
   initial = [] as string[],
   onChange,
@@ -18,13 +29,15 @@ function Controlled({
 }) {
   const [value, setValue] = React.useState<string[]>(initial)
   return (
-    <TechAutocompleteInput
-      value={value}
-      onChange={(next) => {
-        setValue(next)
-        onChange?.(next)
-      }}
-    />
+    <I18nTestProvider>
+      <TechAutocompleteInput
+        value={value}
+        onChange={(next) => {
+          setValue(next)
+          onChange?.(next)
+        }}
+      />
+    </I18nTestProvider>
   )
 }
 

@@ -5,9 +5,31 @@
  * step navigation logic, POST/PATCH call targets, and button states.
  * Edit-mode is NOT tested here — it remains unchanged.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render as rtlRender,
+  screen,
+  waitFor,
+  type RenderOptions,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3a (Task 1) blast-radius: `UserDialog` renders the shared
+// `TechAutocompleteInput`/`PhoneInput` (`components/ui/`), which now call
+// `useLingui()` — outside this file's own perimeter (`components/users/**`
+// migrates in a later wave). Shadowing `render` here (rather than touching
+// every one of the 24 call sites below) wraps every render with
+// `I18nTestProvider` in one place.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 

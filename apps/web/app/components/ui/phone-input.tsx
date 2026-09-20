@@ -2,6 +2,7 @@ import { CheckIcon, ChevronsUpDown } from 'lucide-react'
 import * as RPNInput from 'react-phone-number-input'
 import flags from 'react-phone-number-input/flags'
 import { validatePhoneNumberLength } from 'libphonenumber-js/min'
+import { Trans, useLingui } from '@lingui/react/macro'
 import React, {
   createContext,
   forwardRef,
@@ -115,6 +116,7 @@ PhoneInput.displayName = 'PhoneInput'
 
 const PhoneTextInput = forwardRef<HTMLInputElement, ComponentProps<'input'>>(
   ({ className, ...props }, ref) => {
+    const { t } = useLingui()
     const { currentCountry, inputRef } = useContext(PhoneInputContext)
 
     const setRefs = (el: HTMLInputElement | null) => {
@@ -156,7 +158,7 @@ const PhoneTextInput = forwardRef<HTMLInputElement, ComponentProps<'input'>>(
         type="tel"
         ref={setRefs}
         className={cn('rounded-s-none rounded-e-md border-l-0', className)}
-        placeholder="Номер телефона"
+        placeholder={t`Номер телефону`}
         onChange={(e) => {
           if (checkIfValidInput(e.target.value)) {
             props.onChange?.(e)
@@ -188,6 +190,7 @@ const CountrySelect = ({
   onChange,
   onCountryChange,
 }: CountrySelectProps) => {
+  const { t } = useLingui()
   const { inputRef } = useContext(PhoneInputContext)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const [searchValue, setSearchValue] = useState('')
@@ -236,10 +239,12 @@ const CountrySelect = ({
           <CommandInput
             value={searchValue}
             onValueChange={setSearchValue}
-            placeholder="Поиск страны..."
+            placeholder={t`Пошук країни...`}
           />
           <CommandList>
-            <CommandEmpty>Страна не найдена</CommandEmpty>
+            <CommandEmpty>
+              <Trans>Країну не знайдено</Trans>
+            </CommandEmpty>
             <CommandGroup>
               <ScrollArea ref={scrollAreaRef} className="h-52">
                 {countryList.map(({ value, label }) => (

@@ -1,5 +1,6 @@
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
+import { useLingui } from '@lingui/react/macro'
 import { TECHNOLOGIES } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -51,6 +52,7 @@ export function TechAutocompleteInput({
   onBlur,
   className,
 }: TechAutocompleteInputProps) {
+  const { t } = useLingui()
   const [input, setInput] = useState('')
   const [activeIdx, setActiveIdx] = useState(0)
   const [isFocused, setIsFocused] = useState(false)
@@ -176,7 +178,7 @@ export function TechAutocompleteInput({
                 type="button"
                 onClick={() => removeTag(tag)}
                 className="flex h-4 w-4 items-center justify-center rounded-sm transition-colors hover:bg-destructive/20 hover:text-destructive focus:outline-none focus:ring-1 focus:ring-ring"
-                aria-label={`Удалить ${tag}`}
+                aria-label={t`Видалити ${tag}`}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -196,8 +198,8 @@ export function TechAutocompleteInput({
           onFocus={() => setIsFocused(true)}
           placeholder={
             limitReached
-              ? `Достигнут лимит ${maxItems} тегов`
-              : (placeholder ?? 'Начните вводить технологию...')
+              ? t`Досягнуто ліміт ${maxItems} тегів`
+              : (placeholder ?? t`Почніть вводити технологію...`)
           }
           disabled={limitReached}
           aria-autocomplete="list"
