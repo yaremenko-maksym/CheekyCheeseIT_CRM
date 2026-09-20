@@ -13,6 +13,11 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#. placeholder {0}: item.seniorName
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid " · синьйор: {0}"
+msgstr " · senior: {0}"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
 msgstr "{pendingObligationCount, plural, one {# obligation} other {# obligations}}"
@@ -114,6 +119,10 @@ msgstr "Active version: v{0} · updated {1}"
 msgid "Активний синьйор{0} відʼєднається від команди без архівації."
 msgstr "The active senior{0} will be detached from the team without being archived."
 
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Активні проекти"
+msgstr "Active projects"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Активного синьйора в команді немає."
 msgstr "There is no active senior on the team."
@@ -151,9 +160,18 @@ msgstr "CRM side navigation — move between sections of the system."
 msgid "Бухгалтер"
 msgstr "Accountant"
 
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "В активних стадіях"
+msgstr "In active stages"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Вакансії"
 msgstr "Vacancies"
+
+#. placeholder {0}: item.viewerSharePercent
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Ваша частка: {0}%"
+msgstr "Your share: {0}%"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
@@ -220,9 +238,25 @@ msgstr "Remove {tag}"
 msgid "Видалити сповіщення"
 msgstr "Delete notification"
 
+#: apps/web/app/routes/_authenticated/route.tsx
+msgid "Вийти"
+msgstr "Log out"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Виплата (USDT)"
+msgstr "Payout (USDT)"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Виплачено"
 msgstr "Paid"
+
+#: apps/web/app/routes/_authenticated/route.tsx
+msgid "Відкрити меню"
+msgstr "Open menu"
+
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Відкриті співбесіди"
+msgstr "Open interviews"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити все"
@@ -267,6 +301,10 @@ msgstr "To confirm, enter {confirmInputLabel}:"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "До активної"
 msgstr "To active"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Додати прибуток"
+msgstr "Add income"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Документи"
@@ -346,6 +384,10 @@ msgstr "senior's name"
 msgid "Історія версій"
 msgstr "Version history"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
+msgid "Історія заробітку по місяцях"
+msgstr "Earnings history by month"
+
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Команда"
@@ -365,9 +407,21 @@ msgstr "Command menu"
 msgid "компанії"
 msgstr "company's"
 
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Компанія"
+msgstr "Company"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
 msgstr "The company has already booked this amount but has not transferred it yet — separate from \"Paid\" above"
+
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Контракти"
+msgstr "Contracts"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Користувач (синьйор)"
@@ -384,6 +438,10 @@ msgstr "Country not found"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Легенда"
 msgstr "Legend"
+
+#: apps/web/app/routes/_authenticated/route.tsx
+msgid "Меню користувача"
+msgstr "User menu"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Мій баланс"
@@ -414,6 +472,10 @@ msgstr "Back to ToS"
 msgid "назва проєкту"
 msgstr "project name"
 
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Найнято за місяць"
+msgstr "Hired this month"
+
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -437,6 +499,10 @@ msgstr "Could not load the preview PDF."
 msgid "Не вдалося завантажити PDF."
 msgstr "Could not load the PDF."
 
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Не вдалося завантажити зведення"
+msgstr "Failed to load the summary"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Не вдалося завантажити файл"
@@ -445,6 +511,10 @@ msgstr "Could not upload the file"
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Could not change the interface language. Try again"
+
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Не вдалося перевірити, чи чекає на вас рішення по проекту. Оновіть сторінку."
+msgstr "Failed to check whether a project decision is waiting on you. Refresh the page."
 
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Не вдалося повернутися: {errMessage}"
@@ -463,6 +533,14 @@ msgstr "No active contract template for this role. Add one under Contracts"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Немає активної версії ToS. Створіть першу версію."
 msgstr "No active ToS version. Create the first version."
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
+msgid "Немає даних за період"
+msgstr "No data for this period"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Немає транзакцій у роботі. Додайте прибуток, щоб почати."
+msgstr "No transactions in progress. Add income to get started."
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Нова версія"
@@ -488,6 +566,14 @@ msgstr "Processing…"
 msgid "Оновити"
 msgstr "Refresh"
 
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Оновіть сторінку або спробуйте пізніше"
+msgstr "Refresh the page or try again later"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Оплатити"
+msgstr "Pay"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Опублікувати"
@@ -511,6 +597,10 @@ msgstr "Clear"
 msgid "Очистити зображення"
 msgstr "Clear image"
 
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Очікує вашого рішення"
+msgstr "Awaiting your decision"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Очікує виплати"
 msgstr "Awaiting payout"
@@ -519,6 +609,10 @@ msgstr "Awaiting payout"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Перегляд архівної версії v{0}"
 msgstr "Viewing archived version v{0}"
+
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Перейшли в «Найнято»"
+msgstr "Moved to «Hired»"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
@@ -604,6 +698,14 @@ msgstr "Search and run commands"
 msgid "Пошук країни..."
 msgstr "Search country..."
 
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Прибутки на валідації та виплати, що очікують"
+msgstr "Income pending validation and payouts awaiting completion"
+
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Проекти синьйорів команд"
+msgstr "Team seniors' projects"
+
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джун} few {# активні джуни} many {# активних джунів} other {# активних джунів}}</1> будуть відв'язані. Синьйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
@@ -613,7 +715,13 @@ msgstr "Project <0>{entityName}</0> will be archived, <1>{0, plural, one {# acti
 msgid "Проєкти"
 msgstr "Projects"
 
+#. placeholder {0}: item.proposedBy
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Пропонує {0}"
+msgstr "Proposed by {0}"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/routes/_authenticated/route.tsx
 msgid "Профіль"
 msgstr "Profile"
 
@@ -629,6 +737,14 @@ msgstr "Publishing…"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Розгорнути"
 msgstr "Expand"
+
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Розділ доступний лише для ролі «{roleLabel}»"
+msgstr "This section is available only to the «{roleLabel}» role"
+
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Розділи адміністратора"
+msgstr "Admin sections"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Розширена інформація доступна в таблиці приходів нижче"
@@ -673,9 +789,18 @@ msgstr "Rate"
 msgid "Статистика"
 msgstr "Statistics"
 
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Створити виплату"
+msgstr "Create payout"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Тип {mimeType} не підтримується"
 msgstr "Type {mimeType} is not supported"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Транзакції в роботі"
+msgstr "Transactions in progress"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Тут з'являться події за вашими проєктами, грошима та документами"
@@ -684,6 +809,12 @@ msgstr "Events about your projects, money, and documents will appear here"
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "У роботі"
 msgstr "In progress"
+
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Увійти як"
+msgstr "Log in as"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Усе, що чекає рішення"
@@ -708,6 +839,10 @@ msgstr "Finance"
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка дропа у відсотках"
 msgstr "Drop's share in percent"
+
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Частка невідома. Оновіть сторінку."
+msgstr "Share unknown. Refresh the page."
 
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка синьйора у відсотках"

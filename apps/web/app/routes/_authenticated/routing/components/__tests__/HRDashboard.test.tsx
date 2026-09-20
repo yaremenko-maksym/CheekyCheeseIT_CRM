@@ -12,8 +12,21 @@
  * (no real query client / router needed).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render as rtlRender, screen, type RenderOptions } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import type { HrSummaryDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3a (Task 1) blast-radius: `HRDashboard` now calls
+// `useLingui()` directly. Shadowing `render` wraps every call site with
+// `I18nTestProvider` in one place.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 const useHrSummaryMock = vi.fn()
 
@@ -48,7 +61,7 @@ describe('HRDashboard', () => {
     useHrSummaryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true })
     render(<HRDashboard />)
     expect(screen.getByTestId('hr-kpi-error')).toBeInTheDocument()
-    expect(screen.getByText('Не удалось загрузить сводку')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося завантажити зведення')).toBeInTheDocument()
   })
 
   describe('KPI cards (AC1 + AC4)', () => {
@@ -83,21 +96,21 @@ describe('HRDashboard', () => {
       render(<HRDashboard />)
       const cardEl = screen.getByTestId('kpi-open-interviews')
       expect(cardEl).toHaveTextContent('7')
-      expect(cardEl).toHaveTextContent('Открытые собеседования')
+      expect(cardEl).toHaveTextContent('Відкриті співбесіди')
     })
 
     it('shows hired-this-month count', () => {
       render(<HRDashboard />)
       const cardEl = screen.getByTestId('kpi-hired-month')
       expect(cardEl).toHaveTextContent('2')
-      expect(cardEl).toHaveTextContent('Нанято за месяц')
+      expect(cardEl).toHaveTextContent('Найнято за місяць')
     })
 
     it('shows active-projects count', () => {
       render(<HRDashboard />)
       const cardEl = screen.getByTestId('kpi-active-projects')
       expect(cardEl).toHaveTextContent('4')
-      expect(cardEl).toHaveTextContent('Активные проекты')
+      expect(cardEl).toHaveTextContent('Активні проекти')
     })
 
     it('shows active-projects = 0 when no projects', () => {

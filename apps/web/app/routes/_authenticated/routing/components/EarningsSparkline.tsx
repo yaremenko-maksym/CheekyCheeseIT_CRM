@@ -1,5 +1,8 @@
 import { useId, useMemo } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { formatDate } from '@crm/shared'
 import type { SeniorMonthlyEarningDto } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 
 /**
  * EarningsSparkline — self-contained SVG sparkline for the SENIOR dashboard
@@ -19,26 +22,20 @@ const PAD_X = 4
 const PAD_TOP = 6
 const PAD_BOTTOM = 6
 
-/** Short Russian month label for a `YYYY-MM` key (1-based month). */
-const MONTH_ABBR = [
-  'Янв',
-  'Фев',
-  'Мар',
-  'Апр',
-  'Май',
-  'Июн',
-  'Июл',
-  'Авг',
-  'Сен',
-  'Окт',
-  'Ноя',
-  'Дек',
-]
-
-function monthLabel(monthKey: string): string {
+/**
+ * task-i18n-stage3a (Task 1) — replaces the hand-rolled Russian `MONTH_ABBR`
+ * array with the shared, locale-aware `formatDate(..., 'month')`. Picks the
+ * 1st of the given `YYYY-MM` month (the day is irrelevant — only `month`
+ * is in the `Intl.DateTimeFormat` options for this style) in UTC, so the
+ * date never rolls over to the neighboring month in a negative-offset
+ * timezone.
+ */
+function monthLabel(monthKey: string, locale: Parameters<typeof formatDate>[1]): string {
   const parts = monthKey.split('-')
+  const y = Number(parts[0])
   const m = Number(parts[1])
-  return Number.isFinite(m) && m >= 1 && m <= 12 ? MONTH_ABBR[m - 1]! : ''
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return ''
+  return formatDate(new Date(Date.UTC(y, m - 1, 1)), locale, 'month')
 }
 
 interface EarningsSparklineProps {
@@ -50,6 +47,8 @@ interface EarningsSparklineProps {
 
 export function EarningsSparkline({ data, showLabels = true, className }: EarningsSparklineProps) {
   const gradientId = useId()
+  const { t } = useLingui()
+  const locale = useLocale()
 
   const { linePoints, areaPath, hasShape } = useMemo(() => {
     const n = data.length
@@ -88,7 +87,7 @@ export function EarningsSparkline({ data, showLabels = true, className }: Earnin
         className={'text-[11px] text-muted-foreground ' + (className ?? '')}
         data-testid="earnings-sparkline-empty"
       >
-        Нет данных за период
+        <Trans>Немає даних за період</Trans>
       </div>
     )
   }
@@ -100,7 +99,7 @@ export function EarningsSparkline({ data, showLabels = true, className }: Earnin
         preserveAspectRatio="none"
         className="h-14 w-full text-primary"
         role="img"
-        aria-label="История заработка по месяцам"
+        aria-label={t`Історія заробітку по місяцях`}
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -126,7 +125,7 @@ export function EarningsSparkline({ data, showLabels = true, className }: Earnin
           data-testid="earnings-sparkline-labels"
         >
           {data.map((d) => (
-            <span key={d.month}>{monthLabel(d.month)}</span>
+            <span key={d.month}>{monthLabel(d.month, locale)}</span>
           ))}
         </div>
       )}

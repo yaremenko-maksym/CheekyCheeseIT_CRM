@@ -2,11 +2,18 @@ import type { Locale } from './locales'
 
 const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
 
+/**
+ * task-i18n-stage3a (Task 1) — added a third `style` ('month') alongside the
+ * pre-existing 'short'/'long'. `EarningsSparkline.tsx`'s hand-rolled Russian
+ * `MONTH_ABBR` array (a `YYYY-MM` key → one of 12 literal RU strings) needed
+ * a locale-aware short month name with NO day/year — neither existing style
+ * fits (both include day+year). Additive only: existing callers that omit
+ * `style` or pass 'long' see byte-identical behavior.
+ */
 export function formatDate(
   value: Date | string,
   locale: Locale,
-  // Stryker disable next-line StringLiteral: the default is only ever compared against 'long' below, so any non-'long' default value is behaviorally identical for every caller that omits `style` — provably equivalent, not a coverage gap.
-  style: 'short' | 'long' = 'short',
+  style: 'short' | 'long' | 'month' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
   // Date passed through its own constructor keeps the same instant
@@ -17,7 +24,9 @@ export function formatDate(
   const opts: Intl.DateTimeFormatOptions =
     style === 'long'
       ? { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }
-      : { timeZone: 'UTC' }
+      : style === 'month'
+        ? { month: 'short', timeZone: 'UTC' }
+        : { timeZone: 'UTC' }
   return new Intl.DateTimeFormat(INTL_TAG[locale], opts).format(d)
 }
 

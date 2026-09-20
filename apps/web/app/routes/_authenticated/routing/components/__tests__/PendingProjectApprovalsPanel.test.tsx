@@ -10,12 +10,21 @@
  * `PendingItem` for `PROJECT_APPROVAL` carries no share field at all (see
  * the component's own "ASSUMPTION / KNOWN REGRESSION" doc).
  */
-import { act, render, screen } from '@testing-library/react'
+import { act, render as rtlRender, screen, type RenderOptions } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { PendingItem } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { PendingProjectApprovalsPanel, card } from '../PendingProjectApprovalsPanel'
+
+// task-i18n-stage3a (Task 1) blast-radius: `PendingProjectApprovalsPanel`
+// now calls `Trans`, which needs an `I18nProvider` ancestor. Shadowing
+// `render` wraps every call site with `I18nTestProvider` in one place.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
 
 let mockState: {
   mine: PendingItem[]
@@ -104,10 +113,11 @@ function renderPanel() {
   )
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mockState = { mine: [], isLoading: false, isError: false, dataUpdatedAt: 0 }
   mockApprove.mockReset()
   mockReject.mockReset()
+  await loadCatalog('uk')
 })
 
 describe('PendingProjectApprovalsPanel — card animation variants', () => {
@@ -131,7 +141,7 @@ describe('PendingProjectApprovalsPanel', () => {
     mockState = { ...mockState, isError: true }
     renderPanel()
     expect(screen.getByTestId('pending-project-approvals-error')).toHaveTextContent(
-      'Не удалось проверить, ждёт ли вас решение по проекту.',
+      'Не вдалося перевірити, чи чекає на вас рішення по проекту.',
     )
   })
 
@@ -164,7 +174,7 @@ describe('PendingProjectApprovalsPanel', () => {
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
     expect(screen.getByText('TechFlow Solutions')).toBeInTheDocument()
     // COPY-H-1 (fix-round 3): present tense — a displayName carries no gender.
-    expect(screen.getByText('Предлагает Ірина Савенко')).toBeInTheDocument()
+    expect(screen.getByText('Пропонує Ірина Савенко')).toBeInTheDocument()
     expect(screen.getByTestId('project-approval-approve-p1')).toBeInTheDocument()
     expect(screen.getByTestId('project-approval-reject-p1')).toBeInTheDocument()
     // Row container carries its OWN testid (keyed on subjectId), independent
@@ -180,7 +190,7 @@ describe('PendingProjectApprovalsPanel', () => {
     const { proposedBy: _unused, ...withoutProposedBy } = pendingItem({})
     mockState = { ...mockState, mine: [withoutProposedBy] }
     renderPanel()
-    expect(screen.queryByText(/^Предлагает/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Пропонує/)).not.toBeInTheDocument()
   })
 
   it('the widget mount never hides the Confirm/Reject labels — no `compact` prop, at any width', () => {
@@ -324,7 +334,7 @@ describe('PendingProjectApprovalsPanel — viewer share line', () => {
       dataUpdatedAt: 1,
     }
     renderPanel()
-    expect(screen.getByText('Ваша доля: 9% · синьор: Олексій Коваленко')).toBeInTheDocument()
+    expect(screen.getByText('Ваша частка: 9% · синьйор: Олексій Коваленко')).toBeInTheDocument()
   })
 
   it("renders a SENIOR viewer's own share with no senior name appended (they are the senior)", () => {
@@ -335,8 +345,8 @@ describe('PendingProjectApprovalsPanel — viewer share line', () => {
       dataUpdatedAt: 1,
     }
     renderPanel()
-    expect(screen.getByText('Ваша доля: 26%')).toBeInTheDocument()
-    expect(screen.queryByText(/синьор:/)).not.toBeInTheDocument()
+    expect(screen.getByText('Ваша частка: 26%')).toBeInTheDocument()
+    expect(screen.queryByText(/синьйор:/)).not.toBeInTheDocument()
   })
 
   it('falls back to the whole "Доля неизвестна" sentence when the server sent no figure', () => {
@@ -347,8 +357,8 @@ describe('PendingProjectApprovalsPanel — viewer share line', () => {
       dataUpdatedAt: 1,
     }
     renderPanel()
-    expect(screen.getByText('Доля неизвестна. Обновите страницу.')).toBeInTheDocument()
-    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
+    expect(screen.getByText('Частка невідома. Оновіть сторінку.')).toBeInTheDocument()
+    expect(screen.queryByText(/Ваша частка/)).not.toBeInTheDocument()
   })
 })
 

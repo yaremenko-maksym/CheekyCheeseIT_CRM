@@ -1,32 +1,41 @@
 import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useEffect } from 'react'
+import { useLingui } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/crm/StickyPageHeader'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
+import { useRoleLabel } from '@/components/ui/role-select'
 
 export const Route = createFileRoute('/_authenticated/admin')({
   component: AdminTemplatesRoot,
 })
 
-const ADMIN_TABS = [
-  { value: 'contracts', label: 'Контракты', ariaLabel: 'Контракты' },
-  { value: 'tos', label: 'Terms of Service', ariaLabel: 'Terms of Service' },
-  // Route key stays `wallet` (avoids route churn); the tab now covers the whole
-  // company config — wallet + requisites — so its label is «Компания».
-  { value: 'wallet', label: 'Компания', ariaLabel: 'Компания' },
-  { value: 'login-as', label: 'Войти как', ariaLabel: 'Войти как' },
-]
-
 function AdminTemplatesRoot() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
   const location = useRouterState({ select: (s) => s.location })
+  const { t } = useLingui()
+  const roleLabel = useRoleLabel('ADMIN')
+
+  // `AnimatedTabs`' `label`/`ariaLabel` are plain `string` props (not
+  // `MessageDescriptor`) — resolved here, at render time, instead of as a
+  // module-level constant (Global Constraints: `t` cannot run at module
+  // load).
+  const ADMIN_TABS = [
+    { value: 'contracts', label: t`Контракти`, ariaLabel: t`Контракти` },
+    { value: 'tos', label: 'Terms of Service', ariaLabel: 'Terms of Service' },
+    // Route key stays `wallet` (avoids route churn); the tab now covers the whole
+    // company config — wallet + requisites — so its label is «Компанія».
+    { value: 'wallet', label: t`Компанія`, ariaLabel: t`Компанія` },
+    { value: 'login-as', label: t`Увійти як`, ariaLabel: t`Увійти як` },
+  ]
 
   // Derive active tab from pathname: /admin/contracts → 'contracts'
   const activeTab =
-    ADMIN_TABS.find((t) => location.pathname.startsWith(`/admin/${t.value}`))?.value ?? 'contracts'
+    ADMIN_TABS.find((tab) => location.pathname.startsWith(`/admin/${tab.value}`))?.value ??
+    'contracts'
 
   // RBAC: non-ADMIN → redirect to dashboard (/) + toast
   useEffect(() => {
@@ -36,9 +45,13 @@ function AdminTemplatesRoot() {
       return
     }
     if (user.role !== 'ADMIN') {
-      toast.error('Доступ только для ADMIN')
+      toast.error(t`Розділ доступний лише для ролі «${roleLabel}»`)
       void navigate({ to: '/' })
     }
+    // `t`/`roleLabel` deliberately omitted from deps — both read the CURRENT
+    // locale on every call (see `i18n._()` singleton note in
+    // TosPdfPreview.tsx); including them would just re-run this redirect
+    // check on every locale switch for no behavioral difference.
   }, [user, isLoading, navigate])
 
   if (isLoading) {
@@ -64,7 +77,7 @@ function AdminTemplatesRoot() {
         <div
           className="mt-2 overflow-x-auto"
           role="navigation"
-          aria-label="Разделы администратора"
+          aria-label={t`Розділи адміністратора`}
           data-testid="admin-tabs-nav"
         >
           <AnimatedTabs
@@ -77,16 +90,16 @@ function AdminTemplatesRoot() {
           {/* Hidden links preserve data-testid compatibility for any E2E that targets tabs */}
           <span className="sr-only">
             <a data-testid="admin-templates-tab-contracts" href="/admin/contracts">
-              Контракты
+              {t`Контракти`}
             </a>
             <a data-testid="admin-templates-tab-tos" href="/admin/tos">
               Terms of Service
             </a>
             <a data-testid="admin-templates-tab-wallet" href="/admin/wallet">
-              Компания
+              {t`Компанія`}
             </a>
             <a data-testid="admin-templates-tab-login-as" href="/admin/login-as">
-              Войти как
+              {t`Увійти як`}
             </a>
           </span>
         </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Plus, Wallet } from 'lucide-react'
+import { Trans } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -104,9 +105,11 @@ export function InProgressPanel({
             {/* Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold">Транзакции в работе</p>
+                <p className="text-sm font-semibold">
+                  <Trans>Транзакції в роботі</Trans>
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Приходы на валидации и ожидающие выплаты
+                  <Trans>Прибутки на валідації та виплати, що очікують</Trans>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -119,7 +122,7 @@ export function InProgressPanel({
                     data-testid={`${testIdPrefix}-create-payout-batch`}
                   >
                     <Wallet className="h-4 w-4" aria-hidden="true" />
-                    Создать выплату
+                    <Trans>Створити виплату</Trans>
                   </Button>
                 )}
                 <Button
@@ -129,7 +132,7 @@ export function InProgressPanel({
                   data-testid={`${testIdPrefix}-add-income`}
                 >
                   <Plus className="h-4 w-4" aria-hidden="true" />
-                  Добавить приход
+                  <Trans>Додати прибуток</Trans>
                 </Button>
               </div>
             </div>
@@ -140,7 +143,7 @@ export function InProgressPanel({
                 className="text-xs text-muted-foreground py-2"
                 data-testid={`${testIdPrefix}-in-progress-empty`}
               >
-                Нет транзакций в работе. Добавьте приход, чтобы начать.
+                <Trans>Немає транзакцій у роботі. Додайте прибуток, щоб почати.</Trans>
               </p>
             ) : (
               <ul className="space-y-2" data-testid={`${testIdPrefix}-in-progress-list`}>
@@ -159,7 +162,7 @@ export function InProgressPanel({
                     >
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-tight truncate">
-                          {isPayout ? 'Выплата (USDT)' : (t.projectName ?? '—')}
+                          {isPayout ? <Trans>Виплата (USDT)</Trans> : (t.projectName ?? '—')}
                         </p>
                         <p className="text-xs text-muted-foreground leading-tight">
                           {fmtDate(t.createdAt)}
@@ -186,7 +189,7 @@ export function InProgressPanel({
                           data-testid={`${testIdPrefix}-in-progress-payout-${t.id}`}
                         >
                           <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
-                          Создать выплату
+                          <Trans>Створити виплату</Trans>
                         </Button>
                       )}
 
@@ -200,7 +203,7 @@ export function InProgressPanel({
                           data-testid={`${testIdPrefix}-pay-payout-${t.id}`}
                         >
                           <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
-                          Оплатить
+                          <Trans>Оплатити</Trans>
                         </Button>
                       )}
                     </li>

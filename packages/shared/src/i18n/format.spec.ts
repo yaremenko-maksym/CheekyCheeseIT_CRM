@@ -35,6 +35,15 @@ describe('format', () => {
     )
     expect(long).not.toBe(formatDate(d, 'en'))
   })
+  it("the month style is a short month name with no day/year, unlike 'short'/'long'", () => {
+    const d = new Date(Date.UTC(2026, 0, 1))
+    const month = formatDate(d, 'uk', 'month')
+    expect(month).toBe(
+      new Intl.DateTimeFormat('uk-UA', { month: 'short', timeZone: 'UTC' }).format(d),
+    )
+    expect(month).not.toBe(formatDate(d, 'uk'))
+    expect(month).not.toBe(formatDate(d, 'uk', 'long'))
+  })
   it('is pinned to UTC regardless of the host timezone', () => {
     // Mutating `process.env.TZ` at runtime and expecting `Intl` to pick up
     // the new zone is not portable: on the Linux CI runner (host TZ already
