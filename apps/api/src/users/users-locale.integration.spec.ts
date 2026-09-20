@@ -27,13 +27,17 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   createUserSchema,
+  LOCALE_COOKIE_NAME,
   sessionUserSchema,
   updateProfileSchema,
+  type Locale,
   type SessionUser,
 } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { Public } from '../auth/public.decorator'
+import { RequestLocale } from '../i18n/request-locale'
 import { DatabaseService } from '../database/database.service'
 import { ZodExceptionFilter } from '../zod-exception.filter'
 import { UsersService } from './users.service'
@@ -54,6 +58,15 @@ const JWT_SECRET = 'users-locale-integration-secret-32-chars-x'
 const TEST_TAG = `users-locale-spec-${Date.now()}`
 const JUNIOR_ID = '90000001-0000-4000-a000-000000000001'
 const ADMIN_ID = '90000001-0000-4000-a000-000000000002'
+// SR-M-3: seeded with `locale: 'en'` from the START (unlike JUNIOR_ID, which
+// starts 'uk' and is patched to 'en' by an earlier test) — this user's FIRST
+// `canActivate` call is a cache-MISS that reads 'en' straight off the row,
+// so the probe test below is not racing `JwtAuthGuard`'s own 60s cache
+// staleness (see `resolveCurrentUser`'s doc: a locale flip via PATCH is only
+// guaranteed fresh through `/auth/me`'s direct `findById`, NOT through the
+// guard's cached `request.user.locale` within the TTL window — that lag is
+// accepted, documented behaviour, not something this probe is meant to catch).
+const LOCALE_EN_ID = '90000001-0000-4000-a000-000000000003'
 // SR-M-2: a UUID deliberately NOT seeded into `users` — used to pin that the
 // real guard chain (see the APP_GUARD factory's own comment above) rejects a
 // structurally valid token for a row that does not exist.
@@ -175,9 +188,44 @@ class SentinelController {
   }
 }
 
+/**
+ * SR-M-3 (security-review PR #693 round 2): `@RequestLocale()` has no live
+ * consumer anywhere in `apps/api/src` (see the finding's own `git grep` —
+ * the only other hit is a comment in `jwt.guard.ts`), so the documented
+ * precedence (`request-locale.ts`'s own doc: user → cookie → Accept-Language)
+ * was never actually exercised through the decorator's real seam — the
+ * `getRequest<LocaleSource>()` cast in `RequestLocale` connects to whatever
+ * `JwtAuthGuard.resolveCurrentUser` happens to assign to `request.user`
+ * TODAY, with nothing (types or tests) pinning that the two stay in sync.
+ * These two routes are that pin, run through the REAL guard chain (the
+ * SR-M-2 `APP_GUARD` factory above) rather than a hand-built `LocaleSource`.
+ *
+ * Two routes, not one, because marking the WHOLE probe `@Public()` would
+ * make `canActivate` return before `request.user` is ever assigned (see
+ * `canActivate`'s `if (isPublic) return true` — it skips token verification
+ * entirely), which would make the "authenticated user's locale wins" case
+ * untestable. So: the default (guarded) route proves the user branch, the
+ * `@Public()` route proves the cookie/Accept-Language fallback chain for a
+ * request that never reaches `resolveCurrentUser` at all — both real
+ * scenarios `resolveRequestLocale`'s doc claims to handle.
+ */
+@Controller('__locale-probe')
+class LocaleProbeController {
+  @Get()
+  probe(@RequestLocale() locale: Locale) {
+    return { locale }
+  }
+
+  @Public()
+  @Get('public')
+  probePublic(@RequestLocale() locale: Locale) {
+    return { locale }
+  }
+}
+
 @Module({
   imports: [TestDatabaseModule, JwtModule.register({ secret: JWT_SECRET })],
-  controllers: [SentinelController],
+  controllers: [SentinelController, LocaleProbeController],
   providers: [
     Reflector,
     {
@@ -270,6 +318,19 @@ describe.skipIf(!hasDatabaseUrl())(
           role: 'ADMIN',
         })
         .onConflictDoNothing()
+      // SR-M-3: seeded with locale: 'en' explicitly (not the default, not
+      // patched later) — see LOCALE_EN_ID's own doc above for why this
+      // avoids racing JwtAuthGuard's 60s cache TTL.
+      await db
+        .insert(users)
+        .values({
+          id: LOCALE_EN_ID,
+          email: `${TEST_TAG}-locale-en@test.spec`,
+          displayName: 'Locale English',
+          role: 'JUNIOR',
+          locale: 'en',
+        })
+        .onConflictDoNothing()
     }, 30_000)
 
     afterAll(async () => {
@@ -277,6 +338,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // is sufficient cleanup (also covers rows POST /users inserted).
       await db.delete(users).where(eq(users.email, `${TEST_TAG}-junior@test.spec`))
       await db.delete(users).where(eq(users.email, `${TEST_TAG}-admin@test.spec`))
+      await db.delete(users).where(eq(users.email, `${TEST_TAG}-locale-en@test.spec`))
       await db.delete(users).where(eq(users.email, `${TEST_TAG}-created@test.spec`))
       // Defensive: the 401 test above should never let this row exist, but
       // clean it up unconditionally so a failing assertion there doesn't
@@ -374,6 +436,55 @@ describe.skipIf(!hasDatabaseUrl())(
         },
       })
       expect(res.statusCode).toBe(401)
+    })
+
+    // SR-M-3 (security-review PR #693 round 2): pins the documented priority
+    // (user > cookie > Accept-Language > 'uk') through the REAL guard chain,
+    // not through `resolveRequestLocale` called directly with a hand-built
+    // `LocaleSource` — see `LocaleProbeController`'s own doc above for why
+    // this is the seam that was previously unverified.
+    it('user > cookie > Accept-Language: authenticated locale wins over a conflicting cookie and header', async () => {
+      // LOCALE_EN_ID (not JUNIOR_ID) — see that const's own doc for why a
+      // PATCH-then-probe on JUNIOR_ID would race JwtAuthGuard's cache TTL
+      // instead of pinning the priority this test is actually about.
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/__locale-probe',
+        cookies: { jwt: tokenFor(LOCALE_EN_ID, 'JUNIOR'), [LOCALE_COOKIE_NAME]: 'uk' },
+        headers: { 'accept-language': 'uk-UA' },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().locale).toBe('en')
+    })
+
+    it('cookie > Accept-Language: no JWT, cookie wins over a conflicting header', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/__locale-probe/public',
+        cookies: { [LOCALE_COOKIE_NAME]: 'en' },
+        headers: { 'accept-language': 'uk-UA' },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().locale).toBe('en')
+    })
+
+    it('Accept-Language fallback: no JWT, no cookie, first supported candidate wins', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/__locale-probe/public',
+        headers: { 'accept-language': 'de,en;q=0.8' },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().locale).toBe('en')
+    })
+
+    it('default: no JWT, no cookie, no supported Accept-Language falls back to uk', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/__locale-probe/public',
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().locale).toBe('uk')
     })
   },
 )
