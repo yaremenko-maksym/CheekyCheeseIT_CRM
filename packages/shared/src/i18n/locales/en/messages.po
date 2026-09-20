@@ -58,6 +58,10 @@ msgstr "<0>{entityName}</0> will be archived. There are no linked entities."
 msgid "<0>{entityName}</0>{0} — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
 msgstr "<0>{entityName}</0>{0} are a linked pair — you cannot remove just one. Will be archived: {roleGenitive} profile, the team, and all its projects ({1, plural, one {# project} other {# projects}}{2})."
 
+#: apps/web/app/components/ui/amount-currency-input.tsx
+msgid "ERC-20, прив'язаний до долара"
+msgstr "ERC-20, pegged to the dollar"
+
 #: apps/web/app/components/ui/role-select.tsx
 msgid "HR"
 msgstr "HR"

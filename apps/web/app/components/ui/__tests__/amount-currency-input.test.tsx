@@ -11,8 +11,16 @@ import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3a (Task 1) blast-radius: `AmountCurrencyInput` now calls
+// `useLocale()` (`useLingui()` under the hood) for its date/money
+// formatting — every render needs an `I18nTestProvider` ancestor.
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('@/lib/axios', () => ({
   api: { get: vi.fn(() => Promise.reject(new Error('not used — currency=USDT needs no rate'))) },
@@ -46,6 +54,7 @@ function renderInput(onAmountChange: (v: string) => void) {
     <QueryClientProvider client={queryClient}>
       <AmountHarness onAmountChange={onAmountChange} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 

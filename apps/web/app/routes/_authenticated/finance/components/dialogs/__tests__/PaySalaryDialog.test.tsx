@@ -27,6 +27,7 @@
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 vi.mock('@/lib/axios', () => ({
@@ -71,12 +72,21 @@ const TX = {
   createdAt: '2026-05-01T00:00:00.000Z',
 } as never
 
+// task-i18n-stage3a (Task 1) blast-radius: `PaySalaryDialog` renders the
+// shared `AmountCurrencyInput` (`components/ui/`), which now calls
+// `useLocale()`/`useLingui()` — outside this file's own perimeter
+// (`_authenticated/finance/**` migrates in a later wave).
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderDialog() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
       <PaySalaryDialog tx={TX} onClose={() => {}} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 

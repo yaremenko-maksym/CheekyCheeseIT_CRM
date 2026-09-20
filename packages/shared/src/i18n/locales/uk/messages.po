@@ -58,6 +58,10 @@ msgstr "<0>{entityName}</0> буде архівований. Пов'язаних
 msgid "<0>{entityName}</0>{0} — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
 msgstr "<0>{entityName}</0>{0} — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
 
+#: apps/web/app/components/ui/amount-currency-input.tsx
+msgid "ERC-20, прив'язаний до долара"
+msgstr "ERC-20, прив'язаний до долара"
+
 #: apps/web/app/components/ui/role-select.tsx
 msgid "HR"
 msgstr "HR"

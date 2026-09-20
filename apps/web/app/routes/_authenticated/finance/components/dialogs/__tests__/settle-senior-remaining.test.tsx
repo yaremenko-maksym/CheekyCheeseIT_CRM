@@ -24,7 +24,8 @@
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 import type { TransactionDto } from '@crm/shared'
 
@@ -70,12 +71,21 @@ const BASE_TX = {
   updatedAt: '2026-08-01T00:00:00.000Z',
 } as unknown as TransactionDto
 
+// task-i18n-stage3a (Task 1) blast-radius: `SettleSeniorPayoutDialog`
+// renders the shared `AmountCurrencyInput` (`components/ui/`), which now
+// calls `useLocale()`/`useLingui()` — outside this file's own perimeter
+// (`_authenticated/finance/**` migrates in a later wave).
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderDialog(tx: TransactionDto) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
       <SettleSeniorPayoutDialog tx={tx} onClose={() => {}} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 
@@ -96,6 +106,7 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
       <QueryClientProvider client={qc}>
         <SettleSeniorPayoutDialog tx={settled} onClose={() => {}} />
       </QueryClientProvider>,
+      { wrapper: I18nTestProvider },
     )
     await screen.findByTestId('settle-senior-remaining')
 

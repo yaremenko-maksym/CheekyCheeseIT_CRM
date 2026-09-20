@@ -23,6 +23,7 @@
  */
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const RATES = { usdUah: '41.50', usdtUah: '41.50', eurUah: '45.00', date: '20260805' }
@@ -78,12 +79,21 @@ const TX_USD = {
 // 30 000 UAH ÷ 41.50 = 722.891566… → the field is prefilled to 2 decimals.
 const EXPECTED_USDT = '722.89'
 
+// task-i18n-stage3a (Task 1) blast-radius: `PaySalaryDialog` renders the
+// shared `AmountCurrencyInput` (`components/ui/`), which now calls
+// `useLocale()`/`useLingui()` — outside this file's own perimeter
+// (`_authenticated/finance/**` migrates in a later wave).
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderDialog(tx: unknown = TX_UAH) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
       <PaySalaryDialog tx={tx as never} onClose={() => {}} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 
