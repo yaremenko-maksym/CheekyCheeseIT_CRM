@@ -170,7 +170,7 @@ export function decideDelivery(type: string, ctx: DeliveryContext): SendDecision
     // уведомления).
     if (ctx.subjectState === undefined) {
       throw new Error(
-        `decideDelivery: subjectState обязателен для action-required типа "${type}", но не передан`,
+        `decideDelivery: subjectState is required for action-required type "${type}" but was not passed`,
       )
     }
     if (ctx.subjectState !== 'active') {
