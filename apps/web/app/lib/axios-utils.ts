@@ -174,12 +174,26 @@ function translateApiError(
   // `descriptor.message` is `string | undefined`) does not type-check even
   // though every real registry entry sets it. Build the options object only
   // when there is something to put in it.
-  // Stryker disable next-line ConditionalExpression: the `: undefined` branch
-  // requires a registry entry with no `message` — impossible through the
-  // public surface, since every `API_ERROR_MESSAGES[code]` descriptor sets
-  // one, an invariant `api-errors.spec.ts` pins for all eight codes
-  // ("every code has a message descriptor... message.length > 0"). No
-  // assertion here could distinguish this from a passing-by-construction test.
+  // Stryker disable next-line ConditionalExpression: this ONE directive
+  // silences BOTH mutants a ternary produces (forced-true, forced-false) —
+  // Stryker groups by line+mutator, it cannot suppress one and not the
+  // other. Reasoning per mutant, so a future reader can tell this was a
+  // choice, not an oversight:
+  //   - forced-true (`options` always `{ message: ... }`): survives on
+  //     purpose. Reaching the `: undefined` branch needs a registry entry
+  //     with no `message` — impossible through the public surface, since
+  //     every `API_ERROR_MESSAGES[code]` descriptor sets one, an invariant
+  //     `api-errors.spec.ts` pins for all eight codes ("every code has a
+  //     message descriptor... message.length > 0"). No assertion here
+  //     could distinguish this from a passing-by-construction test.
+  //   - forced-false (`options` always `undefined`): NOT genuinely
+  //     unobservable — verified by hand that `getApiErrorMessage` /
+  //     `getUserFacingErrorMessage`'s envelope tests below fail against it
+  //     (the empty-catalog `i18n.load('uk', {})` setup falls through to
+  //     `id` instead of the Ukrainian text once `options.message` is gone).
+  //     Suppressed only as an unavoidable side effect of sharing this line
+  //     with the mutant above — the behavior stays covered by those tests,
+  //     Stryker just no longer re-verifies it on every run.
   const options = descriptor.message !== undefined ? { message: descriptor.message } : undefined
   return i18n._(descriptor.id, params, options)
 }
