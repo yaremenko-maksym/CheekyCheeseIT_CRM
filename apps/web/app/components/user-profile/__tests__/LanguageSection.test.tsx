@@ -89,13 +89,22 @@ describe('LanguageSection', () => {
     await user.click(screen.getByTestId('locale-option-en'))
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    // Fixed catalog string (copy-review COPY-H-1, PR #696 fix-round 1) —
+    // NOT whatever `getApiErrorMessage` would have returned. `uk` is the
+    // source locale, so the compiled catalog's msgstr equals the msgid.
+    expect(toast.error).toHaveBeenCalledWith(
+      'Не вдалося змінити мову інтерфейсу. Спробуйте ще раз.',
+    )
     expect(i18n.locale).toBe('uk')
     expect(invalidateMock).not.toHaveBeenCalled()
   })
 
-  it('the two locale buttons expose the radiogroup/radio a11y contract', () => {
+  it('the two locale buttons expose the radiogroup/radio a11y contract, with an accessible group name', () => {
     render(<LanguageSection current="uk" />, { wrapper: Providers })
-    expect(screen.getByRole('radiogroup')).toBeInTheDocument()
+    // Accessible name comes from `SegmentedToggle`'s `ariaLabel` prop, fed
+    // through the `t` macro (COPY-M-1/CR-M-1, PR #696 fix-round 1) — a
+    // dropped/empty catalog string here would leave the radiogroup unnamed.
+    expect(screen.getByRole('radiogroup', { name: 'Мова інтерфейсу' })).toBeInTheDocument()
     expect(screen.getAllByRole('radio')).toHaveLength(2)
   })
 

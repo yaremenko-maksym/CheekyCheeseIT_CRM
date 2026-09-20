@@ -44,6 +44,7 @@ msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "You're signed in as another employee — only they can decide on the project"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
+#: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
 msgstr "Interface language"
 
@@ -52,7 +53,15 @@ msgstr "Interface language"
 msgid "api-error.GENERIC"
 msgstr "Something went wrong. Please try again"
 
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз."
+msgstr "Could not change the interface language. Try again."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "No active contract template for this role. Add one under Contracts"
+
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Переклад інтерфейсу ще триває — частина екранів поки що російською."
+msgstr "The interface is still being translated — some screens are still in Russian."

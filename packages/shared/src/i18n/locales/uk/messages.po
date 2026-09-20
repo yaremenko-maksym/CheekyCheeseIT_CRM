@@ -44,6 +44,7 @@ msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
+#: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
 msgstr "Мова інтерфейсу"
 
@@ -52,7 +53,15 @@ msgstr "Мова інтерфейсу"
 msgid "api-error.GENERIC"
 msgstr "Не вдалося виконати дію. Спробуйте ще раз"
 
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз."
+msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
+
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Переклад інтерфейсу ще триває — частина екранів поки що російською."
+msgstr "Переклад інтерфейсу ще триває — частина екранів поки що російською."
