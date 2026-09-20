@@ -2213,7 +2213,7 @@ export async function rejectProjectViaAPI(
  * Returns the created project id + dropId for downstream assertions.
  *
  * task-project-draft-status: the created project starts DRAFT and refuses
- * income (400 «Проект ещё не подтверждён») until both the senior and the
+ * income (400 `PROJECT_NOT_ACTIVE`) until both the senior and the
  * drop confirm it. By default this helper drives it through that real
  * confirmation flow (POST /api/projects/:id/approve as each approver, via
  * `approveProjectViaAPI`) before returning, so every EXISTING call site

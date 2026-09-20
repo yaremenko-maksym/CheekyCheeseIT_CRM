@@ -11,7 +11,7 @@
  * REAL, untouched `resolveSeniorShare` (a pure function), not against a
  * mock echoing back whatever the test configured.
  */
-import { ForbiddenException } from '@nestjs/common'
+import { ForbiddenException, HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { ARCHIVED_ENTITLEMENT_MESSAGE } from './archived-entitlement'
@@ -279,9 +279,9 @@ describe('UsersService — SR-M-6: uniform lock order (users → approvals) on e
     // weaker choice here: `Error.prototype.message` is non-enumerable, so it
     // matches vacuously — verified by the mutation gate, which kept reporting
     // this line as surviving until the assertion was put back.)
-    await expect(h.service.cancelSeniorShareChange('senior-1', adminUser)).rejects.toThrow(
-      'Пользователь не найден',
-    )
+    await expect(h.service.cancelSeniorShareChange('senior-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
     // The guard runs BEFORE approvals is touched.
     expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
   })
@@ -292,7 +292,7 @@ describe('UsersService — SR-M-6: uniform lock order (users → approvals) on e
     // See the cancel twin above for why substring containment is enough here.
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'Слишком много', seniorUser),
-    ).rejects.toThrow('Пользователь не найден')
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })
 })
@@ -482,9 +482,9 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
   it('approve: throws NotFoundException when the row-lock select finds nothing', async () => {
     const h = buildHarness()
     h.setSelectForUpdateRows([])
-    await expect(h.service.approveSeniorShareChange('senior-1', seniorUser)).rejects.toThrow(
-      'Пользователь не найден',
-    )
+    await expect(h.service.approveSeniorShareChange('senior-1', seniorUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
   })
 
   // task-648-fix-round-1 (SR-M-3, AC9 mutation-gate gap-fill): the write
@@ -518,7 +518,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     h.setEmptyReturning()
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'причина', seniorUser),
-    ).rejects.toThrow('Пользователь не найден')
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
   })
 
   // task-648-fix-round-1 (SR-M-3, AC9 mutation-gate gap-fill): same
@@ -586,9 +586,11 @@ describe('UsersService.adminUpdateUser — proposeSeniorShareChangeInTx branches
 
   it('throws BadRequestException when seniorSharePercent changes but no actorId is supplied', async () => {
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
-    await expect(h.service.adminUpdateUser('senior-1', { seniorSharePercent: 80 })).rejects.toThrow(
-      'Смена доли требует определённого инициатора запроса',
-    )
+    await expect(
+      h.service.adminUpdateUser('senior-1', { seniorSharePercent: 80 }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SHARE_CHANGE_REQUESTER_REQUIRED' }),
+    })
   })
 })
 
@@ -612,9 +614,11 @@ describe('UsersService.changeSalary — proposeSeniorShareChangeInTx branch', ()
 
   it('throws BadRequestException when seniorSharePercent changes but no actorId is supplied', async () => {
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
-    await expect(h.service.changeSalary('senior-1', { seniorSharePercent: 80 })).rejects.toThrow(
-      'Смена доли требует определённого инициатора запроса',
-    )
+    await expect(
+      h.service.changeSalary('senior-1', { seniorSharePercent: 80 }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SHARE_CHANGE_REQUESTER_REQUIRED' }),
+    })
   })
 
   // task-648-fix-round-4 (SR-L-5). `adminUpdateUser` gates the propose on
@@ -683,9 +687,9 @@ describe('UsersService.changeSalary — proposeSeniorShareChangeInTx branch', ()
 describe('UsersService.cancelSeniorShareChange — RBAC + actual effect', () => {
   it('rejects a SENIOR caller (RBAC: only ADMIN may cancel a base-share proposal)', async () => {
     const h = buildHarness()
-    await expect(h.service.cancelSeniorShareChange('senior-1', seniorUser)).rejects.toThrow(
-      'Отменить предложение по доле может только ADMIN',
-    )
+    await expect(h.service.cancelSeniorShareChange('senior-1', seniorUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SHARE_CANCEL_ADMIN_ONLY' }),
+    })
     expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
   })
 

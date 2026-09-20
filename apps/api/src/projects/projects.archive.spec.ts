@@ -6,12 +6,7 @@
  *
  * Spec: docs/specs/2026-05-21-users-archive-refactor-design.md §5.2 + §6.3
  */
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common'
+import { ConflictException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -417,7 +412,9 @@ describe('ProjectsService.archive', () => {
   it('throws NotFoundException for missing project', async () => {
     const store = emptyStore()
     const { service } = buildService(store)
-    await expect(service.archive('ghost', adminUser)).rejects.toThrow(NotFoundException)
+    await expect(service.archive('ghost', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+    })
   })
 
   it('throws BadRequestException if already archived', async () => {
@@ -425,7 +422,9 @@ describe('ProjectsService.archive', () => {
     seedActiveSeniorTeamProject(store)
     ;(store.projects[0] as ProjectFixture).archivedAt = new Date()
     const { service } = buildService(store)
-    await expect(service.archive('proj-1', adminUser)).rejects.toThrow(BadRequestException)
+    await expect(service.archive('proj-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_ALREADY_ARCHIVED' }),
+    })
   })
 })
 
@@ -507,14 +506,18 @@ describe('ProjectsService.unarchive', () => {
   it('throws NotFoundException for missing project', async () => {
     const store = emptyStore()
     const { service } = buildService(store)
-    await expect(service.unarchive('ghost', adminUser, false)).rejects.toThrow(NotFoundException)
+    await expect(service.unarchive('ghost', adminUser, false)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+    })
   })
 
   it('throws BadRequestException when project is not archived', async () => {
     const store = emptyStore()
     seedActiveSeniorTeamProject(store)
     const { service } = buildService(store)
-    await expect(service.unarchive('proj-1', adminUser, false)).rejects.toThrow(BadRequestException)
+    await expect(service.unarchive('proj-1', adminUser, false)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_ARCHIVED' }),
+    })
   })
 
   it('throws ForbiddenException for non-ADMIN', async () => {

@@ -724,18 +724,18 @@ describe('ProjectsService.approveSeniorShareChange — guards + exact call shape
     const h = buildHarness()
     await expect(
       h.service.approveSeniorShareChange('proj-1', { ...seniorUser, impersonatorId: 'admin-1' }),
-    ).rejects.toThrow(
-      'Пока вы вошли как другой сотрудник, подтвердить его долю нельзя — это должен сделать он сам',
-    )
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SHARE_APPROVE_IMPERSONATION_FORBIDDEN' }),
+    })
     expect(h.approvals.approveInTx).not.toHaveBeenCalled()
   })
 
   it('throws NotFoundException when the row-lock select finds nothing (row vanished)', async () => {
     const h = buildHarness()
     h.setSelectForUpdateRows([])
-    await expect(h.service.approveSeniorShareChange('proj-1', seniorUser)).rejects.toThrow(
-      'Проект не найден',
-    )
+    await expect(h.service.approveSeniorShareChange('proj-1', seniorUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+    })
   })
 
   it('locks the row FOR UPDATE (not a plain select) before reading the pending value', async () => {
@@ -782,9 +782,9 @@ describe('ProjectsService.rejectSeniorShareChange — impersonation guard', () =
         ...seniorUser,
         impersonatorId: 'admin-1',
       }),
-    ).rejects.toThrow(
-      'Пока вы вошли как другой сотрудник, отклонить его долю нельзя — это должен сделать он сам',
-    )
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SHARE_REJECT_IMPERSONATION_FORBIDDEN' }),
+    })
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })
 })
@@ -948,9 +948,9 @@ describe('ProjectsService.update — SR-L-4: pending lookup gated by role, like 
 describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () => {
   it('rejects a SENIOR caller (RBAC: only ADMIN/ACCOUNTANT may cancel a proposal they did not open)', async () => {
     const h = buildHarness()
-    await expect(h.service.cancelSeniorShareChange('proj-1', seniorUser)).rejects.toThrow(
-      'Отменить предложение по доле может только ADMIN или ACCOUNTANT',
-    )
+    await expect(h.service.cancelSeniorShareChange('proj-1', seniorUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY' }),
+    })
     expect(h.approvals.cancelInTx).not.toHaveBeenCalled()
   })
 
@@ -1082,9 +1082,9 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
   it('throws NotFoundException with the exact message when the project vanished before the lock', async () => {
     const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
     h.setSelectForUpdateRows([])
-    await expect(h.service.cancelSeniorShareChange('proj-1', adminUser)).rejects.toThrow(
-      'Проект не найден',
-    )
+    await expect(h.service.cancelSeniorShareChange('proj-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+    })
     // `cancelInTx` ran inside the transaction that is now unwinding: the
     // approval row is NOT withdrawn in the database, because the throw
     // reaches `db.transaction`'s ROLLBACK. Asserted on the write that would

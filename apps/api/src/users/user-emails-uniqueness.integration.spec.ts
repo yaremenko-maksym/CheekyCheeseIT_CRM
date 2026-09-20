@@ -21,7 +21,6 @@
  * SEED namespace: a17a0003-****.
  */
 
-import { BadRequestException, ConflictException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
@@ -145,7 +144,9 @@ describe.skipIf(!hasDatabaseUrl())(
           actorRole: 'ADMIN',
           actorId: 'actor-test-id',
         }),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
+      })
 
       // No half-created account: no users row, no user_emails row, for the
       // attempted email.
@@ -173,7 +174,9 @@ describe.skipIf(!hasDatabaseUrl())(
           actorRole: 'ADMIN',
           actorId: 'actor-test-id',
         }),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
+      })
 
       // Rejected BEFORE the users insert — the work email address for this
       // attempt was never persisted either (both-or-nothing).
@@ -245,7 +248,9 @@ describe.skipIf(!hasDatabaseUrl())(
           actorRole: 'ADMIN',
           actorId: 'actor-test-id',
         }),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
+      })
 
       const userRow = await dbSvc.db.query.users.findFirst({
         where: eq(users.email, 'uniq-bob@test.spec'),
@@ -263,7 +268,9 @@ describe.skipIf(!hasDatabaseUrl())(
           actorRole: 'ADMIN',
           actorId: 'actor-test-id',
         }),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
+      })
 
       const userRow = await dbSvc.db.query.users.findFirst({
         where: eq(users.email, 'uniq-carol@test.spec'),
@@ -284,7 +291,9 @@ describe.skipIf(!hasDatabaseUrl())(
           actorRole: 'ADMIN',
           actorId: 'actor-test-id',
         }),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
+      })
 
       const conflictRows = await dbSvc.db
         .select()
@@ -334,7 +343,12 @@ describe.skipIf(!hasDatabaseUrl())(
     it("SR-M-2/COPY-M-15: admin setting a user's WORK email to that SAME user's own PERSONAL email is rejected with a clear 400, before any write is attempted", async () => {
       await expect(
         usersService.adminUpdateUser(EXISTING_USER_ID, { email: EXISTING_PERSONAL_EMAIL }, null),
-      ).rejects.toBeInstanceOf(BadRequestException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL',
+          statusCode: 400,
+        }),
+      })
 
       // `users.email` still has the ORIGINAL address — the check that
       // rejects this runs before `updateUserRow`/`upsertWorkEmail` are ever

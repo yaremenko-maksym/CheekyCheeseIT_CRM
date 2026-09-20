@@ -9,6 +9,10 @@ import {
   apiErrorEnvelopeSchema,
   type ParamsFor,
 } from './api-errors'
+import { AUTH_USERS_PROJECTS_ERROR_CODES } from './api-errors/auth-users-projects'
+import { BASE_ERROR_CODES } from './api-errors/base'
+import { DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_CODES } from './api-errors/documents-contracts-notifications'
+import { FINANCE_INVOICES_ERROR_CODES } from './api-errors/finance-invoices'
 
 // SR-M-1 (PR #694 round 1) — the `en` catalog string for each code, read
 // straight off disk rather than via `@crm/shared`'s compiled catalog
@@ -27,6 +31,35 @@ function tokenSet(text: string): Set<string> {
 }
 
 describe('api-errors', () => {
+  // task-i18n-stage4-task1 (barrel split, SPEC-M-1) — the barrel
+  // (`./api-errors/index.ts`) spreads four module arrays into one
+  // `API_ERROR_CODES`; a `spread` silently lets a later module's key
+  // clobber an earlier one's (last-write-wins, `as const` catches nothing
+  // here — it only asserts the LITERAL type, not cross-array uniqueness).
+  // Two modules defining the same code would both typecheck and both
+  // pass every other test in this file (the clobbered message is simply
+  // never read), so this is the only place duplication across module
+  // files gets caught at all.
+  it('no error code is declared in more than one module file', () => {
+    const perModule = [
+      ['base', BASE_ERROR_CODES],
+      ['auth-users-projects', AUTH_USERS_PROJECTS_ERROR_CODES],
+      ['finance-invoices', FINANCE_INVOICES_ERROR_CODES],
+      ['documents-contracts-notifications', DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_CODES],
+    ] as const
+    const seenIn = new Map<string, string>()
+    for (const [moduleName, codes] of perModule) {
+      for (const code of codes) {
+        const owner = seenIn.get(code)
+        expect(owner, `${code} declared in both ${owner} and ${moduleName}`).toBeUndefined()
+        seenIn.set(code, moduleName)
+      }
+    }
+    // The combined barrel must be exactly the concatenation — catches a
+    // module file that exists but was never spread into the barrel too.
+    expect(seenIn.size).toBe(API_ERROR_CODES.length)
+  })
+
   it('every code has a message descriptor with an explicit id matching the code', () => {
     for (const code of API_ERROR_CODES) {
       expect(API_ERROR_MESSAGES[code].id).toBe(`api-error.${code}`)

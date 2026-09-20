@@ -99,7 +99,9 @@ describe('AC1 — addMember refuses an archived user', () => {
   it('refuses, and never reaches the INSERT that opens the accrual subscription', async () => {
     const svc = makeService({ ...juniorRow, archivedAt: new Date('2026-01-31T00:00:00.000Z') })
 
-    await expect(svc.addMember(PROJECT_ID, USER_ID, ADMIN)).rejects.toThrow(/добавить в проект/)
+    await expect(svc.addMember(PROJECT_ID, USER_ID, ADMIN)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ARCHIVED_USER_CANNOT_JOIN_PROJECT' }),
+    })
   })
 
   it('CONTROL: the identical call for an ACTIVE user reaches the INSERT', async () => {

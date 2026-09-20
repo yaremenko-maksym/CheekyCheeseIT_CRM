@@ -77,7 +77,7 @@ import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
-import { getApiErrorCode } from '@/lib/axios-utils'
+import { getApiErrorCode, getApiErrorMessage } from '@/lib/axios-utils'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
 import {
@@ -393,15 +393,18 @@ export function UserDialog(props: UserDialogProps) {
   // the email and resubmit. Other HTTP codes surface the backend message
   // or a generic fallback. Shared between create-user, create-drop, and
   // (rarely) update — same `/users` endpoint surface.
+  // task-i18n-stage4-task1: was a hardcoded `status === 409` check returning
+  // a Russian literal, unconditionally — regardless of which 409 the
+  // backend actually sent (userConflict/HR-floor/other 409s all read the
+  // same text). `getApiErrorMessage` reads the `code` from the envelope
+  // (apiError()) and translates it through the Lingui catalog; it falls
+  // back to a real backend-provided message, then to `fallback`, so every
+  // caller below keeps working even for a 409 (or any other status) that
+  // is not `USER_EMAIL_EXISTS`.
   const explainUserMutationError = (
     err: AxiosError<{ message?: string }>,
     fallback: string,
-  ): string => {
-    if (err?.response?.status === 409) {
-      return 'Пользователь с таким email уже существует'
-    }
-    return err?.response?.data?.message ?? fallback
-  }
+  ): string => getApiErrorMessage(err, fallback)
 
   const createMutation = useMutation({
     mutationFn: (data: CreateUserDto) => api.post<UserProfileDto>('/users', data),

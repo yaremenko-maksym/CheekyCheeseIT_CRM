@@ -497,10 +497,8 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect(res.statusCode, 'dropId pointing to a non-DROP user must return 400').toBe(400)
 
-      const body = res.json() as { message?: string }
-      expect(body.message, "400 body must contain 'User is not a DROP'").toContain(
-        'User is not a DROP',
-      )
+      const body = res.json() as { code?: string }
+      expect(body.code, '400 body code must be USER_NOT_DROP').toBe('USER_NOT_DROP')
     })
 
     // ── DROP-CRT-4: Archived DROP user → 400 'Drop is archived' ──────────────────
@@ -514,8 +512,8 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect(res.statusCode, 'Archived DROP user as dropId must return 400').toBe(400)
 
-      const body = res.json() as { message?: string }
-      expect(body.message, "400 body must contain 'Drop is archived'").toContain('Drop is archived')
+      const body = res.json() as { code?: string }
+      expect(body.code, '400 body code must be DROP_ARCHIVED').toBe('DROP_ARCHIVED')
     })
 
     // ── DROP-CRT-5a: dropId: null → 201/200, column NULL ─────────────────────────
@@ -697,14 +695,15 @@ describe.skipIf(!hasDatabaseUrl())(
         'HR of a foreign team must be denied (403) — target senior not in their teams',
       ).toBe(403)
       // Distinct from the DROP-CRT-7a-d outer role gate: this 403 comes from
-      // `assertHrCanManageProject`'s own message, NOT the bare ForbiddenException()
-      // default. Pinning it proves the rejection is really the HR-scoping branch
-      // and not a false-positive from some other 403 path with the same status.
-      const body = res.json() as { message?: string }
+      // `assertHrCanManageProject`'s own code, NOT the bare ForbiddenException()
+      // default (which carries no `code` at all). Pinning it proves the
+      // rejection is really the HR-scoping branch and not a false-positive
+      // from some other 403 path with the same status.
+      const body = res.json() as { code?: string }
       expect(
-        body.message,
-        "HR-foreign 403 body must contain 'Проект не в ваших командах' (assertHrCanManageProject)",
-      ).toContain('Проект не в ваших командах')
+        body.code,
+        'HR-foreign 403 body code must be PROJECT_NOT_IN_YOUR_TEAMS (assertHrCanManageProject)',
+      ).toBe('PROJECT_NOT_IN_YOUR_TEAMS')
     })
   },
 )
