@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { compareNames, formatDate, formatMoney, formatNumber } from './format'
+import { compareNames, formatDate, formatMoney, formatNumber, formatRelativeTime } from './format'
 
 describe('format', () => {
   afterEach(() => {
@@ -86,5 +86,35 @@ describe('format', () => {
   })
   it('formatNumber uses locale separators', () => {
     expect(formatNumber(1000000, 'en')).toBe('1,000,000')
+  })
+
+  describe('formatRelativeTime', () => {
+    it('renders "X minutes ago" per locale', () => {
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+      expect(formatRelativeTime(fiveMinAgo, 'en')).toBe('5 minutes ago')
+    })
+    it('accepts an ISO string the same way it accepts a Date', () => {
+      const tenSecAgo = new Date(Date.now() - 10 * 1000)
+      expect(formatRelativeTime(tenSecAgo.toISOString(), 'en')).toBe(
+        formatRelativeTime(tenSecAgo, 'en'),
+      )
+    })
+    it('picks the largest whole unit — an hour-old timestamp reports hours, not minutes', () => {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      expect(formatRelativeTime(twoHoursAgo, 'en')).toBe('2 hours ago')
+    })
+    it('a future value reports "in X" rather than "X ago"', () => {
+      const inTenMin = new Date(Date.now() + 10 * 60 * 1000)
+      expect(formatRelativeTime(inTenMin, 'en')).toBe('in 10 minutes')
+    })
+    it('under a second reports "now"', () => {
+      expect(formatRelativeTime(new Date(), 'en')).toBe('now')
+    })
+    it('formats per uk locale', () => {
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+      expect(formatRelativeTime(fiveMinAgo, 'uk')).toBe(
+        new Intl.RelativeTimeFormat('uk-UA', { numeric: 'auto' }).format(-5, 'minute'),
+      )
+    })
   })
 })

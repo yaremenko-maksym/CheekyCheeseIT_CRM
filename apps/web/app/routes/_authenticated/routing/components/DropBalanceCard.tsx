@@ -1,6 +1,9 @@
 import { ArrowDownCircle, Clock, Percent, Wallet } from 'lucide-react'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import type { DropSelfSummaryDto } from '@crm/shared'
+import { formatMoney } from '@crm/shared'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
@@ -16,15 +19,6 @@ interface DropBalanceCardProps {
   variant?: 'compact' | 'full'
 }
 
-function fmtUsd(value: number): string {
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
 export function DropBalanceCard({
   summary,
   isLoading,
@@ -32,6 +26,10 @@ export function DropBalanceCard({
   onRetry,
   variant = 'compact',
 }: DropBalanceCardProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
+  const fmtUsd = (value: number) => formatMoney(value, 'USD', locale)
+
   if (isLoading) {
     return <Skeleton className="h-32 w-full rounded-lg" />
   }
@@ -40,9 +38,11 @@ export function DropBalanceCard({
     return (
       <Card className="border-border/40 bg-card" data-testid="drop-balance-card">
         <CardContent className="flex flex-col items-center justify-center gap-2 py-8">
-          <p className="text-xs text-destructive">Ошибка загрузки баланса</p>
-          <Button variant="ghost" size="sm" onClick={onRetry} aria-label="Повторить загрузку">
-            Повторить
+          <p className="text-xs text-destructive">
+            <Trans>Помилка завантаження балансу</Trans>
+          </p>
+          <Button variant="ghost" size="sm" onClick={onRetry} aria-label={t`Повторити спробу`}>
+            <Trans>Повторити</Trans>
           </Button>
         </CardContent>
       </Card>
@@ -65,13 +65,13 @@ export function DropBalanceCard({
       <Card
         className="border-border/40 bg-card"
         data-testid="drop-balance-card"
-        aria-label="Мой баланс"
+        aria-label={t`Мій баланс`}
       >
         <CardHeader className="pb-2 pt-4 px-5">
           <div className="flex items-center gap-2">
             <Wallet className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              МОЙ БАЛАНС
+              <Trans>МІЙ БАЛАНС</Trans>
             </span>
           </div>
         </CardHeader>
@@ -89,7 +89,9 @@ export function DropBalanceCard({
               >
                 {fmtUsd(balance)}
               </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Выплачено</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                <Trans>Виплачено</Trans>
+              </p>
             </div>
 
             <Tooltip>
@@ -108,16 +110,27 @@ export function DropBalanceCard({
                     className="text-xs text-muted-foreground mt-0.5"
                     data-testid="drop-balance-pending-obligation-count"
                   >
-                    Ожидает выплаты
-                    {pendingObligationCount > 0
-                      ? ` · ${pendingObligationCount} ${pendingObligationCount === 1 ? 'начисление' : 'начисления'}`
-                      : ''}
+                    <Trans>Очікує виплати</Trans>
+                    {pendingObligationCount > 0 ? (
+                      <>
+                        {' · '}
+                        <Plural
+                          value={pendingObligationCount}
+                          one="# зобов'язання"
+                          few="# зобов'язання"
+                          many="# зобов'язань"
+                          other="# зобов'язання"
+                        />
+                      </>
+                    ) : null}
                   </p>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                Компания уже начислила вам эту сумму, но ещё не перевела — отдельно от «Выплачено»
-                выше
+                <Trans>
+                  Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від
+                  «Виплачено» вище
+                </Trans>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -137,7 +150,9 @@ export function DropBalanceCard({
                   {dropSharePercent}%
                 </span>
               </div>
-              <span className="text-xs text-muted-foreground">Ставка</span>
+              <span className="text-xs text-muted-foreground">
+                <Trans>Ставка</Trans>
+              </span>
             </div>
 
             <Separator orientation="vertical" className="h-8" />
@@ -153,7 +168,9 @@ export function DropBalanceCard({
                   {pendingIncomesCount}
                 </span>
               </div>
-              <span className="text-xs text-muted-foreground">В работе</span>
+              <span className="text-xs text-muted-foreground">
+                <Trans>У роботі</Trans>
+              </span>
             </div>
 
             <Separator orientation="vertical" className="h-8" />
@@ -174,12 +191,13 @@ export function DropBalanceCard({
                       {fmtUsd(debtToCompany)}
                     </span>
                   </div>
-                  <span className="text-xs text-muted-foreground">Долг компании</span>
+                  <span className="text-xs text-muted-foreground">
+                    <Trans>Ви маєте сплатити компанії</Trans>
+                  </span>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                Ваша задолженность перед компанией за подтверждённые приходы, которые ещё не
-                переведены
+                <Trans>Підтверджені прибутки, які ви ще не перерахували</Trans>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -189,7 +207,7 @@ export function DropBalanceCard({
             <>
               <Separator />
               <p className="text-xs text-muted-foreground">
-                Расширенная информация доступна в таблице приходов ниже
+                <Trans>Розширена інформація доступна в таблиці приходів нижче</Trans>
               </p>
             </>
           )}

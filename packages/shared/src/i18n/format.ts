@@ -46,3 +46,34 @@ export function compareNames(locale: Locale): (a: string, b: string) => number {
   const collator = new Intl.Collator(INTL_TAG[locale], { sensitivity: 'base' })
   return (a, b) => collator.compare(a, b)
 }
+
+/**
+ * task-i18n-stage3a (Task 1), Step 3 — replaces `date-fns`'s
+ * `formatDistanceToNow` + `date-fns/locale/ru` (notifications-bell.tsx):
+ * `Intl.RelativeTimeFormat` covers the same "X minutes ago" need with the
+ * locale determined by the caller, no extra bundle weight. Picks the
+ * largest whole unit that fits (year > month > day > hour > minute >
+ * second) — a value under a second falls through to `second` regardless
+ * (the loop's own `unit === 'second'` guard), matching `numeric: 'auto'`'s
+ * "now" wording for that case.
+ */
+export function formatRelativeTime(value: Date | string, locale: Locale): string {
+  const d = typeof value === 'string' ? new Date(value) : value
+  const diffSeconds = Math.round((d.getTime() - Date.now()) / 1000)
+  const rtf = new Intl.RelativeTimeFormat(INTL_TAG[locale], { numeric: 'auto' })
+  const abs = Math.abs(diffSeconds)
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['year', 31536000],
+    ['month', 2592000],
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+    ['second', 1],
+  ]
+  for (const [unit, secondsPerUnit] of units) {
+    if (abs >= secondsPerUnit || unit === 'second') {
+      return rtf.format(Math.round(diffSeconds / secondsPerUnit), unit)
+    }
+  }
+  return rtf.format(0, 'second')
+}

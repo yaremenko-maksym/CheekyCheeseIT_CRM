@@ -13,6 +13,10 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
+msgstr "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
+
 #: apps/web/app/components/ui/role-select.tsx
 msgid "HR"
 msgstr "HR"
@@ -36,6 +40,10 @@ msgstr "Бухгалтер"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Вакансії"
 msgstr "Вакансії"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Ви маєте сплатити компанії"
+msgstr "Ви маєте сплатити компанії"
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
@@ -72,6 +80,15 @@ msgstr "Ви увійшли як інший співробітник — при�
 msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
 
+#: apps/web/app/components/layout/notifications-bell.tsx
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Видалити сповіщення"
+msgstr "Видалити сповіщення"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Виплачено"
+msgstr "Виплачено"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Дашборд"
 msgstr "Дашборд"
@@ -97,6 +114,10 @@ msgstr "Згорнути"
 msgid "Команда"
 msgstr "Команда"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
+msgstr "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Користувачі"
 msgstr "Користувачі"
@@ -104,6 +125,14 @@ msgstr "Користувачі"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Легенда"
 msgstr "Легенда"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Мій баланс"
+msgstr "Мій баланс"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "МІЙ БАЛАНС"
+msgstr "МІЙ БАЛАНС"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Мій проект"
@@ -141,9 +170,17 @@ msgstr "Немає активного шаблону контракту для �
 msgid "Основна навігація"
 msgstr "Основна навігація"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Очікує виплати"
+msgstr "Очікує виплати"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Переклад ще триває — частина екранів поки що російською."
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Підтверджені прибутки, які ви ще не перерахували"
+msgstr "Підтверджені прибутки, які ви ще не перерахували"
 
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернення..."
@@ -154,6 +191,18 @@ msgstr "Повернення..."
 msgid "Повернутися до свого профілю"
 msgstr "Повернутися до свого профілю"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Повторити"
+msgstr "Повторити"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Повторити спробу"
+msgstr "Повторити спробу"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Помилка завантаження балансу"
+msgstr "Помилка завантаження балансу"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Проєкти"
 msgstr "Проєкти"
@@ -162,10 +211,18 @@ msgstr "Проєкти"
 msgid "Профіль"
 msgstr "Профіль"
 
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Прочитати все"
+msgstr "Прочитати все"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Розгорнути"
 msgstr "Розгорнути"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Розширена інформація доступна в таблиці приходів нижче"
+msgstr "Розширена інформація доступна в таблиці приходів нижче"
 
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Роль"
@@ -179,9 +236,34 @@ msgstr "Синьйор"
 msgid "Співбесіди"
 msgstr "Співбесіди"
 
+#: apps/web/app/components/layout/notifications-bell.tsx
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Сповіщення"
+msgstr "Сповіщення"
+
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Сповіщень немає"
+msgstr "Сповіщень немає"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Ставка"
+msgstr "Ставка"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Статистика"
 msgstr "Статистика"
+
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Тут з'являться події за вашими проєктами, грошима та документами"
+msgstr "Тут з'являться події за вашими проєктами, грошима та документами"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "У роботі"
+msgstr "У роботі"
+
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Усе, що чекає рішення"
+msgstr "Усе, що чекає рішення"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Фінанси"

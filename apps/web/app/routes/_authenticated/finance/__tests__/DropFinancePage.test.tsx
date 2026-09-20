@@ -11,12 +11,19 @@
  *
  * Hooks and the create-dialog are mocked so the component renders in
  * isolation (mirrors DropDashboard.test.tsx's pattern).
+ *
+ * task-i18n-stage3a (Task 1) blast-radius: `DropBalanceCard` (rendered by
+ * this page) now calls `useLingui()` — this file is outside the wave's own
+ * perimeter (`routes/_authenticated/finance/**` migrates in a later wave),
+ * so only the render wrapper changes here, not any product code or copy
+ * assertion (this page's own strings stay Russian until its wave).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { DropIncomeDto, DropSelfSummaryDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const useDropSummaryMock = vi.fn()
 const useDropIncomesMock = vi.fn()
@@ -76,17 +83,20 @@ function makeIncome(overrides: Partial<DropIncomeDto>): DropIncomeDto {
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
   )
   return render(<DropFinancePage />, { wrapper })
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   useDropSummaryMock.mockReset()
   useDropIncomesMock.mockReset()
   useDropPaymentsMock.mockReset()
   useDropSummaryMock.mockReturnValue({ data: makeSummary(), isLoading: false, isError: false })
   useDropPaymentsMock.mockReturnValue({ data: [], isLoading: false })
+  await loadCatalog('uk')
 })
 
 describe('DropFinancePage — incomes table model discriminator (§AC3)', () => {

@@ -16,6 +16,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { Notification } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { NotificationsBell } from '../notifications-bell'
 
 const mockNavigate = vi.fn()
@@ -76,13 +77,18 @@ function makeNotification(over: Partial<Notification>): Notification {
 }
 
 async function openBell() {
-  render(<NotificationsBell />)
+  render(
+    <I18nTestProvider>
+      <NotificationsBell />
+    </I18nTestProvider>,
+  )
   await userEvent.click(screen.getByTestId('notifications-bell-trigger'))
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mockNavigate.mockClear()
   mockDelete.mockClear()
+  await loadCatalog('uk')
 })
 
 describe('попап рисует строку по типу', () => {
@@ -232,7 +238,7 @@ describe('пустое состояние отражает актуальный 
     await openBell()
 
     expect(screen.getByTestId('notifications-empty')).toHaveTextContent(
-      'Здесь появятся события по вашим проектам, деньгам и документам',
+      "Тут з'являться події за вашими проєктами, грошима та документами",
     )
     expect(screen.getByTestId('notifications-empty')).not.toHaveTextContent('инвойс')
   })
