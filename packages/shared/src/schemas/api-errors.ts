@@ -27,9 +27,50 @@ export const API_ERROR_CODES = [
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number]
 
 /**
+ * SR-M-1 (PR #694, круг 1) — compile-time pin on which `{token}` params each
+ * code actually accepts. Before this, `apiError()`'s third argument was a
+ * flat `z.record` with no per-code allow-list: safe only because every call
+ * site today happens to pass either nothing or the (non-PII) `role`, a fact
+ * enforced by nobody. `ParamsFor<C>` below narrows `apiError`'s signature to
+ * exactly this set — a future `apiError('TOS_ACCEPT_IMPERSONATION', 403,
+ * { email })` (the class of leak #161 / #164 recurred as) is a compile error,
+ * not a silent HTTP-body addition. `api-errors.spec.ts` cross-checks this
+ * list against the `{token}` sets that actually appear in
+ * `API_ERROR_MESSAGES[code].message` and `API_ERROR_FALLBACK_EN[code]` (plus
+ * the `en` catalog string), so the three cannot drift apart.
+ */
+export const API_ERROR_PARAMS = {
+  GENERIC: [],
+  CONTRACT_TEMPLATE_MISSING: ['role'],
+  CONTRACT_SIGN_IMPERSONATION: [],
+  TOS_ACCEPT_IMPERSONATION: [],
+  INVOICE_SIGN_IMPERSONATION: [],
+  NOTIFICATION_PREFERENCES_IMPERSONATION: [],
+  SHARE_DECISION_IMPERSONATION: [],
+  PROJECT_DECISION_IMPERSONATION: [],
+} as const satisfies Record<ApiErrorCode, readonly string[]>
+
+/**
+ * Object type with exactly the keys `API_ERROR_PARAMS[C]` declares —
+ * `never` (no third argument at all, see `apiError`) when the code takes
+ * none. `never` rather than `{}`/`Record<never, ...>` deliberately: TS's
+ * excess-property check does not fire against the empty object type (a
+ * `{ extra: 1 }` literal type-checks fine against `{}`), which would make
+ * the pin toothless for the seven zero-param codes — verified empirically,
+ * not from memory, before committing to this shape. Routing through `never`
+ * removes the third parameter from the call signature entirely instead, so
+ * passing one at all is the error.
+ */
+export type ParamsFor<C extends ApiErrorCode> = (typeof API_ERROR_PARAMS)[C] extends readonly []
+  ? never
+  : { [K in (typeof API_ERROR_PARAMS)[C][number]]: string | number }
+
+/**
  * `params` — только строки/числа (никаких объектов/PII-структур): значения
  * едут в HTTP-теле и в интерполяцию перевода на клиенте, а не для передачи
- * произвольных данных.
+ * произвольных данных. Рантайм-схема остаётся общей (парсит любой ответ,
+ * мигрированный или нет) — per-code allow-list живёт в `ParamsFor` выше, на
+ * стороне вызова `apiError()`, а не здесь.
  */
 export const apiErrorEnvelopeSchema = z.object({
   statusCode: z.number().int(),

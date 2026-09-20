@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useQuery } from '@tanstack/react-query'
+import { i18n } from '@lingui/core'
+import { API_ERROR_MESSAGES } from '@crm/shared'
 
 // Test the ADMIN-only tab visibility logic via the helper function
 // (full UserProfileShell render requires complex multi-provider mocking;
@@ -229,5 +231,58 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
     renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
     expect(screen.queryByTestId('contract-tab-no-template')).not.toBeInTheDocument()
     expect(screen.getByTestId('contract-tab-error')).toBeInTheDocument()
+  })
+
+  it('renders the own Russian fallback text when there is no error AND no contract (the other half of the `error || !contract` guard, `getApiErrorMessage`’s own fallback path)', () => {
+    vi.mocked(useQuery).mockReturnValueOnce({
+      data: undefined,
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see previous test's identical note
+    } as any)
+    renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
+    expect(screen.getByTestId('contract-tab-error')).toHaveTextContent(
+      'Не удалось загрузить контракт.',
+    )
+  })
+})
+
+// ─── SR-L-1 (PR #694 round 1) — generic error state translates the envelope,
+// not the English fallback ─────────────────────────────────────────────────
+// Before this fix, the generic-error branch rendered
+// `error.response.data.message` verbatim — for a migrated envelope
+// (task-i18n-stage2-task5) that field is the server-log English fallback,
+// never the Ukrainian catalog text `getApiErrorMessage` resolves by `code`.
+// `i18n.load('uk', {})` + `activate` mirrors `axios-utils.spec.ts`'s own
+// envelope tests: an empty compiled catalog still makes `i18n._()` fall
+// through to the descriptor's `message` (the Ukrainian source text), which
+// is exactly what a real app run does before `pnpm i18n:compile` output for
+// a NEW string exists.
+describe('ContractTab — SR-L-1: generic error renders the Ukrainian catalog text, not the English envelope fallback', () => {
+  beforeEach(() => {
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('renders the Ukrainian text for a TOS_ACCEPT_IMPERSONATION envelope', () => {
+    vi.mocked(useQuery).mockReturnValueOnce({
+      data: undefined,
+      isLoading: false,
+      error: {
+        response: {
+          status: 403,
+          data: {
+            statusCode: 403,
+            code: 'TOS_ACCEPT_IMPERSONATION',
+            message: 'Accepting the terms is not allowed while impersonating',
+          },
+        },
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+    } as any)
+    renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
+    const errorEl = screen.getByTestId('contract-tab-error')
+    expect(errorEl).toHaveTextContent(i18n._(API_ERROR_MESSAGES.TOS_ACCEPT_IMPERSONATION))
+    expect(errorEl).not.toHaveTextContent('Accepting the terms is not allowed while impersonating')
   })
 })

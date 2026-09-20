@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getApiErrorCode } from '@/lib/axios-utils'
+import { getApiErrorCode, getApiErrorMessage } from '@/lib/axios-utils'
 import {
   useEmployeeContract,
   useMarkContractReady,
@@ -118,20 +118,6 @@ export function ContractTab({
   // Backend returns 404 with message "No active contract template for role X"
   // when the ADMIN hasn't created a template for this role yet.
 
-  // Axios wraps HTTP errors: error.message = "Request failed with status code 404".
-  // The actual backend message is in error.response.data.message.
-  // We check both so the component works with real AxiosErrors AND plain Errors.
-  const errorMessage = (() => {
-    if (!error || typeof error !== 'object') return null
-    // AxiosError: response body message takes priority over the generic status message
-    const axiosMsg = (error as { response?: { data?: { message?: unknown } } }).response?.data
-      ?.message
-    if (axiosMsg) return String(axiosMsg)
-    // Fallback: plain Error.message (Zod errors, network errors, etc.)
-    if ('message' in error) return String((error as { message: unknown }).message)
-    return null
-  })()
-
   // task-i18n-stage2-task5: the backend's 404 now carries a stable `code`
   // (`CONTRACT_TEMPLATE_MISSING`) instead of English prose to substring-match
   // — the old `.includes('no active contract template')` broke the moment
@@ -165,15 +151,26 @@ export function ContractTab({
   // ── Generic error ──────────────────────────────────────────────────────────
 
   if (error || !contract) {
+    // SR-L-1 (PR #694 round 1): computed HERE, not eagerly above the
+    // no-template branch — `getApiErrorMessage` tries the envelope→catalog
+    // translation FIRST (task-i18n-stage2-task5 — a migrated 4xx here carries
+    // `code`/`params` and the Ukrainian text lives in the catalog, not in the
+    // HTTP body's `message`, which is only the English server-log fallback),
+    // then falls through to the exact same axios `response.data.message` →
+    // plain `Error.message` chain this block used to read directly (reading
+    // `response.data.message` unconditionally showed that English fallback
+    // verbatim for every one of the seven migrated codes). Kept lazy: for the
+    // `isNoTemplate` branch above, `error` IS set but this text is never
+    // shown, so there is no reason to pay for (or risk) a translation call
+    // whose result is thrown away.
+    const errorMessage = getApiErrorMessage(error, 'Не удалось загрузить контракт.')
     return (
       <div
         className="flex flex-col items-center justify-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 py-16 text-center"
         data-testid="contract-tab-error"
       >
         <AlertCircle className="h-8 w-8 text-destructive/60" />
-        <p className="text-sm text-muted-foreground">
-          {errorMessage ?? 'Не удалось загрузить контракт.'}
-        </p>
+        <p className="text-sm text-muted-foreground">{errorMessage}</p>
       </div>
     )
   }
