@@ -15,10 +15,10 @@
  * direct class instantiation with typed stubs.
  */
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpException,
+  HttpStatus,
   Logger,
   NotFoundException,
   UnauthorizedException,
@@ -29,6 +29,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { JwtPayload } from '@crm/shared'
 import type { Env } from '../config/env'
+import { apiError } from '../common/api-error'
 import {
   GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE,
   INVITE_TARGET_ARCHIVED_MESSAGE,
@@ -846,7 +847,7 @@ describe('AuthController.googleCallback — invite-accept branch (task-user-emai
     setupGoogleUser(authService, 'someone-else@example.com', 'google-sub')
     const usersService = makeUsersServiceWithEmailRow(TEST_USER)
     ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new ForbiddenException('Адрес аккаунта Google не совпадает с приглашённым адресом'),
+      apiError('INVITE_GOOGLE_ACCOUNT_MISMATCH', HttpStatus.FORBIDDEN),
     )
     const jwtService = makeJwtService()
     const controller = new AuthController(
@@ -869,7 +870,7 @@ describe('AuthController.googleCallback — invite-accept branch (task-user-emai
     setupGoogleUser(authService, TEST_USER.email, 'google-sub')
     const usersService = makeUsersServiceWithEmailRow(TEST_USER)
     ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new ConflictException('Приглашение уже использовано'),
+      apiError('INVITE_ALREADY_USED', HttpStatus.CONFLICT),
     )
     const controller = new AuthController(
       authService,
@@ -969,7 +970,7 @@ describe('AuthController.googleCallback — invite-accept branch (task-user-emai
     setupGoogleUser(authService, TEST_USER.email, 'google-sub')
     const usersService = makeUsersServiceWithEmailRow(TEST_USER)
     ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new BadRequestException('Срок действия приглашения истёк'),
+      apiError('INVITE_EXPIRED', HttpStatus.BAD_REQUEST),
     )
     const controller = new AuthController(
       authService,
@@ -990,7 +991,7 @@ describe('AuthController.googleCallback — invite-accept branch (task-user-emai
     setupGoogleUser(authService, TEST_USER.email, 'google-sub')
     const usersService = makeUsersServiceWithEmailRow(TEST_USER)
     ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new NotFoundException('Приглашение недействительно'),
+      apiError('INVITE_INVALID', HttpStatus.NOT_FOUND),
     )
     const controller = new AuthController(
       authService,
@@ -1163,7 +1164,7 @@ describe('AuthController.googleOneTap — failure paths (no prior test coverage)
     const promise = controller.googleOneTap({ credential: 'cred' }, reply)
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'EMAIL_NOT_AUTHORIZED' }),
+      response: expect.objectContaining({ code: 'EMAIL_NOT_AUTHORIZED', statusCode: 401 }),
     })
     expect(jwtService.sign).not.toHaveBeenCalled()
   })
@@ -1195,7 +1196,7 @@ describe('AuthController.googleOneTap — failure paths (no prior test coverage)
     const promise = controller.googleOneTap({ credential: 'cred' }, reply)
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'EMAIL_NOT_AUTHORIZED' }),
+      response: expect.objectContaining({ code: 'EMAIL_NOT_AUTHORIZED', statusCode: 401 }),
     })
     expect(jwtService.sign).not.toHaveBeenCalled()
   })
@@ -1224,7 +1225,7 @@ describe('AuthController.googleOneTap — failure paths (no prior test coverage)
     const promise = controller.googleOneTap({ credential: 'cred' }, reply)
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'ACCOUNT_DISABLED' }),
+      response: expect.objectContaining({ code: 'ACCOUNT_DISABLED', statusCode: 401 }),
     })
     expect(jwtService.sign).not.toHaveBeenCalled()
   })
@@ -1259,7 +1260,7 @@ describe('AuthController.googleOneTap — failure paths (no prior test coverage)
     const promise = controller.googleOneTap({ credential: 'cred' }, reply)
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'GOOGLE_ACCOUNT_MISMATCH' }),
+      response: expect.objectContaining({ code: 'GOOGLE_ACCOUNT_MISMATCH', statusCode: 401 }),
     })
     expect(jwtService.sign).not.toHaveBeenCalled()
     expect(usersService.updateEmailRowGoogleId).not.toHaveBeenCalled()
@@ -1539,7 +1540,9 @@ describe('AuthController.impersonate / stopImpersonating — SR-M-13 (round-trip
 
     await expect(
       controller.impersonate({ userId: TARGET_USER.id }, currentUser, makeReply()),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
     expect(jwtService.sign).not.toHaveBeenCalled()
   })
 

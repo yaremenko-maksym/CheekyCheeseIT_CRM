@@ -537,7 +537,9 @@ describe('UsersService.writeUserEmailOrConflict (SR-M-2, private helper exercise
     ).rejects.toBeInstanceOf(HttpException)
     await expect(
       service.writeUserEmailOrConflict(() => Promise.reject(violation)),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'EMAIL_ALREADY_IN_USE' }) })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'EMAIL_ALREADY_IN_USE', statusCode: 409 }),
+    })
   })
 
   it('a non-unique-violation error is rethrown unchanged, not swallowed into a 409', async () => {
@@ -655,7 +657,9 @@ describe('UsersService.createUser — JUNIOR', () => {
         actorRole: 'ADMIN',
         actorId: 'actor-test-id',
       }),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS' }) })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS', statusCode: 409 }),
+    })
   })
 
   it('does not insert anything after ConflictException', async () => {
@@ -874,7 +878,7 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
       // message is Russian now — this is the SAME shared function
       // changePersonalEmail calls, translated once for every caller.
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+      response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
     })
 
     // No half-created account — the rejection happens before any insert.
@@ -1097,7 +1101,7 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     const promise = service.resendPersonalEmailInvite('ghost-id', 'actor-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
     expect(findFirst).not.toHaveBeenCalled()
   })
@@ -1111,7 +1115,7 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     const promise = service.resendPersonalEmailInvite('u-1', 'actor-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'PERSONAL_EMAIL_NOT_SET' }),
+      response: expect.objectContaining({ code: 'PERSONAL_EMAIL_NOT_SET', statusCode: 400 }),
     })
     expect(insertMock).not.toHaveBeenCalled()
     // Kills the `findFirst({})` ObjectLiteral mutant (and the `kind: ''`
@@ -1130,7 +1134,10 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     const promise = service.resendPersonalEmailInvite('u-1', 'actor-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'PERSONAL_EMAIL_ALREADY_VERIFIED' }),
+      response: expect.objectContaining({
+        code: 'PERSONAL_EMAIL_ALREADY_VERIFIED',
+        statusCode: 409,
+      }),
     })
     expect(insertMock).not.toHaveBeenCalled()
   })
@@ -1253,7 +1260,7 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
     const promise = service.changePersonalEmail('ghost-id', 'x@example.com', 'admin-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
     expect(transactionMock).not.toHaveBeenCalled()
   })
@@ -1308,7 +1315,10 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
     const promise = service.changePersonalEmail('u-1', 'work@example.com', 'admin-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK' }),
+      response: expect.objectContaining({
+        code: 'PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK',
+        statusCode: 400,
+      }),
     })
     expect(transactionMock).not.toHaveBeenCalled()
   })
@@ -1323,7 +1333,7 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
     const promise = service.changePersonalEmail('u-1', 'taken@example.com', 'admin-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+      response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
     })
     expect(transactionMock).not.toHaveBeenCalled()
   })
@@ -1552,7 +1562,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'INVITE_INVALID' }),
+      response: expect.objectContaining({ code: 'INVITE_INVALID', statusCode: 404 }),
     })
     expect(transactionMock).not.toHaveBeenCalled()
     // Kills the `findFirst({})` ObjectLiteral mutant — a query with no WHERE
@@ -1570,7 +1580,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'INVITE_ALREADY_USED' }),
+      response: expect.objectContaining({ code: 'INVITE_ALREADY_USED', statusCode: 409 }),
     })
     expect(transactionMock).not.toHaveBeenCalled()
   })
@@ -1583,7 +1593,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'INVITE_EXPIRED' }),
+      response: expect.objectContaining({ code: 'INVITE_EXPIRED', statusCode: 400 }),
     })
     expect(transactionMock).not.toHaveBeenCalled()
   })
@@ -1618,7 +1628,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'INVITE_INVALID' }),
+      response: expect.objectContaining({ code: 'INVITE_INVALID', statusCode: 404 }),
     })
     expect(transactionMock).not.toHaveBeenCalled()
     expect(emailFindFirst).toHaveBeenCalledWith(
@@ -1635,7 +1645,10 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'wrong@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH' }),
+      response: expect.objectContaining({
+        code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH',
+        statusCode: 403,
+      }),
     })
     expect(transactionMock).not.toHaveBeenCalled()
   })
@@ -1701,7 +1714,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'INVITE_INVALID' }),
+      response: expect.objectContaining({ code: 'INVITE_INVALID', statusCode: 404 }),
     })
     expect(transactionMock).toHaveBeenCalledTimes(1)
     // Reported as "invalid" BEFORE the invite update ever runs — the
@@ -1725,7 +1738,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'INVITE_INVALID' }),
+      response: expect.objectContaining({ code: 'INVITE_INVALID', statusCode: 404 }),
     })
     expect(transactionMock).toHaveBeenCalledTimes(1)
   })
@@ -1922,7 +1935,9 @@ describe('UsersService.createUser — SENIOR', () => {
         actorRole: 'ADMIN',
         actorId: 'actor-test-id',
       }),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS' }) })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS', statusCode: 409 }),
+    })
   })
 })
 
@@ -2118,7 +2133,7 @@ describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
     const service = makeUsersService(db)
 
     await expect(service.updateProfile('ghost', { displayName: 'X' })).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
   })
 })
@@ -2140,7 +2155,9 @@ describe('UsersService.updateRequisites', () => {
 
     await expect(
       service.updateRequisites('ghost', { paymentMethod: 'USDT_ERC20' }),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -2317,7 +2334,10 @@ describe('UsersService.adminUpdateUser', () => {
     await expect(
       service.adminUpdateUser('hr-1', { role: 'DROP', dropSharePercent: 40 }),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT' }),
+      response: expect.objectContaining({
+        code: 'DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT',
+        statusCode: 403,
+      }),
     })
   })
 
@@ -2350,7 +2370,7 @@ describe('UsersService.adminUpdateUser', () => {
     const db = makeDb({ existingUser: undefined })
     const service = makeUsersService(db)
     await expect(service.adminUpdateUser('ghost', { displayName: 'X' })).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
   })
 
@@ -2362,7 +2382,7 @@ describe('UsersService.adminUpdateUser', () => {
     await expect(
       service.adminUpdateUser('admin-2', { displayName: 'Hacked' }, 'admin-1'),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'CANNOT_EDIT_ANOTHER_ADMIN' }),
+      response: expect.objectContaining({ code: 'CANNOT_EDIT_ANOTHER_ADMIN', statusCode: 403 }),
     })
   })
 
@@ -2387,7 +2407,7 @@ describe('UsersService.adminUpdateUser', () => {
     await expect(
       service.adminUpdateUser('admin-1', { role: 'SENIOR' }, 'admin-1'),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'ADMIN_CANNOT_CHANGE_OWN_ROLE' }),
+      response: expect.objectContaining({ code: 'ADMIN_CANNOT_CHANGE_OWN_ROLE', statusCode: 403 }),
     })
   })
 
@@ -2656,7 +2676,10 @@ describe('UsersService.adminUpdateUser', () => {
     const promise = service.adminUpdateUser('user-1', { email: 'personal@example.com' })
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL' }),
+      response: expect.objectContaining({
+        code: 'WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL',
+        statusCode: 400,
+      }),
     })
     // Caught before `assertEmailAvailable`/`upsertWorkEmail` — no write was
     // even attempted, so the transaction never opens.
@@ -2719,7 +2742,7 @@ describe('UsersService.adminUpdateUser', () => {
     const promise = service.adminUpdateUser('user-1', { email: 'taken@example.com' })
     await expect(promise).rejects.toBeInstanceOf(HttpException)
     await expect(promise).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS' }),
+      response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS', statusCode: 409 }),
     })
     // This collision is caught by `findByEmail`, strictly BEFORE COPY-M-15's
     // own-PERSONAL-row check — a mutant reordering the two checks would
@@ -2746,7 +2769,7 @@ describe('UsersService.createUser — ut-12 ADMIN block', () => {
         role: 'ADMIN',
       }),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'ADMIN_CREATION_FORBIDDEN' }),
+      response: expect.objectContaining({ code: 'ADMIN_CREATION_FORBIDDEN', statusCode: 403 }),
     })
   })
 })
@@ -2790,7 +2813,7 @@ describe('UsersService.getProfile', () => {
     } as unknown as DrizzleDb
     const service = makeUsersService(db)
     await expect(service.getProfile('ghost')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
   })
 })
@@ -3286,7 +3309,7 @@ describe('UsersService.buildProfileView — ForbiddenException on empty tabs', (
       .mockResolvedValue([])
 
     await expect(service.buildProfileView(viewer as never, 'ghost-id')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
   })
 })

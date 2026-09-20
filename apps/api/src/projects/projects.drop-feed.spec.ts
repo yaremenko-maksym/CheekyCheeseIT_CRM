@@ -84,7 +84,7 @@ describe('findDropOwnProjects — RBAC (self-only)', () => {
     it(`throws ForbiddenException for role ${role}`, async () => {
       const svc = makeSvc([], [])
       await expect(svc.findDropOwnProjects(user(role))).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'DROP_PROJECT_ACCESS_DENIED' }),
+        response: expect.objectContaining({ code: 'DROP_PROJECT_ACCESS_DENIED', statusCode: 403 }),
       })
     })
   }

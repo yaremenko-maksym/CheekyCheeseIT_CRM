@@ -289,7 +289,9 @@ describe('archived-entitlement — layer 2: reading back the true reason for "0 
     expect(err).toBeInstanceOf(HttpException)
     // The CODE matters: this is what tells "gone" apart from "frozen"
     // (both would otherwise be an indistinguishable generic refusal).
-    expect(err).toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('the re-read asks for `archivedAt` — an empty projection could only ever answer "not archived"', async () => {
@@ -321,7 +323,7 @@ describe('archived-entitlement — layer 2: reading back the true reason for "0 
     const svc = makeService(db)
 
     await expect(svc.changeSalary('u1', { monthlySalary: 1500 })).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
     expect(select).toHaveBeenCalledTimes(1) // findById only
   })
@@ -335,7 +337,9 @@ describe('archived-entitlement — layer 2: reading back the true reason for "0 
 
     const err = await svc.changeSalary('nope', { monthlySalary: 10 }).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(HttpException)
-    expect(err).toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
     expect(update).not.toHaveBeenCalled()
   })
 })

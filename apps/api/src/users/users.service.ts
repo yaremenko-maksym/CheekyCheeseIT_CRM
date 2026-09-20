@@ -3133,32 +3133,43 @@ export class UsersService {
    * and never mints a session (task §2: "Токен НЕ выдаёт сессию").
    *
    * Throws — `AuthController.mapInviteAcceptError` maps each to a distinct
-   * `?error=` redirect:
-   *   - NotFoundException — token hash matches no row (garbage link, or a
-   *     token that was superseded by a resend — the OLD hash is gone from
-   *     the DB the moment `issuePersonalEmailInviteTx` overwrites it, so
-   *     this is indistinguishable from "never existed", which is correct:
-   *     an old, superseded link should behave exactly like a bad one).
-   *   - BadRequestException — token expired.
-   *   - ConflictException — either the token was already used (task:
-   *     "Токен использован дважды — второй раз отказ"), OR (LOW-1,
+   * `?error=` redirect. SR-H-1 (security-review PR #701 round 1): the
+   * dispatch is by `apiError()`'s envelope `code`, NOT by exception class —
+   * `apiError()` returns a plain `HttpException`, never a
+   * `ForbiddenException`/`ConflictException`/`BadRequestException`
+   * subclass, so an `instanceof` check on those classes cannot tell these
+   * apart. The contract below is stated in terms of `code`:
+   *   - `INVITE_INVALID` (404) — token hash matches no row (garbage link,
+   *     or a token that was superseded by a resend — the OLD hash is gone
+   *     from the DB the moment `issuePersonalEmailInviteTx` overwrites it,
+   *     so this is indistinguishable from "never existed", which is
+   *     correct: an old, superseded link should behave exactly like a bad
+   *     one). Also the two defense-in-depth "row vanished mid-transaction"
+   *     branches below.
+   *   - `INVITE_EXPIRED` (400) — token expired.
+   *   - `INVITE_ALREADY_USED` (409) — the token was already used (task:
+   *     "Токен использован дважды — второй раз отказ").
+   *   - a plain `ConflictException` (NOT `apiError()` — kept as a sentinel,
+   *     see `mapInviteAcceptError`'s comment) with the exported
+   *     `GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE` message — (LOW-1,
    *     security-review PR #623 round 4) the confirming Google account is
    *     already bound to a DIFFERENT `user_emails` row
-   *     (`idx_user_emails_google_id`) — these are DIFFERENT situations
-   *     (the second one leaves `used_at` NULL, since the whole transaction
-   *     below rolls back) and get DIFFERENT messages via the exported
-   *     `GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE` sentinel —
-   *     `mapInviteAcceptError` inspects it to pick `invite_account_taken`
-   *     instead of `invite_used`.
-   *   - ForbiddenException — either Google confirmed a DIFFERENT address
-   *     than the one this token was issued for (task §2: "Не совпал —
-   *     внятный отказ, а не тихое ничего"; `canLogin` is left untouched —
-   *     an opportunistic wrong-Google-account attempt against a stolen or
-   *     guessed link gets no second, better-informed try), OR (LOW-2,
-   *     security-review PR #623 round 4) the target account was archived
-   *     (fired) after the invite was issued — `INVITE_TARGET_ARCHIVED_MESSAGE`
-   *     sentinel, mapped to `account_disabled` (the SAME code the ordinary
-   *     login path already uses for a fired user).
+   *     (`idx_user_emails_google_id`); DIFFERENT situation from
+   *     `INVITE_ALREADY_USED` above (this one leaves `used_at` NULL, since
+   *     the whole transaction below rolls back) — `mapInviteAcceptError`
+   *     inspects the message to pick `invite_account_taken` instead of
+   *     `invite_used`.
+   *   - `INVITE_GOOGLE_ACCOUNT_MISMATCH` (403) — Google confirmed a
+   *     DIFFERENT address than the one this token was issued for (task §2:
+   *     "Не совпал — внятный отказ, а не тихое ничего"; `canLogin` is left
+   *     untouched — an opportunistic wrong-Google-account attempt against a
+   *     stolen or guessed link gets no second, better-informed try).
+   *   - a plain `ForbiddenException` (NOT `apiError()` — kept as a
+   *     sentinel) with the exported `INVITE_TARGET_ARCHIVED_MESSAGE`
+   *     message — (LOW-2, security-review PR #623 round 4) the target
+   *     account was archived (fired) after the invite was issued, mapped
+   *     to `account_disabled` (the SAME code the ordinary login path
+   *     already uses for a fired user).
    *
    * On success: ONE transaction marks the invite used AND flips
    * `canLogin`/`verifiedAt`/`googleId` on the `user_emails` row — either

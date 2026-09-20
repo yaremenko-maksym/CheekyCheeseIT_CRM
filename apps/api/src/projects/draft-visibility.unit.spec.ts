@@ -169,20 +169,24 @@ describe('AC5 — draft project visibility (findOne/assertAccess)', () => {
     ).rejects.toBeInstanceOf(HttpException)
     await expect(
       service.findOne(PROJECT_ID, sessionFor(OTHER_SENIOR_ID, 'SENIOR')),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }) })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('JUNIOR gets 404', async () => {
     const { service } = buildService(invited)
     await expect(
       service.findOne(PROJECT_ID, sessionFor(JUNIOR_ID, 'JUNIOR')),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }) })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('HR gets 404 (even though HR would otherwise manage this senior once ACTIVE)', async () => {
     const { service } = buildService(invited)
     await expect(service.findOne(PROJECT_ID, sessionFor(HR_ID, 'HR'))).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
     })
   })
 
@@ -190,7 +194,9 @@ describe('AC5 — draft project visibility (findOne/assertAccess)', () => {
     const { service } = buildService(invited)
     await expect(
       service.findOne(PROJECT_ID, sessionFor(ACCOUNTANT_ID, 'ACCOUNTANT')),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }) })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 

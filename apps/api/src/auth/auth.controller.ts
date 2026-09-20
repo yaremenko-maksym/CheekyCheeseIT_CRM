@@ -1,11 +1,11 @@
 import {
-  BadRequestException,
   Body,
   ConflictException,
   Controller,
   ForbiddenException,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Logger,
   NotFoundException,
@@ -733,6 +733,27 @@ function exceptionMessage(err: ForbiddenException | ConflictException): string {
 }
 
 /**
+ * SR-H-1 (security-review PR #701 round 1): `apiError()` returns a plain
+ * `HttpException` — never a `ForbiddenException`/`ConflictException`/
+ * `BadRequestException` subclass — so `mapInviteAcceptError` below MUST
+ * dispatch on the envelope's `code`, not on exception class. Extracts the
+ * `{ code }` field `apiError()` puts on the envelope body
+ * (`apps/api/src/common/api-error.ts`); returns `undefined` for anything
+ * that is not an `HttpException` with an object body carrying `code` — the
+ * two remaining sentinel throws (`INVITE_TARGET_ARCHIVED_MESSAGE`/
+ * `GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE`, both plain
+ * `ForbiddenException`/`ConflictException`, see `mapInviteAcceptError`)
+ * fall into this `undefined` case by construction.
+ */
+function envelopeCode(err: unknown): string | undefined {
+  if (!(err instanceof HttpException)) return undefined
+  const response = err.getResponse()
+  return typeof response === 'object' && response !== null
+    ? (response as { code?: string }).code
+    : undefined
+}
+
+/**
  * task-user-emails-invite: maps `UsersService.acceptPersonalEmailInvite`'s
  * exceptions to the `?error=` code `googleCallback`'s invite branch
  * redirects with — the login page (`login.tsx`) owns the Russian copy
@@ -740,6 +761,19 @@ function exceptionMessage(err: ForbiddenException | ConflictException): string {
  * has no dependency on controller state — a pure exception → string map.
  */
 function mapInviteAcceptError(err: unknown): string {
+  switch (envelopeCode(err)) {
+    case 'INVITE_ALREADY_USED':
+      return 'invite_used'
+    case 'INVITE_EXPIRED':
+      return 'invite_expired'
+    case 'INVITE_GOOGLE_ACCOUNT_MISMATCH':
+      return 'invite_email_mismatch'
+    case 'INVITE_INVALID':
+      return 'invite_invalid'
+  }
+  // The two throw sites `acceptPersonalEmailInvite` deliberately kept as
+  // plain (non-`apiError()`) exceptions — `envelopeCode` above returns
+  // `undefined` for both, so they fall through to here.
   if (err instanceof ForbiddenException) {
     // LOW-2: target account was archived (fired) after the invite was
     // issued — reuse the SAME code the ordinary login path already emits
@@ -756,8 +790,7 @@ function mapInviteAcceptError(err: unknown): string {
       ? 'invite_account_taken'
       : 'invite_used'
   }
-  if (err instanceof BadRequestException) return 'invite_expired'
-  // NotFoundException and anything unexpected — same bucket as "garbage
-  // link": nothing more specific to tell the visitor.
+  // Anything unexpected — same bucket as "garbage link": nothing more
+  // specific to tell the visitor.
   return 'invite_invalid'
 }
