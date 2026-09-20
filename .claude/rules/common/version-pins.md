@@ -34,6 +34,10 @@ Single source of truth для версий. **Не дублировать в age
 - **PostgreSQL:** 16-alpine (Docker Compose).
 - **Redis:** 7-alpine (Docker Compose).
 
+### i18n
+
+- **`@lingui/*`:** `5.9.5` EXACT, **одной версией** across `@lingui/core`, `@lingui/react`, `@lingui/cli`, `@lingui/vite-plugin`, `@lingui/babel-plugin-lingui-macro` (peer-matched-pair discipline, как TanStack Router выше). НЕ `6.7.0` — почему: Lingui 6 ESM-only + `moduleResolution: Node` в `apps/api`/`packages/shared` не резолвит его типы (TS2307); перевод api/shared на `node16` блокирован dual-package типами `drizzle-orm@0.45.2`. Условие апгрейда на 6: Drizzle с единым `.d.ts` (без dual CJS/ESM types) ИЛИ `apps/api`+`packages/shared` переведены на `module: node16`.
+
 ## Forbidden / risky overrides
 
 - **НЕ добавлять** `pnpm.overrides` для `@tanstack/router-*` пакетов — сломает сборку (предыдущий incident).

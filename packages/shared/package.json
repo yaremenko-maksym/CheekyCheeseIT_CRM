@@ -24,9 +24,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@lingui/core": "5.9.5",
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
     "@typescript-eslint/parser": "^8.59.2",
     "@vitest/eslint-plugin": "^1.6.26",

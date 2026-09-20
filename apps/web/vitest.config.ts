@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { lingui } from '@lingui/vite-plugin'
 import path from 'path'
 import { existsSync, readFileSync, statSync } from 'fs'
 
@@ -77,7 +78,11 @@ if (!worktreeRoot) {
 const worktree = isGitWorktree(worktreeRoot)
 
 export default defineConfig({
-  plugins: [react(), tsconfigPaths()],
+  plugins: [
+    react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } }),
+    lingui(),
+    tsconfigPaths(),
+  ],
   // '@crm/shared' is aliased straight to TypeScript SOURCE unconditionally —
   // in the main repo as well as in a worktree (previously this lived inside
   // the `worktree &&` block below and only applied there, which left the
