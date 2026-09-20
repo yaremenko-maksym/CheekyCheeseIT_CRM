@@ -343,21 +343,27 @@ describe('approveDraft / rejectDraft — impersonation refusal (SR-H-5, security
     expect(projectRow.status).toBe('DRAFT')
   })
 
-  it('refusal message names the actual reason (impersonation), not a generic 403', async () => {
+  // COPY-M-3 (PR #694 round 2): the English fallback dropped the word
+  // "impersonating" itself — a copy-review finding that it named the
+  // internal session mode, not what the viewer sees (`ImpersonationBanner`
+  // says "signed in as", never "impersonating") — so the marker this test
+  // pins on moved with it. The claim still holds: the message still names
+  // the actual reason (signed in as someone else), not a generic 403.
+  it('refusal message names the actual reason (signed in as another employee), not a generic 403', async () => {
     const projectRow = draftProjectRow()
     const { service } = buildService(projectRow, 'PENDING')
 
     await expect(service.approveDraft(PROJECT_ID, IMPERSONATING_AS_SENIOR)).rejects.toThrow(
-      /impersonat/i,
+      /signed in as another employee/i,
     )
   })
 
-  it('rejectDraft refusal message also names impersonation, not a generic 403', async () => {
+  it('rejectDraft refusal message also names the reason, not a generic 403', async () => {
     const projectRow = draftProjectRow()
     const { service } = buildService(projectRow, 'PENDING')
 
     await expect(
       service.rejectDraft(PROJECT_ID, 'Не согласен', IMPERSONATING_AS_SENIOR),
-    ).rejects.toThrow(/impersonat/i)
+    ).rejects.toThrow(/signed in as another employee/i)
   })
 })

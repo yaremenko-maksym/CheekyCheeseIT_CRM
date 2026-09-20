@@ -8,6 +8,7 @@ import {
   getUserFacingErrorMessage,
   stripQueryString,
   GENERIC_HTTP_REASON_PHRASES,
+  applyRoleLabel,
 } from './axios-utils'
 
 // security-review round 2, MED-2: one consistent policy — never log a
@@ -205,6 +206,29 @@ describe('getApiErrorMessage — API error envelope (task-i18n-stage2-task5)', (
       response: { data: { statusCode: 403, code: 'NOT_A_REAL_CODE', message: 'Доступ запрещён' } },
     }
     expect(getApiErrorMessage(err)).toBe('Доступ запрещён')
+  })
+})
+
+// Mutation-gate finding (PR #694 round 2): `applyRoleLabel`'s "no role key
+// at all" guard is unobservable through translated TEXT (see its own doc
+// comment) — the object it returns is the only place the branch shows up.
+describe('applyRoleLabel', () => {
+  it('leaves params completely untouched (same shape, no stray `role` key) when there is no role param at all', () => {
+    const result = applyRoleLabel({ attempt: 2 })
+    expect(Object.keys(result ?? {})).not.toContain('role')
+    expect(result).toStrictEqual({ attempt: 2 })
+  })
+
+  it('maps a known role to its ROLE_LABELS text', () => {
+    expect(applyRoleLabel({ role: 'SENIOR' })).toStrictEqual({ role: 'Синьор' })
+  })
+
+  it('passes an unrecognized role value through unchanged', () => {
+    expect(applyRoleLabel({ role: 'NOT_A_REAL_ROLE' })).toStrictEqual({ role: 'NOT_A_REAL_ROLE' })
+  })
+
+  it('returns undefined params unchanged', () => {
+    expect(applyRoleLabel(undefined)).toBeUndefined()
   })
 })
 

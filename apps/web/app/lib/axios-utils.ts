@@ -160,8 +160,16 @@ export function getApiErrorCode(err: unknown): ApiErrorCode | null {
  * see `api-errors.ts`'s doc comment), so this is a known interim: once
  * stage 3 turns `ROLE_LABELS` into per-locale descriptors, this lookup
  * localizes for free without a call-site change here.
+ *
+ * EXPORTED (mutation-gate finding, PR #694 round 2) so the "no `role` key at
+ * all" branch has a seam a test can observe directly: through
+ * `translateApiError`'s rendered STRING, skipping the early return is
+ * unobservable — the object this function returns gains a stray
+ * `role: undefined` own key either way, and no catalog message interpolates
+ * an unused key into its text. The extra key itself is the only thing that
+ * differs, so the test asserts on `Object.keys(...)`, not on translated text.
  */
-function applyRoleLabel(
+export function applyRoleLabel(
   params: Record<string, string | number> | undefined,
 ): Record<string, string | number> | undefined {
   if (params === undefined || typeof params['role'] !== 'string') return params

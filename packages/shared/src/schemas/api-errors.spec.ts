@@ -61,6 +61,24 @@ describe('api-errors', () => {
     ).toBe(true)
   })
 
+  // Mutation-gate finding (PR #694 round 2, whole-PR --changed scope): the
+  // suite had no test distinguishing `z.union([z.string(), z.number()])`
+  // from a broken/narrower union for the `params` value type — only the
+  // accept case above was pinned. A boolean value is neither, so it must
+  // fail validation; without this, the value-type union could be weakened
+  // (or the whole record loosened to `z.any()`) with every existing test
+  // still green.
+  it('rejects a params value that is neither string nor number', () => {
+    expect(
+      apiErrorEnvelopeSchema.safeParse({
+        statusCode: 404,
+        code: 'CONTRACT_TEMPLATE_MISSING',
+        params: { role: true },
+        message: 'x',
+      }).success,
+    ).toBe(false)
+  })
+
   it('rejects a code outside the registry', () => {
     expect(
       apiErrorEnvelopeSchema.safeParse({ statusCode: 403, code: 'NOPE', message: 'x' }).success,
