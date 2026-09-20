@@ -4,6 +4,7 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import { lingui } from '@lingui/vite-plugin'
 import path from 'path'
 import { existsSync, readFileSync, statSync } from 'fs'
+import { findMonorepoRoot } from './vite.shared-root'
 
 // Detect git worktree (vs. the primary checkout). `.git` is a FILE (not a
 // dir) when inside a worktree; its content is:
@@ -47,31 +48,24 @@ function isGitWorktree(root: string): boolean {
 // added 2026-08-25 (`env-git-commit-boot.spec.ts`, a real Node dynamic
 // `import()`) finally tripped it — see
 // `scripts/devops/mutation-gate-runbook.md` "Known limits" for the full
-// mechanism. Walking up for an actual `.git` entry instead is
-// nesting-depth-agnostic: the same root is found from
-// `apps/web/vitest.config.ts`, from a git worktree checkout, and from
-// three levels deeper inside a Stryker sandbox alike, because `.git` only
-// ever exists at the true checkout root.
-function findGitRoot(startDir: string): string | null {
-  let dir = startDir
-  for (let i = 0; i < 10; i++) {
-    if (existsSync(path.join(dir, '.git'))) return dir
-    const parent = path.dirname(dir)
-    if (parent === dir) break
-    dir = parent
-  }
-  return null
-}
-
-const worktreeRoot = findGitRoot(__dirname)
+// mechanism. Walking up for the shared `findMonorepoRoot` marker (see
+// `vite.shared-root.ts` — anchored on `pnpm-workspace.yaml`, not `.git`;
+// `.git` is excluded from the Docker build context this config never runs
+// in, but the anchor logic used to live only here and duplicated nowhere
+// `vite.config.ts` needed the same computation) is nesting-depth-agnostic:
+// the same root is found from `apps/web/vitest.config.ts`, from a git
+// worktree checkout, and from three levels deeper inside a Stryker sandbox
+// alike, because `pnpm-workspace.yaml` only ever exists at the true
+// checkout root.
+const worktreeRoot = findMonorepoRoot(__dirname)
 if (!worktreeRoot) {
   // Fail loud: a wrong root here does not error immediately, it silently
   // mis-resolves `@crm/shared` to a path that looks plausible until
   // something imports it — precisely how the bug this replaces went
   // unnoticed in `apps/api`'s sibling config for weeks.
   throw new Error(
-    `apps/web/vitest.config.ts: could not find a ".git" entry walking up from ` +
-      `${__dirname}. Refusing to guess a repo root — '@crm/shared' would resolve to a ` +
+    `apps/web/vitest.config.ts: could not find a "pnpm-workspace.yaml" entry walking up ` +
+      `from ${__dirname}. Refusing to guess a repo root — '@crm/shared' would resolve to a ` +
       `made-up path from here.`,
   )
 }
