@@ -768,9 +768,16 @@ function mapInviteAcceptError(err: unknown): string {
       return 'invite_expired'
     case 'INVITE_GOOGLE_ACCOUNT_MISMATCH':
       return 'invite_email_mismatch'
-    case 'INVITE_INVALID':
-      return 'invite_invalid'
   }
+  // No `case 'INVITE_INVALID':` above — the final `return 'invite_invalid'`
+  // below already covers it (mutation-gate finding, PR #701 round 1): a
+  // dedicated case here was a mutant Stryker could never kill, since
+  // removing it still falls through, past the two `instanceof` checks
+  // (neither matches a plain `apiError()`-built exception), to the SAME
+  // string. Anything unrecognised — a garbage/superseded token, a genuinely
+  // unexpected error shape — belongs in the same "nothing more specific to
+  // tell the visitor" bucket `INVITE_INVALID` itself would have mapped to.
+  //
   // The two throw sites `acceptPersonalEmailInvite` deliberately kept as
   // plain (non-`apiError()`) exceptions — `envelopeCode` above returns
   // `undefined` for both, so they fall through to here.

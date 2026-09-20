@@ -1007,6 +1007,105 @@ describe('AuthController.googleCallback — invite-accept branch (task-user-emai
     expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_invalid'])
   })
 
+  // SR-H-1 (mutation-gate finding, PR #701 round 1): `envelopeCode`'s
+  // `!(err instanceof HttpException)` early return had no test where `err`
+  // genuinely is NOT an `HttpException` — every other rejection in this
+  // file is one (either via `apiError()` or a plain `ForbiddenException`/
+  // `ConflictException`), so a mutant disabling this guard (`if (false)
+  // return undefined`) still passed every test: `err.getResponse` simply
+  // isn't called on any of them either way. A bare `Error` (a DB blip, a
+  // genuinely unexpected throw) is the one shape that distinguishes them —
+  // under the mutant, `err.getResponse()` would throw `TypeError: err
+  // .getResponse is not a function` instead of redirecting cleanly.
+  it('invite cookie present, a non-HTTP error (not an HttpException at all) → redirects with the invite_invalid error code, no crash', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('database exploded'),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_invalid'])
+  })
+
+  // SR-H-1 (mutation-gate finding, PR #701 round 1): `envelopeCode`'s
+  // `typeof response === 'object' && response !== null` guard had no test
+  // where `getResponse()` returns `null` — every other rejection's response
+  // is a real object (or, for the non-HTTP-error test above, never reached
+  // at all). `typeof null === 'object'` is `true` in JS, so ONLY the
+  // `response !== null` half actually protects `(response as
+  // {code}).code` from `null.code` (`TypeError: Cannot read properties of
+  // null`) — an `&&` → `||` mutant, or either half hard-coded to `true`,
+  // survived every other test in this file because none of them ever made
+  // the second half do any work. `new HttpException(null, ...)` is the one
+  // NestJS construction whose `getResponse()` returns literal `null`
+  // (verified empirically, `node -e` against the installed `@nestjs/common`
+  // — see the sibling `exceptionMessage` Stryker-suppression comments above
+  // for the same verify-before-suppress discipline).
+  it('invite cookie present, a rejection whose HTTP body is literally null → redirects with the invite_invalid error code, no crash', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new HttpException(null, HttpStatus.INTERNAL_SERVER_ERROR),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_invalid'])
+  })
+
+  // SR-H-1 (mutation-gate finding, PR #701 round 1): the `null`-body test
+  // above kills the mutants that hinge on the SECOND half
+  // (`response !== null`) but leaves the FIRST half
+  // (`typeof response === 'object'`) unobserved — for `response = null`,
+  // `typeof null === 'object'` is ALREADY `true`, so hard-coding that half
+  // to `true` changes nothing there. `new HttpException(undefined, ...)` is
+  // the complementary case (verified empirically the same way): `typeof
+  // undefined === 'object'` is `false` (this is what the real short-circuit
+  // relies on), while `undefined !== null` is `true` — the one combination
+  // where only the FIRST half being genuinely checked (not hard-coded)
+  // prevents `(response as {code}).code` from reading `.code` off
+  // `undefined` (`TypeError: Cannot read properties of undefined`).
+  it('invite cookie present, a rejection whose HTTP body is undefined (not null) → redirects with the invite_invalid error code, no crash', async () => {
+    const authService = makeAuthService()
+    setupGoogleUser(authService, TEST_USER.email, 'google-sub')
+    const usersService = makeUsersServiceWithEmailRow(TEST_USER)
+    ;(usersService.acceptPersonalEmailInvite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new HttpException(undefined, HttpStatus.INTERNAL_SERVER_ERROR),
+    )
+    const controller = new AuthController(
+      authService,
+      usersService,
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = makeInviteRequest('state-value', 'raw-token-abc')
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(redirectsOf(reply)).toEqual(['http://localhost:3000/login?error=invite_invalid'])
+  })
+
   it('no invite cookie → normal login branch runs instead (acceptPersonalEmailInvite never called)', async () => {
     const authService = makeAuthService()
     setupGoogleUser(authService, TEST_USER.email, 'google-sub')
