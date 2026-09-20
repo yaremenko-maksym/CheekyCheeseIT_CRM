@@ -44,7 +44,7 @@ import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
 import { ApprovalsService } from '../approvals/approvals.service'
-import { NOTIFICATION_TITLES } from '@crm/shared'
+import { NOTIFICATION_TITLES, type Locale } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
@@ -806,7 +806,7 @@ export class UsersService {
      * wizard's "Данные" step. Defaults to 'uk' below when omitted (matches
      * the DB column default).
      */
-    locale?: 'uk' | 'en'
+    locale?: Locale
     /**
      * Drop role - phase 1: senior-only opt-in. `CREATE_NEW` (default)
      * preserves the legacy auto-team flow. `JOIN_DROP_TEAM` skips auto-team
@@ -1538,7 +1538,7 @@ export class UsersService {
       techStack?: string[] | null
       avatarDocumentId?: string | null
       /** task-i18n-stage2 (Task 3) — self-service interface language change. */
-      locale?: 'uk' | 'en'
+      locale?: Locale
     },
   ): Promise<User> {
     const set: Record<string, unknown> = { updatedAt: new Date() }

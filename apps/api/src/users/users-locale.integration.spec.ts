@@ -54,6 +54,10 @@ const JWT_SECRET = 'users-locale-integration-secret-32-chars-x'
 const TEST_TAG = `users-locale-spec-${Date.now()}`
 const JUNIOR_ID = '90000001-0000-4000-a000-000000000001'
 const ADMIN_ID = '90000001-0000-4000-a000-000000000002'
+// SR-M-2: a UUID deliberately NOT seeded into `users` — used to pin that the
+// real guard chain (see the APP_GUARD factory's own comment above) rejects a
+// structurally valid token for a row that does not exist.
+const NONEXISTENT_ID = '90000001-0000-4000-a000-00000000dead'
 
 let _testPool: Pool | undefined
 
@@ -197,10 +201,22 @@ class SentinelController {
       provide: USERS_SERVICE_TOKEN,
       useExisting: UsersService,
     },
+    // SR-M-2 (security-review PR #693 round 1): the guard MUST be constructed
+    // with the REAL `UsersService` (the same instance the module above wires
+    // up against the real DB), not `new JwtAuthGuard(jwt, reflector)` alone.
+    // The two-arg form takes the `!this.usersService` branch of
+    // `resolveCurrentUser` (see that method's own doc in jwt.guard.ts) —
+    // "direct-construction only, unreachable in the running app" — which
+    // skips role/archivedAt re-hydration AND (per this file's own header)
+    // is exactly the shape `feedback_mocked_e2e_guards` warns against: a
+    // token signed for an id that does not exist in `users` at all sailed
+    // through as if it were a real session. Passing the real service here is
+    // what makes the file's own "REAL guard chain" claim true.
     {
       provide: APP_GUARD,
-      useFactory: (jwt: JwtService, reflector: Reflector) => new JwtAuthGuard(jwt, reflector),
-      inject: [JwtService, Reflector],
+      useFactory: (jwt: JwtService, reflector: Reflector, usersService: UsersService) =>
+        new JwtAuthGuard(jwt, reflector, usersService),
+      inject: [JwtService, Reflector, UsersService],
     },
   ],
 })
@@ -241,13 +257,31 @@ describe.skipIf(!hasDatabaseUrl())(
           role: 'JUNIOR',
         })
         .onConflictDoNothing()
+      // SR-M-2: the ADMIN token below now goes through the REAL guard chain
+      // (see the APP_GUARD factory's comment) — it must resolve to an
+      // actual `users` row, or the "new users default to uk" test would 401
+      // before ever reaching the handler.
+      await db
+        .insert(users)
+        .values({
+          id: ADMIN_ID,
+          email: `${TEST_TAG}-admin@test.spec`,
+          displayName: 'Locale Admin',
+          role: 'ADMIN',
+        })
+        .onConflictDoNothing()
     }, 30_000)
 
     afterAll(async () => {
       // ON DELETE CASCADE on `user_emails.user_id` — deleting `users` rows
       // is sufficient cleanup (also covers rows POST /users inserted).
       await db.delete(users).where(eq(users.email, `${TEST_TAG}-junior@test.spec`))
+      await db.delete(users).where(eq(users.email, `${TEST_TAG}-admin@test.spec`))
       await db.delete(users).where(eq(users.email, `${TEST_TAG}-created@test.spec`))
+      // Defensive: the 401 test above should never let this row exist, but
+      // clean it up unconditionally so a failing assertion there doesn't
+      // also leave a stray row behind for the next run.
+      await db.delete(users).where(eq(users.email, `${TEST_TAG}-should-not-be-created@test.spec`))
       await app.close()
       // Pool torn down by the factory-registered onModuleDestroy.
     }, 15_000)
@@ -315,6 +349,31 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect(res.statusCode).toBe(201)
       expect(res.json().locale).toBe('uk')
+    })
+
+    // SR-M-2 (security-review PR #693 round 1): with `new JwtAuthGuard(jwt,
+    // reflector)` (no `usersService`), a structurally valid token signed for
+    // an id that does not exist in `users` at all sailed through with a 201
+    // — this is the exact gap `feedback_mocked_e2e_guards` warns about. With
+    // the real guard chain (APP_GUARD factory above), the SAME token must be
+    // rejected before the handler runs at all.
+    it('rejects a token for a user id that does not exist in the DB with 401', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/users',
+        cookies: { jwt: tokenFor(NONEXISTENT_ID, 'ADMIN') },
+        payload: {
+          email: `${TEST_TAG}-should-not-be-created@test.spec`,
+          displayName: 'Should Not Exist',
+          role: 'JUNIOR',
+          paymentMethod: 'BANK_UAH_FOP',
+          bankUahRecipient: 'Тестов Тест',
+          bankUahIban: 'UA123456789012345678901234567',
+          bankUahRnokpp: '1234567890',
+          legalFullName: 'Тестов Тест Тестович',
+        },
+      })
+      expect(res.statusCode).toBe(401)
     })
   },
 )

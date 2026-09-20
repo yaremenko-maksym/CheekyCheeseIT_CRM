@@ -27,6 +27,10 @@ export const USERS = {
     seniorSharePercent: 0,
     monthlySalary: null,
     salaryCurrency: 'USD' as const,
+    // task-i18n-stage2 (Task 3/4) — CR-M-1 (code-review PR #693 round 1):
+    // required by `sessionUserSchema`; the `SessionUserShape` intersection
+    // on `mockAuthAs` below makes tsc catch it if a future entry omits this.
+    locale: 'uk' as const,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
   },
@@ -46,6 +50,7 @@ export const USERS = {
     seniorSharePercent: 26,
     monthlySalary: null,
     salaryCurrency: 'USD' as const,
+    locale: 'uk' as const,
     createdAt: '2024-01-02T00:00:00.000Z',
     updatedAt: '2024-01-02T00:00:00.000Z',
   },
@@ -64,6 +69,7 @@ export const USERS = {
     seniorSharePercent: 0,
     monthlySalary: '800',
     salaryCurrency: 'USD' as const,
+    locale: 'uk' as const,
     createdAt: '2024-01-03T00:00:00.000Z',
     updatedAt: '2024-01-03T00:00:00.000Z',
   },
@@ -82,6 +88,7 @@ export const USERS = {
     seniorSharePercent: 0,
     monthlySalary: '1000',
     salaryCurrency: 'USD' as const,
+    locale: 'uk' as const,
     createdAt: '2024-01-04T00:00:00.000Z',
     updatedAt: '2024-01-04T00:00:00.000Z',
   },
@@ -100,6 +107,7 @@ export const USERS = {
     seniorSharePercent: 0,
     monthlySalary: '1200',
     salaryCurrency: 'USD' as const,
+    locale: 'uk' as const,
     createdAt: '2024-01-05T00:00:00.000Z',
     updatedAt: '2024-01-05T00:00:00.000Z',
   },
@@ -123,6 +131,7 @@ export const USERS = {
     dropSharePercent: 5,
     monthlySalary: null,
     salaryCurrency: 'USD' as const,
+    locale: 'uk' as const,
     createdAt: '2024-01-07T00:00:00.000Z',
     updatedAt: '2024-01-07T00:00:00.000Z',
   },
@@ -143,6 +152,7 @@ export const USERS = {
     seniorSharePercent: 26,
     monthlySalary: null,
     salaryCurrency: 'USD' as const,
+    locale: 'uk' as const,
     createdAt: '2024-01-08T00:00:00.000Z',
     updatedAt: '2024-01-08T00:00:00.000Z',
   },
@@ -163,12 +173,40 @@ export const USERS = {
     seniorSharePercent: 26,
     monthlySalary: null,
     salaryCurrency: 'USD' as const,
+    locale: 'uk' as const,
     createdAt: '2024-01-09T00:00:00.000Z',
     updatedAt: '2024-01-09T00:00:00.000Z',
   },
 }
 
 export const ALL_USERS = Object.values(USERS)
+
+/**
+ * Locally mirrors `sessionUserSchema`'s REQUIRED fields — not imported from
+ * `@crm/shared` (see `MAKSYM_ID`/`KOSTYA_ID`'s doc further down for why the
+ * e2e package deliberately doesn't depend on it: keeps the test runner
+ * independent of the workspace build pipeline).
+ *
+ * CR-M-1 (code-review PR #693 round 1): `mockAuthAs`'s `user` parameter used
+ * to be typed as ONLY `(typeof USERS)[keyof typeof USERS]` — a plain
+ * structural type with no link back to the real session shape. When `locale`
+ * was added to `sessionUserSchema` (task-i18n-stage2), every `USERS` entry
+ * fell out of sync with it silently: no test failed, `tsc` said nothing,
+ * `/auth/me` mocks just quietly returned a session one field short of what
+ * the real endpoint returns. Intersecting `mockAuthAs`'s parameter with this
+ * shape (below) means a FUTURE required field added to `sessionUserSchema`
+ * (and duplicated here) breaks every `USERS` entry that omits it — the same
+ * safety a real `SessionUser` import would give, without the dependency.
+ */
+interface SessionUserShape {
+  id: string
+  email: string
+  displayName: string
+  avatarUrl: string | null
+  role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+  seniorSharePercent: number
+  locale: 'uk' | 'en'
+}
 
 /**
  * Build a team-member fixture row from any user-shaped fixture.
@@ -707,7 +745,10 @@ function noContent(route: Route) {
 // ---------------------------------------------------------------------------
 // Mock all API calls for a given authenticated user
 // ---------------------------------------------------------------------------
-export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof USERS]) {
+export async function mockAuthAs(
+  page: Page,
+  user: (typeof USERS)[keyof typeof USERS] & SessionUserShape,
+) {
   // All routes use origin-agnostic patterns (see API_GLOB / API_RE above)
   // so mocks match regardless of dev (:3001), preview (:3010), or CI.
 
