@@ -1,14 +1,8 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  forwardRef,
-} from '@nestjs/common'
+import { ForbiddenException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common'
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { ArchiveImpact, SessionUser } from '@crm/shared'
 import { NOTIFICATION_TITLES } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import type { CreateNotificationInput } from '../notifications/notifications.service'
@@ -409,7 +403,7 @@ export class TeamsService {
       .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
       .then((rows) => rows[0])
     if (existingMembership) {
-      throw new BadRequestException('Синьор уже состоит в другой активной команде')
+      throw apiError('TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM', HttpStatus.BAD_REQUEST)
     }
 
     // Wrap team + members INSERT in a transaction so a partial failure (team
@@ -504,7 +498,7 @@ export class TeamsService {
       }),
       this.fetchAllProjects(),
     ])
-    if (!team) throw new NotFoundException('Team not found')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
     this.assertAccess(team, currentUser, allProjects)
     return this.mapTeam(team, allProjects, currentUser)
   }
@@ -541,7 +535,7 @@ export class TeamsService {
       where: eq(teams.id, id),
       with: { members: { with: { user: true } } },
     })
-    if (!team) throw new NotFoundException('Team not found')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // HR scope check: HR may only update teams they are a member of.
     // ACCOUNTANT is exempt from this check — their authority is cross-team.
@@ -572,9 +566,7 @@ export class TeamsService {
     // ProjectsService (~:610-618). HR may update name/notes/telegram but
     // CANNOT change the financial override.
     if (overrideChanged && currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Изменение доли синьора на уровне команды доступно только ADMIN и ACCOUNTANT',
-      )
+      throw apiError('TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const [updated] = await this.db.db
@@ -623,8 +615,8 @@ export class TeamsService {
       where: eq(teams.id, teamId),
       with: { members: { with: { user: true } } },
     })
-    if (!team) throw new NotFoundException('Team not found')
-    if (team.archivedAt) throw new BadRequestException('Team is already archived')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (team.archivedAt) throw apiError('TEAM_ALREADY_ARCHIVED', HttpStatus.BAD_REQUEST)
 
     // Drop-archive round 2 (B1): dispatch by team type. Drop-teams use the
     // dedicated `archiveDropTeam` primitive (drop archived + projects
@@ -643,7 +635,7 @@ export class TeamsService {
 
     const seniorMember = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
     if (!seniorMember) {
-      throw new BadRequestException('Team has no active SENIOR — cannot archive via pair flow')
+      throw apiError('TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE', HttpStatus.BAD_REQUEST)
     }
     await this.usersService.archive(seniorMember.userId, currentUser.id)
     return this.findOne(teamId, currentUser)
@@ -659,8 +651,8 @@ export class TeamsService {
       where: eq(teams.id, teamId),
       with: { members: true },
     })
-    if (!team) throw new NotFoundException('Team not found')
-    if (!team.archivedAt) throw new BadRequestException('Team is not archived')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (!team.archivedAt) throw apiError('TEAM_NOT_ARCHIVED', HttpStatus.BAD_REQUEST)
 
     // Find SENIOR via team_members + users join — `with: { members: true }`
     // above doesn't include user.role, so we run a focused lookup here.
@@ -679,7 +671,7 @@ export class TeamsService {
       )
       .then((rows) => rows[0])
     if (!seniorRow) {
-      throw new NotFoundException('Senior of this team not found')
+      throw apiError('SENIOR_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     await this.usersService.unarchive(seniorRow.userId, currentUser.id)
     return this.findOne(teamId, currentUser)
@@ -693,7 +685,7 @@ export class TeamsService {
     const team = await this.db.db.query.teams.findFirst({
       where: eq(teams.id, teamId),
     })
-    if (!team) throw new NotFoundException('Team not found')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Drop-archive round 2 (B2): branch by team type. Drop-teams have a
     // different "paired" entity — the drop (not a senior). UI keys on
@@ -822,15 +814,15 @@ export class TeamsService {
       where: eq(teams.id, teamId),
       with: { members: { with: { user: true } } },
     })
-    if (!team) throw new NotFoundException('Team not found')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
       throw new ForbiddenException()
     }
 
     const user = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
-    if (!user) throw new NotFoundException('User not found')
-    if (user.role === 'ADMIN') throw new BadRequestException('Admin cannot be a team member')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (user.role === 'ADMIN') throw apiError('TEAM_ADMIN_CANNOT_BE_MEMBER', HttpStatus.BAD_REQUEST)
 
     // SEC-02 (HIGH) addMember vector: HR adding an arbitrary SENIOR via
     // POST /teams/:id/members is the same BOLA class as the create() vector —
@@ -840,7 +832,7 @@ export class TeamsService {
     // SENIOR additions through addMember to ADMIN-only; HR may still add
     // JUNIOR / HR / ACCOUNTANT members (their established recruiting workflow).
     if (user.role === 'SENIOR' && currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException('Добавление синьора в команду доступно только ADMIN')
+      throw apiError('TEAM_ADD_SENIOR_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
 
     // Prevent adding a second SENIOR
@@ -852,7 +844,7 @@ export class TeamsService {
     // other SENIOR lookup in this file.
     if (user.role === 'SENIOR') {
       const hasSenior = team.members.some((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
-      if (hasSenior) throw new BadRequestException('Team already has a senior')
+      if (hasSenior) throw apiError('TEAM_ALREADY_HAS_SENIOR', HttpStatus.BAD_REQUEST)
     }
 
     // Prevent adding a JUNIOR who has an active project
@@ -861,7 +853,8 @@ export class TeamsService {
       const hasActiveProject = allProjects.some((p) =>
         p.members.some((m) => m.userId === userId && m.leftAt === null),
       )
-      if (hasActiveProject) throw new BadRequestException('Junior already has an active project')
+      if (hasActiveProject)
+        throw apiError('JUNIOR_ALREADY_ON_ANOTHER_PROJECT', HttpStatus.BAD_REQUEST)
     }
 
     // Re-add semantics after the soft-delete change to removeMember: a removed
@@ -914,7 +907,7 @@ export class TeamsService {
 
     if (existing) {
       if (existing.leftAt === null) {
-        throw new BadRequestException('User is already a member')
+        throw apiError('TEAM_USER_ALREADY_MEMBER', HttpStatus.BAD_REQUEST)
       }
       await this.db.db.transaction(async (tx) => {
         await tx.update(teamMembers).set({ leftAt: null }).where(eq(teamMembers.id, existing.id))
@@ -1003,7 +996,7 @@ export class TeamsService {
       where: eq(teams.id, teamId),
       with: { members: { with: { user: true } } },
     })
-    if (!team) throw new NotFoundException('Team not found')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
       throw new ForbiddenException()
@@ -1017,26 +1010,24 @@ export class TeamsService {
     const activeMembers = team.members.filter((m) => m.leftAt === null)
 
     const memberToRemove = activeMembers.find((m) => m.userId === userId)
-    if (!memberToRemove) throw new NotFoundException('Member not found in team')
+    if (!memberToRemove) throw apiError('TEAM_MEMBER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const removedRole = memberToRemove.user?.role
     if (removedRole === 'SENIOR') {
-      throw new BadRequestException(
-        'Cannot remove the senior from a team — delete the team instead',
-      )
+      throw apiError('TEAM_CANNOT_REMOVE_SENIOR', HttpStatus.BAD_REQUEST)
     }
 
     if (removedRole === 'HR') {
       const hrCount = activeMembers.filter((m) => m.user?.role === 'HR').length
       if (hrCount <= 1) {
-        throw new BadRequestException('Team must have at least one HR')
+        throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
       }
     }
 
     if (removedRole === 'ACCOUNTANT') {
       const accountantCount = activeMembers.filter((m) => m.user?.role === 'ACCOUNTANT').length
       if (accountantCount <= 1) {
-        throw new BadRequestException('Team must have at least one accountant')
+        throw apiError('TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
       }
     }
 
@@ -1148,12 +1139,13 @@ export class TeamsService {
       .then((rows) => rows[0])
     if (!u || u.role !== expectedRole) {
       if (genericMessage) {
-        throw new BadRequestException(
-          'Указанный пользователь не найден или имеет неподходящую роль',
-        )
+        throw apiError('TEAM_USER_NOT_FOUND_OR_WRONG_ROLE', HttpStatus.BAD_REQUEST)
       }
-      if (!u) throw new BadRequestException(`Пользователь ${userId} не найден`)
-      throw new BadRequestException(`Ожидалась роль ${expectedRole}, получено ${u.role}`)
+      if (!u) throw apiError('USER_NOT_FOUND', HttpStatus.BAD_REQUEST)
+      throw apiError('TEAM_UNEXPECTED_USER_ROLE', HttpStatus.BAD_REQUEST, {
+        expectedRole,
+        actualRole: u.role,
+      })
     }
   }
 
@@ -1180,7 +1172,7 @@ export class TeamsService {
     tx?: DrizzleTx,
   ): Promise<typeof teams.$inferSelect> {
     if (hrIds.length < 1) {
-      throw new BadRequestException('HR обязателен (минимум 1)')
+      throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
     }
     const handle = tx ?? this.db.db
     await this.assertUserRole(dropId, 'DROP', tx)
@@ -1196,7 +1188,7 @@ export class TeamsService {
       .from(users)
       .where(eq(users.id, dropId))
       .then((rows) => rows[0])
-    if (!dropUser) throw new BadRequestException('Дроп не найден')
+    if (!dropUser) throw apiError('DROP_NOT_FOUND', HttpStatus.BAD_REQUEST)
 
     const inserted = await handle
       .insert(teams)
@@ -1258,11 +1250,11 @@ export class TeamsService {
       .where(eq(teams.id, teamId))
       .for('update')
       .then((rows) => rows[0])
-    if (!team) throw new NotFoundException('Команда не найдена')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (team.type !== 'DROP') {
-      throw new BadRequestException('Метод доступен только для drop-команд')
+      throw apiError('TEAM_DROP_TEAMS_ONLY', HttpStatus.BAD_REQUEST)
     }
-    if (team.archivedAt) throw new BadRequestException('Команда уже архивирована')
+    if (team.archivedAt) throw apiError('TEAM_ALREADY_ARCHIVED', HttpStatus.BAD_REQUEST)
 
     const now = new Date()
     // Resolve the drop owner (DROP member of this team).
@@ -1373,11 +1365,11 @@ export class TeamsService {
         .from(teams)
         .where(eq(teams.id, teamId))
         .then((rows) => rows[0])
-      if (!team) throw new NotFoundException('Команда не найдена')
+      if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
       if (team.type !== 'DROP') {
-        throw new BadRequestException('Ротация синьора доступна только для drop-команд')
+        throw apiError('TEAM_DROP_TEAMS_ONLY', HttpStatus.BAD_REQUEST)
       }
-      if (team.archivedAt) throw new BadRequestException('Команда архивирована')
+      if (team.archivedAt) throw apiError('TEAM_ALREADY_ARCHIVED', HttpStatus.BAD_REQUEST)
 
       // RBAC: ADMIN or HR of this team.
       if (currentUser.role !== 'ADMIN') {
@@ -1405,7 +1397,7 @@ export class TeamsService {
         .where(and(eq(teamMembers.userId, newSeniorId), isNull(teamMembers.leftAt)))
         .then((rows) => rows[0])
       if (otherMembership) {
-        throw new BadRequestException('Синьор уже состоит в другой активной команде')
+        throw apiError('TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM', HttpStatus.BAD_REQUEST)
       }
 
       const now = new Date()
@@ -1475,11 +1467,11 @@ export class TeamsService {
       .from(teams)
       .where(eq(teams.id, teamId))
       .then((rows) => rows[0])
-    if (!team) throw new NotFoundException('Команда не найдена')
+    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (team.type !== 'DROP') {
-      throw new BadRequestException('Метод доступен только для drop-команд')
+      throw apiError('TEAM_DROP_TEAMS_ONLY', HttpStatus.BAD_REQUEST)
     }
-    if (team.archivedAt) throw new BadRequestException('Команда архивирована')
+    if (team.archivedAt) throw apiError('TEAM_ALREADY_ARCHIVED', HttpStatus.BAD_REQUEST)
 
     await this.assertUserRole(seniorId, 'SENIOR', tx, true)
 
@@ -1492,7 +1484,7 @@ export class TeamsService {
       )
       .then((rows) => rows[0])
     if (existingSenior) {
-      throw new BadRequestException('В команде уже есть активный синьор')
+      throw apiError('TEAM_ALREADY_HAS_SENIOR', HttpStatus.BAD_REQUEST)
     }
 
     const otherMembership = await handle
@@ -1501,7 +1493,7 @@ export class TeamsService {
       .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
       .then((rows) => rows[0])
     if (otherMembership) {
-      throw new BadRequestException('Синьор уже состоит в другой активной команде')
+      throw apiError('TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM', HttpStatus.BAD_REQUEST)
     }
 
     await handle.insert(teamMembers).values({ teamId, userId: seniorId })
