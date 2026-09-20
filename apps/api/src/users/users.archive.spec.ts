@@ -6,7 +6,7 @@
  *
  * Spec: docs/specs/2026-05-21-users-archive-refactor-design.md §5 + §6.3
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { UsersService } from './users.service'
@@ -610,13 +610,17 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
     seedSeniorWithTeamAndProjects(store)
     const { service } = buildService(store)
     await service.archive('senior-1', 'admin-x')
-    await expect(service.archive('senior-1', 'admin-x')).rejects.toThrow(BadRequestException)
+    await expect(service.archive('senior-1', 'admin-x')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_ALREADY_ARCHIVED' }),
+    })
   })
 
   it('throws NotFoundException for missing user', async () => {
     const store = emptyStore()
     const { service } = buildService(store)
-    await expect(service.archive('ghost', 'admin-x')).rejects.toThrow(NotFoundException)
+    await expect(service.archive('ghost', 'admin-x')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
   })
 
   it('threads tx through every audit-log call inside the transaction (atomicity)', async () => {
@@ -737,7 +741,9 @@ describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
     })
     const { service } = buildService(store)
 
-    await expect(service.archive('admin-target', 'admin-actor')).rejects.toThrow(ForbiddenException)
+    await expect(service.archive('admin-target', 'admin-actor')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CANNOT_ARCHIVE_ANOTHER_ADMIN' }),
+    })
 
     // Target row remains active — guard fires BEFORE any mutation.
     expect(store.users[0]?.archivedAt).toBeNull()
@@ -812,7 +818,9 @@ describe('UsersService.unarchive — SENIOR (pair restore)', () => {
     const store = emptyStore()
     store.users.push({ id: 'u-1', role: 'JUNIOR', archivedAt: null })
     const { service } = buildService(store)
-    await expect(service.unarchive('u-1', 'admin-x')).rejects.toThrow(BadRequestException)
+    await expect(service.unarchive('u-1', 'admin-x')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_ARCHIVED' }),
+    })
   })
 })
 

@@ -18,7 +18,7 @@
  *   this.db.db.query.projects.findFirst      — project load (post early-SELECT).
  *   this.db.db.transaction(cb)               — the insert + obligations unit.
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
@@ -134,7 +134,10 @@ describe('declareUsdtProjectIncome idempotency branch (unit, PR #367 MED-1)', ()
         },
         ADMIN,
       ),
-    ).rejects.toThrow(NotFoundException)
+      // task-i18n-stage4-task1: `assertProjectActive`'s missing-project branch
+      // now goes through `apiError('PROJECT_NOT_FOUND', ...)` — a plain
+      // `HttpException`, not `NotFoundException` — so assert on the code.
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }) })
 
     expect(txFindFirst).toHaveBeenCalledTimes(1)
     expect(projectsFindFirst).toHaveBeenCalledTimes(1)

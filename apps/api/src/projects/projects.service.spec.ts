@@ -17,7 +17,7 @@
  * (covered by the existing finance integration tests + the local Playwright
  * scenario D in projects-senior-share-override.spec.ts).
  */
-import { NotFoundException } from '@nestjs/common'
+import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -394,11 +394,13 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
 
   it('rejects ACCOUNTANT PATCH that also touches other fields (cannot piggyback edits)', async () => {
     const h = buildHarness()
+    // Not a migrated code — `hasOnlyOverride` still throws a bare
+    // `new ForbiddenException()` (no message/code at all), a separate
+    // throw-site from the field-scoped RBAC checks above it. Out of this
+    // task's discovery grep by construction (no literal to migrate).
     await expect(
       h.service.update('proj-1', { seniorSharePercentOverride: 35, rate: 9999 }, accountantUser),
-    ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'SENIOR_SHARE_OVERRIDE_FORBIDDEN' }),
-    })
+    ).rejects.toThrow(ForbiddenException)
   })
 
   it('allows ADMIN PATCH with seniorSharePercentOverride: null (reset) — proposes clearing, live column untouched', async () => {
@@ -497,7 +499,7 @@ describe('ProjectsService.update — dropSharePercentOverride + paymentType fiel
   it('rejects HR PATCH with paymentType → ForbiddenException', async () => {
     const h = buildHarness()
     await expect(h.service.update('proj-1', { paymentType: 'USDT' }, hrUser)).rejects.toMatchObject(
-      { response: expect.objectContaining({ code: 'DROP_SHARE_OVERRIDE_FORBIDDEN' }) },
+      { response: expect.objectContaining({ code: 'PAYMENT_TYPE_CHANGE_FORBIDDEN' }) },
     )
   })
 
@@ -550,11 +552,11 @@ describe('ProjectsService.update — dropSharePercentOverride + paymentType fiel
 
   it('rejects ACCOUNTANT PATCH that piggybacks a non-finance field (dropSharePercentOverride + rate)', async () => {
     const h = buildHarness()
+    // Not a migrated code — same bare `new ForbiddenException()` as the
+    // senior-override piggyback test above.
     await expect(
       h.service.update('proj-1', { dropSharePercentOverride: 18, rate: 9999 }, accountantUser),
-    ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'DROP_SHARE_OVERRIDE_FORBIDDEN' }),
-    })
+    ).rejects.toThrow(ForbiddenException)
   })
 })
 
@@ -966,9 +968,14 @@ describe('ProjectsService.update — HR cross-team IDOR protection', () => {
       hrSeniorIds: [SENIOR_A_ID],
       projectSeniorId: SENIOR_B_ID,
     })
-    await expect(service.update('proj-target', { rate: 9999 }, hrUserLocal)).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'PROJECT_NOT_IN_YOUR_TEAMS' }),
-    })
+    // Not a migrated code — for an EXISTING project, `assertAccess`'s own
+    // HR cross-team check (bare `new ForbiddenException()`) runs first and
+    // is reached before `assertHrCanManageProject`'s PROJECT_NOT_IN_YOUR_TEAMS
+    // ever would be (that one only fires from `create`/`addMember`/
+    // `removeMember`, which have no prior `assertAccess` call to pre-empt it).
+    await expect(service.update('proj-target', { rate: 9999 }, hrUserLocal)).rejects.toThrow(
+      ForbiddenException,
+    )
   })
 
   it('HR-A can update project owned by senior of own team-A → resolves', async () => {

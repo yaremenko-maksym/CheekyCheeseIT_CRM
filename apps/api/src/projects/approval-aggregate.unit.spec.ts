@@ -26,7 +26,7 @@
  * covers that branch fails (not some unrelated test) — see the coder's
  * final report for the transcript.
  */
-import { HttpException, NotFoundException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApprovalGroupStatus, SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -248,7 +248,7 @@ describe('ProjectsService.approveDraft / rejectDraft — applyApprovalAggregate 
     const { service } = buildService(undefined, 'APPROVED')
 
     await expect(service.approveDraft(PROJECT_ID, CURRENT_SENIOR)).rejects.toBeInstanceOf(
-      NotFoundException,
+      HttpException,
     )
     await expect(service.approveDraft(PROJECT_ID, CURRENT_SENIOR)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }),
