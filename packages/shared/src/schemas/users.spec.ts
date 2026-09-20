@@ -854,6 +854,7 @@ describe('adminUpdateUserSchema — refineRequisitePresence (security-review bon
     expect(result.success).toBe(false)
     const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'walletUsdtErc20')
     expect(issue?.message).toBe('zod.USDT_WALLET_REQUIRED')
+    expect(issue?.code).toBe('custom')
   })
 
   it('paymentMethod=BANK_UAH_FOP with no bankUahRecipient — zod.RECIPIENT_NAME_REQUIRED', () => {
@@ -865,6 +866,7 @@ describe('adminUpdateUserSchema — refineRequisitePresence (security-review bon
     expect(result.success).toBe(false)
     const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'bankUahRecipient')
     expect(issue?.message).toBe('zod.RECIPIENT_NAME_REQUIRED')
+    expect(issue?.code).toBe('custom')
   })
 
   it('paymentMethod=BANK_UAH_FOP with no bankUahIban — zod.IBAN_REQUIRED', () => {
@@ -876,6 +878,7 @@ describe('adminUpdateUserSchema — refineRequisitePresence (security-review bon
     expect(result.success).toBe(false)
     const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'bankUahIban')
     expect(issue?.message).toBe('zod.IBAN_REQUIRED')
+    expect(issue?.code).toBe('custom')
   })
 
   it('paymentMethod=BANK_UAH_FOP with no bankUahRnokpp — zod.RNOKPP_REQUIRED', () => {
@@ -887,6 +890,7 @@ describe('adminUpdateUserSchema — refineRequisitePresence (security-review bon
     expect(result.success).toBe(false)
     const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'bankUahRnokpp')
     expect(issue?.message).toBe('zod.RNOKPP_REQUIRED')
+    expect(issue?.code).toBe('custom')
   })
 
   it('paymentMethod omitted entirely — refine is a no-op, nothing required', () => {

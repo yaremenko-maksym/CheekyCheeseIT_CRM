@@ -140,4 +140,34 @@ describe('declareUsdtProjectIncome idempotency branch (unit, PR #367 MED-1)', ()
     expect(projectsFindFirst).toHaveBeenCalledTimes(1)
     expect(transactionSpy).not.toHaveBeenCalled()
   })
+
+  // fix-round 1 (mutation-gate closure): the receipt check runs BEFORE the
+  // project load (see the method's own comment ordering) — no test in this
+  // suite, nor in `project-draft-transaction-guard.unit.spec.ts` (which
+  // deliberately supplies a receipt "so receiptMandatoryError never fires
+  // first"), ever omits the receipt entirely. That left
+  // `if (receiptErr) throw zodErrorBadRequest(receiptErr)` with zero direct
+  // coverage.
+  it('no receipt at all → 400 (receiptMandatoryError gate, runs before the project load)', async () => {
+    const { svc, projectsFindFirst, transactionSpy } = makeService({})
+
+    await expect(
+      svc.declareUsdtProjectIncome(
+        {
+          projectId: PROJECT_ID,
+          amount: 1000,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
+          idempotencyKey: KEY,
+        },
+        ADMIN,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+    })
+
+    // Never reached the project load — the receipt gate refused first.
+    expect(projectsFindFirst).not.toHaveBeenCalled()
+    expect(transactionSpy).not.toHaveBeenCalled()
+  })
 })

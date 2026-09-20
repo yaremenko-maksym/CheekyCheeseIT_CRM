@@ -692,6 +692,21 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     ).rejects.toBeInstanceOf(BadRequestException)
   })
 
+  // fix-round 1 (mutation-gate closure): no existing test in this describe
+  // omits the receipt entirely — every call above passes a
+  // `receiptExternalUrl`, so the `receiptMandatoryError` guard itself
+  // (`if (receiptErr) throw zodErrorBadRequest(receiptErr)`) had zero direct
+  // coverage; a mutant forcing that `if` to `false` (never throws) survived
+  // silently until this task's diff touched the line.
+  it('no receipt at all → 400 (receiptMandatoryError gate)', async () => {
+    const db = makeDividendDb({})
+    const svc = makeService(db)
+    await expect(svc.createDividend({ amount: 100 }, ADMIN)).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+    })
+  })
+
   it('amount exceeds company balance → 400 (overdraw gate)', async () => {
     // balance = deposits(100) = 100; dividend of 1234 must be refused.
     const db = makeDividendDb({ ledgerTotals: ['100', '0', '0', '0', '0', '0', '0'] })

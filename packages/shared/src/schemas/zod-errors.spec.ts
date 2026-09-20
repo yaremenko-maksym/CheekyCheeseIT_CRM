@@ -136,4 +136,23 @@ describe('zodErrorFallbackText', () => {
   it('passes an unknown zod.<CODE>-shaped message through unchanged', () => {
     expect(zodErrorFallbackText('zod.NOT_A_REAL_CODE')).toBe('zod.NOT_A_REAL_CODE')
   })
+
+  /**
+   * mutation-gate closure: without this test, both `!message.startsWith('zod.')`
+   * mutants (the condition forced to `false`, and the literal `'zod.'` gutted to
+   * `''`) survive — a message with no `zod.` prefix at all still lands on the
+   * "passes through unchanged, `?? message`" fallback purely by coincidence
+   * whenever `message.slice(4)` does not happen to collide with a real code, so
+   * the two tests above cannot distinguish "the early return actually ran" from
+   * "it didn't, but the fallback masked it". This message is constructed so a
+   * BROKEN early-return (message never returned as-is) slices off its first 4
+   * characters into `RECEIPT_REQUIRED` — a REAL code — and returns that code's
+   * English text instead of the message verbatim, which the assertion below
+   * catches.
+   */
+  it("a non-coded message whose 4th-character-onward slice collides with a real code is NOT mistaken for one (pins the actual startsWith('zod.') check, not just the fallback)", () => {
+    const message = 'abcdRECEIPT_REQUIRED'
+    expect(message.startsWith('zod.')).toBe(false)
+    expect(zodErrorFallbackText(message)).toBe(message)
+  })
 })

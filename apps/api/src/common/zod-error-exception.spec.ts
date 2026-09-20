@@ -30,4 +30,26 @@ describe('zodErrorBadRequest', () => {
     const exception = zodErrorBadRequest('zod.NOT_A_REAL_CODE')
     expect(exception.getResponse()).toMatchObject({ message: 'zod.NOT_A_REAL_CODE' })
   })
+
+  /**
+   * mutation-gate closure (same class as `zodErrorFallbackText`'s own pinning
+   * test in `zod-errors.spec.ts`): a message with no `zod.` prefix at all
+   * passes through unchanged EITHER because the early-return actually ran, OR
+   * — if it were mutated away — because `message.slice(4)` happened not to
+   * collide with a real code, so the earlier "non-coded" tests above cannot
+   * tell the two apart. This message is built so a BROKEN early-return slices
+   * its first 4 characters off into `RECEIPT_REQUIRED` — a REAL code — and
+   * would build a coded body instead of the plain-string one the assertion
+   * below requires.
+   */
+  it("a non-coded message whose 4th-character-onward slice collides with a real code still gets the plain-string body (pins the actual startsWith('zod.') check)", () => {
+    const message = 'abcdRECEIPT_REQUIRED'
+    expect(message.startsWith('zod.')).toBe(false)
+    const exception = zodErrorBadRequest(message)
+    expect(exception.getResponse()).toEqual({
+      statusCode: 400,
+      message,
+      error: 'Bad Request',
+    })
+  })
 })
