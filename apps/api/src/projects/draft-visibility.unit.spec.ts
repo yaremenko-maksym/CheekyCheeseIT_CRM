@@ -169,7 +169,7 @@ describe('AC5 — draft project visibility (findOne/assertAccess)', () => {
     ).rejects.toBeInstanceOf(NotFoundException)
     await expect(
       service.findOne(PROJECT_ID, sessionFor(OTHER_SENIOR_ID, 'SENIOR')),
-    ).rejects.toThrow('Project not found')
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }) })
   })
 
   it('JUNIOR gets 404', async () => {

@@ -17,7 +17,7 @@
  * (covered by the existing finance integration tests + the local Playwright
  * scenario D in projects-senior-share-override.spec.ts).
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -295,21 +295,27 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
     const h = buildHarness()
     await expect(
       h.service.update('proj-1', { seniorSharePercentOverride: 30 }, hrUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SENIOR_SHARE_OVERRIDE_FORBIDDEN' }),
+    })
   })
 
   it('rejects HR PATCH with seniorSharePercentOverride: null (explicit clear) → ForbiddenException', async () => {
     const h = buildHarness({ seniorSharePercentOverride: 30 })
     await expect(
       h.service.update('proj-1', { seniorSharePercentOverride: null }, hrUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SENIOR_SHARE_OVERRIDE_FORBIDDEN' }),
+    })
   })
 
   it('rejects SENIOR PATCH with seniorSharePercentOverride → ForbiddenException', async () => {
     const h = buildHarness()
     await expect(
       h.service.update('proj-1', { seniorSharePercentOverride: 30 }, seniorUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SENIOR_SHARE_OVERRIDE_FORBIDDEN' }),
+    })
   })
 
   it('allows HR PATCH WITHOUT seniorSharePercentOverride (other fields) — no override write', async () => {
@@ -390,7 +396,9 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
     const h = buildHarness()
     await expect(
       h.service.update('proj-1', { seniorSharePercentOverride: 35, rate: 9999 }, accountantUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SENIOR_SHARE_OVERRIDE_FORBIDDEN' }),
+    })
   })
 
   it('allows ADMIN PATCH with seniorSharePercentOverride: null (reset) — proposes clearing, live column untouched', async () => {
@@ -425,7 +433,7 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
     ).db.db.query.projects.findFirst = async () => undefined
     await expect(
       h.service.update('ghost', { seniorSharePercentOverride: 30 }, adminUser),
-    ).rejects.toThrow(NotFoundException)
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND' }) })
   })
 
   // -----------------------------------------------------------------------
@@ -463,27 +471,33 @@ describe('ProjectsService.update — dropSharePercentOverride + paymentType fiel
     const h = buildHarness()
     await expect(
       h.service.update('proj-1', { dropSharePercentOverride: 12 }, hrUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_SHARE_OVERRIDE_FORBIDDEN' }),
+    })
   })
 
   it('rejects HR PATCH with dropSharePercentOverride: null (explicit clear) → ForbiddenException', async () => {
     const h = buildHarness({ dropSharePercentOverride: 12 })
     await expect(
       h.service.update('proj-1', { dropSharePercentOverride: null }, hrUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_SHARE_OVERRIDE_FORBIDDEN' }),
+    })
   })
 
   it('rejects SENIOR PATCH with dropSharePercentOverride → ForbiddenException', async () => {
     const h = buildHarness()
     await expect(
       h.service.update('proj-1', { dropSharePercentOverride: 12 }, seniorUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_SHARE_OVERRIDE_FORBIDDEN' }),
+    })
   })
 
   it('rejects HR PATCH with paymentType → ForbiddenException', async () => {
     const h = buildHarness()
-    await expect(h.service.update('proj-1', { paymentType: 'USDT' }, hrUser)).rejects.toThrow(
-      ForbiddenException,
+    await expect(h.service.update('proj-1', { paymentType: 'USDT' }, hrUser)).rejects.toMatchObject(
+      { response: expect.objectContaining({ code: 'DROP_SHARE_OVERRIDE_FORBIDDEN' }) },
     )
   })
 
@@ -491,7 +505,9 @@ describe('ProjectsService.update — dropSharePercentOverride + paymentType fiel
     const h = buildHarness()
     await expect(
       h.service.update('proj-1', { paymentType: 'GIG_CONTRACT' }, seniorUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PAYMENT_TYPE_CHANGE_FORBIDDEN' }),
+    })
   })
 
   it('allows ADMIN PATCH with dropSharePercentOverride: 30 — persists on projects.*', async () => {
@@ -536,7 +552,9 @@ describe('ProjectsService.update — dropSharePercentOverride + paymentType fiel
     const h = buildHarness()
     await expect(
       h.service.update('proj-1', { dropSharePercentOverride: 18, rate: 9999 }, accountantUser),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_SHARE_OVERRIDE_FORBIDDEN' }),
+    })
   })
 })
 
@@ -908,7 +926,9 @@ describe('ProjectsService.create — HR cross-team IDOR protection', () => {
         },
         hrUserLocal,
       ),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_IN_YOUR_TEAMS' }),
+    })
   })
 
   it('HR-A can create project for senior of own team-A → resolves', async () => {
@@ -946,9 +966,9 @@ describe('ProjectsService.update — HR cross-team IDOR protection', () => {
       hrSeniorIds: [SENIOR_A_ID],
       projectSeniorId: SENIOR_B_ID,
     })
-    await expect(service.update('proj-target', { rate: 9999 }, hrUserLocal)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(service.update('proj-target', { rate: 9999 }, hrUserLocal)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_IN_YOUR_TEAMS' }),
+    })
   })
 
   it('HR-A can update project owned by senior of own team-A → resolves', async () => {
@@ -993,9 +1013,11 @@ describe('ProjectsService.addMember — HR cross-team IDOR protection', () => {
       projectSeniorId: SENIOR_B_ID,
     })
     h.setNextUserLookupAsJunior()
-    await expect(h.service.addMember('proj-target', 'junior-1', h.hrUserLocal)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(
+      h.service.addMember('proj-target', 'junior-1', h.hrUserLocal),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_IN_YOUR_TEAMS' }),
+    })
   })
 
   it('HR-A can add member to project owned by senior of own team-A → resolves', async () => {
@@ -1057,9 +1079,11 @@ describe('ProjectsService.removeMember — HR cross-team IDOR protection', () =>
       userId: 'junior-1',
       leftAt: null,
     })
-    await expect(h.service.removeMember('proj-target', 'junior-1', h.hrUserLocal)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(
+      h.service.removeMember('proj-target', 'junior-1', h.hrUserLocal),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_IN_YOUR_TEAMS' }),
+    })
   })
 
   it('HR-A can remove member from project owned by senior of own team-A → resolves', async () => {

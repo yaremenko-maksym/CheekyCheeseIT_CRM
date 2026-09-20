@@ -1,7 +1,7 @@
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   NotFoundException,
 } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
@@ -534,10 +534,10 @@ describe('UsersService.writeUserEmailOrConflict (SR-M-2, private helper exercise
 
     await expect(
       service.writeUserEmailOrConflict(() => Promise.reject(violation)),
-    ).rejects.toBeInstanceOf(ConflictException)
-    await expect(service.writeUserEmailOrConflict(() => Promise.reject(violation))).rejects.toThrow(
-      'Этот адрес уже используется — введите другой.',
-    )
+    ).rejects.toBeInstanceOf(HttpException)
+    await expect(
+      service.writeUserEmailOrConflict(() => Promise.reject(violation)),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'EMAIL_ALREADY_IN_USE' }) })
   })
 
   it('a non-unique-violation error is rethrown unchanged, not swallowed into a 409', async () => {
@@ -655,7 +655,7 @@ describe('UsersService.createUser — JUNIOR', () => {
         actorRole: 'ADMIN',
         actorId: 'actor-test-id',
       }),
-    ).rejects.toThrow(ConflictException)
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS' }) })
   })
 
   it('does not insert anything after ConflictException', async () => {
@@ -873,7 +873,9 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
       // COPY-H-5 (security-review PR #623 round 5): assertEmailAvailable's
       // message is Russian now — this is the SAME shared function
       // changePersonalEmail calls, translated once for every caller.
-    ).rejects.toThrow('Этот адрес уже занят другим пользователем.')
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+    })
 
     // No half-created account — the rejection happens before any insert.
     expect(db.db.insert).not.toHaveBeenCalled()
@@ -1093,8 +1095,10 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     const { db, findFirst } = makeResendDb({ target: undefined })
     const service = makeUsersService(db)
     const promise = service.resendPersonalEmailInvite('ghost-id', 'actor-1')
-    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
-    await expect(promise).rejects.toThrow('Пользователь не найден')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
     expect(findFirst).not.toHaveBeenCalled()
   })
 
@@ -1105,8 +1109,10 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     })
     const service = makeUsersService(db)
     const promise = service.resendPersonalEmailInvite('u-1', 'actor-1')
-    await expect(promise).rejects.toBeInstanceOf(BadRequestException)
-    await expect(promise).rejects.toThrow('У пользователя не задан личный email')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PERSONAL_EMAIL_NOT_SET' }),
+    })
     expect(insertMock).not.toHaveBeenCalled()
     // Kills the `findFirst({})` ObjectLiteral mutant (and the `kind: ''`
     // StringLiteral inside its WHERE) — a query with no WHERE clause, or one
@@ -1122,10 +1128,10 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     })
     const service = makeUsersService(db)
     const promise = service.resendPersonalEmailInvite('u-1', 'actor-1')
-    await expect(promise).rejects.toBeInstanceOf(ConflictException)
-    await expect(promise).rejects.toThrow(
-      'Личный email уже подтверждён — повторное приглашение не требуется',
-    )
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PERSONAL_EMAIL_ALREADY_VERIFIED' }),
+    })
     expect(insertMock).not.toHaveBeenCalled()
   })
 
@@ -1245,8 +1251,10 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
     const { db, transactionMock } = makeChangeDb({ target: undefined })
     const service = makeUsersService(db)
     const promise = service.changePersonalEmail('ghost-id', 'x@example.com', 'admin-1')
-    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
-    await expect(promise).rejects.toThrow('Пользователь не найден')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
@@ -1298,8 +1306,10 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
     })
     const service = makeUsersService(db)
     const promise = service.changePersonalEmail('u-1', 'work@example.com', 'admin-1')
-    await expect(promise).rejects.toBeInstanceOf(BadRequestException)
-    await expect(promise).rejects.toThrow('Личный email должен отличаться от рабочего')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK' }),
+    })
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
@@ -1311,7 +1321,10 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
     })
     const service = makeUsersService(db)
     const promise = service.changePersonalEmail('u-1', 'taken@example.com', 'admin-1')
-    await expect(promise).rejects.toBeInstanceOf(ConflictException)
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+    })
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
@@ -1537,8 +1550,10 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const { db, transactionMock, inviteFindFirst } = makeAcceptDb({ invite: undefined })
     const service = makeUsersService(db)
     const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
-    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
-    await expect(promise).rejects.toThrow('Приглашение недействительно')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'INVITE_INVALID' }),
+    })
     expect(transactionMock).not.toHaveBeenCalled()
     // Kills the `findFirst({})` ObjectLiteral mutant — a query with no WHERE
     // clause at all would match ANY row, not "no row for this token".
@@ -1553,8 +1568,10 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     })
     const service = makeUsersService(db)
     const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
-    await expect(promise).rejects.toBeInstanceOf(ConflictException)
-    await expect(promise).rejects.toThrow('Приглашение уже использовано')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'INVITE_ALREADY_USED' }),
+    })
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
@@ -1564,8 +1581,10 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     })
     const service = makeUsersService(db)
     const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
-    await expect(promise).rejects.toBeInstanceOf(BadRequestException)
-    await expect(promise).rejects.toThrow('Срок действия приглашения истёк')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'INVITE_EXPIRED' }),
+    })
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
@@ -1597,8 +1616,10 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     })
     const service = makeUsersService(db)
     const promise = service.acceptPersonalEmailInvite('tok', 'x@example.com', 'sub-1')
-    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
-    await expect(promise).rejects.toThrow('Приглашение недействительно')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'INVITE_INVALID' }),
+    })
     expect(transactionMock).not.toHaveBeenCalled()
     expect(emailFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.anything() }),
@@ -1612,10 +1633,10 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     })
     const service = makeUsersService(db)
     const promise = service.acceptPersonalEmailInvite('tok', 'wrong@example.com', 'sub-1')
-    await expect(promise).rejects.toBeInstanceOf(ForbiddenException)
-    await expect(promise).rejects.toThrow(
-      'Адрес аккаунта Google не совпадает с приглашённым адресом',
-    )
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH' }),
+    })
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
@@ -1678,8 +1699,10 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     })
     const service = makeUsersService(db)
     const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
-    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
-    await expect(promise).rejects.toThrow('Приглашение недействительно')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'INVITE_INVALID' }),
+    })
     expect(transactionMock).toHaveBeenCalledTimes(1)
     // Reported as "invalid" BEFORE the invite update ever runs — the
     // user_emails UPDATE (call 1) matched zero rows, so the transaction
@@ -1700,8 +1723,10 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     })
     const service = makeUsersService(db)
     const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
-    await expect(promise).rejects.toBeInstanceOf(NotFoundException)
-    await expect(promise).rejects.toThrow('Приглашение недействительно')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'INVITE_INVALID' }),
+    })
     expect(transactionMock).toHaveBeenCalledTimes(1)
   })
 
@@ -1897,7 +1922,7 @@ describe('UsersService.createUser — SENIOR', () => {
         actorRole: 'ADMIN',
         actorId: 'actor-test-id',
       }),
-    ).rejects.toThrow(ConflictException)
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS' }) })
   })
 })
 
@@ -2248,7 +2273,9 @@ describe('UsersService.adminUpdateUser', () => {
 
     await expect(
       service.adminUpdateUser('hr-1', { role: 'DROP', dropSharePercent: 40 }),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT' }),
+    })
   })
 
   it('ignores seniorSharePercent for a non-SENIOR target', async () => {
@@ -2279,9 +2306,9 @@ describe('UsersService.adminUpdateUser', () => {
     // No existing user → findById returns undefined → NotFoundException
     const db = makeDb({ existingUser: undefined })
     const service = makeUsersService(db)
-    await expect(service.adminUpdateUser('ghost', { displayName: 'X' })).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(service.adminUpdateUser('ghost', { displayName: 'X' })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
   })
 
   // ─── ut-10: ADMIN cannot edit another ADMIN ─────────────────────────────
@@ -2289,10 +2316,11 @@ describe('UsersService.adminUpdateUser', () => {
     const targetAdmin = makeUser({ id: 'admin-2', role: 'ADMIN', email: 'admin2@example.com' })
     const db = makeDb({ existingUser: targetAdmin })
     const service = makeUsersService(db)
-    const { ForbiddenException } = await import('@nestjs/common')
     await expect(
       service.adminUpdateUser('admin-2', { displayName: 'Hacked' }, 'admin-1'),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CANNOT_EDIT_ANOTHER_ADMIN' }),
+    })
   })
 
   it('allows ADMIN editing themselves (id === actorId)', async () => {
@@ -2313,10 +2341,11 @@ describe('UsersService.adminUpdateUser', () => {
     const selfAdmin = makeUser({ id: 'admin-1', role: 'ADMIN' })
     const db = makeDb({ existingUser: selfAdmin })
     const service = makeUsersService(db)
-    const { ForbiddenException } = await import('@nestjs/common')
-    await expect(service.adminUpdateUser('admin-1', { role: 'SENIOR' }, 'admin-1')).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(
+      service.adminUpdateUser('admin-1', { role: 'SENIOR' }, 'admin-1'),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ADMIN_CANNOT_CHANGE_OWN_ROLE' }),
+    })
   })
 
   it('allows self-ADMIN to update non-role fields', async () => {
@@ -2582,8 +2611,10 @@ describe('UsersService.adminUpdateUser', () => {
     const service = makeUsersService(db)
 
     const promise = service.adminUpdateUser('user-1', { email: 'personal@example.com' })
-    await expect(promise).rejects.toBeInstanceOf(BadRequestException)
-    await expect(promise).rejects.toThrow('Рабочий email должен отличаться от личного')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL' }),
+    })
     // Caught before `assertEmailAvailable`/`upsertWorkEmail` — no write was
     // even attempted, so the transaction never opens.
     expect(db.db.transaction).not.toHaveBeenCalled()
@@ -2643,8 +2674,10 @@ describe('UsersService.adminUpdateUser', () => {
     const service = makeUsersService(db)
 
     const promise = service.adminUpdateUser('user-1', { email: 'taken@example.com' })
-    await expect(promise).rejects.toBeInstanceOf(ConflictException)
-    await expect(promise).rejects.toThrow('User with this email already exists')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS' }),
+    })
     // This collision is caught by `findByEmail`, strictly BEFORE COPY-M-15's
     // own-PERSONAL-row check — a mutant reordering the two checks would
     // still throw SOMETHING here, but `userEmails.findFirst` would no
@@ -2661,7 +2694,6 @@ describe('UsersService.createUser — ut-12 ADMIN block', () => {
   it('throws ForbiddenException when role=ADMIN is requested', async () => {
     const db = makeDb({ existingUser: undefined })
     const service = makeUsersService(db)
-    const { ForbiddenException } = await import('@nestjs/common')
     await expect(
       service.createUser({
         actorRole: 'ADMIN',
@@ -2670,7 +2702,9 @@ describe('UsersService.createUser — ut-12 ADMIN block', () => {
         displayName: 'New Admin',
         role: 'ADMIN',
       }),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ADMIN_CREATION_FORBIDDEN' }),
+    })
   })
 })
 
@@ -2712,7 +2746,9 @@ describe('UsersService.getProfile', () => {
       },
     } as unknown as DrizzleDb
     const service = makeUsersService(db)
-    await expect(service.getProfile('ghost')).rejects.toThrow(NotFoundException)
+    await expect(service.getProfile('ghost')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
   })
 })
 

@@ -18,6 +18,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Logger,
   NotFoundException,
   UnauthorizedException,
@@ -1160,8 +1161,10 @@ describe('AuthController.googleOneTap — failure paths (no prior test coverage)
     const reply = makeFullReply()
 
     const promise = controller.googleOneTap({ credential: 'cred' }, reply)
-    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException)
-    await expect(promise).rejects.toThrow('Email not authorized')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'EMAIL_NOT_AUTHORIZED' }),
+    })
     expect(jwtService.sign).not.toHaveBeenCalled()
   })
 
@@ -1190,8 +1193,10 @@ describe('AuthController.googleOneTap — failure paths (no prior test coverage)
     const reply = makeFullReply()
 
     const promise = controller.googleOneTap({ credential: 'cred' }, reply)
-    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException)
-    await expect(promise).rejects.toThrow('Email not authorized')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'EMAIL_NOT_AUTHORIZED' }),
+    })
     expect(jwtService.sign).not.toHaveBeenCalled()
   })
 
@@ -1217,8 +1222,10 @@ describe('AuthController.googleOneTap — failure paths (no prior test coverage)
     const reply = makeFullReply()
 
     const promise = controller.googleOneTap({ credential: 'cred' }, reply)
-    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException)
-    await expect(promise).rejects.toThrow('Account disabled')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ACCOUNT_DISABLED' }),
+    })
     expect(jwtService.sign).not.toHaveBeenCalled()
   })
 
@@ -1250,8 +1257,10 @@ describe('AuthController.googleOneTap — failure paths (no prior test coverage)
     const reply = makeFullReply()
 
     const promise = controller.googleOneTap({ credential: 'cred' }, reply)
-    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException)
-    await expect(promise).rejects.toThrow('Google account mismatch')
+    await expect(promise).rejects.toBeInstanceOf(HttpException)
+    await expect(promise).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'GOOGLE_ACCOUNT_MISMATCH' }),
+    })
     expect(jwtService.sign).not.toHaveBeenCalled()
     expect(usersService.updateEmailRowGoogleId).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalledWith(
