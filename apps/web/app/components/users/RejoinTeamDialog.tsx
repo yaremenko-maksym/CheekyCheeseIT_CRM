@@ -6,6 +6,7 @@ import type { AxiosError } from 'axios'
 import type { TeamDto, TeamMode, UserProfileDto } from '@crm/shared'
 import { rejoinTeamSchema } from '@crm/shared'
 import { toast } from 'sonner'
+import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { Button } from '@/components/ui/button'
 import {
   CrmDialogBody,
@@ -134,8 +135,15 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
 
       const result = rejoinTeamSchema.safeParse(payload)
       if (!result.success) {
+        // fix-round 1 (SR-M-1): this branch is latent today (the two local
+        // checks above catch the same two conditions first) but IS the
+        // defense-in-depth layer for whatever the schema's `superRefine`
+        // guards next — without `translateZodMessage` it would show the raw
+        // `zod.<CODE>` key verbatim.
         const first = result.error.issues[0]
-        toast.error(first?.message ?? 'Ошибка валидации данных')
+        toast.error(
+          translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
+        )
         return
       }
       mutation.mutate(payload)

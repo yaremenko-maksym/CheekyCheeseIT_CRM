@@ -9,10 +9,13 @@ import { ZOD_ERROR_CODES, ZOD_ERROR_FALLBACK_EN, type ZodErrorCode } from '@crm/
  * only a single `message: string`, no separate code field). A not-yet-
  * migrated schema's `message` is still ordinary prose. This is the ONE place
  * that tells the two apart, so `errors[]` below can build the right shape
- * for each: `{ path, code, params?, message }` (message = the English
- * fallback, for a client without a catalog — same contract as
+ * for each: `{ path, code, message }` (message = the English fallback, for a
+ * client without a catalog — same contract as
  * `API_ERROR_FALLBACK_EN`/`apiError()`) for a migrated issue, `{ path,
- * message }` (unchanged) for a legacy one.
+ * message }` (unchanged) for a legacy one. No `params` field is emitted —
+ * unlike `apiError()`'s envelope, no code registered in `zod-errors.ts`
+ * needs one yet (see that file's module doc comment); a bare
+ * `{ path, code, message }` reflects the current implementation exactly.
  *
  * Takes `string | null` directly (rather than the call site doing its own
  * `rawCode !== null &&` guard first) so there is exactly ONE place that

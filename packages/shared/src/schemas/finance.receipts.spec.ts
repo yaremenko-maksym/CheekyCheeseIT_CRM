@@ -91,29 +91,37 @@ describe('BLOCKCHAIN_EXPLORER_HOSTS + isExplorerUrl', () => {
 // ── receiptMandatoryError (shared pure rule) ─────────────────────────────────
 
 describe('receiptMandatoryError', () => {
-  it('errors when neither doc nor url present (mandatory)', () => {
-    expect(receiptMandatoryError({}, 'USD')).toBeTruthy()
+  // fix-round 1 (COPY-H-2): the function now returns a `zod.<CODE>` key
+  // instead of a raw English literal — pin the exact code per branch, not
+  // just truthiness, so a future edit that silently changes WHICH code a
+  // branch returns (still truthy, still "an error") is caught.
+  it('errors when neither doc nor url present (mandatory) — zod.RECEIPT_REQUIRED', () => {
+    expect(receiptMandatoryError({}, 'USD')).toBe('zod.RECEIPT_REQUIRED')
     expect(
       receiptMandatoryError({ receiptDocumentId: null, receiptExternalUrl: null }, 'USD'),
-    ).toBeTruthy()
+    ).toBe('zod.RECEIPT_REQUIRED')
   })
 
-  it('errors when both present (XOR)', () => {
+  it('errors when both present (XOR) — zod.RECEIPT_BOTH_NOT_ALLOWED', () => {
     expect(
       receiptMandatoryError({ receiptDocumentId: UUID, receiptExternalUrl: EXPLORER_URL }, 'USD'),
-    ).toBeTruthy()
+    ).toBe('zod.RECEIPT_BOTH_NOT_ALLOWED')
   })
 
-  it('USDT + file → error (explorer-only)', () => {
-    expect(receiptMandatoryError({ receiptDocumentId: UUID }, 'USDT')).toBeTruthy()
+  it('USDT + file → error (explorer-only) — zod.RECEIPT_USDT_LINK_ONLY', () => {
+    expect(receiptMandatoryError({ receiptDocumentId: UUID }, 'USDT')).toBe(
+      'zod.RECEIPT_USDT_LINK_ONLY',
+    )
   })
 
   it('USDT + explorer url → ok', () => {
     expect(receiptMandatoryError({ receiptExternalUrl: EXPLORER_URL }, 'USDT')).toBeNull()
   })
 
-  it('USDT + non-explorer url → error', () => {
-    expect(receiptMandatoryError({ receiptExternalUrl: 'https://evil.com/x' }, 'USDT')).toBeTruthy()
+  it('USDT + non-explorer url → error — zod.RECEIPT_USDT_LINK_REQUIRED', () => {
+    expect(receiptMandatoryError({ receiptExternalUrl: 'https://evil.com/x' }, 'USDT')).toBe(
+      'zod.RECEIPT_USDT_LINK_REQUIRED',
+    )
   })
 
   it('non-USDT + file → ok', () => {

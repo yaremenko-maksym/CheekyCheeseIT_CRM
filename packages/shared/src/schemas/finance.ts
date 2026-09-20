@@ -628,12 +628,15 @@ type ReceiptShape = {
 
 /**
  * Pure, framework-agnostic receipt validator SHARED by the Zod refine (client +
- * controller boundary) and the service defense-in-depth re-check. Returns an
- * English error message (task-i18n-stage4-task4 — dual-use across many
- * `apps/api` direct-throw call sites outside this task's scope, so NOT
- * code-ified like the rest of this file's Zod messages; see the PR's
- * "Assumptions"), or `null` when the receipt is valid for the given
- * EFFECTIVE currency. Rules (pm-brief §4/§6):
+ * controller boundary) and the service defense-in-depth re-check. Returns a
+ * stable `zod.<CODE>` key (fix-round 1, COPY-H-2 — this used to return a raw
+ * English literal because of dual-use across many `apps/api` direct-throw
+ * call sites outside this task's original scope; the orchestrator's
+ * fix-round decision reverses that: the code is registered like every other
+ * message in this file, and those throw-sites now resolve it via
+ * `zodErrorFallbackText`/`ZOD_ERROR_FALLBACK_EN` instead of getting a literal
+ * for free — see each call site), or `null` when the receipt is valid for the
+ * given EFFECTIVE currency. Rules (pm-brief §4/§6):
  *   - exactly ONE of receiptDocumentId / receiptExternalUrl (mandatory — neither
  *     present → error; both present → error);
  *   - effective currency === 'USDT' → receiptExternalUrl REQUIRED and MUST pass
@@ -647,17 +650,17 @@ export function receiptMandatoryError(
   const hasDoc = !!receipt.receiptDocumentId
   const hasUrl = !!receipt.receiptExternalUrl
   if (hasDoc && hasUrl) {
-    return 'The receipt must be either an uploaded file or a link, not both'
+    return 'zod.RECEIPT_BOTH_NOT_ALLOWED'
   }
   if (!hasDoc && !hasUrl) {
-    return 'A receipt is required — attach a file or a blockchain-explorer link'
+    return 'zod.RECEIPT_REQUIRED'
   }
   if (effectiveCurrency === 'USDT') {
     if (hasDoc) {
-      return 'For USDT, the receipt is accepted only as a blockchain-explorer link, not a file'
+      return 'zod.RECEIPT_USDT_LINK_ONLY'
     }
     if (!isExplorerUrl(receipt.receiptExternalUrl!)) {
-      return 'For USDT, a transaction link on a blockchain-explorer is required (etherscan.io, tronscan.org, etc.)'
+      return 'zod.RECEIPT_USDT_LINK_REQUIRED'
     }
   }
   return null
@@ -725,7 +728,12 @@ function mandatoryReceiptRefine<T extends ReceiptShape>(
 export function selfPayError(
   senderId: string | null | undefined,
   receiverId: string | null | undefined,
-  message = 'Sender and receiver cannot be the same',
+  // Default is the coded key (fix-round 1, COPY-H-2 — same treatment as
+  // `receiptMandatoryError` above). Callers that need a DIFFERENT wording for
+  // this same check (e.g. `transactions.service.ts`'s `createAdminTransfer`,
+  // 'Cannot transfer to yourself') pass their own literal explicitly — this
+  // default only covers the un-parameterized call sites.
+  message = 'zod.SENDER_RECEIVER_SAME',
 ): string | null {
   if (
     senderId != null &&

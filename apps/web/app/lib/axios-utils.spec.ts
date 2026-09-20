@@ -178,9 +178,11 @@ describe('getApiErrorMessage — mixed migrated/legacy ZodExceptionFilter issues
         },
       },
     }
-    expect(getApiErrorMessage(err)).toBe(
-      'bankUahRnokpp: РНОКПП має містити 10 цифр; email: Некорректный email',
-    )
+    // fix-round 1 (COPY-M-9): a migrated issue (code present) no longer gets
+    // the raw API field name prefixed — the translated text already names
+    // the field ("Введіть 10 цифр РНОКПП"). The `path:` prefix survives ONLY
+    // for the legacy (code-less) issue.
+    expect(getApiErrorMessage(err)).toBe('Введіть 10 цифр РНОКПП; email: Некорректный email')
   })
 
   it('falls back to the message field when code is present but unknown (defensive — should not happen from a real filter)', () => {
@@ -192,6 +194,19 @@ describe('getApiErrorMessage — mixed migrated/legacy ZodExceptionFilter issues
       },
     }
     expect(getApiErrorMessage(err)).toBe('x: fallback text')
+  })
+
+  it('does NOT prefix the path for a migrated (coded) issue, even standalone', () => {
+    const err = {
+      response: {
+        data: {
+          errors: [{ path: 'walletUsdtErc20', code: 'USDT_ADDRESS_FORMAT' }],
+        },
+      },
+    }
+    const result = getApiErrorMessage(err)
+    expect(result).not.toContain('walletUsdtErc20:')
+    expect(result).toBe('Адреса USDT ERC-20 має починатися з 0x і містити 42 символи')
   })
 })
 

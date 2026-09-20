@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
-import { translateZodMessage } from '@/lib/axios-utils'
+import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -355,7 +355,7 @@ function HrCreateSeniorDialog({
                   if (!v) return undefined
                   const r = phoneFieldSchema.safeParse(v)
                   if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
-                  if (!isValidPhoneNumber(v)) return 'Некорректный номер телефона'
+                  if (!isValidPhoneNumber(v)) return translateZodCode('PHONE_INVALID')
                   return undefined
                 },
               }}

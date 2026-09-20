@@ -193,7 +193,10 @@ export function PaySalaryDialog({
       { receiptDocumentId, receiptExternalUrl },
       effectiveCurrency,
     )
-    if (receiptErr) setReceiptError(receiptErr)
+    // fix-round 1 (CR-M-1 sweep): `receiptErr` is now a `zod.<CODE>` key —
+    // translate before rendering (this dialog already imports
+    // `translateZodMessage` for `transactionAmountError` above; same fix).
+    if (receiptErr) setReceiptError(translateZodMessage(receiptErr) ?? receiptErr)
     if (!hasAmountInput) setAmountSubmitError('Укажите сумму выплаты')
     if (receiptErr || !hasAmountInput || liveAmountError) return
     mutation.mutate()

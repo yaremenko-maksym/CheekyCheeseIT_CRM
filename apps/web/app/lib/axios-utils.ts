@@ -229,6 +229,21 @@ function translateZodError(code: ZodErrorCode): string {
 }
 
 /**
+ * Translates a KNOWN registry code straight through the catalog — for a
+ * caller that already has a literal `ZodErrorCode` in hand (typically a
+ * fallback for a `translateZodMessage` that CAN be `undefined`, e.g.
+ * `toast.error(translateZodMessage(x) ?? translateZodCode('VALIDATION_FAILED_FORM'))`).
+ * Unlike `translateZodMessage`, the result is never `undefined` — the code
+ * is a compile-time-checked member of `ZodErrorCode`, not a runtime-unknown
+ * string, so there is no "not one of ours" branch to fall through (fix-round
+ * 1, COPY-M-8/SR-M-1 — replaces the plain-Russian-literal fallbacks these
+ * `toast.error` calls used to carry).
+ */
+export function translateZodCode(code: ZodErrorCode): string {
+  return translateZodError(code)
+}
+
+/**
  * Translates a RAW Zod issue message for direct display, covering both
  * shapes that message can arrive in:
  *  - read off a FAILED backend response body (`extractBackendMessage`'s
@@ -315,19 +330,23 @@ export function extractBackendMessage(err: unknown): string | undefined {
     const parts = (d['errors'] as unknown[])
       .filter((e): e is Record<string, unknown> => e !== null && typeof e === 'object')
       .map((e) => {
+        // fix-round 1 (COPY-M-9): a MIGRATED issue (`code` present) already
+        // names its field in the translated text itself — prepending the raw
+        // API field name (`walletUsdtErc20: …`) on top is both redundant and,
+        // unlike the translated text, untranslated. The `path:` prefix is
+        // kept ONLY for a legacy issue (`message` with no `code`), where the
+        // field name is the only positional context the reader has.
+        const rawCode = e['code']
+        if (typeof rawCode === 'string' && isZodErrorCode(rawCode)) {
+          return translateZodError(rawCode)
+        }
         const rawPath = e['path']
         const pathStr = Array.isArray(rawPath)
           ? rawPath.map((p) => String(p)).join('.')
           : typeof rawPath === 'string'
             ? rawPath
             : ''
-        const rawCode = e['code']
-        const msgStr =
-          typeof rawCode === 'string' && isZodErrorCode(rawCode)
-            ? translateZodError(rawCode)
-            : typeof e['message'] === 'string'
-              ? e['message']
-              : ''
+        const msgStr = typeof e['message'] === 'string' ? e['message'] : ''
         return pathStr ? `${pathStr}: ${msgStr}` : msgStr
       })
       .filter(Boolean)

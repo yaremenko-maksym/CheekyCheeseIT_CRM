@@ -52,6 +52,7 @@ import type {
   SessionUser,
   TransactionDto,
 } from '@crm/shared'
+import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import {
   pendingObligations,
@@ -518,7 +519,7 @@ export class PendingSettlementService {
     // be an `ADMIN_PERSONAL` payer here. Kept as defense-in-depth for the same
     // reason as `paySalary`'s guard — do not rely on that invariant forever.
     const settleSelfPayErr = selfPayError(senderId, obligation.creditorUserId)
-    if (settleSelfPayErr) throw new BadRequestException(settleSelfPayErr)
+    if (settleSelfPayErr) throw zodErrorBadRequest(settleSelfPayErr)
 
     // SECURITY (defense-in-depth, security-review PR #381 — BIZ-03 guard bypass
     // on the omitted-currency path): the branches above can leave `currency` at
@@ -876,7 +877,7 @@ export class PendingSettlementService {
         },
         currency,
       )
-      if (receiptErr) throw new BadRequestException(receiptErr)
+      if (receiptErr) throw zodErrorBadRequest(receiptErr)
       if (funding.receiptDocumentId) {
         await assertReceiptDocumentBindable(this.db.db, funding.receiptDocumentId, actor)
       }

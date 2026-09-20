@@ -56,8 +56,11 @@ describe('selfPayError — mirrors ck_transactions_sender_ne_receiver (sender_id
     expect(selfPayError(undefined, A)).toBeNull()
   })
 
-  it('uses the default English message when none is supplied', () => {
-    expect(selfPayError(A, A)).toBe('Sender and receiver cannot be the same')
+  it('uses the default coded message (zod.SENDER_RECEIVER_SAME) when none is supplied', () => {
+    // fix-round 1 (COPY-H-2): the default changed from a raw English literal
+    // to a registered `zod.<CODE>` key — same treatment as
+    // `receiptMandatoryError`.
+    expect(selfPayError(A, A)).toBe('zod.SENDER_RECEIVER_SAME')
   })
 
   it('uses a caller-supplied custom message when provided', () => {

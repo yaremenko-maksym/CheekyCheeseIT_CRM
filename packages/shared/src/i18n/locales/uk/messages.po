@@ -15,18 +15,8 @@ msgstr ""
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.DROP_TEAM_ID_REQUIRED"
-msgstr "dropTeamId обов'язковий при teamMode=JOIN_DROP_TEAM"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.EMAIL_TOO_LONG"
 msgstr "Email не довше 255 символів"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.HR_REQUIRED_MIN"
-msgstr "HR обов'язковий (мінімум 1)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -36,32 +26,32 @@ msgstr "IBAN має бути у форматі UA + 27 цифр (29 символ
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.IBAN_REQUIRED"
-msgstr "IBAN обов'язковий"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.USDT_ONLY_FOR_SENIOR_ADMIN"
-msgstr "Senior/Admin можуть використовувати лише USDT ERC-20"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
-msgstr "teamMode=JOIN_DROP_TEAM доступний лише під час створення SENIOR"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.TELEGRAM_FORMAT"
-msgstr "Telegram: 5–32 символи, латиниця/цифри/_"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.TX_HASH_MIN_LENGTH"
-msgstr "txHash має містити щонайменше 10 символів"
+msgstr "IBAN обов’язковий"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.USDT_ADDRESS_FORMAT"
 msgstr "Адреса USDT ERC-20 має починатися з 0x і містити 42 символи"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RNOKPP_FORMAT"
+msgstr "Введіть 10 цифр РНОКПП"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.EMAIL_REQUIRED"
+msgstr "Введіть email"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.EMAIL_INVALID"
+msgstr "Введіть email у форматі name@domain"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.PHONE_INVALID"
+msgstr "Введіть номер у міжнародному форматі, напр. +380671234567"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -100,13 +90,23 @@ msgstr "Ви увійшли як інший співробітник — ріш�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.TX_HASH_FORMAT"
-msgstr "Вкажіть коректний хеш транзакції (0x + 64 hex) або посилання на Etherscan"
+msgid "zod-error.DROP_TEAM_ID_REQUIRED"
+msgstr "Виберіть команду дропа"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.TX_HASH_FORMAT_OR_EMPTY"
-msgstr "Вкажіть коректний хеш транзакції (0x + 64 hex) або посилання на Etherscan — або залиште поле порожнім"
+msgid "zod-error.HR_REQUIRED_MIN"
+msgstr "Виберіть щонайменше одного HR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SENDER_RECEIVER_SAME"
+msgstr "Відправник і отримувач не можуть збігатися"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.USDT_WALLET_REQUIRED"
+msgstr "Вкажіть адресу USDT ERC-20"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -120,11 +120,6 @@ msgstr "Вкажіть причину відновлення — вона пот
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.USDT_WALLET_REQUIRED"
-msgstr "Гаманець USDT обов'язковий"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_FORMAT_YYYYMMDD"
 msgstr "Дата має бути у форматі YYYY-MM-DD"
 
@@ -132,6 +127,31 @@ msgstr "Дата має бути у форматі YYYY-MM-DD"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_NOT_IN_FUTURE"
 msgstr "Дата транзакції не може бути в майбутньому"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_USDT_LINK_ONLY"
+msgstr "Для USDT квитанція приймається лише як посилання на блокчейн-експлорер, без файлу"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
+msgstr "Для USDT потрібне посилання на транзакцію в блокчейн-експлорері (etherscan.io, tronscan.org тощо)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
+msgstr "Долучити до команди дропа можна лише сеньйора"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.DISPLAY_NAME_MIN"
+msgstr "Ім’я — мінімум 2 символи"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
+msgstr "Квитанція — це файл або посилання, не обидва одночасно"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -146,12 +166,12 @@ msgstr "Мова інтерфейсу"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SALARY_AMOUNT_TOO_MANY_DECIMALS"
-msgstr "Не більше 2 знаків після коми — інакше суму округлять"
+msgstr "Не більше 2 знаків після крапки — суму округлять"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS"
-msgstr "Не більше 6 знаків після коми — інакше суму округлять"
+msgstr "Не більше 6 знаків після крапки — суму округлять"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
@@ -163,14 +183,14 @@ msgid "Не вдалося змінити мову інтерфейсу. Спр�
 msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.EMAIL_INVALID"
-msgstr "Некоректний email"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TELEGRAM_FORMAT"
+msgstr "Нік у Telegram: 5–32 символи — латиниця, цифри або _"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -187,6 +207,11 @@ msgstr "Опишіть причину — вона потрапить до жу�
 msgid "zod-error.PERSONAL_EMAIL_MUST_DIFFER"
 msgstr "Особистий email має відрізнятися від робочого"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.VALIDATION_FAILED_FORM"
+msgstr "Перевірте заповнені поля"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Переклад ще триває — частина екранів поки що російською."
@@ -198,13 +223,8 @@ msgstr "ПІБ — мінімум 5 символів"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RECIPIENT_NAME_REQUIRED"
-msgstr "ПІБ обов'язкове"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT"
-msgstr "ПІБ обов'язкове для контракту"
+msgstr "ПІБ обов’язкове для контракту"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -213,18 +233,23 @@ msgstr "ПІБ отримувача — мінімум 3 символи"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.REQUISITES_TOO_LONG"
-msgstr "Реквізити не повинні перевищувати 10 000 символів"
+msgid "zod-error.RECIPIENT_NAME_REQUIRED"
+msgstr "ПІБ отримувача обов’язкове"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RNOKPP_FORMAT"
-msgstr "РНОКПП має містити 10 цифр"
+msgid "zod-error.REQUISITES_TOO_LONG"
+msgstr "Реквізити не довші за 10 000 символів"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RNOKPP_REQUIRED"
-msgstr "РНОКПП обов'язковий"
+msgstr "РНОКПП обов’язковий"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.USDT_ONLY_FOR_SENIOR_ADMIN"
+msgstr "Сеньйор і адмін отримують лише на USDT ERC-20"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -245,3 +270,18 @@ msgstr "Сума має бути більшою за нуль"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TRANSACTION_AMOUNT_EXCEEDS_MAX"
 msgstr "Сума не може перевищувати 500 000"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TX_HASH_MIN_LENGTH"
+msgstr "Хеш транзакції або посилання — щонайменше 10 символів"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TX_HASH_FORMAT"
+msgstr "Хеш транзакції: 0x + 64 hex — або посилання на Etherscan"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TX_HASH_FORMAT_OR_EMPTY"
+msgstr "Хеш транзакції: 0x + 64 hex — або посилання на Etherscan"

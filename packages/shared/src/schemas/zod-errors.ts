@@ -39,10 +39,20 @@ export const ZOD_ERROR_CODES = [
   'TRANSACTION_AMOUNT_EXCEEDS_MAX',
   // finance.ts — other static messages
   'RECEIPT_REQUIRED',
+  // finance.ts — receiptMandatoryError's other three branches (fix-round 1,
+  // COPY-H-2: the function used to return raw English literals — a dual-use
+  // escape hatch for direct apps/api throw-sites outside this task's Zod
+  // boundary; the orchestrator's fix-round decision reverses that call —
+  // those throw-sites now translate `ZOD_ERROR_FALLBACK_EN[code]` instead).
+  'RECEIPT_BOTH_NOT_ALLOWED',
+  'RECEIPT_USDT_LINK_ONLY',
+  'RECEIPT_USDT_LINK_REQUIRED',
   'COMPANY_ACCOUNT_USDT_ONLY',
   'REASON_REQUIRED_DELETE',
   'REASON_REQUIRED_RESTORE',
   'REASON_REQUIRED_RELEASE',
+  // finance.ts — selfPayError's default message (fix-round 1, COPY-H-2)
+  'SENDER_RECEIVER_SAME',
   'TX_HASH_MIN_LENGTH',
   'TX_HASH_FORMAT',
   'TX_HASH_FORMAT_OR_EMPTY',
@@ -70,6 +80,12 @@ export const ZOD_ERROR_CODES = [
   'JOIN_DROP_TEAM_SENIOR_ONLY',
   'DROP_TEAM_ID_REQUIRED',
   'HR_REQUIRED_MIN',
+  // UserDialog.tsx / RejoinTeamDialog.tsx — local literal dupes migrated into
+  // the registry (fix-round 1, COPY-M-8 / SR-M-1 / SR-M-3)
+  'VALIDATION_FAILED_FORM',
+  'EMAIL_REQUIRED',
+  'DISPLAY_NAME_MIN',
+  'PHONE_INVALID',
 ] as const
 export type ZodErrorCode = (typeof ZOD_ERROR_CODES)[number]
 
@@ -88,7 +104,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   TRANSACTION_AMOUNT_TOO_MANY_DECIMALS: /* i18n */ {
     id: 'zod-error.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS',
-    message: 'Не більше 6 знаків після коми — інакше суму округлять',
+    message: 'Не більше 6 знаків після крапки — суму округлять',
   },
   SALARY_AMOUNT_TOO_SMALL: /* i18n */ {
     id: 'zod-error.SALARY_AMOUNT_TOO_SMALL',
@@ -96,7 +112,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   SALARY_AMOUNT_TOO_MANY_DECIMALS: /* i18n */ {
     id: 'zod-error.SALARY_AMOUNT_TOO_MANY_DECIMALS',
-    message: 'Не більше 2 знаків після коми — інакше суму округлять',
+    message: 'Не більше 2 знаків після крапки — суму округлять',
   },
   AMOUNT_NOT_A_NUMBER: /* i18n */ {
     id: 'zod-error.AMOUNT_NOT_A_NUMBER',
@@ -114,6 +130,19 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.RECEIPT_REQUIRED',
     message: 'Квитанція обов’язкова — додайте файл або посилання',
   },
+  RECEIPT_BOTH_NOT_ALLOWED: /* i18n */ {
+    id: 'zod-error.RECEIPT_BOTH_NOT_ALLOWED',
+    message: 'Квитанція — це файл або посилання, не обидва одночасно',
+  },
+  RECEIPT_USDT_LINK_ONLY: /* i18n */ {
+    id: 'zod-error.RECEIPT_USDT_LINK_ONLY',
+    message: 'Для USDT квитанція приймається лише як посилання на блокчейн-експлорер, без файлу',
+  },
+  RECEIPT_USDT_LINK_REQUIRED: /* i18n */ {
+    id: 'zod-error.RECEIPT_USDT_LINK_REQUIRED',
+    message:
+      'Для USDT потрібне посилання на транзакцію в блокчейн-експлорері (etherscan.io, tronscan.org тощо)',
+  },
   COMPANY_ACCOUNT_USDT_ONLY: /* i18n */ {
     id: 'zod-error.COMPANY_ACCOUNT_USDT_ONLY',
     message: 'Операція з рахунку компанії проводиться лише в USDT',
@@ -130,18 +159,21 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.REASON_REQUIRED_RELEASE',
     message: 'Опишіть причину — вона потрапить до журналу',
   },
+  SENDER_RECEIVER_SAME: /* i18n */ {
+    id: 'zod-error.SENDER_RECEIVER_SAME',
+    message: 'Відправник і отримувач не можуть збігатися',
+  },
   TX_HASH_MIN_LENGTH: /* i18n */ {
     id: 'zod-error.TX_HASH_MIN_LENGTH',
-    message: 'txHash має містити щонайменше 10 символів',
+    message: 'Хеш транзакції або посилання — щонайменше 10 символів',
   },
   TX_HASH_FORMAT: /* i18n */ {
     id: 'zod-error.TX_HASH_FORMAT',
-    message: 'Вкажіть коректний хеш транзакції (0x + 64 hex) або посилання на Etherscan',
+    message: 'Хеш транзакції: 0x + 64 hex — або посилання на Etherscan',
   },
   TX_HASH_FORMAT_OR_EMPTY: /* i18n */ {
     id: 'zod-error.TX_HASH_FORMAT_OR_EMPTY',
-    message:
-      'Вкажіть коректний хеш транзакції (0x + 64 hex) або посилання на Etherscan — або залиште поле порожнім',
+    message: 'Хеш транзакції: 0x + 64 hex — або посилання на Etherscan',
   },
   DATE_FORMAT_YYYYMMDD: /* i18n */ {
     id: 'zod-error.DATE_FORMAT_YYYYMMDD',
@@ -153,7 +185,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   REQUISITES_TOO_LONG: /* i18n */ {
     id: 'zod-error.REQUISITES_TOO_LONG',
-    message: 'Реквізити не повинні перевищувати 10 000 символів',
+    message: 'Реквізити не довші за 10 000 символів',
   },
   USDT_ADDRESS_FORMAT: /* i18n */ {
     id: 'zod-error.USDT_ADDRESS_FORMAT',
@@ -161,7 +193,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   TELEGRAM_FORMAT: /* i18n */ {
     id: 'zod-error.TELEGRAM_FORMAT',
-    message: 'Telegram: 5–32 символи, латиниця/цифри/_',
+    message: 'Нік у Telegram: 5–32 символи — латиниця, цифри або _',
   },
   RECIPIENT_NAME_MIN: /* i18n */ {
     id: 'zod-error.RECIPIENT_NAME_MIN',
@@ -169,7 +201,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   RECIPIENT_NAME_REQUIRED: /* i18n */ {
     id: 'zod-error.RECIPIENT_NAME_REQUIRED',
-    message: "ПІБ обов'язкове",
+    message: 'ПІБ отримувача обов’язкове',
   },
   IBAN_FORMAT: /* i18n */ {
     id: 'zod-error.IBAN_FORMAT',
@@ -177,27 +209,27 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   IBAN_REQUIRED: /* i18n */ {
     id: 'zod-error.IBAN_REQUIRED',
-    message: "IBAN обов'язковий",
+    message: 'IBAN обов’язковий',
   },
   RNOKPP_FORMAT: /* i18n */ {
     id: 'zod-error.RNOKPP_FORMAT',
-    message: 'РНОКПП має містити 10 цифр',
+    message: 'Введіть 10 цифр РНОКПП',
   },
   RNOKPP_REQUIRED: /* i18n */ {
     id: 'zod-error.RNOKPP_REQUIRED',
-    message: "РНОКПП обов'язковий",
+    message: 'РНОКПП обов’язковий',
   },
   USDT_ONLY_FOR_SENIOR_ADMIN: /* i18n */ {
     id: 'zod-error.USDT_ONLY_FOR_SENIOR_ADMIN',
-    message: 'Senior/Admin можуть використовувати лише USDT ERC-20',
+    message: 'Сеньйор і адмін отримують лише на USDT ERC-20',
   },
   USDT_WALLET_REQUIRED: /* i18n */ {
     id: 'zod-error.USDT_WALLET_REQUIRED',
-    message: "Гаманець USDT обов'язковий",
+    message: 'Вкажіть адресу USDT ERC-20',
   },
   EMAIL_INVALID: /* i18n */ {
     id: 'zod-error.EMAIL_INVALID',
-    message: 'Некоректний email',
+    message: 'Введіть email у форматі name@domain',
   },
   EMAIL_TOO_LONG: /* i18n */ {
     id: 'zod-error.EMAIL_TOO_LONG',
@@ -209,7 +241,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT: /* i18n */ {
     id: 'zod-error.LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT',
-    message: "ПІБ обов'язкове для контракту",
+    message: 'ПІБ обов’язкове для контракту',
   },
   PERSONAL_EMAIL_MUST_DIFFER: /* i18n */ {
     id: 'zod-error.PERSONAL_EMAIL_MUST_DIFFER',
@@ -217,15 +249,31 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   JOIN_DROP_TEAM_SENIOR_ONLY: /* i18n */ {
     id: 'zod-error.JOIN_DROP_TEAM_SENIOR_ONLY',
-    message: 'teamMode=JOIN_DROP_TEAM доступний лише під час створення SENIOR',
+    message: 'Долучити до команди дропа можна лише сеньйора',
   },
   DROP_TEAM_ID_REQUIRED: /* i18n */ {
     id: 'zod-error.DROP_TEAM_ID_REQUIRED',
-    message: "dropTeamId обов'язковий при teamMode=JOIN_DROP_TEAM",
+    message: 'Виберіть команду дропа',
   },
   HR_REQUIRED_MIN: /* i18n */ {
     id: 'zod-error.HR_REQUIRED_MIN',
-    message: "HR обов'язковий (мінімум 1)",
+    message: 'Виберіть щонайменше одного HR',
+  },
+  VALIDATION_FAILED_FORM: /* i18n */ {
+    id: 'zod-error.VALIDATION_FAILED_FORM',
+    message: 'Перевірте заповнені поля',
+  },
+  EMAIL_REQUIRED: /* i18n */ {
+    id: 'zod-error.EMAIL_REQUIRED',
+    message: 'Введіть email',
+  },
+  DISPLAY_NAME_MIN: /* i18n */ {
+    id: 'zod-error.DISPLAY_NAME_MIN',
+    message: 'Ім’я — мінімум 2 символи',
+  },
+  PHONE_INVALID: /* i18n */ {
+    id: 'zod-error.PHONE_INVALID',
+    message: 'Введіть номер у міжнародному форматі, напр. +380671234567',
   },
 }
 
@@ -238,42 +286,66 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
  */
 export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   TRANSACTION_AMOUNT_TOO_SMALL: 'Amount is too small — minimum 0.000001',
-  TRANSACTION_AMOUNT_TOO_MANY_DECIMALS:
-    'No more than 6 digits after the decimal point — otherwise the amount will be rounded',
+  TRANSACTION_AMOUNT_TOO_MANY_DECIMALS: 'No more than 6 decimals — otherwise the amount is rounded',
   SALARY_AMOUNT_TOO_SMALL: 'Amount is too small — minimum 0.01',
-  SALARY_AMOUNT_TOO_MANY_DECIMALS:
-    'No more than 2 digits after the decimal point — otherwise the amount will be rounded',
+  SALARY_AMOUNT_TOO_MANY_DECIMALS: 'No more than 2 decimals — otherwise the amount is rounded',
   AMOUNT_NOT_A_NUMBER: 'Enter the amount as a number — e.g. 1000.50',
   AMOUNT_MUST_BE_POSITIVE: 'Amount must be greater than zero',
   TRANSACTION_AMOUNT_EXCEEDS_MAX: 'Amount cannot exceed 500,000',
   RECEIPT_REQUIRED: 'A receipt is required — attach a file or a link',
-  COMPANY_ACCOUNT_USDT_ONLY: 'A company account operation can only be made in USDT',
+  RECEIPT_BOTH_NOT_ALLOWED: 'The receipt is either an uploaded file or a link, not both',
+  RECEIPT_USDT_LINK_ONLY:
+    'For USDT, the receipt is accepted only as a blockchain-explorer link, not a file',
+  RECEIPT_USDT_LINK_REQUIRED:
+    'For USDT, a transaction link on a blockchain-explorer is required (etherscan.io, tronscan.org, etc.)',
+  COMPANY_ACCOUNT_USDT_ONLY: 'Company account operations are in USDT only',
   REASON_REQUIRED_DELETE: 'State a reason for the deletion — it goes into the audit log',
   REASON_REQUIRED_RESTORE: 'State a reason for the restoration — it goes into the audit log',
   REASON_REQUIRED_RELEASE: 'Describe the reason — it goes into the audit log',
-  TX_HASH_MIN_LENGTH: 'txHash must be at least 10 characters',
-  TX_HASH_FORMAT: 'Enter a valid transaction hash (0x + 64 hex) or an Etherscan link',
-  TX_HASH_FORMAT_OR_EMPTY:
-    'Enter a valid transaction hash (0x + 64 hex) or an Etherscan link — or leave the field empty',
+  SENDER_RECEIVER_SAME: 'Sender and receiver cannot be the same',
+  TX_HASH_MIN_LENGTH: 'Transaction hash or link — at least 10 characters',
+  TX_HASH_FORMAT: 'Transaction hash: 0x + 64 hex — or an Etherscan link',
+  TX_HASH_FORMAT_OR_EMPTY: 'Transaction hash: 0x + 64 hex — or an Etherscan link',
   DATE_FORMAT_YYYYMMDD: 'The date must be in YYYY-MM-DD format',
   DATE_NOT_IN_FUTURE: 'The transaction date cannot be in the future',
-  REQUISITES_TOO_LONG: 'Requisites must not exceed 10,000 characters',
+  REQUISITES_TOO_LONG: 'Company details must not exceed 10,000 characters',
   USDT_ADDRESS_FORMAT: 'The USDT ERC-20 address must start with 0x and be 42 characters long',
-  TELEGRAM_FORMAT: 'Telegram: 5–32 characters, Latin letters/digits/_',
+  TELEGRAM_FORMAT: 'Telegram handle: 5–32 characters — Latin letters, digits or _',
   RECIPIENT_NAME_MIN: 'Recipient full name — at least 3 characters',
-  RECIPIENT_NAME_REQUIRED: 'Full name is required',
-  IBAN_FORMAT: 'IBAN must be in UA + 27 digits format (29 characters)',
+  RECIPIENT_NAME_REQUIRED: 'Recipient full name is required',
+  IBAN_FORMAT: 'Enter the IBAN: UA + 27 digits (29 characters)',
   IBAN_REQUIRED: 'IBAN is required',
-  RNOKPP_FORMAT: 'The tax ID must contain 10 digits',
+  RNOKPP_FORMAT: 'Enter the 10 digits of the RNOKPP (tax ID)',
   RNOKPP_REQUIRED: 'The tax ID is required',
-  USDT_ONLY_FOR_SENIOR_ADMIN: 'Senior/Admin can only use USDT ERC-20',
-  USDT_WALLET_REQUIRED: 'A USDT wallet is required',
-  EMAIL_INVALID: 'Invalid email',
+  USDT_ONLY_FOR_SENIOR_ADMIN: 'Seniors and admins are paid in USDT ERC-20 only',
+  USDT_WALLET_REQUIRED: 'Enter the USDT ERC-20 address',
+  EMAIL_INVALID: 'Enter an email like name@domain',
   EMAIL_TOO_LONG: 'Email must not exceed 255 characters',
   LEGAL_FULL_NAME_MIN: 'Full name — at least 5 characters',
   LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT: 'Full name is required for the contract',
   PERSONAL_EMAIL_MUST_DIFFER: 'The personal email must differ from the work email',
-  JOIN_DROP_TEAM_SENIOR_ONLY: 'teamMode=JOIN_DROP_TEAM is only available when creating a SENIOR',
-  DROP_TEAM_ID_REQUIRED: 'dropTeamId is required when teamMode=JOIN_DROP_TEAM',
-  HR_REQUIRED_MIN: 'An HR is required (at least 1)',
+  JOIN_DROP_TEAM_SENIOR_ONLY: 'Only a senior can be added to a drop team',
+  DROP_TEAM_ID_REQUIRED: 'Select a drop team',
+  HR_REQUIRED_MIN: 'Select at least one HR',
+  VALIDATION_FAILED_FORM: 'Check the fields you filled in',
+  EMAIL_REQUIRED: 'Enter an email',
+  DISPLAY_NAME_MIN: 'Name — at least 2 characters',
+  PHONE_INVALID: 'Enter the number in international format, e.g. +380671234567',
+}
+
+/**
+ * Resolves a `receiptMandatoryError`/`selfPayError`/`transactionAmountError`-
+ * style return value — either a `'zod.<CODE>'` key or an ordinary (non-coded)
+ * message — to English. For the handful of server-side callers that `throw`
+ * BEFORE ever reaching the Zod boundary (a direct pure-function call from a
+ * service method, not a schema `.parse()`), so `ZodExceptionFilter` never
+ * gets a chance to translate the issue itself — the raw key would otherwise
+ * leak into the exception body verbatim (fix-round 1, COPY-H-2/SPEC-L-1; same
+ * pattern `transactions.service.ts`'s `paySalary` already applies to
+ * `transactionAmountError`). A non-coded message passes through unchanged.
+ */
+export function zodErrorFallbackText(message: string): string {
+  if (!message.startsWith('zod.')) return message
+  const code = message.slice('zod.'.length) as ZodErrorCode
+  return ZOD_ERROR_FALLBACK_EN[code] ?? message
 }
