@@ -15,7 +15,7 @@
  * from `@/lib/i18n`, the SAME instance `activateLocale` mutates), wrapped
  * in `I18nProvider`, mirroring `i18n-smoke.test.tsx` / `i18n.test.tsx`.
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { I18nProvider } from '@lingui/react'
@@ -97,5 +97,34 @@ describe('LanguageSection', () => {
     render(<LanguageSection current="uk" />, { wrapper: Providers })
     expect(screen.getByRole('radiogroup')).toBeInTheDocument()
     expect(screen.getAllByRole('radio')).toHaveLength(2)
+  })
+
+  it("renders each locale's own name as its button label", () => {
+    render(<LanguageSection current="uk" />, { wrapper: Providers })
+    expect(screen.getByTestId('locale-option-uk')).toHaveTextContent('Українська')
+    expect(screen.getByTestId('locale-option-en')).toHaveTextContent('English')
+  })
+
+  it('disables both options while a choice is in flight, and re-enables them once the request settles', async () => {
+    let resolvePatch: (value: { data: unknown }) => void = () => {}
+    const patchPromise = new Promise<{ data: unknown }>((resolve) => {
+      resolvePatch = resolve
+    })
+    vi.mocked(api.patch).mockReturnValue(patchPromise)
+    render(<LanguageSection current="uk" />, { wrapper: Providers })
+    const enButton = screen.getByTestId('locale-option-en')
+    const ukButton = screen.getByTestId('locale-option-uk')
+
+    fireEvent.click(enButton)
+
+    // `choose` is `async`, so its body runs synchronously up to the first
+    // `await api.patch(...)` — `setPending(true)` has already run by the
+    // time `fireEvent.click` returns, no `waitFor` needed for this half.
+    expect(enButton).toBeDisabled()
+    expect(ukButton).toBeDisabled()
+
+    resolvePatch({ data: {} })
+    await waitFor(() => expect(enButton).not.toBeDisabled())
+    expect(ukButton).not.toBeDisabled()
   })
 })
