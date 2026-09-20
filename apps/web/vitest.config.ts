@@ -103,6 +103,24 @@ export default defineConfig({
   resolve: {
     alias: {
       '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
+      // task-i18n-stage2 (Task 6) — a SEPARATE alias, not a subpath of
+      // '@crm/shared' above: that alias resolves to a FILE
+      // (`src/index.ts`), and Vite's alias prefix-match would append the
+      // remainder onto the file path (`.../src/index.ts/i18n/locales/...`,
+      // invalid) — this is the "alias breaks subpaths" problem Task 5 (PR
+      // #694) hit. This alias points straight at the locales DIRECTORY, so
+      // `app/lib/i18n.ts`'s dynamic `${locale}/messages.po` import resolves
+      // correctly. Built from `worktreeRoot` (not `__dirname` — see the
+      // comment on that constant above) so it survives being loaded from a
+      // relocated copy of this config: StrykerJS instruments `@crm/web` by
+      // copying the WHOLE package two levels deeper, into
+      // `apps/web/.stryker-tmp/sandbox-<id>/` — a plain `path.resolve(
+      // __dirname, '../../packages/shared/...')` from THAT location lands
+      // on `apps/web/packages/shared/...`, which does not exist, and
+      // silently rejects the dynamic import (verified: this is exactly what
+      // broke `app/context/auth.spec.tsx`'s locale-activation test under
+      // `mutation-gate.mjs --changed` before this alias was added).
+      '@crm/shared-i18n-locales': path.resolve(worktreeRoot, 'packages/shared/src/i18n/locales'),
     },
   },
   test: {

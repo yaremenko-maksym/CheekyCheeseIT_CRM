@@ -1,8 +1,10 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Query } from '@tanstack/react-query'
+import { I18nProvider } from '@lingui/react'
 import { createQueryClient } from '../lib/query-client'
 import { persister } from '../lib/persister'
+import { i18n } from '../lib/i18n'
 import { TelemetryProvider } from '../lib/telemetry'
 import { Toaster } from '../components/ui/sonner'
 import '../styles/globals.css'
@@ -49,29 +51,39 @@ export const Route = createRootRoute({
 
 function RootDocument() {
   return (
-    // task-telemetry-web: mounted ABOVE the query provider (and above every
-    // route's own `AuthProvider` — see `routes/login.tsx` /
-    // `routes/_authenticated/route.tsx`) so error/route/click capture
-    // covers the whole app, not just the authenticated CRM shell. No-ops
-    // entirely unless `VITE_TELEMETRY=on` — see `lib/telemetry/config.ts`.
-    <TelemetryProvider>
-      <PersistQueryClientProvider
-        client={queryClient}
-        persistOptions={{
-          persister,
-          maxAge: 24 * 60 * 60 * 1000, // 24 hours — matches persister TTL
-          buster: CACHE_BUSTER,
-          dehydrateOptions: {
-            // Persist only successfully resolved queries whose key prefix is in the
-            // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
-            // transient and never rehydrated into a fresh session.
-            shouldDehydrateQuery,
-          },
-        }}
-      >
-        <Outlet />
-        <Toaster />
-      </PersistQueryClientProvider>
-    </TelemetryProvider>
+    // task-i18n-stage2 (Task 6): `I18nProvider` wraps everything below it
+    // (including `TelemetryProvider`) so `useLingui()`/`<Trans>` work
+    // anywhere in the tree. It does not itself load a catalog or pick a
+    // locale — `client.tsx` activates the pre-login locale on the shared
+    // `i18n` instance BEFORE this component ever renders, and
+    // `context/auth.tsx` re-activates it once the session's own `locale`
+    // is known. `I18nProvider` here only subscribes React to that
+    // instance's `activate` events so components re-render on the switch.
+    <I18nProvider i18n={i18n}>
+      {/* task-telemetry-web: mounted ABOVE the query provider (and above every
+          route's own `AuthProvider` — see `routes/login.tsx` /
+          `routes/_authenticated/route.tsx`) so error/route/click capture
+          covers the whole app, not just the authenticated CRM shell. No-ops
+          entirely unless `VITE_TELEMETRY=on` — see `lib/telemetry/config.ts`. */}
+      <TelemetryProvider>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{
+            persister,
+            maxAge: 24 * 60 * 60 * 1000, // 24 hours — matches persister TTL
+            buster: CACHE_BUSTER,
+            dehydrateOptions: {
+              // Persist only successfully resolved queries whose key prefix is in the
+              // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
+              // transient and never rehydrated into a fresh session.
+              shouldDehydrateQuery,
+            },
+          }}
+        >
+          <Outlet />
+          <Toaster />
+        </PersistQueryClientProvider>
+      </TelemetryProvider>
+    </I18nProvider>
   )
 }

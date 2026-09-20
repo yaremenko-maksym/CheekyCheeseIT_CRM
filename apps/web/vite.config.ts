@@ -57,6 +57,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@crm/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
+      // task-i18n-stage2 (Task 6) — see the matching alias + comment in
+      // vitest.config.ts for why this is a SEPARATE alias (not a subpath of
+      // '@crm/shared' above, which resolves to a FILE and breaks subpath
+      // resolution) rather than a deep import off '@crm/shared'.
+      '@crm/shared-i18n-locales': path.resolve(__dirname, '../../packages/shared/src/i18n/locales'),
     },
   },
   build: {
