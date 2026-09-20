@@ -247,7 +247,9 @@ describe('SeniorDashboard', () => {
         isError: false,
       })
       renderDashboard()
-      expect(screen.getByTestId('senior-projects-empty')).toHaveTextContent('Нет активных проектов')
+      expect(screen.getByTestId('senior-projects-empty')).toHaveTextContent(
+        'Немає активних проектів',
+      )
     })
   })
 
@@ -345,11 +347,11 @@ describe('SeniorDashboard', () => {
       expect(screen.queryByTestId('earnings-sparkline-empty')).not.toBeInTheDocument()
     })
 
-    it('shows the «+$X этот месяц» badge when this-month income > 0', () => {
+    it('shows the «+$X цього місяця» badge when this-month income > 0', () => {
       mountWith()
       const badge = screen.getByTestId('earnings-total-month-badge')
       expect(badge).toHaveTextContent('$1,200.00')
-      expect(badge).toHaveTextContent('этот месяц')
+      expect(badge).toHaveTextContent('цього місяця')
     })
 
     it('hides the month badge when this-month income is 0', () => {
@@ -365,19 +367,31 @@ describe('SeniorDashboard', () => {
       expect(screen.getByTestId('earnings-projects-tile')).toBeInTheDocument()
     })
 
-    it('renders «Этот месяц» with the X/N arrival progress bar (NO money expected)', () => {
+    it('renders «Цей місяць» with the X/N arrival progress bar (NO money expected)', () => {
       mountWith()
       const tile = screen.getByTestId('earnings-this-month-tile')
-      expect(tile).toHaveTextContent('Этот месяц')
-      expect(tile).toHaveTextContent('Июнь 2026')
+      expect(tile).toHaveTextContent('Цей місяць')
+      // Independent of the component's own implementation — computed straight
+      // from `Intl`, the same source-of-truth `format.spec.ts` uses, not by
+      // re-deriving the value the same way the component does. Last history
+      // entry is '2026-06' (June), see `monthlyHistory` above.
+      expect(tile).toHaveTextContent(
+        new Intl.DateTimeFormat('uk-UA', {
+          month: 'long',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(Date.UTC(2026, 5, 1))),
+      )
       expect(screen.getByTestId('earnings-this-month-value')).toHaveTextContent('$1,200.00')
       // Progress: received 1 / total 2 → «1/2 ... 50%».
       expect(screen.getByTestId('earnings-progress-fraction')).toHaveTextContent('1/2')
       expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent(
-        'приходов от компаний',
+        'надходжень від компаній',
       )
       expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent('50%')
-      const bar = screen.getByRole('progressbar', { name: 'Приходы от компаний за этот месяц' })
+      const bar = screen.getByRole('progressbar', {
+        name: 'Надходження від компаній за цей місяць',
+      })
       expect(bar).toHaveAttribute('aria-valuenow', '1')
       expect(bar).toHaveAttribute('aria-valuemax', '2')
     })

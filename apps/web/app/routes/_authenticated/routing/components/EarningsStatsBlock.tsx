@@ -1,7 +1,9 @@
 import { Briefcase, TrendingUp } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { formatAmount } from '@crm/shared'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { formatAmount, formatDate } from '@crm/shared'
 import type { SeniorEarningsStatsDto } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { Card, CardContent } from '@/components/ui/card'
 import { EarningsSparkline } from './EarningsSparkline'
 
@@ -21,27 +23,16 @@ const card = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-const RU_MONTHS = [
-  'Январь',
-  'Февраль',
-  'Март',
-  'Апрель',
-  'Май',
-  'Июнь',
-  'Июль',
-  'Август',
-  'Сентябрь',
-  'Октябрь',
-  'Ноябрь',
-  'Декабрь',
-]
-
-/** «Май 2026» for a `YYYY-MM` key. Falls back to «—» on a malformed key. */
-function ruMonthYear(monthKey: string): string {
+/**
+ * task-i18n-stage3a (Task 1) — replaces the hand-rolled Russian `RU_MONTHS`
+ * array with the shared, locale-aware `formatDate(..., 'monthYear')`.
+ * «Травень 2026» for a `YYYY-MM` key. Falls back to «—» on a malformed key.
+ */
+function monthYear(monthKey: string, locale: Parameters<typeof formatDate>[1]): string {
   const [y, m] = monthKey.split('-')
   const mi = Number(m)
   if (!y || !Number.isFinite(mi) || mi < 1 || mi > 12) return '—'
-  return `${RU_MONTHS[mi - 1]} ${y}`
+  return formatDate(new Date(Date.UTC(Number(y), mi - 1, 1)), locale, 'monthYear')
 }
 
 interface ActiveProjectItem {
@@ -69,6 +60,8 @@ export function EarningsStatsBlock({
 }: EarningsStatsBlockProps) {
   const { monthlyHistory, companyIncomeProgress } = stats
   const { received, total } = companyIncomeProgress
+  const { t } = useLingui()
+  const locale = useLocale()
 
   // Current month key derives from the history tail (newest = this).
   const thisMonthKey = monthlyHistory.at(-1)?.month
@@ -85,7 +78,7 @@ export function EarningsStatsBlock({
         >
           <CardContent className="space-y-3 pt-5">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-primary/80">
-              Всего заработано · всё время
+              <Trans>Всього зароблено · за весь час</Trans>
             </p>
             <div className="flex flex-wrap items-end gap-3">
               <span
@@ -99,11 +92,13 @@ export function EarningsStatsBlock({
                   className="mb-1 rounded bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-500"
                   data-testid="earnings-total-month-badge"
                 >
-                  +{formatAmount(thisMonthEarned, 'USD')} этот месяц
+                  <Trans>+{formatAmount(thisMonthEarned, 'USD')} цього місяця</Trans>
                 </span>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">Senior-доля за всё время</p>
+            <p className="text-xs text-muted-foreground">
+              <Trans>Частка синьйора за весь час</Trans>
+            </p>
             <EarningsSparkline data={monthlyHistory} className="pt-1" />
           </CardContent>
         </Card>
@@ -113,13 +108,13 @@ export function EarningsStatsBlock({
           <CardContent className="flex h-full flex-col gap-3 pt-5">
             <div className="flex items-center justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Мои проекты
+                <Trans>Мої проекти</Trans>
               </p>
               <Briefcase className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             </div>
             {activeProjects.length === 0 ? (
               <p className="text-xs text-muted-foreground" data-testid="senior-projects-empty">
-                Нет активных проектов
+                <Trans>Немає активних проектів</Trans>
               </p>
             ) : (
               <ul className="space-y-2 flex-1 max-h-[160px] overflow-y-auto pr-0.5">
@@ -154,7 +149,8 @@ export function EarningsStatsBlock({
         <CardContent className="space-y-3 pt-5">
           <div className="flex items-center justify-between">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Этот месяц{thisMonthKey ? ` — ${ruMonthYear(thisMonthKey)}` : ''}
+              <Trans>Цей місяць</Trans>
+              {thisMonthKey ? ` — ${monthYear(thisMonthKey, locale)}` : ''}
             </p>
             <TrendingUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           </div>
@@ -169,13 +165,15 @@ export function EarningsStatsBlock({
           <div className="space-y-1.5" data-testid="earnings-company-progress">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">
-                <span
-                  className="font-semibold text-foreground"
-                  data-testid="earnings-progress-fraction"
-                >
-                  {received}/{total}
-                </span>{' '}
-                приходов от компаний за этот месяц
+                <Trans>
+                  <span
+                    className="font-semibold text-foreground"
+                    data-testid="earnings-progress-fraction"
+                  >
+                    {received}/{total}
+                  </span>{' '}
+                  надходжень від компаній за цей місяць
+                </Trans>
               </span>
               <span className="tabular-nums text-muted-foreground">{progressPct}%</span>
             </div>
@@ -185,7 +183,7 @@ export function EarningsStatsBlock({
               aria-valuenow={received}
               aria-valuemin={0}
               aria-valuemax={total}
-              aria-label="Приходы от компаний за этот месяц"
+              aria-label={t`Надходження від компаній за цей місяць`}
             >
               <div
                 className="h-full rounded-full bg-primary transition-all duration-300"

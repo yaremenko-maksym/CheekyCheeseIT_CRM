@@ -3,17 +3,22 @@ import type { Locale } from './locales'
 const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
 
 /**
- * task-i18n-stage3a (Task 1) — added a third `style` ('month') alongside the
- * pre-existing 'short'/'long'. `EarningsSparkline.tsx`'s hand-rolled Russian
- * `MONTH_ABBR` array (a `YYYY-MM` key → one of 12 literal RU strings) needed
- * a locale-aware short month name with NO day/year — neither existing style
- * fits (both include day+year). Additive only: existing callers that omit
- * `style` or pass 'long' see byte-identical behavior.
+ * task-i18n-stage3a (Task 1) — added two styles alongside the pre-existing
+ * 'short'/'long':
+ *  - 'month': `EarningsSparkline.tsx`'s hand-rolled Russian `MONTH_ABBR`
+ *    array (a `YYYY-MM` key → one of 12 literal RU strings) needed a
+ *    locale-aware SHORT month name with NO day/year.
+ *  - 'monthYear': `EarningsStatsBlock.tsx`'s hand-rolled Russian
+ *    `RU_MONTHS`/`ruMonthYear` needed a locale-aware FULL month name + year
+ *    with NO day — a monthly aggregate label ("Травень 2026"), not a
+ *    specific date; 'long' would misleadingly imply day-level precision.
+ * Neither pre-existing style fits either need. Additive only: existing
+ * callers that omit `style` or pass 'long' see byte-identical behavior.
  */
 export function formatDate(
   value: Date | string,
   locale: Locale,
-  style: 'short' | 'long' | 'month' = 'short',
+  style: 'short' | 'long' | 'month' | 'monthYear' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
   // Date passed through its own constructor keeps the same instant
@@ -21,13 +26,13 @@ export function formatDate(
   // there is no separate "already a Date" branch to write; a ternary here
   // would only ever be a no-op copy-constructor call on one side.
   const d = new Date(value)
-  const opts: Intl.DateTimeFormatOptions =
-    style === 'long'
-      ? { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }
-      : style === 'month'
-        ? { month: 'short', timeZone: 'UTC' }
-        : { timeZone: 'UTC' }
-  return new Intl.DateTimeFormat(INTL_TAG[locale], opts).format(d)
+  const STYLE_OPTS: Record<'short' | 'long' | 'month' | 'monthYear', Intl.DateTimeFormatOptions> = {
+    short: { timeZone: 'UTC' },
+    long: { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' },
+    month: { month: 'short', timeZone: 'UTC' },
+    monthYear: { month: 'long', year: 'numeric', timeZone: 'UTC' },
+  }
+  return new Intl.DateTimeFormat(INTL_TAG[locale], STYLE_OPTS[style]).format(d)
 }
 
 export function formatNumber(n: number, locale: Locale): string {

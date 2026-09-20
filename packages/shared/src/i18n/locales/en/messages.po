@@ -36,6 +36,11 @@ msgstr "{role, select, SENIOR {senior} DROP {drop} other {employee}}"
 msgid "{role, select, SENIOR {синьйора} DROP {дропа} other {співробітника}}"
 msgstr "{role, select, SENIOR {the senior's} DROP {the drop's} other {the employee's}}"
 
+#. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "+{0} цього місяця"
+msgstr "+{0} this month"
+
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.seniorName || '—'
 #. placeholder {2}: impact.projectsCount
@@ -68,6 +73,10 @@ msgstr "<0>{entityName}</0> will be archived. There are no linked entities."
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "<0>{entityName}</0>{0} — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
 msgstr "<0>{entityName}</0>{0} are a linked pair — you cannot remove just one. Will be archived: {roleGenitive} profile, the team, and all its projects ({1, plural, one {# project} other {# projects}}{2})."
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
+msgstr "<0>{received}/{total}</0> receipts from companies this month"
 
 #: apps/web/app/components/ui/amount-currency-input.tsx
 msgid "ERC-20, прив'язаний до долара"
@@ -296,6 +305,10 @@ msgstr "Restoring the project together with linked entities."
 msgid "Відновлення…"
 msgstr "Restoring…"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Всього зароблено · за весь час"
+msgstr "Total earned · all time"
+
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Входимо..."
 msgstr "Logging in..."
@@ -486,9 +499,17 @@ msgstr "My project"
 msgid "Мова інтерфейсу"
 msgstr "Interface language"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Мої проекти"
+msgstr "My projects"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Навігація"
 msgstr "Navigation"
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Надходження від компаній за цей місяць"
+msgstr "Receipts from companies this month"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Назад до ToS"
@@ -555,6 +576,10 @@ msgstr "Failed to log in: {errMessage}"
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Незакриті PENDING-транзакції ({0}) — залишаться в системі і продовжуватимуть підлягати виплаті"
 msgstr "Unclosed PENDING transactions ({0}) — will stay in the system and remain payable"
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Немає активних проектів"
+msgstr "No active projects"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
@@ -901,6 +926,10 @@ msgstr "The final look of the Terms of Service document — as a PDF."
 msgid "Фінанси"
 msgstr "Finance"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Цей місяць"
+msgstr "This month"
+
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка дропа у відсотках"
 msgstr "Drop's share in percent"
@@ -908,6 +937,10 @@ msgstr "Drop's share in percent"
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Частка невідома. Оновіть сторінку."
 msgstr "Share unknown. Refresh the page."
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Частка синьйора за весь час"
+msgstr "Senior's share, all time"
 
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка синьйора у відсотках"
