@@ -139,6 +139,7 @@ msgid "Активних проектів"
 msgstr "Активних проектів"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Активні проекти"
 msgstr "Активні проекти"
 
@@ -309,6 +310,11 @@ msgstr "Відновлення…"
 msgid "Всього зароблено · за весь час"
 msgstr "Всього зароблено · за весь час"
 
+#. placeholder {0}: fmtUsd(summary.seniorShareIncome.total)
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Всього: {0}"
+msgstr "Всього: {0}"
+
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Входимо..."
 msgstr "Входимо..."
@@ -352,6 +358,10 @@ msgstr "Досягнуто ліміт {maxItems} тегів"
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"
 msgstr "Дохід дропа (неоплачена частка)"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Дохід за місяць"
+msgstr "Дохід за місяць"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід синьйора (неоплачена частка)"
@@ -548,6 +558,7 @@ msgstr "Не вдалося завантажити PDF."
 
 #: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Не вдалося завантажити зведення"
 msgstr "Не вдалося завантажити зведення"
 
@@ -624,6 +635,7 @@ msgstr "Оновити"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Оновіть сторінку або спробуйте пізніше"
 msgstr "Оновіть сторінку або спробуйте пізніше"
 
@@ -661,6 +673,10 @@ msgstr "Очікує вашого рішення"
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Очікує виплати"
 msgstr "Очікує виплати"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Очікують виплати"
+msgstr "Очікують виплати"
 
 #. placeholder {0}: previewVersion.version
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
@@ -766,6 +782,10 @@ msgstr "Прибутки на валідації та виплати, що оч�
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Проекти синьйорів команд"
 msgstr "Проекти синьйорів команд"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Проекти, де ви синьйор"
+msgstr "Проекти, де ви синьйор"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Проектів не оплачено цього місяця"

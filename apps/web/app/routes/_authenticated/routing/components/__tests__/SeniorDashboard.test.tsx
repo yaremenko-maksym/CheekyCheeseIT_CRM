@@ -184,7 +184,7 @@ describe('SeniorDashboard', () => {
     useSeniorSummaryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true })
     renderDashboard()
     expect(screen.getByTestId('senior-kpi-error')).toBeInTheDocument()
-    expect(screen.getByText('Не удалось загрузить сводку')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося завантажити зведення')).toBeInTheDocument()
   })
 
   describe('KPI cards', () => {
@@ -207,21 +207,41 @@ describe('SeniorDashboard', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-active-projects')
       expect(cardEl).toHaveTextContent('2')
-      expect(cardEl).toHaveTextContent('Активные проекты')
+      expect(cardEl).toHaveTextContent('Активні проекти')
     })
 
     it('shows income this month + total sub-label (senior-share aggregate stays USD)', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-senior-income')
-      expect(cardEl).toHaveTextContent('$1,200.00')
-      expect(cardEl).toHaveTextContent('Всего: $5,500.00')
+      // Independent of the component's own implementation — computed straight
+      // from `Intl`, the same source `format.spec.ts` uses (formatMoney is
+      // `<amount> <CODE>`, not the old $-prefixed toLocaleString). jest-dom's
+      // `toHaveTextContent` normalizes ALL whitespace in the rendered DOM
+      // text — including uk-UA's U+00A0 grouping separator — to a plain
+      // space, so the expected string is normalized the same way here.
+      const uk2dp = (n: number) =>
+        new Intl.NumberFormat('uk-UA', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+          .format(n)
+          .replace(/\s/g, ' ')
+      expect(cardEl).toHaveTextContent(`${uk2dp(1200)} USD`)
+      expect(cardEl).toHaveTextContent(`Всього: ${uk2dp(5500)} USD`)
     })
 
     it('shows pending-payouts count + amount', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-pending-payouts')
+      const uk2dp = (n: number) =>
+        new Intl.NumberFormat('uk-UA', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+          .format(n)
+          .replace(/\s/g, ' ')
       expect(cardEl).toHaveTextContent('3')
-      expect(cardEl).toHaveTextContent('$2,400.00')
+      expect(cardEl).toHaveTextContent(`${uk2dp(2400)} USD`)
     })
   })
 

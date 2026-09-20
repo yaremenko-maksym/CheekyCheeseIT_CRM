@@ -139,6 +139,7 @@ msgid "Активних проектів"
 msgstr "Active projects"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Активні проекти"
 msgstr "Active projects"
 
@@ -309,6 +310,11 @@ msgstr "Restoring…"
 msgid "Всього зароблено · за весь час"
 msgstr "Total earned · all time"
 
+#. placeholder {0}: fmtUsd(summary.seniorShareIncome.total)
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Всього: {0}"
+msgstr "Total: {0}"
+
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Входимо..."
 msgstr "Logging in..."
@@ -352,6 +358,10 @@ msgstr "Reached the limit of {maxItems} tags"
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"
 msgstr "Drop income (unpaid share)"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Дохід за місяць"
+msgstr "Income this month"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід синьйора (неоплачена частка)"
@@ -548,6 +558,7 @@ msgstr "Could not load the PDF."
 
 #: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Не вдалося завантажити зведення"
 msgstr "Failed to load the summary"
 
@@ -624,6 +635,7 @@ msgstr "Refresh"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Оновіть сторінку або спробуйте пізніше"
 msgstr "Refresh the page or try again later"
 
@@ -660,6 +672,10 @@ msgstr "Awaiting your decision"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Очікує виплати"
+msgstr "Awaiting payout"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Очікують виплати"
 msgstr "Awaiting payout"
 
 #. placeholder {0}: previewVersion.version
@@ -766,6 +782,10 @@ msgstr "Income pending validation and payouts awaiting completion"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Проекти синьйорів команд"
 msgstr "Team seniors' projects"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Проекти, де ви синьйор"
+msgstr "Projects where you are the senior"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Проектів не оплачено цього місяця"
