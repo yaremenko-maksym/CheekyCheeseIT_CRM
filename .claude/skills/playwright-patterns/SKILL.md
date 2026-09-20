@@ -109,11 +109,18 @@ await page.screenshot({ path: `${debugDir}/team-form.png` })
 
 Применять во всех Vitest interaction тестах (по умолчанию).
 
+### 10. Текст в ассертах — из каталога, не литералом (i18n, с 2026-09-19)
+
+**Правило (E2E и Vitest):** элементы ищутся по `data-testid` и ролям; там, где нужен текст, строка берётся
+из каталога `uk` (`i18n._(descriptor)` / импорт дескриптора), а не пишется литералом. Смена формулировки
+или языка не должна красить тесты. `data-testid` не строится из переводимого текста (инцидент
+`pending-kind-heading-<zone>-<title>`, аудит i18n §2).
+
 ## Anti-patterns
 
 | ❌ Don't                                                  | ✅ Do                                                                                    |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `page.getByText('Бухгалтер')` для button click            | `page.getByRole('button', { name: 'Бухгалтер' })`                                        |
+| `page.getByText('Бухгалтер')` для button click            | `page.getByRole('button', { name: i18n._(ROLE_LABELS.ACCOUNTANT) })` — текст из каталога |
 | `radio.click()` + immediate `waitForRequest(POST)`        | Click label → wait for UI contract (toast/visible field) → assertions без waitForRequest |
 | Debug screenshots в `apps/e2e/debug-*.png` в репо         | `/tmp/autotest-<runid>/*.png` (git-ignored)                                              |
 | UI text change без spec.ts update в том же commit         | Atomic commit: component.tsx + spec.ts вместе                                            |
