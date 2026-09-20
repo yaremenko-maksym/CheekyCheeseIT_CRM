@@ -18,6 +18,12 @@ msgstr ""
 msgid " · синьйор: {0}"
 msgstr " · senior: {0}"
 
+#. placeholder {0}: filtered.length
+#. placeholder {1}: users?.length ?? 0
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "{0} із {1}"
+msgstr "{0} of {1}"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
 msgstr "{pendingObligationCount, plural, one {# obligation} other {# obligations}}"
@@ -119,9 +125,17 @@ msgstr "Active version: v{0} · updated {1}"
 msgid "Активний синьйор{0} відʼєднається від команди без архівації."
 msgstr "The active senior{0} will be detached from the team without being archived."
 
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Активних проектів"
+msgstr "Active projects"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Активні проекти"
 msgstr "Active projects"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Активні транзакції"
+msgstr "Active transactions"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Активного синьйора в команді немає."
@@ -181,6 +195,10 @@ msgstr "Embedded PDF preview is unavailable. <0>Download ToS</0>"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Версія v{0}"
 msgstr "Version v{0}"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
+msgstr "You will act on their behalf. A banner will remind you of the active session — click «Return to your profile» to exit."
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Ви маєте сплатити компанії"
@@ -277,6 +295,10 @@ msgstr "Restoring the project together with linked entities."
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновлення…"
 msgstr "Restoring…"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Входимо..."
+msgstr "Logging in..."
 
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Готово"
@@ -431,6 +453,10 @@ msgstr "User (senior)"
 msgid "Користувачі"
 msgstr "Users"
 
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Користувачів не знайдено"
+msgstr "No users found"
+
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Країну не знайдено"
 msgstr "Country not found"
@@ -499,6 +525,7 @@ msgstr "Could not load the preview PDF."
 msgid "Не вдалося завантажити PDF."
 msgstr "Could not load the PDF."
 
+#: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Не вдалося завантажити зведення"
 msgstr "Failed to load the summary"
@@ -519,6 +546,10 @@ msgstr "Failed to check whether a project decision is waiting on you. Refresh th
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Could not return: {errMessage}"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Не вдалося увійти: {errMessage}"
+msgstr "Failed to log in: {errMessage}"
 
 #. placeholder {0}: transactions.length
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
@@ -566,6 +597,7 @@ msgstr "Processing…"
 msgid "Оновити"
 msgstr "Refresh"
 
+#: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Оновіть сторінку або спробуйте пізніше"
 msgstr "Refresh the page or try again later"
@@ -690,6 +722,10 @@ msgstr "The current ToS version will be deactivated (kept in history). All users
 msgid "Почніть вводити технологію..."
 msgstr "Start typing a technology..."
 
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Пошук за іменем, email, telegram..."
+msgstr "Search by name, email, telegram..."
+
 #: apps/web/app/components/ui/command.tsx
 msgid "Пошук і виконання команд"
 msgstr "Search and run commands"
@@ -705,6 +741,10 @@ msgstr "Income pending validation and payouts awaiting completion"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Проекти синьйорів команд"
 msgstr "Team seniors' projects"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Проектів не оплачено цього місяця"
+msgstr "Projects not paid this month"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -764,13 +804,22 @@ msgstr "senior's"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Скасувати"
 msgstr "Cancel"
 
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Співбесід"
+msgstr "Interviews"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Співбесіди"
 msgstr "Interviews"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Співробітників"
+msgstr "Employees"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 #: apps/web/app/components/layout/notifications-bell.tsx
@@ -810,11 +859,27 @@ msgstr "Events about your projects, money, and documents will appear here"
 msgid "У роботі"
 msgstr "In progress"
 
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти"
+msgstr "Log in"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 msgid "Увійти як"
 msgstr "Log in as"
+
+#. placeholder {0}: confirm?.user.displayName
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти як «{0}»?"
+msgstr "Log in as «{0}»?"
+
+#. placeholder {0}: u.displayName
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти як {0}"
+msgstr "Log in as {0}"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Усе, що чекає рішення"

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { Search, UserCheck } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { UserProfileDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
@@ -21,7 +22,8 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { UserAvatar } from '@/components/users/UserAvatar'
-import { ROLE_LABELS, ROLE_VARIANT } from '@/components/users/constants'
+import { ROLE_VARIANT } from '@/components/users/constants'
+import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 
 export const Route = createFileRoute('/_authenticated/admin/login-as')({
   component: LoginAsPage,
@@ -52,6 +54,7 @@ function LoginAsPageContent({ meId }: { meId: string }) {
   const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
+  const { t, i18n } = useLingui()
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['login-as-users'],
@@ -70,8 +73,8 @@ function LoginAsPageContent({ meId }: { meId: string }) {
       window.location.href = '/'
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Не удалось войти: ${msg}`)
+      const errMessage = err instanceof Error ? err.message : String(err)
+      toast.error(t`Не вдалося увійти: ${errMessage}`)
       setConfirm(null)
     },
   })
@@ -102,7 +105,7 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                 <Input
                   type="search"
                   enterKeyHint="search"
-                  placeholder="Поиск по имени, email, telegram..."
+                  placeholder={t`Пошук за іменем, email, telegram...`}
                   className="pl-8"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -111,7 +114,9 @@ function LoginAsPageContent({ meId }: { meId: string }) {
               </div>
               {!isLoading && (
                 <p className="shrink-0 text-sm text-muted-foreground">
-                  {filtered.length} из {users?.length ?? 0}
+                  <Trans>
+                    {filtered.length} із {users?.length ?? 0}
+                  </Trans>
                 </p>
               )}
             </CardContent>
@@ -143,7 +148,9 @@ function LoginAsPageContent({ meId }: { meId: string }) {
               ) : filtered.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
                   <Search className="h-8 w-8 opacity-30" />
-                  <p className="text-sm">Пользователи не найдены</p>
+                  <p className="text-sm">
+                    <Trans>Користувачів не знайдено</Trans>
+                  </p>
                 </div>
               ) : (
                 filtered.map((u) => (
@@ -173,7 +180,7 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                       variant={ROLE_VARIANT[u.role] ?? 'secondary'}
                       className="shrink-0 hidden sm:inline-flex"
                     >
-                      {ROLE_LABELS[u.role] ?? u.role}
+                      {ROLE_LABEL_MESSAGES[u.role] ? i18n._(ROLE_LABEL_MESSAGES[u.role]) : u.role}
                     </Badge>
 
                     {/* Action button */}
@@ -181,14 +188,18 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                       variant="outline"
                       size="sm"
                       className="shrink-0 min-h-[44px] sm:min-h-0"
-                      aria-label={`Войти как ${u.displayName}`}
+                      aria-label={t`Увійти як ${u.displayName}`}
                       data-testid={`login-as-btn-${u.id}`}
                       disabled={u.id === meId}
                       onClick={() => setConfirm({ user: u })}
                     >
                       <UserCheck className="h-3.5 w-3.5 mr-1.5 sm:hidden" aria-hidden />
-                      <span className="hidden sm:inline">Войти как</span>
-                      <span className="sm:hidden">Войти</span>
+                      <span className="hidden sm:inline">
+                        <Trans>Увійти як</Trans>
+                      </span>
+                      <span className="sm:hidden">
+                        <Trans>Увійти</Trans>
+                      </span>
                     </Button>
                   </motion.div>
                 ))
@@ -213,10 +224,17 @@ function LoginAsPageContent({ meId }: { meId: string }) {
           }}
         >
           <DialogHeader>
-            <DialogTitle>Войти как «{confirm?.user.displayName}»?</DialogTitle>
+            <DialogTitle>
+              <Trans>Увійти як «{confirm?.user.displayName}»?</Trans>
+            </DialogTitle>
             <DialogDescription>
-              Вы будете действовать от его лица. Баннер напомнит об активном сеансе — нажмите
-              «Вернуться» чтобы выйти.
+              {/* COPY-M-core-12: references the impersonation banner's own
+                  return-button label verbatim (ImpersonationBanner.tsx —
+                  t`Повернутися до свого профілю`), not a generic paraphrase. */}
+              <Trans>
+                Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть
+                «Повернутися до свого профілю», щоб вийти.
+              </Trans>
             </DialogDescription>
           </DialogHeader>
 
@@ -227,7 +245,7 @@ function LoginAsPageContent({ meId }: { meId: string }) {
               data-testid="login-as-confirm-cancel"
               onClick={() => setConfirm(null)}
             >
-              Отмена
+              <Trans>Скасувати</Trans>
             </Button>
             <Button
               disabled={impersonateMutation.isPending}
@@ -236,7 +254,7 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                 if (confirm) impersonateMutation.mutate(confirm.user.id)
               }}
             >
-              {impersonateMutation.isPending ? 'Входим...' : 'Войти как'}
+              {impersonateMutation.isPending ? t`Входимо...` : t`Увійти як`}
             </Button>
           </DialogFooter>
         </DialogContent>

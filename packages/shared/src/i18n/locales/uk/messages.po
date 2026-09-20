@@ -18,6 +18,12 @@ msgstr ""
 msgid " · синьйор: {0}"
 msgstr " · синьйор: {0}"
 
+#. placeholder {0}: filtered.length
+#. placeholder {1}: users?.length ?? 0
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "{0} із {1}"
+msgstr "{0} із {1}"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
 msgstr "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
@@ -119,9 +125,17 @@ msgstr "Активна версія: v{0} · оновлена {1}"
 msgid "Активний синьйор{0} відʼєднається від команди без архівації."
 msgstr "Активний синьйор{0} відʼєднається від команди без архівації."
 
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Активних проектів"
+msgstr "Активних проектів"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Активні проекти"
 msgstr "Активні проекти"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Активні транзакції"
+msgstr "Активні транзакції"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Активного синьйора в команді немає."
@@ -181,6 +195,10 @@ msgstr "Вбудований перегляд PDF недоступний. <0>З�
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Версія v{0}"
 msgstr "Версія v{0}"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
+msgstr "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Ви маєте сплатити компанії"
@@ -277,6 +295,10 @@ msgstr "Відновлення проєкту разом із пов'язани�
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновлення…"
 msgstr "Відновлення…"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Входимо..."
+msgstr "Входимо..."
 
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Готово"
@@ -431,6 +453,10 @@ msgstr "Користувач (синьйор)"
 msgid "Користувачі"
 msgstr "Користувачі"
 
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Користувачів не знайдено"
+msgstr "Користувачів не знайдено"
+
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Країну не знайдено"
 msgstr "Країну не знайдено"
@@ -499,6 +525,7 @@ msgstr "Не вдалося завантажити PDF попереднього 
 msgid "Не вдалося завантажити PDF."
 msgstr "Не вдалося завантажити PDF."
 
+#: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Не вдалося завантажити зведення"
 msgstr "Не вдалося завантажити зведення"
@@ -519,6 +546,10 @@ msgstr "Не вдалося перевірити, чи чекає на вас р
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Не вдалося повернутися: {errMessage}"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Не вдалося увійти: {errMessage}"
+msgstr "Не вдалося увійти: {errMessage}"
 
 #. placeholder {0}: transactions.length
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
@@ -566,6 +597,7 @@ msgstr "Обробка…"
 msgid "Оновити"
 msgstr "Оновити"
 
+#: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Оновіть сторінку або спробуйте пізніше"
 msgstr "Оновіть сторінку або спробуйте пізніше"
@@ -690,6 +722,10 @@ msgstr "Поточна версія ToS буде деактивована (зб�
 msgid "Почніть вводити технологію..."
 msgstr "Почніть вводити технологію..."
 
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Пошук за іменем, email, telegram..."
+msgstr "Пошук за іменем, email, telegram..."
+
 #: apps/web/app/components/ui/command.tsx
 msgid "Пошук і виконання команд"
 msgstr "Пошук і виконання команд"
@@ -705,6 +741,10 @@ msgstr "Прибутки на валідації та виплати, що оч�
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Проекти синьйорів команд"
 msgstr "Проекти синьйорів команд"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Проектів не оплачено цього місяця"
+msgstr "Проектів не оплачено цього місяця"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -764,13 +804,22 @@ msgstr "синьйора"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Скасувати"
 msgstr "Скасувати"
 
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Співбесід"
+msgstr "Співбесід"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Співбесіди"
 msgstr "Співбесіди"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Співробітників"
+msgstr "Співробітників"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 #: apps/web/app/components/layout/notifications-bell.tsx
@@ -810,11 +859,27 @@ msgstr "Тут з'являться події за вашими проєктам
 msgid "У роботі"
 msgstr "У роботі"
 
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти"
+msgstr "Увійти"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 msgid "Увійти як"
 msgstr "Увійти як"
+
+#. placeholder {0}: confirm?.user.displayName
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти як «{0}»?"
+msgstr "Увійти як «{0}»?"
+
+#. placeholder {0}: u.displayName
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти як {0}"
+msgstr "Увійти як {0}"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Усе, що чекає рішення"
