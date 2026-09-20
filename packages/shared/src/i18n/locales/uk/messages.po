@@ -284,6 +284,10 @@ msgstr "Дохід синьйора (неоплачена частка)"
 msgid "Дроп"
 msgstr "Дроп"
 
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "дропа"
+msgstr "дропа"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
 msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
@@ -352,6 +356,10 @@ msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'
 #: apps/web/app/components/ui/command.tsx
 msgid "Командне меню"
 msgstr "Командне меню"
+
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "компанії"
+msgstr "компанії"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
@@ -630,6 +638,10 @@ msgstr "Роль"
 msgid "Синьйор"
 msgstr "Синьйор"
 
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "синьйора"
+msgstr "синьйора"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -688,6 +700,14 @@ msgstr "Фінальний вигляд документа Terms of Service — 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Фінанси"
 msgstr "Фінанси"
+
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "Частка дропа у відсотках"
+msgstr "Частка дропа у відсотках"
+
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "Частка синьйора у відсотках"
+msgstr "Частка синьйора у відсотках"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Чекають рішення"

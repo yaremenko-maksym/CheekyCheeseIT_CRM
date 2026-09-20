@@ -204,9 +204,9 @@ describe('UserDialog — DROP role-scoped share/salary fields (LOW findings PR #
     render(<UserDialog mode="edit" user={dropProfile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля дропа в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка дропа у відсотках').length).toBeGreaterThan(0)
     })
-    const inputs = screen.getAllByLabelText('Доля дропа в процентах')
+    const inputs = screen.getAllByLabelText('Частка дропа у відсотках')
     const rangeInput = inputs.find((el) => el.getAttribute('type') === 'range')
     const numberInput = inputs.find((el) => el.getAttribute('type') === 'number')
     expect(rangeInput).toHaveAttribute('min', '0')

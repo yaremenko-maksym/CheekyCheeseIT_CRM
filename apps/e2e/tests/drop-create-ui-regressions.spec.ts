@@ -5,7 +5,7 @@
  * NO targeted E2E coverage. Each test maps to a real bug fixed during
  * the drop role rollout:
  *
- *   1. Slider role label for DROP — `aria-label="Доля дропа в процентах"`,
+ *   1. Slider role label for DROP — `aria-label="Частка дропа у відсотках"`,
  *      NOT «Доля синьора». A pre-PR-63 build re-used the senior aria text
  *      and a UX review caught it during user testing.
  *
@@ -40,7 +40,7 @@ import { VALID_USDT_WALLET } from './fixtures'
 // silently drift out of sync.
 
 test.describe('Drop create — UI regressions', () => {
-  test('slider for DROP role exposes aria-label «Доля дропа в процентах»', async ({
+  test('slider for DROP role exposes aria-label «Частка дропа у відсотках»', async ({
     asAdmin: page,
   }) => {
     await page.goto('/users')
@@ -52,16 +52,16 @@ test.describe('Drop create — UI regressions', () => {
     await expect(dialog).toBeVisible()
 
     // Both <input type=range> and <input type=number> render with the DROP
-    // aria label. Spec §11 wording: «Доля дропа в процентах».
-    const sliders = dialog.locator('[aria-label="Доля дропа в процентах"]')
+    // aria label. Spec §11 wording: «Частка дропа у відсотках».
+    const sliders = dialog.locator('[aria-label="Частка дропа у відсотках"]')
     // 2 inputs in ShareSlider (range + number) → count must be 2.
     await expect(sliders).toHaveCount(2)
 
     // Senior aria text MUST NOT be present (regression catcher).
-    await expect(dialog.locator('[aria-label="Доля синьора в процентах"]')).toHaveCount(0)
+    await expect(dialog.locator('[aria-label="Частка синьйора у відсотках"]')).toHaveCount(0)
   })
 
-  test('slider for SENIOR role still uses «Доля синьора в процентах» (regression-safe)', async ({
+  test('slider for SENIOR role still uses «Частка синьйора у відсотках» (regression-safe)', async ({
     asAdmin: page,
   }) => {
     // Sanity: the role-flip didn't accidentally re-label SENIOR sliders too.
@@ -72,8 +72,8 @@ test.describe('Drop create — UI regressions', () => {
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.locator('[aria-label="Доля синьора в процентах"]')).toHaveCount(2)
-    await expect(dialog.locator('[aria-label="Доля дропа в процентах"]')).toHaveCount(0)
+    await expect(dialog.locator('[aria-label="Частка синьйора у відсотках"]')).toHaveCount(2)
+    await expect(dialog.locator('[aria-label="Частка дропа у відсотках"]')).toHaveCount(0)
   })
 
   test('submit without HR shows inline «Выберите минимум одного HR» error; dialog stays open', async ({

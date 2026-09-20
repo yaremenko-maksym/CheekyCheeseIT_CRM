@@ -1,5 +1,5 @@
 /**
- * Prod bug repro — ADMIN edits a DROP user's «Доля дропа (%)» (dropSharePercent)
+ * Prod bug repro — ADMIN edits a DROP user's «Частка дропа (%)» (dropSharePercent)
  * via the profile edit dialog, submits, sees «Пользователь обновлён», but the
  * value is unchanged after reload.
  *
@@ -180,7 +180,7 @@ describe('UserDialog — edit-mode DROP share % persists on submit (prod bug rep
     const user = userEvent.setup()
     render(<UserDialog mode="edit" user={dropUser} onClose={vi.fn()} />)
 
-    const shareInput = await screen.findByRole('spinbutton', { name: 'Доля дропа в процентах' })
+    const shareInput = await screen.findByRole('spinbutton', { name: 'Частка дропа у відсотках' })
     expect(shareInput).toHaveValue(5)
 
     // Controlled numeric input — a single `fireEvent.change` mirrors what the
@@ -212,7 +212,9 @@ describe('UserDialog — edit-mode SENIOR share % persists on submit (regression
     const user = userEvent.setup()
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
 
-    const shareInput = await screen.findByRole('spinbutton', { name: 'Доля синьора в процентах' })
+    const shareInput = await screen.findByRole('spinbutton', {
+      name: 'Частка синьйора у відсотках',
+    })
     expect(shareInput).toHaveValue(26)
 
     fireEvent.change(shareInput, { target: { value: '30' } })
