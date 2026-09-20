@@ -13,9 +13,19 @@ import { ZOD_ERROR_CODES, ZOD_ERROR_FALLBACK_EN, type ZodErrorCode } from '@crm/
  * fallback, for a client without a catalog — same contract as
  * `API_ERROR_FALLBACK_EN`/`apiError()`) for a migrated issue, `{ path,
  * message }` (unchanged) for a legacy one.
+ *
+ * Takes `string | null` directly (rather than the call site doing its own
+ * `rawCode !== null &&` guard first) so there is exactly ONE place that
+ * decides "is this a real code" — a redundant guard ahead of a
+ * null-safe `.includes()` call is an unobservable mutant waiting to happen
+ * (verified: `[].includes(null)` is `false`, never throws), and Stryker's
+ * per-line suppression cannot isolate ONE ConditionalExpression variant on a
+ * compound `&&` from its siblings without also silencing the two that ARE
+ * observable (confirmed empirically against this exact line before choosing
+ * this shape over a suppression comment).
  */
-function isZodErrorCode(value: string): value is ZodErrorCode {
-  return (ZOD_ERROR_CODES as readonly string[]).includes(value)
+function isZodErrorCode(value: string | null): value is ZodErrorCode {
+  return (ZOD_ERROR_CODES as readonly (string | null)[]).includes(value)
 }
 
 /**
@@ -70,7 +80,7 @@ export class ZodExceptionFilter implements ExceptionFilter {
       message: 'Validation failed',
       errors: exception.issues.map((i) => {
         const rawCode = i.message.startsWith('zod.') ? i.message.slice('zod.'.length) : null
-        if (rawCode !== null && isZodErrorCode(rawCode)) {
+        if (isZodErrorCode(rawCode)) {
           return {
             path: i.path.join('.'),
             code: rawCode,

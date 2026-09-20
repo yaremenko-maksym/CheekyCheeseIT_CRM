@@ -173,6 +173,49 @@ describe('ZodExceptionFilter — migrated vs non-migrated issues (task-i18n-stag
     expect(errors[0]).toEqual({ path: 'x', message: 'zod.NOT_A_REAL_CODE' })
   })
 
+  // mutation-gate closure: pins the ACTUAL `'zod.'` prefix check, not merely
+  // its outcome — a message that does NOT start with `'zod.'` but whose
+  // first 4 characters happen to be something else entirely still contains
+  // a real code name once 4 characters are dropped. Real code takes the
+  // legacy branch for this (the `startsWith` check is false, full stop); a
+  // mutant that widens the prefix to `''` would slice unconditionally and
+  // wrongly treat it as migrated. `'zod.'.length === 4` is what makes this
+  // pair observable at all — the slice amount itself is a separate,
+  // unmutated line.
+  it('a message NOT starting with "zod." is never treated as migrated, even if its tail happens to spell a real code', () => {
+    const err = new ZodError([{ code: 'custom', path: ['x'], message: 'XXXXEMAIL_INVALID' }])
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(err, host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+    expect(errors[0]).toEqual({ path: 'x', message: 'XXXXEMAIL_INVALID' })
+  })
+
+  // mutation-gate closure: `.join('.')` vs `.join('')` are indistinguishable
+  // on every single-segment path used elsewhere in this file — a nested path
+  // is the only input that observes the separator at all.
+  it('joins a nested path with a dot separator', () => {
+    const err = new ZodError([
+      { code: 'custom', path: ['nested', 'field'], message: 'zod.RNOKPP_FORMAT' },
+    ])
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(err, host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+    expect(errors[0]?.['path']).toBe('nested.field')
+  })
+
+  it('joins a nested path with a dot separator for a legacy (non-migrated) issue too', () => {
+    const err = new ZodError([
+      { code: 'custom', path: ['nested', 'field'], message: 'Some legacy prose' },
+    ])
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(err, host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+    expect(errors[0]?.['path']).toBe('nested.field')
+  })
+
   it('on a finance-critical route, a migrated issue is still hidden from non-ADMIN (existing info-disclosure guard is unaffected)', () => {
     const host = makeHost('/api/transactions', 'SENIOR')
     filter.catch(mixedZodError(), host)

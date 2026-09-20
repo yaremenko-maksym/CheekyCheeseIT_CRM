@@ -459,8 +459,13 @@ describe('attachReceiptSchema', () => {
     expect(attachReceiptSchema.safeParse({ receiptExternalUrl: EXPLORER_URL }).success).toBe(true)
   })
 
-  it('rejects an empty body (mandatory)', () => {
-    expect(attachReceiptSchema.safeParse({}).success).toBe(false)
+  it('rejects an empty body (mandatory) with the exact code (task-i18n-stage4-task4)', () => {
+    const result = attachReceiptSchema.safeParse({})
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find(
+      (i) => i.path.join('.') === 'receiptExternalUrl',
+    )
+    expect(issue?.message).toBe('zod.RECEIPT_REQUIRED')
   })
 
   it('rejects both doc and url (XOR)', () => {

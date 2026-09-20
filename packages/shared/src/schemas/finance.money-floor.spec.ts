@@ -59,6 +59,8 @@ import {
   createSalarySchema,
   createSeniorIncomeSchema,
   createUsdtIncomeSchema,
+  MAX_TRANSACTION_AMOUNT,
+  transactionAmountError,
   updateDropIncomeSchema,
   updateProjectFinanceSettingsSchema,
   updateSeniorIncomeSchema,
@@ -77,6 +79,42 @@ const EXPLORER_RECEIPT = `https://etherscan.io/tx/0x${'a'.repeat(64)}`
 const TOO_SMALL = 1e-7
 // More than AMOUNT_DECIMAL_PLACES (6) — the column silently rounds the tail.
 const TOO_PRECISE = 1.1234567
+
+// task-i18n-stage4-task4 (mutation-gate closure): `transactionAmountError`
+// itself had NO direct test anywhere — every existing schema-level test
+// above only pins `.success`, so a mutant on this function's early branches
+// (`!Number.isFinite` → `false`, `value <= 0` → `false`) survives: the value
+// still ends up rejected by a LATER branch (or by the field's own
+// `.positive()`), so `.success` stays `false` either way and the WRONG code
+// goes unnoticed.
+describe('transactionAmountError — exact code per branch (task-i18n-stage4-task4)', () => {
+  it('returns null for a valid, storable amount', () => {
+    expect(transactionAmountError(100.5)).toBeNull()
+  })
+
+  it('NaN and both infinities: AMOUNT_NOT_A_NUMBER', () => {
+    expect(transactionAmountError(Number.NaN)).toBe('zod.AMOUNT_NOT_A_NUMBER')
+    expect(transactionAmountError(Number.POSITIVE_INFINITY)).toBe('zod.AMOUNT_NOT_A_NUMBER')
+    expect(transactionAmountError(Number.NEGATIVE_INFINITY)).toBe('zod.AMOUNT_NOT_A_NUMBER')
+  })
+
+  it('zero and negative: AMOUNT_MUST_BE_POSITIVE', () => {
+    expect(transactionAmountError(0)).toBe('zod.AMOUNT_MUST_BE_POSITIVE')
+    expect(transactionAmountError(-1)).toBe('zod.AMOUNT_MUST_BE_POSITIVE')
+  })
+
+  it('above the BIZ-13 ceiling: TRANSACTION_AMOUNT_EXCEEDS_MAX, boundary is inclusive', () => {
+    expect(transactionAmountError(MAX_TRANSACTION_AMOUNT + 1)).toBe(
+      'zod.TRANSACTION_AMOUNT_EXCEEDS_MAX',
+    )
+    expect(transactionAmountError(MAX_TRANSACTION_AMOUNT)).toBeNull()
+  })
+
+  it('delegates the floor+precision branches to moneyFloorAndPrecisionError (order: too-small before too-precise)', () => {
+    expect(transactionAmountError(TOO_SMALL)).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
+    expect(transactionAmountError(TOO_PRECISE)).toBe('zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS')
+  })
+})
 
 describe('createAdminIncomeSchema.amount — floor (task-money-floor-and-lying-comments)', () => {
   const base = {
@@ -244,6 +282,22 @@ describe('createExpenseSchema.amount — floor', () => {
     expect(createExpenseSchema.safeParse({ ...base, amount: MIN_TRANSACTION_AMOUNT }).success).toBe(
       true,
     )
+  })
+
+  // task-i18n-stage4-task4 (mutation-gate closure): `refineCompanyAccountUsdt`
+  // (shared by this schema / paySalarySchema / settleSeniorPayoutSchema) had
+  // no test anywhere asserting its exact message — only `createAdminIncomeSchema`'s
+  // SIBLING function (`refineAdminIncomeCompanyAccountUsdt`) was pinned.
+  it('COMPANY_ACCOUNT funding + a non-USDT currency: exact code on the currency path', () => {
+    const result = createExpenseSchema.safeParse({
+      ...base,
+      amount: 10,
+      fundingSource: 'COMPANY_ACCOUNT',
+      currency: 'UAH',
+    })
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find((i) => i.path.join('.') === 'currency')
+    expect(issue?.message).toBe('zod.COMPANY_ACCOUNT_USDT_ONLY')
   })
 })
 

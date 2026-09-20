@@ -495,7 +495,8 @@ export const MAX_TRANSACTION_AMOUNT = 500_000
  * The ONE definition of "is this a storable money amount", shared verbatim by
  * the Zod boundary, the service's defense-in-depth re-check and the client's
  * inline validation — so the three can never disagree about what is accepted or
- * about what the user is told. Returns a ready-to-show Russian message, or
+ * about what the user is told. Returns a stable `zod.<CODE>` key (see
+ * `zod-errors.ts`), or
  * `null` when the amount is fine.
  *
  * Order matters: a too-small value is reported as too small, not as
