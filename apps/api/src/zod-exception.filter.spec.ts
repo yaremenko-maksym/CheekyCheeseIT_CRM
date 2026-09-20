@@ -133,3 +133,51 @@ describe('ZodExceptionFilter — non-finance routes (full detail for all)', () =
     expect(code).toBe(HttpStatus.BAD_REQUEST)
   })
 })
+
+// task-i18n-stage4-task4 (Step 7) — the SAME response can carry a mix of
+// migrated (code-shaped) and not-yet-migrated (prose-shaped) issues; each
+// issue is classified on its OWN `message`, independent of its neighbours.
+describe('ZodExceptionFilter — migrated vs non-migrated issues (task-i18n-stage4-task4)', () => {
+  const filter = new ZodExceptionFilter()
+
+  function mixedZodError(): ZodError {
+    return new ZodError([
+      { code: 'custom', path: ['bankUahRnokpp'], message: 'zod.RNOKPP_FORMAT' },
+      { code: 'custom', path: ['email'], message: 'Некорректный email' },
+    ])
+  }
+
+  it('returns { path, code, message } (EN fallback) for a migrated issue, { path, message } for a legacy one, in the same response', () => {
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(mixedZodError(), host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+
+    const migrated = errors.find((e) => e['path'] === 'bankUahRnokpp')
+    expect(migrated).toEqual({
+      path: 'bankUahRnokpp',
+      code: 'RNOKPP_FORMAT',
+      message: 'The tax ID must contain 10 digits',
+    })
+
+    const legacy = errors.find((e) => e['path'] === 'email')
+    expect(legacy).toEqual({ path: 'email', message: 'Некорректный email' })
+  })
+
+  it('a message that merely starts with "zod." but is not a real registry code falls back to legacy shape (defensive)', () => {
+    const err = new ZodError([{ code: 'custom', path: ['x'], message: 'zod.NOT_A_REAL_CODE' }])
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(err, host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+    expect(errors[0]).toEqual({ path: 'x', message: 'zod.NOT_A_REAL_CODE' })
+  })
+
+  it('on a finance-critical route, a migrated issue is still hidden from non-ADMIN (existing info-disclosure guard is unaffected)', () => {
+    const host = makeHost('/api/transactions', 'SENIOR')
+    filter.catch(mixedZodError(), host)
+    const { body } = capture(host)
+    expect((body as Record<string, unknown>)['message']).toBe('Invalid request body')
+    expect((body as Record<string, unknown>)['errors']).toBeUndefined()
+  })
+})

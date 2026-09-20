@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
+import { translateZodMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -243,7 +244,7 @@ function HrCreateSeniorDialog({
               validators={{
                 onBlur: ({ value }) => {
                   const r = createUserSchema.shape.email.safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
+                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                 },
               }}
             >
@@ -276,7 +277,7 @@ function HrCreateSeniorDialog({
               validators={{
                 onBlur: ({ value }) => {
                   const r = createUserSchema.shape.displayName.safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
+                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                 },
               }}
             >
@@ -321,7 +322,7 @@ function HrCreateSeniorDialog({
                 onBlur: ({ value }) => {
                   if (!value.trim()) return undefined
                   const r = telegramFieldSchema.safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
+                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                 },
               }}
             >
@@ -353,7 +354,7 @@ function HrCreateSeniorDialog({
                   const v = value as string
                   if (!v) return undefined
                   const r = phoneFieldSchema.safeParse(v)
-                  if (!r.success) return r.error.issues[0]?.message
+                  if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
                   if (!isValidPhoneNumber(v)) return 'Некорректный номер телефона'
                   return undefined
                 },

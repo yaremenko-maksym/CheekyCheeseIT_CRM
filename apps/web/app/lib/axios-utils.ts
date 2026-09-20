@@ -1,5 +1,12 @@
 import { i18n } from '@lingui/core'
-import { API_ERROR_MESSAGES, apiErrorEnvelopeSchema, type ApiErrorCode } from '@crm/shared'
+import {
+  API_ERROR_MESSAGES,
+  apiErrorEnvelopeSchema,
+  ZOD_ERROR_CODES,
+  ZOD_ERROR_MESSAGES,
+  type ApiErrorCode,
+  type ZodErrorCode,
+} from '@crm/shared'
 
 /**
  * Extracts the HTTP status code from an unknown Axios error value.
@@ -199,6 +206,63 @@ function translateApiError(
 }
 
 /**
+ * task-i18n-stage4-task4. Runtime narrowing for a string read off the wire
+ * (or off a shared validator's return value) against the registry's
+ * compile-time union — mirrors `ZOD_ERROR_CODES`'s role in
+ * `zod-exception.filter.ts` (server) exactly, just on the client.
+ */
+function isZodErrorCode(value: string): value is ZodErrorCode {
+  return (ZOD_ERROR_CODES as readonly string[]).includes(value)
+}
+
+/**
+ * Translates one `ZOD_ERROR_MESSAGES` code through the Lingui catalog — same
+ * pattern as `translateApiError` above (`options` built conditionally per
+ * `exactOptionalPropertyTypes`; the non-object-literal `i18n._` call shape so
+ * `lingui extract`'s babel plugin does not choke on this call site — see
+ * `translateApiError`'s own comment for why).
+ */
+function translateZodError(code: ZodErrorCode): string {
+  const descriptor = ZOD_ERROR_MESSAGES[code]
+  const options = descriptor.message !== undefined ? { message: descriptor.message } : undefined
+  return i18n._(descriptor.id, undefined, options)
+}
+
+/**
+ * Translates a RAW Zod issue message for direct display, covering both
+ * shapes that message can arrive in:
+ *  - read off a FAILED backend response body (`extractBackendMessage`'s
+ *    Priority 1, below);
+ *  - returned DIRECTLY by a `@crm/shared` validator called CLIENT-SIDE for
+ *    live, pre-submit validation — e.g. `transactionAmountError` in
+ *    `PaySalaryDialog` — same `'zod.<CODE>'` convention, no HTTP round-trip
+ *    involved at all, so `extractBackendMessage`'s envelope-parsing path
+ *    never sees it.
+ *
+ * A message that is NOT one of our codes (an ordinary Zod built-in message,
+ * or a not-yet-migrated schema's literal) passes through unchanged — the
+ * SAME "migrated code vs. legacy prose" branch `ZodExceptionFilter` applies
+ * server-side, kept in agreement on both sides by reading the same prefix
+ * convention. Exported so every form that calls a shared validator directly
+ * (not only ones that go through an HTTP response) gets translated text
+ * instead of a raw `zod.<CODE>` string.
+ *
+ * Returns `undefined` (not `null`) for a null/undefined/absent input —
+ * matches the field-validator return convention every caller of this
+ * function actually needs (`@tanstack/react-form`'s `validators.onBlur`
+ * requires `string | undefined`, never `null`). A caller that itself needs
+ * `null` for "no error" (e.g. `transactionAmountError`'s own convention in
+ * `PaySalaryDialog`) is unaffected — `??` treats `undefined` exactly like
+ * `null`, and every render site already coerces with `?? undefined` besides.
+ */
+export function translateZodMessage(message: string | null | undefined): string | undefined {
+  if (message === null || message === undefined) return undefined
+  if (!message.startsWith('zod.')) return message
+  const code = message.slice('zod.'.length)
+  return isZodErrorCode(code) ? translateZodError(code) : message
+}
+
+/**
  * Extracts a message the BACKEND explicitly put in the response body, or
  * `undefined` if the body carried nothing usable — nothing usable now also
  * covers Nest's own generic reason phrase (finding 110, see
@@ -241,8 +305,12 @@ export function extractBackendMessage(err: unknown): string | undefined {
   const d = data as Record<string, unknown>
 
   // Priority 1: ZodExceptionFilter errors array → field-level details.
-  // Filter emits: errors: [{ path: string, message: string }]
-  // path is already dot-joined on the server, but accept arrays defensively.
+  // Filter emits, per issue: `{ path, code, params?, message }` for a
+  // MIGRATED schema's issue (task-i18n-stage4-task4 — `code` translated
+  // through the catalog, `message` the English fallback for a client
+  // without one) or `{ path, message }` for a not-yet-migrated one (as
+  // before this task). path is already dot-joined on the server, but accept
+  // arrays defensively.
   if (Array.isArray(d['errors']) && d['errors'].length > 0) {
     const parts = (d['errors'] as unknown[])
       .filter((e): e is Record<string, unknown> => e !== null && typeof e === 'object')
@@ -253,7 +321,13 @@ export function extractBackendMessage(err: unknown): string | undefined {
           : typeof rawPath === 'string'
             ? rawPath
             : ''
-        const msgStr = typeof e['message'] === 'string' ? e['message'] : ''
+        const rawCode = e['code']
+        const msgStr =
+          typeof rawCode === 'string' && isZodErrorCode(rawCode)
+            ? translateZodError(rawCode)
+            : typeof e['message'] === 'string'
+              ? e['message']
+              : ''
         return pathStr ? `${pathStr}: ${msgStr}` : msgStr
       })
       .filter(Boolean)

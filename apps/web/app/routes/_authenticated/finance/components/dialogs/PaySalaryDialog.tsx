@@ -9,6 +9,7 @@ import {
   transactionAmountError,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
+import { translateZodMessage } from '@/lib/axios-utils'
 import {
   Dialog,
   CrmDialogContent,
@@ -105,7 +106,9 @@ export function PaySalaryDialog({
   // without loss (`1e-7` → `0.000000`) is refused here too, inline, instead of
   // coming back as a 400. Silent while the field is empty — an error before the
   // first keystroke is noise, and `handleSubmit` covers the empty case.
-  const liveAmountError = !hasAmountInput ? null : transactionAmountError(parsedPaidAmount)
+  const liveAmountError = !hasAmountInput
+    ? null
+    : translateZodMessage(transactionAmountError(parsedPaidAmount))
   const amountError = liveAmountError ?? amountSubmitError
 
   // task-salary-pay-amount (AC5): a WARNING, never a block. The owner may settle

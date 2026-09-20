@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { translateZodMessage } from '@/lib/axios-utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,7 +68,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
 
     const parsed = paymentRequisitesSchema.safeParse(payload)
     if (!parsed.success) {
-      setErrors(parsed.error.issues.map((i) => i.message))
+      setErrors(parsed.error.issues.map((i) => translateZodMessage(i.message) ?? i.message))
       return
     }
 

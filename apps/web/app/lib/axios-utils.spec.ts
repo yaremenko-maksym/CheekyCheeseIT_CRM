@@ -7,6 +7,7 @@ import {
   getApiErrorMessage,
   getUserFacingErrorMessage,
   stripQueryString,
+  translateZodMessage,
   GENERIC_HTTP_REASON_PHRASES,
 } from './axios-utils'
 
@@ -148,6 +149,75 @@ describe('getApiErrorMessage', () => {
     // Should show field detail, not the generic "Validation failed"
     expect(result).not.toBe('Validation failed')
     expect(result).toContain('salaryMonth')
+  })
+})
+
+// task-i18n-stage4-task4 (Step 9) — ZodExceptionFilter's per-issue shape now
+// carries `code` for a migrated schema and plain `message` for one not yet
+// migrated, IN THE SAME response. `getApiErrorMessage` must translate the
+// former through the catalog and pass the latter through unchanged.
+describe('getApiErrorMessage — mixed migrated/legacy ZodExceptionFilter issues (task-i18n-stage4-task4)', () => {
+  beforeAll(() => {
+    // Empty catalog on purpose — `ZOD_ERROR_MESSAGES[code].message` (the uk
+    // source text) is what `i18n._` falls back to when the id isn't in the
+    // loaded catalog, same pattern `catalog.spec.ts`/the envelope tests above
+    // rely on. Only an ACTIVATED locale is required.
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('translates a migrated field (code) and keeps prose for a non-migrated one, in the same response', () => {
+    const err = {
+      response: {
+        data: {
+          message: 'Validation failed',
+          errors: [
+            { path: 'bankUahRnokpp', code: 'RNOKPP_FORMAT' },
+            { path: 'email', message: 'Некорректный email' },
+          ],
+        },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe(
+      'bankUahRnokpp: РНОКПП має містити 10 цифр; email: Некорректный email',
+    )
+  })
+
+  it('falls back to the message field when code is present but unknown (defensive — should not happen from a real filter)', () => {
+    const err = {
+      response: {
+        data: {
+          errors: [{ path: 'x', code: 'NOT_A_REAL_CODE', message: 'fallback text' }],
+        },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe('x: fallback text')
+  })
+})
+
+describe('translateZodMessage', () => {
+  beforeAll(() => {
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('translates a zod.<CODE> message through the catalog', () => {
+    expect(translateZodMessage('zod.RNOKPP_FORMAT')).toBe('РНОКПП має містити 10 цифр')
+  })
+
+  it('passes through a message that is not one of our codes, unchanged', () => {
+    expect(translateZodMessage('Invalid input: expected number, received string')).toBe(
+      'Invalid input: expected number, received string',
+    )
+  })
+
+  it('passes through a zod.-prefixed string that is NOT a real code, unchanged (defensive)', () => {
+    expect(translateZodMessage('zod.NOT_A_REAL_CODE')).toBe('zod.NOT_A_REAL_CODE')
+  })
+
+  it("returns undefined for null/undefined input — matches @tanstack/react-form's validator return convention", () => {
+    expect(translateZodMessage(null)).toBeUndefined()
+    expect(translateZodMessage(undefined)).toBeUndefined()
   })
 })
 

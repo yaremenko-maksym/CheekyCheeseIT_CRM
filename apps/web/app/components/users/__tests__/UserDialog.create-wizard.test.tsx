@@ -7,7 +7,17 @@
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeAll, beforeEach } from 'vitest'
+import { i18n } from '@lingui/core'
+
+// task-i18n-stage4-task4: UserDialog's field validators now translate their
+// zod.<CODE> results through `translateZodMessage` (`i18n._` under the
+// hood) — an activated locale is required, same pattern as
+// `axios-utils.spec.ts`'s own tests.
+beforeAll(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -628,7 +638,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     await user.type(input, 'not-an-email')
     await user.tab()
 
-    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+    expect(await screen.findByText('Некоректний email')).toBeInTheDocument()
     expect(input.className).toContain('border-destructive')
   })
 
@@ -658,14 +668,14 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     const input = screen.getByTestId('user-dialog-personal-email')
     await user.type(input, 'not-an-email')
     await user.tab()
-    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+    expect(await screen.findByText('Некоректний email')).toBeInTheDocument()
 
     await user.clear(input)
     await user.type(input, 'ivan.personal@gmail.com')
     await user.tab()
 
     await waitFor(() => {
-      expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+      expect(screen.queryByText('Некоректний email')).not.toBeInTheDocument()
       expect(
         screen.queryByText('Личный email должен отличаться от рабочего'),
       ).not.toBeInTheDocument()
@@ -695,7 +705,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
       const body = postCalls[0]?.[1] as Record<string, unknown>
       expect(body.personalEmail).toBe('ivan.personal@gmail.com')
     })
-    expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+    expect(screen.queryByText('Некоректний email')).not.toBeInTheDocument()
   })
 
   it('omits a whitespace-only personalEmail from the POST body instead of sending it as an empty string', async () => {
@@ -712,7 +722,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     // whitespace-only is meant to behave exactly like untouched/empty, not
     // like invalid input.
     await waitFor(() => {
-      expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+      expect(screen.queryByText('Некоректний email')).not.toBeInTheDocument()
     })
     expect(input.className).not.toContain('border-destructive')
 

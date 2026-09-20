@@ -77,7 +77,7 @@ import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
-import { getApiErrorCode } from '@/lib/axios-utils'
+import { getApiErrorCode, translateZodMessage } from '@/lib/axios-utils'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
 import {
@@ -653,7 +653,7 @@ export function UserDialog(props: UserDialogProps) {
         const result = createDropSchema.safeParse(payload)
         if (!result.success) {
           const first = result.error.issues[0]
-          toast.error(first?.message ?? 'Ошибка валидации данных')
+          toast.error(translateZodMessage(first?.message) ?? 'Ошибка валидации данных')
           return
         }
         createDropMutation.mutate(result.data)
@@ -702,7 +702,7 @@ export function UserDialog(props: UserDialogProps) {
           const updateResult = adminUpdateUserSchema.safeParse(updatePayload)
           if (!updateResult.success) {
             const first = updateResult.error.issues[0]
-            toast.error(first?.message ?? 'Ошибка валидации данных')
+            toast.error(translateZodMessage(first?.message) ?? 'Ошибка валидации данных')
             return
           }
           wizardUpdateMutation.mutate(updateResult.data)
@@ -804,7 +804,7 @@ export function UserDialog(props: UserDialogProps) {
           // Surface the first issue inline + as a single toast — the form
           // fields keep their own per-field error indicators below.
           const first = result.error.issues[0]
-          toast.error(first?.message ?? 'Ошибка валидации данных')
+          toast.error(translateZodMessage(first?.message) ?? 'Ошибка валидации данных')
           return
         }
         createMutation.mutate(result.data)
@@ -913,7 +913,7 @@ export function UserDialog(props: UserDialogProps) {
         const result = adminUpdateUserSchema.safeParse(payload)
         if (!result.success) {
           const first = result.error.issues[0]
-          toast.error(first?.message ?? 'Ошибка валидации данных')
+          toast.error(translateZodMessage(first?.message) ?? 'Ошибка валидации данных')
           return
         }
         updateMutation.mutate(result.data)
@@ -1098,8 +1098,8 @@ export function UserDialog(props: UserDialogProps) {
                       if (!fieldApi.state.meta.isDirty) return undefined
                       const trimmed = value.trim()
                       if (!trimmed) return 'Email обязателен'
-                      const r = z.string().email('Некорректный email').safeParse(trimmed)
-                      return r.success ? undefined : r.error.issues[0]?.message
+                      const r = z.string().email('zod.EMAIL_INVALID').safeParse(trimmed)
+                      return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                     },
                   }}
                 >
@@ -1176,12 +1176,12 @@ export function UserDialog(props: UserDialogProps) {
                         // Stryker disable next-line MethodExpression: unreachable via any typed input on a type="email" field — see the paragraph above
                         const trimmed = value.trim()
                         if (!trimmed) return undefined
-                        const r = z.string().email('Некорректный email').safeParse(trimmed)
+                        const r = z.string().email('zod.EMAIL_INVALID').safeParse(trimmed)
                         // zod's SafeParseError.error.issues is never empty on a
                         // failed parse (verified: packages/shared, `zod`'s own
                         // contract) — `issues[0]` cannot be undefined here.
                         // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
-                        if (!r.success) return r.error.issues[0]?.message
+                        if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
                         if (
                           trimmed.toLowerCase() ===
                           // Stryker disable next-line MethodExpression: `email` is also type="email" — same unreachable-via-typing reasoning as this validator's own `trimmed` above
@@ -1246,7 +1246,7 @@ export function UserDialog(props: UserDialogProps) {
                         .min(2, 'Имя минимум 2 символа')
                         .max(255)
                         .safeParse(value.trim())
-                      return r.success ? undefined : r.error.issues[0]?.message
+                      return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                     },
                   }}
                 >
@@ -1367,10 +1367,12 @@ export function UserDialog(props: UserDialogProps) {
                             if (!value.trim()) return undefined
                             const r = z
                               .string()
-                              .min(5, 'ФИО минимум 5 символов')
+                              .min(5, 'zod.LEGAL_FULL_NAME_MIN')
                               .max(200)
                               .safeParse(value.trim())
-                            return r.success ? undefined : r.error.issues[0]?.message
+                            return r.success
+                              ? undefined
+                              : translateZodMessage(r.error.issues[0]?.message)
                           },
                           // A3-3 AC6 / bug #2: surface superRefine error on submit attempt
                           // for contract-eligible roles (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP).
@@ -1460,7 +1462,7 @@ export function UserDialog(props: UserDialogProps) {
                       if (!fieldApi.state.meta.isDirty) return undefined
                       if (!value.trim()) return undefined
                       const r = telegramFieldSchema.safeParse(value.trim())
-                      return r.success ? undefined : r.error.issues[0]?.message
+                      return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                     },
                   }}
                 >
@@ -1493,7 +1495,7 @@ export function UserDialog(props: UserDialogProps) {
                       const v = value as string
                       if (!v || v.replace(/\D/g, '').length < 5) return undefined
                       const r = phoneFieldSchema.safeParse(v)
-                      if (!r.success) return r.error.issues[0]?.message
+                      if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
                       if (!isValidPhoneNumber(v)) return 'Некорректный номер телефона'
                       return undefined
                     },
