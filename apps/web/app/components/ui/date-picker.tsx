@@ -1,11 +1,19 @@
 import { useState } from 'react'
-import { format, parseISO } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { format, parseISO, type Locale as DateFnsLocale } from 'date-fns'
+import { uk, enGB } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
+import { useLingui } from '@lingui/react/macro'
+import type { Locale } from '@crm/shared'
 import { Calendar } from './calendar'
 import { Button } from './button'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
+
+// task-i18n-stage3a (Task 1), Step 2/F: `date-fns` needs its OWN locale
+// object (distinct from the `Intl` tags `format.ts` uses) for `format()`'s
+// token output and for `<Calendar>`'s weekday/`aria-label` strings.
+const DATE_FNS_LOCALE: Record<Locale, DateFnsLocale> = { uk, en: enGB }
 
 interface DatePickerFieldProps {
   value: string // "YYYY-MM-DD"
@@ -28,13 +36,17 @@ interface DatePickerFieldProps {
 export function DatePickerField({
   value,
   onChange,
-  placeholder = 'Выберите дату',
+  placeholder,
   className,
   disabled,
   minDate,
   maxDate,
   'data-testid': dataTestId,
 }: DatePickerFieldProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
+  const dateFnsLocale = DATE_FNS_LOCALE[locale]
+  const effectivePlaceholder = placeholder ?? t`Виберіть дату`
   const [open, setOpen] = useState(false)
   const selected = value ? parseISO(value) : undefined
 
@@ -53,7 +65,9 @@ export function DatePickerField({
         >
           <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
           <span className="truncate">
-            {selected ? format(selected, 'dd MMM yyyy', { locale: ru }) : placeholder}
+            {selected
+              ? format(selected, 'dd MMM yyyy', { locale: dateFnsLocale })
+              : effectivePlaceholder}
           </span>
         </Button>
       </PopoverTrigger>
@@ -96,7 +110,7 @@ export function DatePickerField({
             ]
           }
           initialFocus
-          locale={ru}
+          locale={dateFnsLocale}
         />
       </PopoverContent>
     </Popover>

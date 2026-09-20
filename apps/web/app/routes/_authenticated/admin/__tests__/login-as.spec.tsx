@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 /**
  * Unit tests for LoginAsPage (admin impersonation list).
@@ -145,7 +146,11 @@ function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  return (
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
+  )
 }
 
 // We can't import the page directly because createFileRoute is mocked.
@@ -283,8 +288,9 @@ function ConfirmDialogStub({ targetUser }: { targetUser: UserProfileDto }) {
 }
 
 describe('LoginAsPage — confirm dialog', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
+    await loadCatalog('uk')
   })
 
   it('L8. "Войти как" button opens confirm dialog', async () => {

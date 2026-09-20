@@ -19,6 +19,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 let currentRole = 'SENIOR'
 let currentUserId = 'senior-1'
@@ -82,12 +83,18 @@ import { CreateTransactionDialog } from '../CreateTransactionDialog'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderDialog() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <CreateTransactionDialog open onClose={() => {}} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <CreateTransactionDialog open onClose={() => {}} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 

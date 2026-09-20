@@ -199,6 +199,10 @@ msgstr "Ви увійшли як інший співробітник — при�
 msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
 
+#: apps/web/app/components/ui/date-picker.tsx
+msgid "Виберіть дату"
+msgstr "Виберіть дату"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Вибрати файл"
 msgstr "Вибрати файл"
@@ -292,6 +296,7 @@ msgstr "Завантаження PDF…"
 msgid "Завантажуємо вплив…"
 msgstr "Завантажуємо вплив…"
 
+#: apps/web/app/components/ui/dialog.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Закрити"
 msgstr "Закрити"
@@ -335,6 +340,10 @@ msgstr "Команда"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+
+#: apps/web/app/components/ui/command.tsx
+msgid "Командне меню"
+msgstr "Командне меню"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
@@ -554,6 +563,10 @@ msgstr "Посилання"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
 msgstr "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
+
+#: apps/web/app/components/ui/command.tsx
+msgid "Пошук і виконання команд"
+msgstr "Пошук і виконання команд"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx

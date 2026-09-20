@@ -24,6 +24,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: { id: 'admin-1', role: 'ADMIN', displayName: 'Admin One' } }),
@@ -78,15 +79,21 @@ import { CreateTransactionDialog } from '../CreateTransactionDialog'
 function renderDialog() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <CreateTransactionDialog open onClose={() => {}} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <CreateTransactionDialog open onClose={() => {}} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
 function clickTypeCard(testId: string) {
   fireEvent.click(screen.getByTestId(testId))
 }
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 describe('CreateTransactionDialog — ADMIN_INCOME mandatory receipt (legacy funding)', () => {
   beforeEach(() => {

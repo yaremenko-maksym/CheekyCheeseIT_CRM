@@ -199,6 +199,10 @@ msgstr "You're signed in as another employee — only they can accept the terms"
 msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "You're signed in as another employee — only they can decide on the project"
 
+#: apps/web/app/components/ui/date-picker.tsx
+msgid "Виберіть дату"
+msgstr "Choose a date"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Вибрати файл"
 msgstr "Choose file"
@@ -292,6 +296,7 @@ msgstr "Loading PDF…"
 msgid "Завантажуємо вплив…"
 msgstr "Loading impact…"
 
+#: apps/web/app/components/ui/dialog.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Закрити"
 msgstr "Close"
@@ -335,6 +340,10 @@ msgstr "Team"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "Team <0>{0}</0> and its drop <1>{dropName}</1> are a linked pair — you cannot remove just one. Archiving will archive: the <2>drop's</2> profile, the team, and all its drop projects ({1, plural, one {# project} other {# projects}}{projectNamesSuffix})."
+
+#: apps/web/app/components/ui/command.tsx
+msgid "Командне меню"
+msgstr "Command menu"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
@@ -554,6 +563,10 @@ msgstr "Link"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
 msgstr "The current ToS version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
+
+#: apps/web/app/components/ui/command.tsx
+msgid "Пошук і виконання команд"
+msgstr "Search and run commands"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx

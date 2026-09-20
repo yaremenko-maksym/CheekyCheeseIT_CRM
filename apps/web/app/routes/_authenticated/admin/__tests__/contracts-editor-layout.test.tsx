@@ -218,6 +218,7 @@ describe('ContractPreview', () => {
 // We import the page component directly — Route.useParams() returns the mocked role
 describe('ContractEditorPage layout', () => {
   beforeEach(async () => {
+    await loadCatalog('uk')
     // Mock useParams to return role=SENIOR for the route component
     const { useQuery } = vi.mocked(await import('@tanstack/react-query'))
     useQuery.mockReturnValue({
@@ -245,7 +246,12 @@ describe('ContractEditorPage layout', () => {
     // ContractEditorPage is not exported — access via Route.options.component
     const Page = mod.Route.options?.component as React.ComponentType | undefined
     if (!Page) throw new Error('ContractEditorPage component not found on Route')
-    return render(<Page />)
+    // task-i18n-stage3a (Task 1) blast-radius: renders the shared
+    // `DialogContent`/`DatePickerField` (`components/ui/`), which now call
+    // `useLingui()` — outside this describe block's own perimeter
+    // (`admin/contracts.$role.tsx` migrates in a later wave), so only the
+    // render wrapper changes here.
+    return render(<Page />, { wrapper: I18nTestProvider })
   }
 
   // The `:role` URL segment is user-editable, so an unparseable value must

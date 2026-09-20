@@ -12,6 +12,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -36,14 +37,16 @@ function renderDialog(overrides: { currentEmail: string | null; onClose?: () => 
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onClose = overrides.onClose ?? vi.fn()
   render(
-    <QueryClientProvider client={qc}>
-      <ChangePersonalEmailDialog
-        userId="u-1"
-        currentEmail={overrides.currentEmail}
-        workEmail={WORK_EMAIL}
-        onClose={onClose}
-      />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <ChangePersonalEmailDialog
+          userId="u-1"
+          currentEmail={overrides.currentEmail}
+          workEmail={WORK_EMAIL}
+          onClose={onClose}
+        />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
   return { onClose }
 }
@@ -56,11 +59,12 @@ function submitButton() {
   return screen.getByTestId('change-personal-email-submit')
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
   ;(api.patch as ReturnType<typeof vi.fn>).mockResolvedValue({
     data: { ok: true, delivered: true },
   })
+  await loadCatalog('uk')
 })
 
 describe('ChangePersonalEmailDialog — adding state (currentEmail === null)', () => {
@@ -388,9 +392,11 @@ describe('ChangePersonalEmailDialog — closes end-to-end through a real toggle 
   it('Escape closes the dialog when a real parent unmounts it on onClose (unlike renderDialog above, which cannot)', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
-      <QueryClientProvider client={qc}>
-        <TogglingDialog />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <TogglingDialog />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     const user = userEvent.setup()
     await user.click(screen.getByTestId('persistent-trigger'))

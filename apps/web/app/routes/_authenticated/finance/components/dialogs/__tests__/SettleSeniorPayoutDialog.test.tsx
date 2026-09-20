@@ -31,6 +31,7 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // task-drop-payout-currency: fixed NBU-rate fixture — both the dialog itself
 // (expectedAmount) and the inner AmountCurrencyInput fetch this same
@@ -172,12 +173,18 @@ const UAH_DROP_TX = {
   createdAt: '2026-08-01T00:00:00.000Z',
 } as never
 
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderDialog(tx: unknown = TX) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <SettleSeniorPayoutDialog tx={tx as never} onClose={() => {}} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <SettleSeniorPayoutDialog tx={tx as never} onClose={() => {}} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -548,7 +555,7 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
   it('date picker: for a DROP payout, defaults to the obligation creation date, and that default is what gets sent', async () => {
     renderDialog(UAH_DROP_TX) // DROP, createdAt = 2026-08-01
     const picker = await screen.findByTestId('settle-senior-txdate')
-    expect(picker).toHaveTextContent('01 авг') // dd MMM (ru locale) of the default
+    expect(picker).toHaveTextContent('01 серп') // dd MMM (uk locale) of the default
 
     await fillReceipt('https://etherscan.io/tx/0xuahdrop3')
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
@@ -704,9 +711,11 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
   it('re-syncs the currency default when the SAME dialog instance receives a DIFFERENT tx (rerender, not remount)', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { rerender } = render(
-      <QueryClientProvider client={qc}>
-        <SettleSeniorPayoutDialog tx={DROP_TX as never} onClose={() => {}} />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <SettleSeniorPayoutDialog tx={DROP_TX as never} onClose={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     const amountField = await screen.findByTestId('settle-senior-amount-field')
     fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
@@ -715,9 +724,11 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     )
 
     rerender(
-      <QueryClientProvider client={qc}>
-        <SettleSeniorPayoutDialog tx={UAH_DROP_TX as never} onClose={() => {}} />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <SettleSeniorPayoutDialog tx={UAH_DROP_TX as never} onClose={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     // «Счёт компании» was never re-selected — still ADMIN_PERSONAL, so
     // `effectiveCurrency` reads the STORED value directly. If the effect
@@ -740,29 +751,33 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
   it('re-syncs the date-of-record default AND re-fetches at the NEW date when the SAME dialog instance receives a DIFFERENT tx (rerender, not remount)', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { rerender } = render(
-      <QueryClientProvider client={qc}>
-        <SettleSeniorPayoutDialog tx={DROP_TX as never} onClose={() => {}} />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <SettleSeniorPayoutDialog tx={DROP_TX as never} onClose={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     // DROP_TX.createdAt = 2026-06-01 — the picker's initial default.
     await waitFor(() =>
-      expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('01 июн'),
+      expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('01 черв'),
     )
     expect(
       vi.mocked(api.get).mock.calls.some(([url]) => (url as string).includes('date=20260601')),
     ).toBe(true)
 
     rerender(
-      <QueryClientProvider client={qc}>
-        <SettleSeniorPayoutDialog tx={UAH_DROP_TX as never} onClose={() => {}} />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <SettleSeniorPayoutDialog tx={UAH_DROP_TX as never} onClose={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     // UAH_DROP_TX.createdAt = 2026-08-01 — a genuinely DIFFERENT date. If the
     // mount-sync effect had empty deps (mutant), the picker would stay stuck
     // on June. If the query key were static (mutant), react-query would
     // never issue a NEW fetch for August at all.
     await waitFor(() =>
-      expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('01 авг'),
+      expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('01 серп'),
     )
     await waitFor(() =>
       expect(
