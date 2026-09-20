@@ -79,9 +79,12 @@ RUN pnpm install --frozen-lockfile
 # Copy source AFTER install so source changes don't bust the dependency layer.
 COPY packages/shared/ ./packages/shared/
 COPY apps/api/ ./apps/api/
-COPY tsconfig.base.json ./
+COPY tsconfig.base.json lingui.config.ts ./
 
 # Build @crm/shared first (api depends on it via workspace:*).
+# i18n (spec 2026-09-19): compile Lingui catalogs into packages/shared/src/i18n/locales/*/messages.ts
+# (gitignored) BEFORE the shared build, so dist carries them and the Vite plugin finds lingui.config.ts.
+RUN pnpm i18n:compile
 RUN pnpm --filter @crm/shared build
 
 # Build @crm/api (nest build → dist/).
