@@ -92,9 +92,9 @@ describe('LanguageSection', () => {
     // Fixed catalog string (copy-review COPY-H-1, PR #696 fix-round 1) —
     // NOT whatever `getApiErrorMessage` would have returned. `uk` is the
     // source locale, so the compiled catalog's msgstr equals the msgid.
-    expect(toast.error).toHaveBeenCalledWith(
-      'Не вдалося змінити мову інтерфейсу. Спробуйте ще раз.',
-    )
+    // No trailing period (copy-review COPY-L-3, PR #696 fix-round 2) — matches
+    // every other `api-error.*` catalog string's convention.
+    expect(toast.error).toHaveBeenCalledWith('Не вдалося змінити мову інтерфейсу. Спробуйте ще раз')
     expect(i18n.locale).toBe('uk')
     expect(invalidateMock).not.toHaveBeenCalled()
   })
@@ -114,7 +114,7 @@ describe('LanguageSection', () => {
     expect(screen.getByTestId('locale-option-en')).toHaveTextContent('English')
   })
 
-  it('disables both options while a choice is in flight, and re-enables them once the request settles', async () => {
+  it('marks the toggle wrapper aria-busy and pointer-events-none while a choice is in flight, and clears it once the request settles (UX-M-2)', async () => {
     let resolvePatch: (value: { data: unknown }) => void = () => {}
     const patchPromise = new Promise<{ data: unknown }>((resolve) => {
       resolvePatch = resolve
@@ -122,18 +122,85 @@ describe('LanguageSection', () => {
     vi.mocked(api.patch).mockReturnValue(patchPromise)
     render(<LanguageSection current="uk" />, { wrapper: Providers })
     const enButton = screen.getByTestId('locale-option-en')
-    const ukButton = screen.getByTestId('locale-option-uk')
+    // The wrapper `<div>` around `SegmentedToggle` — not the buttons
+    // themselves (see below).
+    const wrapper = screen.getByTestId('locale-switcher-wrapper')
 
     fireEvent.click(enButton)
 
     // `choose` is `async`, so its body runs synchronously up to the first
     // `await api.patch(...)` — `setPending(true)` has already run by the
     // time `fireEvent.click` returns, no `waitFor` needed for this half.
-    expect(enButton).toBeDisabled()
-    expect(ukButton).toBeDisabled()
+    expect(wrapper).toHaveAttribute('aria-busy', 'true')
+    expect(wrapper.className).toContain('pointer-events-none')
+    // NOT `disabled` on the button (UX-M-2, PR #696 fix-round 2) — a
+    // disabled focused button drops DOM focus to `<body>` in Chromium and
+    // never restores it. Blocking is delegated to the wrapper's CSS + the
+    // `pending` re-entry guard in `choose`.
+    expect(enButton).not.toBeDisabled()
 
     resolvePatch({ data: {} })
-    await waitFor(() => expect(enButton).not.toBeDisabled())
-    expect(ukButton).not.toBeDisabled()
+    await waitFor(() => expect(wrapper).toHaveAttribute('aria-busy', 'false'))
+    expect(wrapper.className).not.toContain('pointer-events-none')
+  })
+
+  it('a second click while a choice is already pending sends no second request (re-entry guard, UX-M-2)', async () => {
+    let resolvePatch: (value: { data: unknown }) => void = () => {}
+    const patchPromise = new Promise<{ data: unknown }>((resolve) => {
+      resolvePatch = resolve
+    })
+    vi.mocked(api.patch).mockReturnValue(patchPromise)
+    render(<LanguageSection current="uk" />, { wrapper: Providers })
+    const enButton = screen.getByTestId('locale-option-en')
+
+    // Both clicks reach `choose` directly (`fireEvent`, not `userEvent`,
+    // bypasses the wrapper's `pointer-events-none` hit-testing) — this
+    // proves the JS-level `pending` guard, not just the CSS, blocks re-entry.
+    fireEvent.click(enButton)
+    fireEvent.click(enButton)
+    expect(api.patch).toHaveBeenCalledTimes(1)
+
+    resolvePatch({ data: {} })
+    await waitFor(() => expect(invalidateMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('keeps DOM focus on the clicked button through and after the mutation (UX-M-2)', async () => {
+    let resolvePatch: (value: { data: unknown }) => void = () => {}
+    const patchPromise = new Promise<{ data: unknown }>((resolve) => {
+      resolvePatch = resolve
+    })
+    vi.mocked(api.patch).mockReturnValue(patchPromise)
+    const user = userEvent.setup()
+    render(<LanguageSection current="uk" />, { wrapper: Providers })
+    const enButton = screen.getByTestId('locale-option-en')
+
+    await user.click(enButton)
+    expect(enButton).toHaveFocus()
+
+    resolvePatch({ data: {} })
+    await waitFor(() => expect(invalidateMock).toHaveBeenCalledTimes(1))
+    // Was `<body>` before the fix — Chromium drops focus from a button the
+    // instant it's disabled mid-interaction and never gives it back.
+    expect(enButton).toHaveFocus()
+  })
+
+  it('keeps DOM focus on the newly-selected button after ArrowRight, through and after the mutation (UX-M-2)', async () => {
+    let resolvePatch: (value: { data: unknown }) => void = () => {}
+    const patchPromise = new Promise<{ data: unknown }>((resolve) => {
+      resolvePatch = resolve
+    })
+    vi.mocked(api.patch).mockReturnValue(patchPromise)
+    const user = userEvent.setup()
+    render(<LanguageSection current="uk" />, { wrapper: Providers })
+    const ukButton = screen.getByTestId('locale-option-uk')
+    const enButton = screen.getByTestId('locale-option-en')
+
+    ukButton.focus()
+    await user.keyboard('{ArrowRight}')
+    expect(enButton).toHaveFocus()
+
+    resolvePatch({ data: {} })
+    await waitFor(() => expect(invalidateMock).toHaveBeenCalledTimes(1))
+    expect(enButton).toHaveFocus()
   })
 })

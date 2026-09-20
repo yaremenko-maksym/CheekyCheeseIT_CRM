@@ -51,6 +51,11 @@ test.describe('Interface language switcher — own profile only (AC7)', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
     await expect(enOption).toHaveAttribute('aria-checked', 'true')
     await expect(page.getByText('Interface language')).toBeVisible()
+    // UX-M-2 (PR #696 fix-round 2) — a real browser (unlike jsdom) drops
+    // focus to <body> when a focused button is disabled mid-interaction;
+    // `SegmentedToggle` no longer receives `disabled` while pending, so
+    // focus stays on the clicked option through activation.
+    await expect(enOption).toBeFocused()
   })
 
   test("the switcher is absent from another user's profile", async ({ page }) => {

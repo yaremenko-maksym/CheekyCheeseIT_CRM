@@ -54,8 +54,8 @@ msgid "api-error.GENERIC"
 msgstr "Не вдалося виконати дію. Спробуйте ще раз"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
-msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз."
-msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз."
+msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
+msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
@@ -63,5 +63,5 @@ msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
-msgid "Переклад інтерфейсу ще триває — частина екранів поки що російською."
-msgstr "Переклад інтерфейсу ще триває — частина екранів поки що російською."
+msgid "Переклад ще триває — частина екранів поки що російською."
+msgstr "Переклад ще триває — частина екранів поки що російською."

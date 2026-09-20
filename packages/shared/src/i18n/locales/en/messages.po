@@ -54,8 +54,8 @@ msgid "api-error.GENERIC"
 msgstr "Something went wrong. Please try again"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
-msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз."
-msgstr "Could not change the interface language. Try again."
+msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
+msgstr "Could not change the interface language. Try again"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
@@ -63,5 +63,5 @@ msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "No active contract template for this role. Add one under Contracts"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
-msgid "Переклад інтерфейсу ще триває — частина екранів поки що російською."
-msgstr "The interface is still being translated — some screens are still in Russian."
+msgid "Переклад ще триває — частина екранів поки що російською."
+msgstr "Translation is still in progress — some screens remain in Russian."

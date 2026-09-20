@@ -7,6 +7,7 @@ import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { activateLocale } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 /**
  * task-i18n-stage2 (Task 7) — self-service interface language switch, shown
@@ -28,21 +29,26 @@ const LOCALE_LABELS: Record<Locale, string> = { uk: 'Українська', en: 
 export function LanguageSection({ current }: { current: Locale }) {
   const { invalidate } = useAuth()
   const { t } = useLingui()
-  // Disables both buttons while a choice is in flight — guards against a
-  // second click firing a second PATCH before the first one's activation +
-  // invalidation finished (the exact race the "no optimistic switch" rule
-  // above is protecting against).
+  // Tracks whether a choice is in flight — blocks pointer input on the
+  // wrapper (`pointer-events-none`) and re-entry in `choose` below, guarding
+  // against a second click firing a second PATCH before the first one's
+  // activation + invalidation finished (the exact race the "no optimistic
+  // switch" rule above is protecting against). Deliberately NOT wired to
+  // `SegmentedToggle`'s `disabled` prop — see `choose`'s comment (UX-M-2).
   const [pending, setPending] = useState(false)
 
   async function choose(locale: Locale) {
-    // No `locale === current || pending` guard here (removed PR #696
-    // fix-round 1, mutation-gate finding) — `SegmentedToggle` already
-    // guarantees both halves before it ever calls `onChange`: its own
-    // `onClick`/keydown handlers skip `option.value === value`, and its
-    // `disabled` prop (bound to `pending` below) makes the buttons
-    // unclickable at the DOM level while a choice is in flight. A guard
-    // that can never see its own `false` branch triggered is dead code,
-    // not defence-in-depth — mutating it away left every test green.
+    // Re-entry guard is back (PR #696 fix-round 2, UX-M-2) — fix-round 1
+    // removed it as dead code because `SegmentedToggle`'s `disabled` prop
+    // (bound to `pending`) made the buttons unclickable at the DOM level
+    // while a choice was in flight, so this branch could never fire. That
+    // very `disabled` is what UX-M-2 found: Chromium drops DOM focus to
+    // `<body>` when a focused button is disabled mid-interaction, and never
+    // restores it. `SegmentedToggle` below no longer receives `disabled` —
+    // pending is now guarded here instead, so a second click/keypress while
+    // a request is in flight (or a repeat of the already-active locale)
+    // is a no-op rather than a second PATCH.
+    if (pending || locale === current) return
     setPending(true)
     try {
       await api.patch('/users/me', { locale })
@@ -54,7 +60,7 @@ export function LanguageSection({ current }: { current: Locale }) {
       // (copy-review COPY-H-1, PR #696 fix-round 1). This toast has exactly
       // one scenario ("could not save the language choice"), so a catalog
       // string beats trying to relay whatever the backend said.
-      toast.error(t`Не вдалося змінити мову інтерфейсу. Спробуйте ще раз.`)
+      toast.error(t`Не вдалося змінити мову інтерфейсу. Спробуйте ще раз`)
     } finally {
       setPending(false)
     }
@@ -68,24 +74,38 @@ export function LanguageSection({ current }: { current: Locale }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        <SegmentedToggle
-          value={current}
-          onChange={choose}
-          options={LOCALES.map((locale) => ({
-            value: locale,
-            label: LOCALE_LABELS[locale],
-          }))}
-          ariaLabel={t`Мова інтерфейсу`}
-          testId="locale-option"
-          disabled={pending}
-          layoutId="locale-switcher"
-          className="w-fit"
-        />
+        {/* Wrapper carries the pending state instead of `disabled` on
+            `SegmentedToggle` (UX-M-2, PR #696 fix-round 2): a disabled
+            button loses DOM focus to `<body>` in Chromium and it is never
+            restored. `pointer-events-none` blocks clicks without touching
+            focusability or tab order; `aria-busy` announces the wait to
+            assistive tech. Re-entry is guarded in `choose` above instead of
+            at the DOM level. */}
+        <div
+          aria-busy={pending}
+          data-testid="locale-switcher-wrapper"
+          className={cn(pending && 'pointer-events-none opacity-60')}
+        >
+          <SegmentedToggle
+            value={current}
+            onChange={choose}
+            options={LOCALES.map((locale) => ({
+              value: locale,
+              label: LOCALE_LABELS[locale],
+            }))}
+            ariaLabel={t`Мова інтерфейсу`}
+            testId="locale-option"
+            layoutId="locale-switcher"
+            className="w-fit"
+          />
+        </div>
         {/* Temporary migration-progress hint (copy-review COPY-M-2, PR #696
-            fix-round 1) — see "## Допущения" in the PR body: removed once
-            the module-by-module i18n migration reaches stage 6. */}
+            fix-round 1; text shortened in fix-round 2, COPY-L-4 — "interface"
+            already named in the card title two lines up) — see "## Допущения"
+            in the PR body: removed once the module-by-module i18n migration
+            reaches stage 6. */}
         <p className="text-xs text-muted-foreground">
-          <Trans>Переклад інтерфейсу ще триває — частина екранів поки що російською.</Trans>
+          <Trans>Переклад ще триває — частина екранів поки що російською.</Trans>
         </p>
       </CardContent>
     </Card>
