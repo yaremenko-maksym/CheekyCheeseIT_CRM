@@ -350,6 +350,13 @@ export const users = pgTable('users', {
   // task-i18n-stage2 (Task 3) — interface language. Every existing user gets
   // 'uk' (default); see the migration file's own header for why nothing is
   // rewritten/backfilled.
+  // Stryker disable next-line StringLiteral: the explicit 'locale' name arg
+  // is provably unobservable — verified empirically: Drizzle falls back to
+  // the JS property key ('locale') whenever the given name is falsy, so
+  // mutating this literal to '' produces an IDENTICAL `getTableConfig`
+  // column name and cannot be told apart by any unit test (the 'uk' DEFAULT
+  // on this same line has no such fallback and IS pinned, by
+  // user-locale-schema.spec.ts).
   locale: userLocaleEnum('locale').notNull().default('uk'),
   googleId: varchar('google_id', { length: 255 }).unique(),
   telegram: varchar('telegram', { length: 100 }),
