@@ -4,6 +4,7 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import { lingui } from '@lingui/vite-plugin'
 import path from 'path'
 import { existsSync, readFileSync, statSync } from 'fs'
+import { findMonorepoRoot } from './vite.shared-root'
 
 // Detect git worktree (vs. the primary checkout). `.git` is a FILE (not a
 // dir) when inside a worktree; its content is:
@@ -47,31 +48,24 @@ function isGitWorktree(root: string): boolean {
 // added 2026-08-25 (`env-git-commit-boot.spec.ts`, a real Node dynamic
 // `import()`) finally tripped it — see
 // `scripts/devops/mutation-gate-runbook.md` "Known limits" for the full
-// mechanism. Walking up for an actual `.git` entry instead is
-// nesting-depth-agnostic: the same root is found from
-// `apps/web/vitest.config.ts`, from a git worktree checkout, and from
-// three levels deeper inside a Stryker sandbox alike, because `.git` only
-// ever exists at the true checkout root.
-function findGitRoot(startDir: string): string | null {
-  let dir = startDir
-  for (let i = 0; i < 10; i++) {
-    if (existsSync(path.join(dir, '.git'))) return dir
-    const parent = path.dirname(dir)
-    if (parent === dir) break
-    dir = parent
-  }
-  return null
-}
-
-const worktreeRoot = findGitRoot(__dirname)
+// mechanism. Walking up for the shared `findMonorepoRoot` marker (see
+// `vite.shared-root.ts` — anchored on `pnpm-workspace.yaml`, not `.git`;
+// `.git` is excluded from the Docker build context this config never runs
+// in, but the anchor logic used to live only here and duplicated nowhere
+// `vite.config.ts` needed the same computation) is nesting-depth-agnostic:
+// the same root is found from `apps/web/vitest.config.ts`, from a git
+// worktree checkout, and from three levels deeper inside a Stryker sandbox
+// alike, because `pnpm-workspace.yaml` only ever exists at the true
+// checkout root.
+const worktreeRoot = findMonorepoRoot(__dirname)
 if (!worktreeRoot) {
   // Fail loud: a wrong root here does not error immediately, it silently
   // mis-resolves `@crm/shared` to a path that looks plausible until
   // something imports it — precisely how the bug this replaces went
   // unnoticed in `apps/api`'s sibling config for weeks.
   throw new Error(
-    `apps/web/vitest.config.ts: could not find a ".git" entry walking up from ` +
-      `${__dirname}. Refusing to guess a repo root — '@crm/shared' would resolve to a ` +
+    `apps/web/vitest.config.ts: could not find a "pnpm-workspace.yaml" entry walking up ` +
+      `from ${__dirname}. Refusing to guess a repo root — '@crm/shared' would resolve to a ` +
       `made-up path from here.`,
   )
 }
@@ -103,6 +97,24 @@ export default defineConfig({
   resolve: {
     alias: {
       '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
+      // task-i18n-stage2 (Task 6) — a SEPARATE alias, not a subpath of
+      // '@crm/shared' above: that alias resolves to a FILE
+      // (`src/index.ts`), and Vite's alias prefix-match would append the
+      // remainder onto the file path (`.../src/index.ts/i18n/locales/...`,
+      // invalid) — this is the "alias breaks subpaths" problem Task 5 (PR
+      // #694) hit. This alias points straight at the locales DIRECTORY, so
+      // `app/lib/i18n.ts`'s dynamic `${locale}/messages.po` import resolves
+      // correctly. Built from `worktreeRoot` (not `__dirname` — see the
+      // comment on that constant above) so it survives being loaded from a
+      // relocated copy of this config: StrykerJS instruments `@crm/web` by
+      // copying the WHOLE package two levels deeper, into
+      // `apps/web/.stryker-tmp/sandbox-<id>/` — a plain `path.resolve(
+      // __dirname, '../../packages/shared/...')` from THAT location lands
+      // on `apps/web/packages/shared/...`, which does not exist, and
+      // silently rejects the dynamic import (verified: this is exactly what
+      // broke `app/context/auth.spec.tsx`'s locale-activation test under
+      // `mutation-gate.mjs --changed` before this alias was added).
+      '@crm/shared-i18n-locales': path.resolve(worktreeRoot, 'packages/shared/src/i18n/locales'),
     },
   },
   test: {

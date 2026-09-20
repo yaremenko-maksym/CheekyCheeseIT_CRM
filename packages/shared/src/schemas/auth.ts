@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { localeSchema } from '../i18n/locales'
 
 export const googleCallbackSchema = z.object({
   email: z.string().email(),
@@ -29,6 +30,15 @@ export const sessionUserSchema = z.object({
    * has no financial meaning.
    */
   seniorSharePercent: z.number().int().min(0).max(100),
+  /**
+   * Interface language (task-i18n-stage2 §4.1, Task 3). REQUIRED — every
+   * builder of a SessionUser (both `/auth/me` branches in
+   * `auth.controller.ts`, dev-login, test factories) must supply it. Backed
+   * by `users.locale` (DB default `'uk'`); this schema enforces presence +
+   * support (`uk`|`en`), not the fallback policy — that lives in
+   * `resolveLocale`/`DEFAULT_LOCALE` (`../i18n/locales`).
+   */
+  locale: localeSchema,
   /**
    * Legal full name (Cyrillic, Surname First Patronymic). Set by ADMIN.
    * Used in MSA contract instead of displayName. Null when not yet set.

@@ -1,7 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from '@tanstack/react-router'
-import { i18n } from '@lingui/core'
 import { createRouter } from './router'
 import {
   decidePreloadReload,
@@ -10,25 +9,7 @@ import {
   PRELOAD_RELOAD_TS_KEY,
 } from './lib/preload-reload'
 import { shouldReloadOnControllerChange } from './lib/sw-reload'
-// task-i18n-stage2-task5. Deliberately a RELATIVE import crossing the package
-// boundary, not `@crm/shared/src/i18n/locales/uk/messages.po`: apps/web's
-// only `@crm/shared` alias (vite.config.ts `resolve.alias`) rewrites the
-// WHOLE `@crm/shared` prefix to the package's `src/index.ts` — a literal
-// string substitution (`@rollup/plugin-alias` semantics), so any deeper
-// subpath resolves to a nonsense path appended after that `.ts` file, not
-// the real one. A relative path bypasses the alias and the package's
-// `exports` map entirely, landing on the real file exactly like
-// `packages/shared/src/i18n/catalog.ts` reaches its own sibling locale
-// files — just crossing the workspace boundary as one more relative
-// filesystem hop instead of staying inside the package. `@lingui/vite-plugin`
-// (`vite.config.ts` / `vitest.config.ts`) transforms `.po` files by
-// extension regardless of how the specifier resolved to them, so this needs
-// no plugin change. Task 6 replaces this one-shot `uk` load with
-// `activateLocale` (dynamic import per-locale, driven by cookie/`user.locale`).
-import { messages as ukMessages } from '../../../packages/shared/src/i18n/locales/uk/messages.po'
-
-i18n.load('uk', ukMessages)
-i18n.activate('uk')
+import { activateLocale, readPreLoginLocale } from './lib/i18n'
 
 // Service Worker регистрируется плагином vite-plugin-pwa автоматически
 // через injectRegister: 'script' — плагин генерирует registerSW.js и
@@ -121,11 +102,27 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
 
 const router = createRouter()
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <RouterProvider router={router} />
-  </StrictMode>,
-)
+// Activate the pre-login locale (cookie → navigator.language → uk) BEFORE
+// the first render — `<I18nProvider>` (routes/__root.tsx) reads whatever is
+// already active on the shared `i18n` instance, and every `<Trans>`/`t()`
+// call below the root would otherwise render with an unloaded catalog on
+// first paint. The authenticated session's own `locale` (once `/auth/me`
+// resolves) can then override this via the effect in `context/auth.tsx`.
+//
+// Wrapped in an IIFE rather than a top-level `await`: Vite's default build
+// target ('modules' — es2020 baseline, see vite.config.ts) does not
+// guarantee top-level-await support, while an async IIFE compiles down
+// without it. The guard-reset code below does not depend on the root having
+// mounted (it only clears sessionStorage keys after its own timeout), so it
+// is left outside the IIFE and keeps running immediately.
+void (async () => {
+  await activateLocale(readPreLoginLocale())
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <RouterProvider router={router} />
+    </StrictMode>,
+  )
+})()
 
 // Успешный маунт: гасим guard через PRELOAD_RELOAD_RESET_MS «тишины». Если страница
 // прожила этот интервал без нового vite:preloadError — деплой подхватился, эпизод

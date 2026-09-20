@@ -10,7 +10,7 @@ import {
 import { Reflector } from '@nestjs/core'
 import { JwtService } from '@nestjs/jwt'
 import type { FastifyRequest } from 'fastify'
-import { jwtPayloadSchema, type JwtPayload } from '@crm/shared'
+import { DEFAULT_LOCALE, jwtPayloadSchema, type JwtPayload, type Locale } from '@crm/shared'
 import { UsersService } from '../users/users.service'
 import { IS_PUBLIC_KEY } from './public.decorator'
 import { JWT_COOKIE_HARDENED, JWT_COOKIE_LEGACY } from './cookie-names'
@@ -159,6 +159,13 @@ interface CachedUser {
   role: JwtPayload['role']
   /** Snapshot of archivedAt at last DB query — non-null means the user is archived. */
   archivedAt: Date | null
+  /**
+   * SR-M-1 (security-review PR #693 round 1): cached alongside `role` so the
+   * cache-HIT branch of `resolveCurrentUser` can populate `request.user.locale`
+   * without a second DB round-trip. See that method's return type doc for why
+   * this field exists at all.
+   */
+  locale: Locale
   expiresAt: number
 }
 
@@ -251,12 +258,27 @@ export class JwtAuthGuard implements CanActivate {
     // ── AC2: re-hydrate role + active status from DB (with cache) ───────
     const resolvedUser = await this.resolveCurrentUser(jwtUser)
 
-    ;(request as FastifyRequest & { user: JwtPayload }).user = resolvedUser
+    ;(request as FastifyRequest & { user: JwtPayload & { locale: Locale } }).user = resolvedUser
     return true
   }
 
   /**
-   * Returns a JwtPayload with the CURRENT role from DB.
+   * Returns a JwtPayload with the CURRENT role AND the user's current
+   * `locale` from DB — both hydrated the same way (fresh row on cache miss,
+   * cached value on cache hit) since neither is carried on the JWT itself
+   * (see `jwtPayloadSchema`'s doc: the payload stays a minimal identity+role
+   * claim by design, MED #2 security review #114).
+   *
+   * SR-M-1 (security-review PR #693 round 1): before `locale` was hydrated
+   * here, `resolveRequestLocale`'s documented first-priority source
+   * (`req.user?.locale`) was unreachable in production — `request.user` was
+   * built from the JWT claim alone, which never carried `locale`, so the
+   * function's real top priority was always `undefined` and the actual
+   * winning source was the unsigned `pref_locale` cookie. This method is the
+   * ONE place `request.user` is assembled (see `canActivate` above), so
+   * hydrating `locale` here — from the same DB row `role`/`archivedAt`
+   * already come from — is what makes the documented priority true.
+   *
    * Caches the result (including archivedAt) for CACHE_TTL_MS to avoid
    * per-request DB queries. Archived users are rejected on both cache-HIT
    * and cache-MISS — the archivedAt flag is stored in the cache entry so
@@ -267,13 +289,15 @@ export class JwtAuthGuard implements CanActivate {
    * specs). In the running application it is unreachable by construction:
    * `assertJwtAuthGuardsWired()` runs during bootstrap and aborts the process
    * if any DI-built guard lacks the service, so the app cannot serve a single
-   * request while that branch is live.
+   * request while that branch is live. It falls back to `DEFAULT_LOCALE`
+   * purely to keep the return type honest for that non-production path —
+   * no real request ever observes this value.
    */
-  private async resolveCurrentUser(jwtUser: JwtPayload): Promise<JwtPayload> {
+  private async resolveCurrentUser(jwtUser: JwtPayload): Promise<JwtPayload & { locale: Locale }> {
     if (!this.usersService) {
       // Direct-construction path only — see the doc block above. Not a
       // production code path; the bootstrap assertion guarantees that.
-      return jwtUser
+      return { ...jwtUser, locale: DEFAULT_LOCALE }
     }
 
     // SR-H-6 (security-review PR #623 round 5): re-check the SPECIFIC
@@ -314,7 +338,7 @@ export class JwtAuthGuard implements CanActivate {
       if (cached.archivedAt) {
         throw new UnauthorizedException()
       }
-      return { ...jwtUser, role: cached.role }
+      return { ...jwtUser, role: cached.role, locale: cached.locale }
     }
 
     // Cache miss or expired — query DB.
@@ -325,11 +349,13 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException()
     }
 
-    // Populate cache with fresh role AND archivedAt so the cache-HIT path
-    // can enforce archive-revocation without a second DB round-trip.
+    // Populate cache with fresh role, archivedAt AND locale so the cache-HIT
+    // path can enforce archive-revocation and hydrate locale without a
+    // second DB round-trip.
     this.userCache.set(jwtUser.id, {
       role: dbUser.role as JwtPayload['role'],
       archivedAt: dbUser.archivedAt ?? null,
+      locale: dbUser.locale,
       expiresAt: Date.now() + CACHE_TTL_MS,
     })
 
@@ -338,6 +364,6 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException()
     }
 
-    return { ...jwtUser, role: dbUser.role as JwtPayload['role'] }
+    return { ...jwtUser, role: dbUser.role as JwtPayload['role'], locale: dbUser.locale }
   }
 }

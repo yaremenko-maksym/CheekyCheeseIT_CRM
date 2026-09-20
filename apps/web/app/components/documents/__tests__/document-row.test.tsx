@@ -46,6 +46,7 @@ const viewer: SessionUser = {
   role: 'SENIOR',
   avatarUrl: null,
   seniorSharePercent: 26,
+  locale: 'uk',
 }
 
 function baseDoc(overrides: Partial<Document> = {}): Document {

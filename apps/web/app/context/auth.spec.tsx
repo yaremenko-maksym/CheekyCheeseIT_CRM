@@ -33,8 +33,28 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
   }
 })
 
+// task-i18n-stage2 (Task 6) — `activateLocale` alone is mocked; `i18n` stays
+// the REAL `@lingui/core` singleton (`importOriginal`). `I18n#locale` is a
+// getter with no public setter (only `.activate()`/`.loadAndActivate()` can
+// change it — see @lingui/core's type declarations), so a hand-rolled fake
+// object typed as `I18n` would not typecheck; the real instance plus
+// `i18n.load('uk', {})` + `i18n.activate('uk')` (the exact pattern
+// `i18n-smoke.test.tsx` already uses) sidesteps that without needing the
+// real dynamic `.po` import at all — this file tests the EFFECT's calling
+// logic, not `activateLocale`'s own implementation (that is
+// `app/lib/__tests__/i18n.test.tsx`'s job; the real DOM `<html lang>`
+// end-to-end proof is `apps/e2e/tests/auth.spec.ts`).
+vi.mock('../lib/i18n', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/i18n')>()
+  return {
+    ...original,
+    activateLocale: vi.fn(),
+  }
+})
+
 // Import after mocks
 import { AuthProvider, useAuth } from './auth'
+import { i18n, activateLocale } from '../lib/i18n'
 
 // ---------------------------------------------------------------------------
 // Wrapper factory
@@ -113,5 +133,58 @@ describe('AuthProvider — isRestoring race-fix', () => {
     const { result } = renderHook(() => useAuth(), { wrapper })
 
     expect(result.current.isLoading).toBe(true)
+  })
+})
+
+describe('AuthProvider — locale activation from /auth/me', () => {
+  const mockUser = {
+    id: 'a0000000-0000-4000-8000-000000000001',
+    email: 'admin@cheekycheese.dev',
+    displayName: 'Admin User',
+    role: 'ADMIN',
+  }
+
+  beforeEach(() => {
+    isRestoringValue = false
+    queryResult = { data: undefined, isPending: false, isFetching: false }
+    vi.mocked(activateLocale).mockClear()
+    // Real i18n singleton, no dynamic .po import needed — `.load()` with an
+    // empty catalog is enough for `.activate()` to accept the locale (same
+    // pattern as `i18n-smoke.test.tsx`).
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('calls activateLocale when the session locale differs from the active one', () => {
+    queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+
+    renderHook(() => useAuth(), { wrapper })
+
+    expect(activateLocale).toHaveBeenCalledWith('en')
+  })
+
+  it('does not call activateLocale when the session locale already matches the active one', () => {
+    queryResult = { data: { ...mockUser, locale: 'uk' }, isPending: false, isFetching: false }
+
+    renderHook(() => useAuth(), { wrapper })
+
+    expect(activateLocale).not.toHaveBeenCalled()
+  })
+
+  it('re-fires on a LATER render when the session locale changes, not only on mount', () => {
+    // Kills a `[data?.locale] → []` dependency-array mutant: with an empty
+    // array the effect would run once on mount and never again, so a locale
+    // that only becomes known on a later render (the realistic case — the
+    // very first render has `data: undefined`, /auth/me resolves after)
+    // would silently never activate.
+    queryResult = { data: { ...mockUser, locale: 'uk' }, isPending: false, isFetching: false }
+    const { rerender } = renderHook(() => useAuth(), { wrapper })
+    expect(activateLocale).not.toHaveBeenCalled()
+
+    queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+    rerender()
+
+    expect(activateLocale).toHaveBeenCalledWith('en')
+    expect(activateLocale).toHaveBeenCalledTimes(1)
   })
 })

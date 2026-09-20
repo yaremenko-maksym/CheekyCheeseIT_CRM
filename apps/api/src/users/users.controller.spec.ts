@@ -243,6 +243,68 @@ describe('UsersController.createUser — personalEmail (§4.4)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// createUser — locale forwarding (task-i18n-stage2, Task 3, Step 6)
+//
+// Not gated by isHrActor (unlike personalEmail/wallet*/legalFullName above):
+// locale carries no finance/PII surface, so HR-provisioned seniors also get
+// to pick it — see the controller's own comment on this line.
+// ---------------------------------------------------------------------------
+
+describe('UsersController.createUser — locale (task-i18n-stage2)', () => {
+  function makeCreateUserController(): {
+    controller: UsersController
+    usersService: { createUser: ReturnType<typeof vi.fn> }
+  } {
+    const usersService = { createUser: vi.fn().mockResolvedValue({ id: 'new-user' }) }
+    const controller = new UsersController(
+      usersService as never,
+      { list: vi.fn() } as never,
+      {} as never,
+      undefined,
+      undefined,
+    )
+    return { controller, usersService }
+  }
+
+  const seniorBody = {
+    email: 'senior@test.com',
+    displayName: 'Senior Person',
+    role: 'SENIOR',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0xAbCd1234567890aBcDeF1234567890AbCdEf1234',
+    legalFullName: 'Іваненко Іван Іванович',
+  }
+
+  it('an explicit locale passes through to UsersService.createUser', async () => {
+    const { controller, usersService } = makeCreateUserController()
+    const admin = makeUser({ id: 'admin-1', role: 'ADMIN' })
+
+    await controller.createUser(session(admin), { ...seniorBody, locale: 'en' })
+
+    expect(usersService.createUser).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }))
+  })
+
+  it('an omitted locale is NOT present in the call (service applies its own uk default)', async () => {
+    const { controller, usersService } = makeCreateUserController()
+    const admin = makeUser({ id: 'admin-1', role: 'ADMIN' })
+
+    await controller.createUser(session(admin), seniorBody)
+
+    const call = usersService.createUser.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(call).not.toHaveProperty('locale')
+  })
+
+  it('HR actor: an explicit locale STILL passes through (not narrowed like personalEmail/legalFullName)', async () => {
+    const { controller, usersService } = makeCreateUserController()
+    const hr = makeUser({ id: 'hr-1', role: 'HR' })
+
+    await controller.createUser(session(hr), { ...seniorBody, locale: 'en' })
+
+    expect(usersService.createUser).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }))
+  })
+})
+
+// ---------------------------------------------------------------------------
 // task-user-emails-invite (spec §5): POST /users/:id/personal-email/resend-invite
 // ---------------------------------------------------------------------------
 

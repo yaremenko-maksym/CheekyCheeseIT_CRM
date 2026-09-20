@@ -14,6 +14,7 @@ describe('sessionUserSchema', () => {
     avatarUrl: null,
     role: 'ADMIN' as const,
     seniorSharePercent: 26,
+    locale: 'uk' as const,
   }
 
   it('accepts a valid session user', () => {
@@ -58,6 +59,29 @@ describe('sessionUserSchema', () => {
     for (const role of roles) {
       expect(() => sessionUserSchema.parse({ ...valid, role })).not.toThrow()
     }
+  })
+
+  // task-i18n-stage2 (Task 3, Step 1) — locale is REQUIRED on sessionUserSchema:
+  // every caller that builds a SessionUser (both /auth/me branches, dev-login,
+  // test factories) must now supply it. `resolveLocale`'s own default ('uk')
+  // lives in @crm/shared and is NOT re-declared here — this schema enforces
+  // presence + support (uk|en), not the fallback policy.
+  it('requires a supported locale', () => {
+    const base = {
+      id: '11111111-1111-1111-1111-111111111111',
+      // This schema's `.email()` requires a ≥2-char TLD — 'a@b.c' (the
+      // plan's own literal) does not satisfy it; 'a@b.co' does.
+      email: 'a@b.co',
+      displayName: 'A',
+      avatarUrl: null,
+      role: 'JUNIOR' as const,
+      seniorSharePercent: 0,
+      legalFullName: null,
+      impersonating: false,
+    }
+    expect(sessionUserSchema.safeParse({ ...base, locale: 'en' }).success).toBe(true)
+    expect(sessionUserSchema.safeParse({ ...base, locale: 'ru' }).success).toBe(false)
+    expect(sessionUserSchema.safeParse(base).success).toBe(false)
   })
 })
 
@@ -158,6 +182,7 @@ describe('sessionUserSchema — impersonating field', () => {
     avatarUrl: null,
     role: 'SENIOR' as const,
     seniorSharePercent: 26,
+    locale: 'uk' as const,
   }
 
   it('accepts session without impersonating field (optional)', () => {

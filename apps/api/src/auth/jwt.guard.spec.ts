@@ -255,19 +255,33 @@ describe('JwtAuthGuard — AC2: DB role re-hydration + archived user rejection',
       email: 'a@b.com',
       role: 'SENIOR',
       archivedAt: null,
+      locale: 'en',
     })
     const mockUsersService = { findById: mockFindById } as unknown as UsersService
 
     const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
 
     // Two requests back-to-back with the same token.
+    let lastRequest: Record<string, unknown> = {}
     for (let i = 0; i < 2; i++) {
-      const { ctx } = makeCtxWithRequest({ jwt: token })
+      const { ctx, request } = makeCtxWithRequest({ jwt: token })
       await expect(guard.canActivate(ctx)).resolves.toBe(true)
+      lastRequest = request
     }
 
     // DB should only be called once (second hit comes from in-memory cache).
     expect(mockFindById).toHaveBeenCalledTimes(1)
+
+    // SR-M-1 (security-review PR #693 round 1): the SECOND call is served
+    // from the cache-HIT branch — assert its `request.user` still carries
+    // the real role AND locale, not just that `canActivate` resolved `true`.
+    // Without this, a mutant that empties the cache-hit branch's return
+    // object entirely is invisible to this test (it still resolves `true`
+    // and `findById` is still called exactly once either way).
+    const cacheHitUser = lastRequest['user'] as Record<string, unknown>
+    expect(cacheHitUser['role']).toBe('SENIOR')
+    expect(cacheHitUser['locale']).toBe('en')
+    expect(cacheHitUser['id']).toBe('00000000-0000-0000-0000-000000000001')
   })
 
   it('throws 401 on cache-HIT when user was archived within TTL (archivedAt in cached entry)', async () => {

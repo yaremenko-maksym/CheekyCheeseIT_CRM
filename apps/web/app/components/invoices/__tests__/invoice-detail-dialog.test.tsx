@@ -56,6 +56,7 @@ const counterpartyUser: SessionUser = {
   avatarUrl: null,
   avatarDocumentId: null,
   seniorSharePercent: 26,
+  locale: 'uk',
 }
 
 const otherUser: SessionUser = {

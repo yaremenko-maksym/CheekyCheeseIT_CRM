@@ -24,6 +24,17 @@ const config: LinguiConfig = {
         '**/*.test.tsx',
         '**/__tests__/**',
         '**/routeTree.gen.ts',
+        // fix-round 1 (PR #695, SPEC-H-1a) — `apps/web/app/types/po.d.ts`
+        // (`declare module '*.po' { const messages…; export { messages } }`)
+        // is a pure type declaration, nothing to extract translatable
+        // strings from. `lingui extract`'s babel parser tries to parse it
+        // as an ordinary module anyway and throws `SyntaxError: Export
+        // 'messages' is not defined` on the `export { messages }` inside
+        // `declare module` — a `.d.ts` file has no runtime export to
+        // satisfy that check against. Exclude the whole `.d.ts` class, not
+        // just this one file: any future ambient declaration file would
+        // hit the same parser error.
+        '**/*.d.ts',
       ],
     },
   ],
