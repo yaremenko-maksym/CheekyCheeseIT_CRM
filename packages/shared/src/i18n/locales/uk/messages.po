@@ -83,6 +83,10 @@ msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бух�
 msgid "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
 msgstr "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
+msgstr "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Адмін"
 msgstr "Адмін"
@@ -90,6 +94,16 @@ msgstr "Адмін"
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Адміністратор"
 msgstr "Адміністратор"
+
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "активна"
+msgstr "активна"
+
+#. placeholder {0}: activeVersion.version
+#. placeholder {1}: format(new Date(activeVersion.createdAt), 'dd.MM.yyyy')
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Активна версія: v{0} · оновлена {1}"
+msgstr "Активна версія: v{0} · оновлена {1}"
 
 #. placeholder {0}: impact.seniorName ? ` ${impact.seniorName}` : ''
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -99,6 +113,11 @@ msgstr "Активний синьйор{0} відʼєднається від к�
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Активного синьйора в команді немає."
 msgstr "Активного синьйора в команді немає."
+
+#. placeholder {0}: displayedVersion.version
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "архів v{0}"
+msgstr "архів v{0}"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Архівувати"
@@ -135,6 +154,11 @@ msgstr "Вакансії"
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
 msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
+
+#. placeholder {0}: ver.version
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Версія v{0}"
+msgstr "Версія v{0}"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Ви маєте сплатити компанії"
@@ -175,6 +199,10 @@ msgstr "Ви увійшли як інший співробітник — при�
 msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Вибрати файл"
+msgstr "Вибрати файл"
+
 #: apps/web/app/components/layout/notifications-bell.tsx
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Видалити сповіщення"
@@ -204,6 +232,10 @@ msgstr "Відновлення проєкту разом із пов'язани�
 msgid "Відновлення…"
 msgstr "Відновлення…"
 
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Готово"
+msgstr "Готово"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Дашборд"
 msgstr "Дашборд"
@@ -219,6 +251,10 @@ msgstr "Для відновлення проєкту <0>{projectName}</0> пот
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Для підтвердження введіть {confirmInputLabel}:"
 msgstr "Для підтвердження введіть {confirmInputLabel}:"
+
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "До активної"
+msgstr "До активної"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Документи"
@@ -240,6 +276,14 @@ msgstr "Дроп"
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
 msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Завантажений файл"
+msgstr "Завантажений файл"
+
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Завантаження"
+msgstr "Завантаження"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Завантаження PDF…"
 msgstr "Завантаження PDF…"
@@ -247,6 +291,10 @@ msgstr "Завантаження PDF…"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Завантажуємо вплив…"
 msgstr "Завантажуємо вплив…"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Закрити"
+msgstr "Закрити"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Зарплата"
@@ -256,6 +304,10 @@ msgstr "Зарплата"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Згорнути"
 msgstr "Згорнути"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Зовнішнє посилання на зображення (https://…)"
+msgstr "Зовнішнє посилання на зображення (https://…)"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім'я"
@@ -268,6 +320,10 @@ msgstr "ім'я дропа"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім'я синьйора"
 msgstr "ім'я синьйора"
+
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Історія версій"
+msgstr "Історія версій"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -317,9 +373,23 @@ msgstr "Мова інтерфейсу"
 msgid "Навігація"
 msgstr "Навігація"
 
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Назад до ToS"
+msgstr "Назад до ToS"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "назва проєкту"
 msgstr "назва проєкту"
+
+#. placeholder {0}: currentTos.version + 1
+#. placeholder {1}: currentTos.version
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Наступна версія: v{0} (поточна — v{1})"
+msgstr "Наступна версія: v{0} (поточна — v{1})"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Натисніть ще раз, щоб повторити завантаження."
+msgstr "Натисніть ще раз, щоб повторити завантаження."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
@@ -333,6 +403,11 @@ msgstr "Не вдалося завантажити PDF попереднього 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Не вдалося завантажити PDF."
 msgstr "Не вдалося завантажити PDF."
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Не вдалося завантажити файл"
+msgstr "Не вдалося завантажити файл"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
@@ -352,22 +427,73 @@ msgstr "Незакриті PENDING-транзакції ({0}) — залишат
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
 
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Немає активної версії ToS. Створіть першу версію."
+msgstr "Немає активної версії ToS. Створіть першу версію."
+
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Нова версія"
+msgstr "Нова версія"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Нова версія ToS"
+msgstr "Нова версія ToS"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Нову версію ToS опубліковано. Користувачі побачать сповіщення."
+msgstr "Нову версію ToS опубліковано. Користувачі побачать сповіщення."
+
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Обробка…"
+msgstr "Обробка…"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Оновити"
 msgstr "Оновити"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Опублікувати"
+msgstr "Опублікувати"
+
+#. placeholder {0}: (currentTos?.version ?? 0) + 1
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Опублікувати нову версію ToS (v{0})?"
+msgstr "Опублікувати нову версію ToS (v{0})?"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Основна навігація"
 msgstr "Основна навігація"
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Очистити"
+msgstr "Очистити"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Очистити зображення"
+msgstr "Очистити зображення"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Очікує виплати"
 msgstr "Очікує виплати"
 
+#. placeholder {0}: previewVersion.version
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Перегляд архівної версії v{0}"
+msgstr "Перегляд архівної версії v{0}"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Переклад ще триває — частина екранів поки що російською."
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Перша версія"
+msgstr "Перша версія"
+
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Підготовка файлу…"
+msgstr "Підготовка файлу…"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Підтверджені прибутки, які ви ще не перерахували"
@@ -387,6 +513,7 @@ msgid "Повернутися до свого профілю"
 msgstr "Повернутися до свого профілю"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/ui/upload-progress.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Повторити"
 msgstr "Повторити"
@@ -399,6 +526,14 @@ msgstr "Повторити спробу"
 msgid "Помилка завантаження балансу"
 msgstr "Помилка завантаження балансу"
 
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Помилка під час публікації версії ToS"
+msgstr "Помилка під час публікації версії ToS"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Попередній перегляд"
+msgstr "Попередній перегляд"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Попередній перегляд PDF"
 msgstr "Попередній перегляд PDF"
@@ -407,6 +542,18 @@ msgstr "Попередній перегляд PDF"
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Попередній перегляд Terms of Service"
 msgstr "Попередній перегляд Terms of Service"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Попередній перегляд ToS"
+msgstr "Попередній перегляд ToS"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Посилання"
+msgstr "Посилання"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
+msgstr "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -424,6 +571,10 @@ msgstr "Профіль"
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Прочитати все"
 msgstr "Прочитати все"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Публікація…"
+msgstr "Публікація…"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -444,6 +595,7 @@ msgstr "Синьйор"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Скасувати"
 msgstr "Скасувати"
 
@@ -468,6 +620,10 @@ msgstr "Ставка"
 msgid "Статистика"
 msgstr "Статистика"
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Тип {mimeType} не підтримується"
+msgstr "Тип {mimeType} не підтримується"
+
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Тут з'являться події за вашими проєктами, грошима та документами"
 msgstr "Тут з'являться події за вашими проєктами, грошима та документами"
@@ -479,6 +635,18 @@ msgstr "У роботі"
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Усе, що чекає рішення"
 msgstr "Усе, що чекає рішення"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Файл"
+msgstr "Файл"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Файл більший за {MAX_MB} МБ — виберіть інший"
+msgstr "Файл більший за {MAX_MB} МБ — виберіть інший"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Фінальний вигляд документа Terms of Service — як PDF."
+msgstr "Фінальний вигляд документа Terms of Service — як PDF."
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Фінанси"

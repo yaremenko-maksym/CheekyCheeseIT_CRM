@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ImagePlus, Link2, Paperclip, X } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { DOCUMENT_MAX_BYTES, DOCUMENT_MIME_WHITELIST, type DocumentCategory } from '@crm/shared'
 import { Button } from './button'
 import { Input } from './input'
@@ -51,6 +52,10 @@ export interface ImageUploadFieldProps {
 }
 
 const DEFAULT_ACCEPT = 'image/png,image/jpeg,image/webp'
+// COPY-M-core-11: the limit text is derived from the constant, not a
+// hand-typed "10 МБ" literal that could drift if `DOCUMENT_MAX_BYTES` ever
+// changes.
+const MAX_MB = Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)
 
 export function ImageUploadField({
   value,
@@ -64,6 +69,7 @@ export function ImageUploadField({
   testId,
   disabled,
 }: ImageUploadFieldProps) {
+  const { t } = useLingui()
   // Mode follows the populated slot — when both null we default to the file
   // tab (the typical case) but persist the user's choice in local state so
   // toggling between tabs doesn't keep snapping back.
@@ -86,11 +92,12 @@ export function ImageUploadField({
     // Mirror upload-document-dialog: validate size + MIME client-side BEFORE
     // wasting bandwidth on a doomed POST.
     if (!DOCUMENT_MIME_WHITELIST.includes(file.type as (typeof DOCUMENT_MIME_WHITELIST)[number])) {
-      toast.error(`Тип ${file.type || 'unknown'} не поддерживается`)
+      const mimeType = file.type || 'unknown'
+      toast.error(t`Тип ${mimeType} не підтримується`)
       return
     }
     if (file.size > DOCUMENT_MAX_BYTES) {
-      toast.error('Файл больше 10 МБ — выберите другой')
+      toast.error(t`Файл більший за ${MAX_MB} МБ — виберіть інший`)
       return
     }
     progress.prepare()
@@ -109,7 +116,7 @@ export function ImageUploadField({
       // The mutation hook already toasts the error message — this just
       // drives the inline state so the picker button shows something
       // besides a silent revert to its idle label.
-      progress.error(err instanceof Error ? err.message : 'Не удалось загрузить файл')
+      progress.error(err instanceof Error ? err.message : t`Не вдалося завантажити файл`)
     }
   }
 
@@ -167,7 +174,7 @@ export function ImageUploadField({
           data-testid="image-upload-field-mode-file"
           disabled={disabled}
         >
-          <Paperclip className="h-3 w-3" /> Файл
+          <Paperclip className="h-3 w-3" /> <Trans>Файл</Trans>
         </button>
         <button
           type="button"
@@ -180,7 +187,7 @@ export function ImageUploadField({
           data-testid="image-upload-field-mode-url"
           disabled={disabled}
         >
-          <Link2 className="h-3 w-3" /> Ссылка
+          <Link2 className="h-3 w-3" /> <Trans>Посилання</Trans>
         </button>
       </div>
 
@@ -205,7 +212,7 @@ export function ImageUploadField({
             data-testid="image-upload-field-url-input"
           />
           <p className="text-[11px] text-muted-foreground">
-            Внешняя ссылка на картинку (https://…)
+            <Trans>Зовнішнє посилання на зображення (https://…)</Trans>
           </p>
         </div>
       ) : (
@@ -223,7 +230,7 @@ export function ImageUploadField({
             <div className="relative w-full rounded-md border overflow-hidden bg-muted/30">
               <DocumentImage
                 docId={value.documentId}
-                alt="Загруженный файл"
+                alt={t`Завантажений файл`}
                 variant="thumbnail"
                 className="max-h-32 w-full"
               />
@@ -231,7 +238,7 @@ export function ImageUploadField({
                 type="button"
                 onClick={handleClearAll}
                 className="absolute top-1 right-1 rounded-full bg-background/80 p-0.5 hover:bg-background border border-border"
-                aria-label="Очистить изображение"
+                aria-label={t`Очистити зображення`}
                 data-testid="image-upload-field-clear"
                 disabled={disabled}
               >
@@ -250,7 +257,7 @@ export function ImageUploadField({
               {progress.state.phase === 'idle' ? (
                 <>
                   <ImagePlus className="h-3.5 w-3.5 mr-1" />
-                  Выбрать файл
+                  <Trans>Вибрати файл</Trans>
                 </>
               ) : (
                 <UploadProgress
@@ -263,12 +270,14 @@ export function ImageUploadField({
           )}
           {!showPreview && progress.state.phase !== 'error' && (
             <p className="text-[11px] text-muted-foreground text-center">
-              PNG, JPEG, WebP — до 10 МБ. Файл загружается в защищённое хранилище.
+              <Trans>
+                PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище.
+              </Trans>
             </p>
           )}
           {!showPreview && progress.state.phase === 'error' && (
             <p className="text-[11px] text-muted-foreground text-center">
-              Нажмите ещё раз, чтобы повторить загрузку.
+              <Trans>Натисніть ще раз, щоб повторити завантаження.</Trans>
             </p>
           )}
         </div>
@@ -282,7 +291,7 @@ export function ImageUploadField({
           data-testid="image-upload-field-reset"
           disabled={disabled}
         >
-          Очистить
+          <Trans>Очистити</Trans>
         </button>
       )}
 

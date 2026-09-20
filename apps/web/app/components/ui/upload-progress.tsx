@@ -36,6 +36,9 @@
  * whatever phase/percent it's handed.
  */
 import { AlertCircle, CheckCircle2, Loader2, RotateCcw } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import type { I18n, MessageDescriptor } from '@lingui/core'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
 import { Button } from './button'
 
@@ -51,7 +54,7 @@ export interface UploadProgressState {
 
 export interface UploadProgressProps {
   state: UploadProgressState
-  /** Renders a focusable "Повторить" button when the phase is 'error'. */
+  /** Renders a focusable retry button when the phase is 'error'. */
   onRetry?: () => void
   /**
    * `sm` — compact icon + one-line label, for inline spots that used to be
@@ -61,25 +64,27 @@ export interface UploadProgressProps {
    */
   size?: 'sm' | 'default'
   className?: string
-  /** Override the default Russian label for the current phase. */
+  /** Override the default label for the current phase. */
   label?: string
   testId?: string
 }
 
-const DEFAULT_LABELS: Record<Exclude<UploadPhase, 'idle'>, string> = {
-  preparing: 'Подготовка файла…',
-  uploading: 'Загрузка',
-  processing: 'Обработка…',
-  success: 'Готово',
-  error: 'Не удалось загрузить файл',
+const DEFAULT_LABEL_MESSAGES: Record<Exclude<UploadPhase, 'idle'>, MessageDescriptor> = {
+  preparing: msg`Підготовка файлу…`,
+  uploading: msg`Завантаження`,
+  processing: msg`Обробка…`,
+  success: msg`Готово`,
+  error: msg`Не вдалося завантажити файл`,
 }
 
-function phaseLabel(state: UploadProgressState, override: string | undefined): string {
+/** `i18n` is passed in explicitly — this is a plain helper, not a component, so it cannot call `useLingui()` itself. */
+function phaseLabel(state: UploadProgressState, override: string | undefined, i18n: I18n): string {
   if (state.phase === 'idle') return ''
-  if (state.phase === 'error') return override ?? state.error ?? DEFAULT_LABELS.error
+  if (state.phase === 'error')
+    return override ?? state.error ?? i18n._(DEFAULT_LABEL_MESSAGES.error)
   if (state.phase === 'uploading')
-    return `${override ?? DEFAULT_LABELS.uploading} ${state.percent ?? 0}%`
-  return override ?? DEFAULT_LABELS[state.phase]
+    return `${override ?? i18n._(DEFAULT_LABEL_MESSAGES.uploading)} ${state.percent ?? 0}%`
+  return override ?? i18n._(DEFAULT_LABEL_MESSAGES[state.phase])
 }
 
 function PhaseIcon({ phase, className }: { phase: UploadPhase; className?: string }) {
@@ -98,13 +103,14 @@ export function UploadProgress({
   label,
   testId,
 }: UploadProgressProps) {
+  const { i18n } = useLingui()
   const { phase } = state
   if (phase === 'idle') return null
 
   const isDeterminate = phase === 'uploading'
   const progressBarProps = isDeterminate
     ? { 'aria-valuenow': state.percent ?? 0 }
-    : { 'aria-valuetext': phaseLabel(state, label) }
+    : { 'aria-valuetext': phaseLabel(state, label, i18n) }
 
   if (size === 'sm') {
     return (
@@ -118,7 +124,7 @@ export function UploadProgress({
         {...(phase === 'error' ? {} : progressBarProps)}
       >
         <PhaseIcon phase={phase} className="h-3.5 w-3.5 shrink-0" />
-        <span>{phaseLabel(state, label)}</span>
+        <span>{phaseLabel(state, label, i18n)}</span>
       </span>
     )
   }
@@ -135,8 +141,8 @@ export function UploadProgress({
             <PhaseIcon phase={phase} className="h-3.5 w-3.5 shrink-0" />
             <span>
               {phase === 'uploading'
-                ? (label ?? DEFAULT_LABELS.uploading)
-                : phaseLabel(state, label)}
+                ? (label ?? i18n._(DEFAULT_LABEL_MESSAGES.uploading))
+                : phaseLabel(state, label, i18n)}
             </span>
           </span>
           {phase === 'uploading' && <span className="tabular-nums">{state.percent ?? 0}%</span>}
@@ -164,7 +170,9 @@ export function UploadProgress({
           role="alert"
           className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5"
         >
-          <p className="text-xs text-destructive">{state.error ?? DEFAULT_LABELS.error}</p>
+          <p className="text-xs text-destructive">
+            {state.error ?? i18n._(DEFAULT_LABEL_MESSAGES.error)}
+          </p>
           {onRetry && (
             <Button
               type="button"
@@ -178,7 +186,7 @@ export function UploadProgress({
               data-testid={testId ? `${testId}-retry` : 'upload-progress-retry'}
             >
               <RotateCcw className="h-3 w-3" aria-hidden />
-              Повторить
+              <Trans>Повторити</Trans>
             </Button>
           )}
         </div>
