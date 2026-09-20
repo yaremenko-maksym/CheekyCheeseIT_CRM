@@ -23,7 +23,17 @@ export interface LocaleSource {
   headers: { 'accept-language'?: string }
 }
 
-function acceptLanguageCandidates(header: string | undefined): string[] {
+/**
+ * Exported (not just used internally by `resolveRequestLocale`) specifically
+ * so it has its own unit-testable seam: `resolveLocale`'s tolerant fallback
+ * (any candidate it does not recognize is silently skipped) means a mutant
+ * that corrupts this function's OUTPUT ARRAY is invisible when observed only
+ * through `resolveRequestLocale`'s final `Locale` — garbage candidates and
+ * an empty array produce the identical 'uk' default. Direct assertions on
+ * the array itself are the only way to pin the parsing (splitting on `,`,
+ * stripping `;q=…` weight suffixes, trimming, dropping empties).
+ */
+export function acceptLanguageCandidates(header: string | undefined): string[] {
   if (!header) return []
   return header
     .split(',')

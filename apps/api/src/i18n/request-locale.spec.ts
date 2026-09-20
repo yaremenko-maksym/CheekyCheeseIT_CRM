@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { resolveRequestLocale } from './request-locale'
+import { acceptLanguageCandidates, resolveRequestLocale } from './request-locale'
+
+// Direct assertions on the parser itself — see its own doc for why this
+// cannot be pinned by observing `resolveRequestLocale`'s tolerant output.
+describe('acceptLanguageCandidates', () => {
+  it('returns an empty array for an undefined header', () => {
+    expect(acceptLanguageCandidates(undefined)).toEqual([])
+  })
+  it('splits on comma', () => {
+    expect(acceptLanguageCandidates('uk,en')).toEqual(['uk', 'en'])
+  })
+  it('strips the ;q=… weight suffix', () => {
+    expect(acceptLanguageCandidates('uk-UA;q=0.9')).toEqual(['uk-UA'])
+  })
+  it('trims surrounding whitespace', () => {
+    expect(acceptLanguageCandidates('uk , en')).toEqual(['uk', 'en'])
+  })
+  it('drops empty entries (e.g. a trailing comma)', () => {
+    expect(acceptLanguageCandidates('uk,')).toEqual(['uk'])
+  })
+})
 
 describe('resolveRequestLocale', () => {
   it('prefers the authenticated user locale', () => {
