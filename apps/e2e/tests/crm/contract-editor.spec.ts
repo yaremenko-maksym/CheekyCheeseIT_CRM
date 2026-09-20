@@ -261,13 +261,15 @@ test.describe('A3-2: Contract editor tab', () => {
   test('AC7: no-template 404 shows empty state with link to templates', async ({ page }) => {
     // task-i18n-stage2-task5: body is the API error envelope
     // (`apiErrorEnvelopeSchema`) — `ContractTab` branches on `code`.
+    // CONTRACT_TEMPLATE_MISSING carries no params (see `API_ERROR_PARAMS` in
+    // packages/shared/src/schemas/api-errors.ts) — the role comes from the
+    // viewed profile, not the envelope.
     await setupAdminViewingSenior(
       page,
       {
         statusCode: 404,
         code: 'CONTRACT_TEMPLATE_MISSING',
-        params: { role: 'SENIOR' },
-        message: 'No active contract template for role SENIOR',
+        message: 'No active contract template for this role. Add one under Contracts',
       },
       { contractStatus: 404 },
     )
@@ -275,7 +277,7 @@ test.describe('A3-2: Contract editor tab', () => {
 
     await expect(page.getByTestId('contract-tab-no-template')).toBeVisible()
     await expect(page.getByTestId('contract-tab-template-link')).toBeVisible()
-    await expect(page.getByText('Нет шаблона контракта для роли SENIOR')).toBeVisible()
+    await expect(page.getByText('Нет шаблона контракта для роли Синьор')).toBeVisible()
   })
 
   test('AC5: Revert from READY_TO_SIGN returns contract to DRAFT', async ({ page }) => {
