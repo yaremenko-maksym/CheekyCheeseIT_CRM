@@ -51,4 +51,4 @@ msgstr "Something went wrong. Please try again"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
-msgstr "No active contract template for {role}. Add one under Contract templates"
+msgstr "No active contract template for this role. Add one under Contract templates"

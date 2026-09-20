@@ -158,14 +158,12 @@ describe('EmployeeContractsService', () => {
       db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'JUNIOR' })
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
 
-      // NOT `response: expect.objectContaining({ params: {...} })` — a plain
-      // object nested INSIDE `objectContaining` is matched permissively (an
-      // empty `{}` satisfies `{ role: 'JUNIOR' }` there — confirmed empirically,
-      // caught this exact mutant surviving). Plain `toMatchObject` recurses
-      // correctly on its own; no `objectContaining` needed for a nested value.
+      // COPY-M-6 (PR #694 round 3) removed `role` from this code's params
+      // (`API_ERROR_PARAMS.CONTRACT_TEMPLATE_MISSING` is `[]` now) — the
+      // envelope no longer carries a `params` field to pin here at all.
       await expect(service.getOrCreateForUser('user-uuid', mockViewer)).rejects.toMatchObject({
         status: 404,
-        response: { code: 'CONTRACT_TEMPLATE_MISSING', params: { role: 'JUNIOR' } },
+        response: { code: 'CONTRACT_TEMPLATE_MISSING' },
       })
     })
   })
@@ -384,9 +382,9 @@ describe('EmployeeContractsService', () => {
 
       expect(err).toBeInstanceOf(HttpException)
       expect((err as HttpException).getStatus()).toBe(404)
+      // COPY-M-6 (PR #694 round 3) removed `role` from this code's params.
       expect((err as HttpException).getResponse()).toMatchObject({
         code: 'CONTRACT_TEMPLATE_MISSING',
-        params: { role: 'SENIOR' },
       })
     })
   })

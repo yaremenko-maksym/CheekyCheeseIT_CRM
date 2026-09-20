@@ -97,7 +97,7 @@ export class EmployeeContractsService {
       user.role as ContractTargetRole,
     )
     if (!template) {
-      throw apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND, { role: user.role })
+      throw apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND)
     }
 
     let created: typeof employeeContracts.$inferSelect | undefined
@@ -311,7 +311,7 @@ export class EmployeeContractsService {
       user.role as ContractTargetRole,
     )
     if (!template) {
-      throw apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND, { role: user.role })
+      throw apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND)
     }
 
     const [updated] = await this.db.db

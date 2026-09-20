@@ -1,6 +1,5 @@
 import { i18n } from '@lingui/core'
 import { API_ERROR_MESSAGES, apiErrorEnvelopeSchema, type ApiErrorCode } from '@crm/shared'
-import { ROLE_LABELS } from '@/components/ui/role-select'
 
 /**
  * Extracts the HTTP status code from an unknown Axios error value.
@@ -148,36 +147,6 @@ export function getApiErrorCode(err: unknown): ApiErrorCode | null {
 }
 
 /**
- * Maps a `role` param through `ROLE_LABELS` (`role-select.tsx`) before it
- * reaches the catalog — COPY-H-1, PR #694 round 2. Without this, a raw enum
- * token (`SENIOR`) lands verbatim inside translated prose ("для ролі
- * SENIOR"), which reads as a bug next to `/admin/contracts`'s own toast
- * ("Шаблон для ролі Синьор опубліковано") built from the same map. Any
- * OTHER param key passes through untouched — `role` is the only one any
- * registered code declares today (`API_ERROR_PARAMS`).
- *
- * `ROLE_LABELS` is Ukrainian-only (no locale-aware catalog entries yet —
- * see `api-errors.ts`'s doc comment), so this is a known interim: once
- * stage 3 turns `ROLE_LABELS` into per-locale descriptors, this lookup
- * localizes for free without a call-site change here.
- *
- * EXPORTED (mutation-gate finding, PR #694 round 2) so the "no `role` key at
- * all" branch has a seam a test can observe directly: through
- * `translateApiError`'s rendered STRING, skipping the early return is
- * unobservable — the object this function returns gains a stray
- * `role: undefined` own key either way, and no catalog message interpolates
- * an unused key into its text. The extra key itself is the only thing that
- * differs, so the test asserts on `Object.keys(...)`, not on translated text.
- */
-export function applyRoleLabel(
-  params: Record<string, string | number> | undefined,
-): Record<string, string | number> | undefined {
-  if (params === undefined || typeof params['role'] !== 'string') return params
-  const role = params['role']
-  return { ...params, role: ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? role }
-}
-
-/**
  * Translates one envelope code through the Lingui catalog.
  *
  * Deliberately NOT `i18n._({ ...API_ERROR_MESSAGES[code], values: params })`
@@ -226,7 +195,7 @@ function translateApiError(
   //     with the mutant above — the behavior stays covered by those tests,
   //     Stryker just no longer re-verifies it on every run.
   const options = descriptor.message !== undefined ? { message: descriptor.message } : undefined
-  return i18n._(descriptor.id, applyRoleLabel(params), options)
+  return i18n._(descriptor.id, params, options)
 }
 
 /**

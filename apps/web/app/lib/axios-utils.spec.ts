@@ -8,7 +8,6 @@ import {
   getUserFacingErrorMessage,
   stripQueryString,
   GENERIC_HTTP_REASON_PHRASES,
-  applyRoleLabel,
 } from './axios-utils'
 
 // security-review round 2, MED-2: one consistent policy — never log a
@@ -176,25 +175,14 @@ describe('getApiErrorMessage — API error envelope (task-i18n-stage2-task5)', (
     expect(getApiErrorMessage(err)).toBe(i18n._(API_ERROR_MESSAGES.TOS_ACCEPT_IMPERSONATION))
   })
 
-  // COPY-H-1 (PR #694 round 2) — `role` is mapped through `ROLE_LABELS`
-  // before interpolation, so the raw enum token never reaches the text: a
-  // sibling toast in `/admin/contracts` already prints the human label off
-  // the same map, and a machine token here would read as a bug next to it.
-  it('interpolates params into the translated message, mapping the role enum to its human label (COPY-H-1)', () => {
-    const err = {
-      response: {
-        status: 404,
-        data: {
-          statusCode: 404,
-          code: 'CONTRACT_TEMPLATE_MISSING',
-          params: { role: 'SENIOR' },
-          message: 'x',
-        },
-      },
-    }
-    expect(getApiErrorMessage(err)).toContain('Синьор')
-    expect(getApiErrorMessage(err)).not.toContain('SENIOR')
-  })
+  // COPY-M-6 (PR #694 round 3) removed `role`, the only param any registered
+  // code declared (`CONTRACT_TEMPLATE_MISSING`'s message no longer takes a
+  // `{role}` token — see `api-errors.ts`), together with `applyRoleLabel`
+  // (its own describe block below is gone too). No code left declares
+  // params, so there is nothing for `translateApiError` to interpolate
+  // through the public surface right now; a synthetic descriptor would only
+  // test a template that never ships. Reinstate a param-interpolation test
+  // here against whichever code stage 3 next gives params to.
 
   it('falls through to prose when the body carries no known code', () => {
     const err = { response: { data: { message: 'Некорректная сумма' } } }
@@ -206,29 +194,6 @@ describe('getApiErrorMessage — API error envelope (task-i18n-stage2-task5)', (
       response: { data: { statusCode: 403, code: 'NOT_A_REAL_CODE', message: 'Доступ запрещён' } },
     }
     expect(getApiErrorMessage(err)).toBe('Доступ запрещён')
-  })
-})
-
-// Mutation-gate finding (PR #694 round 2): `applyRoleLabel`'s "no role key
-// at all" guard is unobservable through translated TEXT (see its own doc
-// comment) — the object it returns is the only place the branch shows up.
-describe('applyRoleLabel', () => {
-  it('leaves params completely untouched (same shape, no stray `role` key) when there is no role param at all', () => {
-    const result = applyRoleLabel({ attempt: 2 })
-    expect(Object.keys(result ?? {})).not.toContain('role')
-    expect(result).toStrictEqual({ attempt: 2 })
-  })
-
-  it('maps a known role to its ROLE_LABELS text', () => {
-    expect(applyRoleLabel({ role: 'SENIOR' })).toStrictEqual({ role: 'Синьор' })
-  })
-
-  it('passes an unrecognized role value through unchanged', () => {
-    expect(applyRoleLabel({ role: 'NOT_A_REAL_ROLE' })).toStrictEqual({ role: 'NOT_A_REAL_ROLE' })
-  })
-
-  it('returns undefined params unchanged', () => {
-    expect(applyRoleLabel(undefined)).toBeUndefined()
   })
 })
 

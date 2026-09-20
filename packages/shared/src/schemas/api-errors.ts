@@ -8,7 +8,7 @@ import type { MessageDescriptor } from '@lingui/core'
  * fallback (пока никем не брошен — этап 4 решит, где он нужен первым).
  *
  * Семь остальных — первые реальные codepaths, переведённые с сервера на клиент:
- * два `NotFoundException` (`CONTRACT_TEMPLATE_MISSING`, параметризован ролью)
+ * два `NotFoundException` (`CONTRACT_TEMPLATE_MISSING`)
  * и пять `ForbiddenException` под «войти как» (импersonation), каждый — ровно
  * тот отказ, чей русский литерал уже жил в `packages/shared` до этой задачи
  * (`*_IMPERSONATION_MESSAGE` — они НЕ удаляются, их всё ещё читают клиентские
@@ -41,7 +41,7 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number]
  */
 export const API_ERROR_PARAMS = {
   GENERIC: [],
-  CONTRACT_TEMPLATE_MISSING: ['role'],
+  CONTRACT_TEMPLATE_MISSING: [],
   CONTRACT_SIGN_IMPERSONATION: [],
   TOS_ACCEPT_IMPERSONATION: [],
   INVOICE_SIGN_IMPERSONATION: [],
@@ -60,6 +60,12 @@ export const API_ERROR_PARAMS = {
  * not from memory, before committing to this shape. Routing through `never`
  * removes the third parameter from the call signature entirely instead, so
  * passing one at all is the error.
+ *
+ * SR-L-2 (PR #694, круг 2): the guarantee above is an excess-property check,
+ * which TS fires only against a FRESH object literal at the call site — a
+ * pre-built object assigned through a variable is not re-checked and an
+ * extra key on it passes silently (verified with `tsc`). Always pass
+ * `params` as a literal, not a variable assembled earlier.
  */
 export type ParamsFor<C extends ApiErrorCode> = (typeof API_ERROR_PARAMS)[C] extends readonly []
   ? never
@@ -96,7 +102,7 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor> = {
   CONTRACT_TEMPLATE_MISSING: /* i18n */ {
     id: 'api-error.CONTRACT_TEMPLATE_MISSING',
     message:
-      'Немає активного шаблону контракту для ролі {role}. Додайте його в розділі «Шаблони контрактів»',
+      'Немає активного шаблону контракту для цієї ролі. Додайте його в розділі «Шаблони контрактів»',
   },
   CONTRACT_SIGN_IMPERSONATION: /* i18n */ {
     id: 'api-error.CONTRACT_SIGN_IMPERSONATION',
@@ -137,7 +143,7 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor> = {
 export const API_ERROR_FALLBACK_EN: Record<ApiErrorCode, string> = {
   GENERIC: 'Something went wrong. Please try again',
   CONTRACT_TEMPLATE_MISSING:
-    'No active contract template for {role}. Add one under Contract templates',
+    'No active contract template for this role. Add one under Contract templates',
   CONTRACT_SIGN_IMPERSONATION:
     "You're signed in as another employee — only they can sign their contract",
   TOS_ACCEPT_IMPERSONATION: "You're signed in as another employee — only they can accept the terms",

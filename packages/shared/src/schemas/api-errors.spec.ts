@@ -127,28 +127,31 @@ describe('api-errors', () => {
     }
   })
 
-  // SR-M-1 — compile-time regression guard for `ParamsFor<C>` itself (not
-  // just its current values above): a code with no declared params accepts
-  // NO third argument at all (`never`, not `{}` — the empty-object type
-  // does not catch excess properties, verified empirically before choosing
-  // this shape, see `ParamsFor`'s doc comment in `./api-errors.ts`), and a
-  // code with declared params accepts EXACTLY those keys, no more, no
-  // fewer. This runs under `pnpm --filter @crm/shared typecheck` (unlike
-  // `apps/api/**/*.spec.ts`, this package's tsconfig does not exclude spec
-  // files) — a loosened pin fails the typecheck gate, not silently.
-  it('ParamsFor<C> rejects excess/missing keys at compile time (type-only, verified by tsc)', () => {
+  // SR-M-1 — compile-time regression guard for `ParamsFor<C>` itself: a code
+  // with no declared params accepts NO third argument at all (`never`, not
+  // `{}` — the empty-object type does not catch excess properties, verified
+  // empirically before choosing this shape, see `ParamsFor`'s doc comment in
+  // `./api-errors.ts`). This runs under `pnpm --filter @crm/shared typecheck`
+  // (unlike `apps/api/**/*.spec.ts`, this package's tsconfig does not exclude
+  // spec files) — a loosened pin fails the typecheck gate, not silently.
+  //
+  // COPY-M-6 (PR #694 round 3) removed `role`, the only param any code
+  // declared (`CONTRACT_TEMPLATE_MISSING`'s) — every `ParamsFor<C>` is
+  // `never` now, so the "code with declared params accepts EXACTLY those
+  // keys" branch this test used to also pin has no real code to run against.
+  // Reinstate it against whichever code stage 3 next gives params to, rather
+  // than keeping it synthetic.
+  it('ParamsFor<C> rejects any third argument at compile time when a code declares no params (type-only, verified by tsc)', () => {
     // @ts-expect-error — GENERIC declares no params; ParamsFor<'GENERIC'> is `never`.
     const generic: ParamsFor<'GENERIC'> = { extra: 1 }
-    // @ts-expect-error — `role` is required for this code; {} is missing it.
-    const missingRole: ParamsFor<'CONTRACT_TEMPLATE_MISSING'> = {}
-    // @ts-expect-error — `legalName` is not declared for this code.
-    const extraKey: ParamsFor<'CONTRACT_TEMPLATE_MISSING'> = { role: 'ADMIN', legalName: 'x' }
-    const valid: ParamsFor<'CONTRACT_TEMPLATE_MISSING'> = { role: 'ADMIN' }
+    // @ts-expect-error — CONTRACT_TEMPLATE_MISSING no longer declares params
+    // (COPY-M-6); ParamsFor<'CONTRACT_TEMPLATE_MISSING'> is `never` too.
+    const contractTemplateMissing: ParamsFor<'CONTRACT_TEMPLATE_MISSING'> = { role: 'ADMIN' }
 
     // No runtime behavior to assert — a wrong pin above fails `tsc`, not this
-    // expectation. Referencing the four bindings keeps them (and the
+    // expectation. Referencing the bindings keeps them (and the
     // `@ts-expect-error` directives, which TS also flags if left unused)
     // meaningful rather than dead code.
-    expect([generic, missingRole, extraKey, valid]).toHaveLength(4)
+    expect([generic, contractTemplateMissing]).toHaveLength(2)
   })
 })
