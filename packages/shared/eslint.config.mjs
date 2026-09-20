@@ -1,6 +1,7 @@
 import tseslint from '@typescript-eslint/eslint-plugin'
 import tsparser from '@typescript-eslint/parser'
 import vitest from '@vitest/eslint-plugin'
+import pluginLingui from 'eslint-plugin-lingui'
 
 import { vitestTestQualityRules } from '../../eslint.test-rules.mjs'
 
@@ -34,6 +35,52 @@ export default [
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-require-imports': 'error',
+    },
+  },
+  {
+    // task-i18n-stage2-task9 (plan §Task 9): same baseline-warning rule as
+    // apps/web/eslint.config.mjs — see that file's comment for the full
+    // rationale (`warn` for now, `error` from stage 6; third `ignore` entry
+    // narrows to lines actually containing Cyrillic).
+    files: ['src/**/*.ts'],
+    ignores: ['src/**/*.spec.ts'],
+    plugins: { lingui: pluginLingui },
+    rules: {
+      'lingui/no-unlocalized-strings': [
+        'warn',
+        {
+          // CR-M-1 (#691): the upstream 'single lowercase token' pattern silenced one-word Cyrillic
+          // text ('дроп', 'резюме'); a word with any Cyrillic letter must warn — only ALL-CAPS
+          // identifiers and strings without Cyrillic stay silent during the module waves.
+          ignore: ['^[A-Z0-9_-]+$', '^[^а-яёіїєґА-ЯЁІЇЄҐ]*$'],
+          ignoreNames: [
+            { regex: { pattern: 'className', flags: 'i' } },
+            'data-testid',
+            'src',
+            'href',
+            'type',
+            'id',
+            'key',
+            'variant',
+            'size',
+            'role',
+          ],
+          ignoreFunctions: [
+            'cn',
+            'cva',
+            'console.*',
+            'Error',
+            '*.includes',
+            '*.startsWith',
+            '*.endsWith',
+            'vi.*',
+            'expect',
+            'describe',
+            'it',
+            'test',
+          ],
+        },
+      ],
     },
   },
   {
