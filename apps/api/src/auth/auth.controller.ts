@@ -29,6 +29,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import type { Env } from '../config/env'
 import { AdminWriteThrottle, AuthThrottle, RelaxableThrottle } from '../config/throttle-decorators'
+import { apiError } from '../common/api-error'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import type { User, UserEmail } from '../database/schema'
@@ -507,21 +508,21 @@ export class AuthController {
 
     // Block nested impersonation — the current token already represents someone else.
     if (currentUser.impersonatorId) {
-      throw new ForbiddenException('Нельзя применить имперсонацию во время другой имперсонации')
+      throw apiError('IMPERSONATION_ALREADY_ACTIVE', HttpStatus.FORBIDDEN)
     }
 
     const target = await this.usersService.findById(userId)
-    if (!target) throw new NotFoundException('Пользователь не найден')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Cannot impersonate self — checked before the ADMIN-role guard so that
     // self-impersonation by an ADMIN yields 400 (not 403).
     if (target.id === currentUser.id) {
-      throw new BadRequestException('Нельзя войти как самого себя')
+      throw apiError('IMPERSONATION_SELF_FORBIDDEN', HttpStatus.BAD_REQUEST)
     }
 
     // ADMIN → cannot impersonate another ADMIN.
     if (target.role === 'ADMIN') {
-      throw new ForbiddenException('Нельзя войти как другой администратор')
+      throw apiError('IMPERSONATION_TARGET_ADMIN_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const jwtPayload = jwtPayloadSchema.parse({
@@ -573,13 +574,13 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     if (!currentUser.impersonatorId) {
-      throw new BadRequestException('Нет активной имперсонации')
+      throw apiError('IMPERSONATION_NOT_ACTIVE', HttpStatus.BAD_REQUEST)
     }
 
     const admin = await this.usersService.findById(currentUser.impersonatorId)
     if (!admin || admin.role !== 'ADMIN') {
       // Safety check: if the original admin was demoted or deleted, reject.
-      throw new UnauthorizedException('Исходный администратор недоступен')
+      throw apiError('IMPERSONATION_ORIGIN_UNAVAILABLE', HttpStatus.UNAUTHORIZED)
     }
 
     const jwtPayload = jwtPayloadSchema.parse({
@@ -610,21 +611,21 @@ export class AuthController {
     try {
       googleUser = await this.authService.verifyGoogleIdToken(body.credential)
     } catch {
-      throw new UnauthorizedException('Invalid Google credential')
+      throw apiError('GOOGLE_CREDENTIAL_INVALID', HttpStatus.UNAUTHORIZED)
     }
 
     // §4.4/§5 — same rationale as googleCallback above.
     const emailRow = await this.usersService.findLoginableEmailRow(googleUser.email)
     const user = emailRow ? await this.usersService.findById(emailRow.userId) : undefined
-    if (!emailRow || !user) throw new UnauthorizedException('Email not authorized')
+    if (!emailRow || !user) throw apiError('EMAIL_NOT_AUTHORIZED', HttpStatus.UNAUTHORIZED)
 
     // LOW (security-audit authz-hardening): mirrors the same check in
     // googleCallback — an archived (fired) user must never receive a
     // session, not even a 401-request's worth of DB re-hydration lag.
-    if (user.archivedAt) throw new UnauthorizedException('Account disabled')
+    if (user.archivedAt) throw apiError('ACCOUNT_DISABLED', HttpStatus.UNAUTHORIZED)
 
     if (!(await this.verifyOrBindGoogleIdentity(user, emailRow, googleUser.sub, 'one-tap'))) {
-      throw new UnauthorizedException('Google account mismatch')
+      throw apiError('GOOGLE_ACCOUNT_MISMATCH', HttpStatus.UNAUTHORIZED)
     }
 
     // MED #2: JWT cookie stores only minimal identity (no PII).

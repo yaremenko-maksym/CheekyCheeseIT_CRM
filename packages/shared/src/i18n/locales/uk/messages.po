@@ -14,34 +14,219 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_TEAM_ID_REQUIRED"
+msgstr "dropTeamId обов’язковий при teamMode=JOIN_DROP_TEAM"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.HR_JOIN_OWN_DROP_TEAM_ONLY"
+msgstr "HR може приєднувати синьйора лише до своєї drop-команди"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.HR_SENIOR_ONLY_CREATION"
+msgstr "HR може створювати лише синьйорів"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
+msgstr "teamMode=JOIN_DROP_TEAM доступний лише під час створення SENIOR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
+msgstr "Telegram-канал можна вказати лише для SENIOR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.AVATAR_DOCUMENT_DELETED"
+msgstr "Аватар: документ видалено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.AVATAR_DOCUMENT_WRONG_OWNER"
+msgstr "Аватар: документ належить іншому користувачу"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.AVATAR_DOCUMENT_NOT_FOUND"
+msgstr "Аватар: документ не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ADMIN_CANNOT_CHANGE_OWN_ROLE"
+msgstr "Адміністратор не може змінити власну роль"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_NOT_ACTIVE"
+msgstr "Активного входження від чужого імені немає"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ACTIVE_MEMBER_NOT_FOUND"
+msgstr "Активного учасника в проєкті не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
+msgstr "Архівація дропа доступна лише адміністратору"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.NOTIFICATION_PREFERENCES_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — налаштування сповіщень лише для перегляду"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.CONTRACT_SIGN_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — підписати його контракт може лише він сам"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.INVOICE_SIGN_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — підписати його рахунок може лише він сам"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.SHARE_DECISION_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — підтвердити чи відхилити частку може лише він сам"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.TOS_ACCEPT_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — прийняти умови використання може лише він сам"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT"
+msgstr "Джуніор уже є активним учасником іншого проєкту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_PROJECT_ACCESS_DENIED"
+msgstr "Доступ заборонено: drop-проєкти доступні лише ролі DROP"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_ARCHIVED"
+msgstr "Дропа вже заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_NOT_FOUND"
+msgstr "Дропа не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.INVITE_ALREADY_USED"
+msgstr "Запрошення вже використано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.INVITE_INVALID"
+msgstr "Запрошення недійсне"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT"
+msgstr "Зміна ролі на DROP доступна лише через POST /api/users/drops"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_CHANGE_REQUESTER_REQUIRED"
+msgstr "Зміна частки потребує визначеного ініціатора запиту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_SHARE_OVERRIDE_FORBIDDEN"
+msgstr "Змінити перевизначення частки дропа може лише ADMIN або ACCOUNTANT"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN"
+msgstr "Змінити перевизначення частки синьйора може лише ADMIN або ACCOUNTANT"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN"
+msgstr "Змінити тип оплати проєкту може лише ADMIN або ACCOUNTANT"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.AVATAR_DOCUMENT_WRONG_CATEGORY"
+msgstr "Категорія документа має бути AVATAR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.LOGO_DOCUMENT_WRONG_CATEGORY"
+msgstr "Категорія документа має бути LOGO"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_EMAIL_EXISTS"
+msgstr "Користувач із такою електронною адресою вже існує"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_NOT_DROP"
+msgstr "Користувач не є DROP"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_NOT_SENIOR_OR_ADMIN"
+msgstr "Користувач не є SENIOR або ADMIN"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ALREADY_ACTIVE_PROJECT_MEMBER"
+msgstr "Користувач уже є активним учасником цього проєкту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_ALREADY_ARCHIVED"
+msgstr "Користувача вже заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ARCHIVED_USER_CANNOT_JOIN_PROJECT"
+msgstr "Користувача заархівовано — додати до проєкту не можна"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_NOT_ARCHIVED"
+msgstr "Користувача не заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_NOT_FOUND"
+msgstr "Користувача не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.LOGO_DOCUMENT_DELETED"
+msgstr "Логотип: документ видалено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.LOGO_DOCUMENT_WRONG_PROJECT"
+msgstr "Логотип: документ належить іншому проєкту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.LOGO_DOCUMENT_NOT_FOUND"
+msgstr "Логотип: документ не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.METHOD_DROP_ONLY"
+msgstr "Метод доступний лише для DROP"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
@@ -49,7 +234,7 @@ msgid "Мова інтерфейсу"
 msgstr "Мова інтерфейсу"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.GENERIC"
 msgstr "Не вдалося виконати дію. Спробуйте ще раз"
 
@@ -58,10 +243,215 @@ msgid "Не вдалося змінити мову інтерфейсу. Спр�
 msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CANNOT_ARCHIVE_ANOTHER_ADMIN"
+msgstr "Не можна заархівувати іншого адміністратора"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CANNOT_ARCHIVE_YOURSELF"
+msgstr "Не можна заархівувати самого себе"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_ALREADY_ACTIVE"
+msgstr "Не можна почати нове входження від чужого імені, поки триває інше"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CANNOT_REMOVE_LAST_ROLE_MEMBER"
+msgstr "Не можна прибрати останнього учасника цієї ролі з проєкту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CANNOT_EDIT_ANOTHER_ADMIN"
+msgstr "Не можна редагувати обліковий запис іншого адміністратора"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_TARGET_ADMIN_FORBIDDEN"
+msgstr "Не можна увійти від імені іншого адміністратора"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
+msgstr "Не можна увійти від імені самого себе"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.GOOGLE_CREDENTIAL_INVALID"
+msgstr "Недійсні облікові дані Google"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.NO_HR_CONTACT_ACCESS"
+msgstr "Немає доступу до контакту HR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.GOOGLE_ACCOUNT_MISMATCH"
+msgstr "Обліковий запис Google не збігається"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.INVITE_GOOGLE_ACCOUNT_MISMATCH"
+msgstr "Обліковий запис Google не збігається з адресою запрошення"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ACCOUNT_DISABLED"
+msgstr "Обліковий запис вимкнено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK"
+msgstr "Особиста адреса має відрізнятися від робочої"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PERSONAL_EMAIL_ALREADY_VERIFIED"
+msgstr "Особисту адресу вже підтверджено — повторне запрошення не потрібне"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Переклад ще триває — частина екранів поки що російською."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.REJOIN_TEAM_SENIOR_ONLY"
+msgstr "Повторне приєднання до команди доступне лише для SENIOR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_REJECT_IMPERSONATION_FORBIDDEN"
+msgstr "Поки ви увійшли як інший співробітник, відхилити його частку не можна — це має зробити він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_APPROVE_IMPERSONATION_FORBIDDEN"
+msgstr "Поки ви увійшли як інший співробітник, підтвердити його частку не можна — це має зробити він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
+msgstr "Потрібен щонайменше один HR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_ORIGIN_UNAVAILABLE"
+msgstr "Початковий адміністратор недоступний"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN"
+msgstr "Призначення ролі ADMIN заборонено — пул фіксований"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_ARCHIVED"
+msgstr "Проєкт не заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_FOUND"
+msgstr "Проєкт не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_IN_YOUR_TEAMS"
+msgstr "Проєкт не у ваших командах"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_ALREADY_ARCHIVED"
+msgstr "Проєкт уже заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL"
+msgstr "Робоча адреса має відрізнятися від особистої"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
+msgstr "Самостійно приєднатися можна лише до команди, в якій ви вже були"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
+msgstr "Синьйор і адміністратор можуть використовувати лише USDT ERC-20"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_NOT_FOUND"
+msgstr "Синьйора не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_CANCEL_ADMIN_ONLY"
+msgstr "Скасувати пропозицію частки може лише ADMIN"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY"
+msgstr "Скасувати пропозицію частки може лише ADMIN або ACCOUNTANT"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ADMIN_CREATION_FORBIDDEN"
+msgstr "Створення ADMIN заборонено — пул фіксований"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_CREATE_VIA_DEDICATED_ENDPOINT"
+msgstr "Створення DROP доступне лише через POST /api/users/drops"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_CREATE_ADMIN_ONLY"
+msgstr "Створення дропа доступне лише адміністратору"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.INVITE_EXPIRED"
+msgstr "Термін дії запрошення закінчився"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ALREADY_HAS_ACTIVE_TEAM"
+msgstr "У вас уже є активна команда"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PERSONAL_EMAIL_NOT_SET"
+msgstr "У користувача не вказано особисту адресу"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_HAS_ACTIVE_JUNIOR"
+msgstr "У проєкту вже є активний джуніор"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
+msgstr "Учасниками проєкту можуть бути лише JUNIOR, HR і ACCOUNTANT"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.EMAIL_ALREADY_IN_USE"
+msgstr "Ця адреса вже використовується. Введіть іншу"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.EMAIL_TAKEN_BY_ANOTHER_USER"
+msgstr "Ця адреса вже зайнята іншим користувачем"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.EMAIL_NOT_AUTHORIZED"
+msgstr "Ця електронна адреса не має доступу"

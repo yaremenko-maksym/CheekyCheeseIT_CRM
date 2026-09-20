@@ -16,8 +16,9 @@
  * ONLY the guard while the fetch (and the rest of the function) keeps
  * compiling, the same shape `assertFoundAndVisible` uses for transactions.
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, HttpStatus } from '@nestjs/common'
 import type { ProjectStatus } from '@crm/shared'
+import { apiError } from '../common/api-error'
 
 export const PROJECT_NOT_ACTIVE_MESSAGE =
   'Проект ещё не подтверждён — операции с ним недоступны до подтверждения'
@@ -31,7 +32,7 @@ export const PROJECT_NOT_ACTIVE_MESSAGE =
 export function assertProjectActive<T extends { status: ProjectStatus }>(
   project: T | undefined | null,
 ): T {
-  if (!project) throw new NotFoundException('Project not found')
+  if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
   if (project.status !== 'ACTIVE') {
     throw new BadRequestException(PROJECT_NOT_ACTIVE_MESSAGE)
   }
