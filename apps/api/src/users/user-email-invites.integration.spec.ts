@@ -47,13 +47,7 @@
  * SEED namespace: a17a0004-****.
  */
 
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common'
+import { UnauthorizedException } from '@nestjs/common'
 import type { ExecutionContext } from '@nestjs/common'
 import type { Reflector } from '@nestjs/core'
 import { JwtService } from '@nestjs/jwt'
@@ -183,7 +177,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
       await expect(
         usersService.acceptPersonalEmailInvite(rawToken, USER_A_PERSONAL_EMAIL, 'google-sub-a-1'),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVITE_ALREADY_USED' }),
+      })
     })
 
     it('token expired — rejected (BadRequestException)', async () => {
@@ -215,7 +211,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       await expect(
         usersService.acceptPersonalEmailInvite(rawToken, USER_A_PERSONAL_EMAIL, 'google-sub-a-2'),
-      ).rejects.toBeInstanceOf(BadRequestException)
+      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVITE_EXPIRED' }) })
 
       const rowAfter = await personalRow(USER_A_ID)
       expect(rowAfter.canLogin).toBe(false)
@@ -231,7 +227,9 @@ describe.skipIf(!hasDatabaseUrl())(
           'someone-else-entirely@gmail.com',
           'google-sub-attacker',
         ),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH' }),
+      })
 
       const rowAfter = await personalRow(USER_A_ID)
       expect(rowAfter.canLogin).toBe(false)
@@ -257,7 +255,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // a DIFFERENT invited address.
       await expect(
         usersService.acceptPersonalEmailInvite(tokenA, USER_B_PERSONAL_EMAIL, 'google-sub-b-1'),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH' }),
+      })
       // Rejected on the address mismatch specifically — A's row is
       // untouched, not consumed by the failed redirect attempt.
       const rowAAfterRedirectAttempt = await personalRow(USER_A_ID)
@@ -285,7 +285,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // — not the mismatch this test exists to prove.
       await expect(
         usersService.acceptPersonalEmailInvite(tokenA, USER_B_PERSONAL_EMAIL, 'google-sub-b-1'),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVITE_ALREADY_USED' }),
+      })
     })
 
     it('resending gates the OLD token — old raw token rejected (NotFoundException), new one works', async () => {
@@ -305,7 +307,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // to point at is gone, not "already consumed".
       await expect(
         usersService.acceptPersonalEmailInvite(firstToken, USER_A_PERSONAL_EMAIL, 'google-sub-a-4'),
-      ).rejects.toBeInstanceOf(NotFoundException)
+      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVITE_INVALID' }) })
 
       // The NEW token works.
       await usersService.acceptPersonalEmailInvite(
@@ -329,7 +331,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
       await expect(
         usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID),
-      ).rejects.toBeInstanceOf(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PERSONAL_EMAIL_ALREADY_VERIFIED' }),
+      })
     })
 
     // security-review PR #623 round 4 — owner decision, the single most
