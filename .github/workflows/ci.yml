@@ -221,6 +221,42 @@ jobs:
       - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
+      # task-i18n-stage2-task9b (2026-09-20): `pnpm i18n:extract` (lingui
+      # extract --clean) is the SOURCE OF TRUTH for which translatable strings
+      # exist — a coder can add/remove a `t\`...\`` call and forget to re-run
+      # it, leaving `.po` catalogs stale relative to the code that actually
+      # ships. Re-running extract on CI's own checkout and diffing the result
+      # against what was committed catches exactly that drift, the same shape
+      # as the routeTree.gen.ts / lockfile checks this repo already runs
+      # elsewhere (a generated artifact must match its generator's output).
+      #
+      # Verified on a clean checkout of this PR's own base (origin/main,
+      # commit f5f4941f — #687): extract is NOT a no-op there. It does not
+      # touch `POT-Creation-Date` (the date-drift case this step's own
+      # comment used to warn about — see lingui.config.ts's `format: 'po'`)
+      # — that value stays byte-identical run over run. What it adds is six
+      # empty gettext header fields (`Project-Id-Version`, `Report-Msgid-
+      # Bugs-To`, `PO-Revision-Date`, `Last-Translator`, `Language-Team`,
+      # `Plural-Forms`) that ship with every catalog `pofile` (lingui's PO
+      # parser, not lingui's own header code) constructs on a merge, and
+      # which #687's committed `.po` files predate. `@lingui/format-po`'s own
+      # `PoFormatterOptions` (checked in
+      # node_modules/@lingui/format-po/dist/po.d.ts) has no switch to
+      # suppress these — origins/lineNumbers/printLinguiId/explicitIdAsDefault/
+      # customHeaderAttributes/printPlaceholdersInComments, nothing for this —
+      # so unlike the date case there is no lingui.config.ts option to reach
+      # for. This PR commits the one-time normalization instead (six added
+      # lines, both locales); re-running extract against ITS own committed
+      # state a second time produced a byte-identical file (diffed directly,
+      # not assumed), so the step is stable going forward: it only goes red
+      # again when a real message is added or removed without re-extracting.
+      - name: i18n catalogs are in sync (lingui extract --clean)
+        if: steps.scope.outputs.code == 'true'
+        run: |
+          pnpm i18n:extract
+          git diff --exit-code -- packages/shared/src/i18n/locales || {
+            echo "::error::Run 'pnpm i18n:extract' and commit the updated .po catalogs"; exit 1; }
+
       # task-prod-runtime-vulns (2026-08-16): `pnpm audit` had no automated
       # check at all before this — 21 high-severity findings accumulated on
       # main unnoticed. Gates on moderate+ severity; a finding is either fixed
