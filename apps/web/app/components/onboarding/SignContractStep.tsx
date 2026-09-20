@@ -5,6 +5,7 @@ import { AlertTriangle, FileText, Loader2 } from 'lucide-react'
 import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SignedContractDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
+import { getApiErrorCode } from '@/lib/axios-utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -88,12 +89,19 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       onSuccess()
     },
     onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err)
-      if (message.includes('LEGAL_NAME_REQUIRED')) {
+      // task-i18n-stage4-task3: the server's refusal now carries a stable
+      // `code` (see `apps/api/src/contracts/signed-contracts.service.ts`)
+      // instead of English prose to substring-match — the old
+      // `message.includes('LEGAL_NAME_REQUIRED')` broke the moment that
+      // prose became translatable (same class of fix as `ContractTab.tsx`'s
+      // `CONTRACT_TEMPLATE_MISSING` — see its comment for why `.includes()`
+      // on `err.message` cannot survive a client-side catalog translation).
+      const code = getApiErrorCode(err)
+      if (code === 'LEGAL_NAME_REQUIRED') {
         toast.error('Юридическое ФИО не заполнено. Обратитесь к администратору.')
         return
       }
-      if (message.includes('ADMIN_DOES_NOT_SIGN_CONTRACTS')) {
+      if (code === 'ADMIN_DOES_NOT_SIGN_CONTRACTS') {
         toast.info('Админ не подписывает контракт')
         return
       }

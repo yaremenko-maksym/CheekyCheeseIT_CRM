@@ -39,6 +39,21 @@ vi.mock('@/lib/axios', () => ({
 }))
 
 /**
+ * task-i18n-stage4-task3 — the onError branch reads `getApiErrorCode(err)`
+ * (envelope `code`) instead of substring-matching `err.message`; mocking
+ * `sonner` lets the two new tests below assert WHICH toast fired for
+ * `LEGAL_NAME_REQUIRED` vs `ADMIN_DOES_NOT_SIGN_CONTRACTS` without a real
+ * toast provider mounted.
+ */
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+  },
+}))
+
+/**
  * Бэклог 212 — a STABLE object reference, mutated in place (never
  * reassigned to a new literal) via `Object.assign`. `useAuth()`'s mock used
  * to return a FRESH `{ user: {...} }` literal on every call — unlike the
@@ -73,6 +88,7 @@ vi.mock('@/context/auth', () => ({
 
 // Import AFTER vi.mock declarations so hoisting resolves correctly.
 import { CONTRACT_SIGN_IMPERSONATION_MESSAGE } from '@crm/shared'
+import { toast } from 'sonner'
 import { api } from '@/lib/axios'
 import { SignContractStep } from './SignContractStep'
 
@@ -280,6 +296,71 @@ describe('SignContractStep', () => {
       checkbox.click()
 
       expect(screen.getByTestId('sign-button')).toBeDisabled()
+    })
+  })
+
+  /**
+   * task-i18n-stage4-task3 — the sign mutation's onError branches on
+   * `getApiErrorCode(err)` (server envelope `code`) instead of
+   * `err.message.includes(...)`. These pin the two codes the server
+   * actually throws (`signed-contracts.service.ts`) to their toast.
+   */
+  describe('sign mutation onError — branches on envelope code (task-i18n-stage4-task3)', () => {
+    async function clickSign() {
+      await waitFor(() => expect(globalThis.URL.createObjectURL).toHaveBeenCalled())
+      const checkbox = screen.getByTestId('confirm-checkbox')
+      checkbox.click()
+      await waitFor(() => expect(screen.getByTestId('sign-button')).not.toBeDisabled())
+      const signButton = screen.getByTestId('sign-button')
+      signButton.click()
+    }
+
+    it('LEGAL_NAME_REQUIRED shows the legal-name error toast', async () => {
+      vi.mocked(api.post).mockRejectedValue({
+        response: {
+          status: 400,
+          data: { statusCode: 400, code: 'LEGAL_NAME_REQUIRED', message: 'x' },
+        },
+      })
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      await clickSign()
+
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(
+          'Юридическое ФИО не заполнено. Обратитесь к администратору.',
+        ),
+      )
+      expect(toast.info).not.toHaveBeenCalled()
+    })
+
+    it('ADMIN_DOES_NOT_SIGN_CONTRACTS shows the admin-info toast, not the generic error', async () => {
+      vi.mocked(api.post).mockRejectedValue({
+        response: {
+          status: 400,
+          data: { statusCode: 400, code: 'ADMIN_DOES_NOT_SIGN_CONTRACTS', message: 'x' },
+        },
+      })
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      await clickSign()
+
+      await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Админ не подписывает контракт'))
+      expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it('an unrelated code falls through to the generic failure toast', async () => {
+      vi.mocked(api.post).mockRejectedValue({
+        response: {
+          status: 500,
+          data: { statusCode: 500, code: 'GENERIC', message: 'x' },
+        },
+      })
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      await clickSign()
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось подписать контракт'))
     })
   })
 })
