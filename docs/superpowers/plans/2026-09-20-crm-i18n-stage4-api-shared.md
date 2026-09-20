@@ -1015,29 +1015,88 @@ it('INVOICE_SIGNED renders from the registry, not from a frozen DB title', () =>
 
 - [ ] **Step 3: Добавить тип в реестр — `NOTIFICATION_TITLE_MESSAGES` НОВЫМ экспортом, легаси
       `NOTIFICATION_TITLES` не трогать (SPEC-H-2, тот же приём Шаблона A, что `ROLE_LABELS`/`SORT_OPTIONS`
-      в плане 3a)**
+      в плане 3a). **SPEC-H-3 (fix-раунд 2):** предыдущая редакция этого шага предписывала «тот же
+      текст, что в `NOTIFICATION_TITLES` ниже» — а тот текст русский (легаси, см. «Опасность»). Копия
+      русского в новый канон нарушила бы Global Constraints этого же плана («исходный текст в
+      реестрах — украинский, не русский»). `NOTIFICATION_TITLE_MESSAGES` пишется **заново на украинском**
+      (по глоссарию `CONTEXT.md`, без калек с русского оригинала) с английским `msgstr` в том же PR —
+      легаси НЕ источник перевода, только образец смысла.**
+
+Заодно исправлена смежная фактическая ошибка (не предмет находки, но того же происхождения): и здесь,
+и в «Опасности» ниже предыдущая редакция называла число существующих ключей «семь» — на самом деле их
+**десять** (`NOTIFICATION_TITLES` на `origin/main` — заголовок файла прямым текстом: «Десять типов»,
+`INFORMING_NOTIFICATION_TYPES` (5) + `ACTION_REQUIRED_NOTIFICATION_TYPES` (3) + `ADMIN_NOTIFICATION_TYPES`
+(2) = 10 записей). «Семь» — это число ДРУГИХ сущностей той же секции (шесть файлов-производителей +
+`NotificationSettingsTab.tsx` = семь ЧИТАТЕЛЕЙ легаси-реестра, не семь ключей в нём) — соседство двух
+«семёрок» в одном Task, судя по всему, и породило подмену. Таблица ниже — все десять.
 
 ```ts
 // NEW_NOTIFICATION_TYPES — добавить 'INVOICE_SIGNED', 'INVOICE_SIGN_REQUIRED', 'VACANCY_APPLICATION'
 
 // NOTIFICATION_TITLE_MESSAGES — НОВЫЙ экспорт, Record<NewNotificationType, MessageDescriptor>.
 // Канон для показа (Step 7 переводит на него renderNotification/describeNotification, оба в этом же
-// файле — единственные читающие сайты, которые меняются этим PR):
+// файле — единственные читающие сайты, которые меняются этим PR).
+// message — украинский текст (дефолт-локаль, источник extraction для .po); en-msgstr для того же id
+// добавляется этим же коммитом в packages/shared/src/i18n/locales/en/messages.po (не отложено на
+// отдельный перевод) — copywriting §5, «два оригинала», copy-reviewer PASS обязателен на ОБОИХ:
 export const NOTIFICATION_TITLE_MESSAGES: Record<NewNotificationType, MessageDescriptor> = {
-  // ...семь существующих ключей — тот же текст, что в NOTIFICATION_TITLES ниже, обёрнутый
-  // дескриптором (id = 'notification.<TYPE>.title')
+  // Десять существующих типов — написаны заново, НЕ скопированы из NOTIFICATION_TITLES (см. таблицу
+  // TYPE | uk | en сразу под блоком):
+  TRANSACTION_ADDED: /* i18n */ { id: 'notification.TRANSACTION_ADDED.title', message: 'Вам додали транзакцію' },
+  TRANSACTION_STATUS_CHANGED: /* i18n */ { id: 'notification.TRANSACTION_STATUS_CHANGED.title', message: 'Рішення щодо доходу' },
+  TEAM_MEMBER_ADDED: /* i18n */ { id: 'notification.TEAM_MEMBER_ADDED.title', message: 'Вас додали до команди' },
+  PROJECT_MEMBER_ADDED: /* i18n */ { id: 'notification.PROJECT_MEMBER_ADDED.title', message: 'Вас додали до проєкту' },
+  TEAM_NEW_MEMBER: /* i18n */ { id: 'notification.TEAM_NEW_MEMBER.title', message: 'У команді новий учасник' },
+  PROJECT_CONFIRM_REQUIRED: /* i18n */ { id: 'notification.PROJECT_CONFIRM_REQUIRED.title', message: 'Проєкт очікує рішення' },
+  SHARE_CONFIRM_REQUIRED: /* i18n */ { id: 'notification.SHARE_CONFIRM_REQUIRED.title', message: 'Пропозиція щодо частки' },
+  DOCUMENT_SIGN_REQUIRED: /* i18n */ { id: 'notification.DOCUMENT_SIGN_REQUIRED.title', message: 'Контракт на підпис' },
+  APPROVAL_CONFIRMED: /* i18n */ { id: 'notification.APPROVAL_CONFIRMED.title', message: 'Пропозицію прийнято' },
+  APPROVAL_REJECTED: /* i18n */ { id: 'notification.APPROVAL_REJECTED.title', message: 'Пропозицію відхилено' },
+  // Три новых замороженных типа — уже написаны заново на украинском (не копия ниоткуда, легаси их не
+  // знал), без изменений:
   INVOICE_SIGNED: /* i18n */ { id: 'notification.INVOICE_SIGNED.title', message: 'Рахунок підписано' },
   INVOICE_SIGN_REQUIRED: /* i18n */ { id: 'notification.INVOICE_SIGN_REQUIRED.title', message: 'Рахунок очікує підпису' },
   VACANCY_APPLICATION: /* i18n */ { id: 'notification.VACANCY_APPLICATION.title', message: 'Новий відгук на вакансію' },
 }
 
 // NOTIFICATION_TITLES — ЛЕГАСИ, тип и текст остаются РУССКИМИ (Record<NewNotificationType, string>,
-// БЕЗ ИЗМЕНЕНИЙ типа) — см. «Опасность» ниже. Record закрыт по NewNotificationType, поэтому три новых
-// ключа обязательны компилятором даже без перевода — тот же текст, без i18n-обёртки:
+// БЕЗ ИЗМЕНЕНИЙ типа) — см. «Опасность» ниже. НЕ источник перевода для NOTIFICATION_TITLE_MESSAGES
+// выше (SPEC-H-3) — только историческая точка отсчёта смысла, слова другие. Record закрыт по
+// NewNotificationType, поэтому три новых ключа обязательны компилятором даже без перевода — тот же
+// (уже украинский) текст, что и в новом каноне, без i18n-обёртки:
 INVOICE_SIGNED: 'Рахунок підписано',
 INVOICE_SIGN_REQUIRED: 'Рахунок очікує підпису',
 VACANCY_APPLICATION: 'Новий відгук на вакансію',
 ```
+
+Десять существующих типов `NOTIFICATION_TITLE_MESSAGES` — старый (легаси, справочно, НЕ источник) и
+новые uk/en тексты:
+
+| TYPE                         | легаси `NOTIFICATION_TITLES` (справочно, не источник) | uk (новый канон)        | en                              |
+| ---------------------------- | ----------------------------------------------------- | ----------------------- | ------------------------------- |
+| `TRANSACTION_ADDED`          | Вам добавили транзакцию                               | Вам додали транзакцію   | A transaction was added for you |
+| `TRANSACTION_STATUS_CHANGED` | Решение по доходу                                     | Рішення щодо доходу     | Decision on income              |
+| `TEAM_MEMBER_ADDED`          | Вас добавили в команду                                | Вас додали до команди   | You were added to a team        |
+| `PROJECT_MEMBER_ADDED`       | Вас добавили в проект                                 | Вас додали до проєкту   | You were added to a project     |
+| `TEAM_NEW_MEMBER`            | В команде новый участник                              | У команді новий учасник | New team member                 |
+| `PROJECT_CONFIRM_REQUIRED`   | Проект ждёт решения                                   | Проєкт очікує рішення   | Project awaiting decision       |
+| `SHARE_CONFIRM_REQUIRED`     | Предложение по доле                                   | Пропозиція щодо частки  | Share proposal                  |
+| `DOCUMENT_SIGN_REQUIRED`     | Контракт на подпись                                   | Контракт на підпис      | Contract to sign                |
+| `APPROVAL_CONFIRMED`         | Предложение принято                                   | Пропозицію прийнято     | Proposal accepted               |
+| `APPROVAL_REJECTED`          | Предложение отклонено                                 | Пропозицію відхилено    | Proposal rejected               |
+
+uk-колонка — по глоссарию `CONTEXT.md` (например, «Рахунок» для инвойса уже закреплён им же для трёх
+замороженных типов выше; «частка» — принятая форма «доли»). Точная финальная формулировка (в частности
+бюджет строки попапа `w-80`, COPY-H-1 — ≤19 знаков, `PROJECT_CONFIRM_REQUIRED`/`SHARE_CONFIRM_REQUIRED`
+здесь чуть шире) — за `copy-reviewer` в PR реализации Task 6 (design-gate/copywriting-гейт уже
+обязателен на этом PR); эта таблица — не финальный copy-freeze, а доказательство, что канон
+пишется заново, а не копируется.
+
+Остальные Task'и плана (1–5, 7) проверены на тот же вопрос — нигде не встречается инструкция
+«скопировать текст из легаси» (`grep -n 'тот же текст\|копи' docs/superpowers/plans/2026-09-20-crm-i18n-stage4-api-shared.md`
+на базе fix-раунда 1: единственное совпадение было это Step 3, исправлено выше). Все остальные шаги
+плана и так пишут `message:` заново на украинском (Task 1–5 — коды ошибок, разбираются по одному без
+легаси-эквивалента; Task 7 читает уже исправленный здесь `NOTIFICATION_TITLE_MESSAGES`, не легаси).
 
 ### Опасность: `NOTIFICATION_TITLES` — шесть производителей и один web-потребитель вне периметра (SPEC-H-2)
 
@@ -1058,7 +1117,8 @@ origin/main` — список ниже обязан совпасть на ста
 
 **Что с ними в этом PR: ничего.** Ни один из семи файлов не редактируется, не импортирует
 `NOTIFICATION_TITLE_MESSAGES`, не входит в Files этого Task. Легаси `NOTIFICATION_TITLES` не меняет
-ни тип, ни значения существующих семи ключей (только добавляет три новых строкой, см. Step 3 выше) —
+ни тип, ни значения существующих десяти ключей (только добавляет три новых строкой, см. Step 3 выше,
+SPEC-H-3 fix-раунд 2 — предыдущая редакция ошибочно писала здесь «семи», путая с числом файлов ниже) —
 все семь потребителей продолжают компилироваться и работать как раньше, без правки.
 
 **Почему это безопасно, а не «отложенный долг»:** `renderNotification` (Step 6 ниже) для НОВЫХ типов
@@ -1455,6 +1515,12 @@ documents-contracts-notifications,index}.ts` (fix-round 1, SPEC-M-1) — отк�
 - `git grep -nE "throw new [A-Za-z]*Exception\(" apps/api/src | grep -v '\.spec\.ts' | grep -P "[А-Яа-яЁё]"`
   — 0 строк (кроме явно задокументированных исключений «Что НЕ входит»).
 - `git grep -cP "message:.*[А-Яа-яЁё]|\.(min|max|email|regex|refine|length)\([^)]*[А-Яа-яЁё]" packages/shared/src/schemas` — 0.
+- В реестрах-канонах (`*_MESSAGES`) нет символов `ы`/`э`/`ъ`/`ё` — маркер, различающий русский и
+  украинский текст там, где общая кириллическая проверка (пункт выше) не различает (SPEC-H-3
+  fix-раунд 2: находка «скопирован русский текст» не содержала ни одной из этих букв ни в одном из
+  семи примеров — общий гейт её бы не поймал):
+  `git grep -nE '[ыэъёЫЭЪЁ]' packages/shared/src/schemas` — 0 (кроме легаси `NOTIFICATION_TITLES`, см.
+  Task 6 «Опасность» — единственное осознанное исключение).
 - `packages/shared/src/schemas/notification-registry.ts` — ни один НОВЫЙ `Record<..., string>` с
   видимым текстом; легаси `NOTIFICATION_TITLES: Record<NewNotificationType, string>` — единственное
   осознанное исключение (SPEC-H-2, Шаблон A, шесть внешних производителей + `NotificationSettingsTab.tsx`
