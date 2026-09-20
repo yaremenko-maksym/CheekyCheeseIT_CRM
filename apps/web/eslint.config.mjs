@@ -2,6 +2,7 @@ import tseslint from '@typescript-eslint/eslint-plugin'
 import tsparser from '@typescript-eslint/parser'
 import vitest from '@vitest/eslint-plugin'
 import testingLibrary from 'eslint-plugin-testing-library'
+import pluginLingui from 'eslint-plugin-lingui'
 
 import { testingLibraryTestQualityRules, vitestTestQualityRules } from '../../eslint.test-rules.mjs'
 
@@ -29,6 +30,53 @@ export default [
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-require-imports': 'error',
+    },
+  },
+  {
+    // task-i18n-stage2-task9 (plan §Task 9): baseline warning for the module
+    // waves of stage 3 — how much untranslated Cyrillic text is still out
+    // there, not a hard gate yet (`warn`, not `error`; that flip is stage 6).
+    // Third `ignore` entry deliberately narrows the rule to lines that
+    // actually contain Cyrillic: the goal right now is counting untranslated
+    // ru/uk text, not flagging every English technical string (class names,
+    // ids, single tokens) that `no-unlocalized-strings` would otherwise also
+    // catch.
+    files: ['app/**/*.{ts,tsx}'],
+    ignores: ['app/**/*.{spec,test}.{ts,tsx}', 'app/**/__tests__/**'],
+    plugins: { lingui: pluginLingui },
+    rules: {
+      'lingui/no-unlocalized-strings': [
+        'warn',
+        {
+          ignore: ['^(?![A-ZА-ЯЁІЇЄҐ])\\S+$', '^[A-Z0-9_-]+$', '^[^а-яёіїєґА-ЯЁІЇЄҐ]*$'],
+          ignoreNames: [
+            { regex: { pattern: 'className', flags: 'i' } },
+            'data-testid',
+            'src',
+            'href',
+            'type',
+            'id',
+            'key',
+            'variant',
+            'size',
+            'role',
+          ],
+          ignoreFunctions: [
+            'cn',
+            'cva',
+            'console.*',
+            'Error',
+            '*.includes',
+            '*.startsWith',
+            '*.endsWith',
+            'vi.*',
+            'expect',
+            'describe',
+            'it',
+            'test',
+          ],
+        },
+      ],
     },
   },
   {
