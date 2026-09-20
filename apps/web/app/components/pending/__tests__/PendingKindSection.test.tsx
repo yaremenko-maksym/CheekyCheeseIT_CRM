@@ -41,6 +41,7 @@ describe('PendingKindSection', () => {
   it('renders nothing at all when items is empty — no empty card, no heading', () => {
     const { container } = render(
       <PendingKindSection
+        kind="PROJECT_APPROVAL"
         title="Проекты"
         icon={Briefcase}
         items={[]}
@@ -54,6 +55,7 @@ describe('PendingKindSection', () => {
   it('renders the uppercase title as an h3 and one row per item', () => {
     render(
       <PendingKindSection
+        kind="PROJECT_APPROVAL"
         title="Проекты"
         icon={Briefcase}
         items={[item({ subjectId: 'p1' }), item({ subjectId: 'p2', title: 'Other Co' })]}
@@ -69,6 +71,7 @@ describe('PendingKindSection', () => {
   it('proposedByMe zone renders the observer row styling (border-amber), mine does not (§4 token map)', () => {
     const { unmount } = render(
       <PendingKindSection
+        kind="PROJECT_APPROVAL"
         title="Проекты"
         icon={Briefcase}
         items={[item({ subjectId: 'p1' })]}
@@ -83,6 +86,7 @@ describe('PendingKindSection', () => {
 
     render(
       <PendingKindSection
+        kind="PROJECT_APPROVAL"
         title="Проекты"
         icon={Briefcase}
         items={[item({ subjectId: 'p1', actions: ['open'] })]}
@@ -98,6 +102,7 @@ describe('PendingKindSection', () => {
   it('the heading is focusable programmatically (tabIndex -1) but not in the Tab order (design spec §12)', () => {
     render(
       <PendingKindSection
+        kind="PROJECT_APPROVAL"
         title="Проекты"
         icon={Briefcase}
         items={[item({ subjectId: 'p1' })]}
@@ -111,9 +116,10 @@ describe('PendingKindSection', () => {
     )
   })
 
-  it('the <ul> carries its own zone+title-scoped testid, independent of the heading’s', () => {
+  it('the <ul> carries its own zone+kind-scoped testid, independent of the heading’s', () => {
     render(
       <PendingKindSection
+        kind="PROJECT_APPROVAL"
         title="Проекты"
         icon={Briefcase}
         items={[item({ subjectId: 'p1' })]}
@@ -121,6 +127,31 @@ describe('PendingKindSection', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(screen.getByTestId('pending-kind-section-mine-Проекты')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-kind-section-mine-PROJECT_APPROVAL')).toBeInTheDocument()
+  })
+
+  // task-i18n-stage2-task8 (audit §2, COPY-M-docs): the heading/list testid
+  // must be stable across locales — `title` will be a translated string once
+  // extraction lands, but `kind` never changes. `items` here is `[]` on
+  // purpose (this component "рендерится только если непуста" — see the
+  // first test above) so this test proves the testid identity independently
+  // of any row content, using a DIFFERENT kind+title pair than every other
+  // test in this file to rule out a hardcoded 'PROJECT_APPROVAL'/'Проекты'
+  // match surviving the refactor by coincidence.
+  it('heading testid does not depend on the visible title', () => {
+    render(
+      <PendingKindSection
+        kind="SHARE_APPROVAL"
+        title="Будь-який текст"
+        icon={Briefcase}
+        items={[item({ subjectId: 'p1' })]}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('pending-kind-heading-mine-SHARE_APPROVAL')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-kind-heading-mine-SHARE_APPROVAL')).toHaveTextContent(
+      'Будь-який текст',
+    )
   })
 })

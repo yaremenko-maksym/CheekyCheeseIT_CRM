@@ -109,7 +109,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z' }),
       makeDoc({ id: 'new', createdAt: '2026-06-01T00:00:00.000Z' }),
     ]
-    const sorted = sortDocuments(docs, 'date_desc')
+    const sorted = sortDocuments(docs, 'date_desc', 'uk')
     expect(sorted[0]?.id).toBe('new')
     expect(sorted[1]?.id).toBe('old')
   })
@@ -119,33 +119,50 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'new', createdAt: '2026-06-01T00:00:00.000Z' }),
       makeDoc({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z' }),
     ]
-    const sorted = sortDocuments(docs, 'date_asc')
+    const sorted = sortDocuments(docs, 'date_asc', 'uk')
     expect(sorted[0]?.id).toBe('old')
     expect(sorted[1]?.id).toBe('new')
   })
 
-  it('name_asc: alphabetical A→Z using localeCompare ru', () => {
+  it('name_asc: alphabetical A→Z using compareNames(locale)', () => {
     const docs = [
       makeDoc({ id: 'c', originalName: 'Цена.pdf', name: 'tsena.pdf' }),
       makeDoc({ id: 'a', originalName: 'Абитуриент.pdf', name: 'abiturient.pdf' }),
       makeDoc({ id: 'b', originalName: 'Балans.pdf', name: 'balans.pdf' }),
     ]
-    const sorted = sortDocuments(docs, 'name_asc')
+    const sorted = sortDocuments(docs, 'name_asc', 'uk')
     expect(sorted[0]?.id).toBe('a')
     expect(sorted[1]?.id).toBe('b')
     expect(sorted[2]?.id).toBe('c')
   })
 
-  it('name_desc: alphabetical Z→A using localeCompare ru', () => {
+  it('name_desc: alphabetical Z→A using compareNames(locale)', () => {
     const docs = [
       makeDoc({ id: 'a', originalName: 'Абитуриент.pdf', name: 'abiturient.pdf' }),
       makeDoc({ id: 'b', originalName: 'Балans.pdf', name: 'balans.pdf' }),
       makeDoc({ id: 'c', originalName: 'Цена.pdf', name: 'tsena.pdf' }),
     ]
-    const sorted = sortDocuments(docs, 'name_desc')
+    const sorted = sortDocuments(docs, 'name_desc', 'uk')
     expect(sorted[0]?.id).toBe('c')
     expect(sorted[1]?.id).toBe('b')
     expect(sorted[2]?.id).toBe('a')
+  })
+
+  // task-i18n-stage2-task8 (audit §2, COPY-M-core-15): the whole point of
+  // taking `locale` as a parameter is that `і`/`ї`/`є` collate correctly
+  // under the Ukrainian collator (they don't exist in the Russian alphabet
+  // `localeCompare(…, 'ru')` used before this change, and `Intl.Collator`
+  // with `sensitivity: 'base'` folds them to a Latin-adjacent position
+  // under a `ru` tag instead of their real Ukrainian alphabetic slot).
+  // Ukrainian alphabetic order for the initials used here: А < Є < І.
+  it('name_asc: sorts Ukrainian names with і/ї/є correctly under the uk collation', () => {
+    const docs = [
+      makeDoc({ id: 'i', originalName: 'Ірина.pdf', name: 'irina.pdf' }),
+      makeDoc({ id: 'a', originalName: 'Андрій.pdf', name: 'andriy.pdf' }),
+      makeDoc({ id: 'e', originalName: 'Євген.pdf', name: 'yevgen.pdf' }),
+    ]
+    const sorted = sortDocuments(docs, 'name_asc', 'uk')
+    expect(sorted.map((d) => d.id)).toEqual(['a', 'e', 'i'])
   })
 
   it('size_desc: largest first', () => {
@@ -154,7 +171,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'large', sizeBytes: 99999 }),
       makeDoc({ id: 'medium', sizeBytes: 4096 }),
     ]
-    const sorted = sortDocuments(docs, 'size_desc')
+    const sorted = sortDocuments(docs, 'size_desc', 'uk')
     expect(sorted[0]?.id).toBe('large')
     expect(sorted[1]?.id).toBe('medium')
     expect(sorted[2]?.id).toBe('small')
@@ -166,7 +183,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'small', sizeBytes: 512 }),
       makeDoc({ id: 'medium', sizeBytes: 4096 }),
     ]
-    const sorted = sortDocuments(docs, 'size_asc')
+    const sorted = sortDocuments(docs, 'size_asc', 'uk')
     expect(sorted[0]?.id).toBe('small')
     expect(sorted[1]?.id).toBe('medium')
     expect(sorted[2]?.id).toBe('large')
@@ -177,7 +194,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'b', originalName: null, name: 'zebra.pdf' }),
       makeDoc({ id: 'a', originalName: null, name: 'apple.pdf' }),
     ]
-    const sorted = sortDocuments(docs, 'name_asc')
+    const sorted = sortDocuments(docs, 'name_asc', 'uk')
     expect(sorted[0]?.id).toBe('a')
     expect(sorted[1]?.id).toBe('b')
   })
@@ -188,7 +205,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'a', createdAt: '2026-01-01T00:00:00.000Z' }),
     ]
     const original = [...docs]
-    sortDocuments(docs, 'date_asc')
+    sortDocuments(docs, 'date_asc', 'uk')
     expect(docs[0]?.id).toBe('b') // original order preserved
     expect(docs).toEqual(original)
   })
@@ -200,7 +217,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'second', createdAt: sameDate }),
       makeDoc({ id: 'third', createdAt: sameDate }),
     ]
-    const sorted = sortDocuments(docs, 'date_desc')
+    const sorted = sortDocuments(docs, 'date_desc', 'uk')
     expect(sorted[0]?.id).toBe('first')
     expect(sorted[1]?.id).toBe('second')
     expect(sorted[2]?.id).toBe('third')
@@ -219,7 +236,7 @@ describe('filterDocuments + sortDocuments combined', () => {
       makeDoc({ id: 'r1', originalName: 'Резюме А.pdf', sizeBytes: 500 }),
     ]
     const filtered = filterDocuments(docs, 'резюме')
-    const sorted = sortDocuments(filtered, 'size_desc')
+    const sorted = sortDocuments(filtered, 'size_desc', 'uk')
     expect(sorted).toHaveLength(2)
     expect(sorted[0]?.id).toBe('r1')
     expect(sorted[1]?.id).toBe('r2')

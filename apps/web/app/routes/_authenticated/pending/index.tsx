@@ -50,6 +50,17 @@ function sectionTitleOf(item: PendingItemOrUnknown): string {
 }
 
 /**
+ * task-i18n-stage2-task8: the `kind`-based counterpart of `sectionTitleOf`
+ * — used ONLY for the testid-selector half of the focus chain (§12), which
+ * must stay stable across locales. `sectionTitleOf` keeps doing the
+ * grouping (`handleActed`'s `sectionTitleOf(i) === sectionTitleOf(item)`)
+ * and the VISIBLE heading text — neither of those is a selector.
+ */
+function sectionKindOf(item: PendingItemOrUnknown): PendingItemKind | 'OTHER' {
+  return KIND_SECTIONS.find((s) => s.kind === item.kind)?.kind ?? 'OTHER'
+}
+
+/**
  * Design spec §12 / integration decision 3: where focus goes once the acted
  * row leaves the DOM. An ORDERED list of candidates rather than a single
  * computed target — the caller takes the first one that actually exists
@@ -73,7 +84,7 @@ export function focusSelectorsAfterActing(
   const next = index === -1 ? undefined : section[index + 1]
   return [
     ...(next ? [`[data-testid="pending-item-row-${next.kind}-${next.subjectId}"]`] : []),
-    `[data-testid="pending-kind-heading-${zone}-${sectionTitleOf(acted)}"]`,
+    `[data-testid="pending-kind-heading-${zone}-${sectionKindOf(acted)}"]`,
     zone === 'mine' ? '#pending-mine-heading' : '#pending-others-heading',
     '[data-testid="pending-page"]',
   ]
@@ -208,6 +219,7 @@ export function PendingPage() {
                   {KIND_SECTIONS.map(({ kind, title, icon }) => (
                     <PendingKindSection
                       key={kind}
+                      kind={kind}
                       title={title}
                       icon={icon}
                       items={visibleMine.filter((i) => i.kind === kind)}
@@ -216,6 +228,7 @@ export function PendingPage() {
                     />
                   ))}
                   <PendingKindSection
+                    kind="OTHER"
                     title="Другое"
                     icon={HelpCircle}
                     items={visibleMine.filter((i) => !KIND_SECTIONS.some((s) => s.kind === i.kind))}
@@ -244,6 +257,7 @@ export function PendingPage() {
                     ({ kind, title, icon }) => (
                       <PendingKindSection
                         key={kind}
+                        kind={kind}
                         title={title}
                         icon={icon}
                         items={visibleOther.filter((i) => i.kind === kind)}
@@ -253,6 +267,7 @@ export function PendingPage() {
                     ),
                   )}
                   <PendingKindSection
+                    kind="OTHER"
                     title="Другое"
                     icon={HelpCircle}
                     items={visibleOther.filter(

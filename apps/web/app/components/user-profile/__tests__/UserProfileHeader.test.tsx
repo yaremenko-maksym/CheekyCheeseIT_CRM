@@ -54,6 +54,29 @@ function makeUser(overrides: Partial<UserProfileDto> = {}): UserProfileDto {
   }
 }
 
+// task-i18n-stage2-task8 (audit §2, COPY-H-ppl-4): the local ROLE_LABELS map
+// this component used to carry had no DROP entry, and the `?? user.role`
+// fallback silently printed the raw enum on a drop's own profile. Now
+// sourced from the canonical `ROLE_LABELS` (`@/components/ui/role-select`),
+// which has all six roles.
+describe('UserProfileHeader — role label (audit COPY-H-ppl-4)', () => {
+  it('shows the DROP role label from the shared map', () => {
+    render(<UserProfileHeader user={makeUser({ role: 'DROP' })} />)
+    expect(screen.getByText('Дроп')).toBeInTheDocument()
+  })
+
+  // Kills the `ROLE_VARIANT[user.role] ?? 'outline'` mutants (Stryker
+  // StringLiteral/LogicalOperator on this line): `ROLE_VARIANT` (unchanged
+  // by this task, see UserProfileHeader.tsx) has no DROP entry, so the
+  // Badge falls back to the `outline` variant — `border-border` is that
+  // variant's own class (badge.tsx), not shared with any other variant used
+  // on this component.
+  it("DROP badge falls back to the 'outline' variant (no dedicated color yet)", () => {
+    render(<UserProfileHeader user={makeUser({ role: 'DROP' })} />)
+    expect(screen.getByText('Дроп')).toHaveClass('border-border')
+  })
+})
+
 describe('UserProfileHeader — telegram link (code-review round 2)', () => {
   // Role queries instead of `closest('a')` / `document.querySelector`
   // (task-lint-teeth) — same guarantees, asserted the way the link is actually

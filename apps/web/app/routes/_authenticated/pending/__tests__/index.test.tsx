@@ -155,7 +155,7 @@ describe('/pending — focusSelectorsAfterActing (pure function, direct)', () =>
   it('acted item has a next row in the same section: candidate list starts with that row', () => {
     expect(focusSelectorsAfterActing([p1, p2], p1, 'mine')).toEqual([
       '[data-testid="pending-item-row-PROJECT_APPROVAL-p2"]',
-      '[data-testid="pending-kind-heading-mine-Проекты"]',
+      '[data-testid="pending-kind-heading-mine-PROJECT_APPROVAL"]',
       '#pending-mine-heading',
       '[data-testid="pending-page"]',
     ])
@@ -163,7 +163,7 @@ describe('/pending — focusSelectorsAfterActing (pure function, direct)', () =>
 
   it('acted item is the LAST one in the section: no next-row candidate at all', () => {
     expect(focusSelectorsAfterActing([p1], p1, 'mine')).toEqual([
-      '[data-testid="pending-kind-heading-mine-Проекты"]',
+      '[data-testid="pending-kind-heading-mine-PROJECT_APPROVAL"]',
       '#pending-mine-heading',
       '[data-testid="pending-page"]',
     ])
@@ -174,7 +174,7 @@ describe('/pending — focusSelectorsAfterActing (pure function, direct)', () =>
     // A wrong "not found" check would fall through to `section[index + 1]`
     // and incorrectly surface p2 as the "next" row.
     expect(focusSelectorsAfterActing([p2], p1, 'mine')).toEqual([
-      '[data-testid="pending-kind-heading-mine-Проекты"]',
+      '[data-testid="pending-kind-heading-mine-PROJECT_APPROVAL"]',
       '#pending-mine-heading',
       '[data-testid="pending-page"]',
     ])
@@ -182,7 +182,7 @@ describe('/pending — focusSelectorsAfterActing (pure function, direct)', () =>
 
   it('zone "proposedByMe" points at the OTHERS heading, not the mine one', () => {
     expect(focusSelectorsAfterActing([p1], p1, 'proposedByMe')).toEqual([
-      '[data-testid="pending-kind-heading-proposedByMe-Проекты"]',
+      '[data-testid="pending-kind-heading-proposedByMe-PROJECT_APPROVAL"]',
       '#pending-others-heading',
       '[data-testid="pending-page"]',
     ])
@@ -192,7 +192,7 @@ describe('/pending — focusSelectorsAfterActing (pure function, direct)', () =>
     const weird = { ...p1, kind: 'SOMETHING_NEW' } as unknown as PendingItem
     expect(() => focusSelectorsAfterActing([weird], weird, 'mine')).not.toThrow()
     expect(focusSelectorsAfterActing([weird], weird, 'mine')[0]).toBe(
-      '[data-testid="pending-kind-heading-mine-Другое"]',
+      '[data-testid="pending-kind-heading-mine-OTHER"]',
     )
   })
 })
@@ -376,7 +376,7 @@ describe('/pending — §12: focus after a row disappears', () => {
       await user.click(screen.getByTestId('project-approval-approve-p2'))
     })
 
-    expect(screen.getByTestId('pending-kind-heading-mine-Проекты')).toHaveFocus()
+    expect(screen.getByTestId('pending-kind-heading-mine-PROJECT_APPROVAL')).toHaveFocus()
   })
 
   it('falls back to the zone heading when the whole section went away but the zone did not', async () => {
@@ -590,7 +590,7 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
 
     expect(screen.queryByText('Доля 2')).not.toBeInTheDocument()
     expect(screen.getByText('Доля 1')).toBeInTheDocument()
-    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Доли')).toHaveFocus()
+    expect(screen.getByTestId('pending-kind-heading-proposedByMe-SHARE_APPROVAL')).toHaveFocus()
   })
 })
 
@@ -643,11 +643,15 @@ describe('/pending — proposedByMe grouping across kinds', () => {
     // Zone-scoped testids (`pending-kind-heading-proposedByMe-*`) rather
     // than a bare role/text query — this section alone has three headings
     // and their exact zone-qualified identity is the point being tested.
-    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Проекты')).toBeInTheDocument()
-    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Доли')).toBeInTheDocument()
-    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Другое')).toBeInTheDocument()
     expect(
-      screen.queryByTestId('pending-kind-heading-proposedByMe-Контракты'),
+      screen.getByTestId('pending-kind-heading-proposedByMe-PROJECT_APPROVAL'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByTestId('pending-kind-heading-proposedByMe-SHARE_APPROVAL'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('pending-kind-heading-proposedByMe-OTHER')).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('pending-kind-heading-proposedByMe-CONTRACT_TO_SIGN'),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText('Контракт сотрудника — should never render here'),
@@ -663,8 +667,10 @@ describe('/pending — proposedByMe grouping across kinds', () => {
       proposedByMe: [item({ subjectId: 'proj-1', title: 'Acme Corp', actions: ['open'] })],
     }
     renderPage()
-    expect(screen.getByTestId('pending-kind-heading-proposedByMe-Проекты')).toBeInTheDocument()
-    expect(screen.queryByTestId('pending-kind-heading-proposedByMe-Другое')).not.toBeInTheDocument()
+    expect(
+      screen.getByTestId('pending-kind-heading-proposedByMe-PROJECT_APPROVAL'),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('pending-kind-heading-proposedByMe-OTHER')).not.toBeInTheDocument()
   })
 
   it('visibleOther feeds the proposedByMe sections — a mine-zone item of the SAME kind never leaks across zones', () => {
