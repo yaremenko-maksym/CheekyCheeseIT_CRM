@@ -67,8 +67,11 @@ RUN pnpm install --frozen-lockfile
 
 COPY packages/shared/ ./packages/shared/
 COPY apps/landing/ ./apps/landing/
-COPY tsconfig.base.json ./
+COPY tsconfig.base.json lingui.config.ts ./
 
+# i18n (spec 2026-09-19): compile Lingui catalogs into packages/shared/src/i18n/locales/*/messages.ts
+# (gitignored) BEFORE the shared build, so dist carries them and the Vite plugin finds lingui.config.ts.
+RUN pnpm i18n:compile
 RUN pnpm --filter @crm/shared build
 RUN pnpm --filter @crm/landing build
 
@@ -133,8 +136,11 @@ RUN pnpm install --frozen-lockfile
 
 COPY packages/shared/ ./packages/shared/
 COPY apps/web/ ./apps/web/
-COPY tsconfig.base.json ./
+COPY tsconfig.base.json lingui.config.ts ./
 
+# i18n (spec 2026-09-19): compile Lingui catalogs into packages/shared/src/i18n/locales/*/messages.ts
+# (gitignored) BEFORE the shared build, so dist carries them and the Vite plugin finds lingui.config.ts.
+RUN pnpm i18n:compile
 RUN pnpm --filter @crm/shared build
 RUN pnpm --filter @crm/web build
 

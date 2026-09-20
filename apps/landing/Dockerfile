@@ -38,9 +38,12 @@ RUN pnpm install --frozen-lockfile
 
 COPY packages/shared/ ./packages/shared/
 COPY apps/landing/ ./apps/landing/
-COPY tsconfig.base.json ./
+COPY tsconfig.base.json lingui.config.ts ./
 
 # Build @crm/shared (landing may import shared types for forms/validation).
+# i18n (spec 2026-09-19): compile Lingui catalogs into packages/shared/src/i18n/locales/*/messages.ts
+# (gitignored) BEFORE the shared build, so dist carries them and the Vite plugin finds lingui.config.ts.
+RUN pnpm i18n:compile
 RUN pnpm --filter @crm/shared build
 
 # Build Landing SPA — outputs to apps/landing/dist/.
