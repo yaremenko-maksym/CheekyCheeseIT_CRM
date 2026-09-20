@@ -30,6 +30,7 @@ msgid "{0} із {1}"
 msgstr "{0} із {1}"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
 msgstr "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
 
@@ -143,6 +144,7 @@ msgstr "Активний синьйор{0} відʼєднається від к�
 msgid "Активних проектів"
 msgstr "Активних проектів"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Активні проекти"
@@ -522,6 +524,10 @@ msgstr "Мій баланс"
 msgid "МІЙ БАЛАНС"
 msgstr "МІЙ БАЛАНС"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Мій баланс (частка)"
+msgstr "Мій баланс (частка)"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Мій проект"
 msgstr "Мій проект"
@@ -579,6 +585,7 @@ msgid "Не вдалося завантажити PDF."
 msgstr "Не вдалося завантажити PDF."
 
 #: apps/web/app/routes/_authenticated/index.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Не вдалося завантажити зведення"
@@ -631,6 +638,10 @@ msgstr "Немає активної версії ToS. Створіть перш�
 msgid "Немає даних за період"
 msgstr "Немає даних за період"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Немає зобов'язань"
+msgstr "Немає зобов'язань"
+
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Немає приходів, що очікують валідації"
 msgstr "Немає приходів, що очікують валідації"
@@ -665,6 +676,7 @@ msgstr "Оновити"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Оновіть сторінку або спробуйте пізніше"
@@ -706,10 +718,12 @@ msgid "Очікує вашого рішення"
 msgstr "Очікує вашого рішення"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Очікує виплати"
 msgstr "Очікує виплати"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Очікують валідації"
 msgstr "Очікують валідації"
 
@@ -818,9 +832,17 @@ msgstr "Пошук країни..."
 msgid "Прибутки на валідації та виплати, що очікують"
 msgstr "Прибутки на валідації та виплати, що очікують"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Приходи в роботі"
+msgstr "Приходи в роботі"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Проекти синьйорів команд"
 msgstr "Проекти синьйорів команд"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Проекти, де ви дроп"
+msgstr "Проекти, де ви дроп"
 
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Проекти, де ви синьйор"
@@ -917,6 +939,11 @@ msgstr "Сповіщень немає"
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Ставка"
 msgstr "Ставка"
+
+#. placeholder {0}: summary.dropSharePercent
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Ставка: {0}%"
+msgstr "Ставка: {0}%"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Статистика"

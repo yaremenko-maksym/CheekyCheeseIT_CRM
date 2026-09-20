@@ -189,8 +189,19 @@ describe('DropDashboard', () => {
     useDropProjectsMock.mockReturnValue({ data: makeDropProjects(), isLoading: false })
     renderDashboard()
     expect(screen.getByTestId('drop-kpi-error')).toBeInTheDocument()
-    expect(screen.getByText('Не удалось загрузить сводку')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося завантажити зведення')).toBeInTheDocument()
   })
+
+  // Independent of the component's own implementation — computed straight
+  // from `Intl`, the same source `format.spec.ts` uses (formatMoney is
+  // `<amount> <CODE>`, not the old $-prefixed toLocaleString). jest-dom's
+  // `toHaveTextContent` normalizes ALL whitespace in the rendered DOM text —
+  // including uk-UA's U+00A0 grouping separator — to a plain space, so the
+  // expected string is normalized the same way here.
+  const ukMoney = (n: number) =>
+    new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      .format(n)
+      .replace(/\s/g, ' ') + ' USD'
 
   describe('KPI cards (senior-style layout)', () => {
     beforeEach(() => {
@@ -215,45 +226,48 @@ describe('DropDashboard', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-active-projects')
       expect(card).toHaveTextContent('2')
-      expect(card).toHaveTextContent('Активные проекты')
+      expect(card).toHaveTextContent('Активні проекти')
     })
 
     it('shows balance and dropSharePercent from useDropSummary', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-balance')
-      expect(card).toHaveTextContent('$3,200.00')
+      expect(card).toHaveTextContent(ukMoney(3200))
       expect(card).toHaveTextContent('30%')
     })
 
     // task-drop-sees-own-obligations (§AC1/§AC2): the core bug this task
     // fixes — the hub must show what the company owes, as a card SEPARATE
-    // from «Мой баланс» (never summed into $3,200.00 + $800.48).
+    // from «Мій баланс» (never summed into 3 200,00 + 800,48).
     it('shows pendingObligationAmount from useDropSummary, distinct from balance', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-pending-obligation')
-      expect(card).toHaveTextContent('$800.48')
-      expect(card).toHaveTextContent('Начислений: 2')
-      expect(card).not.toHaveTextContent('$4,000.48')
+      expect(card).toHaveTextContent(ukMoney(800.48))
+      // pendingObligationCount: 2 → uk CLDR 'few' category (2-4, not 12-14).
+      expect(card).toHaveTextContent("2 зобов'язання")
+      expect(card).not.toHaveTextContent(ukMoney(4000.48))
       const balanceCard = screen.getByTestId('drop-kpi-balance')
-      expect(balanceCard).toHaveTextContent('$3,200.00')
-      expect(balanceCard).not.toHaveTextContent('$800.48')
+      expect(balanceCard).toHaveTextContent(ukMoney(3200))
+      expect(balanceCard).not.toHaveTextContent(ukMoney(800.48))
     })
 
-    it('shows «Нет начислений» when pendingObligationCount is 0', () => {
+    it("shows «Немає зобов'язань» when pendingObligationCount is 0", () => {
       useDropSummaryMock.mockReturnValue({
         data: { ...makeDropSummary(), pendingObligationAmount: 0, pendingObligationCount: 0 },
         isLoading: false,
         isError: false,
       })
       renderDashboard()
-      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('Нет начислений')
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent(
+        "Немає зобов'язань",
+      )
     })
 
     it('shows pendingIncomesCount from useDropSummary', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-pending')
       expect(card).toHaveTextContent('2')
-      expect(card).toHaveTextContent('Приходы в работе')
+      expect(card).toHaveTextContent('Приходи в роботі')
     })
   })
 
