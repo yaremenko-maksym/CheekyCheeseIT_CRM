@@ -22,12 +22,52 @@ import { FINANCE_INVOICES_ERROR_CODES } from './api-errors/finance-invoices'
 // `copy-reviewer`/translators edit directly.
 const EN_CATALOG_PATH = join(__dirname, '..', 'i18n', 'locales', 'en', 'messages.po')
 
+/**
+ * task-i18n-stage4-task3. The naive `/\{(\w+)\}/g` this replaced only
+ * matched a BARE `{token}` — it could not see a top-level ICU `select`
+ * declaration (`{role, select, ...}`, comma before the close brace, never
+ * matched at all) and, worse, misread an ALL-ASCII option label nested
+ * inside one (`... JUNIOR {Джуніор} HR {HR} ...` — Cyrillic option labels
+ * are invisible to `\w`, but `{HR}` alone reads as a perfectly-shaped bare
+ * token) as though it were a second declared param. Both failure modes are
+ * silent: a code declaring `{ role: [] }` params.  This walks the string
+ * once, brace-depth aware, and captures only the variable name of each
+ * TOP-LEVEL `{name}` or `{name, select, ...}` / `{name, plural, ...}`
+ * expression — never a name nested inside one — matching how `i18n._()`
+ * itself parses ICU MessageFormat (verified against `@lingui/core`'s
+ * `i18n._()` output at the call sites that use `select`, task-i18n-stage4-
+ * task3 PR body).
+ */
 function tokenSet(text: string): Set<string> {
-  return new Set(
-    [...text.matchAll(/\{(\w+)\}/g)]
-      .map((m) => m[1])
-      .filter((token): token is string => token !== undefined),
-  )
+  const tokens = new Set<string>()
+  let i = 0
+  while (i < text.length) {
+    if (text[i] !== '{') {
+      i++
+      continue
+    }
+    let j = i + 1
+    let name = ''
+    while (j < text.length && /\w/.test(text[j] as string)) {
+      name += text[j]
+      j++
+    }
+    if (name && (text[j] === '}' || text[j] === ',')) {
+      tokens.add(name)
+    }
+    // Skip to the matching close brace for this top-level expression so
+    // nested option braces (`{Джуніор}`, `{HR}`, …) are never re-scanned
+    // as though they were top-level declarations.
+    let depth = 1
+    let k = i + 1
+    while (k < text.length && depth > 0) {
+      if (text[k] === '{') depth++
+      else if (text[k] === '}') depth--
+      k++
+    }
+    i = depth === 0 ? k : k + 1
+  }
+  return tokens
 }
 
 describe('api-errors', () => {
