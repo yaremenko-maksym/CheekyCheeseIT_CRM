@@ -95,6 +95,7 @@ function makeUser(role: SessionUser['role']): SessionUser {
     avatarDocumentId: null,
     role,
     seniorSharePercent: 26,
+    locale: 'uk',
     legalFullName: null,
   }
 }

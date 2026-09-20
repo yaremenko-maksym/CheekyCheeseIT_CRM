@@ -2000,6 +2000,80 @@ describe('UsersService.createUser — profile fields', () => {
 
     expect(result.monthlySalary).toBe('1500.00')
   })
+
+  // task-i18n-stage2 (Task 3) — checks the ACTUAL insert payload, not just
+  // the mocked return value: `result.locale` alone cannot distinguish "the
+  // service computed 'uk'" from "the mock fixture happens to be 'uk'".
+  it('defaults locale to uk in the insert payload when omitted', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
+      email: junior.email,
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+    })
+
+    const insertValuesMock = (db.db.insert as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.values as ReturnType<typeof vi.fn>
+    expect(insertValuesMock).toHaveBeenCalledWith(expect.objectContaining({ locale: 'uk' }))
+  })
+
+  it('forwards an explicit locale in the insert payload', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
+      email: junior.email,
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+      locale: 'en',
+    })
+
+    const insertValuesMock = (db.db.insert as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.values as ReturnType<typeof vi.fn>
+    expect(insertValuesMock).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// updateProfile — locale (task-i18n-stage2, Task 3): self-service interface
+// language change via PATCH /users/me. Checks the actual `.set(...)`
+// payload, not just the returned mock user — the field being present-or-
+// absent from `set` is the behavior under test, same reasoning as
+// `archived-entitlement.unit.spec.ts`'s own `updateProfile` coverage
+// (which checks the OTHER direction: entitlement columns stay untouched).
+// ---------------------------------------------------------------------------
+
+describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
+  it('sets locale when provided', async () => {
+    const db = makeDb({ updatedUser: makeUser({ locale: 'en' }) })
+    const service = makeUsersService(db)
+
+    await service.updateProfile('user-1', { locale: 'en' })
+
+    const setMock = (db.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.set as ReturnType<typeof vi.fn>
+    expect(setMock).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }))
+  })
+
+  it('omits locale from the set payload when not provided', async () => {
+    const db = makeDb({ updatedUser: makeUser() })
+    const service = makeUsersService(db)
+
+    await service.updateProfile('user-1', { displayName: 'New Name' })
+
+    const setMock = (db.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      ?.set as ReturnType<typeof vi.fn>
+    const setCall = setMock.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(setCall).not.toHaveProperty('locale')
+  })
 })
 
 // ---------------------------------------------------------------------------

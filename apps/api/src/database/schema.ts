@@ -44,6 +44,13 @@ const inet = customType<{ data: string }>({
 
 export const roleEnum = pgEnum('role', ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
+// task-i18n-stage2 (Task 3, spec §4.1) — interface language per user.
+// Mirrors `LOCALES` in `packages/shared/src/i18n/locales.ts` (SSOT for the
+// TS union + Zod schema); this enum is the DB-level twin, kept in sync
+// manually (Drizzle has no cross-package enum sharing) — see
+// `apps/api/drizzle/manual/2026-09-20_user_locale.sql` for the DDL twin.
+export const userLocaleEnum = pgEnum('user_locale', ['uk', 'en'])
+
 /**
  * Discriminator on `teams.type` — distinguishes the legacy senior-team
  * (`'SENIOR'`, default) from the new drop-team (`'DROP'`). Drop role -
@@ -340,6 +347,17 @@ export const users = pgTable('users', {
   // further down in this file).
   avatarDocumentId: uuid('avatar_document_id'),
   role: roleEnum().notNull().default('JUNIOR'),
+  // task-i18n-stage2 (Task 3) — interface language. Every existing user gets
+  // 'uk' (default); see the migration file's own header for why nothing is
+  // rewritten/backfilled.
+  // Stryker disable next-line StringLiteral: the explicit 'locale' name arg
+  // is provably unobservable — verified empirically: Drizzle falls back to
+  // the JS property key ('locale') whenever the given name is falsy, so
+  // mutating this literal to '' produces an IDENTICAL `getTableConfig`
+  // column name and cannot be told apart by any unit test (the 'uk' DEFAULT
+  // on this same line has no such fallback and IS pinned, by
+  // user-locale-schema.spec.ts).
+  locale: userLocaleEnum('locale').notNull().default('uk'),
   googleId: varchar('google_id', { length: 255 }).unique(),
   telegram: varchar('telegram', { length: 100 }),
   phone: varchar('phone', { length: 30 }),

@@ -68,6 +68,10 @@ const TEST_USER = {
   role: 'SENIOR' as const,
   avatarUrl: null,
   googleId: null,
+  // task-i18n-stage2 (Task 3) — `sessionUserSchema` now requires `locale`;
+  // `AuthController.me`'s `fresh` branch reads `fresh.locale` straight off
+  // this fixture's `findById` stub.
+  locale: 'uk' as const,
   createdAt: new Date(),
   updatedAt: new Date(),
 }

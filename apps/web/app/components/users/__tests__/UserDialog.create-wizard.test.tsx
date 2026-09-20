@@ -5,7 +5,7 @@
  * step navigation logic, POST/PATCH call targets, and button states.
  * Edit-mode is NOT tested here — it remains unchanged.
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
@@ -723,6 +723,54 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
       expect(postCalls.length).toBeGreaterThan(0)
       const body = postCalls[0]?.[1] as Record<string, unknown>
       expect(body).not.toHaveProperty('personalEmail')
+    })
+  })
+})
+
+// task-i18n-stage2 (Task 3, Step 6) — create-wizard "Данные" step field.
+describe('UserDialog — locale field (task-i18n-stage2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+    mockPost.mockResolvedValue(newUserResponse)
+  })
+
+  it('is rendered only in create mode, defaults to Українська', () => {
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+    const trigger = screen.getByTestId('user-locale-select')
+    expect(trigger).toBeInTheDocument()
+    expect(trigger).toHaveTextContent('Українська')
+  })
+
+  it('selecting English forwards locale:"en" in the POST /api/users body', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId('user-locale-select'))
+    fireEvent.click(await screen.findByRole('option', { name: 'English' }))
+    expect(screen.getByTestId('user-locale-select')).toHaveTextContent('English')
+
+    await fillStep1AndAdvance(user)
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = postCalls[0]?.[1] as Record<string, unknown>
+      expect(body.locale).toBe('en')
+    })
+  })
+
+  it('leaving the default selection forwards locale:"uk" in the POST /api/users body', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await fillStep1AndAdvance(user)
+
+    await waitFor(() => {
+      const postCalls = mockPost.mock.calls.filter((c) => String(c[0]) === '/users')
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = postCalls[0]?.[1] as Record<string, unknown>
+      expect(body.locale).toBe('uk')
     })
   })
 })

@@ -161,6 +161,10 @@ export class UsersController {
       ...(dto.teamMode !== undefined && { teamMode: dto.teamMode }),
       ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
       ...(!isHrActor && dto.legalFullName !== undefined && { legalFullName: dto.legalFullName }),
+      // task-i18n-stage2 (Task 3) — not gated by isHrActor: unlike
+      // wallet*/bankUah*/legalFullName above, locale carries no finance/PII
+      // surface, so HR-provisioned seniors also get to pick it.
+      ...(dto.locale !== undefined && { locale: dto.locale }),
       // MED-3 (security-review round 2): lets the service scope
       // teamMode=JOIN_DROP_TEAM to a drop-team the HR actor actually
       // belongs to (see UsersService.createUser's check).

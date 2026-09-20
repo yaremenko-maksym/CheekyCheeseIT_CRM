@@ -44,7 +44,7 @@ import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
 import { ApprovalsService } from '../approvals/approvals.service'
-import { NOTIFICATION_TITLES } from '@crm/shared'
+import { NOTIFICATION_TITLES, type Locale } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
@@ -802,6 +802,12 @@ export class UsersService {
      */
     legalFullName?: string
     /**
+     * task-i18n-stage2 (Task 3) — interface language selected in the create
+     * wizard's "Данные" step. Defaults to 'uk' below when omitted (matches
+     * the DB column default).
+     */
+    locale?: Locale
+    /**
      * Drop role - phase 1: senior-only opt-in. `CREATE_NEW` (default)
      * preserves the legacy auto-team flow. `JOIN_DROP_TEAM` skips auto-team
      * and attaches the new senior to an existing drop-team.
@@ -886,6 +892,11 @@ export class UsersService {
       // is set.
       avatarUrl: data.avatarUrl ?? null,
       techStack: data.techStack ?? null,
+      // task-i18n-stage2 (Task 3) — explicit default here (not left to the
+      // column default) so the returned row (and the audit event's
+      // `after: created.displayName` sibling fields) reflect the same value
+      // this method's own callers expect back immediately.
+      locale: data.locale ?? 'uk',
     }
     if (data.seniorSharePercent !== undefined)
       insertValues.seniorSharePercent = data.seniorSharePercent
@@ -1526,6 +1537,8 @@ export class UsersService {
       phone?: string | null
       techStack?: string[] | null
       avatarDocumentId?: string | null
+      /** task-i18n-stage2 (Task 3) — self-service interface language change. */
+      locale?: Locale
     },
   ): Promise<User> {
     const set: Record<string, unknown> = { updatedAt: new Date() }
@@ -1538,6 +1551,7 @@ export class UsersService {
       await this.assertAvatarDocument(data.avatarDocumentId ?? null, id)
       set.avatarDocumentId = data.avatarDocumentId ?? null
     }
+    if (data.locale !== undefined) set.locale = data.locale
 
     const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
     const updated = rows[0]
@@ -2679,7 +2693,19 @@ export class UsersService {
     // SEC-09: exclude googleId — Google's internal identifier is not part of the
     // profile API contract and should not be returned to any caller. The field
     // is used only for OAuth callback flow (updateGoogleId), never for display.
-    type FilteredUser = Omit<User, 'email' | 'googleId' | 'pendingSeniorSharePercent'> & {
+    //
+    // task-i18n-stage2 (Task 3) — `locale` is ALSO excluded here, deliberately
+    // (an assumption recorded, not an oversight): this profile-view DTO
+    // (`GET /users/:id`) has no established use for a viewer to read a
+    // TARGET's interface language — only `/auth/me` (own session) and the
+    // create wizard need it. Extending this allow-list to a field nothing
+    // reads would be scope creep past what task-i18n-stage2's Task 3
+    // actually asked for; re-add here (and to `userProfileSchema`) if a
+    // future task needs it.
+    type FilteredUser = Omit<
+      User,
+      'email' | 'googleId' | 'pendingSeniorSharePercent' | 'locale'
+    > & {
       email: string | null
       personalEmail: string | null
       personalEmailCanLogin: boolean | null

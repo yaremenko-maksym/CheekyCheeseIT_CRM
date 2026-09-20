@@ -435,6 +435,9 @@ export class AuthController {
         avatarDocumentId: null,
         role: user.role,
         seniorSharePercent: 0,
+        // task-i18n-stage2 (Task 3) — unreachable branch (see the comment
+        // above), same fallback as `resolveLocale`'s `DEFAULT_LOCALE`.
+        locale: 'uk',
         legalFullName: null,
         impersonating: Boolean(user.impersonatorId),
       })
@@ -447,6 +450,10 @@ export class AuthController {
       avatarDocumentId: fresh.avatarDocumentId ?? null,
       role: fresh.role,
       seniorSharePercent: fresh.seniorSharePercent,
+      // task-i18n-stage2 (Task 3, §4.1) — rehydrated from the DB on every
+      // `/auth/me` call (not cached in the JWT — see request-locale.ts's own
+      // doc for why locale is read fresh, not carried in the token).
+      locale: fresh.locale,
       legalFullName: fresh.legalFullName ?? null,
       // Derived: true when the JWT has impersonatorId set (admin is acting as another user).
       impersonating: Boolean(user.impersonatorId),

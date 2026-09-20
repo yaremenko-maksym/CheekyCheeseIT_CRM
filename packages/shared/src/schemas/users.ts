@@ -4,6 +4,7 @@ import { currencyEnumSchema, paymentMethodSchema } from './payment-requisites'
 import { tabKeySchema, actionKeySchema } from './view-permissions'
 import { withSalaryFloor } from './money'
 import { pendingSeniorShareSchema } from './pending-share'
+import { localeSchema } from '../i18n/locales'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
@@ -141,6 +142,8 @@ export const updateProfileSchema = z.object({
    * Google fallback (`avatar_url`).
    */
   avatarDocumentId: z.string().uuid().nullable().optional(),
+  /** task-i18n-stage2 (Task 3) — self-service interface language change. */
+  locale: localeSchema.optional(),
 })
 
 /**
@@ -289,6 +292,12 @@ export const createUserSchema = z
      * `type='DROP'`, active and have no active senior — backend validates.
      */
     dropTeamId: z.string().uuid().optional(),
+    /**
+     * task-i18n-stage2 (Task 3) — interface language selected by the admin
+     * in the create wizard's "Данные" step. Optional; service defaults to
+     * `'uk'` when omitted (matches the DB column default).
+     */
+    locale: localeSchema.optional(),
   })
   .superRefine((data, ctx) => {
     refineRequisitePresence(data, ctx)
