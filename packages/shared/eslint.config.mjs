@@ -49,7 +49,10 @@ export default [
       'lingui/no-unlocalized-strings': [
         'warn',
         {
-          ignore: ['^(?![A-ZА-ЯЁІЇЄҐ])\\S+$', '^[A-Z0-9_-]+$', '^[^а-яёіїєґА-ЯЁІЇЄҐ]*$'],
+          // CR-M-1 (#691): the upstream 'single lowercase token' pattern silenced one-word Cyrillic
+          // text ('дроп', 'резюме'); a word with any Cyrillic letter must warn — only ALL-CAPS
+          // identifiers and strings without Cyrillic stay silent during the module waves.
+          ignore: ['^[A-Z0-9_-]+$', '^[^а-яёіїєґА-ЯЁІЇЄҐ]*$'],
           ignoreNames: [
             { regex: { pattern: 'className', flags: 'i' } },
             'data-testid',
