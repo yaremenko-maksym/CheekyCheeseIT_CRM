@@ -29,12 +29,19 @@ const LOCALE_LABELS: Record<Locale, string> = { uk: 'Українська', en: 
 export function LanguageSection({ current }: { current: Locale }) {
   const { invalidate } = useAuth()
   const { t } = useLingui()
-  // Tracks whether a choice is in flight — blocks pointer input on the
-  // wrapper (`pointer-events-none`) and re-entry in `choose` below, guarding
-  // against a second click firing a second PATCH before the first one's
-  // activation + invalidation finished (the exact race the "no optimistic
-  // switch" rule above is protecting against). Deliberately NOT wired to
+  // Tracks whether a choice is in flight — dims the wrapper (`opacity-60` +
+  // `aria-busy`) and guards re-entry in `choose` below, blocking a second
+  // click from firing a second PATCH before the first one's activation +
+  // invalidation finished (the exact race the "no optimistic switch" rule
+  // above is protecting against). Deliberately NOT wired to
   // `SegmentedToggle`'s `disabled` prop — see `choose`'s comment (UX-M-2).
+  // Also deliberately NOT `pointer-events-none` on the wrapper (PR #696
+  // fix-round 3, UX-M-3): that class makes the wrapper miss the browser's
+  // hit-test, so a real mouse click during `pending` lands on nothing and
+  // Chromium drops focus to `<body>` — the exact same symptom UX-M-2 fixed,
+  // just via a different trigger. Leaving pointer input on the button and
+  // relying on the JS-level guard below keeps the click landing ON the
+  // button, so focus never has anywhere else to go.
   const [pending, setPending] = useState(false)
 
   async function choose(locale: Locale) {
@@ -87,14 +94,18 @@ export function LanguageSection({ current }: { current: Locale }) {
         {/* Wrapper carries the pending state instead of `disabled` on
             `SegmentedToggle` (UX-M-2, PR #696 fix-round 2): a disabled
             button loses DOM focus to `<body>` in Chromium and it is never
-            restored. `pointer-events-none` blocks clicks without touching
-            focusability or tab order; `aria-busy` announces the wait to
-            assistive tech. Re-entry is guarded in `choose` above instead of
-            at the DOM level. */}
+            restored. `opacity-60` signals the wait visually; `aria-busy`
+            announces it to assistive tech. Deliberately no
+            `pointer-events-none` here (UX-M-2's first attempt, reverted in
+            fix-round 3 as UX-M-3): blocking the hit-test the same way
+            `disabled` blocked it reproduces the identical `<body>`
+            focus-loss on a second real mouse click during `pending`, just
+            through a different mechanism. Clicks stay routed to the
+            button; re-entry is guarded in `choose` above instead. */}
         <div
           aria-busy={pending}
           data-testid="locale-switcher-wrapper"
-          className={cn(pending && 'pointer-events-none opacity-60')}
+          className={cn(pending && 'opacity-60')}
         >
           <SegmentedToggle
             value={current}

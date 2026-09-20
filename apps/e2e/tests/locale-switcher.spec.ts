@@ -14,7 +14,7 @@
  * PATCH handler already echoes back `{ ...user, ...body }`, so no extra
  * route registration is needed here.
  */
-import { test, expect, USERS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, mockAuthAs, API_GLOB } from './fixtures'
 
 test.describe('Interface language switcher — own profile only (AC7)', () => {
   test('clicking "English" PATCHes /users/me and activates <html lang="en">', async ({ page }) => {
@@ -65,6 +65,49 @@ test.describe('Interface language switcher — own profile only (AC7)', () => {
 
     await expect(page.getByTestId('locale-option-uk')).toHaveCount(0)
     await expect(page.getByTestId('locale-option-en')).toHaveCount(0)
+  })
+
+  test('a second real click during a pending locale change keeps focus on the button (UX-M-3)', async ({
+    page,
+  }) => {
+    await mockAuthAs(page, { ...USERS.senior, locale: 'uk' })
+    await page.goto('/profile')
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
+
+    let patchCount = 0
+    page.on('request', (req) => {
+      if (req.url().includes('/api/users/me') && req.method() === 'PATCH') patchCount++
+    })
+
+    // Delay the PATCH response long enough for a second real click to land
+    // while the first is still `pending` — design review 5261064743
+    // (UX-M-3) found that fix-round 2's `pointer-events-none` on the
+    // wrapper made exactly this second click miss the button's hit-test
+    // and drop DOM focus to `<body>` in Chromium (the same symptom UX-M-2
+    // fixed, via a different trigger). Registered AFTER `mockAuthAs`, so it
+    // runs first; `route.fallback()` post-delay hands the request on to
+    // the already-registered `/users/me` handler unchanged.
+    await page.route(`${API_GLOB}/users/me`, async (route) => {
+      if (route.request().method() !== 'PATCH') {
+        await route.fallback()
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      await route.fallback()
+    })
+
+    const enOption = page.getByTestId('locale-option-en')
+    // Two ordinary clicks — NOT `{ force: true }` — the second lands while
+    // the delayed PATCH above is still in flight. `pointer-events-none`
+    // (removed this round) would have failed Playwright's own
+    // actionability check here instead of reproducing the browser's real
+    // hit-test miss, so this is deliberately the plain, unforced click.
+    await enOption.click()
+    await enOption.click()
+
+    await expect(enOption).toHaveAttribute('aria-checked', 'true', { timeout: 8000 })
+    await expect(enOption).toBeFocused()
+    expect(patchCount).toBe(1)
   })
 
   // CR-M-3 / UX-M-1 (PR #696 fix-round 1) — `foundation.md`'s ≥44px mobile
