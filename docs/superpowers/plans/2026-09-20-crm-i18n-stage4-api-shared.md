@@ -107,8 +107,11 @@ context7 (`/lingui/js-lingui/v5.9.5`, `i18n._(messageId, values?, options?)` и
 - **Zod-сообщения — код, не перевод, в самой схеме** (спека §4.3, решение уже принято, не пересматривать):
   `message: 'zod.<CODE>'` в схеме — стабильная строка-ключ, а не текст на экране. Новый реестр
   `ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor>` (тот же shape, что `API_ERROR_MESSAGES`)
-  резолвит её в текст на обеих сторонах: `ZodExceptionFilter` (сервер, 400-й ответ) и форма (клиент,
-  `apps/web`, задача вне этого этапа по файлам — используется существующий рендер ошибок формы).
+  резолвит её в текст на обеих сторонах: `ZodExceptionFilter` (сервер, 400-й ответ) и `translateZodError`
+  в `axios-utils.ts` (клиент) — **оба входят в Task 4, первый PR трека B, не в отдельную задачу
+  «потом»**: правило этапа — ни один PR не оставляет пользователя без текста, а `ZodExceptionFilter`'s
+  Step 6 меняет формат конверта для мигрированных полей в этом же PR, значит и клиентский рендер по
+  коду обязан быть в нём же (SPEC-H-1, fix-раунд 1).
 - **Глоссарий (`CONTEXT.md`, `_Избегать_`) — фиксится ПОПУТНО с переносом кода, не отдельным проходом:**
   «инвойс» → «рахунок»/«invoice» **только** как имя объекта, не термин (глоссарий: «Счёт», `_Избегать_`:
   инвойс/акт/платёжка); «платёж» для `transactions` → «транзакція»/«transaction» (`_Избегать_`: платёж,
@@ -156,7 +159,10 @@ git grep -n -A1 "Exception($" origin/main -- apps/api/src | grep -v '\.spec\.ts'
 
 | Файл                                                                                                                                                                                                 | Ответственность                                                                                                                                             | Задача |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `packages/shared/src/schemas/api-errors.ts`                                                                                                                                                          | `API_ERROR_CODES`/`API_ERROR_MESSAGES`/`API_ERROR_PARAMS` — расширение                                                                                      | 1,2,3  |
+| `packages/shared/src/schemas/api-errors/{base,index}.ts`                                                                                                                                             | Barrel + сегодняшние 8 кодов — создаёт Task 1, дальше не трогается ни одной задачей трека                                                                   | 1      |
+| `packages/shared/src/schemas/api-errors/auth-users-projects.ts`                                                                                                                                      | Коды волны A1 (SPEC-M-1: свой файл на задачу, не общий `api-errors.ts` — см. «Дисциплина параллельности»)                                                   | 1      |
+| `packages/shared/src/schemas/api-errors/finance-invoices.ts`                                                                                                                                         | Коды волны A2 (создан Task 1 пустой заглушкой, заполняет Task 2)                                                                                            | 1,2    |
+| `packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts`                                                                                                                        | Коды волны A3 (создан Task 1 пустой заглушкой, заполняет Task 3)                                                                                            | 1,3    |
 | `apps/api/src/{auth,users,projects}/**`                                                                                                                                                              | Throw-сайты модулей волны A1 → `apiError()`                                                                                                                 | 1      |
 | `apps/api/src/{finance,invoices}/**`                                                                                                                                                                 | Throw-сайты волны A2 (крупнейшая концентрация)                                                                                                              | 2      |
 | `apps/api/src/{documents,contracts,teams,legends,approvals,interviews,notifications}/**`                                                                                                             | Throw-сайты волны A3                                                                                                                                        | 3      |
@@ -171,7 +177,9 @@ git grep -n -A1 "Exception($" origin/main -- apps/api/src | grep -v '\.spec\.ts'
 | `apps/api/src/notifications/notification-email.cron.ts`                                                                                                                                              | Активация локали получателя перед рендером                                                                                                                  | 7      |
 | `apps/api/src/users/personal-email-invite-mailer.service.ts`                                                                                                                                         | Приглашение — локаль решается (A2-вопрос ниже)                                                                                                              | 7      |
 
-Порядок: (1, 2, 3 — параллельно, волна ≤3 PR) → 4 → (5 — сама по себе, зависит от реестра Task 4) → 6 → 7.
+Порядок: (**1 сначала** — создаёт barrel + заглушки для 2/3, см. «Дисциплина параллельности»; **2 ∥ 3**
+— после мержа 1, параллельно друг другу, разные файлы, без взаимной зависимости) → 4 → (5 — сама по
+себе, зависит от реестра Task 4) → 6 → 7.
 Этап 5 (PDF счетов) стартует после Task 6/7 — общий каталог и активация локали получателя должны
 существовать (спека §7: «5 — после 4»).
 
@@ -179,12 +187,70 @@ git grep -n -A1 "Exception($" origin/main -- apps/api/src | grep -v '\.spec\.ts'
 
 ## Track A — коды ошибок по модулям (289/337 throw-сайтов)
 
+### Дисциплина параллельности: `api-errors.ts` — barrel, не общий файл (SPEC-M-1)
+
+Три задачи этого трека были объявлены «параллельно, волна ≤3 PR» (Карта файлов выше) — то, что
+`orchestration-routing.md` Решение 1 разрешает ТОЛЬКО для непересекающихся файлов И без явной
+sequential-зависимости между задачами (оба условия — «И», не «или»). Сегодняшний `api-errors.ts` —
+один файл, в который писали бы все три PR одновременно: это нарушает первое условие волны, не просто
+повышает риск конфликта мержа. Для структурно того же риска в Track B (Task 4/5 расширяют один
+`zod-errors.ts` Record) план уже применяет явную очерёдность («Task 4 сначала, Task 5 ребейзится на
+него») — здесь применяется структурное решение (split по файлам), но **не без остатка**: три
+МОДУЛЬНЫХ файла (Task 1/2/3) друг от друга не зависят, однако все трое зависят от ОДНОРАЗОВОГО
+бутстрапа — barrel + заглушки для файлов Task 2/3 — который должен существовать раньше, чем эти два
+файла что-либо типизируют. Честный итог, не «все три параллельно»: **Task 1 — сначала** (бутстрап +
+свои коды, single-pipeline), **Task 2 ∥ Task 3 — после мержа Task 1**, по-настоящему параллельно друг
+другу (disjoint-файлы, нет зависимости между собой). Это меньше пересечения, чем в исходном плане
+(было: 3 PR деремутся за один файл), и честнее заявленного (не скрывает единственную реальную
+зависимость, которую задание требует делать явной: «файлы не пересекаются И зависимости явные»).
+
+- `packages/shared/src/schemas/api-errors/base.ts` — восемь СЕГОДНЯШНИХ кодов (`GENERIC`,
+  `CONTRACT_TEMPLATE_MISSING`, пять `*_IMPERSONATION`) переносятся как есть (`BASE_ERROR_CODES`/
+  `BASE_ERROR_PARAMS`/`BASE_ERROR_MESSAGES`/`BASE_ERROR_FALLBACK_EN`). Ни одна задача Track A их не
+  трогает — заморожены до отдельной задачи, если понадобится.
+- `packages/shared/src/schemas/api-errors/auth-users-projects.ts` (владеет Task 1),
+  `finance-invoices.ts` (владеет Task 2), `documents-contracts-notifications.ts` (владеет Task 3) —
+  каждый несёт свой `<MODULE>_ERROR_CODES`/`<MODULE>_ERROR_PARAMS`/`<MODULE>_ERROR_MESSAGES`/
+  `<MODULE>_ERROR_FALLBACK_EN` (тот же shape, что сегодняшний `API_ERROR_*`, с префиксом модуля).
+  **Task 1 создаёт все три файла этим PR** — свой с реальным содержимым, два чужих (`finance-invoices.ts`,
+  `documents-contracts-notifications.ts`) — пустыми заглушками (`export const FINANCE_INVOICES_ERROR_CODES
+= [] as const`, `export const FINANCE_INVOICES_ERROR_PARAMS = {} as const satisfies Record<never,
+readonly string[]>`, и т. п. для двух оставшихся записей), иначе barrel (следующий пункт) не
+  типизируется до старта Task 2/3. Task 2/3 заполняют СВОЙ уже существующий файл — barrel не трогают.
+- `packages/shared/src/schemas/api-errors.ts` — становится barrel: импортирует четыре модуля,
+  объединяет через spread — `API_ERROR_CODES = [...BASE_ERROR_CODES, ...AUTH_USERS_PROJECTS_ERROR_CODES,
+...FINANCE_INVOICES_ERROR_CODES, ...DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_CODES] as const`,
+  аналогично для `API_ERROR_PARAMS`/`API_ERROR_MESSAGES`/`API_ERROR_FALLBACK_EN` (три остальные —
+  тот же spread-приём). `ParamsFor<C>`/`apiErrorEnvelopeSchema`/`ApiErrorCode` — БЕЗ ИЗМЕНЕНИЙ,
+  читают объединённые `API_ERROR_CODES`/`API_ERROR_PARAMS` косвенно, как раньше. **Task 1 создаёт
+  barrel этим же PR** — вместе с тремя module-файлами (пустые заглушки Task 2/3 typecheck-совместимы
+  с barrel сразу, значит Task 1 не блокирует Task 2/3, даже если стартует первым).
+- `export * from './api-errors'` в `packages/shared/src/schemas/index.ts` — БЕЗ ИЗМЕНЕНИЙ: резолвится
+  в директорию `api-errors/index.ts` так же, как раньше резолвился в файл `api-errors.ts` (Node/TS module
+  resolution). Единственный внешний потребитель — этот `export *`; других прямых импортов
+  `from '.../api-errors'` вне пакета нет (`git grep -rn "from '.*api-errors'" origin/main -- apps
+packages` — единственное совпадение это `schemas/index.ts` сам). `packages/shared/src/schemas/api-errors/
+index.ts` — новый файл, тело barrel (переносится из сегодняшнего `api-errors.ts`, расширенное
+  spread-импортами четырёх модулей).
+
+**Что это даёт:** Task 2 и Task 3 пишут ТОЛЬКО свой module-файл — ноль пересечения путей друг с
+другом, а между собой идут действительно параллельно (Решение 1 `orchestration-routing.md` — 2
+disjoint-задачи без взаимной зависимости, законный маленький wave). Единственная зависимость — «2 и 3
+ждут мержа 1» — явная, записана здесь и в Порядке ниже, а не спрятана под ярлыком «параллельно».
+Существующие потребители (`API_ERROR_MESSAGES.CONTRACT_NOT_DRAFT`, `api-errors.spec.ts`'s инвариантные
+тесты) не меняются — barrel отдаёт те же объединённые имена.
+
 ### Task 1: Коды ошибок — `auth`/`users`/`projects`
 
 **Files:**
 
-- Modify: `packages/shared/src/schemas/api-errors.ts` — добавить коды этой волны в `API_ERROR_CODES`,
-  `API_ERROR_MESSAGES`, `API_ERROR_PARAMS`, `API_ERROR_FALLBACK_EN`
+- Create: `packages/shared/src/schemas/api-errors/base.ts` (восемь сегодняшних кодов, перенос без
+  изменений), `packages/shared/src/schemas/api-errors/auth-users-projects.ts` (коды этой волны),
+  `packages/shared/src/schemas/api-errors/finance-invoices.ts` (пустая заглушка для Task 2),
+  `packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts` (пустая заглушка для
+  Task 3), `packages/shared/src/schemas/api-errors/index.ts` (barrel — spread четырёх модулей,
+  `ParamsFor`/`apiErrorEnvelopeSchema` переносятся сюда без изменений)
+- Delete: `packages/shared/src/schemas/api-errors.ts` (заменён директорией `api-errors/`)
 - Modify: `apps/api/src/auth/*.service.ts` (6 throw-сайтов с кириллицей), `apps/api/src/users/users.service.ts`
   (54 кириллица + 26 английских — **самый крупный файл волны**, делить на суб-PR по под-фиче при
   необходимости: команда сама решит по факту diff-size), `apps/api/src/projects/projects.service.ts`
@@ -204,22 +270,29 @@ git grep -n -A1 "Exception($" origin/main -- apps/api/src | grep -v '\.spec\.ts'
 - [ ] **Step 1: Зафиксировать паттерн — один throw-сайт полностью, тестом вперёд**
 
 Рабочий пример — `employee-contracts.service.ts:163/202` (`markReady`), оба ещё raw
-`ConflictException` с английским текстом (COPY-H-api-2), файл уже частично мигрирован (2 других
-кода — не трогать их).
+`ConflictException` с английским текстом (COPY-H-api-2), файл уже частично мигрирован — 2 вызова
+`apiError()` (строки 100/314), **оба на один и тот же код** `CONTRACT_TEMPLATE_MISSING` (не два
+разных кода — SPEC-L-1), не трогать их.
 
 ```ts
-// packages/shared/src/schemas/api-errors.ts — добавить в API_ERROR_CODES:
+// packages/shared/src/schemas/api-errors/auth-users-projects.ts — добавить в
+// AUTH_USERS_PROJECTS_ERROR_CODES:
 'CONTRACT_NOT_DRAFT',
-// API_ERROR_PARAMS:
+// AUTH_USERS_PROJECTS_ERROR_PARAMS:
 CONTRACT_NOT_DRAFT: [],
-// API_ERROR_MESSAGES:
+// AUTH_USERS_PROJECTS_ERROR_MESSAGES:
 CONTRACT_NOT_DRAFT: /* i18n */ {
   id: 'api-error.CONTRACT_NOT_DRAFT',
   message: 'Контракт більше не в статусі чернетки — оновіть сторінку',
 },
-// API_ERROR_FALLBACK_EN:
+// AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN:
 CONTRACT_NOT_DRAFT: 'This contract is no longer a draft — refresh the page',
 ```
+
+Barrel (`api-errors/index.ts`) не трогается этим шагом — уже спредит
+`AUTH_USERS_PROJECTS_ERROR_CODES`/`..._PARAMS`/`..._MESSAGES`/`..._FALLBACK_EN` целиком (Task 1
+создал barrel и spread-импорты этим же PR, см. «Дисциплина параллельности» выше); тест ниже читает
+объединённые `API_ERROR_MESSAGES`/`API_ERROR_FALLBACK_EN` из barrel, без изменений в его теле.
 
 ```ts
 // packages/shared/src/schemas/api-errors.spec.ts — новый кейс (падает первым)
@@ -255,7 +328,8 @@ throw apiError('CONTRACT_NOT_DRAFT', HttpStatus.CONFLICT)
 ```
 
 Добавить импорт `apiError` и `HttpStatus` из `@nestjs/common`, если ещё не импортированы в файле
-(файл уже импортирует `apiError` для двух других кодов — проверить перед добавлением).
+(файл уже импортирует `apiError` для двух вызовов `CONTRACT_TEMPLATE_MISSING` — проверить перед
+добавлением).
 
 - [ ] **Step 5: Тест на сервис (падает → проходит)**
 
@@ -297,9 +371,19 @@ ICU-формат — штатный, `{value, select, ...}`, без макрос
 - [ ] **Step 7: Коммит**
 
 ```bash
-git add packages/shared/src/schemas/api-errors.ts packages/shared/src/schemas/api-errors.spec.ts \
+git rm packages/shared/src/schemas/api-errors.ts
+git add packages/shared/src/schemas/api-errors/base.ts \
+  packages/shared/src/schemas/api-errors/auth-users-projects.ts \
+  packages/shared/src/schemas/api-errors/finance-invoices.ts \
+  packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts \
+  packages/shared/src/schemas/api-errors/index.ts packages/shared/src/schemas/api-errors.spec.ts \
   apps/api/src/auth apps/api/src/users apps/api/src/projects
 git commit -m "feat(api,shared): route auth/users/projects exceptions through api-error codes
+
+Splits api-errors.ts into a barrel (api-errors/index.ts) over per-module files
+so Track A's 3 PRs write disjoint files instead of one shared file
+(fix-round 1, SPEC-M-1) — finance-invoices.ts/documents-contracts-notifications.ts
+land here as empty stubs for Task 2/3 to fill.
 
 ac_verified: 1"
 ```
@@ -310,7 +394,9 @@ ac_verified: 1"
 
 **Files:**
 
-- Modify: `packages/shared/src/schemas/api-errors.ts`
+- Modify: `packages/shared/src/schemas/api-errors/finance-invoices.ts` (создан Task 1 пустой
+  заглушкой — заполняется здесь; **barrel `api-errors/index.ts` не трогается**, см. «Дисциплина
+  параллельности» в начале трека, SPEC-M-1)
 - Modify: `apps/api/src/finance/transactions.service.ts` (60 кириллица + 60 англ.),
   `apps/api/src/finance/balance.service.ts`, `apps/api/src/finance/company-account.service.ts`,
   `apps/api/src/finance/pending-settlement.service.ts`, `apps/api/src/invoices/invoices.service.ts`
@@ -336,7 +422,8 @@ git grep -n "needsReconfirm" origin/main -- apps/api/src/finance/transactions.se
 Паттерн переноса: пользовательский код без деталей + **лог** с полным разбором (аудит: «Разбор — в лог»).
 
 ```ts
-// packages/shared/src/schemas/api-errors.ts
+// packages/shared/src/schemas/api-errors/finance-invoices.ts (FINANCE_INVOICES_ERROR_MESSAGES) —
+// barrel не трогается, уже спредит этот Record целиком
 FINANCE_ROW_AMOUNT_MISMATCH: /* i18n */ {
   id: 'api-error.FINANCE_ROW_AMOUNT_MISMATCH',
   message: 'Сума рядка і фактичні виплати розходяться — правка недоступна. Повідомте номер рядка адміністратору',
@@ -404,7 +491,7 @@ COPY-M-api-13 (абзац про курс в `pending-settlement.service.ts`) и
 - [ ] **Step 10: Коммит**
 
 ```bash
-git add packages/shared/src/schemas/api-errors.ts apps/api/src/finance apps/api/src/invoices
+git add packages/shared/src/schemas/api-errors/finance-invoices.ts apps/api/src/finance apps/api/src/invoices
 git commit -m "feat(api,shared): route finance/invoices exceptions through api-error codes
 
 ac_verified: 1"
@@ -416,7 +503,9 @@ ac_verified: 1"
 
 **Files:**
 
-- Modify: `packages/shared/src/schemas/api-errors.ts`
+- Modify: `packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts` (создан Task 1
+  пустой заглушкой — заполняется здесь; **barrel `api-errors/index.ts` не трогается**, см. «Дисциплина
+  параллельности» в начале трека, SPEC-M-1)
 - Modify: `apps/api/src/documents/documents.service.ts` (18 кириллица + 4 англ.),
   `apps/api/src/contracts/{contract-templates,signed-contracts}.service.ts` (частично мигрирован —
   `signed-contracts.service.ts` уже 1 `apiError()`), `apps/api/src/teams/teams.service.ts` (18+19),
@@ -463,7 +552,8 @@ DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN: /* i18n */ {
 ```
 
 ```ts
-// packages/shared/src/schemas/api-errors.ts — API_ERROR_PARAMS
+// packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts —
+// DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_PARAMS (barrel не трогается)
 DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN: ['role', 'category'],
 ```
 
@@ -528,7 +618,8 @@ USER {Користувача} RECORD {Запис} other {Об'єкт}} не зн
 - [ ] **Step 7: Коммит**
 
 ```bash
-git add packages/shared/src/schemas/api-errors.ts apps/api/src/documents apps/api/src/contracts \
+git add packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts \
+  apps/api/src/documents apps/api/src/contracts \
   apps/api/src/teams apps/api/src/legends apps/api/src/approvals apps/api/src/interviews \
   apps/api/src/notifications/notifications.service.ts
 git commit -m "feat(api,shared): route documents/contracts/teams/legends/approvals/interviews exceptions through api-error codes
@@ -559,14 +650,23 @@ Zod v4 позволяет только `message: string` на валидатор
 - Create: `packages/shared/src/schemas/zod-errors.spec.ts`
 - Modify: `apps/api/src/zod-exception.filter.ts` — issues отдают `{ path, code, params? }` вместо `{ path, message }`
 - Modify: `packages/shared/src/schemas/money.ts`, `finance.ts`, `users.ts`, `payment-requisites.ts`
+- Modify: `apps/web/app/lib/axios-utils.ts` — `translateZodError(code)` (тот же паттерн, что
+  `translateApiError`); `extractBackendMessage`'s Priority 1 предпочитает `code` (переведённый через
+  каталог) там, где он есть, `message` — только для немигрированной схемы (SPEC-H-1)
 - Test: `apps/api/src/zod-exception.filter.spec.ts` (новый или расширить существующий — проверить,
-  есть ли), `packages/shared/src/schemas/{money,finance,users,payment-requisites}.spec.ts`
+  есть ли), `packages/shared/src/schemas/{money,finance,users,payment-requisites}.spec.ts`,
+  `apps/web/app/lib/axios-utils.spec.ts`
+- Modify (генерируется, не руками): `packages/shared/src/i18n/locales/{uk,en}/messages.po` —
+  `pnpm i18n:extract` подхватывает `zod-error.*` id, заведённые Step 3
 
 **Interfaces:**
 
 - Produces: `ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor>` — читает Task 5 (расширяет
-  тот же `Record`) и (в отдельной, вне-периметра-этого-плана задаче apps/web) форма, показывающая
-  ошибку поля
+  тот же `Record`) и `apps/web/app/lib/axios-utils.ts`'s `translateZodError` (этот же PR, Step 8 ниже
+  — не отдельная задача другого этапа)
+- Produces: `translateZodError(code)` в `axios-utils.ts` — внутренняя функция модуля (не
+  экспортируется, как и `translateApiError`); наблюдаемый эффект — `extractBackendMessage` возвращает
+  переведённый текст для мигрированного поля вместо пустой строки после `code`
 - Consumes: `createI18n`, `MessageDescriptor` — как Track A
 
 - [ ] **Step 1: Реестр — тест вперёд, на самом массовом дубле (`bankUahRnokpp`, 3 места)**
@@ -673,7 +773,69 @@ it('returns a code for a migrated schema message, text for a non-migrated one', 
 })
 ```
 
-- [ ] **Step 8: Применить тот же перенос к остальным сообщениям волны B1**
+- [ ] **Step 8: Клиентский рендер по коду — `apps/web` в этом же PR, не в «будущем» (SPEC-H-1)**
+
+Без этого шага Step 6 — регрессия в тот же PR, не долг «на потом»: сегодня единственный клиентский
+потребитель конверта, `extractBackendMessage`'s Priority 1 (`apps/web/app/lib/axios-utils.ts`), читает
+`e['message']` напрямую и ничего не знает про `code`. Для мигрированного поля (`bankUahRnokpp`,
+`txHash` — ровно то, что эта волна переносит) форма покажет `"bankUahRnokpp: "` — путь без текста.
+
+```ts
+// apps/web/app/lib/axios-utils.ts — добавить импорт:
+import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES, type ZodErrorCode } from '@crm/shared'
+
+// рядом с translateApiError — тот же паттерн (MessageOptions.message только когда descriptor его несёт):
+function isZodErrorCode(value: unknown): value is ZodErrorCode {
+  return typeof value === 'string' && (ZOD_ERROR_CODES as readonly string[]).includes(value)
+}
+
+function translateZodError(code: ZodErrorCode): string {
+  const descriptor = ZOD_ERROR_MESSAGES[code]
+  const options = descriptor.message !== undefined ? { message: descriptor.message } : undefined
+  return i18n._(descriptor.id, undefined, options)
+}
+```
+
+```ts
+// extractBackendMessage, Priority 1 — было:
+const msgStr = typeof e['message'] === 'string' ? e['message'] : ''
+// стало — code (мигрированная схема) переводится через каталог, message (немигрированная) — как раньше:
+const rawCode = e['code']
+const msgStr = isZodErrorCode(rawCode)
+  ? translateZodError(rawCode)
+  : typeof e['message'] === 'string'
+    ? e['message']
+    : ''
+```
+
+`ZOD_ERROR_CODES` уже экспортируется реестром (Step 3, `as const`-массив) — здесь используется как
+runtime-список для сужения типа, не только как тип.
+
+- [ ] **Step 9: Тест — мигрированное и немигрированное поле в одном ответе**
+
+```ts
+// apps/web/app/lib/axios-utils.spec.ts
+it('translates a migrated field (code) and keeps prose for a non-migrated one, in the same response', () => {
+  const err = {
+    response: {
+      data: {
+        message: 'Validation failed',
+        errors: [
+          { path: 'bankUahRnokpp', code: 'RNOKPP_FORMAT' },
+          { path: 'email', message: 'Некорректный email' },
+        ],
+      },
+    },
+  }
+  expect(getApiErrorMessage(err)).toBe(
+    'bankUahRnokpp: РНОКПП має містити 10 цифр; email: Некорректный email',
+  )
+})
+```
+
+Run: `pnpm i18n:compile && pnpm --filter @crm/web test -- app/lib/axios-utils.spec.ts` → PASS.
+
+- [ ] **Step 10: Применить тот же перенос к остальным сообщениям волны B1**
 
 ```bash
 git grep -cP "message:.*[А-Яа-яЁё]" origin/main -- packages/shared/src/schemas/{money,finance,users,payment-requisites}.ts
@@ -693,14 +855,17 @@ email» (5× в `users.ts`), «Причина отказа обязательн�
 `{n, plural, one {# digit} other {# digits}}` для `en` (синтаксис подтверждён context7:
 `{numBooks, plural, one {# book} other {# books}}`).
 
-- [ ] **Step 9: Коммит**
+- [ ] **Step 11: Коммит**
 
 ```bash
+pnpm i18n:extract && pnpm i18n:extract && git diff --exit-code -- packages/shared/src/i18n/locales  # идемпотентность
 git add packages/shared/src/schemas/zod-errors.ts packages/shared/src/schemas/zod-errors.spec.ts \
   packages/shared/src/schemas/money.ts packages/shared/src/schemas/finance.ts \
   packages/shared/src/schemas/users.ts packages/shared/src/schemas/payment-requisites.ts \
-  apps/api/src/zod-exception.filter.ts
-git commit -m "feat(api,shared): zod validation messages become stable codes (money/finance/users/payment-requisites)
+  apps/api/src/zod-exception.filter.ts apps/web/app/lib/axios-utils.ts \
+  apps/web/app/lib/axios-utils.spec.ts packages/shared/src/i18n/locales/uk/messages.po \
+  packages/shared/src/i18n/locales/en/messages.po
+git commit -m "feat(api,shared,web): zod validation messages become stable codes, client renders by code (money/finance/users/payment-requisites)
 
 ac_verified: 1"
 ```
@@ -811,10 +976,11 @@ ac_verified: 1"
 
 **Files:**
 
-- Modify: `packages/shared/src/schemas/notification-registry.ts` — `NOTIFICATION_TITLES`,
-  `ACTION_LABELS`, `SUBJECT_MISSING_LABELS`, `SUBJECT_ARCHIVED_LABELS`,
-  `APPROVAL_SUPERSEDED_LABEL`/`APPROVAL_DECIDED_LABEL`, `describeNotification`, `subjectPhrase`,
-  `percentText`, `money()`, `quoteWithinBudget`, `NOTIFICATION_DETAIL_LINE_CHARS`
+- Modify: `packages/shared/src/schemas/notification-registry.ts` — добавляет НОВЫЙ экспорт
+  `NOTIFICATION_TITLE_MESSAGES` (легаси `NOTIFICATION_TITLES` НЕ меняет тип — SPEC-H-2, см.
+  «Опасность» в Step 3), меняет `ACTION_LABELS`, `SUBJECT_MISSING_LABELS`, `SUBJECT_ARCHIVED_LABELS`,
+  `APPROVAL_SUPERSEDED_LABEL`/`APPROVAL_DECIDED_LABEL`, `describeNotification`, `renderNotification`,
+  `subjectPhrase`, `percentText`, `money()`, `quoteWithinBudget`, `NOTIFICATION_DETAIL_LINE_CHARS`
 - Modify: `apps/api/src/invoices/invoices.service.ts:1311-1312` (`INVOICE_SIGNED` — зарегистрировать
   тип в реестре вместо raw `title`), `apps/api/src/invoices/invoices.service.ts:403/565`
   (`INVOICE_SIGN_REQUIRED`), `apps/api/src/vacancies/applications.service.ts:669` (`VACANCY_APPLICATION`)
@@ -826,6 +992,9 @@ ac_verified: 1"
 
 - Consumes: `createI18n`, `formatMoney(amount, currency, locale)` из `packages/shared/src/i18n/format.ts`
   (уже существует, Task 6 меняет `money()`'s хардкод `toLocaleString('ru-RU')` на вызов этой функции)
+- Produces: `NOTIFICATION_TITLE_MESSAGES: Record<NewNotificationType, MessageDescriptor>` — НОВЫЙ
+  экспорт (Шаблон A, легаси `NOTIFICATION_TITLES: Record<NewNotificationType, string>` остаётся БЕЗ
+  ИЗМЕНЕНИЙ для шести производителей + `NotificationSettingsTab.tsx`, см. «Опасность» в Step 3, SPEC-H-2)
 - Produces: `renderNotification(n, locale)` — **новая сигнатура с параметром `locale`** (сейчас без
   него — Task 7 и `apps/web`'s вызывающий код должны передать локаль зрителя; для показа в интерфейсе
   это локаль текущего пользователя из `I18nProvider`, для письма — локаль получателя из
@@ -844,19 +1013,72 @@ it('INVOICE_SIGNED renders from the registry, not from a frozen DB title', () =>
 
 - [ ] **Step 2: Убедиться, что падает** — `INVOICE_SIGNED` сегодня не в `NEW_NOTIFICATION_TYPES`.
 
-- [ ] **Step 3: Добавить тип в реестр**
+- [ ] **Step 3: Добавить тип в реестр — `NOTIFICATION_TITLE_MESSAGES` НОВЫМ экспортом, легаси
+      `NOTIFICATION_TITLES` не трогать (SPEC-H-2, тот же приём Шаблона A, что `ROLE_LABELS`/`SORT_OPTIONS`
+      в плане 3a)**
 
 ```ts
 // NEW_NOTIFICATION_TYPES — добавить 'INVOICE_SIGNED', 'INVOICE_SIGN_REQUIRED', 'VACANCY_APPLICATION'
-// NOTIFICATION_TITLES — добавить:
-INVOICE_SIGNED: /* i18n */ { id: 'notification.INVOICE_SIGNED.title', message: 'Рахунок підписано' },
-INVOICE_SIGN_REQUIRED: /* i18n */ { id: 'notification.INVOICE_SIGN_REQUIRED.title', message: 'Рахунок очікує підпису' },
-VACANCY_APPLICATION: /* i18n */ { id: 'notification.VACANCY_APPLICATION.title', message: 'Новий відгук на вакансію' },
+
+// NOTIFICATION_TITLE_MESSAGES — НОВЫЙ экспорт, Record<NewNotificationType, MessageDescriptor>.
+// Канон для показа (Step 7 переводит на него renderNotification/describeNotification, оба в этом же
+// файле — единственные читающие сайты, которые меняются этим PR):
+export const NOTIFICATION_TITLE_MESSAGES: Record<NewNotificationType, MessageDescriptor> = {
+  // ...семь существующих ключей — тот же текст, что в NOTIFICATION_TITLES ниже, обёрнутый
+  // дескриптором (id = 'notification.<TYPE>.title')
+  INVOICE_SIGNED: /* i18n */ { id: 'notification.INVOICE_SIGNED.title', message: 'Рахунок підписано' },
+  INVOICE_SIGN_REQUIRED: /* i18n */ { id: 'notification.INVOICE_SIGN_REQUIRED.title', message: 'Рахунок очікує підпису' },
+  VACANCY_APPLICATION: /* i18n */ { id: 'notification.VACANCY_APPLICATION.title', message: 'Новий відгук на вакансію' },
+}
+
+// NOTIFICATION_TITLES — ЛЕГАСИ, тип и текст остаются РУССКИМИ (Record<NewNotificationType, string>,
+// БЕЗ ИЗМЕНЕНИЙ типа) — см. «Опасность» ниже. Record закрыт по NewNotificationType, поэтому три новых
+// ключа обязательны компилятором даже без перевода — тот же текст, без i18n-обёртки:
+INVOICE_SIGNED: 'Рахунок підписано',
+INVOICE_SIGN_REQUIRED: 'Рахунок очікує підпису',
+VACANCY_APPLICATION: 'Новий відгук на вакансію',
 ```
 
-`NOTIFICATION_TITLES`'s тип сегодня `Record<NewNotificationType, string>` — меняется на
-`Record<NewNotificationType, MessageDescriptor>`; каждый читающий сайт (`describeNotification`,
-`notification-email-copy.ts`'s фолбэк-ветка) переходит на `i18n._(NOTIFICATION_TITLES[type].id, ...)`.
+### Опасность: `NOTIFICATION_TITLES` — шесть производителей и один web-потребитель вне периметра (SPEC-H-2)
+
+`NOTIFICATION_TITLES[type]` (легаси, `string`) пишут в колонку `title: string` (`CreateNotificationInput`,
+`notifications.service.ts`) **шесть файлов, одиннадцать вызовов** (`git grep -n 'NOTIFICATION_TITLES'
+origin/main` — список ниже обязан совпасть на старте задачи, числа/строки могут на 1-2 сдвинуться):
+
+- `apps/api/src/approvals/approvals.service.ts:269,293`
+- `apps/api/src/contracts/employee-contracts.service.ts:216`
+- `apps/api/src/finance/transactions.service.ts:9115,9163`
+- `apps/api/src/projects/projects.service.ts:1147,1399,2281,2448`
+- `apps/api/src/teams/teams.service.ts:959,986`
+- `apps/api/src/users/users.service.ts:226`
+
+Плюс `apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx:178` — `rowTitle(): string`
+рендерит `NOTIFICATION_TITLES[row.type as NewNotificationType]` как ярлык типа в списке настроек
+(не заголовок конкретного уведомления — заголовок ТИПА).
+
+**Что с ними в этом PR: ничего.** Ни один из семи файлов не редактируется, не импортирует
+`NOTIFICATION_TITLE_MESSAGES`, не входит в Files этого Task. Легаси `NOTIFICATION_TITLES` не меняет
+ни тип, ни значения существующих семи ключей (только добавляет три новых строкой, см. Step 3 выше) —
+все семь потребителей продолжают компилироваться и работать как раньше, без правки.
+
+**Почему это безопасно, а не «отложенный долг»:** `renderNotification` (Step 6 ниже) для НОВЫХ типов
+уже сегодня перевычисляет заголовок заново при каждом показе — `title: NOTIFICATION_TITLES[n.type]`
+читает ЖИВОЙ реестр, не замороженную строку из БД (`RenderedNotification`'s `title` не читает `n.title`
+для `isNewNotificationType`-веток, см. текущую реализацию). Тот же принцип у `composeBody`'s
+фолбэк-ветки (Task 7) — `subject: NOTIFICATION_TITLES[source.type]`. Замороженная в БД колонка `title`,
+которую пишут шесть производителей, **не читается ни одним путём показа** для новых типов — она
+существует из-за `NOT NULL`-ограничения схемы и как фолбэк для неразбираемых данных. Заменить
+`NOTIFICATION_TITLES[type]` (легаси) на `NOTIFICATION_TITLE_MESSAGES[type]` (новый канон) в этих шести
+файлах означало бы поменять то, что пишется в никогда-не-читаемую-для-показа колонку — правка без
+наблюдаемого эффекта, зато с блокирующим typecheck-риском вне зоны этого PR.
+
+**В каком PR легаси удаляется:** не в этом плане. Удаление `NOTIFICATION_TITLES` (или перевод шести
+производителей + `NotificationSettingsTab.tsx` на `NOTIFICATION_TITLE_MESSAGES`) — отдельная задача,
+запускается, когда последний внешний потребитель мигрирует (тот же приём, что `ROLE_LABELS`/
+`SORT_OPTIONS` в плане 3a: легаси убирается волной, которая трогает ПОСЛЕДНЕГО потребителя, не раньше
+— здесь это `apps/web`'s `web-docs-notify`-волна для `NotificationSettingsTab.tsx` и/или задача,
+убирающая `NOT NULL` с колонки `title`, обе вне периметра этапа 4). Зафиксировано как пункт бэклога,
+если не подхвачено отдельной задачей до старта этапа 6.
 
 - [ ] **Step 4: Добавить `dataSchemaFor` для трёх типов** (у каждого нового `NewNotificationType`
       обязана быть схема данных в `dataSchemas` — `notificationDataSchemaFor` иначе бросит на
@@ -882,7 +1104,24 @@ data: { counterpartyName: counterpartyRow.displayName },
 Аналогично `INVOICE_SIGN_REQUIRED` (строки 403, 565 — убрать `title`/`body`, передать `data`) и
 `VACANCY_APPLICATION` (`applications.service.ts:669`).
 
-- [ ] **Step 6: Прогнать тест Step 1 → PASS**, плюс тест на старые записи в БД (обратная совместимость):
+- [ ] **Step 6: `describeNotification`/`renderNotification` — читают `NOTIFICATION_TITLE_MESSAGES`
+      (новый канон), не легаси `NOTIFICATION_TITLES`; прогнать тест Step 1 → PASS**
+
+```ts
+// notification-registry.ts, renderNotification — было:
+title: NOTIFICATION_TITLES[n.type],
+detail: describeNotification(n.type, parsed.data as never),
+// стало — оба через новый канон, локаль приходит параметром (Interfaces: renderNotification(n, locale)):
+title: i18n._(NOTIFICATION_TITLE_MESSAGES[n.type].id, undefined, {
+  message: NOTIFICATION_TITLE_MESSAGES[n.type].message,
+}),
+detail: describeNotification(n.type, parsed.data as never, locale),
+```
+
+`createI18n(locale)` вызывается один раз в `renderNotification`, не на каждое поле — тот же приём, что
+`i18n` параметром в `notification-email-copy.ts`'s `BODIES` (Task 7 Step 2-4).
+
+Плюс тест на старые записи в БД (обратная совместимость, легаси-ветка не трогается этим task):
 
 ```ts
 it('a legacy row with a frozen title still renders (fallback path stays)', () => {
@@ -1146,9 +1385,9 @@ ac_verified: 1"
 ## Что НЕ входит в этот план
 
 - **`apps/web`** (кроме уже упомянутых точек интеграции — `getApiErrorMessage`/`translateApiError`,
-  которые УЖЕ читают весь реестр по конструкции и не требуют правки при расширении кодов). Клиентский
-  рендер ошибки Zod-поля по коду (`ZOD_ERROR_MESSAGES`) — отдельная задача этапа 3/следующей волны,
-  здесь только серверный механизм и реестр.
+  которые УЖЕ читают весь реестр по конструкции и не требуют правки при расширении кодов, и
+  `axios-utils.ts`'s `translateZodError`, который Task 4 добавляет в своём же PR — SPEC-H-1: клиентский
+  рендер ошибки Zod-поля по коду входит в первый PR трека B, не откладывается).
 - **`apps/api/src/contact/**`, публичные throw-сайты `vacancies`/`job-sourcing`/`resumes`** —
 landing-facing, читает `apps/landing`'s `errorKindForStatus`по статус-коду, не по тексту (COPY-M-api-14,
 уже целевая схема). CRM-facing throw-сайты тех же модулей (если контроллер несёт`@Roles`) —
@@ -1179,6 +1418,15 @@ landing-facing, читает `apps/landing`'s `errorKindForStatus`по стат�
 - `subjectPhrase`'s вложенный `select` (Task 6 Step 8) — если `lingui extract` не парсит вложенность,
   разворачивается в два плоских сообщения; выбор фиксируется в PR body, откат тривиален (правка одного
   файла).
+- `api-errors.ts` → директория `api-errors/{base,auth-users-projects,finance-invoices,
+documents-contracts-notifications,index}.ts` (fix-round 1, SPEC-M-1) — откат = склеить обратно в
+  один файл одним PR, внешний контракт (`export * from './api-errors'` в `schemas/index.ts`, имена
+  `API_ERROR_CODES`/`API_ERROR_MESSAGES`/`API_ERROR_PARAMS`/`API_ERROR_FALLBACK_EN`) не меняется ни на
+  шаге разделения, ни при гипотетическом откате.
+- `NOTIFICATION_TITLES` остаётся легаси (Шаблон A, не меняет тип) вместо полного перевода на
+  `MessageDescriptor` (fix-round 1, SPEC-H-2) — откат в другую сторону (доудалить легаси, перевести
+  шесть производителей + `NotificationSettingsTab.tsx` на `NOTIFICATION_TITLE_MESSAGES`) — отдельная
+  задача не этого PR, не этого плана; до неё оба экспорта существуют параллельно.
 
 ## Вопросы владельцу (A2)
 
@@ -1207,9 +1455,12 @@ landing-facing, читает `apps/landing`'s `errorKindForStatus`по стат�
 - `git grep -nE "throw new [A-Za-z]*Exception\(" apps/api/src | grep -v '\.spec\.ts' | grep -P "[А-Яа-яЁё]"`
   — 0 строк (кроме явно задокументированных исключений «Что НЕ входит»).
 - `git grep -cP "message:.*[А-Яа-яЁё]|\.(min|max|email|regex|refine|length)\([^)]*[А-Яа-яЁё]" packages/shared/src/schemas` — 0.
-- `packages/shared/src/schemas/notification-registry.ts` — ни один `Record<..., string>` с видимым
-  текстом; все три «замороженных» типа зарегистрированы (`NEW_NOTIFICATION_TYPES` включает
-  `INVOICE_SIGNED`/`INVOICE_SIGN_REQUIRED`/`VACANCY_APPLICATION`).
+- `packages/shared/src/schemas/notification-registry.ts` — ни один НОВЫЙ `Record<..., string>` с
+  видимым текстом; легаси `NOTIFICATION_TITLES: Record<NewNotificationType, string>` — единственное
+  осознанное исключение (SPEC-H-2, Шаблон A, шесть внешних производителей + `NotificationSettingsTab.tsx`
+  остаются на нём до отдельной задачи, см. Task 6 «Опасность»), новый канон `NOTIFICATION_TITLE_MESSAGES`
+  — единственный, кто должен расти дальше; все три «замороженных» типа зарегистрированы
+  (`NEW_NOTIFICATION_TYPES` включает `INVOICE_SIGNED`/`INVOICE_SIGN_REQUIRED`/`VACANCY_APPLICATION`).
 - `notification-email-copy.spec.ts` — снапшот на `uk` и `en` для всех 10 типов, ни одного
   `startsWith`/`toContain` на русский литерал.
 - `pnpm i18n:extract` идемпотентен (второй прогон не меняет `.po`), `copy-reviewer` — `PASS` на `uk` и
