@@ -16,12 +16,112 @@
 - Исходный текст в коде — **украинский** (`sourceLocale: 'uk'`); английский пишется рядом в том же PR как второй оригинал (скилл `copywriting` §5, решение владельца #7). Русские литералы в файлах из периметра этой волны убираются полностью; литералы в файлах ВНЕ периметра (`_Избегать_`) не трогаются.
 - `msg`/`plural`/`select`/`t`/`Trans` — **никогда `t`/`plural`/`select` на уровне модуля** (фиксируют строку один раз при импорте): модульные константы — `msg`, разрешаются `i18n._()` в месте показа. Источник — Lingui 5.9.5 docs (`Do not call t, plural or select at module level`).
 - В компонентах — `useLingui()` из `@lingui/react/macro` для `t`/`i18n` (не голый `@lingui/core/macro` `t`/`plural` вне компонента): так строка реагирует на переключение языка без ремонта.
-- Тесты: якоря `data-testid`/роли; текст в ассертах — импорт скомпилированного сообщения из каталога `uk` (`import { messages } from '@crm/shared/i18n/locales/uk/messages'` + `messages['<id>']`), не литералом (`playwright-patterns` §10, `russian-language.md`).
+- Тесты: якоря `data-testid`/роли. Текст в ассертах — **fix-round 1, SPEC-H-1**: `import { messages } from '@crm/shared/i18n/locales/uk/messages'` НЕ резолвится (`@crm/shared` алиасится на ФАЙЛ `packages/shared/src/index.ts`, не на директорию — Vite не умеет дописывать подпуть к файловому алиасу). Каталог грузится ДВУМЯ разными, каждый раз РЕАЛЬНЫМИ, механизмами (код обоих — новый раздел «Тестовый доступ к каталогу» сразу после Global Constraints):
+  - **Vitest** (`apps/web`) — канонический хелпер `apps/web/app/test/i18n.tsx`: `loadCatalog(locale)` → `activateLocale(locale)` из `@/lib/i18n` (ТОТ ЖЕ рантайм-путь, что и продакшен, через рабочий алиас `@crm/shared-i18n-locales` + `import.meta.glob` — уже доказан `LanguageSection.test.tsx`, `apps/web/app/lib/i18n.ts`), плюс `I18nTestProvider` — общий `render`/`renderHook`-wrapper.
+  - **E2E** (`apps/e2e`) — Playwright-тесты идут через собственный TS-загрузчик, не через Vite, `@lingui/vite-plugin` там недоступен вовсе. Компилированный каталог (`pnpm i18n:compile`, `compileNamespace: 'ts'`, уже в гейтах каждого Task-Step) — самодостаточный модуль без импортов (`export const messages = JSON.parse('{...}')`, Lingui CLI ref), поэтому обычный относительный файловый импорт его читает без бандлера: хелпер `apps/e2e/fixtures/catalog.ts` → `loadMessages(locale)`.
+  - **Оба** читают РЕАЛЬНЫЙ каталог, не литерал — `playwright-patterns` §10 соблюдён на обеих сторонах. ID сообщения без явного `msg({id: ...})` — ХЕШ от исходного текста, не сам текст (Lingui: generated ids, `explicit-vs-generated-ids`) — конкретный id для новой строки ищется `pnpm i18n:extract` → `grep` по `.po` за текстом.
 - `git add` явным списком; `DATABASE_URL= git push`; без `--no-verify`; коммиты с `ac_verified: <номера>`.
 - После каждого Edit/Write `.ts`/`.tsx` → `mcp__eslint__lint-files`; `lingui/no-unlocalized-strings` пока `warn` (этап 6 включит `error') — ноль новых warning на строках, которые эта волна и так трогает, обязателен.
 - `pnpm i18n:extract` (== `lingui extract --clean`) идемпотентен: второй прогон подряд не меняет `.po`-файлы. CI-гейт «i18n catalogs are in sync» (`ci.yml`) уже это проверяет — воспроизвести локально перед push.
 - Каждый PR: design tier 2 (правка существующего экрана — conformance, не полная генерация), `copy-reviewer` вердикт по `uk` **и** `en` отдельно, скриншоты 320/1440 на обоих языках, `pnpm mutation:changed` на диффе.
 - Зона: весь диапазон файлов волны — `apps/web/**` + `packages/shared/src/i18n/format.ts` (расширение, не переписывание) — Coder-зона. Тестовые файлы — тоже Coder (не AutoTest: это не новый `.spec.ts`, а правка ассертов внутри уже смигрировавших модулей, часть той же задачи).
+
+---
+
+## Тестовый доступ к каталогу (fix-round 1, SPEC-H-1 — используется во ВСЕХ Task 1–3 шагах)
+
+Global Constraints' исходный паттерн (`import { messages } from '@crm/shared/i18n/locales/uk/messages'`) не
+резолвится: `@crm/shared` в `apps/web/vite.config.ts:76`/`vitest.config.ts:99` алиасится на **файл**
+`packages/shared/src/index.ts`, а не на директорию, и Vite дописывает остаток пути к файловому алиасу
+(`.../src/index.ts/i18n/locales/...` — невалидно; тот же комментарий в обоих конфигах, task-i18n-stage2
+Task 5/6). Ниже — единственный канонический способ для каждой стороны (unit vs E2E), дальше в плане —
+только ссылка на этот раздел.
+
+### Vitest (`apps/web`) — `apps/web/app/test/i18n.tsx` (новый файл)
+
+Рабочий путь — ТОТ ЖЕ, каким продакшен грузит каталог: `activateLocale()` из `@/lib/i18n`, за которым
+стоит рабочий (директорийный, не файловый) алиас `@crm/shared-i18n-locales` + `import.meta.glob` —
+уже доказан живым тестом `apps/web/app/components/user-profile/__tests__/LanguageSection.test.tsx`
+(`await activateLocale('uk')`, тот же `I18nProvider`-wrapper).
+
+```tsx
+// apps/web/app/test/i18n.tsx
+// fix-round 1 (PR #697, SPEC-H-1). `@crm/shared/i18n/locales/<locale>/messages`
+// не резолвится (см. раздел выше). `activateLocale` — единственный рабочий
+// путь: он идёт через `@crm/shared-i18n-locales` (директорийный алиас) +
+// `import.meta.glob`, ТОТ ЖЕ рантайм, что использует продакшен-код и уже
+// доказанный `LanguageSection.test.tsx`.
+import type { ReactNode } from 'react'
+import { I18nProvider } from '@lingui/react'
+import { i18n, activateLocale } from '@/lib/i18n'
+import type { Locale } from '@crm/shared'
+
+/** Активирует РЕАЛЬНЫЙ скомпилированный каталог `locale` на общем `i18n`
+ *  singleton, который читают `useLingui()`/`useLocale()`. Вызывать ДО
+ *  render/renderHook — это не React-компонент, await внутри wrapper'а
+ *  невозможен. */
+export async function loadCatalog(locale: Locale): Promise<void> {
+  await activateLocale(locale)
+}
+
+/** `render`/`renderHook`-wrapper с ТЕМ ЖЕ `i18n` singleton, который активирует `loadCatalog`. */
+export function I18nTestProvider({ children }: { children: ReactNode }) {
+  return <I18nProvider i18n={i18n}>{children}</I18nProvider>
+}
+```
+
+Использование (пример — полный тест `role-select.locale.test.tsx` см. Task 1 Step 1):
+
+```ts
+await loadCatalog('uk')
+const { result: uk } = renderHook(() => useRoleLabel('ADMIN'), { wrapper: I18nTestProvider })
+expect(uk.current).toBe('Адміністратор')
+await loadCatalog('en')
+const { result: en } = renderHook(() => useRoleLabel('ADMIN'), { wrapper: I18nTestProvider })
+expect(en.current).toBe('Admin')
+```
+
+Для смоук-проверки самого факта, что макрос скомпилировался (без нужды в реальном переводе,
+`uk` — `sourceLocale`) — существующий паттерн `i18n-smoke.test.tsx` (`i18n.load('uk', {}); i18n.activate('uk')`
+
+- ассерт на исходный uk-текст `<Trans>`) остаётся годным и НЕ заменяется этим хелпером; `loadCatalog`
+  нужен там, где тест хочет РЕАЛЬНЫЙ `en`-перевод или хеш-резолв конкретного `msg`/`plural`.
+
+### E2E (`apps/e2e`) — `apps/e2e/fixtures/catalog.ts` (новый файл)
+
+`apps/e2e` не проходит через Vite: Playwright гоняет `.spec.ts` собственным TS-загрузчиком
+(`playwright.config.ts` не подключает `@lingui/vite-plugin`, `package.json` не несёт `@lingui/*`
+зависимостей вовсе — проверено). Но скомпилированный каталог (`pnpm i18n:compile`,
+`compileNamespace: 'ts'`, уже в гейтах каждого Task-Step ПЕРЕД E2E-командой) — самодостаточный модуль
+без единого импорта (`export const messages = JSON.parse('{...}')`, Lingui CLI reference, "Compiled
+message file structure"), поэтому обычный относительный файловый импорт читает его без бандлера —
+бандлер тут и не нужен.
+
+```ts
+// apps/e2e/fixtures/catalog.ts
+// fix-round 1 (PR #697, SPEC-H-1). `apps/e2e` не видит ни `@crm/shared`, ни
+// `@crm/shared-i18n-locales` (оба — Vite-алиасы apps/web, e2e через Vite не
+// идёт). Скомпилированный каталог — плоский объект без импортов, читаем его
+// напрямую по относительному пути (требует `pnpm i18n:compile` ПЕРЕД
+// прогоном — уже в порядке команд каждого Task-Step).
+import { join } from 'node:path'
+
+const LOCALES_DIR = join(__dirname, '../../../packages/shared/src/i18n/locales')
+
+/** Скомпилированный каталог `locale`: id сообщения (хеш от исходного текста —
+ *  генерируется `lingui extract`, НЕ сам текст, см.
+ *  https://lingui.dev/guides/explicit-vs-generated-ids) -> локализованная
+ *  строка. Id для НОВОГО ассерта — `pnpm i18n:extract`, затем
+ *  `grep -B2 'msgstr "<исходный uk-текст>"' packages/shared/src/i18n/locales/uk/messages.po`. */
+export async function loadMessages(locale: 'uk' | 'en'): Promise<Record<string, string>> {
+  const mod = (await import(join(LOCALES_DIR, locale, 'messages'))) as {
+    messages: Record<string, string>
+  }
+  return mod.messages
+}
+```
+
+Использование — пример в Task 1 Step 8.
 
 ---
 
@@ -223,7 +323,7 @@ export function formatBytes(bytes: number, locale: Locale): string {
 **Interfaces:**
 
 - Consumes: `formatDate`, `formatNumber`, `formatMoney`, `compareNames`, `type Locale` из `@crm/shared` (этап 2, Task 2); `useLocale()` из `@/lib/i18n` (этап 2, Task 6); `activateLocale` не используется здесь напрямую.
-- Produces: `formatRelativeTime(value: Date | string, locale: Locale): string` — добавляется в `packages/shared/src/i18n/format.ts` этим PR (единственное расширение shared-пакета в волне a; используется PR1 и, в будущем, волной (e) для `notifications`/`/pending`). `ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor>` + `useRoleLabel(role: Role): string` из `@/components/ui/role-select` — новый канон для JSX; **старый** `ROLE_LABELS: Record<Role, string>` остаётся экспортированным БЕЗ ИЗМЕНЕНИЙ (см. «Опасность» ниже) для консумеров вне волны (a).
+- Produces: `formatRelativeTime(value: Date | string, locale: Locale): string` — добавляется в `packages/shared/src/i18n/format.ts` этим PR (единственное расширение shared-пакета в волне a; используется PR1 и, в будущем, волной (e) для `notifications`/`/pending`). `ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor>` + `useRoleLabel(role: Role): string` из `@/components/ui/role-select` — новый канон для JSX; **старый** `ROLE_LABELS: Record<Role, string>` остаётся экспортированным БЕЗ ИЗМЕНЕНИЙ (см. «Опасность» ниже) для консумеров вне волны (a). `loadCatalog(locale): Promise<void>` + `I18nTestProvider` из `apps/web/app/test/i18n.tsx`, `loadMessages(locale): Promise<Record<string,string>>` из `apps/e2e/fixtures/catalog.ts` — тестовые хелперы каталога (SPEC-H-1, см. «Тестовый доступ к каталогу»); PR2/PR3 их импортируют, не переопределяют.
 
 ### Опасность: `ROLE_LABELS` — общий экспорт, часть потребителей вне волны (a)
 
@@ -235,26 +335,20 @@ export function formatBytes(bytes: number, locale: Locale): string {
 
 ```tsx
 // apps/web/app/components/ui/__tests__/role-select.locale.test.tsx (новый файл)
+// Каталог — через `loadCatalog`/`I18nTestProvider` (см. «Тестовый доступ к
+// каталогу», SPEC-H-1) — единственный рабочий путь, не `@crm/shared/i18n/...`.
 import { describe, expect, it } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import { I18nProvider } from '@lingui/react'
-import { i18n } from '@lingui/core'
-import { messages as ukMessages } from '@crm/shared/i18n/locales/uk/messages'
-import { messages as enMessages } from '@crm/shared/i18n/locales/en/messages'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { useRoleLabel } from '../role-select'
 
-function withLocale(locale: 'uk' | 'en') {
-  i18n.loadAndActivate({ locale, messages: locale === 'uk' ? ukMessages : enMessages })
-  return ({ children }: { children: React.ReactNode }) => (
-    <I18nProvider i18n={i18n}>{children}</I18nProvider>
-  )
-}
-
 describe('useRoleLabel', () => {
-  it('translates ADMIN per active locale', () => {
-    const { result: uk } = renderHook(() => useRoleLabel('ADMIN'), { wrapper: withLocale('uk') })
+  it('translates ADMIN per active locale', async () => {
+    await loadCatalog('uk')
+    const { result: uk } = renderHook(() => useRoleLabel('ADMIN'), { wrapper: I18nTestProvider })
     expect(uk.current).toBe('Адміністратор')
-    const { result: en } = renderHook(() => useRoleLabel('ADMIN'), { wrapper: withLocale('en') })
+    await loadCatalog('en')
+    const { result: en } = renderHook(() => useRoleLabel('ADMIN'), { wrapper: I18nTestProvider })
     expect(en.current).toBe('Admin')
   })
   it('leaves the legacy ROLE_LABELS export untouched (type: string) for not-yet-migrated consumers', async () => {
@@ -337,9 +431,36 @@ const { i18n } = useLingui()
 if (getAxiosStatus(err) === 429) toast.error(i18n._(RATE_LIMIT_MESSAGE))
 ```
 
-- [ ] **Step 6: `ArchiveConfirmDialog.tsx` — самый дорогой файл (Шаблоны B, D, E)**
+- [ ] **Step 6: `ArchiveConfirmDialog.tsx` — самый дорогой файл (Шаблоны B, D, E; fix-round 1, SPEC-H-2)**
 
-`ROLE_RU: Record<string, string>` (родительный падеж, ключа `DROP` нет — баг, `.SENIOR` читается для DROP тоже) → удалить, заменить точечными `<Trans>`/`select` в месте использования (Шаблон E) — DROP получает СВОЮ форму, а не читает чужую. `roleGenitive` тернарка → `select` (Шаблон E). `renderImpactText`'s числа (`impact.projectsCount`, `impact.hrAccountantsOnTeam`, `impact.juniorsAffected`) → `<Plural>` (Шаблон D) вместо голых `{n}`, т. к. окружающий текст на uk обязан склоняться («0 проєктів» / «1 проєкт» / «2 проєкти» / «5 проєктів» — 4 формы, не 2 английские). Остальные 16 JSX-склеек файла — тот же приём (`<Trans>` со слотами `{impact.teamName}` и т. п., по образцу `renderImpactText` — не переписывать логику ветвления, только текстовые узлы).
+`ROLE_RU: Record<string, string>` (родительный падеж, ключа `DROP` нет — баг, `.SENIOR` читается для DROP тоже) → удалить, заменить точечными `<Trans>`/`select` в месте использования (Шаблон E) — DROP получает СВОЮ форму, а не читает чужую. `roleGenitive` тернарка → `select` (Шаблон E).
+
+`renderImpactText`'s числа → `<Plural>` (Шаблон D) вместо голых `{n}`/`{n ?? 0}`, т. к. окружающий текст
+на uk обязан склоняться («0 проєктів» / «1 проєкт» / «2 проєкти» / «5 проєктів» — 4 формы, не 2
+английские). Полный список — все ветки `renderImpactText`, поля сверены с `origin/main`
+(`packages/shared/src/schemas/projects.ts`, `archiveImpactSchema`, `git grep -n
+'teamsCount\|projectsCount\|juniorsAffected\|hrAccountantsOnTeam\|membersAffected\|activeMembersCount'
+origin/main -- packages/shared`) — каждое поле существует ровно в той ветке `renderImpactText`, где
+уже используется на `origin/main` (типы `archiveImpactSchema`'s дискриминированного union по `type:
+'user'|'team'|'project'` — поля НЕ взаимозаменяемы между ветками):
+
+| Ветка `renderImpactText`             | Поле(я) `impact`                                          | Что плюрализуется                                                                                    |
+| ------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `type==='user'`, role SENIOR/DROP    | `projectsCount`, `hrAccountantsOnTeam`, `juniorsAffected` | «N проєктів», «N HR/бухгалтерів», «N джунів»                                                         |
+| `type==='user'`, role HR             | `teamsCount`                                              | «N команд» — **закрывает COPY-M-core-5** («убран из 1 команд»)                                       |
+| `type==='user'`, role ACCOUNTANT     | `teamsCount`                                              | то же поле, вторая ветка рендера                                                                     |
+| `type==='user'`, role JUNIOR         | `projectsCount`                                           | «N активних проєктів»                                                                                |
+| `type==='team'`, `teamType==='DROP'` | `projectsCount`, `membersAffected`                        | «N проєктів», «N HR/бухгалтерів»                                                                     |
+| `type==='team'`, default (SENIOR)    | `projectsCount`, `membersAffected`                        | то же, друга гілка                                                                                   |
+| `type==='project'`                   | `activeMembersCount`                                      | «N активних джунів» — **закрывает COPY-M-core-5** (второе вхождение той же находки, отдельная ветка) |
+
+Исходная редакция Step 6 перечисляла только первую строку таблицы (ветка SENIOR/DROP) и объявляла её
+закрывающей COPY-M-core-5 — но обе цитаты аудита для этого файла («убран из 1 команд», «1 активных
+джунов будут отвязаны») лежат в ДРУГИХ ветках (`teamsCount` у HR/ACCOUNTANT, `activeMembersCount` у
+`project`), которые исходный список не упоминал вовсе.
+
+Остальные JSX-склейки файла — тот же приём (`<Trans>` со слотами `{impact.teamName}` и т. п., по
+образцу `renderImpactText` — не переписывать логику ветвления, только текстовые узлы).
 
 - [ ] **Step 7: `site.webmanifest`**
 
@@ -362,10 +483,15 @@ if (getAxiosStatus(err) === 429) toast.error(i18n._(RATE_LIMIT_MESSAGE))
 ```ts
 // apps/e2e/tests/navigation.spec.ts — было
 await expect(page.getByRole('link', { name: 'Дашборд' })).toBeVisible()
-// стало
-import { messages } from '@crm/shared/i18n/locales/uk/messages'
-const dashboardLabel = messages['<id из lingui extract для "Дашборд">']
-await expect(page.getByRole('link', { name: dashboardLabel })).toBeVisible()
+// стало — каталог через фикстуру (см. «Тестовый доступ к каталогу», SPEC-H-1),
+// не бэйр-спецификатор '@crm/shared/i18n/...' (не резолвится в apps/e2e вовсе)
+import { loadMessages } from '../fixtures/catalog'
+// id найден заранее: pnpm i18n:extract, затем
+// grep -B2 'msgstr "Дашборд"' packages/shared/src/i18n/locales/uk/messages.po
+const uk = await loadMessages('uk')
+await expect(
+  page.getByRole('link', { name: uk['<id из lingui extract для "Дашборд">'] }),
+).toBeVisible()
 ```
 
 Строки, ссылающиеся на ЕЩЁ не мигрированные страницы (`/finance`, `/projects` содержимое, а не только заголовок в nav) — **не трогать**, они останутся красными до соответствующей волны только если реально проверяют мигрированный текст; иначе они и сейчас зелёные на русском и таковыми остаются.
@@ -382,8 +508,11 @@ DATABASE_URL= pnpm --filter @crm/e2e test -- navigation dashboard-russian-string
 pnpm mutation:changed
 # Явный список (git-policy.md — НЕ добавлять директориями целиком, чтобы не
 # подмести чужие debug-артефакты из worktree). Продуктовые файлы — 36 из
-# таблицы выше (37-й, site.webmanifest, отдельно) + новый role-select.locale.test.tsx:
+# таблицы выше (37-й, site.webmanifest, отдельно) + новый role-select.locale.test.tsx
+# + два новых тестовых хелпера каталога (SPEC-H-1, используются PR2/PR3 тоже):
 git add \
+  apps/web/app/test/i18n.tsx \
+  apps/e2e/fixtures/catalog.ts \
   apps/web/app/components/layout/notifications-bell.tsx \
   apps/web/app/components/archive/ArchiveConfirmDialog.tsx \
   apps/web/app/components/archive/CascadeUnarchiveModal.tsx \
@@ -479,7 +608,7 @@ Design tier 2 (правка существующего экрана): скрин
 | `hooks/use-credentials.ts`        | 8          | B, C       | COPY-M-core-8 — Step 4                                                                                                                                                                 |
 | `lib/notification-type-icon.tsx`  | 7          | B          | Общий helper, не сами уведомления                                                                                                                                                      |
 | `hooks/use-legend.ts`             | 4          | B, C       | COPY-M-core-8 — Step 4                                                                                                                                                                 |
-| `lib/documents-filter-sort.ts`    | 6          | A          | `SORT_OPTIONS` — Step 3 (`compareNames` уже мигрирован этапом 2, Task 8)                                                                                                               |
+| `lib/documents-filter-sort.ts`    | 6          | A          | `SORT_OPTION_MESSAGES` новый канон, `SORT_OPTIONS` легаси без изменений — Step 3, транзитный шим (`compareNames` уже мигрирован этапом 2, Task 8)                                      |
 | `hooks/use-senior-resume.ts`      | 6          | B, C       | —                                                                                                                                                                                      |
 | `hooks/use-project-approvals.ts`  | 6          | B, C       | —                                                                                                                                                                                      |
 | `hooks/use-pending-items.ts`      | 6          | B, C       | —                                                                                                                                                                                      |
@@ -501,7 +630,7 @@ Design tier 2 (правка существующего экрана): скрин
 **Interfaces:**
 
 - Consumes: `formatMoney`, `formatNumber`, `compareNames`, `type Locale`, `useLocale()` (уже есть).
-- Produces: `formatBytes(bytes: number, locale: Locale): string` (сигнатура меняется — добавляется обязательный `locale`; все 6 вызовов по `apps/web` обновляются в этом же PR, `grep -rn 'formatBytes('`), `SORT_OPTIONS: Array<{ value: SortKey; label: MessageDescriptor }>`, `useInvoiceTypeLabel(type: InvoiceTypeForLabel): string` — НОВЫЙ хук в `invoice-labels.ts` (Шаблон A); легаси `getInvoiceTypeLabel(type): string` остаётся БЕЗ ИЗМЕНЕНИЙ (см. «Опасность» в Step 5 — те же основания, что и `ROLE_LABELS` в Task 1).
+- Produces: `formatBytes(bytes: number, locale: Locale): string` (сигнатура меняется — добавляется обязательный `locale`; все 6 вызовов по `apps/web` обновляются в этом же PR, `grep -rn 'formatBytes('`), `SORT_OPTION_MESSAGES: Array<{ value: SortKey; label: MessageDescriptor }>` — НОВЫЙ канон (Шаблон A с транзитным шимом, fix-round 1 SPEC-H-3, те же основания, что `ROLE_LABEL_MESSAGES` в Task 1); легаси `SORT_OPTIONS: Array<{ value: SortKey; label: string }>` остаётся экспортированным БЕЗ ИЗМЕНЕНИЙ (см. Step 3) до миграции его единственного потребителя (`documents.tsx`, волна e). `useInvoiceTypeLabel(type: InvoiceTypeForLabel): string` — НОВЫЙ хук в `invoice-labels.ts` (Шаблон A); легаси `getInvoiceTypeLabel(type): string` остаётся БЕЗ ИЗМЕНЕНИЙ (см. «Опасность» в Step 5 — те же основания, что и `ROLE_LABELS` в Task 1).
 
 - [ ] **Step 1: Тест `formatBytes` с локалью (падает)**
 
@@ -552,14 +681,40 @@ export function formatBytes(bytes: number, locale: Locale): string {
 
 `format-amount.ts`: `formatAmount(amount)` (было `ru-RU`) и `formatAmountUsd(amount)` (было `en-US`) переписать через `formatMoney(amount, currency, locale)` из `@crm/shared`, добавив параметр `locale: Locale` каждой функции; обновить все вызовы (`grep -rln "formatAmount\|formatAmountUsd" apps/web/app` — дашборды PR1 уже мигрируют свои вызовы туда же в Task 1 Step, здесь — только определения функций и вызовы вне PR1-файлов).
 
-- [ ] **Step 3: `documents-filter-sort.ts` — `SORT_OPTIONS`**
+- [ ] **Step 3: `documents-filter-sort.ts` — `SORT_OPTIONS` (fix-round 1, SPEC-H-3 — Шаблон A, транзитный шим)**
+
+**Опасность — та же, что у `ROLE_LABELS` в Task 1 и `getInvoiceTypeLabel` в Step 5:** единственный
+сегодняшний потребитель `SORT_OPTIONS` — `routes/_authenticated/documents.tsx:514`
+(`{opt.label}`, рендерится напрямую как JSX-текст внутри `<SelectItem>`) — принадлежит волне (e), эта
+волна его не трогает. Смена типа `label` на `MessageDescriptor` (обычный объект `{id, message}`) без
+миграции потребителя не «покажет `[object Object]`», а **бросит** `Error: Objects are not valid as a
+React child` — краш всей страницы «Документы» на весь промежуток между мержем PR2 и мержем волны (e).
+Решение — тот же приём, не новый: легаси `SORT_OPTIONS` не трогается, новый канон — отдельным
+экспортом.
 
 ```ts
 // apps/web/app/lib/documents-filter-sort.ts
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 
-export const SORT_OPTIONS: Array<{ value: SortKey; label: MessageDescriptor }> = [
+// Легаси — БЕЗ ИЗМЕНЕНИЙ (тип, значения, буквы алфавита в лейблах) до тех
+// пор, пока `documents.tsx` (волна e) не переключится на SORT_OPTION_MESSAGES
+// ниже и не удалит этот экспорт отдельной задачей той волны.
+export const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: 'date_desc', label: 'Сначала новые' },
+  { value: 'date_asc', label: 'Сначала старые' },
+  { value: 'name_asc', label: 'Имя: А-Я' },
+  { value: 'name_desc', label: 'Имя: Я-А' },
+  { value: 'size_desc', label: 'Размер: больше' },
+  { value: 'size_asc', label: 'Размер: меньше' },
+]
+
+/** Новый канон (Шаблон A) — закрывает COPY-M-core-15 (буквы алфавита в
+ *  лейблах называли русскую коллацию и стали бы ложью в en) СЕЙЧАС, без
+ *  риска для продакшена: `documents.tsx` (волна e) переключится на
+ *  `i18n._(opt.label)` в своём PR; до тех пор рендерит легаси `SORT_OPTIONS`
+ *  выше, как и сегодня. */
+export const SORT_OPTION_MESSAGES: Array<{ value: SortKey; label: MessageDescriptor }> = [
   { value: 'date_desc', label: msg`Спочатку нові` },
   { value: 'date_asc', label: msg`Спочатку старі` },
   { value: 'name_asc', label: msg`За ім'ям: за зростанням` },
@@ -569,7 +724,10 @@ export const SORT_OPTIONS: Array<{ value: SortKey; label: MessageDescriptor }> =
 ]
 ```
 
-Убраны буквы алфавита («А-Я»/«Я-А») из лейблов — COPY-M-core-15, второй пункт находки (не только коллация, но и сама формулировка называла русский алфавит). Место рендера (toolbar документов, волна e) резолвит через `i18n._(option.label)` — здесь только определение; сам toolbar не трогается (вне периметра волны a), но компилируется корректно, т.к. `label` меняет тип с `string` на `MessageDescriptor` и **этот** toolbar-файл ещё не существует в мигрированном виде (он появится в волне e) — фиксируется как cross-wave допущение ниже.
+`documents-filter-sort.ts` остаётся в периметре волны (a) — файл лежит в `lib/`, добавление НОВОГО
+экспорта в него не требует трогать `documents.tsx` (волна e); выносить файл целиком в волну (e) не
+нужно — `sortDocuments`/`compareNames`-использование в нём уже мигрировано этапом 2 и остаётся
+рабочей частью PR2 независимо от `SORT_OPTION_MESSAGES`.
 
 - [ ] **Step 4: `use-credentials.ts`, `use-documents.ts`, `use-legend.ts`, `use-user-profile.ts` — единый паттерн тоста об ошибке**
 
@@ -838,7 +996,7 @@ Design tier 2: скриншоты login-страницы с каждым `?error
 - **PDF счетов** — этап 5.
 - **`ESLint` error-режим, guard на русские буквы, финальный `extract --clean` как хард-гейт** — этап 6 (`lingui/no-unlocalized-strings` остаётся `warn` весь этап 3).
 - **`share-slider.tsx`'s собственная ROLE_LABELS `.side`-карта** — трогается (COPY-M-core-10, паттерн E, падеж выровнен), но НЕ объединяется с каноном `role-select.tsx` (разная форма данных — `side`/`aria` пара, не простой ярлык); объединение — не задача этой волны.
-- **`components/user-profile/**`, `components/users/**`, `routes/\_authenticated/{team,users,profile,projects,finance,interviews,vacancies,documents,stats,pending,onboarding,admin/{contracts.\*,wallet.index,ChangeWalletAddressDialog}}.tsx`** — волны (b)/(c)/(d)/(e), ROLE_LABELS-консумеры среди них остаются на легаси-экспорте до своей волны.
+- **`components/user-profile/**`, `components/users/**`, `routes/\_authenticated/{team,users,profile,projects,finance,interviews,vacancies,documents,stats,pending,onboarding,admin/{contracts.\*,wallet.index,ChangeWalletAddressDialog}}.tsx`** — волны (b)/(c)/(d)/(e), ROLE_LABELS-консумеры среди них остаются на легаси-экспорте до своей волны. `documents.tsx` (волна e) — тот же случай для `SORT_OPTIONS`/`SORT_OPTION_MESSAGES` (fix-round 1 SPEC-H-3, Допущение 7): toolbar переключится на новый канон в своей волне, не в этой.
 - **`LanguageSection.tsx`** (переключатель языка в профиле, этап 2 Task 7) — не подтверждён смёрженным на момент этого плана (не найден на `origin/main`); если ещё не смёржен к моменту исполнения — не блокирует эту волну, оба независимы.
 
 ---
@@ -851,7 +1009,7 @@ Design tier 2: скриншоты login-страницы с каждым `?error
 4. **Комментарий-only файлы** (`route-access.ts`, `use-document-blob.ts`, `use-logout.ts`, `client.tsx`, `preload-reload.ts`, `pwa-runtime-caching.ts`, `sw-reload.ts`, большая часть `telemetry/**`) исключены из миграции по факту проверки (`grep -noP` по кавычкам с кириллицей — ноль совпадений), а не пропущены по недосмотру. ESLint `no-unlocalized-strings` их не флагует, т.к. правило смотрит на JSX/строковые литералы UI, не на комментарии.
 5. **`site.webmanifest` остаётся одноязычным (uk)** — PWA-манифест не перезагружается при смене языка в рантайме браузера, второй манифест под `en` не заводится в рамках этой волны; зафиксировано как техническое ограничение, не недоделка.
 6. **429-текст и `SENIOR_INCOME`-текст** — по одному канону каждый, установленному ПЕРВЫМ PR, который его трогает (PR1 landing первым); второй PR берёт готовый текст дословно (проверяется `grep` при ревью второго PR), вместо централизации в общий модуль — не создаётся новый общий файл ради двух текстов.
-7. **`SORT_OPTIONS`** в `documents-filter-sort.ts` (PR2) меняет тип экспорта на `MessageDescriptor`, хотя единственный текущий консумер (`/documents` toolbar) сам ещё не мигрирован (волна e) — компилируется корректно (toolbar просто получает `MessageDescriptor` вместо `string` и продолжит рендерить его некорректно как `[object Object]` до своей волны). Это **временная регрессия на непереведённой странице**, которая уже показывает русский текст и попадёт под починку в волне (e) вместе с остальным модулем; альтернатива (не трогать `SORT_OPTIONS` до волны e) оставила бы аудиторскую находку COPY-M-core-15 незакрытой без причины — раз файл уже в периметре волны (a) по расположению (`lib/`), логичнее закрыть его целиком. Отмечается явно в PR2 body, чтобы `spec-reviewer` не спутал с настоящей регрессией.
+7. **`SORT_OPTIONS`** в `documents-filter-sort.ts` (PR2, fix-round 1 SPEC-H-3) НЕ меняет тип экспорта — единственный текущий консумер (`documents.tsx:514`, `{opt.label}` как JSX-текст) принадлежит волне (e) и рендерил бы `MessageDescriptor` напрямую как React-child, а это не косметика («`[object Object]`»), а брошенное исключение (`Error: Objects are not valid as a React child`) и краш всей страницы «Документы» на весь промежуток до волны (e) — недели. Применён тот же Шаблон A с транзитным шимом, что и `ROLE_LABEL_MESSAGES`/`useRoleLabel` в Task 1: легаси `SORT_OPTIONS: Array<{value, label: string}>` остаётся БЕЗ ИЗМЕНЕНИЙ (буквы алфавита в лейблах — тоже), новый канон `SORT_OPTION_MESSAGES: Array<{value, label: MessageDescriptor}>` закрывает COPY-M-core-15 сразу, `documents.tsx` переключится на него в своём PR волны (e) и тогда же легаси удаляется. Файл остаётся в периметре волны (a) целиком (лежит в `lib/`, `sortDocuments`/`compareNames` уже мигрированы этапом 2) — выносить его в волну (e) не нужно, регрессии для продакшена нет вовсе (не «временная», а никакая).
 
 ## Вопросы владельцу (A2)
 
