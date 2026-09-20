@@ -18,6 +18,11 @@ msgstr ""
 msgid " · синьйор: {0}"
 msgstr " · синьйор: {0}"
 
+#. placeholder {0}: summary.pendingValidation.count
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "{0, plural, one {# прихід чекає на вашу перевірку} few {# приходи чекають на вашу перевірку} many {# приходів чекають на вашу перевірку} other {# приходу чекають на вашу перевірку}}"
+msgstr "{0, plural, one {# прихід чекає на вашу перевірку} few {# приходи чекають на вашу перевірку} many {# приходів чекають на вашу перевірку} other {# приходу чекають на вашу перевірку}}"
+
 #. placeholder {0}: filtered.length
 #. placeholder {1}: users?.length ?? 0
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
@@ -192,6 +197,19 @@ msgstr "В активних стадіях"
 msgid "Вакансії"
 msgstr "Вакансії"
 
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Валідація приходів"
+msgstr "Валідація приходів"
+
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Валідовано за місяць"
+msgstr "Валідовано за місяць"
+
+#. placeholder {0}: summary.pendingValidation.count
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Валідувати очікуючі ({0})"
+msgstr "Валідувати очікуючі ({0})"
+
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}%"
@@ -277,6 +295,10 @@ msgstr "Виплата (USDT)"
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Виплачено"
 msgstr "Виплачено"
+
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Виплачено за місяць"
+msgstr "Виплачено за місяць"
 
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Відкрити меню"
@@ -567,6 +589,10 @@ msgstr "Не вдалося завантажити зведення"
 msgid "Не вдалося завантажити файл"
 msgstr "Не вдалося завантажити файл"
 
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Не вдалося завантажити фінансове зведення"
+msgstr "Не вдалося завантажити фінансове зведення"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
@@ -605,6 +631,10 @@ msgstr "Немає активної версії ToS. Створіть перш�
 msgid "Немає даних за період"
 msgstr "Немає даних за період"
 
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Немає приходів, що очікують валідації"
+msgstr "Немає приходів, що очікують валідації"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Немає транзакцій у роботі. Додайте прибуток, щоб почати."
 msgstr "Немає транзакцій у роботі. Додайте прибуток, щоб почати."
@@ -634,6 +664,7 @@ msgid "Оновити"
 msgstr "Оновити"
 
 #: apps/web/app/routes/_authenticated/index.tsx
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Оновіть сторінку або спробуйте пізніше"
@@ -658,6 +689,10 @@ msgstr "Опублікувати нову версію ToS (v{0})?"
 msgid "Основна навігація"
 msgstr "Основна навігація"
 
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Отримувачів"
+msgstr "Отримувачів"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Очистити"
 msgstr "Очистити"
@@ -673,6 +708,10 @@ msgstr "Очікує вашого рішення"
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Очікує виплати"
 msgstr "Очікує виплати"
+
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Очікують валідації"
+msgstr "Очікують валідації"
 
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Очікують виплати"
