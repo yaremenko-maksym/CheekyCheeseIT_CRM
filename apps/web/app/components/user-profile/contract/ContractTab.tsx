@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/axios-utils'
+import { ROLE_LABELS } from '@/components/ui/role-select'
 import {
   useEmployeeContract,
   useMarkContractReady,
@@ -16,7 +17,7 @@ import { ContractActionBar } from './ContractActionBar'
 import { ContractEditor } from './ContractEditor'
 import { ContractFillForm } from './ContractFillForm'
 import { ContractPdfPreview } from './ContractPdfPreview'
-import type { EmployeeContractStatus } from '@crm/shared'
+import type { EmployeeContractStatus, Role } from '@crm/shared'
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
@@ -133,7 +134,9 @@ export function ContractTab({
       >
         <FileText className="h-10 w-10 text-muted-foreground/40" />
         <div className="space-y-1">
-          <p className="text-sm font-medium">Нет шаблона контракта для роли {targetRole}</p>
+          <p className="text-sm font-medium">
+            Нет шаблона контракта для роли {ROLE_LABELS[targetRole as Role] ?? targetRole}
+          </p>
           <p className="text-xs text-muted-foreground">
             Создайте шаблон контракта для этой роли, чтобы сформировать контракт.
           </p>

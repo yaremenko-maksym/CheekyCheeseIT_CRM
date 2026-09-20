@@ -51,4 +51,4 @@ msgstr "Не вдалося виконати дію. Спробуйте ще р�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
-msgstr "Немає активного шаблону контракту для цієї ролі. Додайте його в розділі «Шаблони контрактів»"
+msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"

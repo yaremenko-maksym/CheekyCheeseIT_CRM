@@ -102,7 +102,7 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor> = {
   CONTRACT_TEMPLATE_MISSING: /* i18n */ {
     id: 'api-error.CONTRACT_TEMPLATE_MISSING',
     message:
-      'Немає активного шаблону контракту для цієї ролі. Додайте його в розділі «Шаблони контрактів»',
+      'Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»',
   },
   CONTRACT_SIGN_IMPERSONATION: /* i18n */ {
     id: 'api-error.CONTRACT_SIGN_IMPERSONATION',
@@ -142,8 +142,7 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor> = {
  */
 export const API_ERROR_FALLBACK_EN: Record<ApiErrorCode, string> = {
   GENERIC: 'Something went wrong. Please try again',
-  CONTRACT_TEMPLATE_MISSING:
-    'No active contract template for this role. Add one under Contract templates',
+  CONTRACT_TEMPLATE_MISSING: 'No active contract template for this role. Add one under Contracts',
   CONTRACT_SIGN_IMPERSONATION:
     "You're signed in as another employee — only they can sign their contract",
   TOS_ACCEPT_IMPERSONATION: "You're signed in as another employee — only they can accept the terms",

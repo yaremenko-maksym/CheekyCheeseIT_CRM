@@ -219,6 +219,10 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
     } as any)
     renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
     expect(screen.getByTestId('contract-tab-no-template')).toBeInTheDocument()
+    // COPY-M-7 (PR #694 fix-round 4): the empty state shows the role's Russian
+    // label ("Синьор"), never the raw enum ("SENIOR") — role-select.tsx's map.
+    expect(screen.getByText('Нет шаблона контракта для роли Синьор')).toBeInTheDocument()
+    expect(screen.queryByText(/для роли SENIOR/)).not.toBeInTheDocument()
   })
 
   it('does NOT show the no-template empty state for prose without a code (falls to the generic error state)', () => {
