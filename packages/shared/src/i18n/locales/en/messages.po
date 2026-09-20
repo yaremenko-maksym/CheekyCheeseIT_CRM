@@ -131,12 +131,7 @@ msgstr "The transaction date cannot be in the future"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_USDT_LINK_ONLY"
-msgstr "For USDT, the receipt is accepted only as a blockchain-explorer link, not a file"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
-msgstr "For USDT, a transaction link on a blockchain-explorer is required (etherscan.io, tronscan.org, etc.)"
+msgstr "For USDT, attach a transaction link, not a file"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -150,13 +145,8 @@ msgstr "Name — at least 2 characters"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
-msgstr "The receipt is either an uploaded file or a link, not both"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RECEIPT_REQUIRED"
-msgstr "A receipt is required — attach a file or a link"
+msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
+msgstr "Telegram channel: 5–32 characters — Latin letters, digits or _"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
@@ -238,6 +228,11 @@ msgstr "Recipient full name is required"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
+msgstr "The link must point to etherscan.io, tronscan.org or another explorer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REQUISITES_TOO_LONG"
 msgstr "Company details must not exceed 10,000 characters"
 
@@ -285,3 +280,13 @@ msgstr "Transaction hash: 0x + 64 hex — or an Etherscan link"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TX_HASH_FORMAT_OR_EMPTY"
 msgstr "Transaction hash: 0x + 64 hex — or an Etherscan link"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
+msgstr "The receipt is either an uploaded file or a link, not both"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_REQUIRED"
+msgstr "A receipt is required — attach a file or a link"

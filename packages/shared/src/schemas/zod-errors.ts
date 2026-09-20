@@ -86,6 +86,11 @@ export const ZOD_ERROR_CODES = [
   'EMAIL_REQUIRED',
   'DISPLAY_NAME_MIN',
   'PHONE_INVALID',
+  // UserDialog.tsx drop-team Telegram CHANNEL field (fix-round 2, COPY-H-3) —
+  // a SEPARATE code from `TELEGRAM_FORMAT` above (personal Telegram nick):
+  // "channel" vs "nick" is a different noun, so reusing `TELEGRAM_FORMAT`'s
+  // text here would say the wrong thing, not just the right thing twice.
+  'TELEGRAM_CHANNEL_FORMAT',
 ] as const
 export type ZodErrorCode = (typeof ZOD_ERROR_CODES)[number]
 
@@ -128,20 +133,32 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   RECEIPT_REQUIRED: /* i18n */ {
     id: 'zod-error.RECEIPT_REQUIRED',
-    message: 'Квитанція обов’язкова — додайте файл або посилання',
+    // fix-round 2 (COPY-L-13, decision A1): «чек» — the term already on the
+    // field label in every diaog that shows this error (`Чек / підтвердження
+    // *`) and in the integration specs; «квитанція» would have introduced a
+    // second term for the same object the moment that label migrates.
+    message: 'Чек обов’язковий — додайте файл або посилання',
   },
   RECEIPT_BOTH_NOT_ALLOWED: /* i18n */ {
     id: 'zod-error.RECEIPT_BOTH_NOT_ALLOWED',
-    message: 'Квитанція — це файл або посилання, не обидва одночасно',
+    message: 'Чек — це файл або посилання, не обидва одночасно',
   },
   RECEIPT_USDT_LINK_ONLY: /* i18n */ {
     id: 'zod-error.RECEIPT_USDT_LINK_ONLY',
-    message: 'Для USDT квитанція приймається лише як посилання на блокчейн-експлорер, без файлу',
+    // fix-round 2 (COPY-M-11): was 3 lines at both 256px/288px containers and
+    // a THIRD name for the same object («посилання на блокчейн-експлорер» —
+    // TX_HASH_FORMAT says «Etherscan», RECEIPT_USDT_LINK_REQUIRED spelled out
+    // the host list) — re-measured, 2 lines on both widths, no new term.
+    message: 'Для USDT додайте посилання на транзакцію, а не файл',
   },
   RECEIPT_USDT_LINK_REQUIRED: /* i18n */ {
     id: 'zod-error.RECEIPT_USDT_LINK_REQUIRED',
-    message:
-      'Для USDT потрібне посилання на транзакцію в блокчейн-експлорері (etherscan.io, tronscan.org тощо)',
+    // fix-round 2 (COPY-M-10): the OLD text told a user who already pasted a
+    // link that a link was "required" — this branch is reachable ONLY once a
+    // link exists and fails `isExplorerUrl` (empty → RECEIPT_REQUIRED, a file
+    // → RECEIPT_USDT_LINK_ONLY), so the actual problem is the HOST, not the
+    // presence of a link. Was 3 lines at both 256px/288px; re-measured, 2.
+    message: 'Посилання має вести на etherscan.io, tronscan.org або інший експлорер',
   },
   COMPANY_ACCOUNT_USDT_ONLY: /* i18n */ {
     id: 'zod-error.COMPANY_ACCOUNT_USDT_ONLY',
@@ -275,6 +292,10 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.PHONE_INVALID',
     message: 'Введіть номер у міжнародному форматі, напр. +380671234567',
   },
+  TELEGRAM_CHANNEL_FORMAT: /* i18n */ {
+    id: 'zod-error.TELEGRAM_CHANNEL_FORMAT',
+    message: 'Канал у Telegram: 5–32 символи — латиниця, цифри або _',
+  },
 }
 
 /**
@@ -294,10 +315,9 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   TRANSACTION_AMOUNT_EXCEEDS_MAX: 'Amount cannot exceed 500,000',
   RECEIPT_REQUIRED: 'A receipt is required — attach a file or a link',
   RECEIPT_BOTH_NOT_ALLOWED: 'The receipt is either an uploaded file or a link, not both',
-  RECEIPT_USDT_LINK_ONLY:
-    'For USDT, the receipt is accepted only as a blockchain-explorer link, not a file',
+  RECEIPT_USDT_LINK_ONLY: 'For USDT, attach a transaction link, not a file',
   RECEIPT_USDT_LINK_REQUIRED:
-    'For USDT, a transaction link on a blockchain-explorer is required (etherscan.io, tronscan.org, etc.)',
+    'The link must point to etherscan.io, tronscan.org or another explorer',
   COMPANY_ACCOUNT_USDT_ONLY: 'Company account operations are in USDT only',
   REASON_REQUIRED_DELETE: 'State a reason for the deletion — it goes into the audit log',
   REASON_REQUIRED_RESTORE: 'State a reason for the restoration — it goes into the audit log',
@@ -331,6 +351,7 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   EMAIL_REQUIRED: 'Enter an email',
   DISPLAY_NAME_MIN: 'Name — at least 2 characters',
   PHONE_INVALID: 'Enter the number in international format, e.g. +380671234567',
+  TELEGRAM_CHANNEL_FORMAT: 'Telegram channel: 5–32 characters — Latin letters, digits or _',
 }
 
 /**

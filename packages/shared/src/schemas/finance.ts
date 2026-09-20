@@ -634,7 +634,9 @@ type ReceiptShape = {
  * call sites outside this task's original scope; the orchestrator's
  * fix-round decision reverses that: the code is registered like every other
  * message in this file, and those throw-sites now resolve it via
- * `zodErrorFallbackText`/`ZOD_ERROR_FALLBACK_EN` instead of getting a literal
+ * `zodErrorBadRequest` (`apps/api/src/common/zod-error-exception.ts`), which
+ * itself delegates to `zodErrorFallbackText` — the ONE place that owns the
+ * `code → EN fallback` mapping (fix-round 2, CR-M-2) — instead of getting a literal
  * for free — see each call site), or `null` when the receipt is valid for the
  * given EFFECTIVE currency. Rules (pm-brief §4/§6):
  *   - exactly ONE of receiptDocumentId / receiptExternalUrl (mandatory — neither
@@ -729,10 +731,14 @@ export function selfPayError(
   senderId: string | null | undefined,
   receiverId: string | null | undefined,
   // Default is the coded key (fix-round 1, COPY-H-2 — same treatment as
-  // `receiptMandatoryError` above). Callers that need a DIFFERENT wording for
-  // this same check (e.g. `transactions.service.ts`'s `createAdminTransfer`,
-  // 'Cannot transfer to yourself') pass their own literal explicitly — this
-  // default only covers the un-parameterized call sites.
+  // `receiptMandatoryError` above), translated through `zodErrorBadRequest` /
+  // `translateZodMessage` at every call site. fix-round 2 (COPY-M-12):
+  // `transactions.service.ts`'s `createAdminTransfer` used to override this
+  // with its own literal (`'Cannot transfer to yourself'`) — an
+  // untranslated English duplicate of the SAME refusal every other self-pay
+  // check already speaks through the registry. That override is gone; EVERY
+  // caller now goes through this one default, so there is exactly one
+  // sentence for "sender and receiver cannot be the same", not two.
   message = 'zod.SENDER_RECEIVER_SAME',
 ): string | null {
   if (

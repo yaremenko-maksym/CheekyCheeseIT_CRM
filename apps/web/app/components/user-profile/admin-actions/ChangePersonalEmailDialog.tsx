@@ -104,13 +104,19 @@ export function ChangePersonalEmailDialog({
     // (verified: packages/shared, zod's own contract) — `issues[0]` cannot
     // be undefined here. Same invariant, same suppression, as this field's
     // sibling in UserDialog.tsx (`personalEmail`'s own validator).
-    // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
-    if (!result.success)
-      return (
-        translateZodMessage(result.error.issues[0]?.message) ??
-        translateZodMessage('zod.EMAIL_INVALID') ??
-        null
-      )
+    //
+    // fix-round 2 (CI-5/CR-H-2): the suppression comment used to sit two
+    // lines above the actual `?.` (on the `if (!result.success)` line, not
+    // the `return (...)` body) — Stryker's `// Stryker disable next-line`
+    // only silences a mutant on the IMMEDIATELY following line, so it was
+    // silencing nothing and the real OptionalChaining mutant on the line
+    // below survived uncaught. Pulled the parse into its own statement so
+    // the comment can sit directly above the line it actually suppresses.
+    if (!result.success) {
+      // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
+      const issueMessage = result.error.issues[0]?.message
+      return translateZodMessage(issueMessage) ?? translateZodMessage('zod.EMAIL_INVALID') ?? null
+    }
     if (trimmed.toLowerCase() === workEmail.toLowerCase()) {
       return translateZodMessage('zod.PERSONAL_EMAIL_MUST_DIFFER') ?? null
     }

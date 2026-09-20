@@ -210,6 +210,72 @@ describe('getApiErrorMessage — mixed migrated/legacy ZodExceptionFilter issues
   })
 })
 
+// fix-round 2 (SR-M-4/COPY-H-4): `zodErrorBadRequest`
+// (`apps/api/src/common/zod-error-exception.ts`) builds its envelope at the
+// TOP level — `{ statusCode, code, message }`, no `errors[]` wrapper — for a
+// server-side caller that throws BEFORE Zod's own `.parse()` boundary.
+// `apiErrorEnvelopeSchema`'s `code` enum (a DIFFERENT registry) never
+// matches a Zod code, so priority 0 in `getApiErrorMessage` doesn't catch
+// this body either — `extractBackendMessage`'s new priority-1.5 branch is
+// the only thing that can.
+describe('getApiErrorMessage / getUserFacingErrorMessage — zodErrorBadRequest top-level code envelope (fix-round 2, SR-M-4/COPY-H-4)', () => {
+  beforeAll(() => {
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('translates a zodErrorBadRequest top-level code through the catalog (getApiErrorMessage)', () => {
+    const err = {
+      response: {
+        data: {
+          statusCode: 400,
+          code: 'RECEIPT_REQUIRED',
+          message: 'A receipt is required — attach a file or a link',
+        },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe('Чек обов’язковий — додайте файл або посилання')
+  })
+
+  it('translates a zodErrorBadRequest top-level code through the catalog (getUserFacingErrorMessage)', () => {
+    const err = {
+      isAxiosError: true,
+      response: {
+        data: {
+          statusCode: 400,
+          code: 'SENDER_RECEIVER_SAME',
+          message: 'Sender and receiver cannot be the same',
+        },
+      },
+    }
+    expect(getUserFacingErrorMessage(err)).toBe('Відправник і отримувач не можуть збігатися')
+  })
+
+  it('falls through to response.data.message when the top-level code is not one of ours (defensive)', () => {
+    const err = {
+      response: {
+        data: { statusCode: 400, code: 'NOT_A_REAL_CODE', message: 'fallback text' },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe('fallback text')
+  })
+
+  it('is unaffected by an errors[]-shaped envelope (priority 1 still wins over the top-level code branch)', () => {
+    const err = {
+      response: {
+        data: {
+          message: 'Validation failed',
+          errors: [{ path: 'bankUahRnokpp', code: 'RNOKPP_FORMAT' }],
+          // A stray top-level `code` should never be reached while errors[]
+          // has usable parts — pins the branch ORDER, not just its presence.
+          code: 'SENDER_RECEIVER_SAME',
+        },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe('Введіть 10 цифр РНОКПП')
+  })
+})
+
 describe('translateZodMessage', () => {
   beforeAll(() => {
     i18n.load('uk', {})

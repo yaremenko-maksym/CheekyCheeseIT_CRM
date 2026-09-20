@@ -208,7 +208,15 @@ function HrCreateSeniorDialog({
       }
       const result = createUserSchema.safeParse(payload)
       if (!result.success) {
-        toast.error('Ошибка валидации данных')
+        // fix-round 2 (SR-M-6/COPY-H-3): translate the actual issue when it
+        // is a migrated code, same pattern as every other submit-toast in
+        // UserDialog.tsx — was a fixed Russian literal regardless of which
+        // field actually failed.
+        const first = result.error.issues[0]
+        toast.error(
+          // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see UserDialog.tsx's own field validators for the same invariant
+          translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
+        )
         return
       }
       mutation.mutate(result.data)

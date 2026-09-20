@@ -9,6 +9,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeAll, beforeEach } from 'vitest'
 import { i18n } from '@lingui/core'
+import { toast } from 'sonner'
 
 // task-i18n-stage4-task4: UserDialog's field validators now translate their
 // zod.<CODE> results through `translateZodMessage` (`i18n._` under the
@@ -554,6 +555,18 @@ describe('UserDialog — step 1 legalFullName visible error on submit (BUG #2)',
       },
       { timeout: 2000 },
     )
+
+    // fix-round 2 (CI-5/CR-H-2): the assertions above only checked that
+    // submit was BLOCKED, not what the admin was actually TOLD — a mutant on
+    // `translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM')`
+    // (the `?.` OR the `??`) still passes both of them, since neither
+    // observes the toast text. `createUserSchema`'s superRefine puts
+    // `zod.LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT` as the ONLY issue for this
+    // payload (JUNIOR is contract-eligible, `legalFullName` is empty) — pin
+    // the exact translated uk text the toast receives.
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('ПІБ обов’язкове для контракту')
+    })
   })
 })
 
@@ -654,7 +667,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     await user.tab()
 
     expect(
-      await screen.findByText('Личный email должен отличаться от рабочего'),
+      await screen.findByText('Особистий email має відрізнятися від робочого'),
     ).toBeInTheDocument()
     expect(screen.getByTestId('user-dialog-personal-email').className).toContain(
       'border-destructive',
@@ -677,7 +690,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     await waitFor(() => {
       expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
       expect(
-        screen.queryByText('Личный email должен отличаться от рабочего'),
+        screen.queryByText('Особистий email має відрізнятися від робочого'),
       ).not.toBeInTheDocument()
     })
     expect(input.className).not.toContain('border-destructive')
@@ -782,5 +795,47 @@ describe('UserDialog — locale field (task-i18n-stage2)', () => {
       const body = postCalls[0]?.[1] as Record<string, unknown>
       expect(body.locale).toBe('uk')
     })
+  })
+})
+
+// fix-round 2 (CI-5/CR-H-2): the `email` and `displayName` field onBlur
+// validators (`EMAIL_REQUIRED`/`EMAIL_INVALID`/`DISPLAY_NAME_MIN`) had no
+// test asserting the RENDERED error text — only indirect coverage through
+// tests that fill valid values. A mutant flipping the `!trimmed` condition,
+// or blanking the `zod.EMAIL_INVALID`/`zod.DISPLAY_NAME_MIN` string
+// literals, left every existing test green.
+describe('UserDialog — email/displayName field errors (fix-round 2, CI-5/CR-H-2)', () => {
+  it('shows EMAIL_REQUIRED once the work email is touched and cleared', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-email')
+    await user.type(input, 'x')
+    await user.clear(input)
+    await user.tab()
+
+    expect(await screen.findByText('Введіть email')).toBeInTheDocument()
+  })
+
+  it('shows EMAIL_INVALID for a malformed work email', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-email')
+    await user.type(input, 'not-an-email')
+    await user.tab()
+
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
+  })
+
+  it('shows DISPLAY_NAME_MIN for a 1-character name', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-name')
+    await user.type(input, 'A')
+    await user.tab()
+
+    expect(await screen.findByText('Ім’я — мінімум 2 символи')).toBeInTheDocument()
   })
 })

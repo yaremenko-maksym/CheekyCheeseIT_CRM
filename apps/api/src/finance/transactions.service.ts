@@ -105,13 +105,7 @@ import {
   COMPANY_ACCOUNT_FUNDING_SOURCE,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
-import {
-  receiptMandatoryError,
-  selfPayError,
-  transactionAmountError,
-  ZOD_ERROR_FALLBACK_EN,
-  type ZodErrorCode,
-} from '@crm/shared'
+import { receiptMandatoryError, selfPayError, transactionAmountError } from '@crm/shared'
 // task-admin-income-unified: MONEY_SCALE/roundShareAmount moved to @crm/shared
 // so the web pre-submit obligation-preview banner and this service compute the
 // exact same rounded share amount — see the module doc in packages/shared.
@@ -5476,12 +5470,13 @@ export class TransactionsService {
     // DB CHECK (ck_transactions_sender_ne_receiver) would reject the insert
     // below with an opaque constraint-violation error. Shared with every
     // other write path via `selfPayError` — one rule, not five copies.
-    const transferSelfPayErr = selfPayError(
-      effectiveSenderId,
-      receiver.id,
-      'Cannot transfer to yourself',
-    )
-    if (transferSelfPayErr) throw new BadRequestException(transferSelfPayErr)
+    // fix-round 2 (COPY-M-12): no third argument — the default coded message
+    // (`SENDER_RECEIVER_SAME`, translated through `zodErrorBadRequest` below)
+    // replaces the literal `'Cannot transfer to yourself'` this call used to
+    // pass, so this refusal reads the SAME sentence in the SAME language as
+    // every other self-pay check, instead of an untranslated English literal.
+    const transferSelfPayErr = selfPayError(effectiveSenderId, receiver.id)
+    if (transferSelfPayErr) throw zodErrorBadRequest(transferSelfPayErr)
     // task-archived-user-completeness (AC3). RECEIVER only — the asymmetry is
     // the whole point. In the HOLDING model an ADMIN_TRANSFER credits the
     // receiver (`received` in getSummary), i.e. it puts more company money into
@@ -8326,9 +8321,16 @@ export class TransactionsService {
       // the one server-side caller that never goes through Zod at all (see the
       // comment above) — without this translation, the raw key would leak into
       // the exception body verbatim instead of readable text.
+      //
+      // fix-round 2 (CR-M-2): routed through `zodErrorBadRequest` — the SAME
+      // helper every other direct-throw call site in this file uses — instead
+      // of re-implementing the `zod.<CODE>` → English-fallback lookup a third
+      // time by hand. This also upgrades the body to the coded
+      // `{ statusCode, code, message }` shape (was a plain string before),
+      // which `extractBackendMessage` (`axios-utils.ts`, SR-M-4) now
+      // recognizes and translates client-side.
       if (amountError) {
-        const code = amountError.replace(/^zod\./, '') as ZodErrorCode
-        throw new BadRequestException(ZOD_ERROR_FALLBACK_EN[code] ?? amountError)
+        throw zodErrorBadRequest(amountError)
       }
     }
     const paidAmount = paidAmountProvided ? data.paidAmount! : obligationAmount

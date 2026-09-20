@@ -295,6 +295,10 @@ export function translateZodMessage(message: string | null | undefined): string 
  *    `{ statusCode, message: "Validation failed", errors: [{ path, message }] }`
  *    path is already a dot-joined string from the filter, but we also accept
  *    array paths defensively. Multiple errors joined with "; ".
+ * 1.5. `response.data.code` (fix-round 2, SR-M-4/COPY-H-4) — a `zodErrorBadRequest`
+ *    direct-throw envelope's TOP-LEVEL code (`{ statusCode, code, message }`,
+ *    no `errors[]` wrapper): translated through the SAME `ZOD_ERROR_MESSAGES`
+ *    registry as the `errors[]` branch above, one code at a time.
  * 2. `response.data.message` — NestJS exception string or string[], UNLESS it
  *    is nothing more than one of Nest's own generic reason phrases (checked
  *    against the message text alone, not cross-referenced with the status —
@@ -351,6 +355,24 @@ export function extractBackendMessage(err: unknown): string | undefined {
       })
       .filter(Boolean)
     if (parts.length > 0) return parts.join('; ')
+  }
+
+  // Priority 1.5 (fix-round 2, SR-M-4/COPY-H-4): a direct-throw envelope
+  // built by `zodErrorBadRequest` (`apps/api/src/common/zod-error-exception.ts`)
+  // — `{ statusCode, code: 'RECEIPT_REQUIRED', message: <english fallback> }`
+  // at the TOP level, not wrapped inside `errors[]`. These calls happen
+  // BEFORE Zod's own `.parse()` boundary (a server-method defense-in-depth
+  // re-check, not a schema issue), so `ZodExceptionFilter` never builds its
+  // usual per-issue array for them, AND `apiErrorEnvelopeSchema`'s `code`
+  // enum (`API_ERROR_CODES`, a DIFFERENT registry from `ZOD_ERROR_CODES`)
+  // never matches `code`, so `parseApiErrorEnvelope` in the caller can't
+  // catch this body either — without this branch, Priority 2 below would
+  // return the envelope's raw English `message` fallback verbatim, in
+  // Ukrainian/English UI. Same `code`-over-`errors[]` shape as the branch
+  // above, just for a code that isn't wrapped in an array.
+  const rawTopCode = d['code']
+  if (typeof rawTopCode === 'string' && isZodErrorCode(rawTopCode)) {
+    return translateZodError(rawTopCode)
   }
 
   // Priority 2: standard NestJS message field (string or string[]).

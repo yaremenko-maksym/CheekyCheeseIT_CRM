@@ -603,8 +603,8 @@ export function UserDialog(props: UserDialogProps) {
         // field-specific toast so the user sees *which* field blocked submit
         // even if their eyes are off the form.
         if (hrIds.length === 0) {
-          setHrError('Выберите минимум одного HR')
-          toast.error('Выберите минимум одного HR')
+          setHrError(translateZodCode('HR_REQUIRED_MIN'))
+          toast.error(translateZodCode('HR_REQUIRED_MIN'))
           return
         }
         const trimmedChannel = value.teamTelegramChannelDrop.trim()
@@ -654,6 +654,7 @@ export function UserDialog(props: UserDialogProps) {
         if (!result.success) {
           const first = result.error.issues[0]
           toast.error(
+            // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
             translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
           )
           return
@@ -705,6 +706,7 @@ export function UserDialog(props: UserDialogProps) {
           if (!updateResult.success) {
             const first = updateResult.error.issues[0]
             toast.error(
+              // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
               translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
             )
             return
@@ -721,12 +723,12 @@ export function UserDialog(props: UserDialogProps) {
         if (isSenior && !isJoinDropTeam && hrIds.length === 0) {
           // Same inline + toast pair as the DROP branch — see comment above.
           // Toast names the field so the user knows what blocked submit.
-          setHrError('Выберите минимум одного HR')
-          toast.error('Выберите минимум одного HR')
+          setHrError(translateZodCode('HR_REQUIRED_MIN'))
+          toast.error(translateZodCode('HR_REQUIRED_MIN'))
           return
         }
         if (isJoinDropTeam && !value.dropTeamId) {
-          toast.error('Выберите команду дропа')
+          toast.error(translateZodCode('DROP_TEAM_ID_REQUIRED'))
           return
         }
 
@@ -809,6 +811,7 @@ export function UserDialog(props: UserDialogProps) {
           // fields keep their own per-field error indicators below.
           const first = result.error.issues[0]
           toast.error(
+            // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
             translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
           )
           return
@@ -920,6 +923,7 @@ export function UserDialog(props: UserDialogProps) {
         if (!result.success) {
           const first = result.error.issues[0]
           toast.error(
+            // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
             translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
           )
           return
@@ -1195,7 +1199,7 @@ export function UserDialog(props: UserDialogProps) {
                           // Stryker disable next-line MethodExpression: `email` is also type="email" — same unreachable-via-typing reasoning as this validator's own `trimmed` above
                           fieldApi.form.getFieldValue('email').trim().toLowerCase()
                         ) {
-                          return 'Личный email должен отличаться от рабочего'
+                          return translateZodCode('PERSONAL_EMAIL_MUST_DIFFER')
                         }
                         return undefined
                       },
@@ -1395,7 +1399,7 @@ export function UserDialog(props: UserDialogProps) {
                               'DROP',
                             ])
                             if (isCreate && CONTRACT_ROLES.has(role) && !value.trim()) {
-                              return 'Юридическое ФИО обязательно для этой роли'
+                              return translateZodCode('LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT')
                             }
                             return undefined
                           },
@@ -1790,7 +1794,7 @@ export function UserDialog(props: UserDialogProps) {
                                     if (!fieldApi.state.meta.isDirty) return undefined
                                     return value.trim().length >= 3
                                       ? undefined
-                                      : 'ФИО получателя минимум 3 символа'
+                                      : translateZodCode('RECIPIENT_NAME_MIN')
                                   },
                                 }}
                               >
@@ -1947,7 +1951,7 @@ export function UserDialog(props: UserDialogProps) {
                               if (!trimmed) return undefined
                               return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
                                 ? undefined
-                                : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
+                                : translateZodCode('TELEGRAM_CHANNEL_FORMAT')
                             },
                           }}
                         >
@@ -2106,7 +2110,7 @@ export function UserDialog(props: UserDialogProps) {
                                 validators={{
                                   onBlur: ({ value, fieldApi }) => {
                                     if (!fieldApi.state.meta.isDirty) return undefined
-                                    if (!value) return 'Выберите команду дропа'
+                                    if (!value) return translateZodCode('DROP_TEAM_ID_REQUIRED')
                                     return undefined
                                   },
                                 }}
@@ -2177,7 +2181,7 @@ export function UserDialog(props: UserDialogProps) {
                                     if (!trimmed) return undefined
                                     return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
                                       ? undefined
-                                      : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
+                                      : translateZodCode('TELEGRAM_CHANNEL_FORMAT')
                                   },
                                 }}
                               >

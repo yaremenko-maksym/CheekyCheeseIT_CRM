@@ -131,12 +131,7 @@ msgstr "Дата транзакції не може бути в майбутнь
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_USDT_LINK_ONLY"
-msgstr "Для USDT квитанція приймається лише як посилання на блокчейн-експлорер, без файлу"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
-msgstr "Для USDT потрібне посилання на транзакцію в блокчейн-експлорері (etherscan.io, tronscan.org тощо)"
+msgstr "Для USDT додайте посилання на транзакцію, а не файл"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -150,13 +145,8 @@ msgstr "Ім’я — мінімум 2 символи"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
-msgstr "Квитанція — це файл або посилання, не обидва одночасно"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RECEIPT_REQUIRED"
-msgstr "Квитанція обов’язкова — додайте файл або посилання"
+msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
+msgstr "Канал у Telegram: 5–32 символи — латиниця, цифри або _"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
@@ -238,6 +228,11 @@ msgstr "ПІБ отримувача обов’язкове"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
+msgstr "Посилання має вести на etherscan.io, tronscan.org або інший експлорер"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REQUISITES_TOO_LONG"
 msgstr "Реквізити не довші за 10 000 символів"
 
@@ -285,3 +280,13 @@ msgstr "Хеш транзакції: 0x + 64 hex — або посилання �
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TX_HASH_FORMAT_OR_EMPTY"
 msgstr "Хеш транзакції: 0x + 64 hex — або посилання на Etherscan"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
+msgstr "Чек — це файл або посилання, не обидва одночасно"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_REQUIRED"
+msgstr "Чек обов’язковий — додайте файл або посилання"

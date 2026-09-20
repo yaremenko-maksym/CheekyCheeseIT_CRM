@@ -125,7 +125,14 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     await screen.findByTestId('pay-salary-account-company')
     fireEvent.click(screen.getByTestId('pay-salary-submit'))
     expect(paySalaryMock).not.toHaveBeenCalled()
-    expect(screen.getByTestId('pay-salary-error-receipt')).toBeInTheDocument()
+    // fix-round 2 (CI-5/CR-H-2): only asserting the testid's PRESENCE leaves
+    // `translateZodMessage(receiptErr) ?? receiptErr` unobserved — a mutant
+    // flipping `??` to `&&` renders the raw `zod.RECEIPT_REQUIRED` key
+    // instead of translated text, and this assertion alone would not notice.
+    // Pin the actual translated uk text the admin sees.
+    expect(screen.getByTestId('pay-salary-error-receipt')).toHaveTextContent(
+      'Чек обов’язковий — додайте файл або посилання',
+    )
   })
 
   it('submitting with a partner → paySalary(ADMIN_PERSONAL, payerAdminId set)', async () => {
