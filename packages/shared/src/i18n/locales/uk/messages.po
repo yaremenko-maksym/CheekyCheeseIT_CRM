@@ -105,6 +105,11 @@ msgstr "Вкажіть коректний хеш транзакції (0x + 64 h
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TX_HASH_FORMAT_OR_EMPTY"
+msgstr "Вкажіть коректний хеш транзакції (0x + 64 hex) або посилання на Etherscan — або залиште поле порожнім"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REASON_REQUIRED_DELETE"
 msgstr "Вкажіть причину видалення — вона потрапить до журналу"
 

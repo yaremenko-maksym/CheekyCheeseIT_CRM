@@ -105,6 +105,11 @@ msgstr "Enter a valid transaction hash (0x + 64 hex) or an Etherscan link"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TX_HASH_FORMAT_OR_EMPTY"
+msgstr "Enter a valid transaction hash (0x + 64 hex) or an Etherscan link — or leave the field empty"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REASON_REQUIRED_DELETE"
 msgstr "State a reason for the deletion — it goes into the audit log"
 

@@ -104,7 +104,13 @@ import {
   COMPANY_ACCOUNT_FUNDING_SOURCE,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
-import { receiptMandatoryError, selfPayError, transactionAmountError } from '@crm/shared'
+import {
+  receiptMandatoryError,
+  selfPayError,
+  transactionAmountError,
+  ZOD_ERROR_FALLBACK_EN,
+  type ZodErrorCode,
+} from '@crm/shared'
 // task-admin-income-unified: MONEY_SCALE/roundShareAmount moved to @crm/shared
 // so the web pre-submit obligation-preview banner and this service compute the
 // exact same rounded share amount — see the module doc in packages/shared.
@@ -8313,7 +8319,16 @@ export class TransactionsService {
     // obligation closed in full by a payment recorded as zero.
     if (paidAmountProvided) {
       const amountError = transactionAmountError(data.paidAmount!)
-      if (amountError) throw new BadRequestException(amountError)
+      // task-i18n-stage4-task4: `transactionAmountError` now returns a
+      // `zod.<CODE>` key (translated by `ZodExceptionFilter`/`translateZodError`
+      // on the Zod-boundary path this same function backs). THIS call site is
+      // the one server-side caller that never goes through Zod at all (see the
+      // comment above) — without this translation, the raw key would leak into
+      // the exception body verbatim instead of readable text.
+      if (amountError) {
+        const code = amountError.replace(/^zod\./, '') as ZodErrorCode
+        throw new BadRequestException(ZOD_ERROR_FALLBACK_EN[code] ?? amountError)
+      }
     }
     const paidAmount = paidAmountProvided ? data.paidAmount! : obligationAmount
     // Effective applied rate = paid / original (units of the paid currency per 1

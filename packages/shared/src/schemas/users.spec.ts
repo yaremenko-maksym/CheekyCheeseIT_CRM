@@ -289,7 +289,7 @@ describe('createUserSchema.monthlySalary — floor (security-review MED-1)', () 
     const result = createUserSchema.safeParse({ ...juniorWithLegalName, monthlySalary: 0.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_SMALL')
   })
 
   it('accepts exactly the smallest storable amount (one cent)', () => {
@@ -303,7 +303,7 @@ describe('createUserSchema.monthlySalary — floor (security-review MED-1)', () 
     const result = createUserSchema.safeParse({ ...juniorWithLegalName, monthlySalary: 1.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('знаков после запятой')
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   it('still accepts 0 — a deliberate "no salary yet" value, and null/omitted', () => {
@@ -329,7 +329,7 @@ describe('createUserSchema — personalEmail must differ from work email (§4.4)
     expect(result.success).toBe(false)
     const issue = !result.success ? result.error.issues[0] : undefined
     expect(issue?.path).toEqual(['personalEmail'])
-    expect(issue?.message).toBe('Личный email должен отличаться от рабочего')
+    expect(issue?.message).toBe('zod.PERSONAL_EMAIL_MUST_DIFFER')
     expect(issue?.code).toBe('custom')
   })
 
@@ -367,7 +367,7 @@ describe('createUserSchema — personalEmail must differ from work email (§4.4)
     const issue = !result.success
       ? result.error.issues.find((i) => i.path[0] === 'personalEmail')
       : undefined
-    expect(issue?.message).toBe('Некорректный email')
+    expect(issue?.message).toBe('zod.EMAIL_INVALID')
   })
 })
 
@@ -394,7 +394,7 @@ describe('createUserSchema — email / personalEmail length cap (security-review
     const issue = !result.success
       ? result.error.issues.find((i) => i.path[0] === 'email')
       : undefined
-    expect(issue?.message).toBe('Email не длиннее 255 символов')
+    expect(issue?.message).toBe('zod.EMAIL_TOO_LONG')
   })
 
   it('accepts an email exactly at the 255 cap', () => {
@@ -416,10 +416,10 @@ describe('createUserSchema — email / personalEmail length cap (security-review
     const issue = !result.success
       ? result.error.issues.find((i) => i.path[0] === 'personalEmail')
       : undefined
-    expect(issue?.message).toBe('Email не длиннее 255 символов')
+    expect(issue?.message).toBe('zod.EMAIL_TOO_LONG')
   })
 
-  // mutation-gate closure (PR #623): `.email('Некорректный email')` on the
+  // mutation-gate closure (PR #623): `.email('zod.EMAIL_INVALID')` on the
   // WORK `email` field had no test asserting its message text — the
   // personalEmail test above (line ~369) only covers the message on THAT
   // field. StringLiteral survivor on schemas/users.ts:174.
@@ -432,7 +432,7 @@ describe('createUserSchema — email / personalEmail length cap (security-review
     const issue = !result.success
       ? result.error.issues.find((i) => i.path[0] === 'email')
       : undefined
-    expect(issue?.message).toBe('Некорректный email')
+    expect(issue?.message).toBe('zod.EMAIL_INVALID')
   })
 })
 
@@ -441,7 +441,7 @@ describe('adminUpdateUserSchema.monthlySalary — floor (security-review MED-1)'
     const result = adminUpdateUserSchema.safeParse({ monthlySalary: 0.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_SMALL')
   })
 
   it('accepts exactly the smallest storable amount', () => {
@@ -479,7 +479,7 @@ describe('changePersonalEmailSchema (security-review PR #623 round 4, owner deci
     const result = changePersonalEmailSchema.safeParse({ personalEmail: 'not-an-email' })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toBe('Некорректный email')
+    expect(message).toBe('zod.EMAIL_INVALID')
   })
 
   it("rejects an email over the 255-char cap with the exact message (mirrors createUserSchema.personalEmail's bound)", () => {
@@ -487,7 +487,7 @@ describe('changePersonalEmailSchema (security-review PR #623 round 4, owner deci
     const result = changePersonalEmailSchema.safeParse({ personalEmail: email256 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toBe('Email не длиннее 255 символов')
+    expect(message).toBe('zod.EMAIL_TOO_LONG')
   })
 
   it('accepts exactly 255 characters (boundary — kills an off-by-one on the cap)', () => {

@@ -16,7 +16,7 @@ describe('changeSalarySchema.monthlySalary — floor (security-review MED-1)', (
     const result = changeSalarySchema.safeParse({ monthlySalary: 0.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_SMALL')
   })
 
   it('accepts exactly the smallest storable amount (one cent)', () => {
@@ -27,7 +27,7 @@ describe('changeSalarySchema.monthlySalary — floor (security-review MED-1)', (
     const result = changeSalarySchema.safeParse({ monthlySalary: 1.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('знаков после запятой')
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   it('still accepts 0 — a deliberate value, not a typo (existing .nonnegative() behaviour, unchanged)', () => {

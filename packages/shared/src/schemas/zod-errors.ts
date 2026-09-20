@@ -45,6 +45,7 @@ export const ZOD_ERROR_CODES = [
   'REASON_REQUIRED_RELEASE',
   'TX_HASH_MIN_LENGTH',
   'TX_HASH_FORMAT',
+  'TX_HASH_FORMAT_OR_EMPTY',
   'DATE_FORMAT_YYYYMMDD',
   'DATE_NOT_IN_FUTURE',
   'REQUISITES_TOO_LONG',
@@ -136,6 +137,11 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   TX_HASH_FORMAT: /* i18n */ {
     id: 'zod-error.TX_HASH_FORMAT',
     message: 'Вкажіть коректний хеш транзакції (0x + 64 hex) або посилання на Etherscan',
+  },
+  TX_HASH_FORMAT_OR_EMPTY: /* i18n */ {
+    id: 'zod-error.TX_HASH_FORMAT_OR_EMPTY',
+    message:
+      'Вкажіть коректний хеш транзакції (0x + 64 hex) або посилання на Etherscan — або залиште поле порожнім',
   },
   DATE_FORMAT_YYYYMMDD: /* i18n */ {
     id: 'zod-error.DATE_FORMAT_YYYYMMDD',
@@ -247,6 +253,8 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   REASON_REQUIRED_RELEASE: 'Describe the reason — it goes into the audit log',
   TX_HASH_MIN_LENGTH: 'txHash must be at least 10 characters',
   TX_HASH_FORMAT: 'Enter a valid transaction hash (0x + 64 hex) or an Etherscan link',
+  TX_HASH_FORMAT_OR_EMPTY:
+    'Enter a valid transaction hash (0x + 64 hex) or an Etherscan link — or leave the field empty',
   DATE_FORMAT_YYYYMMDD: 'The date must be in YYYY-MM-DD format',
   DATE_NOT_IN_FUTURE: 'The transaction date cannot be in the future',
   REQUISITES_TOO_LONG: 'Requisites must not exceed 10,000 characters',

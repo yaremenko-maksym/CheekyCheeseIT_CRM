@@ -36,7 +36,7 @@ describe('createAdminIncomeSchema — refineAdminIncomeCompanyAccountUsdt', () =
     )
     expect(result.success).toBe(false)
     const issue = !result.success
-      ? result.error.issues.find((i) => i.message.includes('счёта компании'))
+      ? result.error.issues.find((i) => i.message === 'zod.COMPANY_ACCOUNT_USDT_ONLY')
       : undefined
     expect(issue).toBeDefined()
     expect(issue?.path).toEqual(['currency'])
@@ -50,7 +50,7 @@ describe('createAdminIncomeSchema — refineAdminIncomeCompanyAccountUsdt', () =
     const result = createAdminIncomeSchema.safeParse(withoutCurrency)
     expect(result.success).toBe(false)
     const contradictionIssue = !result.success
-      ? result.error.issues.find((i) => i.message.includes('счёта компании'))
+      ? result.error.issues.find((i) => i.message === 'zod.COMPANY_ACCOUNT_USDT_ONLY')
       : undefined
     expect(contradictionIssue).toBeUndefined()
   })

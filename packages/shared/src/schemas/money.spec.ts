@@ -64,7 +64,7 @@ describe('decimalPlacesOf', () => {
 // does not import `finance.ts`, so a mutation that crashes `finance.ts` on
 // import cannot affect this test's ability to run and fail cleanly.
 describe('moneyFloorAndPrecisionError — exact return value per branch', () => {
-  it('returns null for exactly 0 — must NOT add a second "слишком мала" message alongside .positive()\'s own rejection', () => {
+  it('returns null for exactly 0 — must NOT add a second "zod.TRANSACTION_AMOUNT_TOO_SMALL" message alongside .positive()\'s own rejection', () => {
     expect(moneyFloorAndPrecisionError(0)).toBeNull()
   })
 
@@ -82,18 +82,16 @@ describe('moneyFloorAndPrecisionError — exact return value per branch', () => 
     expect(moneyFloorAndPrecisionError(Number.NEGATIVE_INFINITY)).toBeNull()
   })
 
-  it('returns the "too small" message for a positive value below MIN_TRANSACTION_AMOUNT', () => {
-    expect(moneyFloorAndPrecisionError(1e-7)).toContain('слишком мала')
+  it('returns the "too small" code for a positive value below MIN_TRANSACTION_AMOUNT', () => {
+    expect(moneyFloorAndPrecisionError(1e-7)).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
   })
 
   it('returns null exactly AT the floor boundary — MIN_TRANSACTION_AMOUNT itself is storable', () => {
     expect(moneyFloorAndPrecisionError(MIN_TRANSACTION_AMOUNT)).toBeNull()
   })
 
-  it('returns the "too many decimals" message above AMOUNT_DECIMAL_PLACES digits', () => {
-    expect(moneyFloorAndPrecisionError(1.1234567)).toContain(
-      `${AMOUNT_DECIMAL_PLACES} знаков после запятой`,
-    )
+  it('returns the "too many decimals" code above AMOUNT_DECIMAL_PLACES digits', () => {
+    expect(moneyFloorAndPrecisionError(1.1234567)).toBe('zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   it('returns null for exactly AMOUNT_DECIMAL_PLACES digits — the boundary is inclusive', () => {
@@ -112,7 +110,7 @@ describe('withMoneyFloor — wiring (a plain schema, independent of finance.ts)'
     const result = positiveCapped.safeParse(1e-7)
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
     // Pins the ISSUE SHAPE, not just the message — a mutant that keeps the
     // message but corrupts `code` ('custom' → '') is otherwise unobserved.
     const code = !result.success ? result.error.issues[0]?.code : undefined
@@ -124,13 +122,14 @@ describe('withMoneyFloor — wiring (a plain schema, independent of finance.ts)'
   })
 
   // `amount: 0` must fail ONLY via `.positive()`'s own issue, never gain a
-  // second "слишком мала" — the exact BLOCKER-round regression, now pinned
-  // through the REAL wrapper (not just the pure function above).
+  // second "zod.TRANSACTION_AMOUNT_TOO_SMALL" — the exact BLOCKER-round
+  // regression, now pinned through the REAL wrapper (not just the pure
+  // function above).
   it('amount:0 fails via .positive() alone — no duplicate message', () => {
     const result = positiveCapped.safeParse(0)
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 
   // Emptying `withMoneyFloor`'s body (the BLOCKER-round BlockStatement
@@ -164,7 +163,7 @@ describe('salaryAmountFloorError — exact return value per branch (mirrors the 
   })
 
   it('returns the "too small" message for a positive value below MIN_SALARY_AMOUNT (0.001 would round to 0.00)', () => {
-    expect(salaryAmountFloorError(0.001)).toContain('слишком мала')
+    expect(salaryAmountFloorError(0.001)).toBe('zod.SALARY_AMOUNT_TOO_SMALL')
   })
 
   it('returns null exactly AT the floor boundary — one cent is storable', () => {
@@ -172,9 +171,7 @@ describe('salaryAmountFloorError — exact return value per branch (mirrors the 
   })
 
   it('returns the "too many decimals" message above SALARY_AMOUNT_DECIMAL_PLACES digits', () => {
-    expect(salaryAmountFloorError(1.001)).toContain(
-      `${SALARY_AMOUNT_DECIMAL_PLACES} знаков после запятой`,
-    )
+    expect(salaryAmountFloorError(1.001)).toBe('zod.SALARY_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   it('returns null for exactly SALARY_AMOUNT_DECIMAL_PLACES digits — the boundary is inclusive', () => {
@@ -198,7 +195,7 @@ describe('withSalaryFloor — wiring (a plain schema, independent of users.ts/fi
     const result = nonneg.safeParse(0.001)
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_SMALL')
     // Pins the ISSUE SHAPE, not just the message — a mutant that keeps the
     // message but corrupts `code` ('custom' → '') is otherwise unobserved.
     const code = !result.success ? result.error.issues[0]?.code : undefined
@@ -211,12 +208,13 @@ describe('withSalaryFloor — wiring (a plain schema, independent of users.ts/fi
 
   // Same guard, attached to a `.positive()` chain instead — mirrors the
   // finance.ts `moneyFloorAndPrecisionError` scenario exactly: `0` must fail
-  // ONLY via `.positive()`'s own issue, never gain a second "слишком мала".
+  // ONLY via `.positive()`'s own issue, never gain a second
+  // "zod.SALARY_AMOUNT_TOO_SMALL".
   it('on a .positive() chain, amount:0 fails via .positive() alone — no duplicate message', () => {
     const pos = withSalaryFloor(z.number().positive())
     const result = pos.safeParse(0)
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.SALARY_AMOUNT_TOO_SMALL')).toBe(false)
   })
 })

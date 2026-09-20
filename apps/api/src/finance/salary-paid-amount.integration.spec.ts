@@ -420,7 +420,7 @@ describe.skipIf(!HAS_DB_URL)(
           },
           ADMIN,
         ),
-      ).rejects.toThrow(/слишком мала/)
+      ).rejects.toThrow(/Amount is too small/)
       // The obligation is untouched — not PAID, and certainly not PAID-with-zero.
       const row = (await rawRow(pending.id))!
       expect(row.status).toBe('PENDING')

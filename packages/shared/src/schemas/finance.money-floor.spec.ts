@@ -89,7 +89,7 @@ describe('createAdminIncomeSchema.amount — floor (task-money-floor-and-lying-c
     const result = createAdminIncomeSchema.safeParse({ ...base, amount: TOO_SMALL })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
     // Pins the ISSUE SHAPE `withMoneyFloor` emits, not just its message — a
     // mutant that keeps the message but corrupts `code` (e.g. 'custom' → '')
     // is otherwise unobserved (Zod does not validate a custom issue's `code`
@@ -141,7 +141,7 @@ describe('createSeniorIncomeSchema.amount — floor + the computed-path trap (AC
     const result = createSeniorIncomeSchema.safeParse({ ...base, amount: TOO_SMALL })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
   })
 
   it('accepts exactly the smallest storable amount', () => {
@@ -154,7 +154,7 @@ describe('createSeniorIncomeSchema.amount — floor + the computed-path trap (AC
     const result = createSeniorIncomeSchema.safeParse({ ...base, amount: TOO_PRECISE })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('знаков после запятой')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   // AC3 — the SECOND half of the fix. Without it, a blind "reject anything
@@ -255,7 +255,7 @@ describe('createSalarySchema.amount — floor (AC2, the field flagged in the tas
     const result = createSalarySchema.safeParse({ ...base, amount: TOO_SMALL })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
   })
 
   it('accepts exactly the smallest storable amount', () => {
@@ -268,7 +268,7 @@ describe('createSalarySchema.amount — floor (AC2, the field flagged in the tas
     const result = createSalarySchema.safeParse({ ...base, amount: TOO_PRECISE })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('знаков после запятой')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   it('still enforces the pre-existing BIZ-13 ceiling (untouched by this fix)', () => {
@@ -340,7 +340,7 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
     const result = updateProjectFinanceSettingsSchema.safeParse({ juniorSalaryOverride: 0.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_SMALL')
     const code = !result.success ? result.error.issues[0]?.code : undefined
     expect(code).toBe('custom')
   })
@@ -357,7 +357,7 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
     const result = updateProjectFinanceSettingsSchema.safeParse({ juniorSalaryOverride: 1.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain(`${SALARY_AMOUNT_DECIMAL_PLACES} знаков после запятой`)
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   // `0` stays a legitimate, existing override ("this project's junior earns
@@ -402,7 +402,7 @@ describe('amount: 0 — schema-level wiring: only .positive()\'s own issue, neve
     })
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 
   it('createSalarySchema (AC2 headline field)', () => {
@@ -413,7 +413,7 @@ describe('amount: 0 — schema-level wiring: only .positive()\'s own issue, neve
     })
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 
   // The schema with NO `.max()` — the reviewer's own reproduction used this
@@ -428,13 +428,13 @@ describe('amount: 0 — schema-level wiring: only .positive()\'s own issue, neve
     })
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 
   it('adminUpdateTransactionSchema (optional field, explicitly set to 0)', () => {
     const result = adminUpdateTransactionSchema.safeParse({ amount: 0 })
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 })

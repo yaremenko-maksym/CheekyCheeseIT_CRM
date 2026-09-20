@@ -56,8 +56,8 @@ describe('selfPayError — mirrors ck_transactions_sender_ne_receiver (sender_id
     expect(selfPayError(undefined, A)).toBeNull()
   })
 
-  it('uses the default Russian message when none is supplied', () => {
-    expect(selfPayError(A, A)).toBe('Отправитель и получатель не могут совпадать')
+  it('uses the default English message when none is supplied', () => {
+    expect(selfPayError(A, A)).toBe('Sender and receiver cannot be the same')
   })
 
   it('uses a caller-supplied custom message when provided', () => {

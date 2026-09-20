@@ -391,7 +391,7 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
     expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: kyivToday() }).success).toBe(true)
   })
 
-  it('rejects a future date, on the txDate field, with a russian "future" message', () => {
+  it('rejects a future date, on the txDate field, with the "future" code', () => {
     // "Tomorrow" relative to the KYIV calendar day the schema itself uses —
     // plain calendar-day arithmetic (no timezone involved once we already
     // have a YYYY-MM-DD string), so this stays correct regardless of when
@@ -407,7 +407,7 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
     // the WRONG path/message is caught too.
     const issue = result.error.issues.find((i) => i.path.join('.') === 'txDate')
     expect(issue).toBeTruthy()
-    expect(issue?.message).toMatch(/будущем/)
+    expect(issue?.message).toBe('zod.DATE_NOT_IN_FUTURE')
     expect(issue?.code).toBe('custom')
   })
 
@@ -416,7 +416,7 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
     expect(result.success).toBe(false)
     if (result.success) return
     const issue = result.error.issues.find((i) => i.path.join('.') === 'txDate')
-    expect(issue?.message).toBe('Дата должна быть в формате YYYY-MM-DD')
+    expect(issue?.message).toBe('zod.DATE_FORMAT_YYYYMMDD')
   })
 
   // Regex anchor coverage — a bare `\d{4}-\d{2}-\d{2}` (no `^`/`$`) would

@@ -1,12 +1,6 @@
 import { z } from 'zod'
 import { mySalaryStatusSchema, mySalaryStateSchema } from './interviews'
-import {
-  AMOUNT_DECIMAL_PLACES,
-  MIN_TRANSACTION_AMOUNT,
-  decimalPlacesOf,
-  withMoneyFloor,
-  withSalaryFloor,
-} from './money'
+import { moneyFloorAndPrecisionError, withMoneyFloor, withSalaryFloor } from './money'
 import { kyivToday } from '../utils/kyiv-day'
 
 // ---------------------------------------------------------------------------
@@ -39,16 +33,16 @@ export const transactionTypeSchema = z.enum([
   // these enum values. They DO NOT replace the legacy summary computed by
   // TransactionsService.getSummary; the new BalanceService runs in parallel.
   //
-  // TOV_INCOME           — money lands on the corporate (ТОВ) account.
-  // SENIOR_PENDING_PAYOUT — TOВ owes a senior; obligation row in pending_obligations.
+  // TOV_INCOME           — money lands on the corporate (TOV) account.
+  // SENIOR_PENDING_PAYOUT — TOV owes a senior; obligation row in pending_obligations.
   //                         Does NOT move the senior's balance until closed.
   // SENIOR_PAID          — closes a pending obligation; credits the senior's
   //                         real balance; links to the pending_obligation row.
   // ADMIN_INCOME_CASH    — admin personally received cash for a project.
   // ADMIN_INCOME_CRYPTO  — admin personally received USDT on crypto wallet.
   // SENIOR_INCOME_CRYPTO — senior personally received USDT on crypto wallet.
-  // DIVIDEND_TO_ADMIN    — distribution from TOВ → admin balance (50/50 to each).
-  // DIVIDEND_TAX         — 6.5% tax on dividends; debits TOВ balance only.
+  // DIVIDEND_TO_ADMIN    — distribution from TOV → admin balance (50/50 to each).
+  // DIVIDEND_TAX         — 6.5% tax on dividends; debits TOV balance only.
   'TOV_INCOME',
   'SENIOR_PENDING_PAYOUT',
   'SENIOR_PAID',
@@ -190,9 +184,9 @@ export const transactionSchema = z.object({
    * them, added because three operator-facing surfaces cannot be honest without
    * it and cannot derive it from anything already exposed:
    *
-   *   - the list («Выплачено 5 000 · осталось 3 000» under the amount),
+   *   - the list ("Paid 5,000 · remaining 3,000" under the amount),
    *   - the detail dialog (the same split as a `Row`),
-   *   - `SettleSeniorPayoutDialog`, which showed the FULL obligation as «Сумма»
+   *   - `SettleSeniorPayoutDialog`, which showed the FULL obligation as "Amount"
    *     while the server pays only the remainder — one number on screen, a
    *     different one leaving the account, at the point of an irreversible
    *     decision.
@@ -416,8 +410,8 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
 
 /**
  * task-money-floor-and-lying-comments — decision ledger for EVERY money
- * amount in this file (AC1: "по каждой сумме — решение, включая те, где
- * ничего не меняешь"). Full per-field reasoning lives in the PR body; this is
+ * amount in this file (AC1: "a decision for every amount, including the ones
+ * you don't change"). Full per-field reasoning lives in the PR body; this is
  * the durable, in-repo index so a future reader does not have to dig through
  * PR history to see the classification.
  *
@@ -508,18 +502,19 @@ export const MAX_TRANSACTION_AMOUNT = 500_000
  * "too many decimals" (which is true of `1e-7` as well, but useless to read).
  */
 export function transactionAmountError(value: number): string | null {
-  if (!Number.isFinite(value)) return 'Введите сумму числом — например 1000.50'
-  if (value <= 0) return 'Сумма должна быть больше нуля'
-  if (value < MIN_TRANSACTION_AMOUNT) {
-    return `Сумма слишком мала — минимум ${MIN_TRANSACTION_AMOUNT.toFixed(AMOUNT_DECIMAL_PLACES)}`
-  }
+  if (!Number.isFinite(value)) return 'zod.AMOUNT_NOT_A_NUMBER'
+  if (value <= 0) return 'zod.AMOUNT_MUST_BE_POSITIVE'
   if (value > MAX_TRANSACTION_AMOUNT) {
-    return `Сумма не может превышать ${MAX_TRANSACTION_AMOUNT.toLocaleString('ru-RU')}`
+    return 'zod.TRANSACTION_AMOUNT_EXCEEDS_MAX'
   }
-  if (decimalPlacesOf(value) > AMOUNT_DECIMAL_PLACES) {
-    return `Не больше ${AMOUNT_DECIMAL_PLACES} знаков после запятой — иначе сумма запишется округлённой`
-  }
-  return null
+  // Floor + precision — delegates to the SAME function `./money`'s own
+  // 11 module-import-time callers use (task-i18n-stage4-task4, COPY-M-shared-10
+  // dedup): this used to repeat `moneyFloorAndPrecisionError`'s two branches
+  // verbatim. Order is unaffected — a value cannot be both `< MIN_TRANSACTION_AMOUNT`
+  // and `> MAX_TRANSACTION_AMOUNT` at once (MIN < MAX), so moving the max
+  // check ahead of the delegated floor+precision check cannot change which
+  // branch a given value hits.
+  return moneyFloorAndPrecisionError(value)
 }
 
 /**
@@ -544,7 +539,7 @@ export function transactionAmountError(value: number): string | null {
  * it here just deferred a guaranteed-broken value to render time. This is the
  * WRITE-side schema only; the READ-side `transactionSchema.receiptExternalUrl`
  * above still accepts `^https?://` so already-saved http:// rows keep parsing
- * and displaying (their "Открыть чек" link still works — only the embed is
+ * and displaying (their "Open receipt" link still works — only the embed is
  * skipped, see `receipt-panel.tsx`).
  */
 const receiptFields = {
@@ -632,8 +627,11 @@ type ReceiptShape = {
 
 /**
  * Pure, framework-agnostic receipt validator SHARED by the Zod refine (client +
- * controller boundary) and the service defense-in-depth re-check. Returns a
- * russian error message, or `null` when the receipt is valid for the given
+ * controller boundary) and the service defense-in-depth re-check. Returns an
+ * English error message (task-i18n-stage4-task4 — dual-use across many
+ * `apps/api` direct-throw call sites outside this task's scope, so NOT
+ * code-ified like the rest of this file's Zod messages; see the PR's
+ * "Assumptions"), or `null` when the receipt is valid for the given
  * EFFECTIVE currency. Rules (pm-brief §4/§6):
  *   - exactly ONE of receiptDocumentId / receiptExternalUrl (mandatory — neither
  *     present → error; both present → error);
@@ -648,17 +646,17 @@ export function receiptMandatoryError(
   const hasDoc = !!receipt.receiptDocumentId
   const hasUrl = !!receipt.receiptExternalUrl
   if (hasDoc && hasUrl) {
-    return 'Чек — либо загруженный файл, либо ссылка, но не оба сразу'
+    return 'The receipt must be either an uploaded file or a link, not both'
   }
   if (!hasDoc && !hasUrl) {
-    return 'Чек обязателен: приложите файл или ссылку на blockchain-explorer'
+    return 'A receipt is required — attach a file or a blockchain-explorer link'
   }
   if (effectiveCurrency === 'USDT') {
     if (hasDoc) {
-      return 'Для USDT чек принимается только ссылкой на blockchain-explorer, не файлом'
+      return 'For USDT, the receipt is accepted only as a blockchain-explorer link, not a file'
     }
     if (!isExplorerUrl(receipt.receiptExternalUrl!)) {
-      return 'Для USDT нужна ссылка на транзакцию в blockchain-explorer (etherscan.io, tronscan.org и т.д.)'
+      return 'For USDT, a transaction link on a blockchain-explorer is required (etherscan.io, tronscan.org, etc.)'
     }
   }
   return null
@@ -726,7 +724,7 @@ function mandatoryReceiptRefine<T extends ReceiptShape>(
 export function selfPayError(
   senderId: string | null | undefined,
   receiverId: string | null | undefined,
-  message = 'Отправитель и получатель не могут совпадать',
+  message = 'Sender and receiver cannot be the same',
 ): string | null {
   if (
     senderId != null &&
@@ -749,7 +747,7 @@ export const attachReceiptSchema = z
   .object({ ...receiptFields })
   .refine(receiptXor, receiptXorMessage)
   .refine((d) => !!d.receiptDocumentId || !!d.receiptExternalUrl, {
-    message: 'Чек обязателен: приложите файл или ссылку',
+    message: 'zod.RECEIPT_REQUIRED',
     path: ['receiptExternalUrl'],
   })
 export type AttachReceiptDto = z.infer<typeof attachReceiptSchema>
@@ -789,7 +787,7 @@ function refineCompanyAccountUsdt(
   ) {
     ctx.addIssue({
       code: 'custom',
-      message: 'Операция со счёта компании проводится только в USDT',
+      message: 'zod.COMPANY_ACCOUNT_USDT_ONLY',
       path: ['currency'],
     })
   }
@@ -819,7 +817,7 @@ function refineAdminIncomeCompanyAccountUsdt(
   ) {
     ctx.addIssue({
       code: 'custom',
-      message: 'Операция со счёта компании проводится только в USDT',
+      message: 'zod.COMPANY_ACCOUNT_USDT_ONLY',
       path: ['currency'],
     })
   }
@@ -1104,12 +1102,12 @@ export const validateTransactionSchema = z.object({
 export type ValidateTransactionDto = z.infer<typeof validateTransactionSchema>
 
 // task-soft-delete-and-money-audit. Soft-delete a transaction — ADMIN only.
-// The reason is MANDATORY (owner requirement: "через полгода «почему это
-// удалили» без причины не восстановить") and lands verbatim in
+// The reason is MANDATORY (owner requirement: "six months from now, 'why was
+// this deleted' must be recoverable") and lands verbatim in
 // `transaction_audit_log.metadata.reason` — same shape/message convention as
 // the existing `releaseOnChainHashSchema.reason`.
 export const deleteTransactionSchema = z.object({
-  reason: z.string().trim().min(3, 'Укажите причину удаления — она попадёт в журнал').max(500),
+  reason: z.string().trim().min(3, 'zod.REASON_REQUIRED_DELETE').max(500),
 })
 export type DeleteTransactionDto = z.infer<typeof deleteTransactionSchema>
 
@@ -1117,11 +1115,7 @@ export type DeleteTransactionDto = z.infer<typeof deleteTransactionSchema>
 // only (ACCOUNTANT can see a deleted row but not restore it). Reason is
 // mandatory for the same audit-trail reason as delete.
 export const restoreTransactionSchema = z.object({
-  reason: z
-    .string()
-    .trim()
-    .min(3, 'Укажите причину восстановления — она попадёт в журнал')
-    .max(500),
+  reason: z.string().trim().min(3, 'zod.REASON_REQUIRED_RESTORE').max(500),
 })
 export type RestoreTransactionDto = z.infer<typeof restoreTransactionSchema>
 
@@ -1178,7 +1172,7 @@ export const payPayoutRequestSchema = z
       if (trimmed.length < 10) {
         ctx.addIssue({
           code: 'custom',
-          message: 'txHash должен содержать минимум 10 символов',
+          message: 'zod.TX_HASH_MIN_LENGTH',
           path: ['txHash'],
         })
       }
@@ -1253,9 +1247,9 @@ export const releaseOnChainHashSchema = z.object({
     .min(1)
     .max(255)
     .refine((v) => extractOnChainTxHash(v) !== null, {
-      message: 'Укажите корректный hash транзакции (0x + 64 hex) или ссылку на Etherscan',
+      message: 'zod.TX_HASH_FORMAT',
     }),
-  reason: z.string().trim().min(3, 'Опишите причину — она попадёт в журнал').max(500),
+  reason: z.string().trim().min(3, 'zod.REASON_REQUIRED_RELEASE').max(500),
 })
 export type ReleaseOnChainHashDto = z.infer<typeof releaseOnChainHashSchema>
 
@@ -1274,8 +1268,7 @@ export const manualConfirmPayoutSchema = z.object({
     .optional()
     .nullable()
     .refine((v) => v === null || v === undefined || v === '' || extractOnChainTxHash(v) !== null, {
-      message:
-        'Укажите корректный hash транзакции (0x + 64 hex) или ссылку на Etherscan — иначе оставьте поле пустым',
+      message: 'zod.TX_HASH_FORMAT_OR_EMPTY',
     }),
 })
 export type ManualConfirmPayoutDto = z.infer<typeof manualConfirmPayoutSchema>
@@ -1322,8 +1315,8 @@ export const adminUpdateTransactionSchema = z
      * re-derives this same string and refuses with 409 on a mismatch, so an
      * edit confirmed against a preview that has since gone stale (an
      * accountant settled the obligation in another tab) is rejected rather
-     * than silently recomputed — "молчаливый пересчёт — это и есть
-     * расхождение предпросмотра с фактом, только замаскированное под успех"
+     * than silently recomputed — "a silent recompute IS the exact
+     * preview/actual divergence this task closes, just masked as success"
      * (ADR AC4). OPTIONAL here because this same body also carries ordinary
      * metadata-only edits (notes / receipt / category) and non-PAID amount
      * edits, which need no token; the requirement is enforced where the
@@ -1426,7 +1419,7 @@ export const SALARY_PAID_AMOUNT_WARN_THRESHOLD = 0.05
  * Relative deviation of an entered `paidAmount` from the rate-derived
  * expectation, or `null` when it is within tolerance / not comparable.
  *
- * Returns a fraction (0.99 = «отличается на 99%») so the caller renders the
+ * Returns a fraction (0.99 = "differs by 99%") so the caller renders the
  * number in its own copy. Shared (not UI-local) because it is the pure,
  * unit-testable core of the typo guard — and because the SAME rule must hold
  * wherever a paid amount is entered next.
@@ -1473,7 +1466,7 @@ export const confirmPayoutSchema = z
       if (trimmed.length < 10) {
         ctx.addIssue({
           code: 'custom',
-          message: 'txHash должен содержать минимум 10 символов',
+          message: 'zod.TX_HASH_MIN_LENGTH',
           path: ['txHash'],
         })
       }
@@ -1510,7 +1503,7 @@ export type BalanceDto = z.infer<typeof balanceSchema>
 // Total earned — lifetime accumulated money the COMPANY actually PAID this
 // user, via `GET /api/balances/total-earned/:userId`. RBAC: ADMIN + ACCOUNTANT
 // only (it is a privileged financial metric — see balance.service.ts
-// assertCanReadTotalEarned). Surfaced on the «Финансы» tab of an employee
+// assertCanReadTotalEarned). Surfaced on the "Finance" tab of an employee
 // profile for those two viewer roles.
 //
 // Aggregation is over PAID transaction rows where the target user is the real
@@ -1742,7 +1735,7 @@ export const settleSeniorPayoutSchema = z
     // service instead.
     txDate: z
       .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата должна быть в формате YYYY-MM-DD')
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
       .optional()
       .nullable(),
     // task-receipts-backend (#10): closing a senior/drop IOU now requires proof.
@@ -1776,7 +1769,7 @@ export const settleSeniorPayoutSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['txDate'],
-        message: 'Дата транзакции не может быть в будущем',
+        message: 'zod.DATE_NOT_IN_FUTURE',
       })
     }
   })
@@ -1841,7 +1834,7 @@ export type DropSelfSummaryDto = z.infer<typeof dropSelfSummarySchema>
 
 // ── Drop self-view DTOs (Drop role - phase 2, task-drop-2-backend) ──────────
 //
-// Three read-only, DROP-only data contracts consumed by the drop «Мой роутинг»
+// Three read-only, DROP-only data contracts consumed by the drop "My routing"
 // hub + finance cabinet (design spec docs/design/drop-role-ux.md §10). Every
 // endpoint behind them is self-scoped (drop sees only their own rows); these
 // schemas only describe the wire shape — RBAC lives in the service.
@@ -1884,7 +1877,7 @@ export type DropIncomeDto = z.infer<typeof dropIncomeDtoSchema>
 
 // Paginated envelope for the incomes feed. Mirrors the established
 // `auditLogListSchema` shape (items + total + page + limit). `total` is the
-// count BEFORE pagination so the FE can render «N приходов» and page controls.
+// count BEFORE pagination so the FE can render "N income items" and page controls.
 export const paginatedDropIncomesSchema = z.object({
   items: z.array(dropIncomeDtoSchema),
   total: z.number().int().nonnegative(),
@@ -1971,7 +1964,7 @@ export const financeSummarySchema = z.object({
   //   dropSharePercent — always a number; backend applies ?? DEFAULT_DROP_SHARE_PERCENT
   //                      before returning, so null never reaches the client.
   //   pendingCount     — number of DROP_INCOME rows in PENDING|VALIDATED
-  //                      status for this drop. Used by the «N ожидают» badge.
+  //                      status for this drop. Used by the "N pending" badge.
   dropBalances: z
     .array(
       z.object({
@@ -1999,13 +1992,13 @@ export type FinanceSummaryDto = z.infer<typeof financeSummarySchema>
 // Accountant summary DTO (ACCOUNTANT Sprint 1)
 // ---------------------------------------------------------------------------
 //
-// KPI snapshot for the ACCOUNTANT финансовый хаб-дашборд (and ADMIN, who sees
+// KPI snapshot for the ACCOUNTANT financial hub dashboard (and ADMIN, who sees
 // the same financial scope). Surfaced by GET /api/finance/accountant-summary —
 // RBAC: ACCOUNTANT + ADMIN only; every other role gets 403 (the endpoint would
 // otherwise leak company-wide payment-validation figures).
 //
-// Все суммы — USD-эквивалент (numeric → JS number, scaled-integer accumulation
-// in the service to avoid float drift). Counts — целые неотрицательные.
+// All amounts are USD-equivalent (numeric → JS number, scaled-integer accumulation
+// in the service to avoid float drift). Counts are non-negative integers.
 //
 // Fields:
 //   pendingValidation   — income rows (SENIOR_INCOME + DROP_INCOME) still in
@@ -2034,19 +2027,19 @@ export const accountantSummarySchema = z.object({
 export type AccountantSummaryDto = z.infer<typeof accountantSummarySchema>
 
 // ---------------------------------------------------------------------------
-// Senior summary DTO (SENIOR dashboard / senior хаб-дашборд)
+// Senior summary DTO (SENIOR dashboard / senior hub dashboard)
 // ---------------------------------------------------------------------------
 //
-// KPI snapshot for the SENIOR ролевой дашборд (and ADMIN, for debugging — they
+// KPI snapshot for the SENIOR role dashboard (and ADMIN, for debugging — they
 // see the SAME self-scoped figures the SENIOR they impersonate would see; the
 // endpoint is STRICTLY scoped to currentUser.id, so a senior can NEVER read
 // another senior's projects / income / payouts). Surfaced by
 // GET /api/finance/senior-summary — RBAC: SENIOR + ADMIN only; every other role
 // (JUNIOR / HR / ACCOUNTANT / DROP) gets 403.
 //
-// Content chosen by USER (only this — no «команда» / «собеседования»):
-//   1. «Мои проекты + доход»  → activeProjects + seniorShareIncome.
-//   2. «Статус моих выплат»    → pendingPayouts + mySalaryStatus.
+// Content chosen by USER (only this — no "team" / "interviews"):
+//   1. "My projects + income"  → activeProjects + seniorShareIncome.
+//   2. "Status of my payouts"  → pendingPayouts + mySalaryStatus.
 //
 // Fields:
 //   activeProjects     — the caller's OWN active (archivedAt IS NULL) senior-
@@ -2073,9 +2066,9 @@ export const seniorActiveProjectSchema = z.object({
   sharePercent: z.number().int().min(0).max(100),
 })
 
-// task-senior-stats-block — «Статистика заработка» block on the SENIOR dashboard.
-// One `{ month, amount }` point per recent calendar month for the «Всего
-// заработано» sparkline. `month` is the UTC `YYYY-MM` key (oldest → newest);
+// task-senior-stats-block — "Earnings statistics" block on the SENIOR dashboard.
+// One `{ month, amount }` point per recent calendar month for the "Total
+// earned" sparkline. `month` is the UTC `YYYY-MM` key (oldest → newest);
 // `amount` is the senior's NET SHARE of PAID SENIOR_INCOME credited that month
 // (same snapshot-share math as `seniorShareIncome` — reuses the same rows). A
 // month with no income contributes a 0 point so the sparkline keeps a stable
@@ -2085,22 +2078,22 @@ export const seniorMonthlyEarningSchema = z.object({
   amount: z.number(),
 })
 
-// task-senior-stats-block — «Статистика заработка». Self-scoped earnings stats
+// task-senior-stats-block — "Earnings statistics". Self-scoped earnings stats
 // surfaced ALONGSIDE the existing KPI fields (additive — every #234/#235 field
 // is preserved). Intentionally carries NO money "expected" figure: the real
-// arriving amount depends on each company's payment method / ФОП-tax handling /
+// arriving amount depends on each company's payment method / FOP-tax handling /
 // the junior's worked days, so only the per-company arrival PROGRESS (X/N) is
 // reported (USER decision). All figures are the senior's NET share in USD (same
 // `currency: 'USD'` display label as `seniorShareIncome`, no conversion).
 export const seniorEarningsStatsSchema = z.object({
   // Senior's NET share of PAID SENIOR_INCOME for the PREVIOUS calendar month.
   lastMonthIncome: z.number(),
-  // ~6-8 most-recent months (oldest → newest) for the «Всего» sparkline.
+  // ~6-8 most-recent months (oldest → newest) for the "Total" sparkline.
   monthlyHistory: z.array(seniorMonthlyEarningSchema),
   // Per-company arrival progress for the CURRENT month — NOT money. `total` =
   // active own projects (each = a company paying monthly); `received` = how many
-  // of them ALREADY have ≥1 PAID SENIOR_INCOME dated this month. Render as «X/N
-  // приходов от компаний». `received` ≤ `total`.
+  // of them ALREADY have ≥1 PAID SENIOR_INCOME dated this month. Render as "X/N
+  // companies reporting income". `received` ≤ `total`.
   companyIncomeProgress: z.object({
     received: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
@@ -2129,7 +2122,7 @@ export const seniorSummarySchema = z.object({
   // task-salary-month-gap-and-status (E-6) — the actual, disambiguated field.
   // See the module comment on `mySalaryStateSchema` in interviews.ts.
   mySalaryState: mySalaryStateSchema,
-  // task-senior-stats-block — earnings statistics («Статистика заработка»).
+  // task-senior-stats-block — earnings statistics ("Earnings statistics").
   earningsStats: seniorEarningsStatsSchema,
 })
 
@@ -2139,11 +2132,11 @@ export type SeniorEarningsStatsDto = z.infer<typeof seniorEarningsStatsSchema>
 export type SeniorSummaryDto = z.infer<typeof seniorSummarySchema>
 
 // ---------------------------------------------------------------------------
-// Income compliance overview DTO («Контроль приходов» — task-income-compliance)
+// Income compliance overview DTO ("Income control" — task-income-compliance)
 // ---------------------------------------------------------------------------
 //
-// Company-wide control surface for ADMIN + ACCOUNTANT: «кто из получателей
-// дохода ещё НЕ внёс приход за месяц». Surfaced by
+// Company-wide control surface for ADMIN + ACCOUNTANT: "which income
+// receivers have NOT yet reported income for the month". Surfaced by
 // GET /api/finance/income-compliance?month=YYYY-MM — RBAC: ADMIN + ACCOUNTANT
 // only; every other role (SENIOR / JUNIOR / HR / DROP) gets 403. This is an
 // AGGREGATE over MANY income receivers (NOT self-scoped), so it must never reach
@@ -2154,15 +2147,15 @@ export type SeniorSummaryDto = z.infer<typeof seniorSummarySchema>
 // (projects.dropId). Only receivers with ≥1 active (archivedAt IS NULL) project
 // appear (a drop with no active drop-projects has N=0 → excluded, R5).
 //
-// «Приход внесён по проекту» (owner decision, task-file) = существует ≥1 строка
-// income соответствующего типа (SENIOR_INCOME / ADMIN_INCOME / DROP_INCOME) для
-// проекта со статусом VALIDATED|PAID и `(txDate ?? createdAt)` в границах
-// целевого месяца (UTC). PENDING НЕ считается внесённым — но проекты, у которых
-// есть только PENDING-строка за месяц, помечаются `pendingValidation: true`
-// (мелкий бейдж «на валидации»). REJECTED игнорируется.
+// "Income reported for a project" (owner decision, task-file) = at least one
+// income row of the matching type (SENIOR_INCOME / ADMIN_INCOME / DROP_INCOME)
+// exists for the project with status VALIDATED|PAID and `(txDate ?? createdAt)`
+// within the target month (UTC). PENDING does NOT count as reported — but a
+// project whose only row this month is PENDING is flagged `pendingValidation: true`
+// (a small "pending validation" badge). REJECTED is ignored.
 //
 // task-compliance-overview-pending-types (2026-08-16, owner decision — see the
-// task file's «Живой симптом с прода»). On the current USDT admin-declare path
+// task file's "live symptom from prod"). On the current USDT admin-declare path
 // a SENIOR/DROP never submits SENIOR_INCOME/DROP_INCOME themselves — the ADMIN's
 // declaration atomically books the company's OBLIGATION to them instead
 // (`SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT`, status PENDING_PAYMENT).
@@ -2178,7 +2171,7 @@ export type SeniorSummaryDto = z.infer<typeof seniorSummarySchema>
 //
 // Owner decision on what an in-flight (booked, not yet paid) obligation means
 // for this widget: NOT `submitted` (it is a debt, not received money — AC2,
-// "начисленное и полученное различимы") and NOT `lagging` either (false alarm
+// "accrued and received are distinguishable") and NOT `lagging` either (false alarm
 // on someone who did nothing wrong is worse than omission — see the task file).
 // It gets its OWN third state, `accrued`, tracked in separate counters
 // (`accruedCount` / `totals.accruedProjects`) so it is never silently folded
@@ -2263,7 +2256,7 @@ export type IncomeComplianceReceiverDto = z.infer<typeof incomeComplianceReceive
 export const incomeComplianceOverviewSchema = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/, "Expected 'YYYY-MM' format"), // 'YYYY-MM' (UTC)
   totals: z.object({
-    // Σ expected projects across all receivers (the denominator of «X/N приходов»).
+    // Σ expected projects across all receivers (the denominator of "X/N reported").
     expectedProjects: z.number().int().nonnegative(),
     // Σ submitted (VALIDATED|PAID, or settled-obligation PAID) projects this month.
     submittedProjects: z.number().int().nonnegative(),
@@ -2271,10 +2264,10 @@ export const incomeComplianceOverviewSchema = z.object({
     laggingReceivers: z.number().int().nonnegative(),
     // Receivers whose every active project has a counted income (X === N).
     completeReceivers: z.number().int().nonnegative(),
-    // Projects whose only income this month is still PENDING (на валидации).
+    // Projects whose only income this month is still PENDING (pending validation).
     pendingProjects: z.number().int().nonnegative(),
     // Projects whose only evidence this month is an unpaid, company-booked
-    // obligation (accrued — «начислено, ожидает выплаты»). Never folded into
+    // obligation (accrued — "booked, awaiting payout"). Never folded into
     // `submittedProjects` or `pendingProjects` (AC2). `.default(0)` — see the
     // matching note on `incomeComplianceReceiverSchema.accruedCount`.
     accruedProjects: z.number().int().nonnegative().default(0),
@@ -2303,9 +2296,7 @@ export const incomeComplianceQuerySchema = z.object({
 // reach the threshold. Dividends and company-funded salaries debit the balance.
 
 // Reused ETH address shape — must match users.walletUsdtErc20 validation.
-const ethAddressSchema = z
-  .string()
-  .regex(/^0x[a-fA-F0-9]{40}$/, 'Адрес кошелька должен начинаться с 0x и содержать 42 символа')
+const ethAddressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'zod.USDT_ADDRESS_FORMAT')
 
 // Company requisites markdown — payment/legal block auto-appended to NEW
 // contracts (see appendCompanyRequisitesSection). ADMIN-edited; capped to keep
@@ -2336,12 +2327,7 @@ export type UpdateWalletDto = z.infer<typeof updateWalletSchema>
 // (clears the section); coerced to null at the service so an empty block never
 // appends a heading-only section. max() guards the contract-body/audit size.
 export const updateRequisitesSchema = z.object({
-  requisitesMarkdown: z
-    .string()
-    .max(
-      COMPANY_REQUISITES_MAX,
-      `Реквизиты не должны превышать ${COMPANY_REQUISITES_MAX} символов`,
-    ),
+  requisitesMarkdown: z.string().max(COMPANY_REQUISITES_MAX, 'zod.REQUISITES_TOO_LONG'),
 })
 export type UpdateRequisitesDto = z.infer<typeof updateRequisitesSchema>
 
@@ -2350,7 +2336,7 @@ export type UpdateRequisitesDto = z.infer<typeof updateRequisitesSchema>
 // — the service extracts the hash via regex. min(10) keeps the message generic
 // while the service does the strict extraction/validation.
 export const createCompanyDepositSchema = z.object({
-  txHashOrLink: z.string().min(10, 'Укажите hash транзакции или ссылку на Etherscan').max(500),
+  txHashOrLink: z.string().min(10, 'zod.TX_HASH_MIN_LENGTH').max(500),
 })
 export type CreateCompanyDepositDto = z.infer<typeof createCompanyDepositSchema>
 
