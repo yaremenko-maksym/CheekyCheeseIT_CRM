@@ -1,10 +1,20 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { LucideIcon } from 'lucide-react'
 import { PendingItemRow, type PendingZone } from '@/components/pending/PendingItemRow'
-import type { PendingItemOrUnknown } from '@crm/shared'
+import type { PendingItemKind, PendingItemOrUnknown } from '@crm/shared'
 
 export interface PendingKindSectionProps {
   title: string
+  /**
+   * task-i18n-stage2-task8 (audit §2, COPY-M-docs "data-testid, собранный
+   * из локализованного заголовка"): the testid identity of this section
+   * must NOT depend on `title` — `title` will vary by locale once strings
+   * are extracted, and a testid tied to it would silently break every
+   * selector and the §12 focus chain on translation. `'OTHER'` is the
+   * fallback bucket's kind (the source data has no `PendingItemKind` for
+   * it — see `pending/index.tsx`'s `sectionKindOf`).
+   */
+  kind: PendingItemKind | 'OTHER'
   icon: LucideIcon
   items: PendingItemOrUnknown[]
   zone: PendingZone
@@ -23,6 +33,7 @@ export interface PendingKindSectionProps {
  */
 export function PendingKindSection({
   title,
+  kind,
   icon: Icon,
   items,
   zone,
@@ -41,12 +52,12 @@ export function PendingKindSection({
         <h3
           className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
           tabIndex={-1}
-          data-testid={`pending-kind-heading-${zone}-${title}`}
+          data-testid={`pending-kind-heading-${zone}-${kind}`}
         >
           {title}
         </h3>
       </div>
-      <ul className="space-y-1.5" data-testid={`pending-kind-section-${zone}-${title}`}>
+      <ul className="space-y-1.5" data-testid={`pending-kind-section-${zone}-${kind}`}>
         {/* task-667-mutation-web: every framer-motion prop below (the
             `AnimatePresence`/`motion.li` `initial`s, `exit`, `transition`,
             and the list `key`) is a genuine mutation-gate equivalent in THIS

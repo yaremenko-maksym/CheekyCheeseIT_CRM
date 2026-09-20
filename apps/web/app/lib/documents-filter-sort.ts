@@ -6,7 +6,7 @@
  * They operate on the already RBAC-filtered list returned by useDocuments()
  * so no backend calls are made — this is purely client-side presentation logic.
  */
-import type { Document } from '@crm/shared'
+import { compareNames, type Document, type Locale } from '@crm/shared'
 
 // ---------------------------------------------------------------------------
 // Sort key union
@@ -61,10 +61,15 @@ export function filterDocuments(docs: Document[], query: string): Document[] {
  * Stability guarantee: JavaScript Array.prototype.sort is stable in V8 (Node ≥ 11)
  * and in every modern browser, so equal keys preserve the original order.
  *
- * Name sort uses `localeCompare` with `'ru'` locale for correct Cyrillic ordering.
+ * Name sort uses `compareNames(locale)` (`@crm/shared`) instead of a
+ * hardcoded `localeCompare(…, 'ru')` — task-i18n-stage2-task8 (audit §2,
+ * COPY-M-core-15): for `uk`, letters `і`/`ї`/`є`/`ґ` don't collate correctly
+ * under the `ru` collation, and a hardcoded locale here would silently mis-
+ * order names on the `en`/`uk` interface once it ships.
  */
-export function sortDocuments(docs: Document[], key: SortKey): Document[] {
+export function sortDocuments(docs: Document[], key: SortKey, locale: Locale): Document[] {
   const copy = docs.slice()
+  const compare = compareNames(locale)
 
   switch (key) {
     case 'date_desc':
@@ -74,14 +79,10 @@ export function sortDocuments(docs: Document[], key: SortKey): Document[] {
       copy.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       break
     case 'name_asc':
-      copy.sort((a, b) =>
-        resolveDisplayName(a).localeCompare(resolveDisplayName(b), 'ru', { sensitivity: 'base' }),
-      )
+      copy.sort((a, b) => compare(resolveDisplayName(a), resolveDisplayName(b)))
       break
     case 'name_desc':
-      copy.sort((a, b) =>
-        resolveDisplayName(b).localeCompare(resolveDisplayName(a), 'ru', { sensitivity: 'base' }),
-      )
+      copy.sort((a, b) => compare(resolveDisplayName(b), resolveDisplayName(a)))
       break
     case 'size_desc':
       copy.sort((a, b) => b.sizeBytes - a.sizeBytes)

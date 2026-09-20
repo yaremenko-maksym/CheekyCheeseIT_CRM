@@ -4,16 +4,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { UserProfileDto } from '@crm/shared'
 import { UserAvatar } from '@/components/users/UserAvatar'
+import { ROLE_LABELS } from '@/components/ui/role-select'
 import { hasRealPhone } from '@/lib/format-phone'
 import { safeTelegramHref } from '@/lib/tg-url'
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-}
 
 const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
   ADMIN: 'admin',
@@ -84,9 +77,7 @@ export function UserProfileHeader({
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="truncate text-2xl font-bold">{user.displayName}</h1>
-          <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>
-            {ROLE_LABELS[user.role] ?? user.role}
-          </Badge>
+          <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>{ROLE_LABELS[user.role]}</Badge>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">

@@ -4,6 +4,7 @@ import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
+import { ROLE_LABELS } from '@/components/ui/role-select'
 import type { SessionUser } from '@crm/shared'
 
 interface ImpersonationBannerProps {
@@ -36,14 +37,7 @@ export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProp
     },
   })
 
-  const roleLabel: Record<string, string> = {
-    SENIOR: 'Синьор',
-    JUNIOR: 'Джун',
-    HR: 'HR',
-    ACCOUNTANT: 'Бухгалтер',
-    DROP: 'Дроп',
-  }
-  const roleName = roleLabel[user.role] ?? user.role
+  const roleName = ROLE_LABELS[user.role]
 
   return (
     <motion.div

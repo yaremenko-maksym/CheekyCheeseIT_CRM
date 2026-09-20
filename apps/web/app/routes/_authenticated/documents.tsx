@@ -43,6 +43,7 @@ import {
   X,
 } from 'lucide-react'
 import { z } from 'zod'
+import { DEFAULT_LOCALE } from '@crm/shared'
 import type {
   Document,
   DocumentCategory,
@@ -742,7 +743,11 @@ function DocumentsListSection({
     if (!data) return []
     let result = statusTab === 'ARCHIVED' ? data.filter((d) => d.deletedAt !== null) : data
     result = filterDocuments(result, searchQuery)
-    result = sortDocuments(result, sortKey)
+    // TODO(i18n stage 2, Task 6): useLocale() — Task 6 (users.locale +
+    // request-locale plumbing) hasn't landed yet, so there is no active
+    // locale to read here. `DEFAULT_LOCALE` keeps today's behavior
+    // (Cyrillic collation) until that hook exists.
+    result = sortDocuments(result, sortKey, DEFAULT_LOCALE)
     return result
   }, [data, statusTab, searchQuery, sortKey])
 

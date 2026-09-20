@@ -154,4 +154,19 @@ describe('ImpersonationBanner', () => {
     // The role span shows "(HR)" — check it's present as a parenthesised label
     expect(screen.getByText(/\(HR\)/)).toBeInTheDocument()
   })
+
+  // task-i18n-stage2-task8 (audit §2, COPY-H-ppl-4): the local role map this
+  // banner used to carry had no DROP entry, so a DROP impersonation target
+  // would have shown the raw enum. Now sourced from the canonical
+  // `ROLE_LABELS` (`@/components/ui/role-select`), which does have DROP.
+  it('shows the DROP role label from the canonical map', () => {
+    render(
+      <ImpersonationBanner
+        user={{ ...MOCK_USER, role: 'DROP', displayName: 'Дроп Іван' }}
+        onStopped={vi.fn()}
+      />,
+      { wrapper },
+    )
+    expect(screen.getByText(/\(Дроп\)/)).toBeInTheDocument()
+  })
 })

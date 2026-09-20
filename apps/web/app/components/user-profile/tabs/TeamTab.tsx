@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { ROLE_LABELS } from '@/components/ui/role-select'
 import { api } from '@/lib/axios'
 
 interface TeamMember {
@@ -12,14 +13,6 @@ interface TeamMember {
   role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
   avatarUrl: string | null
   avatarDocumentId: string | null
-}
-
-const ROLE_LABEL: Record<TeamMember['role'], string> = {
-  ADMIN: 'Админ',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
 }
 
 const ROLE_ORDER: Record<TeamMember['role'], number> = {
@@ -84,7 +77,7 @@ export function TeamTab({ userId }: { userId: string }) {
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium">{m.displayName}</p>
             </div>
-            <Badge variant="outline">{ROLE_LABEL[m.role]}</Badge>
+            <Badge variant="outline">{ROLE_LABELS[m.role]}</Badge>
           </Link>
         ))}
       </CardContent>
