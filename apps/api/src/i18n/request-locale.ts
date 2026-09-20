@@ -35,17 +35,17 @@ export interface LocaleSource {
  */
 export function acceptLanguageCandidates(header: string | undefined): string[] {
   if (!header) return []
-  return (
-    header
-      .split(',')
-      // Stryker disable next-line OptionalChaining: `String.prototype.split`
-      // always returns an array with at least one element (even for '') — so
-      // `part.split(';')[0]` can never be undefined and the `?.` cannot
-      // observably differ from `.` under any input; the `?? ''` right after
-      // it (untouched by this mutant) is the actual defensive fallback.
-      .map((part) => part.split(';')[0]?.trim() ?? '')
-      .filter(Boolean)
-  )
+  // `String.prototype.split` always returns an array with at least one
+  // element (even for ''), so `part.split(';')[0]` can never be undefined —
+  // the `?.` below cannot observably differ from `.` under any input; the
+  // `?? ''` right after it is the actual defensive fallback.
+  return header
+    .split(',')
+    .map((part) => {
+      // Stryker disable next-line OptionalChaining: see the function's own comment above.
+      return part.split(';')[0]?.trim() ?? ''
+    })
+    .filter(Boolean)
 }
 
 export function resolveRequestLocale(req: LocaleSource): Locale {
