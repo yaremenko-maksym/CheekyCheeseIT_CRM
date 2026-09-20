@@ -51,6 +51,7 @@ const viewer: SessionUser = {
   avatarUrl: null,
   avatarDocumentId: null,
   seniorSharePercent: 26,
+  locale: 'uk',
 }
 
 function makeInvoiceDoc(overrides: Partial<Document> = {}): Document {

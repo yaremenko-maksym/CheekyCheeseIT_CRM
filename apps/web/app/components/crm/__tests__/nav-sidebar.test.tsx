@@ -75,6 +75,7 @@ const seniorUser: SessionUser = {
   avatarUrl: null,
   role: 'SENIOR',
   seniorSharePercent: 26,
+  locale: 'uk',
 }
 
 function renderSidebar(opts: { mobileOpen?: boolean } = {}) {

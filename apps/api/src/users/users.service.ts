@@ -2693,7 +2693,19 @@ export class UsersService {
     // SEC-09: exclude googleId — Google's internal identifier is not part of the
     // profile API contract and should not be returned to any caller. The field
     // is used only for OAuth callback flow (updateGoogleId), never for display.
-    type FilteredUser = Omit<User, 'email' | 'googleId' | 'pendingSeniorSharePercent'> & {
+    //
+    // task-i18n-stage2 (Task 3) — `locale` is ALSO excluded here, deliberately
+    // (an assumption recorded, not an oversight): this profile-view DTO
+    // (`GET /users/:id`) has no established use for a viewer to read a
+    // TARGET's interface language — only `/auth/me` (own session) and the
+    // create wizard need it. Extending this allow-list to a field nothing
+    // reads would be scope creep past what task-i18n-stage2's Task 3
+    // actually asked for; re-add here (and to `userProfileSchema`) if a
+    // future task needs it.
+    type FilteredUser = Omit<
+      User,
+      'email' | 'googleId' | 'pendingSeniorSharePercent' | 'locale'
+    > & {
       email: string | null
       personalEmail: string | null
       personalEmailCanLogin: boolean | null

@@ -24,6 +24,7 @@ import type {
   AdminUpdateUserDto,
   CreateDropDto,
   CreateUserDto,
+  Locale,
   PaymentMethod,
   ProjectDto,
   TeamDto,
@@ -534,6 +535,12 @@ export function UserDialog(props: UserDialogProps) {
       personalEmail: '',
       displayName: editingUser?.displayName ?? '',
       role: initialRole,
+      // task-i18n-stage2 (Task 3, Step 6) — create-wizard-only field (this
+      // dialog's Edit mode never sends it: `adminUpdateUserSchema` has no
+      // `locale`, matching the profile-view/create-wizard scope decision
+      // recorded in `users.service.ts`'s `FilteredUser` comment). Default
+      // 'uk' matches `createUserSchema`'s own server-side default.
+      locale: 'uk' as Locale,
       telegram: editingUser?.telegram ?? '',
       phone: ((editingUser?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
       techStack: (editingUser?.techStack ?? []) as string[],
@@ -744,6 +751,9 @@ export function UserDialog(props: UserDialogProps) {
           telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
           phone: (value.phone as string) || undefined,
           techStack: value.techStack.length > 0 ? value.techStack : undefined,
+          // task-i18n-stage2 (Task 3, Step 6) — interface language picked in
+          // the "Данные" step below.
+          locale: value.locale,
           paymentMethod,
           ...(paymentMethod === 'USDT_ERC20' && {
             walletUsdtErc20: value.walletUsdtErc20.trim(),
@@ -938,6 +948,13 @@ export function UserDialog(props: UserDialogProps) {
         // `form.reset()`'s argument is the full form-values shape.
         // Stryker disable next-line StringLiteral: see the paragraph above — unobservable in this mode-locked instance
         personalEmail: '',
+        // task-i18n-stage2 (Task 3, Step 6) — same reasoning as
+        // `personalEmail` immediately above: create-wizard-only field, the
+        // `locale` `form.Field` is gated on `isCreate &&` and this
+        // mode="edit"-locked instance's onSubmit branch never reads
+        // `value.locale`. Kept only because `form.reset()`'s argument is
+        // the full form-values shape.
+        locale: 'uk' as Locale,
         displayName: editingUser.displayName,
         role,
         telegram: editingUser.telegram ?? '',
@@ -1302,6 +1319,31 @@ export function UserDialog(props: UserDialogProps) {
                     )
                   }}
                 </form.Field>
+
+                {/* task-i18n-stage2 (Task 3, Step 6) — create-wizard-only:
+                    interface language for the new account. Names are given
+                    in their own language, not translated (owner decision —
+                    same convention as every language switcher in this app). */}
+                {isCreate && (
+                  <form.Field name="locale">
+                    {(field) => (
+                      <Field label="Мова інтерфейсу" required>
+                        <Select
+                          value={field.state.value}
+                          onValueChange={(v) => field.handleChange(v as Locale)}
+                        >
+                          <SelectTrigger data-testid="user-locale-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="uk">Українська</SelectItem>
+                            <SelectItem value="en">English</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    )}
+                  </form.Field>
+                )}
               </Section>
 
               {/* ── Section 1.5: Contract data (non-ADMIN only) ─────────── */}
