@@ -1,11 +1,6 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+import { ConflictException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common'
 import { and, desc, eq, sql } from 'drizzle-orm'
-import { TOS_ACCEPT_IMPERSONATION_MESSAGE } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { tosAcceptances, tosVersions } from '../database/schema'
 import type { DrizzleTx } from '../database/types' // still used by publish()
@@ -151,7 +146,7 @@ export class TosService {
     impersonatorId: string | null
   }) {
     if (impersonatorId) {
-      throw new ForbiddenException(TOS_ACCEPT_IMPERSONATION_MESSAGE)
+      throw apiError('TOS_ACCEPT_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
 
     const active = await this.getCurrent()

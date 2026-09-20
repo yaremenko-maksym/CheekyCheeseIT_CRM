@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -15,6 +16,7 @@ import type {
   PendingSeniorShare,
   SessionUser,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -375,19 +377,15 @@ export class UsersService {
    */
   async approveSeniorShareChange(id: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
-      // task-648-fix-round-1 (COPY-H-1): its own Russian string, distinct
-      // from the generic 403 fallback — see cancelSeniorShareChange's
-      // identical comment above.
-      // task-648-fix-round-2 (COPY-M-13): neither «приглашённый» nor
-      // «имперсонация» exists anywhere in the interface — the reader seeing
-      // this 403 has `ImpersonationBanner`'s «Вы вошли как «X»» across the
-      // top of the same screen, so that is the phrasing used here. This
-      // string reaches the browser verbatim (`getApiErrorMessage` gives the
-      // backend message priority 1), which is what makes it copy and not a
-      // log line.
-      throw new ForbiddenException(
-        'Пока вы вошли как другой сотрудник, подтвердить его долю нельзя — это должен сделать он сам',
-      )
+      // task-648-fix-round-1 (COPY-H-1) / round-2 (COPY-M-13): the reader
+      // seeing this 403 has `ImpersonationBanner`'s «Вы вошли как «X»»
+      // across the top of the same screen — same phrasing lives in
+      // `SHARE_DECISION_IMPERSONATION` (`packages/shared/src/schemas/api-errors.ts`).
+      // task-i18n-stage2-task5: the envelope carries `code`, not this prose —
+      // the client re-translates by `code` (`getApiErrorMessage`), so this
+      // string is no longer what reaches the browser (the English fallback
+      // in the HTTP body is for logs only).
+      throw apiError('SHARE_DECISION_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction(async (tx) => {
       // task-648-fix-round-2 (SR-M-6): the row lock comes FIRST, before any
@@ -433,9 +431,9 @@ export class UsersService {
   async rejectSeniorShareChange(id: string, reason: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
       // task-648-fix-round-1 (COPY-H-1): same reasoning as approve above.
-      throw new ForbiddenException(
-        'Пока вы вошли как другой сотрудник, отклонить его долю нельзя — это должен сделать он сам',
-      )
+      // task-i18n-stage2-task5: same code, see approveSeniorShareChange's
+      // comment above.
+      throw apiError('SHARE_DECISION_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction(async (tx) => {
       // task-648-fix-round-2 (SR-M-6): `users` before `approvals` — see the
