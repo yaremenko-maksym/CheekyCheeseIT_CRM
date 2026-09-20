@@ -14,6 +14,16 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
+msgstr "{role, select, JUNIOR {A junior} DROP {A drop} other {An employee}} can only upload their own documents"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
+msgstr "{role, select, JUNIOR {A junior} HR {HR} ACCOUNTANT {An accountant} SENIOR {A senior} DROP {A drop} other {An employee}} can't upload {category, select, CONTRACT {contracts} RECEIPT {receipts} LOGO {logos} other {documents}}"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_JOIN_OWN_DROP_TEAM_ONLY"
 msgstr "HR can only add a senior to their own drop team"
@@ -29,9 +39,39 @@ msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
 msgstr "A Telegram channel can only be set for a senior"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY"
+msgstr "An avatar can only be uploaded for your own profile"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ADMIN_CANNOT_BE_MEMBER"
+msgstr "An administrator can't be a team member"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_CANNOT_CHANGE_OWN_ROLE"
 msgstr "An admin can't change their own role"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.ADMIN_DOES_NOT_SIGN_CONTRACTS"
+msgstr "An administrator doesn't sign a contract"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_ADMIN_NOT_ALLOWED"
+msgstr "Administrators can't have an employee contract"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.EMPLOYEE_CONTRACT_NOT_FOUND"
+msgstr "No active employee contract found for this user"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_DUPLICATE_ACTIVE"
+msgstr "An active contract template for this role already exists"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -104,9 +144,54 @@ msgid "api-error.DROP_TEAM_ID_REQUIRED"
 msgstr "Choose the drop team to add the senior to"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_DELETE_OWNER_OR_ADMIN_ONLY"
+msgstr "Only the owner or an administrator can delete a document"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_HARD_DELETE_ADMIN_ONLY"
+msgstr "Only an administrator can permanently delete a document"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_RESTORE_ADMIN_ONLY"
+msgstr "Only an administrator can restore a document"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_USER_NOT_FOUND_OR_WRONG_ROLE"
+msgstr "The specified user wasn't found or has the wrong role"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
+msgstr "The file's content doesn't match any of the allowed formats"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
+msgstr "The file's content doesn't match its declared type: declared '{declaredMime}', detected '{detectedMime}'"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT"
 msgstr "The junior is already an active member of another project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_JUNIOR_FORBIDDEN"
+msgstr "Juniors can't access interviews"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_ADMIN_NONE"
+msgstr "There is no contract template for an administrator"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_PROJECT_ID_REQUIRED"
+msgstr "A project is required for contract documents"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -117,6 +202,11 @@ msgstr "Seniors and admins can only be paid to USDT ERC-20"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
 msgstr "Only a junior, an HR, or an accountant can be added to a project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
+msgstr "Only an administrator can add a senior to a team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -139,6 +229,21 @@ msgid "api-error.LOGO_DOCUMENT_NOT_FOUND"
 msgstr "The logo document was not found"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_NOT_FOUND"
+msgstr "Document not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
+msgstr "Invoice documents are generated by the system and cannot be uploaded through this endpoint"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
+msgstr "A drop doesn't have access to interviews"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ARCHIVED"
 msgstr "The drop is already archived"
@@ -147,6 +252,11 @@ msgstr "The drop is already archived"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_NOT_FOUND"
 msgstr "Drop not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_CONTRACT_RESTRICTED"
+msgstr "Only an administrator, a senior, or a drop (for themselves) can upload a contract"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -164,9 +274,24 @@ msgid "api-error.PROJECT_NOT_ACTIVE"
 msgstr "Income can only be declared for an active project"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_HR_SUMMARY_FORBIDDEN"
+msgstr "The HR summary is only available to HR or an administrator"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT"
 msgstr "The role can't be changed to drop this way"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
+msgstr "Only an administrator or an accountant can change the senior's share at the team level"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_SENIOR_ID_INVALID"
+msgstr "The senior ID must be a valid UUID"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -179,9 +304,44 @@ msgid "api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN"
 msgstr "Only an admin or an accountant can change the senior's project share"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ALREADY_ARCHIVED"
+msgstr "The team is already archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_NOT_ARCHIVED"
+msgstr "The team isn't archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_NOT_FOUND"
+msgstr "Team not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_NOT_DRAFT"
+msgstr "This contract is no longer a draft — refresh the page"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_NOT_EDITABLE"
+msgstr "This contract can no longer be edited"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_NOT_READY"
+msgstr "The contract isn't ready to sign"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ALREADY_ACTIVE_PROJECT_MEMBER"
 msgstr "The user is already an active member of this project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_USER_ALREADY_MEMBER"
+msgstr "The user is already a team member"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -203,6 +363,11 @@ msgstr "The user is not archived"
 msgid "api-error.USER_NOT_FOUND"
 msgstr "User not found"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGEND_NOT_FOUND"
+msgstr "The project's legend wasn't found — create a legend first"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
@@ -212,6 +377,11 @@ msgstr "Interface language"
 #: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.GENERIC"
 msgstr "Something went wrong. Please try again"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGEND_UPSERT_FAILED"
+msgstr "Failed to save the legend — no row was returned"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
@@ -248,6 +418,16 @@ msgid "api-error.CANNOT_EDIT_ANOTHER_ADMIN"
 msgstr "You can't edit another admin's account"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS"
+msgstr "Unknown custom variable keys: {keys}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_INVALID_ROLE"
+msgstr "Invalid contract template role"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "No active contract template for this role. Add one under Contracts"
@@ -256,6 +436,16 @@ msgstr "No active contract template for this role. Add one under Contracts"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.NO_HR_CONTACT_ACCESS"
 msgstr "No access to the HR contact"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGEND_ACCESS_DENIED"
+msgstr "No access to the project's legend"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGEND_EDIT_ACCESS_DENIED"
+msgstr "No access to editing the project's legend"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -268,6 +458,11 @@ msgid "api-error.INVITE_GOOGLE_ACCOUNT_MISMATCH"
 msgstr "This Google account doesn't match the email the invite was sent to"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_ADMIN_PUBLISH_FORBIDDEN"
+msgstr "An administrator's contract template can't be published"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK"
 msgstr "The personal email must be different from the work email"
@@ -277,9 +472,39 @@ msgstr "The personal email must be different from the work email"
 msgid "api-error.PERSONAL_EMAIL_ALREADY_VERIFIED"
 msgstr "The personal email is already verified — there's no need to send another invite"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_UNEXPECTED_USER_ROLE"
+msgstr "Expected the role {expectedRole, select, ADMIN {administrator} SENIOR {senior} JUNIOR {junior} HR {HR} ACCOUNTANT {accountant} DROP {drop} other {employee}}, got {actualRole, select, ADMIN {administrator} SENIOR {senior} JUNIOR {junior} HR {HR} ACCOUNTANT {accountant} DROP {drop} other {employee}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
+msgstr "You can only view your own contract"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Translation is still in progress — some screens remain in Russian."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
+msgstr "Signed contract not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.APPROVAL_ALREADY_DECIDED"
+msgstr "The approval already received a decision"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.APPROVAL_NOT_FOUND_OR_CLOSED"
+msgstr "Approval not found or already closed"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_ALREADY_STATUS_CANNOT_REVERT"
+msgstr "Can't revert to draft: the contract is already {status, select, READY_TO_SIGN {awaiting signature} SIGNED {signed} CANCELLED {cancelled} other {in another status}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -287,9 +512,24 @@ msgid "api-error.REJOIN_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can rejoin a team"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_SENIOR_ID_REQUIRED"
+msgstr "A senior ID is required"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
 msgstr "At least one HR is required"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE"
+msgstr "The team needs at least one accountant"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_CANNOT_REMOVE_SENIOR"
+msgstr "The senior can't be removed from a team — delete the team instead"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -332,6 +572,11 @@ msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
 msgstr "You can only rejoin a team you were previously a member of"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM"
+msgstr "The senior is already on another active team"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Senior not found"
@@ -345,6 +590,21 @@ msgstr "Only an admin can cancel a share proposal"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY"
 msgstr "Only an admin or an accountant can cancel a share proposal"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE"
+msgstr "Move the document to trash first, then delete it permanently"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_NOT_FOUND"
+msgstr "Interview not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.NOTIFICATION_NOT_FOUND"
+msgstr "Notification not found"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -367,14 +627,39 @@ msgid "api-error.INVITE_EXPIRED"
 msgstr "The invite has expired"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_MULTIPART_REQUIRED"
+msgstr "Content-Type must be multipart/form-data"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN"
 msgstr "Only an admin or an accountant can change the project's payment type"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
+msgstr "File type '{mimeType}' isn't supported. Allowed formats: PDF, JPEG, PNG, WEBP, HEIC"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_NO_ACTIVE_TEAM"
+msgstr "You don't have an active team"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ALREADY_HAS_ACTIVE_TEAM"
 msgstr "You already have an active team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ALREADY_HAS_SENIOR"
+msgstr "The team already has a senior"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE"
+msgstr "The team has no active senior — archiving through the pair flow isn't possible"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -392,6 +677,11 @@ msgid "api-error.PROJECT_HAS_ACTIVE_JUNIOR"
 msgstr "The project already has an active junior member"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_FILE_FIELD_MISSING"
+msgstr "Missing 'file' field in the request body"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_TARGET_ADMIN_FORBIDDEN"
 msgstr "You can't sign in as another admin"
@@ -400,6 +690,16 @@ msgstr "You can't sign in as another admin"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
 msgstr "You can't sign in as yourself"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_MEMBER_NOT_FOUND"
+msgstr "Team member not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_TOO_LARGE"
+msgstr "The file is larger than {maxMb} MB"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -432,6 +732,11 @@ msgid "api-error.USER_NOT_SENIOR_OR_ADMIN"
 msgstr "This user is neither a senior nor an admin"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS"
+msgstr "This senior isn't in your teams"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.GOOGLE_ACCOUNT_MISMATCH"
 msgstr "This email is already linked to a different Google account"
@@ -460,3 +765,18 @@ msgstr "This email is already taken. Enter a different one"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
 msgstr "This email is not authorized. Contact an admin"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_DROP_TEAMS_ONLY"
+msgstr "This operation is only available for drop teams"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_NOT_FOUND"
+msgstr "Contract template not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGAL_NAME_REQUIRED"
+msgstr "Legal full name isn't filled in. Contact an administrator"
