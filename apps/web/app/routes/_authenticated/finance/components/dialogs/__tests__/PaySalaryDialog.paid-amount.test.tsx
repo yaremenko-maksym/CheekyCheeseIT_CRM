@@ -295,7 +295,7 @@ describe('PaySalaryDialog — amount validity (blocks, unlike the warning)', () 
     await fillReceipt()
     fireEvent.click(screen.getByTestId('pay-salary-submit'))
     expect(await screen.findByTestId('pay-salary-amount-error')).toHaveTextContent(
-      'знаків після коми',
+      'знаків після крапки',
     )
     expect(paySalaryMock).not.toHaveBeenCalled()
   })

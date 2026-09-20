@@ -217,7 +217,7 @@ describe('translateZodMessage', () => {
   })
 
   it('translates a zod.<CODE> message through the catalog', () => {
-    expect(translateZodMessage('zod.RNOKPP_FORMAT')).toBe('РНОКПП має містити 10 цифр')
+    expect(translateZodMessage('zod.RNOKPP_FORMAT')).toBe('Введіть 10 цифр РНОКПП')
   })
 
   it('passes through a message that is not one of our codes, unchanged', () => {

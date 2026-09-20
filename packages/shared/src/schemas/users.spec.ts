@@ -804,3 +804,102 @@ describe('adminUpdateUserSchema — field codes (task-i18n-stage4-task4)', () =>
     ).toBe(true)
   })
 })
+
+/**
+ * fix-round 1 (PR #699, security-review bonus): `refineRequisitePresence`'s
+ * five `ctx.addIssue` branches had zero direct test coverage — 27 mutants
+ * survived undetected in `@crm/shared`'s mutation gate. One test per branch,
+ * pinning the exact code (not just `success: false`).
+ */
+describe('adminUpdateUserSchema — refineRequisitePresence (security-review bonus)', () => {
+  it('SENIOR with paymentMethod=BANK_UAH_FOP is rejected — zod.USDT_ONLY_FOR_SENIOR_ADMIN', () => {
+    const result = adminUpdateUserSchema.safeParse({
+      role: 'SENIOR',
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'Recipient Name',
+      bankUahIban: 'UA' + '1'.repeat(27),
+      bankUahRnokpp: '1'.repeat(10),
+    })
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'paymentMethod')
+    expect(issue?.message).toBe('zod.USDT_ONLY_FOR_SENIOR_ADMIN')
+  })
+
+  it('ADMIN with paymentMethod=BANK_UAH_FOP is ALSO rejected — same code, second isUsdtOnlyRole branch', () => {
+    const result = adminUpdateUserSchema.safeParse({
+      role: 'ADMIN',
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'Recipient Name',
+      bankUahIban: 'UA' + '1'.repeat(27),
+      bankUahRnokpp: '1'.repeat(10),
+    })
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'paymentMethod')
+    expect(issue?.message).toBe('zod.USDT_ONLY_FOR_SENIOR_ADMIN')
+  })
+
+  it('DROP with paymentMethod=BANK_UAH_FOP is ACCEPTED — pins the isUsdtOnlyRole exclusion (spec §8.3)', () => {
+    const result = adminUpdateUserSchema.safeParse({
+      role: 'DROP',
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'Recipient Name',
+      bankUahIban: 'UA' + '1'.repeat(27),
+      bankUahRnokpp: '1'.repeat(10),
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('paymentMethod=USDT_ERC20 with no walletUsdtErc20 — zod.USDT_WALLET_REQUIRED', () => {
+    const result = adminUpdateUserSchema.safeParse({ paymentMethod: 'USDT_ERC20' })
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'walletUsdtErc20')
+    expect(issue?.message).toBe('zod.USDT_WALLET_REQUIRED')
+  })
+
+  it('paymentMethod=BANK_UAH_FOP with no bankUahRecipient — zod.RECIPIENT_NAME_REQUIRED', () => {
+    const result = adminUpdateUserSchema.safeParse({
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahIban: 'UA' + '1'.repeat(27),
+      bankUahRnokpp: '1'.repeat(10),
+    })
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'bankUahRecipient')
+    expect(issue?.message).toBe('zod.RECIPIENT_NAME_REQUIRED')
+  })
+
+  it('paymentMethod=BANK_UAH_FOP with no bankUahIban — zod.IBAN_REQUIRED', () => {
+    const result = adminUpdateUserSchema.safeParse({
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'Recipient Name',
+      bankUahRnokpp: '1'.repeat(10),
+    })
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'bankUahIban')
+    expect(issue?.message).toBe('zod.IBAN_REQUIRED')
+  })
+
+  it('paymentMethod=BANK_UAH_FOP with no bankUahRnokpp — zod.RNOKPP_REQUIRED', () => {
+    const result = adminUpdateUserSchema.safeParse({
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'Recipient Name',
+      bankUahIban: 'UA' + '1'.repeat(27),
+    })
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find((i) => i.path[0] === 'bankUahRnokpp')
+    expect(issue?.message).toBe('zod.RNOKPP_REQUIRED')
+  })
+
+  it('paymentMethod omitted entirely — refine is a no-op, nothing required', () => {
+    expect(adminUpdateUserSchema.safeParse({}).success).toBe(true)
+  })
+
+  it('BANK_UAH_FOP with all three requisite fields present — accepted, no issues', () => {
+    const result = adminUpdateUserSchema.safeParse({
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'Recipient Name',
+      bankUahIban: 'UA' + '1'.repeat(27),
+      bankUahRnokpp: '1'.repeat(10),
+    })
+    expect(result.success).toBe(true)
+  })
+})

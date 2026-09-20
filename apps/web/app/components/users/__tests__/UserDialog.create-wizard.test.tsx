@@ -638,7 +638,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     await user.type(input, 'not-an-email')
     await user.tab()
 
-    expect(await screen.findByText('Некоректний email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
     expect(input.className).toContain('border-destructive')
   })
 
@@ -668,14 +668,14 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     const input = screen.getByTestId('user-dialog-personal-email')
     await user.type(input, 'not-an-email')
     await user.tab()
-    expect(await screen.findByText('Некоректний email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
 
     await user.clear(input)
     await user.type(input, 'ivan.personal@gmail.com')
     await user.tab()
 
     await waitFor(() => {
-      expect(screen.queryByText('Некоректний email')).not.toBeInTheDocument()
+      expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
       expect(
         screen.queryByText('Личный email должен отличаться от рабочего'),
       ).not.toBeInTheDocument()
@@ -705,7 +705,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
       const body = postCalls[0]?.[1] as Record<string, unknown>
       expect(body.personalEmail).toBe('ivan.personal@gmail.com')
     })
-    expect(screen.queryByText('Некоректний email')).not.toBeInTheDocument()
+    expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
   })
 
   it('omits a whitespace-only personalEmail from the POST body instead of sending it as an empty string', async () => {
@@ -722,7 +722,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     // whitespace-only is meant to behave exactly like untouched/empty, not
     // like invalid input.
     await waitFor(() => {
-      expect(screen.queryByText('Некоректний email')).not.toBeInTheDocument()
+      expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
     })
     expect(input.className).not.toContain('border-destructive')
 

@@ -235,7 +235,7 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     const user = userEvent.setup()
     await user.type(input(), 'not-an-email')
     await user.tab() // blur
-    expect(await screen.findByText('Некоректний email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
     expect(input().className).toContain('border-destructive')
   })
 
@@ -263,7 +263,7 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     const user = userEvent.setup()
     await user.type(input(), 'brand.new@gmail.com')
     await user.tab()
-    expect(screen.queryByText('Некоректний email')).not.toBeInTheDocument()
+    expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Особистий email має відрізнятися від робочого'),
     ).not.toBeInTheDocument()
@@ -274,9 +274,9 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     const user = userEvent.setup()
     await user.type(input(), 'not-an-email')
     await user.tab()
-    expect(await screen.findByText('Некоректний email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
     await user.type(input(), 'x')
-    expect(screen.queryByText('Некоректний email')).not.toBeInTheDocument()
+    expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
   })
 })
 
@@ -310,7 +310,7 @@ describe('ChangePersonalEmailDialog — error-state styling (mutation-gate closu
     await user.type(input(), 'not-an-email')
     await user.tab()
     const errorParagraph = await screen.findByTestId('change-personal-email-error')
-    expect(errorParagraph).toHaveTextContent('Некоректний email')
+    expect(errorParagraph).toHaveTextContent('Введіть email у форматі name@domain')
     expect(errorParagraph.className).toContain('text-destructive')
     expect(label().className).toContain('text-destructive')
   })
@@ -323,7 +323,7 @@ describe('ChangePersonalEmailDialog — submit', () => {
     await user.type(input(), 'not-an-email')
     // Button is enabled (non-noop), but clicking must still validate.
     await user.click(submitButton())
-    expect(await screen.findByText('Некоректний email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
     expect(api.patch).not.toHaveBeenCalled()
   })
 

@@ -530,6 +530,11 @@ describe.skipIf(!HAS_DB_URL)(
         { receiverId: JUNIOR.id, amount: 100, currency: 'USD', salaryMonth: '2026-08' },
         ADMIN,
       )
+      // fix-round 1 (bonus, task-i18n-stage4-lessons-701 lesson 2): assert
+      // `status` alongside the text regex, not the text alone — this refusal
+      // is a direct (non-Zod) `BadRequestException`, so there is no `code`
+      // to pin (unlike `receiptMandatoryError`'s CI-1 fix above); `status`
+      // is the one machine-checkable fact `toThrow`'s regex cannot give.
       await expect(
         svc.paySalary(
           pending.id,
@@ -541,7 +546,10 @@ describe.skipIf(!HAS_DB_URL)(
           },
           ADMIN,
         ),
-      ).rejects.toThrow(/Недостаточно средств/)
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringMatching(/Недостаточно средств/),
+      })
       expect((await rawRow(pending.id))!.status).toBe('PENDING')
     })
 

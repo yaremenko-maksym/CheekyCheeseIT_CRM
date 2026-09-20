@@ -157,7 +157,7 @@ describe('ZodExceptionFilter — migrated vs non-migrated issues (task-i18n-stag
     expect(migrated).toEqual({
       path: 'bankUahRnokpp',
       code: 'RNOKPP_FORMAT',
-      message: 'The tax ID must contain 10 digits',
+      message: 'Enter the 10 digits of the RNOKPP (tax ID)',
     })
 
     const legacy = errors.find((e) => e['path'] === 'email')
