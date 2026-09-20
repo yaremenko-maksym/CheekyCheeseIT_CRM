@@ -3,7 +3,11 @@ import type { LinguiConfig } from '@lingui/conf'
 const config: LinguiConfig = {
   sourceLocale: 'uk',
   locales: ['uk', 'en'],
+  // Line numbers in `#:` references drift on every merge with main (a file changed
+  // above a message shifts the number), which made the CI catalog-sync step red on
+  // #694 without any message changing. Keep file references, drop the numbers.
   format: 'po',
+  formatOptions: { lineNumbers: false },
   catalogs: [
     {
       path: '<rootDir>/packages/shared/src/i18n/locales/{locale}/messages',

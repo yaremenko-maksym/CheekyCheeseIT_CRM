@@ -11,9 +11,9 @@
  * см. doc-комментарий `sessionUserSchema.impersonatorId`), сервис —
  * шпионом, вызван он или нет.
  */
-import { ForbiddenException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
+import type { SessionUser } from '@crm/shared'
 import { NotificationsController } from './notifications.controller'
 
 function makeController(): {
@@ -43,19 +43,22 @@ function sessionUser(over: Partial<SessionUser> = {}): SessionUser {
 }
 
 describe('PUT /notifications/preferences под имперсонацией — бэклог 205', () => {
-  it('impersonatorId задан — 403 по-русски, updateForUser НЕ вызван', () => {
+  it('impersonatorId задан — 403, updateForUser НЕ вызван', () => {
     const { controller, updateForUser } = makeController()
     const admin = sessionUser({ impersonatorId: 'f7b10000-0000-4007-b000-000000000002' })
 
+    // task-i18n-stage2-task5: apiError() returns a plain HttpException, not
+    // `instanceof ForbiddenException` — see the next test for the envelope
+    // code this call actually throws.
     expect(() =>
       controller.updatePreferences(admin, {
         items: [{ type: 'TRANSACTION_ADDED', emailEnabled: false }],
       }),
-    ).toThrow(ForbiddenException)
+    ).toThrow(HttpException)
     expect(updateForUser).not.toHaveBeenCalled()
   })
 
-  it('текст отказа — ровно тот, что видит клиент (проверка на дословность строки)', () => {
+  it('код отказа — NOTIFICATION_PREFERENCES_IMPERSONATION (task-i18n-stage2-task5)', () => {
     const { controller } = makeController()
     const admin = sessionUser({ impersonatorId: 'f7b10000-0000-4007-b000-000000000002' })
 
@@ -66,10 +69,11 @@ describe('PUT /notifications/preferences под имперсонацией — �
       caught = err
     }
 
-    expect(caught).toBeInstanceOf(ForbiddenException)
-    expect((caught as ForbiddenException).message).toBe(
-      NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
-    )
+    expect(caught).toBeInstanceOf(HttpException)
+    expect((caught as HttpException).getStatus()).toBe(403)
+    expect((caught as HttpException).getResponse()).toMatchObject({
+      code: 'NOTIFICATION_PREFERENCES_IMPERSONATION',
+    })
   })
 
   it('impersonatorId отсутствует — запись проходит как обычно', () => {

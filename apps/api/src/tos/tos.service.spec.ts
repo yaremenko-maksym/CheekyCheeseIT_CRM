@@ -1,6 +1,5 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common'
+import { ConflictException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { TOS_ACCEPT_IMPERSONATION_MESSAGE } from '@crm/shared'
 import { TosService } from './tos.service'
 import type { DatabaseService } from '../database/database.service'
 
@@ -316,7 +315,9 @@ describe('TosService', () => {
             userAgent: 'vt',
             impersonatorId: 'admin-1',
           }),
-        ).rejects.toThrow(ForbiddenException)
+          // task-i18n-stage2-task5: apiError() returns a plain HttpException,
+          // not `instanceof ForbiddenException` — asserted by status below.
+        ).rejects.toMatchObject({ status: 403 })
 
         // Checked before any read/write: neither getCurrent's query nor the
         // acceptance insert is ever reached.
@@ -324,7 +325,7 @@ describe('TosService', () => {
         expect(mockDb.db.insert).not.toHaveBeenCalled()
       })
 
-      it('impersonation refusal carries the exact shared literal', async () => {
+      it('impersonation refusal carries the TOS_ACCEPT_IMPERSONATION envelope code (task-i18n-stage2-task5)', async () => {
         const mockDb = makeDb()
         const service = new TosService(mockDb as unknown as DatabaseService)
 
@@ -335,7 +336,10 @@ describe('TosService', () => {
             userAgent: 'vt',
             impersonatorId: 'admin-1',
           }),
-        ).rejects.toThrow(TOS_ACCEPT_IMPERSONATION_MESSAGE)
+        ).rejects.toMatchObject({
+          status: 403,
+          response: expect.objectContaining({ code: 'TOS_ACCEPT_IMPERSONATION' }),
+        })
       })
     })
   })

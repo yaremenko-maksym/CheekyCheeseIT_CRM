@@ -77,6 +77,7 @@ import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
+import { getApiErrorCode } from '@/lib/axios-utils'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
 import {
@@ -2409,7 +2410,18 @@ interface WizardStep2Props {
  * Lazy-loads the A3-2 ContractEditor + uses useEmployeeContract for DRAFT lazy-create.
  * Renders a skippable empty-state when no active template (404).
  */
-function WizardStep2({ userId, onHasContract, body, onBodyChange, isDirty }: WizardStep2Props) {
+// task-i18n-stage2-task5: exported (was module-private) so
+// `UserDialog.test.tsx` can render it directly with a mocked
+// `useEmployeeContract` — same pattern `ContractTab.test.tsx` already uses
+// for its sibling `isNoTemplate` migration, without needing a full
+// multi-provider `UserDialog` render.
+export function WizardStep2({
+  userId,
+  onHasContract,
+  body,
+  onBodyChange,
+  isDirty,
+}: WizardStep2Props) {
   const { data: contract, isLoading, error } = useEmployeeContract(userId)
   const saveBody = useSaveContractBody(userId)
 
@@ -2436,11 +2448,12 @@ function WizardStep2({ userId, onHasContract, body, onBodyChange, isDirty }: Wiz
     saveBody.mutate(body)
   }
 
-  // No active template → 404 empty state (step is skippable)
-  const isNoTemplate =
-    error &&
-    ((error as { response?: { status?: number } })?.response?.status === 404 ||
-      String((error as Error).message).includes('template'))
+  // No active template → 404 empty state (step is skippable).
+  // task-i18n-stage2-task5: stable `code` from the envelope instead of
+  // status-404-OR-substring-match — the substring half broke the moment the
+  // prose it matched against became translatable (see ContractTab.tsx's
+  // identical migration for the same reasoning).
+  const isNoTemplate = getApiErrorCode(error) === 'CONTRACT_TEMPLATE_MISSING'
 
   return (
     <div className="py-2 flex flex-col gap-4" data-testid="wizard-contract-step">

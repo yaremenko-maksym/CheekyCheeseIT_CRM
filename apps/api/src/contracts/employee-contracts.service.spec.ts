@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  NotFoundException,
+} from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { EmployeeContract } from '../database/schema'
@@ -148,14 +153,18 @@ describe('EmployeeContractsService', () => {
       )
     })
 
-    it('throws 404 when no active template for role', async () => {
+    it('throws 404 with the CONTRACT_TEMPLATE_MISSING envelope code when no active template for role (task-i18n-stage2-task5)', async () => {
       const { service, db } = makeService({}, null)
       db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'JUNIOR' })
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
 
-      await expect(service.getOrCreateForUser('user-uuid', mockViewer)).rejects.toThrow(
-        NotFoundException,
-      )
+      // COPY-M-6 (PR #694 round 3) removed `role` from this code's params
+      // (`API_ERROR_PARAMS.CONTRACT_TEMPLATE_MISSING` is `[]` now) — the
+      // envelope no longer carries a `params` field to pin here at all.
+      await expect(service.getOrCreateForUser('user-uuid', mockViewer)).rejects.toMatchObject({
+        status: 404,
+        response: { code: 'CONTRACT_TEMPLATE_MISSING' },
+      })
     })
   })
 
@@ -363,7 +372,7 @@ describe('EmployeeContractsService', () => {
   })
 
   describe('resetToTemplate — edge cases (GAP 5)', () => {
-    it('throws 404 when no active template exists for the role', async () => {
+    it('throws 404 with the CONTRACT_TEMPLATE_MISSING envelope code when no active template exists for the role (task-i18n-stage2-task5)', async () => {
       // makeService with null template = no active template
       const { service, db } = makeService({}, null)
       db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'SENIOR' })
@@ -371,8 +380,12 @@ describe('EmployeeContractsService', () => {
 
       const err = await service.resetToTemplate('user-uuid', mockViewer).catch((e) => e)
 
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toContain('No active contract template for role')
+      expect(err).toBeInstanceOf(HttpException)
+      expect((err as HttpException).getStatus()).toBe(404)
+      // COPY-M-6 (PR #694 round 3) removed `role` from this code's params.
+      expect((err as HttpException).getResponse()).toMatchObject({
+        code: 'CONTRACT_TEMPLATE_MISSING',
+      })
     })
   })
 

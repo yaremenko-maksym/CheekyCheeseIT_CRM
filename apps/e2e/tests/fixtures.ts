@@ -1569,10 +1569,18 @@ export async function mockAuthAs(page: Page, user: MockUser) {
     if (r.request().method() === 'GET') {
       // Default: 404 "no template" — tests that need a real contract
       // register their own handler AFTER mockAuthAs so it takes priority (LIFO).
+      // task-i18n-stage2-task5: body is the API error envelope
+      // (`apiErrorEnvelopeSchema`) — `WizardStep2`/`ContractTab` now branch
+      // on `code`, not `message` substring matching.
       return r.fulfill({
         status: 404,
         contentType: 'application/json',
-        body: JSON.stringify({ message: 'No active contract template for role UNKNOWN' }),
+        body: JSON.stringify({
+          statusCode: 404,
+          code: 'CONTRACT_TEMPLATE_MISSING',
+          params: { role: 'UNKNOWN' },
+          message: 'No active contract template for role UNKNOWN',
+        }),
       })
     }
     return r.fallback()

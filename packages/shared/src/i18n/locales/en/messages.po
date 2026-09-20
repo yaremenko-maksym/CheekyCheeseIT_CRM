@@ -12,3 +12,43 @@ msgstr ""
 "Last-Translator: \n"
 "Language-Team: \n"
 "Plural-Forms: \n"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.NOTIFICATION_PREFERENCES_IMPERSONATION"
+msgstr "You're signed in as another employee — notification preferences are view-only"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.CONTRACT_SIGN_IMPERSONATION"
+msgstr "You're signed in as another employee — only they can sign their contract"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.INVOICE_SIGN_IMPERSONATION"
+msgstr "You're signed in as another employee — only they can sign their invoice"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.SHARE_DECISION_IMPERSONATION"
+msgstr "You're signed in as another employee — only they can decide on their share"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.TOS_ACCEPT_IMPERSONATION"
+msgstr "You're signed in as another employee — only they can accept the terms"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.PROJECT_DECISION_IMPERSONATION"
+msgstr "You're signed in as another employee — only they can decide on the project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.GENERIC"
+msgstr "Something went wrong. Please try again"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.CONTRACT_TEMPLATE_MISSING"
+msgstr "No active contract template for this role. Add one under Contracts"

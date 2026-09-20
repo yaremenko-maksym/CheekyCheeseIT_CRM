@@ -47,6 +47,7 @@
 import {
   ConflictException,
   ForbiddenException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -56,17 +57,17 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
-import {
-  type ContractTargetRole,
-  INVOICE_SIGN_IMPERSONATION_MESSAGE,
-  type InvoiceDto,
-  type InvoiceListFilters,
-  type InvoiceListItem,
-  type InvoiceStatus,
-  type InvoiceType,
-  type InvoiceVerifyResponse,
-  type SessionUser,
+import type {
+  ContractTargetRole,
+  InvoiceDto,
+  InvoiceListFilters,
+  InvoiceListItem,
+  InvoiceStatus,
+  InvoiceType,
+  InvoiceVerifyResponse,
+  SessionUser,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
   contractTemplates,
@@ -973,7 +974,7 @@ export class InvoicesService {
     // already (no field-by-field reconstruction like the contracts
     // controller needed) — `impersonatorId` cannot be dropped in transit.
     if (viewer.impersonatorId) {
-      throw new ForbiddenException(INVOICE_SIGN_IMPERSONATION_MESSAGE)
+      throw apiError('INVOICE_SIGN_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
 
     // security-review PR #456 round 2: fetch + write-guard fused into one
