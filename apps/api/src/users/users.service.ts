@@ -802,6 +802,12 @@ export class UsersService {
      */
     legalFullName?: string
     /**
+     * task-i18n-stage2 (Task 3) — interface language selected in the create
+     * wizard's "Данные" step. Defaults to 'uk' below when omitted (matches
+     * the DB column default).
+     */
+    locale?: 'uk' | 'en'
+    /**
      * Drop role - phase 1: senior-only opt-in. `CREATE_NEW` (default)
      * preserves the legacy auto-team flow. `JOIN_DROP_TEAM` skips auto-team
      * and attaches the new senior to an existing drop-team.
@@ -886,6 +892,11 @@ export class UsersService {
       // is set.
       avatarUrl: data.avatarUrl ?? null,
       techStack: data.techStack ?? null,
+      // task-i18n-stage2 (Task 3) — explicit default here (not left to the
+      // column default) so the returned row (and the audit event's
+      // `after: created.displayName` sibling fields) reflect the same value
+      // this method's own callers expect back immediately.
+      locale: data.locale ?? 'uk',
     }
     if (data.seniorSharePercent !== undefined)
       insertValues.seniorSharePercent = data.seniorSharePercent
@@ -1526,6 +1537,8 @@ export class UsersService {
       phone?: string | null
       techStack?: string[] | null
       avatarDocumentId?: string | null
+      /** task-i18n-stage2 (Task 3) — self-service interface language change. */
+      locale?: 'uk' | 'en'
     },
   ): Promise<User> {
     const set: Record<string, unknown> = { updatedAt: new Date() }
@@ -1538,6 +1551,7 @@ export class UsersService {
       await this.assertAvatarDocument(data.avatarDocumentId ?? null, id)
       set.avatarDocumentId = data.avatarDocumentId ?? null
     }
+    if (data.locale !== undefined) set.locale = data.locale
 
     const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
     const updated = rows[0]
