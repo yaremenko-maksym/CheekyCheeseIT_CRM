@@ -1321,13 +1321,20 @@ export function UserDialog(props: UserDialogProps) {
                 </form.Field>
 
                 {/* task-i18n-stage2 (Task 3, Step 6) — create-wizard-only:
-                    interface language for the new account. Names are given
-                    in their own language, not translated (owner decision —
-                    same convention as every language switcher in this app). */}
+                    interface language for the new account. Language NAMES are
+                    given in their own language, not translated (owner decision —
+                    same convention as every language switcher in this app); the
+                    label itself stays Russian until the `web-people` wave migrates
+                    this dialog (spec §4.6: a module migrates as a whole —
+                    copy-review COPY-M-1 on #693). */}
                 {isCreate && (
                   <form.Field name="locale">
                     {(field) => (
-                      <Field label="Мова інтерфейсу" required>
+                      <Field
+                        label="Язык интерфейса"
+                        hint="Язык интерфейса сотрудника. Он сможет сменить его в своём профиле."
+                        required
+                      >
                         <Select
                           value={field.state.value}
                           onValueChange={(v) => field.handleChange(v as Locale)}
