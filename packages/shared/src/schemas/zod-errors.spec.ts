@@ -9,10 +9,13 @@ const EN_CATALOG_PATH = join(__dirname, '..', 'i18n', 'locales', 'en', 'messages
 describe('ZOD_ERROR_MESSAGES', () => {
   it('RNOKPP_FORMAT has a uk message descriptor', () => {
     const i18n = createI18n('uk')
+    const message = ZOD_ERROR_MESSAGES.RNOKPP_FORMAT.message
     expect(
-      i18n._(ZOD_ERROR_MESSAGES.RNOKPP_FORMAT.id, undefined, {
-        message: ZOD_ERROR_MESSAGES.RNOKPP_FORMAT.message,
-      }),
+      i18n._(
+        ZOD_ERROR_MESSAGES.RNOKPP_FORMAT.id,
+        undefined,
+        message !== undefined ? { message } : undefined,
+      ),
     ).toBe('РНОКПП має містити 10 цифр')
   })
 
@@ -47,7 +50,9 @@ describe('ZOD_ERROR_MESSAGES', () => {
       const i18n = createI18n(locale)
       for (const code of ZOD_ERROR_CODES) {
         const descriptor = ZOD_ERROR_MESSAGES[code]
-        const text = i18n._(descriptor.id, undefined, { message: descriptor.message })
+        const options =
+          descriptor.message !== undefined ? { message: descriptor.message } : undefined
+        const text = i18n._(descriptor.id, undefined, options)
         expect(text.length, `${code} (${locale})`).toBeGreaterThan(0)
       }
     }
