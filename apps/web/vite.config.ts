@@ -7,6 +7,23 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { lingui } from '@lingui/vite-plugin'
 import path from 'path'
 import { pwaRuntimeCaching } from './app/lib/pwa-runtime-caching'
+import { findMonorepoRoot } from './vite.shared-root'
+
+// See `vite.shared-root.ts` for why this walks up to `pnpm-workspace.yaml`
+// instead of assuming `__dirname` is always exactly two levels below the
+// monorepo root (this config is only ever loaded from its real on-disk
+// location today, but `vitest.config.ts` needs the SAME computation for a
+// location that does move — a Stryker mutation-testing sandbox — so both
+// configs share one helper rather than one hardcoding `__dirname` and the
+// other re-deriving the walk-up independently).
+const monorepoRoot = findMonorepoRoot(__dirname)
+if (!monorepoRoot) {
+  throw new Error(
+    `apps/web/vite.config.ts: could not find a "pnpm-workspace.yaml" entry walking up from ` +
+      `${__dirname}. Refusing to guess a repo root — '@crm/shared' would resolve to a made-up ` +
+      `path from here.`,
+  )
+}
 
 export default defineConfig({
   // Per-build cache buster for persistQueryClient (see __root.tsx CACHE_BUSTER):
@@ -56,7 +73,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@crm/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
+      '@crm/shared': path.resolve(monorepoRoot, 'packages/shared/src/index.ts'),
+      // task-i18n-stage2 (Task 6) — see the matching alias + comment in
+      // vitest.config.ts for why this is a SEPARATE alias (not a subpath of
+      // '@crm/shared' above, which resolves to a FILE and breaks subpath
+      // resolution) rather than a deep import off '@crm/shared'.
+      '@crm/shared-i18n-locales': path.resolve(monorepoRoot, 'packages/shared/src/i18n/locales'),
     },
   },
   build: {

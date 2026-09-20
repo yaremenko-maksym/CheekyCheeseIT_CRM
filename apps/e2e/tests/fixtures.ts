@@ -209,6 +209,31 @@ interface SessionUserShape {
 }
 
 /**
+ * Plain `Omit<T, K>` on a UNION type (like `(typeof USERS)[keyof typeof
+ * USERS]`) does not distribute over the union's members — `keyof` on a
+ * union is the INTERSECTION of each member's keys, so `Omit` collapses the
+ * whole union into one flattened shape that loses the correlation between
+ * e.g. `role: 'SENIOR'` and that member's own `paymentMethod`/`techStack`
+ * fields (verified: this broke every existing `mockAuthAs(page,
+ * USERS.senior)` call with `role`-mismatch errors when `mockAuthAs` first
+ * tried a plain `Omit`). Wrapping in a distributive conditional
+ * (`T extends any ? ... : never`) applies `Omit` to each member
+ * separately, keeping the union's per-member shape intact.
+ */
+type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never
+
+/**
+ * `mockAuthAs`'s parameter type, named so the helpers it calls internally
+ * (`buildAdminViewingUser`, `buildSelfView` — both receive `user`/`found`,
+ * which may be a locale-overridden object) can share it instead of the
+ * original locale-pinned-to-`'uk'` `(typeof USERS)[keyof typeof USERS]`. A
+ * plain `USERS.*` entry (`locale: 'uk'`) is still assignable here — `'uk'`
+ * satisfies `'uk' | 'en'` — so this is strictly wider, not a different
+ * shape.
+ */
+type MockUser = DistributiveOmit<(typeof USERS)[keyof typeof USERS], 'locale'> & SessionUserShape
+
+/**
  * Build a team-member fixture row from any user-shaped fixture.
  *
  * Generic over the input rather than typed as `(typeof USERS)[keyof typeof USERS]`
@@ -507,7 +532,7 @@ export const INTERVIEWS = [
 // ---------------------------------------------------------------------------
 
 /** Shared profile-DTO fields not present on the fixture seed users. */
-function profileExtras(user: (typeof USERS)[keyof typeof USERS]) {
+function profileExtras(user: MockUser) {
   return {
     walletUsdtErc20: user.paymentMethod === 'USDT_ERC20' ? '0x1234567890abcdef' : null,
     walletUsdtLabel: null,
@@ -525,7 +550,7 @@ function profileExtras(user: (typeof USERS)[keyof typeof USERS]) {
 }
 
 /** Full admin viewing anyone: all tabs + all actions */
-export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof USERS]): object {
+export function buildAdminViewingUser(targetUser: MockUser): object {
   // ADMIN viewing non-ADMIN: includes 'contract' tab (A3-2).
   // ADMIN viewing another ADMIN (self or peer): no 'contract' tab (ADMINs have no contracts).
   const contractTab = targetUser.role !== 'ADMIN' ? ['contract'] : []
@@ -625,7 +650,7 @@ export function buildJuniorViewingJunior(targetUser: (typeof USERS)[keyof typeof
 }
 
 /** Self-view response (used by GET /users/me on profile page) */
-export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object {
+export function buildSelfView(user: MockUser): object {
   // Mirrors users-access.service.ts isSelf branch exactly.
   //
   // JUNIOR self-view is an EXPLICIT allow-list (data-privacy, task-junior-ut-round2 §3 +
@@ -745,10 +770,13 @@ function noContent(route: Route) {
 // ---------------------------------------------------------------------------
 // Mock all API calls for a given authenticated user
 // ---------------------------------------------------------------------------
-export async function mockAuthAs(
-  page: Page,
-  user: (typeof USERS)[keyof typeof USERS] & SessionUserShape,
-) {
+// `user: MockUser` (see the type's own doc comment above) — not a plain
+// `(typeof USERS)[keyof typeof USERS] & SessionUserShape`: every `USERS`
+// entry pins `locale: 'uk' as const`, and that plain intersection would
+// force `locale` down to the literal `'uk'`, rejecting the exact override
+// this needs to support — `{ ...USERS.senior, locale: 'en' }` — for the
+// locale-activation cases in `auth.spec.ts` (task-i18n-stage2, Task 6).
+export async function mockAuthAs(page: Page, user: MockUser) {
   // All routes use origin-agnostic patterns (see API_GLOB / API_RE above)
   // so mocks match regardless of dev (:3001), preview (:3010), or CI.
 

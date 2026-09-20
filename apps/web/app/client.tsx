@@ -9,6 +9,7 @@ import {
   PRELOAD_RELOAD_TS_KEY,
 } from './lib/preload-reload'
 import { shouldReloadOnControllerChange } from './lib/sw-reload'
+import { activateLocale, readPreLoginLocale } from './lib/i18n'
 
 // Service Worker регистрируется плагином vite-plugin-pwa автоматически
 // через injectRegister: 'script' — плагин генерирует registerSW.js и
@@ -101,11 +102,27 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
 
 const router = createRouter()
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <RouterProvider router={router} />
-  </StrictMode>,
-)
+// Activate the pre-login locale (cookie → navigator.language → uk) BEFORE
+// the first render — `<I18nProvider>` (routes/__root.tsx) reads whatever is
+// already active on the shared `i18n` instance, and every `<Trans>`/`t()`
+// call below the root would otherwise render with an unloaded catalog on
+// first paint. The authenticated session's own `locale` (once `/auth/me`
+// resolves) can then override this via the effect in `context/auth.tsx`.
+//
+// Wrapped in an IIFE rather than a top-level `await`: Vite's default build
+// target ('modules' — es2020 baseline, see vite.config.ts) does not
+// guarantee top-level-await support, while an async IIFE compiles down
+// without it. The guard-reset code below does not depend on the root having
+// mounted (it only clears sessionStorage keys after its own timeout), so it
+// is left outside the IIFE and keeps running immediately.
+void (async () => {
+  await activateLocale(readPreLoginLocale())
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <RouterProvider router={router} />
+    </StrictMode>,
+  )
+})()
 
 // Успешный маунт: гасим guard через PRELOAD_RELOAD_RESET_MS «тишины». Если страница
 // прожила этот интервал без нового vite:preloadError — деплой подхватился, эпизод

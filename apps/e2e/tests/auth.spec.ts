@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { API_GLOB } from './fixtures'
+import { API_GLOB, mockAuthAs, USERS } from './fixtures'
 
 const PROTECTED_ROUTES = ['/', '/team', '/projects', '/interviews', '/profile', '/users']
 
@@ -182,5 +182,24 @@ test.describe('Auth flow', () => {
     // fallback. We assert against that explicitly.
     expect(contentType).not.toMatch(/text\/html/i)
     expect([200, 401]).toContain(status)
+  })
+
+  // ---------------------------------------------------------------------------
+  // task-i18n-stage2 (Task 6): the session's `locale` (from `/auth/me`,
+  // mocked here via `mockAuthAs`) sets `<html lang>` after login —
+  // something no unit test can see (jsdom/happy-dom never runs the real
+  // dynamic `.po` import + `<I18nProvider>` re-render chain end to end).
+  // ---------------------------------------------------------------------------
+
+  test('locale "en" in /auth/me sets <html lang="en"> after login', async ({ page }) => {
+    await mockAuthAs(page, { ...USERS.senior, locale: 'en' })
+    await page.goto('/')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  })
+
+  test('locale "uk" in /auth/me sets <html lang="uk"> after login', async ({ page }) => {
+    await mockAuthAs(page, { ...USERS.senior, locale: 'uk' })
+    await page.goto('/')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'uk')
   })
 })

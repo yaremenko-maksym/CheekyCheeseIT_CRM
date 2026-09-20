@@ -1,9 +1,10 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, type ReactNode } from 'react'
 import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
 import { del as idbDel } from 'idb-keyval'
 import type { SessionUser } from '@crm/shared'
 import { api } from '../lib/axios'
 import { PERSIST_KEY } from '../lib/persister'
+import { activateLocale, i18n } from '../lib/i18n'
 
 interface AuthContextValue {
   user: SessionUser | null
@@ -59,6 +60,18 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
   // query is in-flight.  This prevents the guard from seeing user=null
   // prematurely during the restore window.
   const isLoading = isRestoring || (isPending && isFetching)
+
+  // task-i18n-stage2 (Task 6): the session's own `locale` is the source of
+  // truth once known — it can differ from the pre-login guess `client.tsx`
+  // activated (cookie / navigator.language), e.g. a user who set their
+  // profile language on one device and logs in on another with no cookie
+  // yet. Only re-activates when it actually differs, so this does not
+  // re-run the dynamic `.po` import on every render.
+  useEffect(() => {
+    if (data?.locale && data.locale !== i18n.locale) {
+      void activateLocale(data.locale)
+    }
+  }, [data?.locale])
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
 
