@@ -15,7 +15,6 @@
  * seniorSharePercentOverride changes.
  */
 
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
@@ -157,7 +156,12 @@ describe('TeamsService.update — AC3: seniorSharePercentOverride RBAC (SEC-04)'
       service.update(TEAM_ID, 'Alpha Team', undefined, null, hrUser, undefined, {
         seniorSharePercentOverride: 30,
       }),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN',
+        statusCode: 403,
+      }),
+    })
   })
 
   it('AC3b: HR CANNOT clear seniorSharePercentOverride (null = intentional clear)', async () => {
@@ -169,7 +173,12 @@ describe('TeamsService.update — AC3: seniorSharePercentOverride RBAC (SEC-04)'
       service.update(TEAM_ID, 'Alpha Team', undefined, null, hrUser, undefined, {
         seniorSharePercentOverride: null,
       }),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN',
+        statusCode: 403,
+      }),
+    })
   })
 
   it('AC3c: HR CAN update other team fields (name, notes) without override', async () => {

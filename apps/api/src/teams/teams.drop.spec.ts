@@ -11,7 +11,7 @@
  * already exercises elsewhere (see users.archive.spec.ts) but slimmer: we
  * only need to verify routing and validation messages.
  */
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
@@ -207,9 +207,9 @@ describe('TeamsService.createDropTeam', () => {
       teamMembers: [],
       projects: [],
     })
-    await expect(svc.createDropTeam('drop-1', [], 'acc-1', null)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.createDropTeam('drop-1', [], 'acc-1', null)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'HR_REQUIRED_MINIMUM_ONE', statusCode: 400 }),
+    })
   })
 
   it('rejects when dropId user is not DROP', async () => {
@@ -223,9 +223,9 @@ describe('TeamsService.createDropTeam', () => {
       teamMembers: [],
       projects: [],
     })
-    await expect(svc.createDropTeam('sn-1', ['hr-1'], 'acc-1', null)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.createDropTeam('sn-1', ['hr-1'], 'acc-1', null)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 400 }),
+    })
   })
 
   // Bug-fix: accountant is OPTIONAL. A drop-team must be creatable with a null
@@ -311,7 +311,9 @@ describe('TeamsService.archiveDropTeam', () => {
         }),
       }),
     }))
-    await expect(svc.archiveDropTeam('team-1')).rejects.toBeInstanceOf(BadRequestException)
+    await expect(svc.archiveDropTeam('team-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_DROP_TEAMS_ONLY', statusCode: 400 }),
+    })
   })
 })
 
@@ -345,9 +347,9 @@ describe('TeamsService.addSeniorToDropTeam', () => {
         }),
       }),
     }))
-    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_DROP_TEAMS_ONLY', statusCode: 400 }),
+    })
   })
 
   it('rejects when team is archived', async () => {
@@ -375,9 +377,9 @@ describe('TeamsService.addSeniorToDropTeam', () => {
         }),
       }),
     }))
-    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_ALREADY_ARCHIVED', statusCode: 400 }),
+    })
   })
 })
 
@@ -436,9 +438,9 @@ describe('TeamsService.rotateSenior', () => {
         }),
       }),
     }))
-    await expect(svc.rotateSenior('team-1', 'sn-2', adminUser)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.rotateSenior('team-1', 'sn-2', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_DROP_TEAMS_ONLY', statusCode: 400 }),
+    })
   })
 })
 
