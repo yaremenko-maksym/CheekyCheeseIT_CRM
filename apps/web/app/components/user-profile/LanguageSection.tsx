@@ -38,16 +38,26 @@ export function LanguageSection({ current }: { current: Locale }) {
   const [pending, setPending] = useState(false)
 
   async function choose(locale: Locale) {
-    // Re-entry guard is back (PR #696 fix-round 2, UX-M-2) — fix-round 1
-    // removed it as dead code because `SegmentedToggle`'s `disabled` prop
-    // (bound to `pending`) made the buttons unclickable at the DOM level
-    // while a choice was in flight, so this branch could never fire. That
-    // very `disabled` is what UX-M-2 found: Chromium drops DOM focus to
-    // `<body>` when a focused button is disabled mid-interaction, and never
-    // restores it. `SegmentedToggle` below no longer receives `disabled` —
-    // pending is now guarded here instead, so a second click/keypress while
-    // a request is in flight (or a repeat of the already-active locale)
-    // is a no-op rather than a second PATCH.
+    // `pending` half is back (PR #696 fix-round 2, UX-M-2) — fix-round 1
+    // removed the whole guard as dead code because `SegmentedToggle`'s
+    // `disabled` prop (bound to `pending`) made the buttons unclickable at
+    // the DOM level while a choice was in flight. That very `disabled` is
+    // what UX-M-2 found: Chromium drops DOM focus to `<body>` when a
+    // focused button is disabled mid-interaction, and never restores it.
+    // `SegmentedToggle` below no longer receives `disabled`, so `pending`
+    // is guarded here instead — a second click/keypress while a request is
+    // in flight is now a no-op rather than a second PATCH. Covered by the
+    // "re-entry guard" unit test below.
+    //
+    // Stryker disable next-line ConditionalExpression: `locale === current`
+    // stays genuinely unreachable through the UI — `SegmentedToggle`'s own
+    // onClick (`if (option.value === value) return`) and its keydown
+    // handler (`if (target.value !== value) { onChange(target.value) }`)
+    // already stop it from ever calling `choose` with the active locale,
+    // same as when fix-round 1 removed this exact clause for the same
+    // reason. Kept anyway as defence-in-depth for a future caller of
+    // `choose` that does not go through `SegmentedToggle` — deleting it
+    // would silently re-open that door with nothing left to catch it.
     if (pending || locale === current) return
     setPending(true)
     try {
