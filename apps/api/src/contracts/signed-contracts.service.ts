@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpStatus,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -8,11 +9,8 @@ import {
 } from '@nestjs/common'
 import { randomBytes } from 'crypto'
 import { and, desc, eq, isNull } from 'drizzle-orm'
-import {
-  CONTRACT_SIGN_IMPERSONATION_MESSAGE,
-  type InterpolatableVariableKey,
-  type SessionUser,
-} from '@crm/shared'
+import type { InterpolatableVariableKey, SessionUser } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -101,7 +99,7 @@ export class SignedContractsService {
     impersonatorId: string | null
   }) {
     if (impersonatorId) {
-      throw new ForbiddenException(CONTRACT_SIGN_IMPERSONATION_MESSAGE)
+      throw apiError('CONTRACT_SIGN_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
     if (userRole === 'ADMIN') {
       throw new BadRequestException('ADMIN_DOES_NOT_SIGN_CONTRACTS')

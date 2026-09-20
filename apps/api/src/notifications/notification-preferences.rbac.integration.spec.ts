@@ -31,7 +31,6 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { DatabaseService } from '../database/database.service'
@@ -290,15 +289,16 @@ describe.skipIf(!hasDatabaseUrl())('настройки каналов под ш�
       })
     }
 
-    it('PUT под имперсонацией — 403 по-русски, строка в БД не изменилась', async () => {
+    it('PUT под имперсонацией — 403 с кодом NOTIFICATION_PREFERENCES_IMPERSONATION, строка в БД не изменилась (task-i18n-stage2-task5)', async () => {
       const [admin, senior] = PERSONAS
       const res = await putImpersonated(senior!, admin!.id, {
         items: [{ type: 'TRANSACTION_ADDED', emailEnabled: false }],
       })
 
       expect(res.statusCode).toBe(403)
-      const body = res.json<{ message: string }>()
-      expect(body.message).toBe(NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE)
+      const body = res.json<{ statusCode: number; code: string }>()
+      expect(body.statusCode).toBe(403)
+      expect(body.code).toBe('NOTIFICATION_PREFERENCES_IMPERSONATION')
 
       const rows = await db
         .select()

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -14,6 +15,7 @@ import type {
   SessionUser,
 } from '@crm/shared'
 import { CONTRACT_VARIABLE_DESCRIPTIONS, NOTIFICATION_TITLES } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { contractTemplates, employeeContracts, tosAcceptances } from '../database/schema'
@@ -95,7 +97,7 @@ export class EmployeeContractsService {
       user.role as ContractTargetRole,
     )
     if (!template) {
-      throw new NotFoundException(`No active contract template for role ${user.role}`)
+      throw apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND)
     }
 
     let created: typeof employeeContracts.$inferSelect | undefined
@@ -309,7 +311,7 @@ export class EmployeeContractsService {
       user.role as ContractTargetRole,
     )
     if (!template) {
-      throw new NotFoundException(`No active contract template for role ${user.role}`)
+      throw apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND)
     }
 
     const [updated] = await this.db.db

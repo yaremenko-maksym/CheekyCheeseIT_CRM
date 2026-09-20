@@ -13,6 +13,46 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: apps/web/app/components/user-profile/LanguageSection.tsx:53
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.NOTIFICATION_PREFERENCES_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — налаштування сповіщень лише для перегляду"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.CONTRACT_SIGN_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — підписати його контракт може лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.INVOICE_SIGN_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — підписати його рахунок може лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.SHARE_DECISION_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — підтвердити чи відхилити частку може лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.TOS_ACCEPT_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — прийняти умови використання може лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.PROJECT_DECISION_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
+
+#: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
 msgstr "Мова інтерфейсу"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.GENERIC"
+msgstr "Не вдалося виконати дію. Спробуйте ще раз"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts
+msgid "api-error.CONTRACT_TEMPLATE_MISSING"
+msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"

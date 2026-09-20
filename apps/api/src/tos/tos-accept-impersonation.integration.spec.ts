@@ -26,7 +26,6 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, afterEach, describe, expect, it } from 'vitest'
-import { TOS_ACCEPT_IMPERSONATION_MESSAGE } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -168,7 +167,7 @@ describe.skipIf(!hasDatabaseUrl())('POST /tos/accept под имперсонац
   const tokenForImpersonated = (target: Persona, impersonatorId: string) =>
     jwt.sign({ id: target.id, email: target.email, role: target.role, impersonatorId })
 
-  it('под имперсонацией — 403 с общим литералом, строка в tos_acceptances не создаётся', async () => {
+  it('под имперсонацией — 403 с кодом TOS_ACCEPT_IMPERSONATION, строка в tos_acceptances не создаётся (task-i18n-stage2-task5)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/tos/accept',
@@ -176,8 +175,9 @@ describe.skipIf(!hasDatabaseUrl())('POST /tos/accept под имперсонац
     })
 
     expect(res.statusCode).toBe(403)
-    const body = res.json<{ message: string }>()
-    expect(body.message).toBe(TOS_ACCEPT_IMPERSONATION_MESSAGE)
+    const body = res.json<{ statusCode: number; code: string }>()
+    expect(body.statusCode).toBe(403)
+    expect(body.code).toBe('TOS_ACCEPT_IMPERSONATION')
 
     const rows = await db.select().from(tosAcceptances).where(eq(tosAcceptances.userId, SENIOR.id))
     expect(rows).toHaveLength(0)

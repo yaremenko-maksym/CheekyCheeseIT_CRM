@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -18,6 +19,7 @@ import type {
   UpdateProjectDto,
 } from '@crm/shared'
 import { NOTIFICATION_TITLES, projectPaymentTypeSchema } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { NotificationsService } from '../notifications/notifications.service'
 import type { CreateNotificationInput } from '../notifications/notifications.service'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from '../finance/drop-share-resolver'
@@ -1226,9 +1228,10 @@ export class ProjectsService {
    */
   async approveDraft(id: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
-      throw new ForbiddenException(
-        'Impersonated sessions cannot confirm a project draft — consent must come from the invited approver themselves',
-      )
+      // task-i18n-stage2-task5: envelope code, not this prose — the client
+      // re-translates by `code` (`getApiErrorMessage`); see
+      // `PROJECT_DECISION_IMPERSONATION` (`packages/shared/src/schemas/api-errors.ts`).
+      throw apiError('PROJECT_DECISION_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction(async (tx) => {
       await this.approvals.approveInTx(tx, {
@@ -1253,9 +1256,8 @@ export class ProjectsService {
    */
   async rejectDraft(id: string, reason: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
-      throw new ForbiddenException(
-        'Impersonated sessions cannot reject a project draft — the decision must come from the invited approver themselves',
-      )
+      // task-i18n-stage2-task5: same code, see approveDraft's comment above.
+      throw apiError('PROJECT_DECISION_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction(async (tx) => {
       await this.approvals.rejectInTx(tx, {

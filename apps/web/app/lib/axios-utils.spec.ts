@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { i18n } from '@lingui/core'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { API_ERROR_MESSAGES } from '@crm/shared'
 import {
   getAxiosStatus,
+  getApiErrorCode,
   getApiErrorMessage,
   getUserFacingErrorMessage,
   stripQueryString,
@@ -145,6 +148,81 @@ describe('getApiErrorMessage', () => {
     // Should show field detail, not the generic "Validation failed"
     expect(result).not.toBe('Validation failed')
     expect(result).toContain('salaryMonth')
+  })
+})
+
+// task-i18n-stage2-task5: priority 0 — a response body matching the API
+// error envelope (`apiErrorEnvelopeSchema`) translates by `code`, through
+// the Lingui catalog, BEFORE any of the prose-based priorities above run.
+describe('getApiErrorMessage — API error envelope (task-i18n-stage2-task5)', () => {
+  beforeAll(() => {
+    // Real catalog content doesn't matter here — `API_ERROR_MESSAGES`
+    // descriptors carry their own `message` fallback, which Lingui uses
+    // when the id isn't in the loaded catalog (see `catalog.spec.ts`'s
+    // identical pattern). What's required is an ACTIVATED locale — `i18n._`
+    // throws otherwise.
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('translates an API error envelope by code via the catalog', () => {
+    const err = {
+      response: {
+        status: 403,
+        data: { statusCode: 403, code: 'TOS_ACCEPT_IMPERSONATION', message: 'fallback' },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe(i18n._(API_ERROR_MESSAGES.TOS_ACCEPT_IMPERSONATION))
+  })
+
+  // COPY-M-6 (PR #694 round 3) removed `role`, the only param any registered
+  // code declared (`CONTRACT_TEMPLATE_MISSING`'s message no longer takes a
+  // `{role}` token — see `api-errors.ts`), together with `applyRoleLabel`
+  // (its own describe block below is gone too). No code left declares
+  // params, so there is nothing for `translateApiError` to interpolate
+  // through the public surface right now; a synthetic descriptor would only
+  // test a template that never ships. Reinstate a param-interpolation test
+  // here against whichever code stage 3 next gives params to.
+
+  it('falls through to prose when the body carries no known code', () => {
+    const err = { response: { data: { message: 'Некорректная сумма' } } }
+    expect(getApiErrorMessage(err)).toBe('Некорректная сумма')
+  })
+
+  it('falls through when code is outside the eight-code registry', () => {
+    const err = {
+      response: { data: { statusCode: 403, code: 'NOT_A_REAL_CODE', message: 'Доступ запрещён' } },
+    }
+    expect(getApiErrorMessage(err)).toBe('Доступ запрещён')
+  })
+})
+
+describe('getApiErrorCode', () => {
+  it('returns the code from a valid envelope', () => {
+    const err = {
+      response: {
+        data: { statusCode: 404, code: 'CONTRACT_TEMPLATE_MISSING', message: 'x' },
+      },
+    }
+    expect(getApiErrorCode(err)).toBe('CONTRACT_TEMPLATE_MISSING')
+  })
+
+  it('returns null for a plain-prose error', () => {
+    expect(getApiErrorCode({ response: { data: { message: 'plain' } } })).toBeNull()
+  })
+
+  it('returns null for a non-envelope / unknown-shape error', () => {
+    expect(getApiErrorCode(null)).toBeNull()
+    expect(getApiErrorCode('oops')).toBeNull()
+  })
+
+  it('returns null (not a throw) for undefined — the guard must short-circuit BEFORE `.response` is read', () => {
+    // A string/number/null input reaches the same `undefined` result whether
+    // or not the `typeof err !== 'object'` half of the guard runs (accessing
+    // `.response` on a primitive is a safe no-op in JS) — that half is only
+    // OBSERVABLE for `undefined`, where skipping the early return and reading
+    // `err.response` throws instead of returning `null`.
+    expect(getApiErrorCode(undefined)).toBeNull()
   })
 })
 
@@ -335,6 +413,31 @@ describe('getUserFacingErrorMessage', () => {
   it('a REAL backend business message for the same status is still shown verbatim — the filter is narrow', () => {
     const err = { response: { status: 403, data: { message: 'Только владелец может это делать' } } }
     expect(getUserFacingErrorMessage(err)).toBe('Только владелец может это делать')
+  })
+})
+
+// task-i18n-stage2-task5: this function feeds `err.message` via the global
+// axios interceptor (`axios.ts`) — every `toast.error(e.message)` call site
+// app-wide reads its output, not just direct `getApiErrorMessage` callers.
+// Without this same priority-0 envelope translation, a toast for one of the
+// seven migrated endpoints would show the envelope's English fallback
+// verbatim (see `apiError()` / `api-error.ts`), not the Ukrainian catalog text.
+describe('getUserFacingErrorMessage — API error envelope (task-i18n-stage2-task5)', () => {
+  beforeAll(() => {
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('translates an API error envelope by code, same as getApiErrorMessage', () => {
+    const err = {
+      response: {
+        status: 403,
+        data: { statusCode: 403, code: 'SHARE_DECISION_IMPERSONATION', message: 'fallback' },
+      },
+    }
+    expect(getUserFacingErrorMessage(err)).toBe(
+      i18n._(API_ERROR_MESSAGES.SHARE_DECISION_IMPERSONATION),
+    )
   })
 })
 

@@ -337,9 +337,11 @@ describe('UsersService.approveSeniorShareChange — AC3 (one atomic swap)', () =
 
   it('refuses impersonated sessions (consent must come from the approver themselves)', async () => {
     const h = buildHarness()
+    // task-i18n-stage2-task5: apiError() returns a plain HttpException, not
+    // `instanceof ForbiddenException` — see the exact-code test above.
     await expect(
       h.service.approveSeniorShareChange('senior-1', impersonatedSenior),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({ status: 403 })
     expect(h.approvals.approveInTx).not.toHaveBeenCalled()
   })
 })
@@ -467,13 +469,14 @@ describe('UsersService — notification seam (position 6 hand-off)', () => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — exact messages + not-found', () => {
-  it('approve: exact impersonation message', async () => {
+  it('approve: SHARE_DECISION_IMPERSONATION envelope code (task-i18n-stage2-task5)', async () => {
     const h = buildHarness()
     await expect(
       h.service.approveSeniorShareChange('senior-1', impersonatedSenior),
-    ).rejects.toThrow(
-      'Пока вы вошли как другой сотрудник, подтвердить его долю нельзя — это должен сделать он сам',
-    )
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'SHARE_DECISION_IMPERSONATION' }),
+    })
   })
 
   it('approve: throws NotFoundException when the row-lock select finds nothing', async () => {
@@ -499,13 +502,14 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
     )
   })
 
-  it('reject: exact impersonation message', async () => {
+  it('reject: SHARE_DECISION_IMPERSONATION envelope code (task-i18n-stage2-task5)', async () => {
     const h = buildHarness()
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'причина', impersonatedSenior),
-    ).rejects.toThrow(
-      'Пока вы вошли как другой сотрудник, отклонить его долю нельзя — это должен сделать он сам',
-    )
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'SHARE_DECISION_IMPERSONATION' }),
+    })
     expect(h.approvals.rejectInTx).not.toHaveBeenCalled()
   })
 

@@ -1,3 +1,6 @@
+import { i18n } from '@lingui/core'
+import { API_ERROR_MESSAGES, apiErrorEnvelopeSchema, type ApiErrorCode } from '@crm/shared'
+
 /**
  * Extracts the HTTP status code from an unknown Axios error value.
  *
@@ -115,6 +118,87 @@ function isGenericHttpReasonPhrase(message: string): boolean {
 }
 
 /**
+ * Parses `err.response.data` against `apiErrorEnvelopeSchema` — the shape
+ * `apiError()` (`apps/api/src/common/api-error.ts`) builds for the eight
+ * codes in the registry (`packages/shared/src/schemas/api-errors.ts`).
+ * `.safeParse` rather than `.parse`: an ordinary NestJS error body (no
+ * `code` field, or a `code` outside the registry) is the EXPECTED shape for
+ * every endpoint not yet migrated to `apiError()` — that is not a parse
+ * failure to report, just "no envelope here", so callers fall through to
+ * the prose-based paths below.
+ */
+function parseApiErrorEnvelope(err: unknown) {
+  if (err === null || typeof err !== 'object') return undefined
+  const data = (err as { response?: { data?: unknown } }).response?.data
+  const result = apiErrorEnvelopeSchema.safeParse(data)
+  return result.success ? result.data : undefined
+}
+
+/**
+ * The `code` from an API error envelope, or `null` when the error carries
+ * none (either not an envelope at all, or an ordinary prose-only error).
+ * Lets a component branch on a STABLE machine identifier instead of
+ * `.includes('some english substring')` matched against translatable prose
+ * (task-i18n-stage2-task5 — see `ContractTab.tsx` / `UserDialog.tsx`, both
+ * migrated off exactly that pattern by this function).
+ */
+export function getApiErrorCode(err: unknown): ApiErrorCode | null {
+  return parseApiErrorEnvelope(err)?.code ?? null
+}
+
+/**
+ * Translates one envelope code through the Lingui catalog.
+ *
+ * Deliberately NOT `i18n._({ ...API_ERROR_MESSAGES[code], values: params })`
+ * — `lingui extract`'s babel plugin (`@lingui/babel-plugin-extract-messages`)
+ * treats EVERY `i18n._(<object>)` call as a message descriptor to extract
+ * from, regardless of the `/* i18n *\/` comment convention, and crashes
+ * (`Cannot read properties of undefined (reading 'name')`) on a
+ * `SpreadElement` property — confirmed empirically running `pnpm i18n:extract`
+ * against that form. Passing the id as its OWN (non-literal) expression
+ * takes the extractor's other branch instead: `getTextFromExpression` on a
+ * `MemberExpression` returns `undefined` (not a string/template literal),
+ * so it skips the call cleanly. The `{ id: '' }.<CODE>` entries themselves
+ * are still extracted — from `api-errors.ts`'s OWN `/* i18n *\/`-marked
+ * object literals, which is where they belong; this call site only ever
+ * looks one up by a code already in the registry, never defines a new one.
+ */
+function translateApiError(
+  code: ApiErrorCode,
+  params: Record<string, string | number> | undefined,
+): string {
+  const descriptor = API_ERROR_MESSAGES[code]
+  // `MessageOptions.message` is `message?: string` — under
+  // `exactOptionalPropertyTypes`, an omitted key and an explicit `undefined`
+  // are different types, so `{ message: descriptor.message }` (where
+  // `descriptor.message` is `string | undefined`) does not type-check even
+  // though every real registry entry sets it. Build the options object only
+  // when there is something to put in it.
+  // Stryker disable next-line ConditionalExpression: this ONE directive
+  // silences BOTH mutants a ternary produces (forced-true, forced-false) —
+  // Stryker groups by line+mutator, it cannot suppress one and not the
+  // other. Reasoning per mutant, so a future reader can tell this was a
+  // choice, not an oversight:
+  //   - forced-true (`options` always `{ message: ... }`): survives on
+  //     purpose. Reaching the `: undefined` branch needs a registry entry
+  //     with no `message` — impossible through the public surface, since
+  //     every `API_ERROR_MESSAGES[code]` descriptor sets one, an invariant
+  //     `api-errors.spec.ts` pins for all eight codes ("every code has a
+  //     message descriptor... message.length > 0"). No assertion here
+  //     could distinguish this from a passing-by-construction test.
+  //   - forced-false (`options` always `undefined`): NOT genuinely
+  //     unobservable — verified by hand that `getApiErrorMessage` /
+  //     `getUserFacingErrorMessage`'s envelope tests below fail against it
+  //     (the empty-catalog `i18n.load('uk', {})` setup falls through to
+  //     `id` instead of the Ukrainian text once `options.message` is gone).
+  //     Suppressed only as an unavoidable side effect of sharing this line
+  //     with the mutant above — the behavior stays covered by those tests,
+  //     Stryker just no longer re-verifies it on every run.
+  const options = descriptor.message !== undefined ? { message: descriptor.message } : undefined
+  return i18n._(descriptor.id, params, options)
+}
+
+/**
  * Extracts a message the BACKEND explicitly put in the response body, or
  * `undefined` if the body carried nothing usable — nothing usable now also
  * covers Nest's own generic reason phrase (finding 110, see
@@ -205,6 +289,17 @@ export function getApiErrorMessage(err: unknown, fallback = 'Произошла 
   if (err === null || err === undefined) return fallback
   if (typeof err !== 'object') return fallback
 
+  // Priority 0 (task-i18n-stage2-task5): a response body matching the API
+  // error envelope translates by `code`, through the Lingui catalog — this
+  // runs BEFORE `extractBackendMessage`'s own priority 1-2 (which would
+  // otherwise return the envelope's English `message` fallback verbatim,
+  // untranslated). Every endpoint not yet migrated to `apiError()` has no
+  // envelope here and falls through unaffected.
+  const envelope = parseApiErrorEnvelope(err)
+  if (envelope) {
+    return translateApiError(envelope.code, envelope.params)
+  }
+
   const backendMessage = extractBackendMessage(err)
   if (backendMessage !== undefined) return backendMessage
 
@@ -283,6 +378,20 @@ function isAxiosErrorShape(err: unknown): boolean {
  *   // "Нет связи с сервером. Проверьте подключение к интернету и попробуйте снова."
  */
 export function getUserFacingErrorMessage(err: unknown): string {
+  // Priority 0 (task-i18n-stage2-task5): same envelope-by-code translation
+  // as `getApiErrorMessage` above — this function feeds `err.message` via
+  // the global axios interceptor (`axios.ts`), so every `toast.error(e.message)`
+  // call site in the app reads it, not just callers of `getApiErrorMessage`
+  // directly. Without this, the eight-code envelope's English fallback
+  // (`apiError()`'s `message` field) would surface verbatim in toasts for
+  // the seven endpoints already migrated — English text where the rest of
+  // the app is Ukrainian, the exact regression `russian-language.md`'s
+  // successor rule (CRM product language is uk/en) exists to prevent.
+  const envelope = parseApiErrorEnvelope(err)
+  if (envelope) {
+    return translateApiError(envelope.code, envelope.params)
+  }
+
   const backendMessage = extractBackendMessage(err)
   if (backendMessage !== undefined) return backendMessage
 

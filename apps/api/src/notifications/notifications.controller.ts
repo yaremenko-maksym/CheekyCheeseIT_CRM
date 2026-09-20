@@ -17,7 +17,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -28,11 +27,11 @@ import {
   Query,
 } from '@nestjs/common'
 import {
-  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   notificationListFiltersSchema,
   updateNotificationPreferencesSchema,
   type SessionUser,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { NotificationPreferencesService } from './notification-preferences.service'
 import { NotificationsService } from './notifications.service'
@@ -98,7 +97,7 @@ export class NotificationsController {
   @Put('preferences')
   updatePreferences(@CurrentUser() user: SessionUser, @Body() body: unknown) {
     if (user.impersonatorId) {
-      throw new ForbiddenException(NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE)
+      throw apiError('NOTIFICATION_PREFERENCES_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
     const input = updateNotificationPreferencesSchema.parse(body)
     return this.prefs.updateForUser(user.id, input)
