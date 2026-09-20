@@ -108,7 +108,12 @@ export async function activateLocale(locale: Locale): Promise<void> {
   const { messages } = await loadCatalog()
   i18n.loadAndActivate({ locale, messages })
   document.documentElement.lang = locale
-  document.cookie = `${LOCALE_COOKIE_NAME}=${locale}; Path=/; Max-Age=${60 * 60 * 24 * 365}; SameSite=Lax`
+  // `Secure` only over https: on dev (`http://localhost`) a cookie carrying
+  // `Secure` is silently refused by the browser (and by happy-dom), which
+  // would break `readPreLoginLocale()` on the very next page load in dev —
+  // see `i18n.test.tsx` for the http/https pair that pins this branch.
+  const secureFlag = location.protocol === 'https:' ? '; Secure' : ''
+  document.cookie = `${LOCALE_COOKIE_NAME}=${locale}; Path=/; Max-Age=${60 * 60 * 24 * 365}; SameSite=Lax${secureFlag}`
 }
 
 /** Currently active locale, read through `@lingui/react`'s `useLingui()` (re-renders on activation). */

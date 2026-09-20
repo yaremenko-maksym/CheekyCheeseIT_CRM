@@ -58,13 +58,31 @@ describe('i18n runtime', () => {
   })
 
   it('readPreLoginLocale falls back to uk when no cookie matches, without throwing', () => {
-    // No `pref_locale` cookie exists here (cleared in beforeEach, navigator
-    // unsupported) — `readCookie`'s `.find(...)` legitimately returns
-    // `undefined`, and `?.split('=')[1]` (i18n.ts:22) must short-circuit
-    // rather than throw `Cannot read properties of undefined`. Kills the
-    // OptionalChaining mutant (`?.` → `.`), which would make this call
-    // throw instead of returning `uk`.
-    expect(readPreLoginLocale()).toBe('uk')
+    // fix-round 2 (PR #695, CR-M-1 mutation-gate survivor): the ORIGINAL
+    // form of this test relied on `beforeEach`'s `document.cookie =
+    // 'pref_locale=; Max-Age=0'` to make `.find(...)` return `undefined` —
+    // but happy-dom (like real browsers) only expires an EXISTING cookie
+    // via `Max-Age=0`; with no `pref_locale` cookie set yet, that line
+    // instead CREATES one with an empty value, so `document.cookie` still
+    // contains the literal substring `pref_locale=` for the rest of the
+    // test (verified directly: `document.cookie` reads back
+    // `"pref_locale="`). `.find(c => c.startsWith('pref_locale='))` then
+    // matches that empty-value cookie and never returns `undefined` at
+    // all — the mutation gate's `SURVIVED` report on the `?.` at i18n.ts:19
+    // is exactly this: removing the optional chaining changed nothing,
+    // because no test ever exercised the truly-empty jar. Stubbing the
+    // `document.cookie` GETTER directly is the only way to produce a real
+    // empty jar without depending on cookie-expiry semantics at all.
+    // Restored explicitly (no global `restoreMocks` in this project's
+    // vitest config) — an un-restored getter mock would silently blank
+    // `document.cookie` for every test that runs after this one in the
+    // same file.
+    const cookieGetter = vi.spyOn(document, 'cookie', 'get').mockReturnValue('')
+    try {
+      expect(readPreLoginLocale()).toBe('uk')
+    } finally {
+      cookieGetter.mockRestore()
+    }
   })
 
   it('readPreLoginLocale prefers the cookie over a SUPPORTED navigator.language', () => {
@@ -100,6 +118,44 @@ describe('i18n runtime', () => {
     // `60 * 60 * 24 * 365`, changing this number — a substring assertion on
     // `pref_locale=en` alone, as the test above uses, cannot see that).
     const setCookie = vi.spyOn(document, 'cookie', 'set')
+    await activateLocale('en')
+    expect(setCookie).toHaveBeenCalledWith('pref_locale=en; Path=/; Max-Age=31536000; SameSite=Lax')
+  })
+
+  it('activateLocale sets the Secure flag on the pref_locale cookie over https', async () => {
+    // CR-M-1 (fix-round 2, PR #695): over https the cookie MUST carry
+    // `Secure` — otherwise a network attacker on the same wifi who can
+    // inject an http:// response (no TLS needed for THAT leg) can plant an
+    // arbitrary `pref_locale` value that a subsequent https request would
+    // still send. Spying on the setter (not reading `document.cookie` back)
+    // is required: the getter never exposes attributes like `Secure`, only
+    // `name=value` pairs — same reasoning as the Max-Age test above.
+    const setCookie = vi.spyOn(document, 'cookie', 'set')
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, protocol: 'https:' },
+      writable: true,
+      configurable: true,
+    })
+    await activateLocale('en')
+    expect(setCookie).toHaveBeenCalledWith(
+      'pref_locale=en; Path=/; Max-Age=31536000; SameSite=Lax; Secure',
+    )
+  })
+
+  it('activateLocale omits the Secure flag on the pref_locale cookie over plain http', async () => {
+    // Dev (`http://localhost`) MUST NOT carry `Secure` — a cookie set with
+    // `Secure` over http is silently refused by real browsers, which would
+    // break `readPreLoginLocale()` on the very next dev page load. Explicit
+    // http case (not just relying on the ambient test default) so a future
+    // edit can't accidentally make `secureFlag` unconditional without a
+    // failing test — the exact-string assertion above alone would still
+    // pass if the http branch were dropped, since it never sets protocol.
+    const setCookie = vi.spyOn(document, 'cookie', 'set')
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, protocol: 'http:' },
+      writable: true,
+      configurable: true,
+    })
     await activateLocale('en')
     expect(setCookie).toHaveBeenCalledWith('pref_locale=en; Path=/; Max-Age=31536000; SameSite=Lax')
   })
