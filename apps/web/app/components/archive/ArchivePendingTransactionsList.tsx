@@ -1,5 +1,10 @@
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { ArchivePendingTransaction } from '@crm/shared'
+import { formatDate } from '@crm/shared'
 import { formatAmount } from '@/lib/format-amount'
+import { useLocale } from '@/lib/i18n'
 
 /**
  * task-archive-pending-modal (AC2/AC8). Shared by every archive-confirmation
@@ -11,16 +16,10 @@ import { formatAmount } from '@/lib/format-amount'
  * Renders nothing when there is nothing pending — callers can drop this in
  * unconditionally without an extra `length > 0` check at the call site.
  */
-const TYPE_LABEL: Record<ArchivePendingTransaction['type'], string> = {
-  SALARY: 'Зарплата',
-  SENIOR_INCOME: 'Доход синьора (неоплаченная доля)',
-  DROP_INCOME: 'Доход дропа (неоплаченная доля)',
-}
-
-function formatPeriod(tx: ArchivePendingTransaction): string {
-  if (tx.salaryMonth) return tx.salaryMonth
-  if (tx.txDate) return new Date(tx.txDate).toLocaleDateString('ru-RU')
-  return '—'
+const TYPE_LABEL_MESSAGES: Record<ArchivePendingTransaction['type'], MessageDescriptor> = {
+  SALARY: msg`Зарплата`,
+  SENIOR_INCOME: msg`Дохід синьйора (неоплачена частка)`,
+  DROP_INCOME: msg`Дохід дропа (неоплачена частка)`,
 }
 
 export function ArchivePendingTransactionsList({
@@ -28,6 +27,15 @@ export function ArchivePendingTransactionsList({
 }: {
   transactions: ArchivePendingTransaction[] | undefined
 }) {
+  const { i18n } = useLingui()
+  const locale = useLocale()
+
+  function formatPeriod(tx: ArchivePendingTransaction): string {
+    if (tx.salaryMonth) return tx.salaryMonth
+    if (tx.txDate) return formatDate(tx.txDate, locale)
+    return '—'
+  }
+
   if (!transactions || transactions.length === 0) return null
 
   return (
@@ -36,8 +44,10 @@ export function ArchivePendingTransactionsList({
       data-testid="archive-pending-transactions-warning"
     >
       <p className="text-sm font-medium text-destructive">
-        Незакрытые PENDING-транзакции ({transactions.length}) — останутся в системе и останутся
-        выплачиваемыми
+        <Trans>
+          Незакриті PENDING-транзакції ({transactions.length}) — залишаться в системі і
+          продовжуватимуть підлягати виплаті
+        </Trans>
       </p>
       <ul className="space-y-1.5 text-sm">
         {transactions.map((tx) => (
@@ -47,7 +57,7 @@ export function ArchivePendingTransactionsList({
             className="flex items-center justify-between gap-3"
           >
             <span className="text-muted-foreground">
-              {TYPE_LABEL[tx.type]} · {formatPeriod(tx)}
+              {i18n._(TYPE_LABEL_MESSAGES[tx.type])} · {formatPeriod(tx)}
             </span>
             <span className="shrink-0 font-medium tabular-nums text-foreground">
               {formatAmount(tx.amount, tx.currency)}

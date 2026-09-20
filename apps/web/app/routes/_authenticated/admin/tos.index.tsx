@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/axios'
 import { lazy, Suspense, useState } from 'react'
+import { Trans } from '@lingui/react/macro'
 import { TosPdfPreview } from '@/components/admin/TosPdfPreview'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -78,15 +79,17 @@ function TosEditorPage() {
           <h2 className="text-lg font-semibold">Terms of Service</h2>
           {activeVersion && (
             <p className="text-xs text-muted-foreground">
-              Активная версия: v{activeVersion.version} · обновлена{' '}
-              {format(new Date(activeVersion.createdAt), 'dd.MM.yyyy')}
+              <Trans>
+                Активна версія: v{activeVersion.version} · оновлена{' '}
+                {format(new Date(activeVersion.createdAt), 'dd.MM.yyyy')}
+              </Trans>
             </p>
           )}
         </div>
         <Button asChild data-testid="publish-new-tos-button">
           <Link to="/admin/tos/new">
             <Plus className="mr-1.5 h-4 w-4" />
-            Новая версия
+            <Trans>Нова версія</Trans>
           </Link>
         </Button>
       </div>
@@ -97,7 +100,7 @@ function TosEditorPage() {
           {previewVersion && (
             <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2">
               <p className="text-sm text-amber-600 dark:text-amber-400">
-                Просмотр архивной версии v{previewVersion.version}
+                <Trans>Перегляд архівної версії v{previewVersion.version}</Trans>
               </p>
               <Button
                 variant="ghost"
@@ -105,7 +108,7 @@ function TosEditorPage() {
                 onClick={() => setPreviewVersion(null)}
                 data-testid="back-to-active-tos"
               >
-                К активной
+                <Trans>До активної</Trans>
               </Button>
             </div>
           )}
@@ -118,11 +121,11 @@ function TosEditorPage() {
                   Markdown{' '}
                   {displayedVersion.isActive ? (
                     <Badge variant="outline" className="ml-1 text-[10px] py-0">
-                      активная
+                      <Trans>активна</Trans>
                     </Badge>
                   ) : (
                     <Badge variant="outline" className="ml-1 text-[10px] py-0 text-amber-500">
-                      архив v{displayedVersion.version}
+                      <Trans>архів v{displayedVersion.version}</Trans>
                     </Badge>
                   )}
                 </span>
@@ -159,7 +162,9 @@ function TosEditorPage() {
         </>
       ) : (
         <div className="rounded-lg border border-dashed border-border p-12 text-center">
-          <p className="text-muted-foreground">Нет активной версии ToS. Создайте первую версию.</p>
+          <p className="text-muted-foreground">
+            <Trans>Немає активної версії ToS. Створіть першу версію.</Trans>
+          </p>
         </div>
       )}
 
@@ -169,7 +174,9 @@ function TosEditorPage() {
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-muted-foreground" />
             <Separator className="flex-1" />
-            <span className="text-xs text-muted-foreground">История версий</span>
+            <span className="text-xs text-muted-foreground">
+              <Trans>Історія версій</Trans>
+            </span>
             <Separator className="flex-1" />
           </div>
           <div className="space-y-1">
@@ -181,7 +188,9 @@ function TosEditorPage() {
                 onClick={() => setPreviewVersion(ver)}
                 data-testid={`tos-history-item-v${ver.version}`}
               >
-                <span className="font-medium">Версия v{ver.version}</span>
+                <span className="font-medium">
+                  <Trans>Версія v{ver.version}</Trans>
+                </span>
                 <span className="text-muted-foreground text-xs">
                   {format(new Date(ver.createdAt), 'dd.MM.yyyy HH:mm')}
                 </span>

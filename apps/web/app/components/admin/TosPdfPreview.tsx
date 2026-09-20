@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, FileText, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/axios'
 import { getAxiosStatus } from '@/lib/axios-utils'
+
+// task-i18n-stage3a (Task 1), Step 5 (COPY-M-core-16): the CANONICAL 429 text
+// — this file lands first (PR1), and PR3's `axios-utils.ts` migration
+// (Task 3, Step 2) reuses this EXACT string instead of writing its own — a
+// `grep` there checks the two never drift apart again.
+const RATE_LIMIT_MESSAGE = msg`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз.`
+const PDF_LOAD_ERROR_MESSAGE = msg`Не вдалося завантажити PDF попереднього перегляду.`
 
 export interface TosPdfPreviewProps {
   /** Raw markdown to render as PDF. */
@@ -23,6 +32,7 @@ export interface TosPdfPreviewProps {
  * before firing the request so rapid keystrokes don't spam the API.
  */
 export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
+  const { t, i18n } = useLingui()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [hasError, setHasError] = useState(false)
@@ -32,58 +42,61 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
   const abortRef = useRef<AbortController | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const loadPdf = useCallback(async (markdown: string) => {
-    // Cancel any in-flight request
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
+  const loadPdf = useCallback(
+    async (markdown: string) => {
+      // Cancel any in-flight request
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
 
-    setIsLoading(true)
-    setHasError(false)
-    setIframeLoading(true)
+      setIsLoading(true)
+      setHasError(false)
+      setIframeLoading(true)
 
-    // Revoke previous blob URL to free memory
-    revokeRef.current?.()
-    revokeRef.current = null
+      // Revoke previous blob URL to free memory
+      revokeRef.current?.()
+      revokeRef.current = null
 
-    try {
-      const response = await api.post<ArrayBuffer>(
-        '/tos/preview-pdf',
-        { bodyMarkdown: markdown },
-        {
-          responseType: 'arraybuffer',
-          signal: controller.signal,
-        },
-      )
+      try {
+        const response = await api.post<ArrayBuffer>(
+          '/tos/preview-pdf',
+          { bodyMarkdown: markdown },
+          {
+            responseType: 'arraybuffer',
+            signal: controller.signal,
+          },
+        )
 
-      if (controller.signal.aborted) return
+        if (controller.signal.aborted) return
 
-      const blob = new Blob([response.data], { type: 'application/pdf' })
-      const url = URL.createObjectURL(blob)
-      const revoke = () => URL.revokeObjectURL(url)
-      revokeRef.current = revoke
-      setBlobUrl(url)
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') return
-      if (err instanceof Error && err.name === 'CanceledError') return
-      if (controller.signal.aborted) return
+        const blob = new Blob([response.data], { type: 'application/pdf' })
+        const url = URL.createObjectURL(blob)
+        const revoke = () => URL.revokeObjectURL(url)
+        revokeRef.current = revoke
+        setBlobUrl(url)
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') return
+        if (err instanceof Error && err.name === 'CanceledError') return
+        if (controller.signal.aborted) return
 
-      setIsLoading(false)
-      setIframeLoading(false)
-      setHasError(true)
-
-      if (getAxiosStatus(err) === 429) {
-        toast.error('Слишком часто. Подождите минуту.')
-      } else {
-        toast.error('Не удалось загрузить PDF предпросмотра.')
-      }
-      return
-    } finally {
-      if (!controller.signal.aborted) {
         setIsLoading(false)
+        setIframeLoading(false)
+        setHasError(true)
+
+        if (getAxiosStatus(err) === 429) {
+          toast.error(i18n._(RATE_LIMIT_MESSAGE))
+        } else {
+          toast.error(i18n._(PDF_LOAD_ERROR_MESSAGE))
+        }
+        return
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false)
+        }
       }
-    }
-  }, [])
+    },
+    [i18n],
+  )
 
   // Debounced re-render on bodyMarkdown change
   useEffect(() => {
@@ -119,7 +132,9 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
     <div className={cn('flex flex-col gap-2', className)} data-testid="tos-pdf-preview">
       {/* Toolbar */}
       <div className="flex items-center justify-between rounded-t-lg border-x border-t border-border/60 bg-muted/30 px-3 py-1.5">
-        <span className="text-xs font-medium text-muted-foreground">PDF предпросмотр</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          <Trans>Попередній перегляд PDF</Trans>
+        </span>
         <Button
           type="button"
           size="sm"
@@ -130,7 +145,7 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
           data-testid="tos-pdf-refresh-btn"
         >
           <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-          Обновить
+          <Trans>Оновити</Trans>
         </Button>
       </div>
 
@@ -144,7 +159,9 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
         {(isLoading || iframeLoading) && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-b-lg bg-muted/30">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Загрузка PDF…</p>
+            <p className="text-sm text-muted-foreground">
+              <Trans>Завантаження PDF…</Trans>
+            </p>
           </div>
         )}
 
@@ -152,8 +169,8 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
         {blobUrl && !hasError && (
           <iframe
             src={blobUrl}
-            title="Предпросмотр Terms of Service"
-            aria-label="Предпросмотр Terms of Service"
+            title={t`Попередній перегляд Terms of Service`}
+            aria-label={t`Попередній перегляд Terms of Service`}
             tabIndex={0}
             className={cn('h-full w-full rounded-b-lg border-0', iframeLoading && 'invisible')}
             style={{ minHeight: '480px' }}
@@ -165,14 +182,16 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
           >
             <object data={blobUrl} type="application/pdf" className="h-full w-full">
               <p className="p-4 text-sm text-muted-foreground">
-                Встроенный просмотр PDF недоступен.{' '}
-                <a
-                  href={blobUrl}
-                  download="tos-preview.pdf"
-                  className="underline hover:text-foreground"
-                >
-                  Скачать ToS
-                </a>
+                <Trans>
+                  Вбудований перегляд PDF недоступний.{' '}
+                  <a
+                    href={blobUrl}
+                    download="tos-preview.pdf"
+                    className="underline hover:text-foreground"
+                  >
+                    Завантажити ToS
+                  </a>
+                </Trans>
               </p>
             </object>
           </iframe>
@@ -192,9 +211,11 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
             data-testid="tos-pdf-error"
           >
             <AlertTriangle className="h-8 w-8 text-destructive/60" />
-            <p className="text-center text-sm text-muted-foreground">Не удалось загрузить PDF.</p>
+            <p className="text-center text-sm text-muted-foreground">
+              <Trans>Не вдалося завантажити PDF.</Trans>
+            </p>
             <Button size="sm" variant="outline" onClick={handleRefresh}>
-              Повторить
+              <Trans>Повторити</Trans>
             </Button>
           </div>
         )}

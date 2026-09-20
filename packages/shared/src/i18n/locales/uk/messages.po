@@ -17,9 +17,71 @@ msgstr ""
 msgid "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
 msgstr "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
 
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "{role, select, SENIOR {синьйор} DROP {дроп} other {співробітник}}"
+msgstr "{role, select, SENIOR {синьйор} DROP {дроп} other {співробітник}}"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "{role, select, SENIOR {синьйора} DROP {дропа} other {співробітника}}"
+msgstr "{role, select, SENIOR {синьйора} DROP {дропа} other {співробітника}}"
+
+#. placeholder {0}: impact.teamName
+#. placeholder {1}: impact.seniorName || '—'
+#. placeholder {2}: impact.projectsCount
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{0}</0> і її синьйор <1>{1}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль синьйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgstr "<0>{0}</0> і її синьйор <1>{1}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль синьйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+
+#. placeholder {0}: impact.projectsCount ?? 0
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# активний проєкт} few {# активні проєкти} many {# активних проєктів} other {# активних проєктів}}</1>. Самі проєкти залишаться активними."
+msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# активний проєкт} few {# активні проєкти} many {# активних проєктів} other {# активних проєктів}}</1>. Самі проєкти залишаться активними."
+
+#. placeholder {0}: impact.teamsCount ?? 0
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (бухгалтерська роль). Самі команди залишаться активними."
+msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (бухгалтерська роль). Самі команди залишаться активними."
+
+#. placeholder {0}: impact.teamsCount ?? 0
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
+msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований. Пов'язаних сутностей немає."
+msgstr "<0>{entityName}</0> буде архівований. Пов'язаних сутностей немає."
+
+#. placeholder {0}: impact.teamName ? ( <> {' '} та команда «<strong>{impact.teamName}</strong>» </> ) : null
+#. placeholder {1}: impact.projectsCount ?? 0
+#. placeholder {2}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0>{0} — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+msgstr "<0>{entityName}</0>{0} — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+
 #: apps/web/app/components/ui/role-select.tsx
 msgid "HR"
 msgstr "HR"
+
+#. placeholder {0}: impact.membersAffected
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується."
+msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується."
+
+#. placeholder {0}: impact.membersAffected
+#. placeholder {1}: impact.seniorName || '—'
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації синьйора <0>{1}</0>."
+msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації синьйора <0>{1}</0>."
+
+#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
+#. placeholder {1}: impact.juniorsAffected ?? 0
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і JUNIOR на цих проєктах ({1, plural, one {# джун} few {# джуни} many {# джунів} other {# джунів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
+msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і JUNIOR на цих проєктах ({1, plural, one {# джун} few {# джуни} many {# джунів} other {# джунів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
+msgstr "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Адмін"
@@ -28,6 +90,35 @@ msgstr "Адмін"
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Адміністратор"
 msgstr "Адміністратор"
+
+#. placeholder {0}: impact.seniorName ? ` ${impact.seniorName}` : ''
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Активний синьйор{0} відʼєднається від команди без архівації."
+msgstr "Активний синьйор{0} відʼєднається від команди без архівації."
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Активного синьйора в команді немає."
+msgstr "Активного синьйора в команді немає."
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати"
+msgstr "Архівувати"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати команду"
+msgstr "Архівувати команду"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати команду дропа"
+msgstr "Архівувати команду дропа"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати користувача"
+msgstr "Архівувати користувача"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати проєкт"
+msgstr "Архівувати проєкт"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Бічна навігація CRM — перехід між розділами системи."
@@ -40,6 +131,10 @@ msgstr "Бухгалтер"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Вакансії"
 msgstr "Вакансії"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
+msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Ви маєте сплатити компанії"
@@ -89,6 +184,26 @@ msgstr "Видалити сповіщення"
 msgid "Виплачено"
 msgstr "Виплачено"
 
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Відновити все"
+msgstr "Відновити все"
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Відновити пов'язані сутності"
+msgstr "Відновити пов'язані сутності"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
+msgstr "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Відновлення проєкту разом із пов'язаними сутностями."
+msgstr "Відновлення проєкту разом із пов'язаними сутностями."
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Відновлення…"
+msgstr "Відновлення…"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Дашборд"
 msgstr "Дашборд"
@@ -97,26 +212,81 @@ msgstr "Дашборд"
 msgid "Джун"
 msgstr "Джун"
 
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
+msgstr "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Для підтвердження введіть {confirmInputLabel}:"
+msgstr "Для підтвердження введіть {confirmInputLabel}:"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Документи"
 msgstr "Документи"
 
+#: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+msgid "Дохід дропа (неоплачена частка)"
+msgstr "Дохід дропа (неоплачена частка)"
+
+#: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+msgid "Дохід синьйора (неоплачена частка)"
+msgstr "Дохід синьйора (неоплачена частка)"
+
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Дроп"
 msgstr "Дроп"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
+msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Завантаження PDF…"
+msgstr "Завантаження PDF…"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Завантажуємо вплив…"
+msgstr "Завантажуємо вплив…"
+
+#: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+msgid "Зарплата"
+msgstr "Зарплата"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Згорнути"
 msgstr "Згорнути"
 
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "ім'я"
+msgstr "ім'я"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "ім'я дропа"
+msgstr "ім'я дропа"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "ім'я синьйора"
+msgstr "ім'я синьйора"
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Команда"
 msgstr "Команда"
 
+#. placeholder {0}: impact.teamName
+#. placeholder {1}: impact.projectsCount
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
 msgstr "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Користувач (синьйор)"
+msgstr "Користувач (синьйор)"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Користувачі"
@@ -147,10 +317,22 @@ msgstr "Мова інтерфейсу"
 msgid "Навігація"
 msgstr "Навігація"
 
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "назва проєкту"
+msgstr "назва проєкту"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.GENERIC"
 msgstr "Не вдалося виконати дію. Спробуйте ще раз"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Не вдалося завантажити PDF попереднього перегляду."
+msgstr "Не вдалося завантажити PDF попереднього перегляду."
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Не вдалося завантажити PDF."
+msgstr "Не вдалося завантажити PDF."
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
@@ -160,10 +342,19 @@ msgstr "Не вдалося змінити мову інтерфейсу. Спр
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Не вдалося повернутися: {errMessage}"
 
+#. placeholder {0}: transactions.length
+#: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+msgid "Незакриті PENDING-транзакції ({0}) — залишаться в системі і продовжуватимуть підлягати виплаті"
+msgstr "Незакриті PENDING-транзакції ({0}) — залишаться в системі і продовжуватимуть підлягати виплаті"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Оновити"
+msgstr "Оновити"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -182,6 +373,10 @@ msgstr "Переклад ще триває — частина екранів п�
 msgid "Підтверджені прибутки, які ви ще не перерахували"
 msgstr "Підтверджені прибутки, які ви ще не перерахували"
 
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Підтвердження архівації. Введіть ім'я для підтвердження дії."
+msgstr "Підтвердження архівації. Введіть ім'я для підтвердження дії."
+
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернення..."
 msgstr "Повернення..."
@@ -191,6 +386,7 @@ msgstr "Повернення..."
 msgid "Повернутися до свого профілю"
 msgstr "Повернутися до свого профілю"
 
+#: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Повторити"
 msgstr "Повторити"
@@ -202,6 +398,20 @@ msgstr "Повторити спробу"
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Помилка завантаження балансу"
 msgstr "Помилка завантаження балансу"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Попередній перегляд PDF"
+msgstr "Попередній перегляд PDF"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Попередній перегляд Terms of Service"
+msgstr "Попередній перегляд Terms of Service"
+
+#. placeholder {0}: impact.activeMembersCount
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джун} few {# активні джуни} many {# активних джунів} other {# активних джунів}}</1> будуть відв'язані. Синьйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
+msgstr "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джун} few {# активні джуни} many {# активних джунів} other {# активних джунів}}</1> будуть відв'язані. Синьйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Проєкти"
@@ -231,6 +441,11 @@ msgstr "Роль"
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Синьйор"
 msgstr "Синьйор"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Скасувати"
+msgstr "Скасувати"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Співбесіди"

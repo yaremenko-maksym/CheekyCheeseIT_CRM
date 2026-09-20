@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { msg, select } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import {
   CrmDialogBody,
   CrmDialogContent,
@@ -19,19 +22,19 @@ import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePend
  * Per-entity dialog titles. The team variant has a drop-team sibling that
  * uses a different title — see `getTeamTitle` below.
  */
-const TITLES: Record<EntityType, string> = {
-  user: 'Архивировать пользователя',
-  team: 'Архивировать команду',
-  project: 'Архивировать проект',
+const TITLE_MESSAGES: Record<EntityType, MessageDescriptor> = {
+  user: msg`Архівувати користувача`,
+  team: msg`Архівувати команду`,
+  project: msg`Архівувати проєкт`,
 }
 
-const ROLE_RU: Record<string, string> = {
-  SENIOR: 'синьора',
-  HR: 'HR',
-  JUNIOR: 'джуна',
-  ACCOUNTANT: 'бухгалтера',
-  ADMIN: 'администратора',
-}
+// task-i18n-stage3a (Task 1), Step 6, fix-round 1 (SPEC-H-2): the old
+// `ROLE_RU: Record<string, string>` had no `DROP` entry — a call site
+// keying it by a live `role` value would silently fall through to
+// `undefined` for DROP, or (worse) another call site could copy-paste
+// `.SENIOR` and read the SENIOR word for a DROP entity. Removed; each
+// call site below picks its own word directly via `select()`, so DROP
+// gets its OWN form rather than borrowing SENIOR's.
 
 /**
  * Builds the role-aware warning text shown above the confirmation input.
@@ -42,7 +45,12 @@ function renderImpactText(
   entityName: string,
   impact: ArchiveImpact | undefined,
 ): React.ReactNode {
-  if (!impact) return <span className="text-muted-foreground">Загружаем влияние…</span>
+  if (!impact)
+    return (
+      <span className="text-muted-foreground">
+        <Trans>Завантажуємо вплив…</Trans>
+      </span>
+    )
 
   if (entityType === 'user' && impact.type === 'user') {
     const role = impact.role
@@ -51,56 +59,121 @@ function renderImpactText(
     // team and JUNIOR on the projects keep their membership and keep earning
     // off their own `archivedAt` — the cascade never touches it.
     if (role === 'SENIOR' || role === 'DROP') {
-      const roleGenitive = role === 'SENIOR' ? 'синьора' : 'дропа'
-      const teamPart = impact.teamName ? ` и его команда «${impact.teamName}»` : ''
+      // Template E (select, 2 variants used inline — no `other` reachable
+      // through this guard, but the macro's signature still requires one).
+      const roleGenitive = select(role, {
+        SENIOR: 'синьйора',
+        DROP: 'дропа',
+        other: 'співробітника',
+      })
+      const pairWord = select(role, { SENIOR: 'синьйор', DROP: 'дроп', other: 'співробітник' })
       const projectNames = impact.projectNames ?? []
       return (
         <>
-          <strong className="text-foreground">{entityName}</strong>
-          {teamPart} — связанная пара, убрать по одному нельзя. Будут архивированы: профиль{' '}
-          {roleGenitive}, команда и все её проекты ({impact.projectsCount ?? 0} шт.
-          {projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''}). HR/бухгалтеры на команде
-          ({impact.hrAccountantsOnTeam ?? 0}) и JUNIOR на этих проектах (
-          {impact.juniorsAffected ?? 0}) остаются активными членами и продолжают получать оплату —
-          архивация команды/проектов их не касается. Восстановление возможно — пара{' '}
-          {role === 'SENIOR' ? 'senior' : 'drop'}
-          +команда вернётся, но проекты восстанавливать отдельно.
+          <Trans>
+            <strong className="text-foreground">{entityName}</strong>
+            {impact.teamName ? (
+              <>
+                {' '}
+                та команда «<strong>{impact.teamName}</strong>»
+              </>
+            ) : null}{' '}
+            — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}
+            , команда і всі її проєкти (
+            <Plural
+              value={impact.projectsCount ?? 0}
+              one="# проєкт"
+              few="# проєкти"
+              many="# проєктів"
+              other="# проєктів"
+            />
+            {projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''}
+            ).
+          </Trans>{' '}
+          <Trans>
+            HR/бухгалтери в команді (
+            <Plural
+              value={impact.hrAccountantsOnTeam ?? 0}
+              one="# HR/бухгалтер"
+              few="# HR/бухгалтери"
+              many="# HR/бухгалтерів"
+              other="# HR/бухгалтерів"
+            />
+            ) і JUNIOR на цих проєктах (
+            <Plural
+              value={impact.juniorsAffected ?? 0}
+              one="# джун"
+              few="# джуни"
+              many="# джунів"
+              other="# джунів"
+            />
+            ) залишаються активними учасниками і продовжують отримувати оплату — архівація
+            команди/проєктів їх не стосується.
+          </Trans>{' '}
+          <Trans>
+            Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати
+            окремо.
+          </Trans>
         </>
       )
     }
     if (role === 'HR') {
       return (
-        <>
-          <strong className="text-foreground">{entityName}</strong> будет архивирован и убран из{' '}
-          <strong>{impact.teamsCount ?? 0} команд</strong> (HR-роль). Сами команды останутся
-          активны.
-        </>
+        <Trans>
+          <strong className="text-foreground">{entityName}</strong> буде архівований і прибраний з{' '}
+          <strong>
+            <Plural
+              value={impact.teamsCount ?? 0}
+              one="# команда"
+              few="# команди"
+              many="# команд"
+              other="# команд"
+            />
+          </strong>{' '}
+          (роль HR). Самі команди залишаться активними.
+        </Trans>
       )
     }
     if (role === 'ACCOUNTANT') {
       return (
-        <>
-          <strong className="text-foreground">{entityName}</strong> будет архивирован и убран из{' '}
-          <strong>{impact.teamsCount ?? 0} команд</strong> (бухгалтерская роль). Сами команды
-          останутся активны.
-        </>
+        <Trans>
+          <strong className="text-foreground">{entityName}</strong> буде архівований і прибраний з{' '}
+          <strong>
+            <Plural
+              value={impact.teamsCount ?? 0}
+              one="# команда"
+              few="# команди"
+              many="# команд"
+              other="# команд"
+            />
+          </strong>{' '}
+          (бухгалтерська роль). Самі команди залишаться активними.
+        </Trans>
       )
     }
     if (role === 'JUNIOR') {
       return (
-        <>
-          <strong className="text-foreground">{entityName}</strong> будет архивирован и убран из{' '}
-          <strong>{impact.projectsCount ?? 0} активных проектов</strong>. Сами проекты останутся
-          активны.
-        </>
+        <Trans>
+          <strong className="text-foreground">{entityName}</strong> буде архівований і прибраний з{' '}
+          <strong>
+            <Plural
+              value={impact.projectsCount ?? 0}
+              one="# активний проєкт"
+              few="# активні проєкти"
+              many="# активних проєктів"
+              other="# активних проєктів"
+            />
+          </strong>
+          . Самі проєкти залишаться активними.
+        </Trans>
       )
     }
     if (role === 'ADMIN') {
       return (
-        <>
-          <strong className="text-foreground">{entityName}</strong> будет архивирован. Связанных
-          сущностей нет.
-        </>
+        <Trans>
+          <strong className="text-foreground">{entityName}</strong> буде архівований. Пов'язаних
+          сутностей немає.
+        </Trans>
       )
     }
   }
@@ -118,41 +191,92 @@ function renderImpactText(
     // 1:1 when `teamType` is absent or 'SENIOR'.
     if (impact.teamType === 'DROP') {
       const dropName = impact.dropName?.trim() || '—'
-      const seniorClause = impact.seniorWillBeDetached
-        ? `Активный синьор${impact.seniorName ? ` ${impact.seniorName}` : ''} отцепится от команды без архивации.`
-        : 'Активного синьора в команде нет.'
       return (
         <>
-          Команда <strong className="text-foreground">{impact.teamName}</strong> и её дроп{' '}
-          <strong>{dropName}</strong> — связанная пара, убрать по одному нельзя. При архивации будут
-          архивированы: профиль <strong>дропа</strong>, команда и все её drop-проекты (
-          {impact.projectsCount} шт.
-          {projectNamesSuffix}). HR/бухгалтеры на команде ({impact.membersAffected}) остаются
-          активными членами и продолжают получать оплату — архивация их не касается. {seniorClause}
+          <Trans>
+            Команда <strong className="text-foreground">{impact.teamName}</strong> і її дроп{' '}
+            <strong>{dropName}</strong> — пов'язана пара, прибрати по одному не можна. При архівації
+            будуть архівовані: профіль <strong>дропа</strong>, команда і всі її drop-проєкти (
+            <Plural
+              value={impact.projectsCount}
+              one="# проєкт"
+              few="# проєкти"
+              many="# проєктів"
+              other="# проєктів"
+            />
+            {projectNamesSuffix}).
+          </Trans>{' '}
+          <Trans>
+            HR/бухгалтери в команді (
+            <Plural
+              value={impact.membersAffected}
+              one="# HR/бухгалтер"
+              few="# HR/бухгалтери"
+              many="# HR/бухгалтерів"
+              other="# HR/бухгалтерів"
+            />
+            ) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не
+            стосується.
+          </Trans>{' '}
+          {impact.seniorWillBeDetached ? (
+            <Trans>
+              Активний синьйор{impact.seniorName ? ` ${impact.seniorName}` : ''} відʼєднається від
+              команди без архівації.
+            </Trans>
+          ) : (
+            <Trans>Активного синьйора в команді немає.</Trans>
+          )}
         </>
       )
     }
     return (
       <>
-        <strong className="text-foreground">{impact.teamName}</strong> и её синьор{' '}
-        <strong>{impact.seniorName || '—'}</strong> — связанная пара, убрать по одному нельзя. При
-        архивации будут архивированы: профиль синьора, команда и все его проекты (
-        {impact.projectsCount} шт.
-        {projectNamesSuffix}). HR/бухгалтеры на команде ({impact.membersAffected}) остаются
-        активными членами и продолжают получать оплату — архивация их не касается. Это эквивалентно
-        архивации {ROLE_RU.SENIOR} <strong>{impact.seniorName || '—'}</strong>.
+        <Trans>
+          <strong className="text-foreground">{impact.teamName}</strong> і її синьйор{' '}
+          <strong>{impact.seniorName || '—'}</strong> — пов'язана пара, прибрати по одному не можна.
+          При архівації будуть архівовані: профіль синьйора, команда і всі його проєкти (
+          <Plural
+            value={impact.projectsCount}
+            one="# проєкт"
+            few="# проєкти"
+            many="# проєктів"
+            other="# проєктів"
+          />
+          {projectNamesSuffix}).
+        </Trans>{' '}
+        <Trans>
+          HR/бухгалтери в команді (
+          <Plural
+            value={impact.membersAffected}
+            one="# HR/бухгалтер"
+            few="# HR/бухгалтери"
+            many="# HR/бухгалтерів"
+            other="# HR/бухгалтерів"
+          />
+          ) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не
+          стосується. Це еквівалентно архівації синьйора <strong>{impact.seniorName || '—'}</strong>
+          .
+        </Trans>
       </>
     )
   }
 
   if (entityType === 'project' && impact.type === 'project') {
     return (
-      <>
-        Проект <strong className="text-foreground">{entityName}</strong> будет архивирован,{' '}
-        <strong>{impact.activeMembersCount} активных джунов</strong> будут отвязаны. Синьор и
-        команда <strong>не</strong> будут архивированы. Финансовая история (транзакции, инвойсы)
-        остаётся доступной.
-      </>
+      <Trans>
+        Проєкт <strong className="text-foreground">{entityName}</strong> буде архівований,{' '}
+        <strong>
+          <Plural
+            value={impact.activeMembersCount}
+            one="# активний джун"
+            few="# активні джуни"
+            many="# активних джунів"
+            other="# активних джунів"
+          />
+        </strong>{' '}
+        будуть відв'язані. Синьйор і команда <strong>не</strong> будуть архівовані. Фінансова
+        історія (транзакції, інвойси) залишається доступною.
+      </Trans>
     )
   }
 
@@ -173,6 +297,7 @@ export function ArchiveConfirmDialog({
   confirmName?: string
   onClose: () => void
 }) {
+  const { t, i18n } = useLingui()
   const { data: impact, isLoading } = useArchiveImpact(entityType, entityId)
   const mutation = useArchiveEntity(entityType, entityId)
   const [typed, setTyped] = useState('')
@@ -194,17 +319,19 @@ export function ArchiveConfirmDialog({
 
   // Title for team archive — drop variant uses a tailored copy.
   const title =
-    entityType === 'team' && isDropTeam ? 'Архивировать команду дропа' : TITLES[entityType]
+    entityType === 'team' && isDropTeam
+      ? t`Архівувати команду дропа`
+      : i18n._(TITLE_MESSAGES[entityType])
 
   // Confirm-input prompt label — different by entity type + team variant.
   const confirmInputLabel =
     entityType === 'team'
       ? isDropTeam
-        ? 'имя дропа'
-        : 'имя синьора'
+        ? t`ім'я дропа`
+        : t`ім'я синьйора`
       : entityType === 'project'
-        ? 'название проекта'
-        : 'имя'
+        ? t`назва проєкту`
+        : t`ім'я`
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -220,7 +347,7 @@ export function ArchiveConfirmDialog({
         <CrmDialogHeader>
           <DialogTitle className="text-destructive">{title}</DialogTitle>
           <DialogDescription className="sr-only">
-            Подтверждение архивации. Введите имя для подтверждения действия.
+            <Trans>Підтвердження архівації. Введіть ім'я для підтвердження дії.</Trans>
           </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
@@ -239,7 +366,7 @@ export function ArchiveConfirmDialog({
             )}
             {expected && (
               <p>
-                Для подтверждения введите {confirmInputLabel}:{' '}
+                <Trans>Для підтвердження введіть {confirmInputLabel}:</Trans>{' '}
                 <strong className="text-foreground">{expected}</strong>
               </p>
             )}
@@ -253,7 +380,7 @@ export function ArchiveConfirmDialog({
         </CrmDialogBody>
         <CrmDialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             variant="destructive"
@@ -264,7 +391,7 @@ export function ArchiveConfirmDialog({
             }}
             data-testid="archive-confirm-submit"
           >
-            Архивировать
+            <Trans>Архівувати</Trans>
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

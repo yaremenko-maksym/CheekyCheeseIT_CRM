@@ -15,6 +15,7 @@
 import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { TosPdfPreview } from '../TosPdfPreview'
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
@@ -55,11 +56,12 @@ const originalRevokeObjectURL = URL.revokeObjectURL
 
 // ─── Setup / Teardown ────────────────────────────────────────────────────────
 
-beforeEach(() => {
+beforeEach(async () => {
   URL.createObjectURL = vi.fn().mockReturnValue(FAKE_BLOB_URL)
   URL.revokeObjectURL = vi.fn()
   mockPost.mockReset()
   mockToastError.mockReset()
+  await loadCatalog('uk')
 })
 
 afterEach(() => {
@@ -72,7 +74,7 @@ afterEach(() => {
 const SAMPLE_MARKDOWN = '# Terms of Service\n\nPlease read carefully.'
 
 function renderPreview(bodyMarkdown = SAMPLE_MARKDOWN) {
-  return render(<TosPdfPreview bodyMarkdown={bodyMarkdown} />)
+  return render(<TosPdfPreview bodyMarkdown={bodyMarkdown} />, { wrapper: I18nTestProvider })
 }
 
 /**
@@ -127,7 +129,7 @@ describe('TosPdfPreview', () => {
 
     // Found by its accessible title (TosPdfPreview.tsx sets one) instead of
     // document.querySelector — task-lint-teeth.
-    const iframe = screen.getByTitle('Предпросмотр Terms of Service')
+    const iframe = screen.getByTitle('Попередній перегляд Terms of Service')
     expect(iframe).toBeInTheDocument()
     expect(iframe).toHaveAttribute('src', expect.stringContaining('blob:'))
     expect(mockToastError).not.toHaveBeenCalled()
@@ -146,7 +148,9 @@ describe('TosPdfPreview', () => {
     vi.useRealTimers()
 
     expect(screen.getByTestId('tos-pdf-error')).toBeInTheDocument()
-    expect(mockToastError).toHaveBeenCalledWith('Не удалось загрузить PDF предпросмотра.')
+    expect(mockToastError).toHaveBeenCalledWith(
+      'Не вдалося завантажити PDF попереднього перегляду.',
+    )
   })
 
   it('shows 429 throttle toast when fetch returns 429 response error', async () => {
@@ -165,7 +169,9 @@ describe('TosPdfPreview', () => {
     vi.useRealTimers()
 
     expect(screen.getByTestId('tos-pdf-error')).toBeInTheDocument()
-    expect(mockToastError).toHaveBeenCalledWith('Слишком часто. Подождите минуту.')
+    expect(mockToastError).toHaveBeenCalledWith(
+      'Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз.',
+    )
   })
 
   it('does NOT fire API call when bodyMarkdown is empty', () => {

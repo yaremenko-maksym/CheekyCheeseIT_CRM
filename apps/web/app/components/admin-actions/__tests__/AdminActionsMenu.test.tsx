@@ -9,6 +9,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // `api` is consumed transitively by use-archive — we mock it so the menu
 // renders without a real network round-trip.
@@ -37,21 +38,24 @@ function renderMenu(
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   const utils = render(
-    <QueryClientProvider client={qc}>
-      <AdminActionsMenu
-        entityType={props.entityType ?? 'team'}
-        entityId="entity-1"
-        entityName="Alpha Team"
-        isArchived={props.isArchived ?? false}
-      />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <AdminActionsMenu
+          entityType={props.entityType ?? 'team'}
+          entityId="entity-1"
+          entityName="Alpha Team"
+          isArchived={props.isArchived ?? false}
+        />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
   return { ...utils, queryClient: qc }
 }
 
 describe('AdminActionsMenu — trigger + dropdown', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
+    await loadCatalog('uk')
   })
 
   it('renders the trigger with Russian "Действия" label', () => {
@@ -117,9 +121,10 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     await user.click(screen.getByTestId('admin-actions-trigger'))
     await user.click(await screen.findByTestId('admin-action-archive'))
 
-    // The role=dialog has the title "Архивировать команду"
+    // The role=dialog has the title "Архівувати команду" (uk source text —
+    // task-i18n-stage3a Task 1, Step 6: ArchiveConfirmDialog migrated).
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(/Архивировать команду/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Архівувати команду/)).toBeInTheDocument()
   })
 
   // task-archive-pending-modal (AC2). `api.get` above is a bare `vi.fn()`
@@ -159,7 +164,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     await user.click(await screen.findByTestId('admin-action-archive'))
 
     expect(await screen.findByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
-    expect(screen.getByText(/Незакрытые PENDING-транзакции/)).toBeInTheDocument()
+    expect(screen.getByText(/Незакриті PENDING-транзакції/)).toBeInTheDocument()
     // The named-projects list actually renders BOTH names joined with ", ".
     expect(screen.getByText(/Project A, Project B/)).toBeInTheDocument()
     // seniorName renders as given (also used as the confirm-input's expected
@@ -191,9 +196,14 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     // Empty seniorName falls back to the em dash placeholder — rendered
     // twice in this copy (both `impact.seniorName || '—'` occurrences).
     expect(within(dialog).getAllByText('—')).toHaveLength(2)
-    // Zero projects: the "(0 шт.)" text renders WITHOUT a ": " names suffix.
-    expect(within(dialog).getByText(/\(0 шт\.\)/)).toBeInTheDocument()
-    expect(within(dialog).queryByText(/\(0 шт\.:/)).not.toBeInTheDocument()
+    // Zero projects: "0 проєктів" (Plural "many" category, uk) renders
+    // WITHOUT a ": " names suffix. `dialog.textContent`, not `getByText`
+    // — `<Plural>` renders its own child element, so the "(" / count /
+    // ")" span text nodes, so a regex spanning them cannot match a single
+    // text node the way `getByText` requires.
+    const dialogText = dialog.textContent ?? ''
+    expect(dialogText).toContain('(0 проєктів).')
+    expect(dialogText).not.toContain('0 проєктів:')
     // Nothing pending → the warning box itself is absent.
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
@@ -252,8 +262,8 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     expect(await screen.findByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
     const dialog = await screen.findByRole('dialog')
     const dialogText = dialog.textContent ?? ''
-    expect(dialogText).toContain('1 активных проектов')
-    expect(dialogText).not.toContain('связанная пара, убрать по одному нельзя')
+    expect(dialogText).toContain('1 активний проєкт')
+    expect(dialogText).not.toContain("пов'язана пара, прибрати по одному не можна")
   })
 
   // task-archive-pending-modal (AC7/AC9). `role === 'SENIOR' || role ===
@@ -291,20 +301,19 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
 
       const dialog = await screen.findByRole('dialog')
       const dialogText = dialog.textContent ?? ''
-      expect(dialogText).toContain('связанная пара, убрать по одному нельзя')
-      expect(dialogText).toContain(role === 'SENIOR' ? 'профиль синьора' : 'профиль дропа')
+      expect(dialogText).toContain("пов'язана пара, прибрати по одному не можна")
+      expect(dialogText).toContain(role === 'SENIOR' ? 'профіль синьйора' : 'профіль дропа')
       // Named projects, joined with ", " — not a coincidence of a single item.
       expect(dialogText).toContain('Project A, Project B')
       expect(dialogText).toContain('2')
       // The two "third parties stay active" counts.
       expect(dialogText).toContain('3')
       expect(dialogText).toContain('4')
-      expect(dialogText).toContain('остаются активными членами')
-      // The closing sentence's role-specific English pair word — pinned
-      // WITH the leading space from the `{' '}` JSX expression container,
-      // otherwise a mutant collapsing it to `{''}` ("параsenior" instead
-      // of "пара senior") is invisible to a substring-only check.
-      expect(dialogText).toContain(`пара ${role === 'SENIOR' ? 'senior' : 'drop'}+команда`)
+      expect(dialogText).toContain('залишаються активними учасниками')
+      // The closing sentence's role-specific pair word — pinned inside the
+      // guillemets «...» (`select()`-produced uk word, matches the canon
+      // role-name spelling from role-select.tsx's `ROLE_LABEL_MESSAGES`).
+      expect(dialogText).toContain(`пара «${role === 'SENIOR' ? 'синьйор' : 'дроп'}+команда»`)
     },
   )
 
@@ -333,8 +342,11 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     await user.click(await screen.findByTestId('admin-action-archive'))
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(/\(0 шт\.\)/)).toBeInTheDocument()
-    expect(within(dialog).queryByText(/\(0 шт\.:/)).not.toBeInTheDocument()
+    // `dialog.textContent`, not `getByText` — `<Plural>` renders its own
+    // child element, so "(" / the count / ")" sit in separate text nodes.
+    const dialogText = dialog.textContent ?? ''
+    expect(dialogText).toContain('(0 проєктів).')
+    expect(dialogText).not.toContain('0 проєктів:')
   })
 
   // task-archive-pending-modal (round 2, mutation-gate survivors). The
@@ -357,7 +369,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     // The space between "имя:" and the expected value is a `{' '}` JSX
     // expression container — pin it explicitly (a mutant collapsing it to
     // `{''}` would run the words together).
-    expect(dialog.textContent ?? '').toContain('имя: Alpha Team')
+    expect(dialog.textContent ?? '').toContain("ім'я: Alpha Team")
 
     const input = within(dialog).getByTestId('archive-confirm-input')
     expect(input).toHaveAttribute('placeholder', 'Alpha Team')

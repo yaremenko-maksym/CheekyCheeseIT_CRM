@@ -25,6 +25,7 @@ import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { CustomVariable } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -376,15 +377,18 @@ describe('ContractEditorPage layout', () => {
 // ─── TosNewPage layout tests ──────────────────────────────────────────────────
 
 describe('TosNewPage layout', () => {
+  // task-i18n-stage3a (Task 1): tos.new.tsx now calls `useLingui()` —
+  // every render needs an `I18nProvider` ancestor (SPEC-H-1).
   async function renderTosPage() {
     // TosNewPage is not exported directly; access via Route.options.component
     const mod = await import('../tos.new')
     const TosPage = mod.Route.options?.component as React.ComponentType | undefined
     if (!TosPage) throw new Error('TosNewPage component not found on Route')
-    return render(<TosPage />)
+    return render(<TosPage />, { wrapper: I18nTestProvider })
   }
 
   beforeEach(async () => {
+    await loadCatalog('uk')
     const { useQuery } = vi.mocked(await import('@tanstack/react-query'))
     useQuery.mockReturnValue({
       data: {

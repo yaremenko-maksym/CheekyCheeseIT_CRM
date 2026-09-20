@@ -18,6 +18,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { UserProfileDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -67,14 +68,24 @@ function makeUser(overrides: Partial<UserProfileDto>): UserProfileDto {
   return { ...BASE_USER, ...overrides } as UserProfileDto
 }
 
+// task-i18n-stage3a (Task 1) blast-radius: this dialog renders the shared
+// `ArchivePendingTransactionsList` (`components/archive/`), which now calls
+// `useLingui()` — outside this file's own perimeter (`user-profile/**`
+// migrates in a later wave), so only the render wrapper changes here.
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderDialog(user: UserProfileDto, onClose = vi.fn()) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   const utils = render(
-    <QueryClientProvider client={qc}>
-      <ArchiveUserDialog user={user} onClose={onClose} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <ArchiveUserDialog user={user} onClose={onClose} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
   return { ...utils, queryClient: qc, onClose }
 }
