@@ -1,10 +1,9 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -20,6 +19,7 @@ import {
   type SessionUser,
   updateInterviewSchema,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -63,7 +63,7 @@ export class InterviewsController {
    */
   private assertNotDrop(user: SessionUser): void {
     if (user.role === 'DROP') {
-      throw new ForbiddenException('Дроп не имеет доступа к собеседованиям')
+      throw apiError('INTERVIEW_DROP_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
   }
 
@@ -112,7 +112,7 @@ export class InterviewsController {
       seniorId !== undefined &&
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seniorId)
     ) {
-      throw new BadRequestException('seniorId must be a valid UUID')
+      throw apiError('INTERVIEW_SENIOR_ID_INVALID', HttpStatus.BAD_REQUEST)
     }
     // For SENIOR role, service will override seniorId with currentUser.id
     return this.interviewsService.findBySenior(seniorId, user)
