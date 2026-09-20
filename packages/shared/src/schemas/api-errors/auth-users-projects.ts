@@ -287,7 +287,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   EMAIL_NOT_AUTHORIZED: /* i18n */ {
     id: 'api-error.EMAIL_NOT_AUTHORIZED',
-    message: 'Ця електронна адреса не має доступу',
+    message: 'Ця електронна адреса не має доступу. Зверніться до адміністратора',
   },
   EMAIL_TAKEN_BY_ANOTHER_USER: /* i18n */ {
     id: 'api-error.EMAIL_TAKEN_BY_ANOTHER_USER',
@@ -411,7 +411,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   PROJECT_NOT_ACTIVE: /* i18n */ {
     id: 'api-error.PROJECT_NOT_ACTIVE',
-    message: 'Проєкт ще не активний — операції з ним недоступні',
+    message: 'Заявити дохід можна лише за активним проєктом',
   },
   PROJECT_NOT_ARCHIVED: /* i18n */ {
     id: 'api-error.PROJECT_NOT_ARCHIVED',
@@ -527,7 +527,7 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
     "Only an admin or an accountant can change the drop's project share",
   DROP_TEAM_ID_REQUIRED: 'Choose the drop team to add the senior to',
   EMAIL_ALREADY_IN_USE: 'This email is already taken. Enter a different one',
-  EMAIL_NOT_AUTHORIZED: 'This email is not authorized',
+  EMAIL_NOT_AUTHORIZED: 'This email is not authorized. Contact an admin',
   EMAIL_TAKEN_BY_ANOTHER_USER: 'This email is already taken. Enter a different one',
   GOOGLE_ACCOUNT_MISMATCH: 'This email is already linked to a different Google account',
   GOOGLE_CREDENTIAL_INVALID: "Couldn't verify your Google sign-in. Try again",
@@ -563,7 +563,7 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
   PROJECT_HAS_ACTIVE_JUNIOR: 'The project already has an active junior member',
   PROJECT_MEMBER_ROLE_RESTRICTED:
     'Only a junior, an HR, or an accountant can be added to a project',
-  PROJECT_NOT_ACTIVE: 'The project is not active yet — operations with it are unavailable',
+  PROJECT_NOT_ACTIVE: 'Income can only be declared for an active project',
   PROJECT_NOT_ARCHIVED: 'The project is not archived',
   PROJECT_NOT_FOUND: 'Project not found',
   PROJECT_NOT_IN_YOUR_TEAMS: "No access: this project isn't in your teams",

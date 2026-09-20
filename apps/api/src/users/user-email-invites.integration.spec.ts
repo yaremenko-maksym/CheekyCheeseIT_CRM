@@ -178,7 +178,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await expect(
         usersService.acceptPersonalEmailInvite(rawToken, USER_A_PERSONAL_EMAIL, 'google-sub-a-1'),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'INVITE_ALREADY_USED' }),
+        response: expect.objectContaining({ code: 'INVITE_ALREADY_USED', statusCode: 409 }),
       })
     })
 
@@ -211,7 +211,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
       await expect(
         usersService.acceptPersonalEmailInvite(rawToken, USER_A_PERSONAL_EMAIL, 'google-sub-a-2'),
-      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVITE_EXPIRED' }) })
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVITE_EXPIRED', statusCode: 400 }),
+      })
 
       const rowAfter = await personalRow(USER_A_ID)
       expect(rowAfter.canLogin).toBe(false)
@@ -228,7 +230,10 @@ describe.skipIf(!hasDatabaseUrl())(
           'google-sub-attacker',
         ),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH' }),
+        response: expect.objectContaining({
+          code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH',
+          statusCode: 403,
+        }),
       })
 
       const rowAfter = await personalRow(USER_A_ID)
@@ -256,7 +261,10 @@ describe.skipIf(!hasDatabaseUrl())(
       await expect(
         usersService.acceptPersonalEmailInvite(tokenA, USER_B_PERSONAL_EMAIL, 'google-sub-b-1'),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH' }),
+        response: expect.objectContaining({
+          code: 'INVITE_GOOGLE_ACCOUNT_MISMATCH',
+          statusCode: 403,
+        }),
       })
       // Rejected on the address mismatch specifically — A's row is
       // untouched, not consumed by the failed redirect attempt.
@@ -286,7 +294,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await expect(
         usersService.acceptPersonalEmailInvite(tokenA, USER_B_PERSONAL_EMAIL, 'google-sub-b-1'),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'INVITE_ALREADY_USED' }),
+        response: expect.objectContaining({ code: 'INVITE_ALREADY_USED', statusCode: 409 }),
       })
     })
 
@@ -307,7 +315,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // to point at is gone, not "already consumed".
       await expect(
         usersService.acceptPersonalEmailInvite(firstToken, USER_A_PERSONAL_EMAIL, 'google-sub-a-4'),
-      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVITE_INVALID' }) })
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVITE_INVALID', statusCode: 404 }),
+      })
 
       // The NEW token works.
       await usersService.acceptPersonalEmailInvite(
@@ -332,7 +342,10 @@ describe.skipIf(!hasDatabaseUrl())(
       await expect(
         usersService.resendPersonalEmailInvite(USER_A_ID, ACTOR_ID),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'PERSONAL_EMAIL_ALREADY_VERIFIED' }),
+        response: expect.objectContaining({
+          code: 'PERSONAL_EMAIL_ALREADY_VERIFIED',
+          statusCode: 409,
+        }),
       })
     })
 

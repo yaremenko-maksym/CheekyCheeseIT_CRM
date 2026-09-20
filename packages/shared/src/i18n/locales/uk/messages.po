@@ -160,6 +160,11 @@ msgstr "Запрошення недійсне"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_ACTIVE"
+msgstr "Заявити дохід можна лише за активним проєктом"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT"
 msgstr "Змінити роль на «дроп» цим способом не можна"
 
@@ -313,11 +318,6 @@ msgstr "Проєкт уже заархівовано"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
-msgid "api-error.PROJECT_NOT_ACTIVE"
-msgstr "Проєкт ще не активний — операції з ним недоступні"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_PROJECT_ACCESS_DENIED"
 msgstr "Проєкти дропа доступні лише дропам"
 
@@ -459,4 +459,4 @@ msgstr "Ця електронна адреса вже зайнята. Введі
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
-msgstr "Ця електронна адреса не має доступу"
+msgstr "Ця електронна адреса не має доступу. Зверніться до адміністратора"

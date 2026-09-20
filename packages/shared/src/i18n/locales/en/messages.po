@@ -160,6 +160,11 @@ msgstr "The invite is invalid"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_ACTIVE"
+msgstr "Income can only be declared for an active project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT"
 msgstr "The role can't be changed to drop this way"
 
@@ -313,11 +318,6 @@ msgstr "The project is already archived"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
-msgid "api-error.PROJECT_NOT_ACTIVE"
-msgstr "The project is not active yet — operations with it are unavailable"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_PROJECT_ACCESS_DENIED"
 msgstr "Drop projects are only available to drops"
 
@@ -459,4 +459,4 @@ msgstr "This email is already taken. Enter a different one"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
-msgstr "This email is not authorized"
+msgstr "This email is not authorized. Contact an admin"

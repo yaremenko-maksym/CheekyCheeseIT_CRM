@@ -145,7 +145,7 @@ describe.skipIf(!hasDatabaseUrl())(
           actorId: 'actor-test-id',
         }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
       })
 
       // No half-created account: no users row, no user_emails row, for the
@@ -175,7 +175,7 @@ describe.skipIf(!hasDatabaseUrl())(
           actorId: 'actor-test-id',
         }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
       })
 
       // Rejected BEFORE the users insert — the work email address for this
@@ -249,7 +249,7 @@ describe.skipIf(!hasDatabaseUrl())(
           actorId: 'actor-test-id',
         }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
       })
 
       const userRow = await dbSvc.db.query.users.findFirst({
@@ -269,7 +269,7 @@ describe.skipIf(!hasDatabaseUrl())(
           actorId: 'actor-test-id',
         }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
       })
 
       const userRow = await dbSvc.db.query.users.findFirst({
@@ -292,7 +292,7 @@ describe.skipIf(!hasDatabaseUrl())(
           actorId: 'actor-test-id',
         }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER' }),
+        response: expect.objectContaining({ code: 'EMAIL_TAKEN_BY_ANOTHER_USER', statusCode: 409 }),
       })
 
       const conflictRows = await dbSvc.db
@@ -344,7 +344,10 @@ describe.skipIf(!hasDatabaseUrl())(
       await expect(
         usersService.adminUpdateUser(EXISTING_USER_ID, { email: EXISTING_PERSONAL_EMAIL }, null),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL' }),
+        response: expect.objectContaining({
+          code: 'WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL',
+          statusCode: 400,
+        }),
       })
 
       // `users.email` still has the ORIGINAL address — the check that
