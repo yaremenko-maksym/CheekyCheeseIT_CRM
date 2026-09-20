@@ -70,6 +70,7 @@ export const AUTH_USERS_PROJECTS_ERROR_CODES = [
   'PROJECT_ALREADY_ARCHIVED',
   'PROJECT_HAS_ACTIVE_JUNIOR',
   'PROJECT_MEMBER_ROLE_RESTRICTED',
+  'PROJECT_NOT_ACTIVE',
   'PROJECT_NOT_ARCHIVED',
   'PROJECT_NOT_FOUND',
   'PROJECT_NOT_IN_YOUR_TEAMS',
@@ -152,6 +153,7 @@ export const AUTH_USERS_PROJECTS_ERROR_PARAMS = {
   PROJECT_ALREADY_ARCHIVED: [],
   PROJECT_HAS_ACTIVE_JUNIOR: [],
   PROJECT_MEMBER_ROLE_RESTRICTED: [],
+  PROJECT_NOT_ACTIVE: [],
   PROJECT_NOT_ARCHIVED: [],
   PROJECT_NOT_FOUND: [],
   PROJECT_NOT_IN_YOUR_TEAMS: [],
@@ -181,7 +183,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
 > = {
   ACCOUNT_DISABLED: /* i18n */ {
     id: 'api-error.ACCOUNT_DISABLED',
-    message: 'Обліковий запис вимкнено',
+    message: 'Ваш обліковий запис вимкнено. Зверніться до адміністратора',
   },
   ACTIVE_MEMBER_NOT_FOUND: /* i18n */ {
     id: 'api-error.ACTIVE_MEMBER_NOT_FOUND',
@@ -193,11 +195,11 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   ADMIN_CREATION_FORBIDDEN: /* i18n */ {
     id: 'api-error.ADMIN_CREATION_FORBIDDEN',
-    message: 'Створення ADMIN заборонено — пул фіксований',
+    message: 'Створити адміністратора не можна — пул фіксований',
   },
   ADMIN_ROLE_ASSIGNMENT_FORBIDDEN: /* i18n */ {
     id: 'api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN',
-    message: 'Призначення ролі ADMIN заборонено — пул фіксований',
+    message: 'Призначити роль адміністратора не можна — пул фіксований',
   },
   ALREADY_ACTIVE_PROJECT_MEMBER: /* i18n */ {
     id: 'api-error.ALREADY_ACTIVE_PROJECT_MEMBER',
@@ -213,19 +215,19 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   AVATAR_DOCUMENT_DELETED: /* i18n */ {
     id: 'api-error.AVATAR_DOCUMENT_DELETED',
-    message: 'Аватар: документ видалено',
+    message: 'Документ аватара видалено',
   },
   AVATAR_DOCUMENT_NOT_FOUND: /* i18n */ {
     id: 'api-error.AVATAR_DOCUMENT_NOT_FOUND',
-    message: 'Аватар: документ не знайдено',
+    message: 'Документ аватара не знайдено',
   },
   AVATAR_DOCUMENT_WRONG_CATEGORY: /* i18n */ {
     id: 'api-error.AVATAR_DOCUMENT_WRONG_CATEGORY',
-    message: 'Категорія документа має бути AVATAR',
+    message: 'Цей документ не аватар',
   },
   AVATAR_DOCUMENT_WRONG_OWNER: /* i18n */ {
     id: 'api-error.AVATAR_DOCUMENT_WRONG_OWNER',
-    message: 'Аватар: документ належить іншому користувачу',
+    message: 'Цей документ належить іншому користувачу',
   },
   CANNOT_ARCHIVE_ANOTHER_ADMIN: /* i18n */ {
     id: 'api-error.CANNOT_ARCHIVE_ANOTHER_ADMIN',
@@ -241,7 +243,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   CANNOT_REMOVE_LAST_ROLE_MEMBER: /* i18n */ {
     id: 'api-error.CANNOT_REMOVE_LAST_ROLE_MEMBER',
-    message: 'Не можна прибрати останнього учасника цієї ролі з проєкту',
+    message: 'У проєкті має залишитися хоча б один учасник цієї ролі',
   },
   DROP_ARCHIVED: /* i18n */ {
     id: 'api-error.DROP_ARCHIVED',
@@ -257,7 +259,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   DROP_CREATE_VIA_DEDICATED_ENDPOINT: /* i18n */ {
     id: 'api-error.DROP_CREATE_VIA_DEDICATED_ENDPOINT',
-    message: 'Створення DROP доступне лише через POST /api/users/drops',
+    message: 'Створити дропа цим способом не можна',
   },
   DROP_NOT_FOUND: /* i18n */ {
     id: 'api-error.DROP_NOT_FOUND',
@@ -265,23 +267,23 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   DROP_PROJECT_ACCESS_DENIED: /* i18n */ {
     id: 'api-error.DROP_PROJECT_ACCESS_DENIED',
-    message: 'Доступ заборонено: drop-проєкти доступні лише ролі DROP',
+    message: 'Проєкти дропа доступні лише дропам',
   },
   DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT: /* i18n */ {
     id: 'api-error.DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT',
-    message: 'Зміна ролі на DROP доступна лише через POST /api/users/drops',
+    message: 'Змінити роль на «дроп» цим способом не можна',
   },
   DROP_SHARE_OVERRIDE_FORBIDDEN: /* i18n */ {
     id: 'api-error.DROP_SHARE_OVERRIDE_FORBIDDEN',
-    message: 'Змінити перевизначення частки дропа може лише ADMIN або ACCOUNTANT',
+    message: 'Індивідуальну частку дропа за проєктом змінюють лише адміністратор і бухгалтер',
   },
   DROP_TEAM_ID_REQUIRED: /* i18n */ {
     id: 'api-error.DROP_TEAM_ID_REQUIRED',
-    message: 'dropTeamId обов’язковий при teamMode=JOIN_DROP_TEAM',
+    message: 'Виберіть команду дропа, до якої приєднати сеньйора',
   },
   EMAIL_ALREADY_IN_USE: /* i18n */ {
     id: 'api-error.EMAIL_ALREADY_IN_USE',
-    message: 'Ця адреса вже використовується. Введіть іншу',
+    message: 'Ця електронна адреса вже зайнята. Введіть іншу',
   },
   EMAIL_NOT_AUTHORIZED: /* i18n */ {
     id: 'api-error.EMAIL_NOT_AUTHORIZED',
@@ -289,19 +291,19 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   EMAIL_TAKEN_BY_ANOTHER_USER: /* i18n */ {
     id: 'api-error.EMAIL_TAKEN_BY_ANOTHER_USER',
-    message: 'Ця адреса вже зайнята іншим користувачем',
+    message: 'Ця електронна адреса вже зайнята. Введіть іншу',
   },
   GOOGLE_ACCOUNT_MISMATCH: /* i18n */ {
     id: 'api-error.GOOGLE_ACCOUNT_MISMATCH',
-    message: 'Обліковий запис Google не збігається',
+    message: 'Ця адреса вже прив’язана до іншого облікового запису Google',
   },
   GOOGLE_CREDENTIAL_INVALID: /* i18n */ {
     id: 'api-error.GOOGLE_CREDENTIAL_INVALID',
-    message: 'Недійсні облікові дані Google',
+    message: 'Не вдалося підтвердити вхід через Google. Спробуйте ще раз',
   },
   HR_JOIN_OWN_DROP_TEAM_ONLY: /* i18n */ {
     id: 'api-error.HR_JOIN_OWN_DROP_TEAM_ONLY',
-    message: 'HR може приєднувати синьйора лише до своєї drop-команди',
+    message: 'HR може приєднати сеньйора лише до своєї команди дропа',
   },
   HR_REQUIRED_MINIMUM_ONE: /* i18n */ {
     id: 'api-error.HR_REQUIRED_MINIMUM_ONE',
@@ -309,27 +311,27 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   HR_SENIOR_ONLY_CREATION: /* i18n */ {
     id: 'api-error.HR_SENIOR_ONLY_CREATION',
-    message: 'HR може створювати лише синьйорів',
+    message: 'HR може створювати лише сеньйорів',
   },
   IMPERSONATION_ALREADY_ACTIVE: /* i18n */ {
     id: 'api-error.IMPERSONATION_ALREADY_ACTIVE',
-    message: 'Не можна почати нове входження від чужого імені, поки триває інше',
+    message: 'Ви вже увійшли як інший співробітник — спершу поверніться до свого облікового запису',
   },
   IMPERSONATION_NOT_ACTIVE: /* i18n */ {
     id: 'api-error.IMPERSONATION_NOT_ACTIVE',
-    message: 'Активного входження від чужого імені немає',
+    message: 'Ви не входили як інший співробітник',
   },
   IMPERSONATION_ORIGIN_UNAVAILABLE: /* i18n */ {
     id: 'api-error.IMPERSONATION_ORIGIN_UNAVAILABLE',
-    message: 'Початковий адміністратор недоступний',
+    message: 'Не вдалося повернутися до вашого облікового запису. Увійдіть заново',
   },
   IMPERSONATION_SELF_FORBIDDEN: /* i18n */ {
     id: 'api-error.IMPERSONATION_SELF_FORBIDDEN',
-    message: 'Не можна увійти від імені самого себе',
+    message: 'Увійти як самого себе не можна',
   },
   IMPERSONATION_TARGET_ADMIN_FORBIDDEN: /* i18n */ {
     id: 'api-error.IMPERSONATION_TARGET_ADMIN_FORBIDDEN',
-    message: 'Не можна увійти від імені іншого адміністратора',
+    message: 'Увійти як інший адміністратор не можна',
   },
   INVITE_ALREADY_USED: /* i18n */ {
     id: 'api-error.INVITE_ALREADY_USED',
@@ -341,7 +343,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   INVITE_GOOGLE_ACCOUNT_MISMATCH: /* i18n */ {
     id: 'api-error.INVITE_GOOGLE_ACCOUNT_MISMATCH',
-    message: 'Обліковий запис Google не збігається з адресою запрошення',
+    message: 'Обліковий запис Google не збігається з адресою, на яку надіслано запрошення',
   },
   INVITE_INVALID: /* i18n */ {
     id: 'api-error.INVITE_INVALID',
@@ -349,7 +351,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   JOIN_DROP_TEAM_SENIOR_ONLY: /* i18n */ {
     id: 'api-error.JOIN_DROP_TEAM_SENIOR_ONLY',
-    message: 'teamMode=JOIN_DROP_TEAM доступний лише під час створення SENIOR',
+    message: 'Приєднати до команди дропа можна лише сеньйора',
   },
   JUNIOR_ALREADY_ON_ANOTHER_PROJECT: /* i18n */ {
     id: 'api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT',
@@ -357,23 +359,23 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   LOGO_DOCUMENT_DELETED: /* i18n */ {
     id: 'api-error.LOGO_DOCUMENT_DELETED',
-    message: 'Логотип: документ видалено',
+    message: 'Документ логотипа видалено',
   },
   LOGO_DOCUMENT_NOT_FOUND: /* i18n */ {
     id: 'api-error.LOGO_DOCUMENT_NOT_FOUND',
-    message: 'Логотип: документ не знайдено',
+    message: 'Документ логотипа не знайдено',
   },
   LOGO_DOCUMENT_WRONG_CATEGORY: /* i18n */ {
     id: 'api-error.LOGO_DOCUMENT_WRONG_CATEGORY',
-    message: 'Категорія документа має бути LOGO',
+    message: 'Цей документ не логотип',
   },
   LOGO_DOCUMENT_WRONG_PROJECT: /* i18n */ {
     id: 'api-error.LOGO_DOCUMENT_WRONG_PROJECT',
-    message: 'Логотип: документ належить іншому проєкту',
+    message: 'Цей документ належить іншому проєкту',
   },
   METHOD_DROP_ONLY: /* i18n */ {
     id: 'api-error.METHOD_DROP_ONLY',
-    message: 'Метод доступний лише для DROP',
+    message: 'Ця дія доступна лише для дропів',
   },
   NO_HR_CONTACT_ACCESS: /* i18n */ {
     id: 'api-error.NO_HR_CONTACT_ACCESS',
@@ -381,7 +383,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   PAYMENT_TYPE_CHANGE_FORBIDDEN: /* i18n */ {
     id: 'api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN',
-    message: 'Змінити тип оплати проєкту може лише ADMIN або ACCOUNTANT',
+    message: 'Тип оплати проєкту змінюють лише адміністратор і бухгалтер',
   },
   PERSONAL_EMAIL_ALREADY_VERIFIED: /* i18n */ {
     id: 'api-error.PERSONAL_EMAIL_ALREADY_VERIFIED',
@@ -405,7 +407,11 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   PROJECT_MEMBER_ROLE_RESTRICTED: /* i18n */ {
     id: 'api-error.PROJECT_MEMBER_ROLE_RESTRICTED',
-    message: 'Учасниками проєкту можуть бути лише JUNIOR, HR і ACCOUNTANT',
+    message: 'До складу проєкту можна додати лише джуніора, HR або бухгалтера',
+  },
+  PROJECT_NOT_ACTIVE: /* i18n */ {
+    id: 'api-error.PROJECT_NOT_ACTIVE',
+    message: 'Проєкт ще не активний — операції з ним недоступні',
   },
   PROJECT_NOT_ARCHIVED: /* i18n */ {
     id: 'api-error.PROJECT_NOT_ARCHIVED',
@@ -417,7 +423,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   PROJECT_NOT_IN_YOUR_TEAMS: /* i18n */ {
     id: 'api-error.PROJECT_NOT_IN_YOUR_TEAMS',
-    message: 'Проєкт не у ваших командах',
+    message: 'Немає доступу: проєкт не належить вашим командам',
   },
   REJOIN_TEAM_MUST_BE_FORMER_MEMBER: /* i18n */ {
     id: 'api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER',
@@ -425,45 +431,43 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   REJOIN_TEAM_SENIOR_ONLY: /* i18n */ {
     id: 'api-error.REJOIN_TEAM_SENIOR_ONLY',
-    message: 'Повторне приєднання до команди доступне лише для SENIOR',
+    message: 'Повернутися до команди може лише сеньйор',
   },
   SENIOR_ADMIN_USDT_ONLY: /* i18n */ {
     id: 'api-error.SENIOR_ADMIN_USDT_ONLY',
-    message: 'Синьйор і адміністратор можуть використовувати лише USDT ERC-20',
+    message: 'Для сеньйора й адміністратора доступний лише один спосіб виплати — USDT ERC-20',
   },
   SENIOR_NOT_FOUND: /* i18n */ {
     id: 'api-error.SENIOR_NOT_FOUND',
-    message: 'Синьйора не знайдено',
+    message: 'Сеньйора не знайдено',
   },
   SENIOR_SHARE_OVERRIDE_FORBIDDEN: /* i18n */ {
     id: 'api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN',
-    message: 'Змінити перевизначення частки синьйора може лише ADMIN або ACCOUNTANT',
+    message: 'Індивідуальну частку сеньйора за проєктом змінюють лише адміністратор і бухгалтер',
   },
   SHARE_APPROVE_IMPERSONATION_FORBIDDEN: /* i18n */ {
     id: 'api-error.SHARE_APPROVE_IMPERSONATION_FORBIDDEN',
-    message:
-      'Поки ви увійшли як інший співробітник, підтвердити його частку не можна — це має зробити він сам',
+    message: 'Ви увійшли як інший співробітник — підтвердити його частку може лише він сам',
   },
   SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY: /* i18n */ {
     id: 'api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY',
-    message: 'Скасувати пропозицію частки може лише ADMIN або ACCOUNTANT',
+    message: 'Скасувати пропозицію частки можуть лише адміністратор і бухгалтер',
   },
   SHARE_CANCEL_ADMIN_ONLY: /* i18n */ {
     id: 'api-error.SHARE_CANCEL_ADMIN_ONLY',
-    message: 'Скасувати пропозицію частки може лише ADMIN',
+    message: 'Скасувати пропозицію частки може лише адміністратор',
   },
   SHARE_CHANGE_REQUESTER_REQUIRED: /* i18n */ {
     id: 'api-error.SHARE_CHANGE_REQUESTER_REQUIRED',
-    message: 'Зміна частки потребує визначеного ініціатора запиту',
+    message: 'Не вдалося змінити частку. Спробуйте ще раз',
   },
   SHARE_REJECT_IMPERSONATION_FORBIDDEN: /* i18n */ {
     id: 'api-error.SHARE_REJECT_IMPERSONATION_FORBIDDEN',
-    message:
-      'Поки ви увійшли як інший співробітник, відхилити його частку не можна — це має зробити він сам',
+    message: 'Ви увійшли як інший співробітник — відхилити його частку може лише він сам',
   },
   TELEGRAM_CHANNEL_SENIOR_ONLY: /* i18n */ {
     id: 'api-error.TELEGRAM_CHANNEL_SENIOR_ONLY',
-    message: 'Telegram-канал можна вказати лише для SENIOR',
+    message: 'Telegram-канал можна вказати лише сеньйору',
   },
   USER_ALREADY_ARCHIVED: /* i18n */ {
     id: 'api-error.USER_ALREADY_ARCHIVED',
@@ -471,7 +475,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   USER_EMAIL_EXISTS: /* i18n */ {
     id: 'api-error.USER_EMAIL_EXISTS',
-    message: 'Користувач із такою електронною адресою вже існує',
+    message: 'Ця електронна адреса вже зайнята. Введіть іншу',
   },
   USER_NOT_ARCHIVED: /* i18n */ {
     id: 'api-error.USER_NOT_ARCHIVED',
@@ -479,7 +483,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   USER_NOT_DROP: /* i18n */ {
     id: 'api-error.USER_NOT_DROP',
-    message: 'Користувач не є DROP',
+    message: 'Цей користувач не дроп',
   },
   USER_NOT_FOUND: /* i18n */ {
     id: 'api-error.USER_NOT_FOUND',
@@ -487,7 +491,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   USER_NOT_SENIOR_OR_ADMIN: /* i18n */ {
     id: 'api-error.USER_NOT_SENIOR_OR_ADMIN',
-    message: 'Користувач не є SENIOR або ADMIN',
+    message: 'Цей користувач не сеньйор і не адміністратор',
   },
   WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL: /* i18n */ {
     id: 'api-error.WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL',
@@ -496,88 +500,92 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
 }
 
 export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErrorCode, string> = {
-  ACCOUNT_DISABLED: 'Account disabled',
+  ACCOUNT_DISABLED: 'Your account is disabled. Contact an admin',
   ACTIVE_MEMBER_NOT_FOUND: 'Active member not found in the project',
   ADMIN_CANNOT_CHANGE_OWN_ROLE: "An admin can't change their own role",
-  ADMIN_CREATION_FORBIDDEN: 'Creating an ADMIN is forbidden — the pool is fixed',
-  ADMIN_ROLE_ASSIGNMENT_FORBIDDEN: 'Assigning the ADMIN role is forbidden — the pool is fixed',
+  ADMIN_CREATION_FORBIDDEN: "You can't create an admin — the pool is fixed",
+  ADMIN_ROLE_ASSIGNMENT_FORBIDDEN: "You can't assign the admin role — the pool is fixed",
   ALREADY_ACTIVE_PROJECT_MEMBER: 'The user is already an active member of this project',
   ALREADY_HAS_ACTIVE_TEAM: 'You already have an active team',
   ARCHIVED_USER_CANNOT_JOIN_PROJECT: "The user is archived — they can't be added to the project",
-  AVATAR_DOCUMENT_DELETED: 'Avatar: document deleted',
-  AVATAR_DOCUMENT_NOT_FOUND: 'Avatar: document not found',
-  AVATAR_DOCUMENT_WRONG_CATEGORY: 'The document category must be AVATAR',
-  AVATAR_DOCUMENT_WRONG_OWNER: 'Avatar: document belongs to another user',
+  AVATAR_DOCUMENT_DELETED: 'The avatar document was deleted',
+  AVATAR_DOCUMENT_NOT_FOUND: 'The avatar document was not found',
+  AVATAR_DOCUMENT_WRONG_CATEGORY: 'This document is not an avatar',
+  AVATAR_DOCUMENT_WRONG_OWNER: 'This document belongs to another user',
   CANNOT_ARCHIVE_ANOTHER_ADMIN: "You can't archive another admin",
   CANNOT_ARCHIVE_YOURSELF: "You can't archive yourself",
   CANNOT_EDIT_ANOTHER_ADMIN: "You can't edit another admin's account",
-  CANNOT_REMOVE_LAST_ROLE_MEMBER: 'Cannot remove the last member of this role from the project',
+  CANNOT_REMOVE_LAST_ROLE_MEMBER: 'The project must keep at least one member with this role',
   DROP_ARCHIVED: 'The drop is already archived',
   DROP_ARCHIVE_ADMIN_ONLY: 'Only an admin can archive a drop',
   DROP_CREATE_ADMIN_ONLY: 'Only an admin can create a drop',
-  DROP_CREATE_VIA_DEDICATED_ENDPOINT: 'Creating a DROP is only available via POST /api/users/drops',
+  DROP_CREATE_VIA_DEDICATED_ENDPOINT: "A drop can't be created this way",
   DROP_NOT_FOUND: 'Drop not found',
-  DROP_PROJECT_ACCESS_DENIED: 'Access denied: drop projects are only available to the DROP role',
-  DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT:
-    'Changing the role to DROP is only available via POST /api/users/drops',
+  DROP_PROJECT_ACCESS_DENIED: 'Drop projects are only available to drops',
+  DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT: "The role can't be changed to drop this way",
   DROP_SHARE_OVERRIDE_FORBIDDEN:
-    "Only ADMIN or ACCOUNTANT can change the drop's share percent override",
-  DROP_TEAM_ID_REQUIRED: 'dropTeamId is required when teamMode=JOIN_DROP_TEAM',
-  EMAIL_ALREADY_IN_USE: 'This email is already in use. Enter a different one',
+    "Only an admin or an accountant can change the drop's project share",
+  DROP_TEAM_ID_REQUIRED: 'Choose the drop team to add the senior to',
+  EMAIL_ALREADY_IN_USE: 'This email is already taken. Enter a different one',
   EMAIL_NOT_AUTHORIZED: 'This email is not authorized',
-  EMAIL_TAKEN_BY_ANOTHER_USER: 'This email is already taken by another user',
-  GOOGLE_ACCOUNT_MISMATCH: 'Google account mismatch',
-  GOOGLE_CREDENTIAL_INVALID: 'Invalid Google credential',
+  EMAIL_TAKEN_BY_ANOTHER_USER: 'This email is already taken. Enter a different one',
+  GOOGLE_ACCOUNT_MISMATCH: 'This email is already linked to a different Google account',
+  GOOGLE_CREDENTIAL_INVALID: "Couldn't verify your Google sign-in. Try again",
   HR_JOIN_OWN_DROP_TEAM_ONLY: 'HR can only add a senior to their own drop team',
   HR_REQUIRED_MINIMUM_ONE: 'At least one HR is required',
   HR_SENIOR_ONLY_CREATION: 'HR can only create seniors',
-  IMPERSONATION_ALREADY_ACTIVE: "You can't start another impersonation while one is already active",
-  IMPERSONATION_NOT_ACTIVE: 'No active impersonation',
-  IMPERSONATION_ORIGIN_UNAVAILABLE: 'The original admin is unavailable',
-  IMPERSONATION_SELF_FORBIDDEN: "You can't impersonate yourself",
-  IMPERSONATION_TARGET_ADMIN_FORBIDDEN: "You can't impersonate another admin",
+  IMPERSONATION_ALREADY_ACTIVE:
+    "You're already signed in as another employee — return to your own account first",
+  IMPERSONATION_NOT_ACTIVE: "You're not signed in as another employee",
+  IMPERSONATION_ORIGIN_UNAVAILABLE: "Couldn't return to your own account. Sign in again",
+  IMPERSONATION_SELF_FORBIDDEN: "You can't sign in as yourself",
+  IMPERSONATION_TARGET_ADMIN_FORBIDDEN: "You can't sign in as another admin",
   INVITE_ALREADY_USED: 'The invite has already been used',
   INVITE_EXPIRED: 'The invite has expired',
-  INVITE_GOOGLE_ACCOUNT_MISMATCH: "The Google account doesn't match the invited address",
+  INVITE_GOOGLE_ACCOUNT_MISMATCH:
+    "This Google account doesn't match the email the invite was sent to",
   INVITE_INVALID: 'The invite is invalid',
-  JOIN_DROP_TEAM_SENIOR_ONLY: 'teamMode=JOIN_DROP_TEAM is only available when creating a SENIOR',
+  JOIN_DROP_TEAM_SENIOR_ONLY: 'Only a senior can be added to a drop team',
   JUNIOR_ALREADY_ON_ANOTHER_PROJECT: 'The junior is already an active member of another project',
-  LOGO_DOCUMENT_DELETED: 'Logo: document deleted',
-  LOGO_DOCUMENT_NOT_FOUND: 'Logo: document not found',
-  LOGO_DOCUMENT_WRONG_CATEGORY: 'The document category must be LOGO',
-  LOGO_DOCUMENT_WRONG_PROJECT: 'Logo: document belongs to another project',
-  METHOD_DROP_ONLY: 'This method is only available for DROP',
+  LOGO_DOCUMENT_DELETED: 'The logo document was deleted',
+  LOGO_DOCUMENT_NOT_FOUND: 'The logo document was not found',
+  LOGO_DOCUMENT_WRONG_CATEGORY: 'This document is not a logo',
+  LOGO_DOCUMENT_WRONG_PROJECT: 'This document belongs to another project',
+  METHOD_DROP_ONLY: 'This action is only available for drops',
   NO_HR_CONTACT_ACCESS: 'No access to the HR contact',
-  PAYMENT_TYPE_CHANGE_FORBIDDEN: "Only ADMIN or ACCOUNTANT can change the project's payment type",
+  PAYMENT_TYPE_CHANGE_FORBIDDEN:
+    "Only an admin or an accountant can change the project's payment type",
   PERSONAL_EMAIL_ALREADY_VERIFIED:
-    'The personal email is already verified — a repeat invite is not needed',
+    "The personal email is already verified — there's no need to send another invite",
   PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK: 'The personal email must be different from the work email',
   PERSONAL_EMAIL_NOT_SET: 'The user has no personal email set',
   PROJECT_ALREADY_ARCHIVED: 'The project is already archived',
   PROJECT_HAS_ACTIVE_JUNIOR: 'The project already has an active junior member',
-  PROJECT_MEMBER_ROLE_RESTRICTED: 'Only JUNIOR, HR, and ACCOUNTANT can be added as project members',
+  PROJECT_MEMBER_ROLE_RESTRICTED:
+    'Only a junior, an HR, or an accountant can be added to a project',
+  PROJECT_NOT_ACTIVE: 'The project is not active yet — operations with it are unavailable',
   PROJECT_NOT_ARCHIVED: 'The project is not archived',
   PROJECT_NOT_FOUND: 'Project not found',
-  PROJECT_NOT_IN_YOUR_TEAMS: 'The project is not in your teams',
+  PROJECT_NOT_IN_YOUR_TEAMS: "No access: this project isn't in your teams",
   REJOIN_TEAM_MUST_BE_FORMER_MEMBER: 'You can only rejoin a team you were previously a member of',
-  REJOIN_TEAM_SENIOR_ONLY: 'Rejoining a team is available only for SENIOR',
-  SENIOR_ADMIN_USDT_ONLY: 'Senior and admin can only use USDT ERC-20',
+  REJOIN_TEAM_SENIOR_ONLY: 'Only a senior can rejoin a team',
+  SENIOR_ADMIN_USDT_ONLY: 'Seniors and admins can only be paid to USDT ERC-20',
   SENIOR_NOT_FOUND: 'Senior not found',
   SENIOR_SHARE_OVERRIDE_FORBIDDEN:
-    "Only ADMIN or ACCOUNTANT can change the senior's share percent override",
+    "Only an admin or an accountant can change the senior's project share",
   SHARE_APPROVE_IMPERSONATION_FORBIDDEN:
-    "While you're impersonating another employee, you can't approve their share — only they can",
-  SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY: 'Only ADMIN or ACCOUNTANT can cancel a share proposal',
-  SHARE_CANCEL_ADMIN_ONLY: 'Only ADMIN can cancel a share proposal',
-  SHARE_CHANGE_REQUESTER_REQUIRED: 'Changing the share requires a specific requester',
+    "You're signed in as another employee — only they can approve their share",
+  SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY: 'Only an admin or an accountant can cancel a share proposal',
+  SHARE_CANCEL_ADMIN_ONLY: 'Only an admin can cancel a share proposal',
+  SHARE_CHANGE_REQUESTER_REQUIRED: "Couldn't change the share. Try again",
   SHARE_REJECT_IMPERSONATION_FORBIDDEN:
-    "While you're impersonating another employee, you can't reject their share — only they can",
-  TELEGRAM_CHANNEL_SENIOR_ONLY: 'A Telegram channel can only be set for SENIOR users',
-  USER_ALREADY_ARCHIVED: 'User is already archived',
-  USER_EMAIL_EXISTS: 'A user with this email already exists',
-  USER_NOT_ARCHIVED: 'User is not archived',
-  USER_NOT_DROP: 'The user is not a DROP',
+    "You're signed in as another employee — only they can reject their share",
+  TELEGRAM_CHANNEL_SENIOR_ONLY: 'A Telegram channel can only be set for a senior',
+  USER_ALREADY_ARCHIVED: 'The user is already archived',
+  USER_EMAIL_EXISTS: 'This email is already taken. Enter a different one',
+  USER_NOT_ARCHIVED: 'The user is not archived',
+  USER_NOT_DROP: 'This user is not a drop',
   USER_NOT_FOUND: 'User not found',
-  USER_NOT_SENIOR_OR_ADMIN: 'The user is not a SENIOR or ADMIN',
+  USER_NOT_SENIOR_OR_ADMIN: 'This user is neither a senior nor an admin',
   WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL: 'The work email must be different from the personal email',
 }

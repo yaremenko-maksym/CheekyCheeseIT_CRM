@@ -16,25 +16,31 @@
  * ONLY the guard while the fetch (and the rest of the function) keeps
  * compiling, the same shape `assertFoundAndVisible` uses for transactions.
  */
-import { BadRequestException, HttpStatus } from '@nestjs/common'
+import { HttpStatus } from '@nestjs/common'
 import type { ProjectStatus } from '@crm/shared'
 import { apiError } from '../common/api-error'
-
-export const PROJECT_NOT_ACTIVE_MESSAGE =
-  'Проект ещё не подтверждён — операции с ним недоступны до подтверждения'
 
 /**
  * Fused not-found + status guard. `status` is checked because a project only
  * accepts transactions once it is `ACTIVE` (Д2) — a `DRAFT` was never agreed
  * to and a `REJECTED` one was explicitly declined; money must not move
  * against either.
+ *
+ * CR-H-1/SPEC-M-1 (code-review + spec-review PR #701 round 1): this used to
+ * throw a bare `BadRequestException` with a Russian literal
+ * (`PROJECT_NOT_ACTIVE_MESSAGE`) — migrated to `PROJECT_NOT_ACTIVE` like the
+ * `PROJECT_NOT_FOUND` branch two lines above it. Blast radius: the one
+ * cross-module consumer, `apps/api/src/finance/project-draft-transaction-guard.unit.spec.ts`
+ * (Task 2, `finance`), asserted on the removed message string — updated to
+ * assert on `code`/`statusCode` in the same commit (see that file's own
+ * comment).
  */
 export function assertProjectActive<T extends { status: ProjectStatus }>(
   project: T | undefined | null,
 ): T {
   if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
   if (project.status !== 'ACTIVE') {
-    throw new BadRequestException(PROJECT_NOT_ACTIVE_MESSAGE)
+    throw apiError('PROJECT_NOT_ACTIVE', HttpStatus.BAD_REQUEST)
   }
   return project
 }

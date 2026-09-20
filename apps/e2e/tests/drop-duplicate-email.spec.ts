@@ -105,8 +105,10 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
       // attached to the body. The wording comes from the `USER_EMAIL_EXISTS`
       // catalog entry (`packages/shared/src/schemas/api-errors/auth-users-projects.ts`),
       // routed through `explainUserMutationError` in UserDialog.tsx.
+      // COPY-M-1 (PR #701 round 1): `USER_EMAIL_EXISTS` / `EMAIL_TAKEN_BY_ANOTHER_USER` /
+      // `EMAIL_ALREADY_IN_USE` unified to one text — asserting the shared string.
       await expect(
-        page.getByText('Користувач із такою електронною адресою вже існує', { exact: false }),
+        page.getByText('Ця електронна адреса вже зайнята. Введіть іншу', { exact: false }),
       ).toBeVisible({ timeout: 8_000 })
 
       // Dialog must stay open so the operator can edit the email and retry.
