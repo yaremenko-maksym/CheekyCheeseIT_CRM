@@ -37,6 +37,8 @@ import type { UserProfileDto, ViewPermissions } from '@crm/shared'
 import { ProfileEditFields } from '../self-edit/ProfileEditFields'
 import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
 import { ProfileCredentialsSection } from '../ProfileCredentialsSection'
+import { LanguageSection } from '../LanguageSection'
+import { useLocale } from '@/lib/i18n'
 
 export interface OverviewTabProps {
   user: UserProfileDto
@@ -44,6 +46,25 @@ export interface OverviewTabProps {
   permissions: ViewPermissions
   mode: 'self' | 'view'
   onGoToTab?: (tab: string) => void
+}
+
+/**
+ * task-i18n-stage2 (Task 7). `LanguageSection` itself stays presentational
+ * (takes `current` as a prop — see its own tests), but reading the active
+ * locale needs `useLocale()`, which goes through `useLingui()` and THROWS
+ * without an `I18nProvider` ancestor (real in prod — `__root.tsx`, Task 6 —
+ * but absent in most `OverviewTab` unit tests, which render `mode='view'`
+ * and never touch this at all). A separate component, mounted only when
+ * `mode === 'self'` (see below), keeps that requirement scoped to the
+ * self-only feature instead of the whole tab: React's Rules of Hooks are
+ * per component INSTANCE, so `useLocale()` here never runs unless this
+ * component is actually in the tree — unlike calling it unconditionally in
+ * `OverviewTab` itself, which would force every `mode='view'` test to carry
+ * an `I18nProvider` it has no other reason to need.
+ */
+function SelfLanguageSection() {
+  const locale = useLocale()
+  return <LanguageSection current={locale} />
 }
 
 // ── DROP-specific overview components ─────────────────────────────────────────
@@ -653,6 +674,10 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
           </CardContent>
         </Card>
       )}
+
+      {/* task-i18n-stage2 (Task 7): self-service interface language switch —
+          own profile only, same gate as "Личные данные" above. */}
+      {mode === 'self' && <SelfLanguageSection />}
 
       {/* Legend moved to project detail page (per-project, subject excluded).
           See apps/web/app/components/projects/ProjectLegendSection.tsx */}
