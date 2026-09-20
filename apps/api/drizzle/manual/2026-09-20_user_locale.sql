@@ -20,9 +20,17 @@
 -- database that already has `user_locale` would fail with "type already
 -- exists" on the SECOND deploy (every subsequent one, since deploy.yml applies
 -- every manual/*.sql file on EVERY deploy — there is no applied-migrations
--- registry). The `DO $$ … END $$` guard checks `pg_type` first, same pattern
--- as every other new-enum migration in this directory
--- (2026-09-07_notification_subjects.sql, 2026-09-12_notification_emails.sql).
+-- registry). The `DO $$ … END $$` guard checks `to_regtype('user_locale')`,
+-- NOT `SELECT 1 FROM pg_type WHERE typname = …` — the latter matches the
+-- name in ANY schema (namespace-blind), so on a database whose `search_path`
+-- has been narrowed away from `public` (exactly what
+-- `user-locale-migration.integration.spec.ts` does to prove this file in
+-- isolation) it would see the type that already exists in `public` and skip
+-- the CREATE, leaving the ALTER TABLE below unable to resolve `user_locale`
+-- at all. `to_regtype` resolves the name exactly the way the ALTER TABLE
+-- below will — the condition that actually matters. Same fix, same reason,
+-- as `2026-09-12_notification_emails.sql`'s own comment on this exact
+-- mistake (caught there by executing the file twice, not by reading it).
 --
 -- How to apply
 -- ------------
@@ -45,7 +53,7 @@
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_locale') THEN
+  IF to_regtype('user_locale') IS NULL THEN
     CREATE TYPE user_locale AS ENUM ('uk', 'en');
   END IF;
 END $$;

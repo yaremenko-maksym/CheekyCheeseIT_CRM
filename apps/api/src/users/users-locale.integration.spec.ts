@@ -15,7 +15,7 @@
  * `TeamAuditLogService`, `ProjectAuditLogService`, `TeamsService`) are typed
  * stubs — see the per-stub comments below for why each is safe to fake here.
  */
-import { Body, Controller, Get, Module, Patch, Post } from '@nestjs/common'
+import { Body, Controller, Get, Inject, Module, Patch, Post } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -113,10 +113,17 @@ const inviteMailerStub = {
   sendInvite: () => Promise.resolve(true),
 } as unknown as PersonalEmailInviteMailerService
 
+// String token, not the class itself: controller constructor params rely on
+// `design:paramtypes` reflection metadata, which esbuild (vitest's
+// transformer) strips — same issue `documents-unified.integration.spec.ts`'s
+// own doc names for `SentinelDocumentsController`. Plain class-based
+// injection silently resolves to `undefined` here instead of throwing.
+const USERS_SERVICE_TOKEN = 'USERS_SERVICE_TOKEN'
+
 /** Mirrors `PATCH /users/me`, `GET /auth/me`, `POST /users` — see file doc. */
 @Controller()
 class SentinelController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(@Inject(USERS_SERVICE_TOKEN) private readonly usersService: UsersService) {}
 
   @Patch('users/me')
   async updateMe(@CurrentUser() user: SessionUser, @Body() body: unknown) {
@@ -183,6 +190,12 @@ class SentinelController {
           inviteMailerStub,
         ),
       inject: [DatabaseService],
+    },
+    // String token alias — `SentinelController` uses `@Inject(token)` to
+    // bypass the esbuild metadata issue on controller constructor params.
+    {
+      provide: USERS_SERVICE_TOKEN,
+      useExisting: UsersService,
     },
     {
       provide: APP_GUARD,
@@ -294,6 +307,10 @@ describe.skipIf(!hasDatabaseUrl())(
           bankUahRecipient: 'Тестов Тест',
           bankUahIban: 'UA123456789012345678901234567',
           bankUahRnokpp: '1234567890',
+          // JUNIOR is a CONTRACT_ROLES member in createUserSchema's
+          // superRefine — required, or the whole payload 400s before
+          // `locale` is ever reached.
+          legalFullName: 'Тестов Тест Тестович',
         },
       })
       expect(res.statusCode).toBe(201)
