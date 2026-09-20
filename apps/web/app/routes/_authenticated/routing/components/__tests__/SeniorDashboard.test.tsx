@@ -21,6 +21,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { SeniorSummaryDto, TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const useSeniorSummaryMock = vi.fn()
 const getTransactionsMock = vi.fn()
@@ -149,15 +150,22 @@ function makeTx(overrides: Partial<TransactionDto>): TransactionDto {
 
 function renderDashboard() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // task-i18n-stage3a (Task 1) blast-radius: `SeniorDashboard` renders the
+  // shared `InProgressPanel`/`EarningsSparkline` (`routing/components/`),
+  // which now call `useLingui()` — outside this file's own perimeter
+  // (`_authenticated/finance/**` migrates in a later wave).
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
   )
   return render(<SeniorDashboard />, { wrapper })
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   useSeniorSummaryMock.mockReset()
   getTransactionsMock.mockReset()
+  await loadCatalog('uk')
   createDialogSpy.mockReset()
   payoutDialogSpy.mockReset()
   payoutDetailDialogSpy.mockReset()
@@ -491,7 +499,7 @@ describe('SeniorDashboard', () => {
       renderDashboard()
       expect(await screen.findByTestId('senior-in-progress-row-payout-1')).toBeInTheDocument()
       expect(screen.getByTestId('senior-pay-payout-payout-1')).toBeInTheDocument()
-      expect(screen.getByTestId('senior-pay-payout-payout-1')).toHaveTextContent('Оплатить')
+      expect(screen.getByTestId('senior-pay-payout-payout-1')).toHaveTextContent('Оплатити')
     })
 
     it('«Оплатить» on a PAYOUT row opens PayoutDetailDialog with correct payoutRequestId', async () => {

@@ -18,6 +18,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // ── Mock hooks ──────────────────────────────────────────────────────────────
 
@@ -142,15 +143,20 @@ function makeTx(overrides: Partial<TransactionDto>): TransactionDto {
 
 function renderDashboard() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // task-i18n-stage3a (Task 1) blast-radius: `DropDashboard` renders the
+  // shared `InProgressPanel`/`PendingProjectApprovalsPanel` (`routing/components/`),
+  // which now call `useLingui()`/`Trans` — outside this file's own perimeter.
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
   )
   return render(<DropDashboard />, { wrapper })
 }
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 
-beforeEach(() => {
+beforeEach(async () => {
   useDropSummaryMock.mockReset()
   useDropProjectsMock.mockReset()
   getTransactionsMock.mockReset()
@@ -158,6 +164,7 @@ beforeEach(() => {
   payoutDialogSpy.mockReset()
   payoutDetailDialogSpy.mockReset()
   getTransactionsMock.mockResolvedValue([])
+  await loadCatalog('uk')
 })
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -305,7 +312,7 @@ describe('DropDashboard', () => {
       renderDashboard()
       expect(await screen.findByTestId('drop-in-progress-row-payout-1')).toBeInTheDocument()
       expect(screen.getByTestId('drop-pay-payout-payout-1')).toBeInTheDocument()
-      expect(screen.getByTestId('drop-pay-payout-payout-1')).toHaveTextContent('Оплатить')
+      expect(screen.getByTestId('drop-pay-payout-payout-1')).toHaveTextContent('Оплатити')
     })
 
     it('«Оплатить» opens PayoutDetailDialog with correct payoutRequestId', async () => {
