@@ -138,6 +138,11 @@ msgstr "The transaction date cannot be in the future"
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "A receipt is required — attach a file or a link"
 
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Мова інтерфейсу"
+msgstr "Interface language"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SALARY_AMOUNT_TOO_MANY_DECIMALS"
@@ -152,6 +157,10 @@ msgstr "No more than 6 digits after the decimal point — otherwise the amount w
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.GENERIC"
 msgstr "Something went wrong. Please try again"
+
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
+msgstr "Could not change the interface language. Try again"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -177,6 +186,10 @@ msgstr "Describe the reason — it goes into the audit log"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.PERSONAL_EMAIL_MUST_DIFFER"
 msgstr "The personal email must differ from the work email"
+
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Переклад ще триває — частина екранів поки що російською."
+msgstr "Translation is still in progress — some screens remain in Russian."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

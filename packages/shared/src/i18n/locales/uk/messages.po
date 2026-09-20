@@ -138,6 +138,11 @@ msgstr "Дата транзакції не може бути в майбутнь
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "Квитанція обов’язкова — додайте файл або посилання"
 
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Мова інтерфейсу"
+msgstr "Мова інтерфейсу"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SALARY_AMOUNT_TOO_MANY_DECIMALS"
@@ -152,6 +157,10 @@ msgstr "Не більше 6 знаків після коми — інакше с
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.GENERIC"
 msgstr "Не вдалося виконати дію. Спробуйте ще раз"
+
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
+msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -177,6 +186,10 @@ msgstr "Опишіть причину — вона потрапить до жу�
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.PERSONAL_EMAIL_MUST_DIFFER"
 msgstr "Особистий email має відрізнятися від робочого"
+
+#: apps/web/app/components/user-profile/LanguageSection.tsx
+msgid "Переклад ще триває — частина екранів поки що російською."
+msgstr "Переклад ще триває — частина екранів поки що російською."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
