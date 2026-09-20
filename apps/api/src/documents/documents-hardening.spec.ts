@@ -410,7 +410,12 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
         { buffer: PDF_MAGIC, mimetype: 'image/jpeg', originalname: 'fake.jpg' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DOCUMENT_CONTENT_TYPE_MISMATCH',
+        statusCode: 415,
+      }),
+    })
   })
 
   it('rejects when declared MIME is "application/pdf" but bytes are JPEG → 415', async () => {
@@ -421,7 +426,12 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
         { buffer: JPEG_MAGIC, mimetype: 'application/pdf', originalname: 'fake.pdf' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DOCUMENT_CONTENT_TYPE_MISMATCH',
+        statusCode: 415,
+      }),
+    })
   })
 
   it('rejects unrecognised binary (zip bytes) even with valid declared MIME → 415', async () => {
@@ -433,7 +443,9 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
         { buffer: zipBytes, mimetype: 'application/pdf', originalname: 'disguised.pdf' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_CONTENT_UNRECOGNIZED', statusCode: 415 }),
+    })
   })
 
   it('allows upload when declared MIME matches detected MIME (PDF)', async () => {
