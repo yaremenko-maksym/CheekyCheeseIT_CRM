@@ -981,7 +981,12 @@ jobs:
             # добавления остаётся далеко от критического пути misc (~5:26-5:53).
             files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts tests/notification-types.spec.ts
           - name: team-users
-            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts
+            # tests/locale-switcher.spec.ts (task-i18n-stage2, Task 7): the
+            # profile-overview language switcher (own profile only) — task
+            # file directs this shard ("где живёт профиль"), same mocked-auth
+            # pattern as the other three files here (`mockAuthAs`, no live
+            # backend calls).
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts
           - name: projects
             # tests/project-status-filter-ui.spec.ts (task-project-status-filter-ui,
             # PR #646, feat/project-status-filter-ui, not yet merged as of this line
