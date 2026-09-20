@@ -14,41 +14,41 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:115
+#: packages/shared/src/schemas/api-errors.ts:114
 msgid "api-error.NOTIFICATION_PREFERENCES_IMPERSONATION"
-msgstr "Notification preferences are managed by the employee themselves — while impersonating, they're view-only"
+msgstr "You're signed in as another employee — notification preferences are view-only"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:92
-msgid "api-error.GENERIC"
-msgstr "Couldn't complete the action. Please try again"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:96
-msgid "api-error.CONTRACT_TEMPLATE_MISSING"
-msgstr "No active contract template for the {role} role"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:120
-msgid "api-error.SHARE_DECISION_IMPERSONATION"
-msgstr "You can't decide on this employee's share while impersonating them — they need to do it themselves"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:125
-msgid "api-error.PROJECT_DECISION_IMPERSONATION"
-msgstr "You can't decide on the project on this employee's behalf while impersonating them — they need to do it themselves"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:100
+#: packages/shared/src/schemas/api-errors.ts:101
 msgid "api-error.CONTRACT_SIGN_IMPERSONATION"
-msgstr "You can't sign this employee's contract while impersonating them — they need to do it themselves"
+msgstr "You're signed in as another employee — only they can sign their contract"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts:110
 msgid "api-error.INVOICE_SIGN_IMPERSONATION"
-msgstr "You can't sign this employee's invoice while impersonating them — they need to do it themselves"
+msgstr "You're signed in as another employee — only they can sign their invoice"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:118
+msgid "api-error.SHARE_DECISION_IMPERSONATION"
+msgstr "You're signed in as another employee — only they can decide on their share"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts:105
 msgid "api-error.TOS_ACCEPT_IMPERSONATION"
-msgstr "You can't accept the terms of use on this employee's behalf while impersonating them — they need to do it themselves"
+msgstr "You're signed in as another employee — only they can accept the terms"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:123
+msgid "api-error.PROJECT_DECISION_IMPERSONATION"
+msgstr "You're signed in as another employee — only they can decide on the project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:92
+msgid "api-error.GENERIC"
+msgstr "Something went wrong. Please try again"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:96
+msgid "api-error.CONTRACT_TEMPLATE_MISSING"
+msgstr "No active contract template for {role}. Add one under Contract templates"

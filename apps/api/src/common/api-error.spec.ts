@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
+import { API_ERROR_FALLBACK_EN } from '@crm/shared'
 import { apiError } from './api-error'
 
 describe('apiError', () => {
@@ -10,7 +11,7 @@ describe('apiError', () => {
       statusCode: 404,
       code: 'CONTRACT_TEMPLATE_MISSING',
       params: { role: 'SENIOR' },
-      message: 'No active contract template for role SENIOR',
+      message: API_ERROR_FALLBACK_EN.CONTRACT_TEMPLATE_MISSING.replace('{role}', 'SENIOR'),
     })
   })
 
@@ -20,7 +21,7 @@ describe('apiError', () => {
       statusCode: 403,
       code: 'TOS_ACCEPT_IMPERSONATION',
       params: undefined,
-      message: 'Accepting the terms is not allowed while impersonating',
+      message: API_ERROR_FALLBACK_EN.TOS_ACCEPT_IMPERSONATION,
     })
   })
 
@@ -34,7 +35,7 @@ describe('apiError', () => {
     // @ts-expect-error — `role` is required for this code; see comment above.
     const e = apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND)
     expect((e.getResponse() as { message: string }).message).toBe(
-      'No active contract template for role {role}',
+      API_ERROR_FALLBACK_EN.CONTRACT_TEMPLATE_MISSING,
     )
   })
 })

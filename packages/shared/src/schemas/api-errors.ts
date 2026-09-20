@@ -95,54 +95,58 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor> = {
   },
   CONTRACT_TEMPLATE_MISSING: /* i18n */ {
     id: 'api-error.CONTRACT_TEMPLATE_MISSING',
-    message: 'Немає активного шаблону контракту для ролі {role}',
+    message:
+      'Немає активного шаблону контракту для ролі {role}. Додайте його в розділі «Шаблони контрактів»',
   },
   CONTRACT_SIGN_IMPERSONATION: /* i18n */ {
     id: 'api-error.CONTRACT_SIGN_IMPERSONATION',
-    message:
-      'Поки ви увійшли як інший співробітник, підписати його контракт не можна — це має зробити він сам',
+    message: 'Ви увійшли як інший співробітник — підписати його контракт може лише він сам',
   },
   TOS_ACCEPT_IMPERSONATION: /* i18n */ {
     id: 'api-error.TOS_ACCEPT_IMPERSONATION',
-    message:
-      'Поки ви увійшли як інший співробітник, прийняти умови використання за нього не можна — це має зробити він сам',
+    message: 'Ви увійшли як інший співробітник — прийняти умови використання може лише він сам',
   },
   INVOICE_SIGN_IMPERSONATION: /* i18n */ {
     id: 'api-error.INVOICE_SIGN_IMPERSONATION',
-    message:
-      'Поки ви увійшли як інший співробітник, підписати його рахунок не можна — це має зробити він сам',
+    message: 'Ви увійшли як інший співробітник — підписати його рахунок може лише він сам',
   },
   NOTIFICATION_PREFERENCES_IMPERSONATION: /* i18n */ {
     id: 'api-error.NOTIFICATION_PREFERENCES_IMPERSONATION',
-    message:
-      'Налаштування сповіщень змінює сам співробітник — під «увійти як» вони лише для перегляду',
+    message: 'Ви увійшли як інший співробітник — налаштування сповіщень лише для перегляду',
   },
   SHARE_DECISION_IMPERSONATION: /* i18n */ {
     id: 'api-error.SHARE_DECISION_IMPERSONATION',
-    message:
-      'Поки ви увійшли як інший співробітник, вирішити щодо його частки не можна — це має зробити він сам',
+    message: 'Ви увійшли як інший співробітник — підтвердити чи відхилити частку може лише він сам',
   },
   PROJECT_DECISION_IMPERSONATION: /* i18n */ {
     id: 'api-error.PROJECT_DECISION_IMPERSONATION',
-    message:
-      'Поки ви увійшли як інший співробітник, вирішити щодо проєкту за нього не можна — це має зробити він сам',
+    message: 'Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам',
   },
 }
 
 /**
  * Английский fallback, который едет В САМОМ HTTP-теле (`apiError()` на API) —
- * для логов и клиентов без каталога. Никогда не показывается пользователю
- * напрямую: браузер всегда переводит по `code` через `API_ERROR_MESSAGES`
- * (`getApiErrorMessage`, `axios-utils.ts`), это лишь серверный fallback-текст.
+ * для логов и клиентов без каталога. Клиент с каталогом всегда переводит по
+ * `code` через `API_ERROR_MESSAGES` (`getApiErrorMessage`, `axios-utils.ts`)
+ * и это значение никогда не покажет — но клиент БЕЗ каталога это как раз
+ * пользователь (COPY-M-4, PR #694 round 2), поэтому текст равен `en`-строке
+ * каталога дословно, а не сокращённому варианту: `api-errors.spec.ts`
+ * закрепляет `API_ERROR_FALLBACK_EN[code] === en/messages.po`'s msgstr для
+ * каждого кода, так что расхождению неоткуда взяться.
  */
 export const API_ERROR_FALLBACK_EN: Record<ApiErrorCode, string> = {
-  GENERIC: 'The action could not be completed',
-  CONTRACT_TEMPLATE_MISSING: 'No active contract template for role {role}',
-  CONTRACT_SIGN_IMPERSONATION: 'Contract signing is not allowed while impersonating',
-  TOS_ACCEPT_IMPERSONATION: 'Accepting the terms is not allowed while impersonating',
-  INVOICE_SIGN_IMPERSONATION: 'Invoice signing is not allowed while impersonating',
+  GENERIC: 'Something went wrong. Please try again',
+  CONTRACT_TEMPLATE_MISSING:
+    'No active contract template for {role}. Add one under Contract templates',
+  CONTRACT_SIGN_IMPERSONATION:
+    "You're signed in as another employee — only they can sign their contract",
+  TOS_ACCEPT_IMPERSONATION: "You're signed in as another employee — only they can accept the terms",
+  INVOICE_SIGN_IMPERSONATION:
+    "You're signed in as another employee — only they can sign their invoice",
   NOTIFICATION_PREFERENCES_IMPERSONATION:
-    'Notification preferences are read-only while impersonating',
-  SHARE_DECISION_IMPERSONATION: 'Share decisions are not allowed while impersonating',
-  PROJECT_DECISION_IMPERSONATION: 'Project decisions are not allowed while impersonating',
+    "You're signed in as another employee — notification preferences are view-only",
+  SHARE_DECISION_IMPERSONATION:
+    "You're signed in as another employee — only they can decide on their share",
+  PROJECT_DECISION_IMPERSONATION:
+    "You're signed in as another employee — only they can decide on the project",
 }

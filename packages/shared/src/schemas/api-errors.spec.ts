@@ -96,6 +96,19 @@ describe('api-errors', () => {
     }
   })
 
+  it('API_ERROR_FALLBACK_EN equals the en catalog string exactly, for every code (COPY-M-4)', () => {
+    const poText = readFileSync(EN_CATALOG_PATH, 'utf-8')
+    for (const code of API_ERROR_CODES) {
+      const enCatalogMatch = poText.match(
+        new RegExp(`msgid "api-error\\.${code}"\\nmsgstr "((?:[^"\\\\]|\\\\.)*)"`),
+      )
+      expect(enCatalogMatch, `${code}: entry not found in en/messages.po`).not.toBeNull()
+      expect(API_ERROR_FALLBACK_EN[code], `${code}: fallback vs en catalog`).toBe(
+        enCatalogMatch?.[1] ?? '',
+      )
+    }
+  })
+
   // SR-M-1 — compile-time regression guard for `ParamsFor<C>` itself (not
   // just its current values above): a code with no declared params accepts
   // NO third argument at all (`never`, not `{}` — the empty-object type

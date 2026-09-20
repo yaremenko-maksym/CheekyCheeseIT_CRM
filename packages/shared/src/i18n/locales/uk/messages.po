@@ -14,9 +14,34 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:115
+#: packages/shared/src/schemas/api-errors.ts:114
 msgid "api-error.NOTIFICATION_PREFERENCES_IMPERSONATION"
-msgstr "Налаштування сповіщень змінює сам співробітник — під «увійти як» вони лише для перегляду"
+msgstr "Ви увійшли як інший співробітник — налаштування сповіщень лише для перегляду"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:101
+msgid "api-error.CONTRACT_SIGN_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — підписати його контракт може лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:110
+msgid "api-error.INVOICE_SIGN_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — підписати його рахунок може лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:118
+msgid "api-error.SHARE_DECISION_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — підтвердити чи відхилити частку може лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:105
+msgid "api-error.TOS_ACCEPT_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — прийняти умови використання може лише він сам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors.ts:123
+msgid "api-error.PROJECT_DECISION_IMPERSONATION"
+msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts:92
@@ -26,29 +51,4 @@ msgstr "Не вдалося виконати дію. Спробуйте ще р�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts:96
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
-msgstr "Немає активного шаблону контракту для ролі {role}"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:120
-msgid "api-error.SHARE_DECISION_IMPERSONATION"
-msgstr "Поки ви увійшли як інший співробітник, вирішити щодо його частки не можна — це має зробити він сам"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:125
-msgid "api-error.PROJECT_DECISION_IMPERSONATION"
-msgstr "Поки ви увійшли як інший співробітник, вирішити щодо проєкту за нього не можна — це має зробити він сам"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:100
-msgid "api-error.CONTRACT_SIGN_IMPERSONATION"
-msgstr "Поки ви увійшли як інший співробітник, підписати його контракт не можна — це має зробити він сам"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:110
-msgid "api-error.INVOICE_SIGN_IMPERSONATION"
-msgstr "Поки ви увійшли як інший співробітник, підписати його рахунок не можна — це має зробити він сам"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts:105
-msgid "api-error.TOS_ACCEPT_IMPERSONATION"
-msgstr "Поки ви увійшли як інший співробітник, прийняти умови використання за нього не можна — це має зробити він сам"
+msgstr "Немає активного шаблону контракту для ролі {role}. Додайте його в розділі «Шаблони контрактів»"

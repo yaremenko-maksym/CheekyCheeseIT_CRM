@@ -175,7 +175,11 @@ describe('getApiErrorMessage — API error envelope (task-i18n-stage2-task5)', (
     expect(getApiErrorMessage(err)).toBe(i18n._(API_ERROR_MESSAGES.TOS_ACCEPT_IMPERSONATION))
   })
 
-  it('interpolates params into the translated message', () => {
+  // COPY-H-1 (PR #694 round 2) — `role` is mapped through `ROLE_LABELS`
+  // before interpolation, so the raw enum token never reaches the text: a
+  // sibling toast in `/admin/contracts` already prints the human label off
+  // the same map, and a machine token here would read as a bug next to it.
+  it('interpolates params into the translated message, mapping the role enum to its human label (COPY-H-1)', () => {
     const err = {
       response: {
         status: 404,
@@ -187,7 +191,8 @@ describe('getApiErrorMessage — API error envelope (task-i18n-stage2-task5)', (
         },
       },
     }
-    expect(getApiErrorMessage(err)).toContain('SENIOR')
+    expect(getApiErrorMessage(err)).toContain('Синьор')
+    expect(getApiErrorMessage(err)).not.toContain('SENIOR')
   })
 
   it('falls through to prose when the body carries no known code', () => {
