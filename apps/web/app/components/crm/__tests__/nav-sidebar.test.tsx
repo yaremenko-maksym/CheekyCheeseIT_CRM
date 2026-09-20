@@ -33,6 +33,7 @@ import {
   createRouter,
 } from '@tanstack/react-router'
 import type { SessionUser } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { NavSidebar } from '../nav-sidebar'
 
 let mockIsComplete = false
@@ -82,15 +83,17 @@ function renderSidebar(opts: { mobileOpen?: boolean } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const rootRoute = createRootRoute({
     component: () => (
-      <QueryClientProvider client={qc}>
-        <NavSidebar
-          user={seniorUser}
-          collapsed={false}
-          onToggle={() => {}}
-          mobileOpen={opts.mobileOpen ?? false}
-          onMobileClose={() => {}}
-        />
-      </QueryClientProvider>
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <NavSidebar
+            user={seniorUser}
+            collapsed={false}
+            onToggle={() => {}}
+            mobileOpen={opts.mobileOpen ?? false}
+            onMobileClose={() => {}}
+          />
+        </QueryClientProvider>
+      </I18nTestProvider>
     ),
   })
   const router = createRouter({
@@ -100,8 +103,9 @@ function renderSidebar(opts: { mobileOpen?: boolean } = {}) {
   return render(<RouterProvider router={router} />)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mockMine = []
+  await loadCatalog('uk')
 })
 
 describe('NavSidebar — SR-L-5: the onboarding gate is NOT re-decided at this call site', () => {
@@ -143,13 +147,13 @@ describe('NavSidebar — SR-L-5: the onboarding gate is NOT re-decided at this c
 // '/pending'` had no test distinguishing them from any other nav item or
 // from a no-op — nothing here failed if the label text, the link target, or
 // the badge-targeting condition itself broke.
-describe('NavSidebar — «Ждут решения» nav item (label, link target, badge targeting)', () => {
-  it('renders the "Ждут решения" label, linking to /pending', async () => {
+describe('NavSidebar — «Чекають рішення» nav item (label, link target, badge targeting)', () => {
+  it('renders the "Чекають рішення" label, linking to /pending', async () => {
     mockIsComplete = true
 
     renderSidebar()
 
-    const link = await screen.findByRole('link', { name: 'Ждут решения' })
+    const link = await screen.findByRole('link', { name: 'Чекають рішення' })
     expect(link).toHaveAttribute('href', '/pending')
   })
 

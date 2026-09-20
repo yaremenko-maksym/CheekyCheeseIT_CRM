@@ -17,6 +17,9 @@ import {
   Users,
   UsersRound,
 } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { SessionUser } from '@crm/shared'
 import type { FileRouteTypes } from '@/routeTree.gen'
 import { cn } from '@/lib/utils'
@@ -34,7 +37,7 @@ type Role = SessionUser['role']
 type RouteTo = FileRouteTypes['to']
 
 interface NavItem {
-  label: string
+  label: MessageDescriptor
   icon: React.ElementType
   to: RouteTo
   roles: readonly Role[]
@@ -63,8 +66,8 @@ interface NavItem {
 // roles берутся из единого источника истины lib/route-access (navRolesFor),
 // чтобы карта ролей-по-роуту НЕ дублировалась между меню и route-guard'ом.
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Мой проект', icon: Home, to: '/project', roles: navRolesFor('/project') },
-  { label: 'Легенда', icon: BookOpen, to: '/legend', roles: navRolesFor('/legend') },
+  { label: msg`Мій проект`, icon: Home, to: '/project', roles: navRolesFor('/project') },
+  { label: msg`Легенда`, icon: BookOpen, to: '/legend', roles: navRolesFor('/legend') },
   {
     // Единый «Дашборд» для всех ролей кроме JUNIOR.
     // DROP видит роль-зависимый хаб платёжного роутинга на этом же URL.
@@ -73,7 +76,7 @@ const NAV_ITEMS: NavItem[] = [
     // activeOptions.exact: true — «Дашборд» active ТОЛЬКО на /crm, не на /crm/*.
     // Без exact TanStack Router матчит / как prefix для всех дочерних роутов,
     // что приводит к двойной подсветке (Dashboard + текущий раздел).
-    label: 'Дашборд',
+    label: msg`Дашборд`,
     icon: LayoutDashboard,
     to: '/',
     roles: DASHBOARD_NAV_ROLES,
@@ -84,25 +87,25 @@ const NAV_ITEMS: NavItem[] = [
     // вопросам» п.3): сразу после «Дашборда» — доступен всем ролям
     // (навигация к «моим» решениям и, для ADMIN, к разделу «Ждут решения
     // других»). Badge count проставляется ниже в NavSidebar (mine.length).
-    label: 'Ждут решения',
+    label: msg`Чекають рішення`,
     icon: Clock,
     to: '/pending',
     roles: navRolesFor('/pending'),
   },
-  { label: 'Пользователи', icon: Users, to: '/users', roles: navRolesFor('/users') },
-  { label: 'Админ', icon: Settings, to: '/admin', roles: navRolesFor('/admin') },
-  { label: 'Команда', icon: UsersRound, to: '/team', roles: navRolesFor('/team') },
-  { label: 'Проекты', icon: Briefcase, to: '/projects', roles: navRolesFor('/projects') },
-  { label: 'Финансы', icon: DollarSign, to: '/finance', roles: navRolesFor('/finance') },
-  { label: 'Статистика', icon: BarChart3, to: '/stats', roles: navRolesFor('/stats') },
+  { label: msg`Користувачі`, icon: Users, to: '/users', roles: navRolesFor('/users') },
+  { label: msg`Адмін`, icon: Settings, to: '/admin', roles: navRolesFor('/admin') },
+  { label: msg`Команда`, icon: UsersRound, to: '/team', roles: navRolesFor('/team') },
+  { label: msg`Проєкти`, icon: Briefcase, to: '/projects', roles: navRolesFor('/projects') },
+  { label: msg`Фінанси`, icon: DollarSign, to: '/finance', roles: navRolesFor('/finance') },
+  { label: msg`Статистика`, icon: BarChart3, to: '/stats', roles: navRolesFor('/stats') },
   {
-    label: 'Собеседования',
+    label: msg`Співбесіди`,
     icon: KanbanSquare,
     to: '/interviews',
     roles: navRolesFor('/interviews'),
   },
   {
-    label: 'Документы',
+    label: msg`Документи`,
     icon: FileText,
     to: '/documents',
     roles: navRolesFor('/documents'),
@@ -111,14 +114,14 @@ const NAV_ITEMS: NavItem[] = [
     // task-crm-vacancies-ui (§8). UserPlus (not Briefcase — already taken by
     // «Проекты», см. spec §11 п.5) — «добавление нового человека» reads as
     // a hiring channel at a glance.
-    label: 'Вакансии',
+    label: msg`Вакансії`,
     icon: UserPlus,
     to: '/vacancies',
     roles: navRolesFor('/vacancies'),
   },
   {
     // Профиль last: JUNIOR sees it at position 5 (spec §4.3).
-    label: 'Профиль',
+    label: msg`Профіль`,
     icon: UserCircle,
     to: '/profile',
     roles: navRolesFor('/profile'),
@@ -140,6 +143,7 @@ export function NavSidebar({
   mobileOpen,
   onMobileClose,
 }: NavSidebarProps) {
+  const { t, i18n } = useLingui()
   // Drop role - phase 1 (AC7): teamless SENIOR loses access to «Проекты»
   // and «Собеседования» — both pages depend on an active team membership.
   // For other roles the gate is a no-op (they don't go teamless).
@@ -194,7 +198,7 @@ export function NavSidebar({
           <ScrollArea className="flex-1">
             <nav
               className="flex flex-col gap-0.5 p-2 pt-3"
-              aria-label="Основная навигация"
+              aria-label={t`Основна навігація`}
               data-testid={
                 user.role === 'JUNIOR'
                   ? 'junior-nav'
@@ -221,7 +225,7 @@ export function NavSidebar({
                   variant="ghost"
                   size="icon"
                   onClick={onToggle}
-                  aria-label={collapsed ? 'Развернуть' : 'Свернуть'}
+                  aria-label={collapsed ? t`Розгорнути` : t`Згорнути`}
                   className="h-8 w-full cursor-pointer text-muted-foreground hover:text-foreground"
                 >
                   {collapsed ? (
@@ -239,7 +243,7 @@ export function NavSidebar({
                 <Tooltip>
                   <TooltipTrigger asChild>{toggleButton}</TooltipTrigger>
                   <TooltipContent side="right">
-                    {collapsed ? 'Развернуть' : 'Свернуть'}
+                    {collapsed ? t`Розгорнути` : t`Згорнути`}
                   </TooltipContent>
                 </Tooltip>
               )
@@ -251,9 +255,11 @@ export function NavSidebar({
       {/* Mobile Sheet */}
       <Sheet open={mobileOpen} onOpenChange={(open) => !open && onMobileClose()}>
         <SheetContent side="left" className="w-60 p-0 gap-0">
-          <SheetTitle className="sr-only">Навигация</SheetTitle>
+          <SheetTitle className="sr-only">
+            <Trans>Навігація</Trans>
+          </SheetTitle>
           <SheetDescription className="sr-only">
-            Боковая навигация CRM — переход между разделами системы.
+            <Trans>Бічна навігація CRM — перехід між розділами системи.</Trans>
           </SheetDescription>
           <div className="border-b border-border/60 px-4 py-3">
             <div className="flex items-center gap-2">
@@ -262,7 +268,7 @@ export function NavSidebar({
             </div>
           </div>
           <ScrollArea className="flex-1">
-            <nav className="flex flex-col gap-0.5 p-2 pt-3" aria-label="Основная навигация">
+            <nav className="flex flex-col gap-0.5 p-2 pt-3" aria-label={t`Основна навігація`}>
               {items.map((item) => (
                 <Link
                   key={item.to}
@@ -272,7 +278,7 @@ export function NavSidebar({
                   className="nav-active-accent group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:font-semibold data-[status=active]:border-l-2 data-[status=active]:pl-2.5"
                 >
                   <item.icon className="h-4 w-4 shrink-0 transition-colors group-data-[status=active]:text-primary" />
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate">{i18n._(item.label)}</span>
                   {/* task-pending-screen §7: mobile Sheet has room in-row (no
                       collapsed state) — badge sits beside the label, not
                       absolute over the icon like the desktop-collapsed case. */}
@@ -303,6 +309,8 @@ function DesktopNavLink({
   collapsed: boolean
   dialogOpen: boolean
 }) {
+  const { i18n } = useLingui()
+  const label = i18n._(item.label)
   const link = (
     <Link
       to={item.to}
@@ -319,7 +327,7 @@ function DesktopNavLink({
       )}
     >
       <item.icon className="h-4 w-4 shrink-0 transition-colors group-data-[status=active]:text-primary" />
-      {!collapsed && <span className="truncate">{item.label}</span>}
+      {!collapsed && <span className="truncate">{label}</span>}
       {/* task-pending-screen §7: 1:1 classes with notifications-bell-badge —
           one visual language for "count of unresolved things" in the app.
           Collapsed: absolute over the icon (the Link above is already
@@ -346,7 +354,7 @@ function DesktopNavLink({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{item.label}</TooltipContent>
+      <TooltipContent side="right">{label}</TooltipContent>
     </Tooltip>
   )
 }

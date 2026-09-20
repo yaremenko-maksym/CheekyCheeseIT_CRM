@@ -13,6 +13,35 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: apps/web/app/components/ui/role-select.tsx
+msgid "HR"
+msgstr "HR"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Адмін"
+msgstr "Адмін"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Адміністратор"
+msgstr "Адміністратор"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Бічна навігація CRM — перехід між розділами системи."
+msgstr "Бічна навігація CRM — перехід між розділами системи."
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Бухгалтер"
+msgstr "Бухгалтер"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Вакансії"
+msgstr "Вакансії"
+
+#. placeholder {0}: user.displayName
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Ви увійшли як <0>«{0}»</0> <1>({roleName})</1>"
+msgstr "Ви увійшли як <0>«{0}»</0> <1>({roleName})</1>"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.NOTIFICATION_PREFERENCES_IMPERSONATION"
@@ -43,10 +72,51 @@ msgstr "Ви увійшли як інший співробітник — при�
 msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
 
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Дашборд"
+msgstr "Дашборд"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Джун"
+msgstr "Джун"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Документи"
+msgstr "Документи"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Дроп"
+msgstr "Дроп"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Згорнути"
+msgstr "Згорнути"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Команда"
+msgstr "Команда"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Користувачі"
+msgstr "Користувачі"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Легенда"
+msgstr "Легенда"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Мій проект"
+msgstr "Мій проект"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
 msgstr "Мова інтерфейсу"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Навігація"
+msgstr "Навігація"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
@@ -57,11 +127,66 @@ msgstr "Не вдалося виконати дію. Спробуйте ще р�
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Не вдалося повернутися: {errMessage}"
+msgstr "Не вдалося повернутися: {errMessage}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
 
+#: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Основна навігація"
+msgstr "Основна навігація"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Переклад ще триває — частина екранів поки що російською."
+
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Повернення..."
+msgstr "Повернення..."
+
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Повернутися до свого профілю"
+msgstr "Повернутися до свого профілю"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Проєкти"
+msgstr "Проєкти"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Профіль"
+msgstr "Профіль"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Розгорнути"
+msgstr "Розгорнути"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Роль"
+msgstr "Роль"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Синьйор"
+msgstr "Синьйор"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Співбесіди"
+msgstr "Співбесіди"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Статистика"
+msgstr "Статистика"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Фінанси"
+msgstr "Фінанси"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Чекають рішення"
+msgstr "Чекають рішення"
