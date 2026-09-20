@@ -15,7 +15,6 @@
  *   DELETE /:id/hard        hard delete (ADMIN, requires prior soft delete)
  */
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -38,6 +37,7 @@ import {
   type CreateDocumentMetadata,
   type SessionUser,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -69,7 +69,7 @@ export class DocumentsController {
   @Post()
   async upload(@Req() req: FastifyRequest, @CurrentUser() user: SessionUser) {
     if (!req.isMultipart()) {
-      throw new BadRequestException('Content-Type must be multipart/form-data')
+      throw apiError('DOCUMENT_MULTIPART_REQUIRED', HttpStatus.BAD_REQUEST)
     }
 
     // Drain the multipart stream into in-memory parts. With @fastify/multipart
@@ -99,7 +99,7 @@ export class DocumentsController {
     }
 
     if (!file) {
-      throw new BadRequestException('Missing "file" field in multipart body')
+      throw apiError('DOCUMENT_FILE_FIELD_MISSING', HttpStatus.BAD_REQUEST)
     }
 
     const meta: CreateDocumentMetadata = createDocumentMetadataSchema.parse({

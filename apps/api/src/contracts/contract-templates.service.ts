@@ -1,11 +1,7 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+import { HttpStatus, Injectable } from '@nestjs/common'
 import { and, eq, sql } from 'drizzle-orm'
 import type { ContractTargetRole, CustomVariable } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { contractTemplates } from '../database/schema'
 
@@ -51,7 +47,7 @@ export class ContractTemplatesService {
 
   async getCurrentForRole(role: ContractTargetRole) {
     if ((role as string) === 'ADMIN') {
-      throw new ForbiddenException('ADMIN_DOES_NOT_HAVE_CONTRACT_TEMPLATE')
+      throw apiError('CONTRACT_TEMPLATE_ADMIN_NONE', HttpStatus.FORBIDDEN)
     }
     const row = await this.db.db.query.contractTemplates.findFirst({
       where: (tbl, { eq, and }) => and(eq(tbl.targetRole, role), eq(tbl.isActive, true)),
@@ -63,7 +59,7 @@ export class ContractTemplatesService {
     const row = await this.db.db.query.contractTemplates.findFirst({
       where: (tbl, { eq }) => eq(tbl.id, id),
     })
-    if (!row) throw new NotFoundException('Contract template not found')
+    if (!row) throw apiError('CONTRACT_TEMPLATE_NOT_FOUND', HttpStatus.NOT_FOUND)
     return row
   }
 
@@ -80,7 +76,7 @@ export class ContractTemplatesService {
     customVariables?: CustomVariable[]
   }) {
     if ((targetRole as string) === 'ADMIN') {
-      throw new ForbiddenException('CANNOT_PUBLISH_ADMIN_CONTRACT_TEMPLATE')
+      throw apiError('CONTRACT_TEMPLATE_ADMIN_PUBLISH_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     return this.db.db.transaction(async (tx) => {
@@ -117,7 +113,7 @@ export class ContractTemplatesService {
         if (isUniqueViolation(err)) {
           // Concurrent publish already inserted an active row for this role —
           // surface as 409 instead of a raw 500.
-          throw new ConflictException('DUPLICATE_ACTIVE_TEMPLATE')
+          throw apiError('CONTRACT_TEMPLATE_DUPLICATE_ACTIVE', HttpStatus.CONFLICT)
         }
         throw err
       }

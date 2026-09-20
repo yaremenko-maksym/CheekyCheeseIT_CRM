@@ -1,7 +1,8 @@
-import { Controller, Get, Header, NotFoundException, Res } from '@nestjs/common'
+import { Controller, Get, Header, HttpStatus, Res } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { Throttle } from '@nestjs/throttler'
 import type { SessionUser } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
 import type { User } from '../database/schema'
@@ -64,7 +65,7 @@ export class OnboardingContractController {
     const userRow = (await this.db.db.query.users.findFirst({
       where: (tbl, { eq }) => eq(tbl.id, user.id),
     })) as User | undefined
-    if (!userRow) throw new NotFoundException('User not found')
+    if (!userRow) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const { body } = SignedContractsService.interpolateVariables(
       contract.bodyMarkdown,
