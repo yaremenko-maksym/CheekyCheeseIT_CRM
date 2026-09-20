@@ -26,7 +26,7 @@
  * covers that branch fails (not some unrelated test) — see the coder's
  * final report for the transcript.
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApprovalGroupStatus, SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -305,9 +305,13 @@ describe('approveDraft / rejectDraft — impersonation refusal (SR-H-5, security
     const projectRow = draftProjectRow()
     const { service, approvals } = buildService(projectRow, 'PENDING')
 
-    await expect(service.approveDraft(PROJECT_ID, IMPERSONATING_AS_SENIOR)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    // task-i18n-stage2-task5: apiError() returns a plain HttpException
+    // carrying the PROJECT_DECISION_IMPERSONATION envelope code, not
+    // `instanceof ForbiddenException` anymore.
+    await expect(service.approveDraft(PROJECT_ID, IMPERSONATING_AS_SENIOR)).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'PROJECT_DECISION_IMPERSONATION' }),
+    })
     // The refusal happens BEFORE `approveInTx` — no half-written consent row.
     expect(approvals.approveInTx).not.toHaveBeenCalled()
     expect(projectRow.status).toBe('DRAFT')
@@ -319,7 +323,10 @@ describe('approveDraft / rejectDraft — impersonation refusal (SR-H-5, security
 
     await expect(
       service.rejectDraft(PROJECT_ID, 'Не согласен', IMPERSONATING_AS_SENIOR),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'PROJECT_DECISION_IMPERSONATION' }),
+    })
     expect(approvals.rejectInTx).not.toHaveBeenCalled()
     expect(projectRow.status).toBe('DRAFT')
   })
@@ -328,9 +335,10 @@ describe('approveDraft / rejectDraft — impersonation refusal (SR-H-5, security
     const projectRow = draftProjectRow()
     const { service, approvals } = buildService(projectRow, 'PENDING')
 
-    await expect(service.approveDraft(PROJECT_ID, IMPERSONATING_AS_DROP)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    await expect(service.approveDraft(PROJECT_ID, IMPERSONATING_AS_DROP)).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'PROJECT_DECISION_IMPERSONATION' }),
+    })
     expect(approvals.approveInTx).not.toHaveBeenCalled()
     expect(projectRow.status).toBe('DRAFT')
   })

@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { getApiErrorCode } from '@/lib/axios-utils'
 import {
   useEmployeeContract,
   useMarkContractReady,
@@ -131,9 +132,12 @@ export function ContractTab({
     return null
   })()
 
-  // The backend returns 404 with "No active contract template for role X".
-  // Use exact phrase match — avoids false positives from field names like sourceTemplateId.
-  const isNoTemplate = errorMessage?.toLowerCase().includes('no active contract template') === true
+  // task-i18n-stage2-task5: the backend's 404 now carries a stable `code`
+  // (`CONTRACT_TEMPLATE_MISSING`) instead of English prose to substring-match
+  // — the old `.includes('no active contract template')` broke the moment
+  // that prose became translatable (it no longer arrives in English at all
+  // once the client translates by code, see `getApiErrorMessage`).
+  const isNoTemplate = getApiErrorCode(error) === 'CONTRACT_TEMPLATE_MISSING'
 
   if (isNoTemplate) {
     return (

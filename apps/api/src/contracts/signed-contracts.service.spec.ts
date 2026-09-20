@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
+import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import type { ContractPdfService } from './contract-pdf.service'
 import type { EmployeeContractsService } from './employee-contracts.service'
@@ -489,7 +489,13 @@ describe('SignedContractsService', () => {
           userAgent: 'vt',
           impersonatorId: adminUser.id,
         }),
-      ).rejects.toThrow(ForbiddenException)
+        // task-i18n-stage2-task5: apiError() returns a plain HttpException
+        // (status carried as a constructor argument, not a subclass) — not
+        // `instanceof ForbiddenException` anymore.
+      ).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({ code: 'CONTRACT_SIGN_IMPERSONATION' }),
+      })
 
       // Checked before any write: neither the transaction nor
       // getReadyForSigning is ever reached.
@@ -497,7 +503,7 @@ describe('SignedContractsService', () => {
       expect(empSvc.getReadyForSigning).not.toHaveBeenCalled()
     })
 
-    it('impersonation refusal carries the exact shared literal (backlog 212)', async () => {
+    it('impersonation refusal carries the CONTRACT_SIGN_IMPERSONATION envelope code (task-i18n-stage2-task5)', async () => {
       const mockDb = makeDb()
       const empSvc = makeEmployeeContractsSvc()
       const service = new SignedContractsService(
@@ -515,7 +521,10 @@ describe('SignedContractsService', () => {
           userAgent: 'vt',
           impersonatorId: adminUser.id,
         }),
-      ).rejects.toThrow(CONTRACT_SIGN_IMPERSONATION_MESSAGE)
+      ).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({ code: 'CONTRACT_SIGN_IMPERSONATION' }),
+      })
     })
 
     it('throws 409 CONTRACT_NOT_READY when no READY_TO_SIGN employee_contract', async () => {

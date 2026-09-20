@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { useQuery } from '@tanstack/react-query'
 
 // Test the ADMIN-only tab visibility logic via the helper function
 // (full UserProfileShell render requires complex multi-provider mocking;
@@ -182,5 +183,51 @@ describe('ContractTab read-only mode (canEdit=false)', () => {
       <ContractTab userId="admin-viewing-uuid" targetRole="SENIOR" canEdit={true} />,
     )
     expect(screen.getByTestId('contract-tab')).toBeInTheDocument()
+  })
+})
+
+// ─── isNoTemplate — by envelope `code`, not English-prose substring ──────────
+// task-i18n-stage2-task5: `isNoTemplate` moved from
+// `errorMessage.includes('no active contract template')` to
+// `getApiErrorCode(error) === 'CONTRACT_TEMPLATE_MISSING'` — the substring
+// match broke the moment that prose became translatable (once the server
+// sends the eight-code envelope, `response.data.message` is the ENGLISH
+// fallback, not the phrase this file's OTHER tests hardcode). Per-test
+// `mockReturnValueOnce` overrides the module-level mock above so each case
+// controls its own `error` shape without fighting the other describe
+// blocks' hoisted `vi.mock` factories.
+
+describe('ContractTab — isNoTemplate via API error envelope code', () => {
+  it('shows the no-template empty state for a real envelope with CONTRACT_TEMPLATE_MISSING', () => {
+    vi.mocked(useQuery).mockReturnValueOnce({
+      data: undefined,
+      isLoading: false,
+      error: {
+        response: {
+          status: 404,
+          data: {
+            statusCode: 404,
+            code: 'CONTRACT_TEMPLATE_MISSING',
+            params: { role: 'SENIOR' },
+            message: 'No active contract template for role SENIOR',
+          },
+        },
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, real UseQueryResult has many more fields ContractTab never reads
+    } as any)
+    renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
+    expect(screen.getByTestId('contract-tab-no-template')).toBeInTheDocument()
+  })
+
+  it('does NOT show the no-template empty state for prose without a code (falls to the generic error state)', () => {
+    vi.mocked(useQuery).mockReturnValueOnce({
+      data: undefined,
+      isLoading: false,
+      error: { response: { status: 500, data: { message: 'Internal server error' } } },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see previous test's identical note
+    } as any)
+    renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
+    expect(screen.queryByTestId('contract-tab-no-template')).not.toBeInTheDocument()
+    expect(screen.getByTestId('contract-tab-error')).toBeInTheDocument()
   })
 })

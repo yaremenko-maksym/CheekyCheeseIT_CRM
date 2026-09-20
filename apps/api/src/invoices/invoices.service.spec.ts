@@ -26,7 +26,7 @@
 import { ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyRequest } from 'fastify'
-import { INVOICE_SIGN_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
+import type { SessionUser } from '@crm/shared'
 import { InvoicesService } from './invoices.service'
 import { sha256Hex } from './invoice-pdf.utils'
 // security-review PR #456 round 2: autoCreateForSeniorPayout/autoCreateForPayout
@@ -752,21 +752,26 @@ describe('InvoicesService', () => {
       it('refuses to sign under impersonation before the transaction is ever fetched — 403, no write', async () => {
         // Empty harness — NO transaction exists at all. If the guard were
         // missing or ran AFTER fetchWritableTransactionOrThrow, this would
-        // throw NotFoundException instead — so a ForbiddenException here
-        // proves the guard is the first thing signInvoice does.
+        // throw NotFoundException instead — so a 403 here proves the guard
+        // is the first thing signInvoice does. task-i18n-stage2-task5:
+        // apiError() returns a plain HttpException, not
+        // `instanceof ForbiddenException` — asserted by status instead.
         const h = buildHarness({ txs: [], sigs: [], users: [], projects: [] })
 
-        await expect(h.svc.signInvoice(impersonated, 'tx-does-not-exist', mkReq())).rejects.toThrow(
-          ForbiddenException,
-        )
+        await expect(
+          h.svc.signInvoice(impersonated, 'tx-does-not-exist', mkReq()),
+        ).rejects.toMatchObject({ status: 403 })
       })
 
-      it('impersonation refusal carries the exact shared literal', async () => {
+      it('impersonation refusal carries the INVOICE_SIGN_IMPERSONATION envelope code (task-i18n-stage2-task5)', async () => {
         const h = buildHarness({ txs: [], sigs: [], users: [], projects: [] })
 
-        await expect(h.svc.signInvoice(impersonated, 'tx-does-not-exist', mkReq())).rejects.toThrow(
-          INVOICE_SIGN_IMPERSONATION_MESSAGE,
-        )
+        await expect(
+          h.svc.signInvoice(impersonated, 'tx-does-not-exist', mkReq()),
+        ).rejects.toMatchObject({
+          status: 403,
+          response: expect.objectContaining({ code: 'INVOICE_SIGN_IMPERSONATION' }),
+        })
       })
     })
 

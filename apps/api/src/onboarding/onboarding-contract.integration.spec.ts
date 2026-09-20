@@ -8,7 +8,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
+import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { OnboardingGuard } from '../auth/onboarding.guard'
@@ -463,6 +463,10 @@ describe.skipIf(!hasDatabaseUrl())(
       // reached, so this stays true regardless of contract state.
       const signedSvc = app.get(SignedContractsService)
 
+      // task-i18n-stage2-task5: apiError() returns a plain HttpException
+      // carrying the CONTRACT_SIGN_IMPERSONATION envelope code, not the
+      // shared Russian literal (that constant still exists — client banners
+      // read it directly — but the server exception no longer carries it).
       await expect(
         signedSvc.sign({
           userId: DMYTRO.id,
@@ -472,7 +476,10 @@ describe.skipIf(!hasDatabaseUrl())(
           userAgent: 'vitest-integration',
           impersonatorId: ADMIN.id,
         }),
-      ).rejects.toThrow(CONTRACT_SIGN_IMPERSONATION_MESSAGE)
+      ).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({ code: 'CONTRACT_SIGN_IMPERSONATION' }),
+      })
 
       // AC2 — zero signed_contracts rows for DMYTRO after the refused attempt.
       const employeeContractsSvc = app.get(EmployeeContractsService)

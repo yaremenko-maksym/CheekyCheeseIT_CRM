@@ -30,7 +30,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ConfigService } from '@nestjs/config'
 import type { Env } from '../config/env'
-import { INVOICE_SIGN_IMPERSONATION_MESSAGE, type SessionUser } from '@crm/shared'
+import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { DatabaseService } from '../database/database.service'
@@ -182,7 +182,7 @@ describe.skipIf(!hasDatabaseUrl())(
     const tokenForImpersonated = (impersonatorId: string) =>
       jwt.sign({ id: JUNIOR_ID, email: `${TAG}-junior@x.test`, role: 'JUNIOR', impersonatorId })
 
-    it('под имперсонацией — 403 с общим литералом, подпись COUNTERPARTY не записана', async () => {
+    it('под имперсонацией — 403 с кодом INVOICE_SIGN_IMPERSONATION, подпись COUNTERPARTY не записана (task-i18n-stage2-task5)', async () => {
       const res = await app.inject({
         method: 'POST',
         url: `/api/invoices/${txId}/sign`,
@@ -191,8 +191,9 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       expect(res.statusCode).toBe(403)
-      const body = res.json<{ message: string }>()
-      expect(body.message).toBe(INVOICE_SIGN_IMPERSONATION_MESSAGE)
+      const body = res.json<{ statusCode: number; code: string }>()
+      expect(body.statusCode).toBe(403)
+      expect(body.code).toBe('INVOICE_SIGN_IMPERSONATION')
 
       const rows = await db
         .select()

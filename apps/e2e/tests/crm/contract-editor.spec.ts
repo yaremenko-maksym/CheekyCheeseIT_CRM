@@ -259,9 +259,16 @@ test.describe('A3-2: Contract editor tab', () => {
   })
 
   test('AC7: no-template 404 shows empty state with link to templates', async ({ page }) => {
+    // task-i18n-stage2-task5: body is the API error envelope
+    // (`apiErrorEnvelopeSchema`) — `ContractTab` branches on `code`.
     await setupAdminViewingSenior(
       page,
-      { message: 'No active contract template for role SENIOR' },
+      {
+        statusCode: 404,
+        code: 'CONTRACT_TEMPLATE_MISSING',
+        params: { role: 'SENIOR' },
+        message: 'No active contract template for role SENIOR',
+      },
       { contractStatus: 404 },
     )
     await page.goto(`/profile/${TARGET_ID}?tab=contract`)
