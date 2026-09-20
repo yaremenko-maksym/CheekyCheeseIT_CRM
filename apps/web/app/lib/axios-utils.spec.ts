@@ -221,6 +221,15 @@ describe('getApiErrorCode', () => {
     expect(getApiErrorCode(null)).toBeNull()
     expect(getApiErrorCode('oops')).toBeNull()
   })
+
+  it('returns null (not a throw) for undefined — the guard must short-circuit BEFORE `.response` is read', () => {
+    // A string/number/null input reaches the same `undefined` result whether
+    // or not the `typeof err !== 'object'` half of the guard runs (accessing
+    // `.response` on a primitive is a safe no-op in JS) — that half is only
+    // OBSERVABLE for `undefined`, where skipping the early return and reading
+    // `err.response` throws instead of returning `null`.
+    expect(getApiErrorCode(undefined)).toBeNull()
+  })
 })
 
 // task fix/api-error-messages: the honest, Russian-only, never-raw-axios-text

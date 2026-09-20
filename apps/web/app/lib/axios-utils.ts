@@ -174,6 +174,12 @@ function translateApiError(
   // `descriptor.message` is `string | undefined`) does not type-check even
   // though every real registry entry sets it. Build the options object only
   // when there is something to put in it.
+  // Stryker disable next-line ConditionalExpression: the `: undefined` branch
+  // requires a registry entry with no `message` — impossible through the
+  // public surface, since every `API_ERROR_MESSAGES[code]` descriptor sets
+  // one, an invariant `api-errors.spec.ts` pins for all eight codes
+  // ("every code has a message descriptor... message.length > 0"). No
+  // assertion here could distinguish this from a passing-by-construction test.
   const options = descriptor.message !== undefined ? { message: descriptor.message } : undefined
   return i18n._(descriptor.id, params, options)
 }

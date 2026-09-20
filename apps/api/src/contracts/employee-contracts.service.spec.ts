@@ -158,12 +158,14 @@ describe('EmployeeContractsService', () => {
       db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'JUNIOR' })
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
 
+      // NOT `response: expect.objectContaining({ params: {...} })` — a plain
+      // object nested INSIDE `objectContaining` is matched permissively (an
+      // empty `{}` satisfies `{ role: 'JUNIOR' }` there — confirmed empirically,
+      // caught this exact mutant surviving). Plain `toMatchObject` recurses
+      // correctly on its own; no `objectContaining` needed for a nested value.
       await expect(service.getOrCreateForUser('user-uuid', mockViewer)).rejects.toMatchObject({
         status: 404,
-        response: expect.objectContaining({
-          code: 'CONTRACT_TEMPLATE_MISSING',
-          params: { role: 'JUNIOR' },
-        }),
+        response: { code: 'CONTRACT_TEMPLATE_MISSING', params: { role: 'JUNIOR' } },
       })
     })
   })
