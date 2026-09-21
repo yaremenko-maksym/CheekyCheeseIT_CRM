@@ -239,7 +239,7 @@ describe('PhoneInput component', () => {
     const trigger = screen.getByRole('button')
     await user.click(trigger)
     // Wait for Radix Popover portal to mount before typing into search input
-    const searchInput = await waitFor(() => screen.getByPlaceholderText('Пошук країни...'), {
+    const searchInput = await waitFor(() => screen.getByPlaceholderText('Пошук країни…'), {
       timeout: 5000,
     })
     await user.type(searchInput, searchQuery)

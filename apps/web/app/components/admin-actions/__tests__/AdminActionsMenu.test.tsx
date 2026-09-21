@@ -313,7 +313,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
       // The closing sentence's role-specific pair word — pinned inside the
       // guillemets «...» (`select()`-produced uk word, matches the canon
       // role-name spelling from role-select.tsx's `ROLE_LABEL_MESSAGES`).
-      expect(dialogText).toContain(`пара «${role === 'SENIOR' ? 'синьйор' : 'дроп'}+команда»`)
+      expect(dialogText).toContain(`пара «${role === 'SENIOR' ? 'сеньйор' : 'дроп'}+команда»`)
     },
   )
 

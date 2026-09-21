@@ -100,6 +100,6 @@ describe('UploadProgress', () => {
     renderProgress({ state: { phase: 'uploading', percent: 7 }, size: 'sm', testId: 'up' })
     const el = screen.getByTestId('up')
     expect(el.tagName).toBe('SPAN')
-    expect(el).toHaveTextContent('Завантаження 7%')
+    expect(el).toHaveTextContent('Завантаження… 7%')
   })
 })

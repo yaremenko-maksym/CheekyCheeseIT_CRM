@@ -197,7 +197,7 @@ describe('AccountantDashboard', () => {
     // `pendingValidation.count > 0 ? <Plural> : <Trans>` branch) — the
     // TRUE branch (count > 0) had no assertion on its own rendered text;
     // only the count=0 branch below did.
-    it('shows the pluralized «N приходи чекають на вашу перевірку» sub-label when pending > 0', () => {
+    it('shows the pluralized «N доходи чекають на вашу перевірку» sub-label when pending > 0', () => {
       useAccountantSummaryMock.mockReturnValue({
         data: makeSummary({ pendingValidation: { count: 4, amount: 15000 } }),
         isLoading: false,
@@ -205,7 +205,7 @@ describe('AccountantDashboard', () => {
       })
       render(<AccountantDashboard />)
       // uk CLDR 'few' for N=4 (n%10 in 2-4, n%100 not 12-14).
-      expect(screen.getByText('4 приходи чекають на вашу перевірку')).toBeInTheDocument()
+      expect(screen.getByText('4 доходи чекають на вашу перевірку')).toBeInTheDocument()
     })
 
     it('opens ValidateDialog on CTA click when pending transactions exist (AC3)', () => {

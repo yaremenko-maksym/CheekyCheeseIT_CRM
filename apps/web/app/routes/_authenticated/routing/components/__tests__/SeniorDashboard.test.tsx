@@ -274,7 +274,7 @@ describe('SeniorDashboard', () => {
       })
       renderDashboard()
       expect(screen.getByTestId('senior-projects-empty')).toHaveTextContent(
-        'Немає активних проектів',
+        'Немає активних проєктів',
       )
     })
   })

@@ -141,7 +141,7 @@ describe('PendingProjectApprovalsPanel', () => {
     mockState = { ...mockState, isError: true }
     renderPanel()
     expect(screen.getByTestId('pending-project-approvals-error')).toHaveTextContent(
-      'Не вдалося перевірити, чи чекає на вас рішення по проекту.',
+      'Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку.',
     )
   })
 
@@ -334,7 +334,7 @@ describe('PendingProjectApprovalsPanel — viewer share line', () => {
       dataUpdatedAt: 1,
     }
     renderPanel()
-    expect(screen.getByText('Ваша частка: 9% · синьйор: Олексій Коваленко')).toBeInTheDocument()
+    expect(screen.getByText('Ваша частка: 9% · сеньйор: Олексій Коваленко')).toBeInTheDocument()
   })
 
   it("renders a SENIOR viewer's own share with no senior name appended (they are the senior)", () => {
@@ -346,7 +346,7 @@ describe('PendingProjectApprovalsPanel — viewer share line', () => {
     }
     renderPanel()
     expect(screen.getByText('Ваша частка: 26%')).toBeInTheDocument()
-    expect(screen.queryByText(/синьйор:/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/сеньйор:/)).not.toBeInTheDocument()
   })
 
   it('falls back to the whole "Доля неизвестна" sentence when the server sent no figure', () => {
@@ -357,7 +357,7 @@ describe('PendingProjectApprovalsPanel — viewer share line', () => {
       dataUpdatedAt: 1,
     }
     renderPanel()
-    expect(screen.getByText('Частка невідома. Оновіть сторінку.')).toBeInTheDocument()
+    expect(screen.getByText('Частка невідома. Оновіть сторінку')).toBeInTheDocument()
     expect(screen.queryByText(/Ваша частка/)).not.toBeInTheDocument()
   })
 })

@@ -148,9 +148,7 @@ describe('TosPdfPreview', () => {
     vi.useRealTimers()
 
     expect(screen.getByTestId('tos-pdf-error')).toBeInTheDocument()
-    expect(mockToastError).toHaveBeenCalledWith(
-      'Не вдалося завантажити PDF попереднього перегляду.',
-    )
+    expect(mockToastError).toHaveBeenCalledWith('Не вдалося завантажити PDF попереднього перегляду')
   })
 
   it('shows 429 throttle toast when fetch returns 429 response error', async () => {
@@ -170,7 +168,7 @@ describe('TosPdfPreview', () => {
 
     expect(screen.getByTestId('tos-pdf-error')).toBeInTheDocument()
     expect(mockToastError).toHaveBeenCalledWith(
-      'Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз.',
+      'Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз',
     )
   })
 
