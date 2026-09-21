@@ -374,7 +374,7 @@ export function extractBackendMessage(err: unknown): string | undefined {
         //     paired with would have short-circuited to. No assertion can
         //     tell "checked the type first" from "skipped the check, let
         //     `.includes()` reject it anyway" apart.
-        // Stryker disable next-line ConditionalExpression
+        // Stryker disable next-line ConditionalExpression: left-operand-only forced-true is unobservable — isZodErrorCode's .includes() rejects any non-string anyway; the sibling whole-condition mutants this line also silences are killed by the 'NOT_A_REAL_CODE' fallback tests above
         if (typeof rawCode === 'string' && isZodErrorCode(rawCode)) {
           return translateZodError(rawCode)
         }
@@ -413,7 +413,7 @@ export function extractBackendMessage(err: unknown): string | undefined {
   // of ours" below; left-operand-only forced-true, genuinely unobservable
   // — `isZodErrorCode`'s `.includes()` safely returns `false` for any
   // non-string value, so skipping the `typeof` check changes nothing).
-  // Stryker disable next-line ConditionalExpression
+  // Stryker disable next-line ConditionalExpression: left-operand-only forced-true is unobservable — isZodErrorCode's .includes() rejects any non-string anyway; the two whole-condition mutants this line also silences are killed by the top-level 'NOT_A_REAL_CODE' fallback test above
   if (typeof rawTopCode === 'string' && isZodErrorCode(rawTopCode)) {
     return translateZodError(rawTopCode)
   }
