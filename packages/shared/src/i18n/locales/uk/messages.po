@@ -14,16 +14,6 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
-msgstr "{role, select, JUNIOR {Джуніор} DROP {Дроп} other {Співробітник}} може завантажувати лише власні документи"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
-msgstr "{role, select, JUNIOR {Джуніор} HR {HR} ACCOUNTANT {Бухгалтер} SENIOR {Сеньйор} DROP {Дроп} other {Співробітник}} не може завантажувати {category, select, CONTRACT {договори} RECEIPT {чеки} LOGO {логотипи} other {документи}}"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_JOIN_OWN_DROP_TEAM_ONLY"
 msgstr "HR може приєднати сеньйора лише до своєї команди дропа"
@@ -45,6 +35,11 @@ msgstr "Аватар можна завантажити лише для влас�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_CONTRACT_RESTRICTED"
+msgstr "Адміністратор завантажує будь-який контракт, а сеньйор і дроп — лише свій"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ADMIN_CANNOT_BE_MEMBER"
 msgstr "Адміністратор не може бути учасником команди"
 
@@ -55,18 +50,18 @@ msgstr "Адміністратор не може змінити власну р�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.ADMIN_DOES_NOT_SIGN_CONTRACTS"
-msgstr "Адміністратор не підписує контракт"
+msgid "api-error.CONTRACT_ADMIN_NOT_ALLOWED"
+msgstr "Адміністратор не може мати трудовий контракт"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.CONTRACT_ADMIN_NOT_ALLOWED"
-msgstr "Адміністратори не можуть мати трудовий контракт"
+msgid "api-error.ADMIN_DOES_NOT_SIGN_CONTRACTS"
+msgstr "Адміністратор не підписує контракт — підписувати нема чого"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.EMPLOYEE_CONTRACT_NOT_FOUND"
-msgstr "Активний трудовий контракт для користувача не знайдено"
+msgstr "Активний трудовий контракт для цього користувача не знайдено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -82,6 +77,11 @@ msgstr "Активного учасника в проєкті не знайде�
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
 msgstr "Архівація дропа доступна лише адміністратору"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
+msgstr "Вам недоступне завантаження {category, select, RESUME {резюме} SCAN {сканів} RECEIPT {чеків} LOGO {логотипів} other {таких документів}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -145,6 +145,16 @@ msgstr "Виберіть команду дропа, до якої приєдна
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_PROJECT_ID_REQUIRED"
+msgstr "Виберіть проєкт — без нього контракт завантажити не можна"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_SENIOR_ID_REQUIRED"
+msgstr "Виберіть сеньйора"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_DELETE_OWNER_OR_ADMIN_ONLY"
 msgstr "Видалити документ може лише власник або адміністратор"
 
@@ -171,7 +181,7 @@ msgstr "Вміст файлу не відповідає жодному з доз
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
-msgstr "Вміст файлу не відповідає заявленому типу: заявлено «{declaredMime}», виявлено «{detectedMime}»"
+msgstr "Вміст файлу не збігається з його розширенням — збережіть його заново й спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -187,11 +197,6 @@ msgstr "Джуніорам недоступні співбесіди"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_ADMIN_NONE"
 msgstr "Для адміністратора немає шаблону контракту"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_PROJECT_ID_REQUIRED"
-msgstr "Для документів категорії «Договір» потрібен проєкт"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -234,16 +239,6 @@ msgid "api-error.DOCUMENT_NOT_FOUND"
 msgstr "Документ не знайдено"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
-msgstr "Документи категорії «Рахунок» створює лише система — завантажити їх через цей запит не можна"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
-msgstr "Дроп не має доступу до співбесід"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ARCHIVED"
 msgstr "Дропа вже заархівовано"
@@ -255,8 +250,13 @@ msgstr "Дропа не знайдено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_UPLOAD_CONTRACT_RESTRICTED"
-msgstr "Завантажити договір може лише адміністратор, сеньйор або дроп — за себе"
+msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
+msgstr "Дропам недоступні співбесіди"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
+msgstr "Завантажувати можна лише власні документи"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -276,7 +276,7 @@ msgstr "Заявити дохід можна лише за активним пр
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_HR_SUMMARY_FORBIDDEN"
-msgstr "Зведення для HR доступне лише HR або адміністратору"
+msgstr "Зведення для HR бачать лише HR і адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -287,11 +287,6 @@ msgstr "Змінити роль на «дроп» цим способом не �
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
 msgstr "Змінити частку сеньйора на рівні команди можуть лише адміністратор і бухгалтер"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.INTERVIEW_SENIOR_ID_INVALID"
-msgstr "Ідентифікатор сеньйора має бути коректним UUID"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -320,13 +315,13 @@ msgstr "Команду не знайдено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.CONTRACT_NOT_DRAFT"
-msgstr "Контракт більше не в статусі чернетки — оновіть сторінку"
+msgid "api-error.CONTRACT_NOT_EDITABLE"
+msgstr "Контракт більше не можна редагувати"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.CONTRACT_NOT_EDITABLE"
-msgstr "Контракт більше не можна редагувати"
+msgid "api-error.CONTRACT_NOT_DRAFT"
+msgstr "Контракт більше не чернетка — оновіть сторінку"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -363,11 +358,6 @@ msgstr "Користувача не заархівовано"
 msgid "api-error.USER_NOT_FOUND"
 msgstr "Користувача не знайдено"
 
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.LEGEND_NOT_FOUND"
-msgstr "Легенду проєкту не знайдено — спочатку створіть легенду"
-
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
@@ -381,7 +371,7 @@ msgstr "Не вдалося виконати дію. Спробуйте ще р�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGEND_UPSERT_FAILED"
-msgstr "Не вдалося зберегти легенду — рядок не повернуто"
+msgstr "Не вдалося зберегти легенду. Спробуйте ще раз"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
@@ -403,6 +393,11 @@ msgid "api-error.IMPERSONATION_ORIGIN_UNAVAILABLE"
 msgstr "Не вдалося повернутися до вашого облікового запису. Увійдіть заново"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_SENIOR_ID_INVALID"
+msgstr "Не вдалося розпізнати вибраного сеньйора — виберіть зі списку"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.CANNOT_ARCHIVE_ANOTHER_ADMIN"
 msgstr "Не можна заархівувати іншого адміністратора"
@@ -416,11 +411,6 @@ msgstr "Не можна заархівувати самого себе"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.CANNOT_EDIT_ANOTHER_ADMIN"
 msgstr "Не можна редагувати обліковий запис іншого адміністратора"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS"
-msgstr "Невідомі ключі кастомних змінних: {keys}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -474,11 +464,6 @@ msgstr "Особисту адресу вже підтверджено — пов
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.TEAM_UNEXPECTED_USER_ROLE"
-msgstr "Очікувалася роль {expectedRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}, а отримано {actualRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
 msgstr "Переглянути можна лише власний контракт"
 
@@ -493,18 +478,13 @@ msgstr "Підписаний контракт не знайдено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.APPROVAL_ALREADY_DECIDED"
-msgstr "Підтвердження вже отримало відповідь"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.APPROVAL_NOT_FOUND_OR_CLOSED"
 msgstr "Підтвердження не знайдено або вже закрито"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_ALREADY_STATUS_CANNOT_REVERT"
-msgstr "Повернути в чернетку не можна: контракт уже {status, select, READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}"
+msgstr "Повернути в чернетку не можна: контракт уже {status, select, DRAFT {чернетка} READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -513,8 +493,8 @@ msgstr "Повернутися до команди може лише сеньй�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.INTERVIEW_SENIOR_ID_REQUIRED"
-msgstr "Потрібен ідентифікатор сеньйора"
+msgid "api-error.TEAM_UNEXPECTED_USER_ROLE"
+msgstr "Потрібен {expectedRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}, а вибраний користувач — {actualRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -523,13 +503,8 @@ msgstr "Потрібен щонайменше один HR"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE"
-msgstr "Потрібен щонайменше один бухгалтер у команді"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_CANNOT_REMOVE_SENIOR"
-msgstr "Прибрати сеньйора з команди не можна — видаліть команду замість цього"
+msgstr "Прибрати сеньйора з команди не можна — видаліть саму команду"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -560,6 +535,16 @@ msgstr "Проєкт уже заархівовано"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_PROJECT_ACCESS_DENIED"
 msgstr "Проєкти дропа доступні лише дропам"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
+msgstr "Рахунки створює система — завантажити їх вручну не можна"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.APPROVAL_ALREADY_DECIDED"
+msgstr "Рішення щодо цього підтвердження вже ухвалено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -594,7 +579,7 @@ msgstr "Скасувати пропозицію частки можуть лиш
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE"
-msgstr "Спершу перемістіть документ у кошик, а тоді видаляйте остаточно"
+msgstr "Спершу перемістіть документ у кошик, а потім видаліть остаточно"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -622,24 +607,19 @@ msgid "api-error.DROP_CREATE_VIA_DEDICATED_ENDPOINT"
 msgstr "Створити дропа цим способом не можна"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
+msgstr "Такий тип файлу не підтримується. Дозволені формати: PDF, JPEG, PNG, WEBP, HEIC"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_EXPIRED"
 msgstr "Термін дії запрошення закінчився"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_MULTIPART_REQUIRED"
-msgstr "Тип вмісту запиту має бути multipart/form-data"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN"
 msgstr "Тип оплати проєкту змінюють лише адміністратор і бухгалтер"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
-msgstr "Тип файлу «{mimeType}» не підтримується. Дозволені формати: PDF, JPEG, PNG, WEBP, HEIC"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -658,8 +638,13 @@ msgstr "У команді вже є сеньйор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE"
+msgstr "У команді має залишитися щонайменше один бухгалтер"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE"
-msgstr "У команді немає активного сеньйора — архівування через парний перехід неможливе"
+msgstr "У команді немає активного сеньйора — заархівувати її не можна"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -678,8 +663,13 @@ msgstr "У проєкту вже є активний джуніор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_FILE_FIELD_MISSING"
-msgstr "У тілі запиту відсутнє поле «file»"
+msgid "api-error.LEGEND_NOT_FOUND"
+msgstr "У проєкту ще немає легенди — створіть її"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS"
+msgstr "У шаблоні немає таких змінних: {keys}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -700,6 +690,16 @@ msgstr "Учасника команди не знайдено"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_TOO_LARGE"
 msgstr "Файл більший за {maxMb} МБ"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_MULTIPART_REQUIRED"
+msgstr "Файл не передано — виберіть файл і спробуйте ще раз"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_FILE_FIELD_MISSING"
+msgstr "Файл не передано — виберіть файл і спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -747,6 +747,11 @@ msgid "api-error.METHOD_DROP_ONLY"
 msgstr "Ця дія доступна лише для дропів"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_DROP_TEAMS_ONLY"
+msgstr "Ця дія доступна лише для команд-дропів"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.EMAIL_ALREADY_IN_USE"
 msgstr "Ця електронна адреса вже зайнята. Введіть іншу"
@@ -765,11 +770,6 @@ msgstr "Ця електронна адреса вже зайнята. Введі
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
 msgstr "Ця електронна адреса не має доступу. Зверніться до адміністратора"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.TEAM_DROP_TEAMS_ONLY"
-msgstr "Ця операція доступна лише для команд-дропів"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

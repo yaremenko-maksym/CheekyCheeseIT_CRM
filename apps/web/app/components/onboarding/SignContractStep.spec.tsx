@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { i18n } from '@lingui/core'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -87,10 +88,20 @@ vi.mock('@/context/auth', () => ({
 }))
 
 // Import AFTER vi.mock declarations so hoisting resolves correctly.
-import { CONTRACT_SIGN_IMPERSONATION_MESSAGE } from '@crm/shared'
+import { API_ERROR_MESSAGES, CONTRACT_SIGN_IMPERSONATION_MESSAGE } from '@crm/shared'
 import { toast } from 'sonner'
 import { api } from '@/lib/axios'
 import { SignContractStep } from './SignContractStep'
+
+// COPY-H-1 (PR #702 fix-round 1): the sign-mutation onError branches now
+// call `getApiErrorMessage(err)` (catalog translation by `code`) instead of
+// a hardcoded Russian literal — `translateApiError` (axios-utils.ts) throws
+// if no locale is activated, same requirement as `axios-utils.spec.ts`'s
+// identical setup for the same reason.
+beforeAll(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -327,9 +338,7 @@ describe('SignContractStep', () => {
       await clickSign()
 
       await waitFor(() =>
-        expect(toast.error).toHaveBeenCalledWith(
-          'Юридическое ФИО не заполнено. Обратитесь к администратору.',
-        ),
+        expect(toast.error).toHaveBeenCalledWith(i18n._(API_ERROR_MESSAGES.LEGAL_NAME_REQUIRED)),
       )
       expect(toast.info).not.toHaveBeenCalled()
     })
@@ -345,7 +354,11 @@ describe('SignContractStep', () => {
 
       await clickSign()
 
-      await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Админ не подписывает контракт'))
+      await waitFor(() =>
+        expect(toast.info).toHaveBeenCalledWith(
+          i18n._(API_ERROR_MESSAGES.ADMIN_DOES_NOT_SIGN_CONTRACTS),
+        ),
+      )
       expect(toast.error).not.toHaveBeenCalled()
     })
 

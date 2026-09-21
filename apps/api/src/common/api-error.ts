@@ -2,6 +2,7 @@ import { HttpException, type HttpStatus } from '@nestjs/common'
 import { setupI18n } from '@lingui/core'
 import {
   API_ERROR_FALLBACK_EN,
+  API_ERROR_MESSAGES,
   type ApiErrorCode,
   type ApiErrorEnvelope,
   type ParamsFor,
@@ -38,7 +39,14 @@ import {
  */
 function interpolate(code: ApiErrorCode, params?: Record<string, string | number>): string {
   const i18n = setupI18n({ locale: 'en', messages: { en: {} } })
-  return i18n._(`api-error.${code}`, params, { message: API_ERROR_FALLBACK_EN[code] })
+  // `API_ERROR_MESSAGES[code].id` (a member expression), not a template
+  // literal built from `code` — `lingui extract`'s babel plugin tries to
+  // statically resolve the id argument of every `i18n._()` call and warns
+  // ("Could not extract from template literal with expressions") on a
+  // template literal it cannot fully resolve; a member expression is the
+  // form `translateApiError` (`apps/web/app/lib/axios-utils.ts`) already
+  // uses for the identical reason, documented there.
+  return i18n._(API_ERROR_MESSAGES[code].id, params, { message: API_ERROR_FALLBACK_EN[code] })
 }
 
 /**
