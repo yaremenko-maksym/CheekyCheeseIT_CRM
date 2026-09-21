@@ -142,6 +142,12 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
       expect(text).toContain('Kovalenko та команда')
       expect(text).toContain('» — пов’язана пара')
       expect(text).toContain('стосується. Відновлення')
+      // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary between
+      // the two sibling blocks themselves (block1's closing ").", block2's
+      // opening "HR/бухгалтери") — a Stryker StringLiteral mutant on this
+      // specific `{' '}` joins them with no space at all, distinct from
+      // the whitespace nodes pinned above (those are all INSIDE block1).
+      expect(text).toContain('). HR/бухгалтери')
     },
   )
 
@@ -268,6 +274,10 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     // `{' '}` boundaries: "сеньйор" -> seniorName/fallback, block1 -> block2.
     expect(text).toContain('сеньйор —')
     expect(text).toContain('стосується. Це еквівалентно')
+    // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary itself
+    // (legacy-SENIOR branch's own copy of the same block1→block2 join —
+    // a SEPARATE source line from the pair-cascade one above).
+    expect(text).toContain('). HR/бухгалтери')
   })
 
   it('DROP team: uses dropName (trimmed), NOT the senior word (no cross-read of ROLE_RU.SENIOR)', async () => {
@@ -296,6 +306,9 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     // `{' '}` boundaries: "дроп" -> dropName, block1 -> block2.
     expect(text).toContain('дроп Dmytro Drop')
     expect(text).toContain('стосується. Активний сеньйор')
+    // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary itself,
+    // right after block1's closing ").").
+    expect(text).toContain('). HR/бухгалтери')
   })
 
   it('DROP team: seniorWillBeDetached=false renders the "немає" branch, not the detach sentence', async () => {
