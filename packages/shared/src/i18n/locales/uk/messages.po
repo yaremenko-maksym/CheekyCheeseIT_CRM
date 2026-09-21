@@ -505,7 +505,7 @@ msgstr "Не вдалося змінити частку. Спробуйте ще
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
-msgstr "Не вдалося обробити цей файл — можливо, він пошкоджений. Спробуйте інший"
+msgstr "Не вдалося обробити файл — можливо, він пошкоджений. Спробуйте інший"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts

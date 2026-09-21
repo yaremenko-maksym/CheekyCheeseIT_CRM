@@ -136,8 +136,8 @@ export class DocumentsService {
     // migrating it, unlike the public/anonymous one in
     // `vacancies/applications.service.ts::compressResume` (kept as
     // `UnsupportedMediaTypeException`, see that file's own comment). The
-    // `DOCUMENT_CONTENT_UNRECOGNIZED` code already covers "this file's
-    // content doesn't match an allowed format" (same 415, same meaning as a
+    // `DOCUMENT_CONTENT_UNRECOGNIZED` code already covers "couldn't process
+    // this file — it may be damaged" (same 415, same meaning as a
     // sharp/pdf-lib processing failure on a whitelisted MIME) — reused here
     // rather than minting a near-duplicate code. `err.message` (which used
     // to carry a Russian sentence plus the raw library error) is dropped

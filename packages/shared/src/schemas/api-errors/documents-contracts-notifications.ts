@@ -187,7 +187,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   DOCUMENT_CONTENT_UNRECOGNIZED: /* i18n */ {
     id: 'api-error.DOCUMENT_CONTENT_UNRECOGNIZED',
-    message: 'Не вдалося обробити цей файл — можливо, він пошкоджений. Спробуйте інший',
+    message: 'Не вдалося обробити файл — можливо, він пошкоджений. Спробуйте інший',
   },
   DOCUMENT_CONTENT_TYPE_MISMATCH: /* i18n */ {
     id: 'api-error.DOCUMENT_CONTENT_TYPE_MISMATCH',

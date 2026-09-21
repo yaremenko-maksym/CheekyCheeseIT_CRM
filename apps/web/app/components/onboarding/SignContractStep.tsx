@@ -221,8 +221,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
 
       {/* Info alert */}
       <p className="rounded-md border border-border bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
-        Данные в контракте: имя, email, реквизиты — задаются администратором. При ошибке обратитесь
-        к ADMIN.
+        Данные в контракте: имя, email, реквизиты — задаёт администратор. При ошибке обратитесь к
+        нему.
       </p>
 
       {/* Checkbox — h-6 w-6 per WCAG SC 2.5.8 (24×24px target) */}

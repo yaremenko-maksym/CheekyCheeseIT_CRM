@@ -166,6 +166,19 @@ describe('SignContractStep', () => {
     expect(container.innerHTML).not.toContain('MSA')
   })
 
+  // COPY-M-16 (PR #702 fix-round 3): COPY-M-15 fixed the raw `ADMIN` enum in
+  // the legalNameMissing alert but left an identical leak three lines above
+  // it, in the unconditional "Info alert" paragraph — that one renders on
+  // EVERY open of this step, unlike the alert above it (which only renders
+  // when the admin left legalFullName blank), so it was the more visible of
+  // the two. Scoping the assertion to the whole rendered step (not one
+  // testid) is what COPY-M-15's narrower assertion missed.
+  it('no raw role enum anywhere in the rendered step (COPY-M-16)', () => {
+    render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+    expect(screen.queryByText(/\b(ADMIN|SENIOR|JUNIOR|ACCOUNTANT|DROP)\b/)).toBeNull()
+  })
+
   it('T4d. renders sign button and confirm checkbox', () => {
     render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
 
@@ -311,9 +324,11 @@ describe('SignContractStep', () => {
 
     // COPY-M-15 (PR #702 fix-round 2): the legalNameMissing alert used to
     // read "...Обратитесь к ADMIN." — a raw role enum leaking into text
-    // meant for a human. It must read the role as a word, matching the rest
-    // of this screen (the pdf-error alert and the tooltip both already say
-    // "администратору").
+    // meant for a human. It must read the role as a word, matching the
+    // pdf-error alert and the tooltip, which already said "администратору"
+    // before this fix. (The Info-alert paragraph above it still said
+    // "ADMIN" at the time this test was written — that leak is COPY-M-16,
+    // fixed separately, see the whole-step assertion below.)
     it('legalNameMissing alert reads the role as a word, no raw "ADMIN" enum (COPY-M-15)', async () => {
       mockUser.legalFullName = null
       render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
