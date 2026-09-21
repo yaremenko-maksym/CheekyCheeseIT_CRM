@@ -22,7 +22,7 @@ beforeEach(async () => {
   await loadCatalog('uk')
 })
 
-const mockApiGet = vi.fn(() =>
+const mockApiGet = vi.fn<(...args: unknown[]) => Promise<{ data: unknown }>>(() =>
   Promise.reject(new Error('not used by default — currency=USDT needs no rate')),
 )
 vi.mock('@/lib/axios', () => ({
