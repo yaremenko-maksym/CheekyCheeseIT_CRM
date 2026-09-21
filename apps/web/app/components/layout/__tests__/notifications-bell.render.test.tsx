@@ -380,6 +380,36 @@ describe('непрочитанное отличается от прочитан�
 
     expect(screen.getByTestId(`notification-item-${UUID}-delete`)).toBeTruthy()
   })
+
+  // MUT-1 (fix-round 2): `aria-label`/`title` on the delete button are two
+  // SEPARATE `t\`Видалити сповіщення\`` call sites (same literal, different
+  // AST nodes) — neither was ever asserted before this round.
+  it('кнопка удаления называет своё действие в aria-label и title', async () => {
+    items = [makeNotification({})]
+    await openBell()
+
+    const deleteBtn = screen.getByTestId(`notification-item-${UUID}-delete`)
+    expect(deleteBtn).toHaveAttribute('aria-label', 'Видалити сповіщення')
+    expect(deleteBtn).toHaveAttribute('title', 'Видалити сповіщення')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Колокольчик-триггер называет своё действие (MUT-1, fix-round 2)
+// ---------------------------------------------------------------------------
+
+describe('колокольчик-триггер', () => {
+  it('называет своё действие в aria-label', () => {
+    render(
+      <I18nTestProvider>
+        <NotificationsBell />
+      </I18nTestProvider>,
+    )
+    expect(screen.getByTestId('notifications-bell-trigger')).toHaveAttribute(
+      'aria-label',
+      'Сповіщення',
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -144,6 +144,34 @@ describe('ImpersonationBanner', () => {
     expect(onStopped).toHaveBeenCalled()
   })
 
+  // MUT-1 (fix-round 2): the button's VISIBLE text (line 76) is a SEPARATE
+  // `t\`...\`` call from its `aria-label` (line 71, already pinned by B3) —
+  // same literal, different AST node. B5 only pins the PENDING branch's
+  // text ("Повернення…"); nothing pinned the non-pending branch's own text.
+  it('button shows the non-pending label as its own visible text (not just aria-label)', () => {
+    render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
+    expect(screen.getByTestId('impersonation-banner-return')).toHaveTextContent(
+      'Повернутися до свого профілю',
+    )
+  })
+
+  // MUT-1 (fix-round 2): pins the `{' '}` JSX-whitespace expression between
+  // the bolded display name and the role span — a mutant collapsing it to
+  // `{""}` would run "Старший»(Сеньйор)" together with no gap.
+  it('keeps a space between the quoted display name and the role label', () => {
+    render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
+    // Function matcher targets the OUTER <span> (the whole <Trans> sentence)
+    // by its full concatenated text — avoids DOM-navigation APIs
+    // (testing-library/no-node-access) while still pinning the `{' '}`
+    // JSX-whitespace boundary between the bolded name and the role span.
+    const outer = screen.getByText(
+      (_content, element) =>
+        element?.tagName === 'SPAN' &&
+        element.textContent === 'Ви увійшли як «Иван Старший» (Сеньйор)',
+    )
+    expect(outer).toBeInTheDocument()
+  })
+
   it('B7. banner has role=alert for accessibility', () => {
     render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
     expect(screen.getByRole('alert')).toBeInTheDocument()
