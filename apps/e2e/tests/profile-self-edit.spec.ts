@@ -100,8 +100,8 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
 
     // Type something to trigger autosave — PhoneInput's input has placeholder
-    // "Номер телефона" but no <label htmlFor="phone">, so use getByPlaceholder.
-    const phoneInput = page.getByPlaceholder('Номер телефона')
+    // "Номер телефону" but no <label htmlFor="phone">, so use getByPlaceholder.
+    const phoneInput = page.getByPlaceholder('Номер телефону')
     await phoneInput.fill('+380661111111')
 
     // Wait long enough for debounce to fire

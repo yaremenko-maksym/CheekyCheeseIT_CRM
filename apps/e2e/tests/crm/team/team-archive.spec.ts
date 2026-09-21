@@ -12,6 +12,7 @@
  */
 
 import { test, expect, USERS, TEAMS, API_GLOB, API_RE } from '../../fixtures'
+import { loadMessages, assertInCatalog } from '../../../fixtures/catalog'
 
 // TEAMS[0] is the seed Alpha Team — non-null in fixtures.
 const activeTeam = TEAMS[0]!
@@ -144,7 +145,7 @@ test.describe('Team detail page — admin actions', () => {
     await expect(page.getByTestId('team-add-member-button')).toBeVisible()
   })
 
-  test('opening "Архивировать" shows ArchiveConfirmDialog with senior-name input', async ({
+  test('opening "Архівувати" shows ArchiveConfirmDialog with senior-name input', async ({
     asAdmin: page,
   }) => {
     await page.route(`${API_GLOB}/teams/${activeTeam.id}`, (r) =>
@@ -169,8 +170,14 @@ test.describe('Team detail page — admin actions', () => {
     await page.getByTestId('team-archive-button').click()
 
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('heading', { name: /Архивировать команду/ })).toBeVisible()
-    await expect(dialog.getByText(/имя синьора/)).toBeVisible({ timeout: 3000 })
+    const uk = await loadMessages('uk')
+    await expect(
+      dialog.getByRole('heading', { name: assertInCatalog(uk, 'Архівувати команду') }),
+    ).toBeVisible()
+    // Apostrophe glyph in "ім'я" is a copy-review-decided constant
+    // (COPY-L-25) — match on either candidate form so this spec does not
+    // itself pin the glyph choice.
+    await expect(dialog.getByText(/ім.я сеньйора/i)).toBeVisible({ timeout: 3000 })
     // Submit disabled until name typed
     const submit = page.getByTestId('archive-confirm-submit')
     await expect(submit).toBeDisabled()

@@ -1,6 +1,8 @@
 import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import { i18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import {
   Dialog,
@@ -53,7 +55,19 @@ const CrmDialogContent = React.forwardRef<
     >
       {children}
       <DialogPrimitive.Close
-        aria-label="Закрыть"
+        // CR-M-4 (fix-round 2): `i18n._()` off the MODULE-LEVEL singleton
+        // (`@/lib/i18n`, the same one `activateLocale` mutates) instead of
+        // `useLingui()` — reads the CURRENT locale at render time without
+        // needing an `I18nProvider` ancestor, unlike `dialog.tsx`'s sibling
+        // Close button. Trade-off, spelled out per the experiment's own
+        // question: this label does NOT re-render on a LIVE locale switch —
+        // only on this component's own next natural re-render — which is
+        // an acceptable cost for a Close button's `aria-label` (not a
+        // long-lived on-screen string) and is what makes `crm-dialog.tsx`
+        // migratable without the `useLingui()` cascade documented in
+        // fix-round 1 (SPEC-M-1: 23 test files / ~230 tests break when this
+        // same source is wrapped as a hook instead).
+        aria-label={i18n._(msg`Закрити`)}
         className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
       >
         <X className="h-4 w-4 shrink-0" aria-hidden />

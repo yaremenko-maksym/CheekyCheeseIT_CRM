@@ -53,6 +53,7 @@ import { render, screen, within, fireEvent, waitFor } from '@testing-library/rea
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { roundShareAmount } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // ── Mutable auth persona ─────────────────────────────────────────────────────
 let currentRole = 'ADMIN'
@@ -199,9 +200,11 @@ import { CreateTransactionDialog } from '../CreateTransactionDialog'
 function renderDialog() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <CreateTransactionDialog open onClose={() => {}} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <CreateTransactionDialog open onClose={() => {}} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -216,7 +219,8 @@ async function selectReceiver(name: string) {
   fireEvent.click(await within(listbox).findByText(name))
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await loadCatalog('uk')
   currentRole = 'ADMIN'
   currentUserId = 'admin-1'
   currentProjects = PROJECTS
@@ -673,15 +677,19 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { rerender } = render(
-      <QueryClientProvider client={qc}>
-        <CreateTransactionDialog open={false} onClose={() => {}} />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <CreateTransactionDialog open={false} onClose={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects'] })
     rerender(
-      <QueryClientProvider client={qc}>
-        <CreateTransactionDialog open onClose={() => {}} />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <CreateTransactionDialog open onClose={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
     invalidateSpy.mockRestore()
@@ -1041,9 +1049,11 @@ describe('CreateTransactionDialog — Escape closes the dialog (standard interac
     const onClose = vi.fn()
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
-      <QueryClientProvider client={qc}>
-        <CreateTransactionDialog open onClose={onClose} />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <CreateTransactionDialog open onClose={onClose} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     await screen.findByTestId('create-transaction-dialog')
     fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' })

@@ -71,6 +71,12 @@ test.describe('Onboarding logout', () => {
   // -------------------------------------------------------------------------
   test('AC1: logout button is visible on /onboarding', async ({ page }) => {
     await expect(page.getByTestId('onboarding-logout')).toBeVisible()
+    // `onboarding/route.tsx` is NOT one of the files this PR migrates
+    // (outside Task 1's Steps 1-7 scope) — its logout button still
+    // literally renders "Выйти" (Russian). The Step-8 sweep (fix-round 1)
+    // wrongly flipped this assertion to "Вийти" without the source having
+    // changed — a self-inflicted regression, not a pre-existing failure
+    // (CI-1, fix-round 2).
     await expect(page.getByTestId('onboarding-logout')).toContainText('Выйти')
   })
 

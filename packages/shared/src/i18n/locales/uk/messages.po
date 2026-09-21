@@ -13,10 +13,90 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#. placeholder {0}: summary.pendingValidation.count
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
+msgstr "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
+
+#. placeholder {0}: filtered.length
+#. placeholder {1}: users?.length ?? 0
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "{0} із {1}"
+msgstr "{0} із {1}"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
+msgstr "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "{role, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
+msgstr "{role, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "{role, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
+msgstr "{role, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
+
+#. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "+{0} цього місяця"
+msgstr "+{0} цього місяця"
+
+#. placeholder {0}: impact.teamName
+#. placeholder {1}: impact.seniorName || '—'
+#. placeholder {2}: impact.projectsCount
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgstr "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+
+#. placeholder {0}: impact.projectsCount ?? 0
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# активний проєкт} few {# активні проєкти} many {# активних проєктів} other {# активних проєктів}}</1>. Самі проєкти залишаться активними."
+msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# активний проєкт} few {# активні проєкти} many {# активних проєктів} other {# активних проєктів}}</1>. Самі проєкти залишаться активними."
+
+#. placeholder {0}: impact.teamsCount ?? 0
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (бухгалтерська роль). Самі команди залишаться активними."
+msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (бухгалтерська роль). Самі команди залишаться активними."
+
+#. placeholder {0}: impact.teamsCount ?? 0
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
+msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
+
+#. placeholder {0}: impact.projectsCount ?? 0
+#. placeholder {1}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований разом із усіма своїми проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{1})."
+msgstr "<0>{entityName}</0> буде архівований разом із усіма своїми проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{1})."
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований. Нічого пов’язаного архівувати не треба."
+msgstr "<0>{entityName}</0> буде архівований. Нічого пов’язаного архівувати не треба."
+
+#. placeholder {0}: impact.teamName
+#. placeholder {1}: impact.projectsCount ?? 0
+#. placeholder {2}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+msgstr "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
+msgstr "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.EMAIL_TOO_LONG"
 msgstr "Email не довше 255 символів"
+
+#: apps/web/app/components/ui/amount-currency-input.tsx
+msgid "ERC-20, прив’язаний до долара"
+msgstr "ERC-20, прив’язаний до долара"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "HR"
+msgstr "HR"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -28,6 +108,27 @@ msgstr "HR може приєднати сеньйора лише до своєї
 msgid "api-error.HR_SENIOR_ONLY_CREATION"
 msgstr "HR може створювати лише сеньйорів"
 
+#. placeholder {0}: impact.membersAffected
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується."
+msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується."
+
+#. placeholder {0}: impact.membersAffected
+#. placeholder {1}: impact.seniorName || '—'
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
+msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
+
+#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
+#. placeholder {1}: impact.juniorsAffected ?? 0
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніорів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
+msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніорів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "HR/бухгалтери команди після відновлення залишаються відв’язаними — додайте їх заново."
+msgstr "HR/бухгалтери команди після відновлення залишаються відв’язаними — додайте їх заново."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.IBAN_FORMAT"
@@ -38,6 +139,10 @@ msgstr "IBAN має бути у форматі UA + 27 цифр (29 символ
 msgid "zod-error.IBAN_REQUIRED"
 msgstr "IBAN обов’язковий"
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
+msgstr "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
@@ -47,6 +152,14 @@ msgstr "Telegram-канал можна вказати лише сеньйору"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY"
 msgstr "Аватар можна завантажити лише для власного профілю"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Адмін"
+msgstr "Адмін"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Адміністратор"
+msgstr "Адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -78,6 +191,21 @@ msgstr "Адміністратор не підписує контракт — п
 msgid "zod-error.USDT_ADDRESS_FORMAT"
 msgstr "Адреса USDT ERC-20 має починатися з 0x і містити 42 символи"
 
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "активна"
+msgstr "активна"
+
+#. placeholder {0}: activeVersion.version
+#. placeholder {1}: format(new Date(activeVersion.createdAt), 'dd.MM.yyyy')
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Активна версія: v{0} · оновлена {1}"
+msgstr "Активна версія: v{0} · оновлена {1}"
+
+#. placeholder {0}: impact.seniorName ? ` ${impact.seniorName}` : ''
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Активний сеньйор{0} від’єднається від команди без архівації"
+msgstr "Активний сеньйор{0} від’єднається від команди без архівації"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.EMPLOYEE_CONTRACT_NOT_FOUND"
@@ -88,15 +216,82 @@ msgstr "Активний трудовий контракт для цього к�
 msgid "api-error.CONTRACT_TEMPLATE_DUPLICATE_ACTIVE"
 msgstr "Активний шаблон контракту для цієї ролі вже існує"
 
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Активних проєктів"
+msgstr "Активних проєктів"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Активні проєкти"
+msgstr "Активні проєкти"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Активні транзакції"
+msgstr "Активні транзакції"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Активного сеньйора в команді немає."
+msgstr "Активного сеньйора в команді немає."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ACTIVE_MEMBER_NOT_FOUND"
 msgstr "Активного учасника в проєкті не знайдено"
 
+#. placeholder {0}: displayedVersion.version
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "архів v{0}"
+msgstr "архів v{0}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
 msgstr "Архівація дропа доступна лише адміністратору"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати"
+msgstr "Архівувати"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати команду"
+msgstr "Архівувати команду"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати команду дропа"
+msgstr "Архівувати команду дропа"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати користувача"
+msgstr "Архівувати користувача"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Архівувати проєкт"
+msgstr "Архівувати проєкт"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Бічна навігація CRM — перехід між розділами системи."
+msgstr "Бічна навігація CRM — перехід між розділами системи."
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Бухгалтер"
+msgstr "Бухгалтер"
+
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "В активних стадіях"
+msgstr "В активних стадіях"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Вакансії"
+msgstr "Вакансії"
+
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Валідація доходів"
+msgstr "Валідація доходів"
+
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Валідовано за місяць"
+msgstr "Валідовано за місяць"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -107,6 +302,21 @@ msgstr "Вам недоступне завантаження {category, select, 
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ACCOUNT_DISABLED"
 msgstr "Ваш обліковий запис вимкнено. Зверніться до адміністратора"
+
+#. placeholder {0}: item.viewerSharePercent
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Ваша частка: {0}%"
+msgstr "Ваша частка: {0}%"
+
+#. placeholder {0}: item.viewerSharePercent
+#. placeholder {1}: item.seniorName
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Ваша частка: {0}% · сеньйор: {1}"
+msgstr "Ваша частка: {0}% · сеньйор: {1}"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Вбудований перегляд PDF недоступний. <0>Завантажити умови використання</0>"
+msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити умови використання</0>"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -133,15 +343,33 @@ msgstr "Введіть номер у міжнародному форматі, н
 msgid "zod-error.AMOUNT_NOT_A_NUMBER"
 msgstr "Введіть суму числом — наприклад 1000.50"
 
+#. placeholder {0}: ver.version
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Версія v{0}"
+msgstr "Версія v{0}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_ALREADY_ACTIVE"
 msgstr "Ви вже увійшли як інший співробітник — спершу поверніться до свого облікового запису"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Ви маєте сплатити компанії"
+msgstr "Ви маєте сплатити компанії"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_NOT_ACTIVE"
 msgstr "Ви не входили як інший співробітник"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
+msgstr "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
+
+#. placeholder {0}: user.displayName
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Ви увійшли як <0>«{0}»</0> <1>({roleName})</1>"
+msgstr "Ви увійшли як <0>«{0}»</0> <1>({roleName})</1>"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -183,6 +411,10 @@ msgstr "Ви увійшли як інший співробітник — при�
 msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "Ви увійшли як інший співробітник — рішення щодо проєкту приймає лише він сам"
 
+#: apps/web/app/components/ui/date-picker.tsx
+msgid "Виберіть дату"
+msgstr "Виберіть дату"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DROP_TEAM_ID_REQUIRED"
@@ -208,6 +440,14 @@ msgstr "Виберіть сеньйора"
 msgid "zod-error.HR_REQUIRED_MIN"
 msgstr "Виберіть щонайменше одного HR"
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Вибрати файл"
+msgstr "Вибрати файл"
+
+#: apps/web/app/components/ui/tech-autocomplete-input.tsx
+msgid "Видалити {tag}"
+msgstr "Видалити {tag}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_DELETE_OWNER_OR_ADMIN_ONLY"
@@ -218,10 +458,59 @@ msgstr "Видалити документ може лише власник аб�
 msgid "api-error.DOCUMENT_HARD_DELETE_ADMIN_ONLY"
 msgstr "Видалити документ остаточно може лише адміністратор"
 
+#: apps/web/app/components/layout/notifications-bell.tsx
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Видалити сповіщення"
+msgstr "Видалити сповіщення"
+
+#: apps/web/app/routes/_authenticated/route.tsx
+msgid "Вийти"
+msgstr "Вийти"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Виплата (USDT)"
+msgstr "Виплата (USDT)"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Виплачено"
+msgstr "Виплачено"
+
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Виплачено за місяць"
+msgstr "Виплачено за місяць"
+
+#: apps/web/app/routes/_authenticated/route.tsx
+msgid "Відкрити меню"
+msgstr "Відкрити меню"
+
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Відкриті співбесіди"
+msgstr "Відкриті співбесіди"
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Відновити все"
+msgstr "Відновити все"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_RESTORE_ADMIN_ONLY"
 msgstr "Відновити документ може лише адміністратор"
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Відновити пов’язане"
+msgstr "Відновити пов’язане"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
+msgstr "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Відновлення проєкту разом із пов’язаними командою і профілем."
+msgstr "Відновлення проєкту разом із пов’язаними командою і профілем."
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Відновлення…"
+msgstr "Відновлення…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -263,6 +552,23 @@ msgstr "Вказаного користувача не знайдено або �
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
 msgstr "Вміст файлу не збігається з його розширенням — збережіть його заново й спробуйте ще раз"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Всього зароблено · за весь час"
+msgstr "Всього зароблено · за весь час"
+
+#. placeholder {0}: fmtUsd(summary.seniorShareIncome.total)
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Всього: {0}"
+msgstr "Всього: {0}"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Входимо…"
+msgstr "Входимо…"
+
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Готово"
+msgstr "Готово"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_FORMAT_YYYYMMDD"
@@ -272,6 +578,14 @@ msgstr "Дата має бути у форматі YYYY-MM-DD"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_NOT_IN_FUTURE"
 msgstr "Дата транзакції не може бути в майбутньому"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Дашборд"
+msgstr "Дашборд"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Джуніор"
+msgstr "Джуніор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -293,15 +607,31 @@ msgstr "Для USDT додайте посилання на транзакцію,
 msgid "api-error.CONTRACT_TEMPLATE_ADMIN_NONE"
 msgstr "Для адміністратора немає шаблону контракту"
 
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
+msgstr "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Для підтвердження введіть {confirmInputLabel}:"
+msgstr "Для підтвердження введіть {confirmInputLabel}:"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
 msgstr "Для сеньйора й адміністратора доступний лише один спосіб виплати — USDT ERC-20"
 
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "До активної версії"
+msgstr "До активної версії"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
 msgstr "До складу проєкту можна додати лише джуніора, HR або бухгалтера"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Додати дохід"
+msgstr "Додати дохід"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -333,10 +663,46 @@ msgstr "Документ логотипа не знайдено"
 msgid "api-error.DOCUMENT_NOT_FOUND"
 msgstr "Документ не знайдено"
 
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Документи"
+msgstr "Документи"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Долучити до команди дропа можна лише сеньйора"
+
+#: apps/web/app/components/ui/tech-autocomplete-input.tsx
+msgid "Досягнуто ліміт {maxItems} тегів"
+msgstr "Досягнуто ліміт {maxItems} тегів"
+
+#: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+msgid "Дохід дропа (неоплачена частка)"
+msgstr "Дохід дропа (неоплачена частка)"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Дохід за місяць"
+msgstr "Дохід за місяць"
+
+#: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+msgid "Дохід сеньйора (неоплачена частка)"
+msgstr "Дохід сеньйора (неоплачена частка)"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Доходи в роботі"
+msgstr "Доходи в роботі"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Доходи на валідації та виплати в черзі"
+msgstr "Доходи на валідації та виплати в черзі"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Дроп"
+msgstr "Дроп"
+
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "дропа"
+msgstr "дропа"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -353,10 +719,32 @@ msgstr "Дропа не знайдено"
 msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
 msgstr "Дропам недоступні співбесіди"
 
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
+msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Завантажений файл"
+msgstr "Завантажений файл"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Завантаження PDF…"
+msgstr "Завантаження PDF…"
+
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Завантаження…"
+msgstr "Завантаження…"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
 msgstr "Завантажувати можна лише власні документи"
+
+#: apps/web/app/components/ui/crm-dialog.tsx
+#: apps/web/app/components/ui/dialog.tsx
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Закрити"
+msgstr "Закрити"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -368,6 +756,14 @@ msgstr "Запрошення вже використано"
 msgid "api-error.INVITE_INVALID"
 msgstr "Запрошення недійсне"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
+msgid "Заробітку за останні місяці ще немає"
+msgstr "Заробітку за останні місяці ще немає"
+
+#: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+msgid "Зарплата"
+msgstr "Зарплата"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_NOT_ACTIVE"
@@ -377,6 +773,10 @@ msgstr "Заявити дохід можна лише за активним пр
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_HR_SUMMARY_FORBIDDEN"
 msgstr "Зведення для HR бачать лише HR і адміністратор"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Згорнути"
+msgstr "Згорнути"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -388,10 +788,26 @@ msgstr "Змінити роль на «дроп» цим способом не �
 msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
 msgstr "Змінити частку сеньйора на рівні команди можуть лише адміністратор і бухгалтер"
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Зовнішнє посилання на зображення (https://…)"
+msgstr "Зовнішнє посилання на зображення (https://…)"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "ім’я"
+msgstr "ім’я"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DISPLAY_NAME_MIN"
 msgstr "Ім’я — мінімум 2 символи"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "ім’я дропа"
+msgstr "ім’я дропа"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "ім’я сеньйора"
+msgstr "ім’я сеньйора"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -403,10 +819,33 @@ msgstr "Індивідуальну частку дропа за проєктом
 msgid "api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN"
 msgstr "Індивідуальну частку сеньйора за проєктом змінюють лише адміністратор і бухгалтер"
 
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Історія версій"
+msgstr "Історія версій"
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
+msgid "Історія заробітку по місяцях"
+msgstr "Історія заробітку по місяцях"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
 msgstr "Канал у Telegram: 5–32 символи — латиниця, цифри або _"
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Команда"
+msgstr "Команда"
+
+#. placeholder {0}: impact.teamName
+#. placeholder {1}: impact.projectsCount
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+
+#: apps/web/app/components/ui/command.tsx
+msgid "Командне меню"
+msgstr "Командне меню"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -423,6 +862,20 @@ msgstr "Команду не заархівовано"
 msgid "api-error.TEAM_NOT_FOUND"
 msgstr "Команду не знайдено"
 
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "компанії"
+msgstr "компанії"
+
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Компанія"
+msgstr "Компанія"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
+msgstr "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_NOT_EDITABLE"
@@ -437,6 +890,16 @@ msgstr "Контракт більше не чернетка — оновіть �
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_NOT_READY"
 msgstr "Контракт не готовий до підпису"
+
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Контракти"
+msgstr "Контракти"
+
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+msgid "Користувач (сеньйор)"
+msgstr "Користувач (сеньйор)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -468,10 +931,77 @@ msgstr "Користувача не заархівовано"
 msgid "api-error.USER_NOT_FOUND"
 msgstr "Користувача не знайдено"
 
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Користувачі"
+msgstr "Користувачі"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Користувачів не знайдено"
+msgstr "Користувачів не знайдено"
+
+#: apps/web/app/components/ui/phone-input.tsx
+msgid "Країну не знайдено"
+msgstr "Країну не знайдено"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Легенда"
+msgstr "Легенда"
+
+#: apps/web/app/routes/_authenticated/route.tsx
+msgid "Меню користувача"
+msgstr "Меню користувача"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Мій баланс"
+msgstr "Мій баланс"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Мій баланс (частка)"
+msgstr "Мій баланс (частка)"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Мій проєкт"
+msgstr "Мій проєкт"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
 msgstr "Мова інтерфейсу"
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Мої проєкти"
+msgstr "Мої проєкти"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Навігація"
+msgstr "Навігація"
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Надходження від компаній за цей місяць"
+msgstr "Надходження від компаній за цей місяць"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Назад до умов використання"
+msgstr "Назад до умов використання"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "назва проєкту"
+msgstr "назва проєкту"
+
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Найнято за місяць"
+msgstr "Найнято за місяць"
+
+#. placeholder {0}: currentTos.version + 1
+#. placeholder {1}: currentTos.version
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Наступна версія: v{0} (поточна — v{1})"
+msgstr "Наступна версія: v{0} (поточна — v{1})"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Натисніть ще раз, щоб повторити завантаження."
+msgstr "Натисніть ще раз, щоб повторити завантаження."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -487,6 +1017,30 @@ msgstr "Не більше 6 знаків після крапки — суму о
 #: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.GENERIC"
 msgstr "Не вдалося виконати дію. Спробуйте ще раз"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Не вдалося завантажити PDF"
+msgstr "Не вдалося завантажити PDF"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Не вдалося завантажити PDF попереднього перегляду"
+msgstr "Не вдалося завантажити PDF попереднього перегляду"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Не вдалося завантажити зведення"
+msgstr "Не вдалося завантажити зведення"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Не вдалося завантажити файл"
+msgstr "Не вдалося завантажити файл"
+
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Не вдалося завантажити фінансове зведення"
+msgstr "Не вдалося завантажити фінансове зведення"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -507,6 +1061,10 @@ msgstr "Не вдалося змінити частку. Спробуйте ще
 msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
 msgstr "Не вдалося обробити файл — можливо, він пошкоджений. Спробуйте інший"
 
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
+msgstr "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.GOOGLE_CREDENTIAL_INVALID"
@@ -517,10 +1075,18 @@ msgstr "Не вдалося підтвердити вхід через Google. �
 msgid "api-error.IMPERSONATION_ORIGIN_UNAVAILABLE"
 msgstr "Не вдалося повернутися до вашого облікового запису. Увійдіть заново"
 
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Не вдалося повернутися: {errMessage}"
+msgstr "Не вдалося повернутися: {errMessage}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_ID_INVALID"
 msgstr "Не вдалося розпізнати вибраного сеньйора — виберіть зі списку"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Не вдалося увійти: {errMessage}"
+msgstr "Не вдалося увійти: {errMessage}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -537,15 +1103,28 @@ msgstr "Не можна заархівувати самого себе"
 msgid "api-error.CANNOT_EDIT_ANOTHER_ADMIN"
 msgstr "Не можна редагувати обліковий запис іншого адміністратора"
 
+#. placeholder {0}: transactions.length
+#: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+msgid "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
+msgstr "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_INVALID_ROLE"
 msgstr "Некоректна роль шаблону контракту"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Немає активних проєктів"
+msgstr "Немає активних проєктів"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
+
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Немає активної версії умов використання. Створіть першу версію."
+msgstr "Немає активної версії умов використання. Створіть першу версію."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -567,15 +1146,56 @@ msgstr "Немає доступу до редагування легенди п�
 msgid "api-error.PROJECT_NOT_IN_YOUR_TEAMS"
 msgstr "Немає доступу: проєкт не належить вашим командам"
 
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Немає доходів, що очікують валідації"
+msgstr "Немає доходів, що очікують валідації"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Немає зобов’язань"
+msgstr "Немає зобов’язань"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Немає транзакцій у роботі. Додайте дохід, щоб почати."
+msgstr "Немає транзакцій у роботі. Додайте дохід, щоб почати."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_FORMAT"
 msgstr "Нік у Telegram: 5–32 символи — латиниця, цифри або _"
 
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Нова версія умов"
+msgstr "Нова версія умов"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
+msgstr "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
+
+#: apps/web/app/components/ui/phone-input.tsx
+msgid "Номер телефону"
+msgstr "Номер телефону"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_GOOGLE_ACCOUNT_MISMATCH"
 msgstr "Обліковий запис Google не збігається з адресою, на яку надіслано запрошення"
+
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Обробка…"
+msgstr "Обробка…"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Оновити"
+msgstr "Оновити"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Оновіть сторінку або спробуйте пізніше"
+msgstr "Оновіть сторінку або спробуйте пізніше"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -587,10 +1207,29 @@ msgstr "Операція з рахунку компанії проводитьс
 msgid "zod-error.REASON_REQUIRED_RELEASE"
 msgstr "Опишіть причину — вона потрапить до журналу"
 
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Оплатити"
+msgstr "Оплатити"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Опублікувати"
+msgstr "Опублікувати"
+
+#. placeholder {0}: (currentTos?.version ?? 0) + 1
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Опублікувати нову версію умов (v{0})?"
+msgstr "Опублікувати нову версію умов (v{0})?"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_ADMIN_PUBLISH_FORBIDDEN"
 msgstr "Опублікувати шаблон контракту адміністратора не можна"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Основна навігація"
+msgstr "Основна навігація"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -607,19 +1246,67 @@ msgstr "Особистий email має відрізнятися від робо
 msgid "api-error.PERSONAL_EMAIL_ALREADY_VERIFIED"
 msgstr "Особисту адресу вже підтверджено — повторне запрошення не потрібне"
 
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Отримувачів"
+msgstr "Отримувачів"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Очистити"
+msgstr "Очистити"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Очистити зображення"
+msgstr "Очистити зображення"
+
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Очікує вашого рішення"
+msgstr "Очікує вашого рішення"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Очікує виплати"
+msgstr "Очікує виплати"
+
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Очікують валідації"
+msgstr "Очікують валідації"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Очікують виплати"
+msgstr "Очікують виплати"
+
+#. placeholder {0}: summary.pendingValidation.count
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Перевірити доходи ({0})"
+msgstr "Перевірити доходи ({0})"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.VALIDATION_FAILED_FORM"
 msgstr "Перевірте заповнені поля"
+
+#. placeholder {0}: previewVersion.version
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Перегляд архівної версії v{0}"
+msgstr "Перегляд архівної версії v{0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
 msgstr "Переглянути можна лише власний контракт"
 
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Перейшли в «Найнято»"
+msgstr "Перейшли в «Найнято»"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Переклад ще триває — частина екранів поки що російською."
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Перша версія"
+msgstr "Перша версія"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -641,15 +1328,31 @@ msgstr "ПІБ отримувача — мінімум 3 символи"
 msgid "zod-error.RECIPIENT_NAME_REQUIRED"
 msgstr "ПІБ отримувача обов’язкове"
 
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Підготовка файлу…"
+msgstr "Підготовка файлу…"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
 msgstr "Підписаний контракт не знайдено"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Підтверджені доходи, які ви ще не перерахували"
+msgstr "Підтверджені доходи, які ви ще не перерахували"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
+msgstr "Підтвердження архівації. Введіть ім’я для підтвердження дії."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.APPROVAL_NOT_FOUND_OR_CLOSED"
 msgstr "Підтвердження не знайдено або вже закрито"
+
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Повернення…"
+msgstr "Повернення…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -661,10 +1364,58 @@ msgstr "Повернути в чернетку не можна: контракт
 msgid "api-error.REJOIN_TEAM_SENIOR_ONLY"
 msgstr "Повернутися до команди може лише сеньйор"
 
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Повернутися до свого профілю"
+msgstr "Повернутися до свого профілю"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/ui/upload-progress.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Повторити"
+msgstr "Повторити"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Повторити спробу"
+msgstr "Повторити спробу"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Помилка завантаження балансу"
+msgstr "Помилка завантаження балансу"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Помилка під час публікації версії умов використання"
+msgstr "Помилка під час публікації версії умов використання"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Попередній перегляд"
+msgstr "Попередній перегляд"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Попередній перегляд PDF"
+msgstr "Попередній перегляд PDF"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Попередній перегляд умов"
+msgstr "Попередній перегляд умов"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Попередній перегляд умов використання"
+msgstr "Попередній перегляд умов використання"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Посилання"
+msgstr "Посилання"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
 msgstr "Посилання має вести на etherscan.io, tronscan.org або інший експлорер"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
+msgstr "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -675,6 +1426,22 @@ msgstr "Потрібен {expectedRole, select, ADMIN {адміністрато�
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
 msgstr "Потрібен щонайменше один HR"
+
+#: apps/web/app/components/ui/tech-autocomplete-input.tsx
+msgid "Почніть вводити технологію…"
+msgstr "Почніть вводити технологію…"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Пошук за іменем, email, telegram…"
+msgstr "Пошук за іменем, email, telegram…"
+
+#: apps/web/app/components/ui/command.tsx
+msgid "Пошук і виконання команд"
+msgstr "Пошук і виконання команд"
+
+#: apps/web/app/components/ui/phone-input.tsx
+msgid "Пошук країни…"
+msgstr "Пошук країни…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -691,6 +1458,11 @@ msgstr "Приєднати до команди дропа можна лише с
 msgid "api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN"
 msgstr "Призначити роль адміністратора не можна — пул фіксований"
 
+#. placeholder {0}: impact.activeMembersCount
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
+msgstr "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_NOT_ARCHIVED"
@@ -706,10 +1478,52 @@ msgstr "Проєкт не знайдено"
 msgid "api-error.PROJECT_ALREADY_ARCHIVED"
 msgstr "Проєкт уже заархівовано"
 
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Проєкти"
+msgstr "Проєкти"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_PROJECT_ACCESS_DENIED"
 msgstr "Проєкти дропа доступні лише дропам"
+
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Проєкти сеньйорів команд"
+msgstr "Проєкти сеньйорів команд"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Проєкти, де ви дроп"
+msgstr "Проєкти, де ви дроп"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Проєкти, де ви сеньйор"
+msgstr "Проєкти, де ви сеньйор"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Проєктів не оплачено цього місяця"
+msgstr "Проєктів не оплачено цього місяця"
+
+#. placeholder {0}: item.proposedBy
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Пропонує {0}"
+msgstr "Пропонує {0}"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/routes/_authenticated/route.tsx
+msgid "Профіль"
+msgstr "Профіль"
+
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Прочитати все"
+msgstr "Прочитати все"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Публікація…"
+msgstr "Публікація…"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Рахуємо, що зміниться…"
+msgstr "Рахуємо, що зміниться…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -736,10 +1550,34 @@ msgstr "РНОКПП обов’язковий"
 msgid "api-error.WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL"
 msgstr "Робоча адреса має відрізнятися від особистої"
 
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Розгорнути"
+msgstr "Розгорнути"
+
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Розділ доступний лише для ролі «{roleLabel}»"
+msgstr "Розділ доступний лише для ролі «{roleLabel}»"
+
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Розділи адміністратора"
+msgstr "Розділи адміністратора"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Розширена інформація доступна в таблиці доходів нижче"
+msgstr "Розширена інформація доступна в таблиці доходів нижче"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Роль"
+msgstr "Роль"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
 msgstr "Самостійно приєднатися можна лише до команди, в якій ви вже були"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Сеньйор"
+msgstr "Сеньйор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -751,10 +1589,21 @@ msgstr "Сеньйор і адмін отримують лише на USDT ERC-2
 msgid "api-error.TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM"
 msgstr "Сеньйор уже перебуває в іншій активній команді"
 
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "сеньйора"
+msgstr "сеньйора"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Сеньйора не знайдено"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+#: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Скасувати"
+msgstr "Скасувати"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -771,15 +1620,40 @@ msgstr "Скасувати пропозицію частки можуть лиш
 msgid "api-error.DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE"
 msgstr "Спершу перемістіть документ у кошик, а потім видаліть остаточно"
 
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Співбесід"
+msgstr "Співбесід"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Співбесіди"
+msgstr "Співбесіди"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_NOT_FOUND"
 msgstr "Співбесіду не знайдено"
 
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Співробітників"
+msgstr "Співробітників"
+
+#: apps/web/app/components/layout/notifications-bell.tsx
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Сповіщення"
+msgstr "Сповіщення"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.NOTIFICATION_NOT_FOUND"
 msgstr "Сповіщення не знайдено"
+
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Сповіщень немає"
+msgstr "Сповіщень немає"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Статистика"
+msgstr "Статистика"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -790,6 +1664,11 @@ msgstr "Створення дропа доступне лише адмініст
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_CREATION_FORBIDDEN"
 msgstr "Створити адміністратора не можна — пул фіксований"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Створити виплату"
+msgstr "Створити виплату"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -826,10 +1705,22 @@ msgstr "Такий тип файлу не підтримується. Дозво
 msgid "api-error.INVITE_EXPIRED"
 msgstr "Термін дії запрошення закінчився"
 
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
+msgstr "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN"
 msgstr "Тип оплати проєкту змінюють лише адміністратор і бухгалтер"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Транзакції в роботі"
+msgstr "Транзакції в роботі"
+
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Тут з’являться події за вашими проєктами, грошима та документами"
+msgstr "Тут з’являться події за вашими проєктами, грошима та документами"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -876,10 +1767,36 @@ msgstr "У проєкту вже є активний джуніор"
 msgid "api-error.LEGEND_NOT_FOUND"
 msgstr "У проєкту ще немає легенди — створіть її"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "У роботі"
+msgstr "У роботі"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS"
 msgstr "У шаблоні немає таких змінних: {keys}"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти"
+msgstr "Увійти"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+msgid "Увійти як"
+msgstr "Увійти як"
+
+#. placeholder {0}: confirm?.user.displayName
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти як «{0}»?"
+msgstr "Увійти як «{0}»?"
+
+#. placeholder {0}: u.displayName
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Увійти як {0}"
+msgstr "Увійти як {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -891,10 +1808,29 @@ msgstr "Увійти як інший адміністратор не можна"
 msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
 msgstr "Увійти як самого себе не можна"
 
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Умови використання"
+msgstr "Умови використання"
+
+#: apps/web/app/components/layout/notifications-bell.tsx
+msgid "Усе, що чекає рішення"
+msgstr "Усе, що чекає рішення"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_MEMBER_NOT_FOUND"
 msgstr "Учасника команди не знайдено"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Файл"
+msgstr "Файл"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "Файл більший за {MAX_MB} МБ — виберіть інший"
+msgstr "Файл більший за {MAX_MB} МБ — виберіть інший"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -910,6 +1846,14 @@ msgstr "Файл не передано — виберіть файл і спро
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_FILE_FIELD_MISSING"
 msgstr "Файл не передано — виберіть файл і спробуйте ще раз"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Фінальний вигляд документа «Умови використання» — як PDF."
+msgstr "Фінальний вигляд документа «Умови використання» — як PDF."
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Фінанси"
+msgstr "Фінанси"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -956,6 +1900,10 @@ msgstr "Цей користувач не дроп"
 msgid "api-error.USER_NOT_SENIOR_OR_ADMIN"
 msgstr "Цей користувач не сеньйор і не адміністратор"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Цей місяць"
+msgstr "Цей місяць"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS"
@@ -996,6 +1944,31 @@ msgstr "Ця електронна адреса вже зайнята. Введі
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
 msgstr "Ця електронна адреса не має доступу. Зверніться до адміністратора"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Частка"
+msgstr "Частка"
+
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "Частка дропа у відсотках"
+msgstr "Частка дропа у відсотках"
+
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Частка невідома. Оновіть сторінку"
+msgstr "Частка невідома. Оновіть сторінку"
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Частка сеньйора за весь час"
+msgstr "Частка сеньйора за весь час"
+
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "Частка сеньйора у відсотках"
+msgstr "Частка сеньйора у відсотках"
+
+#. placeholder {0}: summary.dropSharePercent
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Частка: {0}%"
+msgstr "Частка: {0}%"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
@@ -1010,6 +1983,10 @@ msgstr "Чек можна завантажити лише для себе"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "Чек обов’язковий — додайте файл або посилання"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Чекають рішення"
+msgstr "Чекають рішення"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

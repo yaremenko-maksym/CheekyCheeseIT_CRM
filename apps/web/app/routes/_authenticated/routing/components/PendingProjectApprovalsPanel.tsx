@@ -1,6 +1,7 @@
 import { Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
+import { Trans } from '@lingui/react/macro'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePendingItems } from '@/hooks/use-pending-items'
@@ -109,7 +110,9 @@ export function PendingProjectApprovalsPanel() {
       // below says "решения" ("Ждёт вашего решения") — this error uses the
       // same word for the same object.
       <p className="text-xs text-muted-foreground" data-testid="pending-project-approvals-error">
-        Не удалось проверить, ждёт ли вас решение по проекту. Обновите страницу.
+        <Trans>
+          Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку.
+        </Trans>
       </p>
     )
   }
@@ -125,7 +128,7 @@ export function PendingProjectApprovalsPanel() {
                 виджета сознательно НЕ переименован — оркестраторская
                 addendum п.1 "заголовок виджета не менять". */}
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Ждёт вашего решения
+              <Trans>Очікує вашого рішення</Trans>
             </span>
           </div>
         </CardHeader>
@@ -146,7 +149,7 @@ export function PendingProjectApprovalsPanel() {
                   // reached for «Подтверждает {имя}», and the same wording
                   // the /pending row uses for this very item.
                   <p className="truncate text-xs text-muted-foreground">
-                    Предлагает {item.proposedBy}
+                    <Trans>Пропонує {item.proposedBy}</Trans>
                   </p>
                 ) : null}
                 {/* COPY-L-4 / COPY-L-7 (PR #646 fix-rounds 3-4) are kept
@@ -158,12 +161,17 @@ export function PendingProjectApprovalsPanel() {
                     the actionable half of it. */}
                 {item.viewerSharePercent != null ? (
                   <p className="truncate text-[11px] text-amber-300/70">
-                    Ваша доля: {item.viewerSharePercent}%
-                    {item.seniorName ? ` · синьор: ${item.seniorName}` : ''}
+                    {item.seniorName ? (
+                      <Trans>
+                        Ваша частка: {item.viewerSharePercent}% · сеньйор: {item.seniorName}
+                      </Trans>
+                    ) : (
+                      <Trans>Ваша частка: {item.viewerSharePercent}%</Trans>
+                    )}
                   </p>
                 ) : (
                   <p className="line-clamp-2 text-[11px] text-amber-300/70">
-                    Доля неизвестна. Обновите страницу.
+                    <Trans>Частка невідома. Оновіть сторінку</Trans>
                   </p>
                 )}
               </div>

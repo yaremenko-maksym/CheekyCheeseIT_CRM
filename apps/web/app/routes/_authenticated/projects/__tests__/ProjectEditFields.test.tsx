@@ -20,10 +20,19 @@
  *    reaches submit.
  */
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { useForm } from '@tanstack/react-form'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ProjectEditFields } from '../$projectId'
+
+// task-i18n-stage3a (Task 1) blast-radius: `ProjectEditFields` renders
+// `ImageUploadField` (`components/ui/`), which now calls `useLingui()` —
+// outside this file's own perimeter (`routes/_authenticated/projects/**`
+// migrates in a later wave), so only the render wrapper changes here.
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -101,22 +110,24 @@ function Harness({
     onSubmit: async ({ value }) => onSubmit(value),
   })
   return (
-    <QueryClientProvider client={new QueryClient()}>
-      <ProjectEditFields
-        form={form}
-        mode="info"
-        canEditOverride={canEditOverride}
-        defaultSharePercent={26}
-        defaultDropSharePercent={defaultDropSharePercent}
-        dropId={dropId}
-        viewerRole={viewerRole}
-        projectId="project-1"
-        pendingShare={pendingShare ?? null}
-      />
-      <button type="button" data-testid="harness-submit" onClick={() => void form.handleSubmit()}>
-        Submit
-      </button>
-    </QueryClientProvider>
+    <I18nTestProvider>
+      <QueryClientProvider client={new QueryClient()}>
+        <ProjectEditFields
+          form={form}
+          mode="info"
+          canEditOverride={canEditOverride}
+          defaultSharePercent={26}
+          defaultDropSharePercent={defaultDropSharePercent}
+          dropId={dropId}
+          viewerRole={viewerRole}
+          projectId="project-1"
+          pendingShare={pendingShare ?? null}
+        />
+        <button type="button" data-testid="harness-submit" onClick={() => void form.handleSubmit()}>
+          Submit
+        </button>
+      </QueryClientProvider>
+    </I18nTestProvider>
   )
 }
 

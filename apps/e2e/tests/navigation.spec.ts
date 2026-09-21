@@ -10,6 +10,7 @@
  */
 
 import { test, expect, API_GLOB } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // ---------------------------------------------------------------------------
 // Routes visible to ALL roles (except JUNIOR for interviews)
@@ -22,15 +23,15 @@ const COMMON_ROUTES: { label: string; href: string; testid?: string }[] = [
   // Dashboard — role-specific component, verified by URL.
   { label: 'Дашборд', href: '/' },
   // Profile — h1 is user display name (identity, not nav-dup); verified by URL.
-  { label: 'Профиль', href: '/profile' },
+  { label: 'Профіль', href: '/profile' },
   // Team list — h1 removed; verify by URL (SENIOR redirects to detail with team h1).
   { label: 'Команда', href: '/team' },
   // Projects — h1 removed; verify by URL.
-  { label: 'Проекты', href: '/projects' },
+  { label: 'Проєкти', href: '/projects' },
   // Finance — h1 removed; data-testid="finance-page" added.
-  { label: 'Финансы', href: '/finance', testid: 'finance-page' },
+  { label: 'Фінанси', href: '/finance', testid: 'finance-page' },
   // Documents — h1 removed; data-testid="documents-page" added.
-  { label: 'Документы', href: '/documents', testid: 'documents-page' },
+  { label: 'Документи', href: '/documents', testid: 'documents-page' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -117,7 +118,7 @@ test.describe('ADMIN sidebar navigation', () => {
     })
   }
 
-  test('sidebar → Собеседования stays in CRM', async ({ asAdmin: page }) => {
+  test('sidebar → Співбесіди stays in CRM', async ({ asAdmin: page }) => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
 
@@ -166,7 +167,7 @@ test.describe('ADMIN sidebar navigation', () => {
 
 test.describe('SENIOR sidebar navigation', () => {
   const seniorRoutes = COMMON_ROUTES.concat([
-    { label: 'Собеседования', href: '/interviews', testid: 'interviews-page' },
+    { label: 'Співбесіди', href: '/interviews', testid: 'interviews-page' },
   ])
 
   // Deterministic readiness instead of `networkidle`: the SENIOR `/` дашборд
@@ -219,7 +220,7 @@ test.describe('SENIOR sidebar navigation', () => {
 
 test.describe('HR sidebar navigation', () => {
   const hrRoutes = COMMON_ROUTES.concat([
-    { label: 'Собеседования', href: '/interviews', testid: 'interviews-page' },
+    { label: 'Співбесіди', href: '/interviews', testid: 'interviews-page' },
   ])
 
   async function assertNavigatedTo(page: import('@playwright/test').Page, href: string) {
@@ -249,8 +250,8 @@ test.describe('HR sidebar navigation', () => {
 
 // ---------------------------------------------------------------------------
 // JUNIOR sidebar navigation (phase 2 UX, extended by task-pending-screen)
-// Дашборд / Команда / Проекты / Собеседования are HIDDEN for JUNIOR.
-// Visible: Мой проект · Легенда · Ждут решения · Финансы · Документы · Профиль.
+// Дашборд / Команда / Проєкти / Співбесіди are HIDDEN for JUNIOR.
+// Visible: Мій проект · Легенда · Ждут решения · Фінанси · Документи · Профіль.
 // «Ждут решения» (task-pending-screen, task addendum: "пункт в сайдбаре у
 // всех ролей — у каждой есть хотя бы контракт") is the one item on this list
 // route-access.ts marks ALL_ROLES rather than a JUNIOR-specific allow-list —
@@ -261,10 +262,10 @@ test.describe('HR sidebar navigation', () => {
 // Routes that JUNIOR actually sees in the sidebar (junior-nav testid).
 // Generic h1 headings removed (§1 detitle); anchors: junior-hub, finance-page, documents-page.
 const JUNIOR_ROUTES: { label: string; href: string; testid?: string }[] = [
-  { label: 'Мой проект', href: '/project', testid: 'junior-hub' },
-  { label: 'Профиль', href: '/profile' },
-  { label: 'Финансы', href: '/finance', testid: 'finance-page' },
-  { label: 'Документы', href: '/documents', testid: 'documents-page' },
+  { label: 'Мій проект', href: '/project', testid: 'junior-hub' },
+  { label: 'Профіль', href: '/profile' },
+  { label: 'Фінанси', href: '/finance', testid: 'finance-page' },
+  { label: 'Документи', href: '/documents', testid: 'documents-page' },
 ]
 
 test.describe('JUNIOR sidebar navigation', () => {
@@ -292,16 +293,20 @@ test.describe('JUNIOR sidebar navigation', () => {
     })
   }
 
-  test('JUNIOR does not see Команда, Проекты, Дашборд, Собеседования in sidebar', async ({
+  test('JUNIOR does not see Команда, Проєкти, Дашборд, Співбесіди in sidebar', async ({
     asJunior: page,
   }) => {
+    // task-i18n-stage3a (Task 1), SPEC-H-1: assert against the live `uk`
+    // catalog, not a literal that could drift from what nav-sidebar.tsx
+    // actually renders after a future copy change.
+    const uk = await loadMessages('uk')
     await page.goto('/project')
     const nav = page.getByTestId('junior-nav')
     await expect(nav).toBeVisible()
-    await expect(nav.getByText('Команда')).not.toBeVisible()
-    await expect(nav.getByText('Проекты')).not.toBeVisible()
-    await expect(nav.getByText('Дашборд')).not.toBeVisible()
-    await expect(nav.getByText('Собеседования')).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Команда'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Проєкти'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Дашборд'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Співбесіди'))).not.toBeVisible()
   })
 })
 

@@ -17,11 +17,10 @@
  */
 import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { formatDistanceToNow } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { ArrowRight, Bell, CheckCheck, Inbox, Trash2 } from 'lucide-react'
 import type { Notification } from '@crm/shared'
-import { renderNotification } from '@crm/shared'
+import { renderNotification, formatRelativeTime } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -30,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import {
   useNotificationsList,
   useDeleteNotification,
@@ -54,14 +54,6 @@ function normalizeLegacyLink(link: string): string {
   return link
 }
 
-function fmtRelative(iso: string): string {
-  try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ru })
-  } catch {
-    return iso
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -81,6 +73,8 @@ interface NotificationsBellProps {
 export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
+  const { t } = useLingui()
+  const locale = useLocale()
   const { data, isLoading } = useNotificationsList({ limit: 10, enabled })
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
@@ -125,7 +119,7 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
           variant="ghost"
           size="icon"
           className="relative h-11 w-11 cursor-pointer sm:h-9 sm:w-9"
-          aria-label="Уведомления"
+          aria-label={t`Сповіщення`}
           data-testid="notifications-bell-trigger"
         >
           <Bell className="h-4 w-4" />
@@ -145,7 +139,9 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
         data-testid="notifications-bell-dropdown"
       >
         <header className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
-          <h3 className="text-sm font-semibold tracking-tight">Уведомления</h3>
+          <h3 className="text-sm font-semibold tracking-tight">
+            <Trans>Сповіщення</Trans>
+          </h3>
           <Button
             variant="ghost"
             size="sm"
@@ -155,7 +151,7 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
             data-testid="notifications-mark-all-read"
           >
             <CheckCheck className="h-3 w-3" />
-            Прочитать всё
+            <Trans>Прочитати все</Trans>
           </Button>
         </header>
 
@@ -171,13 +167,15 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
             data-testid="notifications-empty"
           >
             <Inbox className="h-8 w-8 text-muted-foreground/40" />
-            <p className="mt-2 text-sm font-medium">Уведомлений нет</p>
+            <p className="mt-2 text-sm font-medium">
+              <Trans>Сповіщень немає</Trans>
+            </p>
             {/* COPY-M-6 = UX-M-1 (copy + design review круг 1, #664): строка
               досталась от #620 и диффом не тронута, но именно этот дифф
               сделал её ложной — попап теперь несёт не только инвойсы, а
               «инвойс» вдобавок слово из `_Избегать_` (CONTEXT.md: «Счёт»). */}
             <p className="mt-1 text-xs text-muted-foreground">
-              Здесь появятся события по вашим проектам, деньгам и документам
+              <Trans>Тут з’являться події за вашими проєктами, грошима та документами</Trans>
             </p>
           </div>
         ) : (
@@ -284,7 +282,7 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
                           </p>
                         ) : null}
                         <p className="mt-1 text-[11px] text-muted-foreground/70">
-                          {fmtRelative(n.createdAt)}
+                          {formatRelativeTime(n.createdAt, locale)}
                         </p>
                       </div>
                       {!n.readAt ? (
@@ -301,8 +299,8 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
                         deleteNotification.mutate(n.id)
                       }}
                       disabled={deleteNotification.isPending}
-                      aria-label="Удалить уведомление"
-                      title="Удалить уведомление"
+                      aria-label={t`Видалити сповіщення`}
+                      title={t`Видалити сповіщення`}
                       className="mr-2 mt-3 inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover/notif:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
                       data-testid={`notification-item-${n.id}-delete`}
                     >
@@ -331,7 +329,7 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
             className="flex min-h-11 items-center justify-center gap-1 px-4 py-2.5 text-xs font-medium text-primary hover:underline"
             data-testid="notifications-bell-footer-pending-link"
           >
-            Всё, что ждёт решения
+            <Trans>Усе, що чекає рішення</Trans>
             <ArrowRight className="h-3 w-3" aria-hidden />
           </Link>
         </footer>

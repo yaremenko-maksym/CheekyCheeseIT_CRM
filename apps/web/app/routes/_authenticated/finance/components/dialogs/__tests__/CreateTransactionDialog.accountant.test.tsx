@@ -13,6 +13,7 @@
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // ── Mutable auth role so each test can pick the persona ─────────────────────
 let currentRole = 'ADMIN'
@@ -58,11 +59,12 @@ const ADMIN_SET_TESTIDS = [
 ]
 
 function renderDialog() {
-  return render(<CreateTransactionDialog open onClose={() => {}} />)
+  return render(<CreateTransactionDialog open onClose={() => {}} />, { wrapper: I18nTestProvider })
 }
 
 describe('CreateTransactionDialog — ACCOUNTANT/ADMIN type parity', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
     currentRole = 'ADMIN'
   })
 

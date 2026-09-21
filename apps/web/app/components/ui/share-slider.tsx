@@ -1,3 +1,6 @@
+import { msg } from '@lingui/core/macro'
+import { useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { cn } from '@/lib/utils'
 
 /**
@@ -9,8 +12,8 @@ import { cn } from '@/lib/utils'
  *
  * matching the natural reading order "company pays role X%".
  *
- * Field labels in the parent form follow the same convention — "Доля
- * синьора (%)" / «Доля дропа (%)» describes what `value` controls.
+ * Field labels in the parent form follow the same convention — "Частка
+ * синьйора (%)" / «Частка дропа (%)» describes what `value` controls.
  * The number badge inside each bar is suffixed with the role label when
  * there's enough room (≥ 12%); below that it's shown as a bare percentage.
  *
@@ -30,12 +33,24 @@ import { cn } from '@/lib/utils'
  *    verbatim; the DROP-create form passes `'DROP'` to surface the
  *    Drop-specific wording. New roles can extend the map without
  *    touching call sites.
+ *
+ * task-i18n-stage3a (Task 1), COPY-M-core-10 — this map is PRIVATE to the
+ * component (never exported), so there is no external consumer pinned to
+ * the old Russian text the way `role-select.tsx`'s `ROLE_LABELS` has eight
+ * — no legacy/canon split needed, this is a straight in-place migration.
+ * The old map also mixed grammatical case between roles (`'синьор'`
+ * nominative vs `'дропу'` dative) — fixed here to genitive for both,
+ * matching the already-canon `ArchivePendingTransactionsList.tsx` pattern
+ * (`Дохід синьйора`, `Дохід дропа`).
  */
 type ShareSliderRole = 'SENIOR' | 'DROP'
 
-const ROLE_LABELS: Record<ShareSliderRole, { side: string; aria: string }> = {
-  SENIOR: { side: 'синьор', aria: 'Доля синьора в процентах' },
-  DROP: { side: 'дропу', aria: 'Доля дропа в процентах' },
+const ROLE_LABEL_MESSAGES: Record<
+  ShareSliderRole,
+  { side: MessageDescriptor; aria: MessageDescriptor }
+> = {
+  SENIOR: { side: msg`сеньйора`, aria: msg`Частка сеньйора у відсотках` },
+  DROP: { side: msg`дропа`, aria: msg`Частка дропа у відсотках` },
 }
 
 export function ShareSlider({
@@ -61,26 +76,30 @@ export function ShareSlider({
   inputTestId?: string
   role?: ShareSliderRole
 }) {
+  const { i18n, t } = useLingui()
   const clamp = (n: number) => Math.min(max, Math.max(min, n))
   const seniorPct = value
   const companyPct = 100 - seniorPct
-  const labels = ROLE_LABELS[role]
+  const roleMessages = ROLE_LABEL_MESSAGES[role]
+  const sideLabel = i18n._(roleMessages.side)
+  const ariaLabel = i18n._(roleMessages.aria)
+  const companyLabel = t`компанії`
   return (
     <div className={cn('space-y-3', disabled && 'opacity-60')}>
       <div className="relative h-7 rounded-md overflow-hidden flex text-[11px] font-medium select-none">
         <div
           className="flex items-center justify-center bg-primary/20 text-primary transition-all duration-150 whitespace-nowrap overflow-hidden"
           style={{ width: `${companyPct}%` }}
-          title={`${companyPct}% компания`}
+          title={`${companyPct}% ${companyLabel}`}
         >
-          {companyPct >= 12 ? `${companyPct}% компания` : `${companyPct}%`}
+          {companyPct >= 12 ? `${companyPct}% ${companyLabel}` : `${companyPct}%`}
         </div>
         <div
           className="flex items-center justify-center bg-emerald-500/20 text-emerald-400 transition-all duration-150 whitespace-nowrap overflow-hidden"
           style={{ width: `${seniorPct}%` }}
-          title={`${seniorPct}% ${labels.side}`}
+          title={`${seniorPct}% ${sideLabel}`}
         >
-          {seniorPct >= 12 ? `${seniorPct}% ${labels.side}` : `${seniorPct}%`}
+          {seniorPct >= 12 ? `${seniorPct}% ${sideLabel}` : `${seniorPct}%`}
         </div>
       </div>
       <div className="flex items-center gap-3">
@@ -97,7 +116,7 @@ export function ShareSlider({
             'flex-1 h-2 accent-primary cursor-pointer',
             disabled && 'cursor-not-allowed',
           )}
-          aria-label={labels.aria}
+          aria-label={ariaLabel}
         />
         <input
           type="number"
@@ -119,7 +138,7 @@ export function ShareSlider({
             error && 'border-destructive',
             disabled && 'cursor-not-allowed bg-muted',
           )}
-          aria-label={labels.aria}
+          aria-label={ariaLabel}
         />
       </div>
     </div>

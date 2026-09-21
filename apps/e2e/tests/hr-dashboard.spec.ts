@@ -12,6 +12,7 @@
  */
 
 import { test, expect } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
 const CRM_ROOT = /\/?$/
@@ -20,13 +21,20 @@ const CRM_ROOT = /\/?$/
 
 test.describe('A. HR dashboard dispatch', () => {
   test('HR on /crm sees the HR hub (not general dashboard)', async ({ asHr: page }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
 
     const hub = page.getByTestId('hr-dashboard-hub')
     await expect(hub).toBeVisible({ timeout: 8_000 })
-    await expect(hub.getByRole('heading', { level: 1 })).toContainText('Дашборд')
-    await expect(hub).toContainText('Рекрутинг хаб HR-менеджера')
+    await expect(hub.getByRole('heading', { level: 1 })).toContainText(
+      assertInCatalog(uk, 'Дашборд'),
+    )
+    // NOTE: "Рекрутинг хаб HR-менеджера" — pre-existing/out-of-scope: no
+    // such text exists anywhere in HRDashboard.tsx any more (page-h1
+    // subtitles were removed project-wide, #243/#244, unrelated to this
+    // wave). Not fixed here — this fix round is copy-review + i18n-migration
+    // scoped, not a general E2E-debt sweep.
 
     // Other role hubs must NOT appear for HR.
     await expect(page.getByTestId('accountant-dashboard-hub')).toHaveCount(0)
@@ -44,12 +52,12 @@ test.describe('B. HR hub — KPI cards', () => {
     const open = page.getByTestId('kpi-open-interviews')
     await expect(open).toBeVisible()
     await expect(open).toContainText('3')
-    await expect(open).toContainText('Открытые собеседования')
+    await expect(open).toContainText('Відкриті співбесіди')
 
     const hired = page.getByTestId('kpi-hired-month')
     await expect(hired).toBeVisible()
     await expect(hired).toContainText('1')
-    await expect(hired).toContainText('Нанято за месяц')
+    await expect(hired).toContainText('Найнято за місяць')
 
     const salary = page.getByTestId('kpi-my-salary')
     await expect(salary).toBeVisible()

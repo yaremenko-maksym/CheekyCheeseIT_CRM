@@ -535,8 +535,8 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // PhoneInput is `react-phone-number-input` — the underlying text input
-      // has placeholder "Номер телефона". Focus it, type partial digits, blur.
-      const phoneInput = page.getByRole('dialog').getByPlaceholder('Номер телефона')
+      // has placeholder "Номер телефону". Focus it, type partial digits, blur.
+      const phoneInput = page.getByRole('dialog').getByPlaceholder('Номер телефону')
       await phoneInput.focus()
       await phoneInput.fill('123')
       // Tab moves focus away → triggers onBlur validator.

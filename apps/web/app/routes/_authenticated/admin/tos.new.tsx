@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { TosPdfPreview } from '@/components/admin/TosPdfPreview'
@@ -47,6 +48,7 @@ interface TosVersionRow {
 }
 
 function TosNewPage() {
+  const { t } = useLingui()
   const navigate = useNavigate()
   const qc = useQueryClient()
 
@@ -71,7 +73,7 @@ function TosNewPage() {
       return api.post('/tos', { bodyMarkdown: currentBody })
     },
     onSuccess: () => {
-      toast.success('Новая версия ToS опубликована. Пользователи увидят уведомление.')
+      toast.success(t`Нову версію умов використання опубліковано. Користувачі побачать сповіщення.`)
       void qc.invalidateQueries({ queryKey: ['tos-current'] })
       void qc.invalidateQueries({ queryKey: ['tos-versions-all'] })
       void qc.invalidateQueries({ queryKey: ['onboarding-status'] })
@@ -79,7 +81,7 @@ function TosNewPage() {
       void navigate({ to: '/admin/tos' })
     },
     onError: () => {
-      toast.error('Ошибка при публикации версии ToS')
+      toast.error(t`Помилка під час публікації версії умов використання`)
       setShowConfirm(false)
     },
   })
@@ -103,16 +105,22 @@ function TosNewPage() {
             size="icon"
             onClick={() => void navigate({ to: '/admin/tos' })}
             data-testid="back-button"
-            aria-label="Назад к ToS"
+            aria-label={t`Назад до умов використання`}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h2 className="text-lg font-semibold">Новая версия ToS</h2>
+            <h2 className="text-lg font-semibold">
+              <Trans>Нова версія умов</Trans>
+            </h2>
             <p className="text-xs text-muted-foreground">
-              {currentTos
-                ? `Следующая версия: v${currentTos.version + 1} (текущая — v${currentTos.version})`
-                : 'Первая версия'}
+              {currentTos ? (
+                <Trans>
+                  Наступна версія: v{currentTos.version + 1} (поточна — v{currentTos.version})
+                </Trans>
+              ) : (
+                <Trans>Перша версія</Trans>
+              )}
             </p>
           </div>
         </div>
@@ -126,14 +134,14 @@ function TosNewPage() {
             data-testid="preview-tos-button"
           >
             <Eye className="mr-1.5 h-4 w-4" />
-            Предпросмотр
+            <Trans>Попередній перегляд</Trans>
           </Button>
           <Button
             onClick={() => setShowConfirm(true)}
             disabled={publishMutation.isPending || currentBody.trim() === ''}
             data-testid="publish-tos-button"
           >
-            Опубликовать
+            <Trans>Опублікувати</Trans>
           </Button>
         </div>
       </div>
@@ -177,10 +185,10 @@ function TosNewPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Eye className="h-4 w-4" />
-              Предпросмотр ToS
+              <Trans>Попередній перегляд умов</Trans>
             </DialogTitle>
             <DialogDescription>
-              Финальный вид документа Terms of Service — как PDF.
+              <Trans>Фінальний вигляд документа «Умови використання» — як PDF.</Trans>
             </DialogDescription>
           </DialogHeader>
 
@@ -199,7 +207,7 @@ function TosNewPage() {
               onClick={() => setShowPreview(false)}
               data-testid="preview-tos-dialog-close"
             >
-              Закрыть
+              <Trans>Закрити</Trans>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -211,11 +219,13 @@ function TosNewPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Опубликовать новую версию ToS (v{(currentTos?.version ?? 0) + 1})?
+              <Trans>Опублікувати нову версію умов (v{(currentTos?.version ?? 0) + 1})?</Trans>
             </DialogTitle>
             <DialogDescription>
-              Текущая версия ToS будет деактивирована (сохранится в истории). Все пользователи
-              должны будут принять новую версию Terms of Service заново.
+              <Trans>
+                Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають
+                прийняти нову версію умов використання заново.
+              </Trans>
             </DialogDescription>
           </DialogHeader>
           <Suspense fallback={<Skeleton className="h-20 w-full rounded-md" />}>
@@ -227,14 +237,14 @@ function TosNewPage() {
               onClick={() => setShowConfirm(false)}
               data-testid="cancel-button"
             >
-              Отмена
+              <Trans>Скасувати</Trans>
             </Button>
             <Button
               onClick={() => publishMutation.mutate()}
               disabled={publishMutation.isPending}
               data-testid="confirm-publish-tos-button"
             >
-              {publishMutation.isPending ? 'Публикация…' : 'Опубликовать'}
+              {publishMutation.isPending ? <Trans>Публікація…</Trans> : <Trans>Опублікувати</Trans>}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,9 +1,10 @@
 import React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { validatePhoneNumberLength } from 'libphonenumber-js/min'
 import * as RPNInput from 'react-phone-number-input'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { PhoneInput } from '../phone-input'
 
 // ---------------------------------------------------------------------------
@@ -134,7 +135,16 @@ describe('checkIfValidInput', () => {
 // Component integration tests
 // ---------------------------------------------------------------------------
 
-// Controlled wrapper so RPNInput receives updated value on every onChange
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
+/**
+ * Controlled wrapper so RPNInput receives updated value on every onChange.
+ *
+ * task-i18n-stage3a (Task 1): wraps with `I18nTestProvider` here — `PhoneInput`
+ * now calls `useLingui()` (SPEC-H-1).
+ */
 function ControlledPhoneInput({
   defaultCountry = 'UA' as RPNInput.Country,
   onChange,
@@ -144,21 +154,23 @@ function ControlledPhoneInput({
 }) {
   const [value, setValue] = React.useState<RPNInput.Value>('' as RPNInput.Value)
   return (
-    <PhoneInput
-      value={value}
-      onChange={(v) => {
-        setValue(v)
-        onChange(v)
-      }}
-      defaultCountry={defaultCountry}
-    />
+    <I18nTestProvider>
+      <PhoneInput
+        value={value}
+        onChange={(v) => {
+          setValue(v)
+          onChange(v)
+        }}
+        defaultCountry={defaultCountry}
+      />
+    </I18nTestProvider>
   )
 }
 
 function setup(defaultCountry: RPNInput.Country = 'UA') {
   const onChange = vi.fn()
   render(<ControlledPhoneInput defaultCountry={defaultCountry} onChange={onChange} />)
-  const input = screen.getByPlaceholderText('Номер телефона')
+  const input = screen.getByPlaceholderText('Номер телефону')
   return { input, onChange }
 }
 
@@ -187,13 +199,15 @@ describe('PhoneInput component', () => {
     const user = userEvent.setup({ delay: null })
     const onChange = vi.fn()
     render(
-      <PhoneInput
-        value={'+3806612345678' as RPNInput.Value}
-        onChange={onChange}
-        defaultCountry="UA"
-      />,
+      <I18nTestProvider>
+        <PhoneInput
+          value={'+3806612345678' as RPNInput.Value}
+          onChange={onChange}
+          defaultCountry="UA"
+        />
+      </I18nTestProvider>,
     )
-    const input = screen.getByPlaceholderText('Номер телефона')
+    const input = screen.getByPlaceholderText('Номер телефону')
     onChange.mockClear()
     await user.type(input, '9')
     expect(onChange).not.toHaveBeenCalled()
@@ -225,7 +239,7 @@ describe('PhoneInput component', () => {
     const trigger = screen.getByRole('button')
     await user.click(trigger)
     // Wait for Radix Popover portal to mount before typing into search input
-    const searchInput = await waitFor(() => screen.getByPlaceholderText('Поиск страны...'), {
+    const searchInput = await waitFor(() => screen.getByPlaceholderText('Пошук країни…'), {
       timeout: 5000,
     })
     await user.type(searchInput, searchQuery)

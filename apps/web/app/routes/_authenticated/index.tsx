@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Briefcase, CalendarClock, Clock, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/context/auth'
@@ -111,6 +112,7 @@ function CrmDashboard() {
 function AdminDashboard() {
   const qc = useQueryClient()
   const { data: summary, isLoading, isError } = useAdminSummary()
+  const { t } = useLingui()
 
   // One row-action dialog open at a time. Each holds the TransactionDto adapted
   // from the slim admin-summary row (ActiveTransactionsTable builds it). The
@@ -158,9 +160,11 @@ function AdminDashboard() {
         ) : isError || !kpis ? (
           <Card data-testid="admin-kpi-error">
             <CardContent className="flex flex-col items-center justify-center gap-2 py-10">
-              <p className="text-sm text-destructive">Не удалось загрузить сводку</p>
+              <p className="text-sm text-destructive">
+                <Trans>Не вдалося завантажити зведення</Trans>
+              </p>
               <p className="text-xs text-muted-foreground">
-                Обновите страницу или попробуйте позже
+                <Trans>Оновіть сторінку або спробуйте пізніше</Trans>
               </p>
             </CardContent>
           </Card>
@@ -174,7 +178,7 @@ function AdminDashboard() {
           >
             <motion.div variants={item} className="h-full" data-testid="kpi-active-projects">
               <KpiCard
-                title="Активных проектов"
+                title={t`Активних проєктів`}
                 value={String(kpis.activeProjects)}
                 icon={<Briefcase className="h-5 w-5" />}
                 color="default"
@@ -183,7 +187,7 @@ function AdminDashboard() {
             </motion.div>
             <motion.div variants={item} className="h-full" data-testid="kpi-employees">
               <KpiCard
-                title="Сотрудников"
+                title={t`Співробітників`}
                 value={String(kpis.employees)}
                 icon={<Users className="h-5 w-5" />}
                 color="default"
@@ -192,7 +196,7 @@ function AdminDashboard() {
             </motion.div>
             <motion.div variants={item} className="h-full" data-testid="kpi-projects-unpaid">
               <KpiCard
-                title="Проектов не оплачено в этом месяце"
+                title={t`Проєктів не оплачено цього місяця`}
                 value={String(kpis.projectsUnpaidThisMonth)}
                 icon={<CalendarClock className="h-5 w-5" />}
                 color="default"
@@ -201,7 +205,7 @@ function AdminDashboard() {
             </motion.div>
             <motion.div variants={item} className="h-full" data-testid="kpi-active-interviews">
               <KpiCard
-                title="Собеседований"
+                title={t`Співбесід`}
                 value={String(kpis.activeInterviews)}
                 icon={<Clock className="h-5 w-5" />}
                 color="default"
@@ -219,7 +223,9 @@ function AdminDashboard() {
         <motion.div initial={item.hidden} animate={item.show}>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Активные транзакции</CardTitle>
+              <CardTitle className="text-base">
+                <Trans>Активні транзакції</Trans>
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <ActiveTransactionsTable

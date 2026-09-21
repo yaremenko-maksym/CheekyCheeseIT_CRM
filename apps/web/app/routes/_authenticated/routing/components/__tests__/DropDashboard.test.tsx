@@ -18,6 +18,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // ── Mock hooks ──────────────────────────────────────────────────────────────
 
@@ -142,15 +143,20 @@ function makeTx(overrides: Partial<TransactionDto>): TransactionDto {
 
 function renderDashboard() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // task-i18n-stage3a (Task 1) blast-radius: `DropDashboard` renders the
+  // shared `InProgressPanel`/`PendingProjectApprovalsPanel` (`routing/components/`),
+  // which now call `useLingui()`/`Trans` — outside this file's own perimeter.
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
   )
   return render(<DropDashboard />, { wrapper })
 }
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 
-beforeEach(() => {
+beforeEach(async () => {
   useDropSummaryMock.mockReset()
   useDropProjectsMock.mockReset()
   getTransactionsMock.mockReset()
@@ -158,6 +164,7 @@ beforeEach(() => {
   payoutDialogSpy.mockReset()
   payoutDetailDialogSpy.mockReset()
   getTransactionsMock.mockResolvedValue([])
+  await loadCatalog('uk')
 })
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -182,8 +189,19 @@ describe('DropDashboard', () => {
     useDropProjectsMock.mockReturnValue({ data: makeDropProjects(), isLoading: false })
     renderDashboard()
     expect(screen.getByTestId('drop-kpi-error')).toBeInTheDocument()
-    expect(screen.getByText('Не удалось загрузить сводку')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося завантажити зведення')).toBeInTheDocument()
   })
+
+  // Independent of the component's own implementation — computed straight
+  // from `Intl`, the same source `format.spec.ts` uses (formatMoney is
+  // `<amount> <CODE>`, not the old $-prefixed toLocaleString). jest-dom's
+  // `toHaveTextContent` normalizes ALL whitespace in the rendered DOM text —
+  // including uk-UA's U+00A0 grouping separator — to a plain space, so the
+  // expected string is normalized the same way here.
+  const ukMoney = (n: number) =>
+    new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      .format(n)
+      .replace(/\s/g, ' ') + ' USD'
 
   describe('KPI cards (senior-style layout)', () => {
     beforeEach(() => {
@@ -208,45 +226,105 @@ describe('DropDashboard', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-active-projects')
       expect(card).toHaveTextContent('2')
-      expect(card).toHaveTextContent('Активные проекты')
+      expect(card).toHaveTextContent('Активні проєкти')
+      // MUT-1 (fix-round 2): the card's `sub` — a SEPARATE `t\`...\`` call
+      // site from its `title`, above.
+      expect(card).toHaveTextContent('Проєкти, де ви дроп')
     })
 
     it('shows balance and dropSharePercent from useDropSummary', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-balance')
-      expect(card).toHaveTextContent('$3,200.00')
+      expect(card).toHaveTextContent(ukMoney(3200))
       expect(card).toHaveTextContent('30%')
+      // MUT-1 (fix-round 2): the card's own `title` — nothing pinned it
+      // before (only its `value`/`sub` were asserted).
+      expect(card).toHaveTextContent('Мій баланс (частка)')
     })
 
     // task-drop-sees-own-obligations (§AC1/§AC2): the core bug this task
     // fixes — the hub must show what the company owes, as a card SEPARATE
-    // from «Мой баланс» (never summed into $3,200.00 + $800.48).
+    // from «Мій баланс» (never summed into 3 200,00 + 800,48).
     it('shows pendingObligationAmount from useDropSummary, distinct from balance', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-pending-obligation')
-      expect(card).toHaveTextContent('$800.48')
-      expect(card).toHaveTextContent('Начислений: 2')
-      expect(card).not.toHaveTextContent('$4,000.48')
+      expect(card).toHaveTextContent(ukMoney(800.48))
+      // MUT-1 (fix-round 2): the card's own `title` — nothing pinned it before.
+      expect(card).toHaveTextContent('Очікує виплати')
+      // pendingObligationCount: 2 → uk CLDR 'few' category (2-4, not 12-14).
+      expect(card).toHaveTextContent('2 зобов’язання')
+      expect(card).not.toHaveTextContent(ukMoney(4000.48))
       const balanceCard = screen.getByTestId('drop-kpi-balance')
-      expect(balanceCard).toHaveTextContent('$3,200.00')
-      expect(balanceCard).not.toHaveTextContent('$800.48')
+      expect(balanceCard).toHaveTextContent(ukMoney(3200))
+      expect(balanceCard).not.toHaveTextContent(ukMoney(800.48))
     })
 
-    it('shows «Нет начислений» when pendingObligationCount is 0', () => {
+    it('shows «Немає зобов’язань» when pendingObligationCount is 0', () => {
       useDropSummaryMock.mockReturnValue({
         data: { ...makeDropSummary(), pendingObligationAmount: 0, pendingObligationCount: 0 },
         isLoading: false,
         isError: false,
       })
       renderDashboard()
-      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('Нет начислений')
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent(
+        'Немає зобов’язань',
+      )
+    })
+
+    // CR-M-3 (fix-round 2): PENDING_OBLIGATION_MESSAGE is an ICU plural with
+    // FOUR uk categories (one/few/many/other) — round 1 only exercised
+    // `few` (count: 2) and the separate count:0 branch (no plural macro at
+    // all). `one` and `many` were never confirmed to resolve correctly,
+    // which is exactly the mechanism FR-5 (fix-round 1) had to work around
+    // (Stryker + bare `plural()` incompatibility) — untested categories
+    // would have hidden a regression in the SAME mechanism silently.
+    it('shows the CLDR "one" plural form when pendingObligationCount is 1', () => {
+      useDropSummaryMock.mockReturnValue({
+        data: { ...makeDropSummary(), pendingObligationAmount: 400.24, pendingObligationCount: 1 },
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+      // 1 → uk CLDR 'one' category (n%10==1 && n%100!=11).
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('1 зобов’язання')
+    })
+
+    it('shows the CLDR "many" plural form when pendingObligationCount is 5', () => {
+      useDropSummaryMock.mockReturnValue({
+        data: { ...makeDropSummary(), pendingObligationAmount: 2000.0, pendingObligationCount: 5 },
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+      // 5 → uk CLDR 'many' category (n%10 in 5-9, or n%100 in 11-14).
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('5 зобов’язань')
+    })
+
+    it('shows the CLDR "many" plural form when pendingObligationCount is 11 (the n%100 11-14 trap)', () => {
+      useDropSummaryMock.mockReturnValue({
+        data: {
+          ...makeDropSummary(),
+          pendingObligationAmount: 4400.0,
+          pendingObligationCount: 11,
+        },
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+      // 11 → uk CLDR 'many' (n%10==1 would normally be 'one', but n%100==11
+      // is the exception CLDR carves out — this is the case a naive
+      // `n % 10` check gets wrong).
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('11 зобов’язань')
     })
 
     it('shows pendingIncomesCount from useDropSummary', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-pending')
       expect(card).toHaveTextContent('2')
-      expect(card).toHaveTextContent('Приходы в работе')
+      expect(card).toHaveTextContent('Доходи в роботі')
+      // MUT-1 (fix-round 2): the card's `sub` — a SEPARATE `t\`...\`` call
+      // site from its `title`, above.
+      expect(card).toHaveTextContent('Очікують валідації')
     })
   })
 
@@ -305,7 +383,7 @@ describe('DropDashboard', () => {
       renderDashboard()
       expect(await screen.findByTestId('drop-in-progress-row-payout-1')).toBeInTheDocument()
       expect(screen.getByTestId('drop-pay-payout-payout-1')).toBeInTheDocument()
-      expect(screen.getByTestId('drop-pay-payout-payout-1')).toHaveTextContent('Оплатить')
+      expect(screen.getByTestId('drop-pay-payout-payout-1')).toHaveTextContent('Оплатити')
     })
 
     it('«Оплатить» opens PayoutDetailDialog with correct payoutRequestId', async () => {

@@ -1,7 +1,8 @@
 {
   "name": "CRM CheekyCheeseIT",
   "short_name": "CRM CheekyCheeseIT",
-  "description": "We build products that scale — AI · EdTech · E-Commerce",
+  "description": "Робочий простір команди: проєкти, фінанси, документи",
+  "lang": "uk",
   "icons": [
     { "src": "/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },

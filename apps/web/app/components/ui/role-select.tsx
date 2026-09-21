@@ -1,3 +1,6 @@
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
+import { useLingui } from '@lingui/react/macro'
 import type { Role } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -8,6 +11,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
+// task-i18n-stage3a (Task 1), Step 1/2 — legacy export, LEFT UNCHANGED
+// (still a plain `Record<Role, string>`, still Russian): eight consumers
+// outside this wave's perimeter (`components/user-profile/**`,
+// `components/users/**`, several `routes/_authenticated/**` outside the
+// shell) render `{ROLE_LABELS[role]}` as a JSX child directly — swapping
+// the type here to `MessageDescriptor` would fail typecheck on all eight
+// and, where it doesn't, render `[object Object]`. `ROLE_LABEL_MESSAGES` +
+// `useRoleLabel()` below are the new canon for consumers inside this wave's
+// perimeter; the legacy export is removed once wave (b)/(c) migrate the
+// remaining eight (see the plan's "Опасность: ROLE_LABELS").
 export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Администратор',
   SENIOR: 'Синьор',
@@ -18,6 +31,28 @@ export const ROLE_LABELS: Record<Role, string> = {
   // until then we reuse the accountant variant so the badge renders without
   // a dedicated color.
   DROP: 'Дроп',
+}
+
+/**
+ * task-i18n-stage3a (Task 1), Step 1/2 — new canon. `msg` (module level,
+ * `@lingui/core/macro`) fixes each role's SOURCE (`uk`) text as a
+ * `MessageDescriptor`, resolved against the ACTIVE catalog by
+ * `useRoleLabel()` below — never called at module level with `t`/`plural`,
+ * which would freeze the string at import time (Global Constraints).
+ */
+export const ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor> = {
+  ADMIN: msg`Адміністратор`,
+  SENIOR: msg`Сеньйор`,
+  JUNIOR: msg`Джуніор`,
+  HR: msg`HR`,
+  ACCOUNTANT: msg`Бухгалтер`,
+  DROP: msg`Дроп`,
+}
+
+/** Resolves `ROLE_LABEL_MESSAGES[role]` against the active locale — re-renders on locale switch. */
+export function useRoleLabel(role: Role): string {
+  const { i18n } = useLingui()
+  return i18n._(ROLE_LABEL_MESSAGES[role])
 }
 
 export const ROLE_BADGE_VARIANT: Record<Role, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> =
@@ -61,8 +96,9 @@ export function RoleSelect({
   disabled,
   className,
   placeholder,
-  ariaLabel = 'Роль',
+  ariaLabel,
 }: RoleSelectProps) {
+  const { t } = useLingui()
   const list = (roles ?? ALL_ROLES).filter((r) => !exclude?.includes(r))
 
   return (
@@ -71,11 +107,11 @@ export function RoleSelect({
       onValueChange={(v) => onChange(v as Role)}
       {...(disabled !== undefined && { disabled })}
     >
-      <SelectTrigger className={className} aria-label={ariaLabel}>
+      <SelectTrigger className={className} aria-label={ariaLabel ?? t`Роль`}>
         <SelectValue placeholder={placeholder}>
           {value && (
             <Badge variant={ROLE_BADGE_VARIANT[value]} className="text-[11px]">
-              {ROLE_LABELS[value]}
+              <RoleLabel role={value} />
             </Badge>
           )}
         </SelectValue>
@@ -85,7 +121,7 @@ export function RoleSelect({
           <SelectItem key={r} value={r}>
             <div className="flex items-center gap-2">
               <Badge variant={ROLE_BADGE_VARIANT[r]} className="text-[11px]">
-                {ROLE_LABELS[r]}
+                <RoleLabel role={r} />
               </Badge>
             </div>
           </SelectItem>
@@ -93,4 +129,9 @@ export function RoleSelect({
       </SelectContent>
     </Select>
   )
+}
+
+/** Small wrapper so `useRoleLabel` (a hook) is called once per list item's own component, not inside a `.map()` callback body (Rules of Hooks). */
+function RoleLabel({ role }: { role: Role }) {
+  return <>{useRoleLabel(role)}</>
 }

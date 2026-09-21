@@ -26,6 +26,7 @@
  */
 
 import { test, expect, USERS, PROJECTS, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // Origin-agnostic API path prefix — matches both direct (:3001) and proxied (:3000/:3020) origins.
 // RegExp patterns built from this prefix match on path only, so they work regardless of dev port.
@@ -901,46 +902,55 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
     await expect(navLinks).toHaveCount(5)
   })
 
-  test('JUNIOR nav contains Мой проект, Легенда, Финансы, Документы, Профиль', async ({
+  test('JUNIOR nav contains Мій проєкт, Легенда, Фінанси, Документи, Профіль', async ({
     asJunior: page,
   }) => {
     await mockJuniorProjectsAndLegend(page)
+    // task-i18n-stage3a (Task 1), SPEC-H-1: `nav-sidebar.tsx` is migrated —
+    // these labels are `uk` catalog entries now, not the pre-migration
+    // Russian literals this test used to assert.
+    const uk = await loadMessages('uk')
 
     await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
     const nav = page.getByTestId('junior-nav')
-    await expect(nav.getByText('Мой проект')).toBeVisible()
-    await expect(nav.getByText('Легенда')).toBeVisible()
-    await expect(nav.getByText('Финансы')).toBeVisible()
-    await expect(nav.getByText('Документы')).toBeVisible()
-    await expect(nav.getByText('Профиль')).toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Мій проєкт'))).toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Легенда'))).toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Фінанси'))).toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Документи'))).toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Профіль'))).toBeVisible()
   })
 
-  test('JUNIOR nav does NOT contain Дашборд, Команда, Проекты, Собеседования', async ({
+  test('JUNIOR nav does NOT contain Дашборд, Команда, Проєкти, Співбесіди', async ({
     asJunior: page,
   }) => {
     await mockJuniorProjectsAndLegend(page)
+    const uk = await loadMessages('uk')
 
     await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
     const nav = page.getByTestId('junior-nav')
-    await expect(nav.getByText('Дашборд')).not.toBeVisible()
-    await expect(nav.getByText('Команда')).not.toBeVisible()
-    await expect(nav.getByText('Проекты')).not.toBeVisible()
-    await expect(nav.getByText('Собеседования')).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Дашборд'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Команда'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Проєкти'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Співбесіди'))).not.toBeVisible()
   })
 
   test('Regression — ADMIN nav is unaffected (no junior-nav testid, more items visible)', async ({
     asAdmin: page,
   }) => {
+    // task-i18n-stage3a (Task 1), SPEC-H-1: nav-sidebar.tsx is migrated to
+    // uk — the pre-migration 'Проекты' (Russian) literal never matches the
+    // current uk 'Проєкти' and silently timed out.
+    const uk = await loadMessages('uk')
     await page.goto('/team')
 
     await expect(page.getByTestId('junior-nav')).not.toBeVisible()
 
-    await expect(page.getByRole('link', { name: 'Команда' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Проекты' })).toBeVisible()
+    await expect(page.getByRole('link', { name: assertInCatalog(uk, 'Команда') })).toBeVisible()
+    await expect(page.getByRole('link', { name: assertInCatalog(uk, 'Проєкти') })).toBeVisible()
   })
 
   test('Regression — SENIOR nav is unaffected', async ({ asSenior: page }) => {

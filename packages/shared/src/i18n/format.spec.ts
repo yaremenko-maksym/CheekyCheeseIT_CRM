@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { compareNames, formatDate, formatMoney, formatNumber } from './format'
+import { compareNames, formatDate, formatMoney, formatNumber, formatRelativeTime } from './format'
 
 describe('format', () => {
   afterEach(() => {
@@ -34,6 +34,26 @@ describe('format', () => {
       }).format(d),
     )
     expect(long).not.toBe(formatDate(d, 'en'))
+  })
+  it("the month style is a short month name with no day/year, unlike 'short'/'long'", () => {
+    const d = new Date(Date.UTC(2026, 0, 1))
+    const month = formatDate(d, 'uk', 'month')
+    expect(month).toBe(
+      new Intl.DateTimeFormat('uk-UA', { month: 'short', timeZone: 'UTC' }).format(d),
+    )
+    expect(month).not.toBe(formatDate(d, 'uk'))
+    expect(month).not.toBe(formatDate(d, 'uk', 'long'))
+  })
+  it("the monthYear style is a full month name + year with no day, unlike 'long'", () => {
+    const d = new Date(Date.UTC(2026, 4, 19))
+    const monthYear = formatDate(d, 'uk', 'monthYear')
+    expect(monthYear).toBe(
+      new Intl.DateTimeFormat('uk-UA', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
+        d,
+      ),
+    )
+    expect(monthYear).not.toBe(formatDate(d, 'uk', 'long'))
+    expect(monthYear).not.toBe(formatDate(d, 'uk', 'month'))
   })
   it('is pinned to UTC regardless of the host timezone', () => {
     // Mutating `process.env.TZ` at runtime and expecting `Intl` to pick up
@@ -86,5 +106,78 @@ describe('format', () => {
   })
   it('formatNumber uses locale separators', () => {
     expect(formatNumber(1000000, 'en')).toBe('1,000,000')
+  })
+
+  describe('formatRelativeTime', () => {
+    it('renders "X minutes ago" per locale', () => {
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+      expect(formatRelativeTime(fiveMinAgo, 'en')).toBe('5 minutes ago')
+    })
+    it('accepts an ISO string the same way it accepts a Date', () => {
+      const tenSecAgo = new Date(Date.now() - 10 * 1000)
+      expect(formatRelativeTime(tenSecAgo.toISOString(), 'en')).toBe(
+        formatRelativeTime(tenSecAgo, 'en'),
+      )
+    })
+    it('picks the largest whole unit — an hour-old timestamp reports hours, not minutes', () => {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      expect(formatRelativeTime(twoHoursAgo, 'en')).toBe('2 hours ago')
+    })
+    it('a future value reports "in X" rather than "X ago"', () => {
+      const inTenMin = new Date(Date.now() + 10 * 60 * 1000)
+      expect(formatRelativeTime(inTenMin, 'en')).toBe('in 10 minutes')
+    })
+    it('under a second reports "now"', () => {
+      expect(formatRelativeTime(new Date(), 'en')).toBe('now')
+    })
+    it('formats per uk locale', () => {
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+      expect(formatRelativeTime(fiveMinAgo, 'uk')).toBe(
+        new Intl.RelativeTimeFormat('uk-UA', { numeric: 'auto' }).format(-5, 'minute'),
+      )
+    })
+
+    // CI-2/CR-H-2 (fix-round 2, @crm/shared mutation gate): the unit-picking
+    // loop's array literal (`units`), its numeric boundaries
+    // (31536000/2592000/86400/3600/60/1), and the `abs >= secondsPerUnit`
+    // comparison were exercised only in the middle of each range (5 min, 2h)
+    // — never at the EXACT boundary where a mutated `>=`→`>` or a mutated
+    // numeric literal would first become observable. Each pair below pins
+    // one boundary from both sides: `at - 1` must still resolve to the
+    // PREVIOUS (smaller) unit, `at` must resolve to the unit itself.
+    const rtfEn = new Intl.RelativeTimeFormat('en-GB', { numeric: 'auto' })
+    const agoMs = (seconds: number) => new Date(Date.now() - seconds * 1000)
+
+    it('day boundary (86400s): 86399s ago is still hours, 86400s ago is a day', () => {
+      expect(formatRelativeTime(agoMs(86399), 'en')).toBe(rtfEn.format(-24, 'hour'))
+      expect(formatRelativeTime(agoMs(86400), 'en')).toBe(rtfEn.format(-1, 'day'))
+    })
+
+    it('month boundary (2592000s): 2591999s ago is still days, 2592000s ago is a month', () => {
+      expect(formatRelativeTime(agoMs(2591999), 'en')).toBe(rtfEn.format(-30, 'day'))
+      expect(formatRelativeTime(agoMs(2592000), 'en')).toBe(rtfEn.format(-1, 'month'))
+    })
+
+    it('year boundary (31536000s): 31535999s ago is still months, 31536000s ago is a year', () => {
+      expect(formatRelativeTime(agoMs(31535999), 'en')).toBe(rtfEn.format(-12, 'month'))
+      expect(formatRelativeTime(agoMs(31536000), 'en')).toBe(rtfEn.format(-1, 'year'))
+    })
+
+    it('hour boundary (3600s): 3599s ago is still minutes, 3600s ago is an hour', () => {
+      expect(formatRelativeTime(agoMs(3599), 'en')).toBe(rtfEn.format(-60, 'minute'))
+      expect(formatRelativeTime(agoMs(3600), 'en')).toBe(rtfEn.format(-1, 'hour'))
+    })
+
+    it('minute boundary (60s): 59s ago is still seconds, 60s ago is a minute', () => {
+      expect(formatRelativeTime(agoMs(59), 'en')).toBe(rtfEn.format(-59, 'second'))
+      expect(formatRelativeTime(agoMs(60), 'en')).toBe(rtfEn.format(-1, 'minute'))
+    })
+
+    it('a future value crosses the same day/month/year boundaries the same way', () => {
+      const inMs = (seconds: number) => new Date(Date.now() + seconds * 1000)
+      expect(formatRelativeTime(inMs(86400), 'en')).toBe(rtfEn.format(1, 'day'))
+      expect(formatRelativeTime(inMs(2592000), 'en')).toBe(rtfEn.format(1, 'month'))
+      expect(formatRelativeTime(inMs(31536000), 'en')).toBe(rtfEn.format(1, 'year'))
+    })
   })
 })

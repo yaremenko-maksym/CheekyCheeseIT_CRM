@@ -18,6 +18,7 @@
  */
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // ── Mutable auth role ────────────────────────────────────────────────────────
 let currentRole = 'ADMIN'
@@ -77,8 +78,12 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 // ── Component ────────────────────────────────────────────────────────────────
 import { CreateTransactionDialog } from '../CreateTransactionDialog'
 
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderDialog() {
-  return render(<CreateTransactionDialog open onClose={() => {}} />)
+  return render(<CreateTransactionDialog open onClose={() => {}} />, { wrapper: I18nTestProvider })
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@
  * NO targeted E2E coverage. Each test maps to a real bug fixed during
  * the drop role rollout:
  *
- *   1. Slider role label for DROP — `aria-label="Доля дропа в процентах"`,
+ *   1. Slider role label for DROP — `aria-label="Частка дропа у відсотках"`,
  *      NOT «Доля синьора». A pre-PR-63 build re-used the senior aria text
  *      and a UX review caught it during user testing.
  *
@@ -28,6 +28,7 @@
 
 import { test, expect, USERS, API_RE } from './fixtures'
 import { VALID_USDT_WALLET } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // task-e2e-origin-agnostic: this used to be an env-derived ABSOLUTE origin
 // (`${E2E_REAL_API_BASE ?? 'http://localhost:3001'}/api`) fixing the earlier
@@ -40,7 +41,7 @@ import { VALID_USDT_WALLET } from './fixtures'
 // silently drift out of sync.
 
 test.describe('Drop create — UI regressions', () => {
-  test('slider for DROP role exposes aria-label «Доля дропа в процентах»', async ({
+  test('slider for DROP role exposes aria-label «Частка дропа у відсотках»', async ({
     asAdmin: page,
   }) => {
     await page.goto('/users')
@@ -52,28 +53,38 @@ test.describe('Drop create — UI regressions', () => {
     await expect(dialog).toBeVisible()
 
     // Both <input type=range> and <input type=number> render with the DROP
-    // aria label. Spec §11 wording: «Доля дропа в процентах».
-    const sliders = dialog.locator('[aria-label="Доля дропа в процентах"]')
+    // aria label. Spec §11 wording: «Частка дропа у відсотках».
+    const sliders = dialog.locator('[aria-label="Частка дропа у відсотках"]')
     // 2 inputs in ShareSlider (range + number) → count must be 2.
     await expect(sliders).toHaveCount(2)
 
     // Senior aria text MUST NOT be present (regression catcher).
-    await expect(dialog.locator('[aria-label="Доля синьора в процентах"]')).toHaveCount(0)
+    // «синьйора» -> «сеньйора» (COPY-H-2). Catalog-checked (COPY-H-7).
+    const uk = await loadMessages('uk')
+    const seniorShareAria = assertInCatalog(uk, 'Частка сеньйора у відсотках')
+    await expect(dialog.locator(`[aria-label="${seniorShareAria}"]`)).toHaveCount(0)
   })
 
-  test('slider for SENIOR role still uses «Доля синьора в процентах» (regression-safe)', async ({
+  test('slider for SENIOR role still uses «Частка сеньйора у відсотках» (regression-safe)', async ({
     asAdmin: page,
   }) => {
     // Sanity: the role-flip didn't accidentally re-label SENIOR sliders too.
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
+    // UserDialog renders the legacy `ROLE_LABELS` map, NOT `RoleSelect` —
+    // «Синьор» until wave (b) migrates its eight consumers (COPY-M-21).
+    // Flip to assertInCatalog(uk, 'Сеньйор') together with those 17 other
+    // call sites, in the same commit that changes ROLE_LABELS.
     await page.getByRole('option', { name: 'Синьор' }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.locator('[aria-label="Доля синьора в процентах"]')).toHaveCount(2)
-    await expect(dialog.locator('[aria-label="Доля дропа в процентах"]')).toHaveCount(0)
+    const seniorShareAria = assertInCatalog(uk, 'Частка сеньйора у відсотках')
+    const dropShareAria = assertInCatalog(uk, 'Частка дропа у відсотках')
+    await expect(dialog.locator(`[aria-label="${seniorShareAria}"]`)).toHaveCount(2)
+    await expect(dialog.locator(`[aria-label="${dropShareAria}"]`)).toHaveCount(0)
   })
 
   test('submit without HR shows inline «Выберите минимум одного HR» error; dialog stays open', async ({

@@ -14,8 +14,23 @@
  * full profile from useUser() that DOES carry them, the edit form's IBAN /
  * RNOKPP / recipient inputs must be prefilled from the full profile.
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render as rtlRender, screen, waitFor, type RenderOptions } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3a (Task 1) blast-radius: `UserDialog` renders the shared
+// `TechAutocompleteInput`/`PhoneInput` (`components/ui/`), which now call
+// `useLingui()` — outside this file's own perimeter (`components/users/**`
+// migrates in a later wave). Shadowing `render` wraps every call site with
+// `I18nTestProvider` in one place.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 

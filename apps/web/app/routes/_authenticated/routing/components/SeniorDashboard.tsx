@@ -2,8 +2,11 @@ import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Briefcase, Clock, TrendingUp } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { formatMoney } from '@crm/shared'
 import type { TransactionDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { useLocale } from '@/lib/i18n'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { KpiCard } from '@/routes/_authenticated/finance/components/KpiCards'
@@ -45,21 +48,6 @@ const card = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-/**
- * USD-only formatter for the aggregated senior-SHARE income figures. Those are
- * a cross-project sum the backend reports as `currency: 'USD'` (see
- * seniorSummarySchema.seniorShareIncome) — they are NOT a single transaction's
- * amount, so they keep the USD display.
- */
-function fmtUsd(value: number): string {
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
 // Income in-progress statuses: PENDING (awaiting validation) + VALIDATED
 // (validated, awaiting payout). PAID is terminal and intentionally excluded.
 const IN_PROGRESS_INCOME_STATUSES = new Set<TransactionDto['status']>(['PENDING', 'VALIDATED'])
@@ -68,6 +56,9 @@ export function SeniorDashboard() {
   const qc = useQueryClient()
   const { user } = useAuth()
   const { data: summary, isLoading, isError } = useSeniorSummary()
+  const { t } = useLingui()
+  const locale = useLocale()
+  const fmtUsd = (value: number) => formatMoney(value, 'USD', locale)
 
   // Self-scoped transactions feed — reuses the SAME query key the finance page
   // uses (['transactions']). The backend `findAll` restricts a SENIOR to rows
@@ -148,9 +139,11 @@ export function SeniorDashboard() {
         ) : isError || !summary ? (
           <Card data-testid="senior-kpi-error">
             <CardContent className="flex flex-col items-center justify-center gap-2 py-10">
-              <p className="text-sm text-destructive">Не удалось загрузить сводку</p>
+              <p className="text-sm text-destructive">
+                <Trans>Не вдалося завантажити зведення</Trans>
+              </p>
               <p className="text-xs text-muted-foreground">
-                Обновите страницу или попробуйте позже
+                <Trans>Оновіть сторінку або спробуйте пізніше</Trans>
               </p>
             </CardContent>
           </Card>
@@ -166,9 +159,9 @@ export function SeniorDashboard() {
             >
               <motion.div variants={card} data-testid="kpi-active-projects">
                 <KpiCard
-                  title="Активные проекты"
+                  title={t`Активні проєкти`}
                   value={String(summary.activeProjects.count)}
-                  sub="Проекты, где вы синьор"
+                  sub={t`Проєкти, де ви сеньйор`}
                   icon={<Briefcase className="h-5 w-5" />}
                   color="blue"
                 />
@@ -176,9 +169,9 @@ export function SeniorDashboard() {
 
               <motion.div variants={card} data-testid="kpi-senior-income">
                 <KpiCard
-                  title="Доход за месяц"
+                  title={t`Дохід за місяць`}
                   value={fmtUsd(summary.seniorShareIncome.thisMonth)}
-                  sub={`Всего: ${fmtUsd(summary.seniorShareIncome.total)}`}
+                  sub={t`Всього: ${fmtUsd(summary.seniorShareIncome.total)}`}
                   icon={<TrendingUp className="h-5 w-5" />}
                   color="green"
                 />
@@ -186,7 +179,7 @@ export function SeniorDashboard() {
 
               <motion.div variants={card} data-testid="kpi-pending-payouts">
                 <KpiCard
-                  title="Ожидают выплаты"
+                  title={t`Очікують виплати`}
                   value={String(summary.pendingPayouts.count)}
                   sub={fmtUsd(summary.pendingPayouts.amount)}
                   icon={<Clock className="h-5 w-5" />}
