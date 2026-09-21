@@ -1264,7 +1264,7 @@ msgstr "Рядок {rowId}: сума рядка і сума фактичних �
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE"
-msgstr "Рядок {rowId}: уже виплачене та перерахована частка обліковані в різних валютах — залишок до доплати в такій парі не обчислюється, потрібна ручна звірка"
+msgstr "Рядок {rowId}: уже виплачене обліковане в {settledCurrency}, а перерахована частка — в {currency}. Залишок до доплати в такій парі не обчислюється, потрібна ручна звірка"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts

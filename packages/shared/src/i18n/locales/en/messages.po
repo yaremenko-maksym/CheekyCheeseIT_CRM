@@ -1264,7 +1264,7 @@ msgstr "Row {rowId}: the row amount and the actual payouts don't match — a man
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE"
-msgstr "Row {rowId}: the amount already paid and the recalculated share are booked in different currencies — the remaining amount can't be computed for this pair, a manual reconciliation is needed"
+msgstr "Row {rowId}: the amount already paid is booked in {settledCurrency}, and the recalculated share is in {currency} — the remaining amount can't be computed for this pair, a manual reconciliation is needed"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
