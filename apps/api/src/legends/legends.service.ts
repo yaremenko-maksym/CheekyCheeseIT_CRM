@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { HttpStatus, Injectable } from '@nestjs/common'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   AddLegendEntryDto,
@@ -9,6 +9,7 @@ import type {
   UpsertLegendDto,
 } from '@crm/shared'
 import { legendSchema } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { legendEntries, legends, projectMembers, projects, users } from '../database/schema'
@@ -120,9 +121,9 @@ export class LegendsService {
       .limit(1)
 
     const project = rows[0]
-    if (!project) throw new NotFoundException('Проект не найден')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (viewer.role !== 'ADMIN' && project.status !== 'ACTIVE') {
-      throw new NotFoundException('Проект не найден')
+      throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     return project
   }
@@ -250,7 +251,7 @@ export class LegendsService {
     const project = await this.loadProject(projectId, viewer)
 
     const allowed = await this.canAccess(viewer, project)
-    if (!allowed) throw new ForbiddenException('Нет доступа к легенде проекта')
+    if (!allowed) throw apiError('LEGEND_ACCESS_DENIED', HttpStatus.FORBIDDEN)
 
     const row = await this.loadLegendRow(projectId)
     if (!row) return null
@@ -278,7 +279,7 @@ export class LegendsService {
     const project = await this.loadProject(projectId, viewer)
 
     const canEdit = await this.canAccess(viewer, project)
-    if (!canEdit) throw new ForbiddenException('Нет доступа к редактированию легенды проекта')
+    if (!canEdit) throw apiError('LEGEND_EDIT_ACCESS_DENIED', HttpStatus.FORBIDDEN)
 
     const now = new Date()
 
@@ -317,7 +318,7 @@ export class LegendsService {
       .returning()
 
     const row = rows[0]
-    if (!row) throw new NotFoundException('Upsert failed — legend not returned')
+    if (!row) throw apiError('LEGEND_UPSERT_FAILED', HttpStatus.NOT_FOUND)
 
     const [entries, defaults] = await Promise.all([
       this.loadEntries(row.id),
@@ -337,15 +338,14 @@ export class LegendsService {
     const project = await this.loadProject(projectId, viewer)
 
     const canEdit = await this.canAccess(viewer, project)
-    if (!canEdit) throw new ForbiddenException('Нет доступа к легенде проекта')
+    if (!canEdit) throw apiError('LEGEND_ACCESS_DENIED', HttpStatus.FORBIDDEN)
 
     const legendRow = await this.loadLegendRow(projectId)
     // Guard against a race with project cascade-delete: if the legend was
     // removed between the canAccess check above and this point, we return
     // 404 (NotFoundException) instead of letting the FK insert fail with a
     // cryptic 500. Callers should upsert the legend first.
-    if (!legendRow)
-      throw new NotFoundException('Легенда проекта не найдена — сначала создайте легенду')
+    if (!legendRow) throw apiError('LEGEND_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     await this.db.db.insert(legendEntries).values({
       legendId: legendRow.id,

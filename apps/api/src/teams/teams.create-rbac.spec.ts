@@ -14,7 +14,7 @@
  * patched.
  */
 
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
@@ -213,7 +213,13 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
 
     await expect(
       service.create('Team X', juniorUser.id, [hrUser.id], accUser.id, adminUser),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'TEAM_UNEXPECTED_USER_ROLE',
+        statusCode: 400,
+        params: { expectedRole: 'SENIOR', actualRole: 'JUNIOR' },
+      },
+    })
   })
 
   it('AC1b: throws BadRequestException when an hrId points to a non-HR user', async () => {
@@ -229,7 +235,13 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
 
     await expect(
       service.create('Team X', seniorUser.id, [seniorUser.id + '-2'], accUser.id, adminUser),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'TEAM_UNEXPECTED_USER_ROLE',
+        statusCode: 400,
+        params: { expectedRole: 'HR', actualRole: 'SENIOR' },
+      },
+    })
   })
 
   it('AC1c: throws BadRequestException when accountantId points to a non-ACCOUNTANT user', async () => {
@@ -244,7 +256,13 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
 
     await expect(
       service.create('Team X', seniorUser.id, [hrUser.id], juniorUser.id, adminUser),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'TEAM_UNEXPECTED_USER_ROLE',
+        statusCode: 400,
+        params: { expectedRole: 'ACCOUNTANT', actualRole: 'JUNIOR' },
+      },
+    })
   })
 
   it('AC1d: throws ForbiddenException when caller role is not ADMIN (create is ADMIN-only per HIGH-2 fix)', async () => {
@@ -288,7 +306,12 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
 
     await expect(
       service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, adminUser),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM',
+        statusCode: 400,
+      }),
+    })
   })
 
   it('AC1g: valid create by ADMIN — all roles correct, senior not in active team', async () => {

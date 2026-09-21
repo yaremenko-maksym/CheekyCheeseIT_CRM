@@ -1,5 +1,3 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
-import { ConflictException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { ContractTemplatesService } from './contract-templates.service'
 import type { DatabaseService } from '../database/database.service'
@@ -139,7 +137,12 @@ describe('ContractTemplatesService', () => {
       const service = new ContractTemplatesService(mockDb as unknown as DatabaseService)
 
       // ADMIN never has a template — service should refuse fetch, not silently return null
-      await expect(service.getCurrentForRole('ADMIN' as never)).rejects.toThrow(ForbiddenException)
+      await expect(service.getCurrentForRole('ADMIN' as never)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'CONTRACT_TEMPLATE_ADMIN_NONE',
+          statusCode: 403,
+        }),
+      })
     })
   })
 
@@ -160,7 +163,9 @@ describe('ContractTemplatesService', () => {
       mockDb.db.query.contractTemplates.findFirst.mockResolvedValue(undefined)
       const service = new ContractTemplatesService(mockDb as unknown as DatabaseService)
 
-      await expect(service.getById('nope')).rejects.toThrow(NotFoundException)
+      await expect(service.getById('nope')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_TEMPLATE_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 
@@ -221,7 +226,12 @@ describe('ContractTemplatesService', () => {
           bodyMarkdown: '# body',
           createdByUserId: 'admin-1',
         }),
-      ).rejects.toThrow(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'CONTRACT_TEMPLATE_ADMIN_PUBLISH_FORBIDDEN',
+          statusCode: 403,
+        }),
+      })
     })
 
     it('starts version at 1 when no previous template exists for role', async () => {
@@ -380,7 +390,12 @@ describe('ContractTemplatesService', () => {
           bodyMarkdown: '# body',
           createdByUserId: 'admin-1',
         }),
-      ).rejects.toThrow(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'CONTRACT_TEMPLATE_DUPLICATE_ACTIVE',
+          statusCode: 409,
+        }),
+      })
     })
   })
 })

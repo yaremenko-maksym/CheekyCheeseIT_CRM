@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { ForbiddenException, HttpStatus, Injectable } from '@nestjs/common'
 import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import type {
   BoardSeniorDto,
@@ -10,6 +10,7 @@ import type {
   SessionUser,
   UpdateInterviewDto,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
 import {
@@ -74,7 +75,7 @@ export class InterviewsService {
       .limit(1)
       .then((rows) => rows[0])
     if (!row) {
-      throw new ForbiddenException('У вас нет активной команды')
+      throw apiError('INTERVIEW_NO_ACTIVE_TEAM', HttpStatus.FORBIDDEN)
     }
   }
 
@@ -108,15 +109,15 @@ export class InterviewsService {
       await this.assertSeniorHasActiveTeam(currentUser.id)
       seniorId = currentUser.id
     } else if (currentUser.role === 'HR') {
-      if (!seniorId) throw new ForbiddenException('seniorId is required')
+      if (!seniorId) throw apiError('INTERVIEW_SENIOR_ID_REQUIRED', HttpStatus.FORBIDDEN)
       const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
       if (!accessibleSeniorIds.has(seniorId)) {
-        throw new ForbiddenException('This senior is not in your teams')
+        throw apiError('INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
       }
     } else if (currentUser.role === 'JUNIOR') {
-      throw new ForbiddenException('JUNIORs cannot access interviews')
+      throw apiError('INTERVIEW_JUNIOR_FORBIDDEN', HttpStatus.FORBIDDEN)
     } else if (!seniorId) {
-      throw new ForbiddenException('seniorId is required')
+      throw apiError('INTERVIEW_SENIOR_ID_REQUIRED', HttpStatus.FORBIDDEN)
     }
     // ADMIN: can query any senior — no check needed
 
@@ -149,7 +150,7 @@ export class InterviewsService {
       // HR: check that target senior is in one of their teams
       const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
       if (!accessibleSeniorIds.has(seniorId)) {
-        throw new ForbiddenException('This senior is not in your teams')
+        throw apiError('INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
       }
     }
     // ADMIN: no check needed
@@ -194,7 +195,7 @@ export class InterviewsService {
       with: { senior: true, hr: true },
     })) as InterviewWithRelations | undefined
 
-    if (!interview) throw new NotFoundException('Interview not found')
+    if (!interview) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     await this.assertUpdateAccess(interview, currentUser)
 
@@ -236,7 +237,7 @@ export class InterviewsService {
       with: { senior: true, hr: true },
     })) as InterviewWithRelations | undefined
 
-    if (!interview) throw new NotFoundException('Interview not found')
+    if (!interview) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     await this.assertUpdateAccess(interview, currentUser)
 
@@ -319,12 +320,12 @@ export class InterviewsService {
     const interview = await this.db.db.query.interviews.findFirst({
       where: eq(interviews.id, id),
     })
-    if (!interview) throw new NotFoundException('Interview not found')
+    if (!interview) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     if (currentUser.role === 'HR') {
       const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
       if (!accessibleSeniorIds.has(interview.seniorId))
-        throw new ForbiddenException('This senior is not in your teams')
+        throw apiError('INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
     }
 
     await this.db.db.delete(interviews).where(eq(interviews.id, id))
@@ -449,7 +450,7 @@ export class InterviewsService {
    */
   async getHrSummary(currentUser: SessionUser): Promise<HrSummaryDto> {
     if (currentUser.role !== 'HR' && currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException('Access denied: HR summary requires HR or ADMIN role')
+      throw apiError('INTERVIEW_HR_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // Current-month boundary (UTC), computed once — matches getAccountantSummary.

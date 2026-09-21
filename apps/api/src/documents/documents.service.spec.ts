@@ -18,13 +18,6 @@
  *  - getDownloadUrl visibility (incl. HR team scope + ACCOUNTANT receipts)
  *  - soft-deleted docs invisible to getDownloadUrl
  */
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-  PayloadTooLargeException,
-  UnsupportedMediaTypeException,
-} from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { DocumentsService } from './documents.service'
@@ -374,7 +367,12 @@ describe('DocumentsService.upload — MIME / size validation', () => {
         { buffer: Buffer.from('x'), mimetype: 'text/csv', originalname: 'a.csv' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'DOCUMENT_MIME_NOT_ALLOWED',
+        statusCode: 415,
+      },
+    })
   })
 
   it('rejects payload > 10 MB (413)', async () => {
@@ -385,7 +383,13 @@ describe('DocumentsService.upload — MIME / size validation', () => {
         { buffer: bigPdfBuf(), mimetype: 'application/pdf', originalname: 'big.pdf' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(PayloadTooLargeException)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'DOCUMENT_TOO_LARGE',
+        statusCode: 413,
+        params: { maxMb: 10 },
+      },
+    })
   })
 
   it('rejects CONTRACT without projectId (400)', async () => {
@@ -396,7 +400,9 @@ describe('DocumentsService.upload — MIME / size validation', () => {
         { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'c.pdf' },
         { category: 'CONTRACT' },
       ),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_PROJECT_ID_REQUIRED', statusCode: 400 }),
+    })
   })
 })
 
@@ -416,7 +422,12 @@ describe('DocumentsService.upload — RBAC by category', () => {
       const h = makeHarness()
       await expect(
         h.service.upload(JUNIOR, pdfFile, { category: 'RESUME', ownerId: SENIOR.id }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_SELF_ONLY',
+          statusCode: 403,
+        },
+      })
     })
     it('JUNIOR upload for self → ok', async () => {
       const h = makeHarness()
@@ -428,7 +439,13 @@ describe('DocumentsService.upload — RBAC by category', () => {
       const h = makeHarness()
       await expect(
         h.service.upload(ACCOUNTANT, pdfFile, { category: 'RESUME' }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
+          statusCode: 403,
+          params: { category: 'RESUME' },
+        },
+      })
     })
     it('ADMIN/HR/SENIOR upload SCAN for any ownerId → ok', async () => {
       for (const actor of [ADMIN, HR, SENIOR]) {
@@ -469,7 +486,12 @@ describe('DocumentsService.upload — RBAC by category', () => {
           ownerId: SENIOR2.id,
           projectId: projId,
         }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'DOCUMENT_UPLOAD_CONTRACT_RESTRICTED',
+          statusCode: 403,
+        }),
+      })
     })
     it('HR → 403', async () => {
       const h = makeHarness()
@@ -479,33 +501,53 @@ describe('DocumentsService.upload — RBAC by category', () => {
           ownerId: SENIOR.id,
           projectId: projId,
         }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'DOCUMENT_UPLOAD_CONTRACT_RESTRICTED',
+          statusCode: 403,
+        }),
+      })
     })
   })
 
   describe('RECEIPT', () => {
     it('HR upload RECEIPT → 403', async () => {
       const h = makeHarness()
-      await expect(h.service.upload(HR, pdfFile, { category: 'RECEIPT' })).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(h.service.upload(HR, pdfFile, { category: 'RECEIPT' })).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
+          statusCode: 403,
+          params: { category: 'RECEIPT' },
+        },
+      })
     })
     it('JUNIOR upload RECEIPT → 403', async () => {
       const h = makeHarness()
       await expect(
         h.service.upload(JUNIOR, pdfFile, { category: 'RECEIPT' }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
+          statusCode: 403,
+          params: { category: 'RECEIPT' },
+        },
+      })
     })
     it('SENIOR for self → ok', async () => {
       const h = makeHarness()
       const doc = await h.service.upload(SENIOR, pdfFile, { category: 'RECEIPT' })
       expect(doc.ownerId).toBe(SENIOR.id)
     })
-    it('SENIOR for someone else → 403', async () => {
+    it('SENIOR for someone else → 403 DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY (COPY-M-14, fix-round 2)', async () => {
       const h = makeHarness()
       await expect(
         h.service.upload(SENIOR, pdfFile, { category: 'RECEIPT', ownerId: SENIOR2.id }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY',
+          statusCode: 403,
+        },
+      })
     })
     it('ACCOUNTANT for any owner → ok', async () => {
       const h = makeHarness()
@@ -529,7 +571,12 @@ describe('DocumentsService.upload — RBAC by category', () => {
       const h = makeHarness()
       await expect(
         h.service.upload(SENIOR, pdfFile, { category: 'AVATAR', ownerId: JUNIOR.id }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'DOCUMENT_UPLOAD_AVATAR_SELF_ONLY',
+          statusCode: 403,
+        }),
+      })
     })
     it('ADMIN for other → ok (impersonation)', async () => {
       const h = makeHarness()
@@ -551,15 +598,25 @@ describe('DocumentsService.upload — RBAC by category', () => {
     })
     it('JUNIOR → 403', async () => {
       const h = makeHarness()
-      await expect(h.service.upload(JUNIOR, pdfFile, { category: 'LOGO' })).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(h.service.upload(JUNIOR, pdfFile, { category: 'LOGO' })).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
+          statusCode: 403,
+          params: { category: 'LOGO' },
+        },
+      })
     })
     it('ACCOUNTANT → 403', async () => {
       const h = makeHarness()
       await expect(
         h.service.upload(ACCOUNTANT, pdfFile, { category: 'LOGO' }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
+          statusCode: 403,
+          params: { category: 'LOGO' },
+        },
+      })
     })
   })
 })
@@ -608,14 +665,24 @@ describe('DocumentsService.hardDelete', () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
     })
-    await expect(h.service.hardDelete(SENIOR, 'd1')).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(h.service.hardDelete(SENIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DOCUMENT_HARD_DELETE_ADMIN_ONLY',
+        statusCode: 403,
+      }),
+    })
   })
 
   it('ADMIN + NOT soft-deleted → 400', async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: null }],
     })
-    await expect(h.service.hardDelete(ADMIN, 'd1')).rejects.toBeInstanceOf(BadRequestException)
+    await expect(h.service.hardDelete(ADMIN, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE',
+        statusCode: 400,
+      }),
+    })
     expect(h.docsRows.length).toBe(1)
   })
 
@@ -658,7 +725,9 @@ describe('DocumentsService.hardDelete', () => {
 
   it('ADMIN + missing doc → 404', async () => {
     const h = makeHarness({ pretendDocMissing: true })
-    await expect(h.service.hardDelete(ADMIN, 'd-missing')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.hardDelete(ADMIN, 'd-missing')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -682,7 +751,12 @@ describe('DocumentsService.softDelete', () => {
 
   it('non-owner non-ADMIN → 403', async () => {
     const h = makeHarness({ docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }] })
-    await expect(h.service.softDelete(JUNIOR, 'd1')).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(h.service.softDelete(JUNIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DOCUMENT_DELETE_OWNER_OR_ADMIN_ONLY',
+        statusCode: 403,
+      }),
+    })
   })
 
   it('idempotent: already-deleted is a no-op (no error)', async () => {
@@ -693,6 +767,13 @@ describe('DocumentsService.softDelete', () => {
     })
     await expect(h.service.softDelete(SENIOR, 'd1')).resolves.toBeUndefined()
   })
+
+  it('throws DOCUMENT_NOT_FOUND when the doc row does not exist', async () => {
+    const h = makeHarness({ docs: [] })
+    await expect(h.service.softDelete(SENIOR, 'no-such-doc')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
+  })
 })
 
 describe('DocumentsService.restore', () => {
@@ -700,7 +781,9 @@ describe('DocumentsService.restore', () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
     })
-    await expect(h.service.restore(SENIOR, 'd1')).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(h.service.restore(SENIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_RESTORE_ADMIN_ONLY', statusCode: 403 }),
+    })
   })
 
   it('ADMIN → clears deletedAt', async () => {
@@ -719,6 +802,37 @@ describe('DocumentsService.restore', () => {
     })
     const restored = await h.service.restore(ADMIN, 'd1')
     expect(restored.uploadedByDisplayName).toBeNull()
+  })
+
+  it('throws DOCUMENT_NOT_FOUND when the doc row does not exist (never reaches the UPDATE)', async () => {
+    const h = makeHarness({ docs: [] })
+    // With an empty docsRows array the harness's own update().returning()
+    // would ALSO resolve empty, so a plain rejects.toMatchObject on the code
+    // alone cannot distinguish "never called update" from "called it and it
+    // came back empty" — both guards throw the identical DOCUMENT_NOT_FOUND.
+    // Force update() to throw if reached at all, so this test pins the
+    // FIRST guard (findFirst) specifically, distinct from the race test below.
+    h.db.db.update = () => {
+      throw new Error('must not reach UPDATE when the doc row was never found')
+    }
+    await expect(h.service.restore(ADMIN, 'no-such-doc')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
+  })
+
+  it('throws DOCUMENT_NOT_FOUND when the row vanishes between findFirst and the UPDATE (race)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
+    })
+    // findFirst still sees the row, but the UPDATE's own .returning() comes
+    // back empty — the defensive branch this pins, distinct from the
+    // "row never existed" case above.
+    h.db.db.update = () => ({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(h.service.restore(ADMIN, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -786,7 +900,9 @@ describe('DocumentsService.getDownloadUrl', () => {
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   // task-file-storage-hardening MED-5 (security-review round 1): the
@@ -904,7 +1020,9 @@ describe('DocumentsService.getDownloadUrl', () => {
       hrSeniorIds: [],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('ACCOUNTANT can download any RECEIPT', async () => {
@@ -921,7 +1039,9 @@ describe('DocumentsService.getDownloadUrl', () => {
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -960,7 +1080,9 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
       activeProjectMembers: [], // JUNIOR is not a member of proj-1 (or any of SENIOR's projects)
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('SENIOR CANNOT download SCAN of another SENIOR outside their team → 404', async () => {
@@ -969,7 +1091,9 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
       teamPeers: [],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('SENIOR can download SCAN of a teammate SENIOR (pure team_members overlap — non-JUNIOR path)', async () => {
@@ -1000,7 +1124,9 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
       teamPeers: [], // HR has no active team at all
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('HR CANNOT download RESUME of a non-teammate SENIOR → 404', async () => {
@@ -1009,7 +1135,9 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
       teamPeers: [],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   // task-file-storage-hardening — owner decision 2026-08-03 (security-review
@@ -1035,9 +1163,9 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
       docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(ACCOUNTANT, 'd1')).rejects.toBeInstanceOf(
-      NotFoundException,
-    )
+    await expect(h.service.getDownloadUrl(ACCOUNTANT, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it("JUNIOR cannot download a teammate's SCAN either (own-only, unaffected by this task)", async () => {
@@ -1046,7 +1174,9 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
       teamPeers: [{ userId: SENIOR.id, role: 'SENIOR' }],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it("DROP cannot download another user's RESUME (own-only, unaffected by this task)", async () => {
@@ -1054,7 +1184,9 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
       docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getDownloadUrl(DROP, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getDownloadUrl(DROP, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('ADMIN still downloads ANY resume/scan regardless of team (unaffected by this task)', async () => {
@@ -1117,7 +1249,9 @@ describe('DocumentsService.getPreviewUrl', () => {
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'INVOICE', deletedAt: new Date() }],
       honorSoftDeleteFilter: true,
     })
-    await expect(h.service.getPreviewUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(h.service.getPreviewUrl(SENIOR, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -1801,9 +1935,9 @@ describe('DocumentsService.hardDeleteInternal', () => {
 
   it('throws NotFoundException when doc row does not exist', async () => {
     const h = makeHarness({ pretendDocMissing: true })
-    await expect(h.service.hardDeleteInternal('no-such-doc')).rejects.toBeInstanceOf(
-      NotFoundException,
-    )
+    await expect(h.service.hardDeleteInternal('no-such-doc')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('no RBAC — any caller identity is irrelevant (internal use)', async () => {
@@ -1858,7 +1992,12 @@ describe('DocumentsService — RECEIPT soft-delete rule (Task 3)', () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT', deletedAt: null }],
     })
-    await expect(h.service.hardDelete(ADMIN, 'd1')).rejects.toBeInstanceOf(BadRequestException)
+    await expect(h.service.hardDelete(ADMIN, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE',
+        statusCode: 400,
+      }),
+    })
   })
 })
 
@@ -1888,7 +2027,12 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'cv.pdf' },
           { category: 'RESUME', ownerId: DROP2.id },
         ),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_SELF_ONLY',
+          statusCode: 403,
+        },
+      })
     })
 
     it('DROP can upload SCAN for self → ok', async () => {
@@ -1910,7 +2054,12 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'scan.pdf' },
           { category: 'SCAN', ownerId: DROP2.id },
         ),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_SELF_ONLY',
+          statusCode: 403,
+        },
+      })
     })
 
     it('DROP can upload CONTRACT for self with projectId → ok', async () => {
@@ -1932,7 +2081,12 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'contract.pdf' },
           { category: 'CONTRACT', ownerId: DROP2.id, projectId: 'proj-uuid' },
         ),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'DOCUMENT_UPLOAD_CONTRACT_RESTRICTED',
+          statusCode: 403,
+        }),
+      })
     })
 
     it('DROP cannot upload RECEIPT → 403', async () => {
@@ -1943,7 +2097,13 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'receipt.pdf' },
           { category: 'RECEIPT', ownerId: DROP.id },
         ),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: {
+          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
+          statusCode: 403,
+          params: { category: 'RECEIPT' },
+        },
+      })
     })
   })
 
@@ -1963,7 +2123,12 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
         docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
       })
       // DROP is not the owner and not ADMIN → ForbiddenException
-      await expect(h.service.softDelete(DROP, 'd1')).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(h.service.softDelete(DROP, 'd1')).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'DOCUMENT_DELETE_OWNER_OR_ADMIN_ONLY',
+          statusCode: 403,
+        }),
+      })
     })
 
     it('softDelete: DROP can delete own doc → ok (self-ownership check holds)', async () => {
@@ -1989,7 +2154,9 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
         docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
         honorSoftDeleteFilter: true,
       })
-      await expect(h.service.getDownloadUrl(DROP, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+      await expect(h.service.getDownloadUrl(DROP, 'd1')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 })

@@ -29,7 +29,6 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
-  UnsupportedMediaTypeException,
   UseGuards,
 } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
@@ -410,7 +409,12 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
         { buffer: PDF_MAGIC, mimetype: 'image/jpeg', originalname: 'fake.jpg' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'DOCUMENT_CONTENT_TYPE_MISMATCH',
+        statusCode: 415,
+      },
+    })
   })
 
   it('rejects when declared MIME is "application/pdf" but bytes are JPEG → 415', async () => {
@@ -421,7 +425,12 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
         { buffer: JPEG_MAGIC, mimetype: 'application/pdf', originalname: 'fake.pdf' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'DOCUMENT_CONTENT_TYPE_MISMATCH',
+        statusCode: 415,
+      },
+    })
   })
 
   it('rejects unrecognised binary (zip bytes) even with valid declared MIME → 415', async () => {
@@ -433,7 +442,9 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
         { buffer: zipBytes, mimetype: 'application/pdf', originalname: 'disguised.pdf' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_CONTENT_UNRECOGNIZED', statusCode: 415 }),
+    })
   })
 
   it('allows upload when declared MIME matches detected MIME (PDF)', async () => {
@@ -461,7 +472,12 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
 })
 
 describe('DocumentsService.upload — compression error surfaces as 415', () => {
-  it('returns 415 when CompressionService throws CompressionError', async () => {
+  // SPEC-H-1 (PR #702 fix-round 1): the CRM-facing catch site now migrates
+  // through `apiError('DOCUMENT_CONTENT_UNRECOGNIZED', ...)` instead of
+  // `new UnsupportedMediaTypeException(err.message)` — a base `HttpException`
+  // carrying the standard envelope (`code` + `statusCode`), not the Nest
+  // subclass, and no trace of the raw sharp/pdf-lib failure text in the body.
+  it('returns 415 with code DOCUMENT_CONTENT_UNRECOGNIZED when CompressionService throws CompressionError', async () => {
     const { service, compression } = makeMimeHarness()
     // Override compression mock to simulate a sharp/pdf-lib failure
     compression.compress.mockRejectedValueOnce(new CompressionError('sharp: Input file is missing'))
@@ -472,7 +488,12 @@ describe('DocumentsService.upload — compression error surfaces as 415', () => 
         { buffer: PDF_MAGIC, mimetype: 'application/pdf', originalname: 'corrupt.pdf' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DOCUMENT_CONTENT_UNRECOGNIZED',
+        statusCode: 415,
+      }),
+    })
   })
 
   it('re-throws non-CompressionError (infrastructure errors bubble up)', async () => {
@@ -488,9 +509,12 @@ describe('DocumentsService.upload — compression error surfaces as 415', () => 
       )
       .catch((e: unknown) => e)
 
-    // Must be the original error — NOT wrapped as UnsupportedMediaTypeException
+    // Must be the original error, untouched — pinned on its own message
+    // rather than `not.toBeInstanceOf(UnsupportedMediaTypeException)`, which
+    // stopped guarding anything once the CompressionError catch site
+    // migrated to `apiError(...)` (a base HttpException, never that Nest
+    // subclass either way) — SR-L-6, PR #702 fix-round 2.
     expect(rejection).toBeInstanceOf(Error)
-    expect(rejection).not.toBeInstanceOf(UnsupportedMediaTypeException)
     expect((rejection as Error).message).toBe('S3 connection refused')
   })
 })

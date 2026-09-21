@@ -4,7 +4,7 @@
  *
  * Spec: docs/specs/2026-05-21-users-archive-refactor-design.md §5 + §6.3
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
@@ -265,13 +265,17 @@ describe('TeamsService.archive', () => {
 
   it('throws NotFoundException for missing team', async () => {
     const { service } = buildService({ team: undefined })
-    await expect(service.archive('ghost', adminUser)).rejects.toThrow(NotFoundException)
+    await expect(service.archive('ghost', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('throws BadRequestException if already archived', async () => {
     const team = makeArchivedTeam()
     const { service } = buildService({ team })
-    await expect(service.archive('team-1', adminUser)).rejects.toThrow(BadRequestException)
+    await expect(service.archive('team-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_ALREADY_ARCHIVED', statusCode: 400 }),
+    })
   })
 
   // Drop-archive round 2 (B1+B5): archive() dispatches by team.type.
@@ -598,13 +602,17 @@ describe('TeamsService.unarchive', () => {
 
   it('throws NotFoundException when team not found', async () => {
     const { service } = buildService({ team: undefined })
-    await expect(service.unarchive('ghost', adminUser)).rejects.toThrow(NotFoundException)
+    await expect(service.unarchive('ghost', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('throws BadRequestException when team is not archived', async () => {
     const team = makeActiveTeam()
     const { service } = buildService({ team })
-    await expect(service.unarchive('team-1', adminUser)).rejects.toThrow(BadRequestException)
+    await expect(service.unarchive('team-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_ARCHIVED', statusCode: 400 }),
+    })
   })
 })
 
@@ -613,6 +621,13 @@ describe('TeamsService.unarchive', () => {
 // ---------------------------------------------------------------------------
 
 describe('TeamsService.getArchiveImpact', () => {
+  it('throws TEAM_NOT_FOUND when the team row does not exist', async () => {
+    const { service } = buildService({ team: undefined })
+    await expect(service.getArchiveImpact('ghost-team', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
+  })
+
   it('translates SENIOR pair impact into team shape', async () => {
     const team = makeActiveTeam()
     const { service } = buildService({

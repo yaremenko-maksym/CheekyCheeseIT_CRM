@@ -5,6 +5,7 @@ import { AlertTriangle, FileText, Loader2 } from 'lucide-react'
 import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SignedContractDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
+import { getApiErrorCode, getApiErrorMessage } from '@/lib/axios-utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -88,13 +89,20 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       onSuccess()
     },
     onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err)
-      if (message.includes('LEGAL_NAME_REQUIRED')) {
-        toast.error('Юридическое ФИО не заполнено. Обратитесь к администратору.')
+      // task-i18n-stage4-task3: the server's refusal now carries a stable
+      // `code` (see `apps/api/src/contracts/signed-contracts.service.ts`)
+      // instead of English prose to substring-match — the old
+      // `message.includes('LEGAL_NAME_REQUIRED')` broke the moment that
+      // prose became translatable (same class of fix as `ContractTab.tsx`'s
+      // `CONTRACT_TEMPLATE_MISSING` — see its comment for why `.includes()`
+      // on `err.message` cannot survive a client-side catalog translation).
+      const code = getApiErrorCode(err)
+      if (code === 'LEGAL_NAME_REQUIRED') {
+        toast.error(getApiErrorMessage(err))
         return
       }
-      if (message.includes('ADMIN_DOES_NOT_SIGN_CONTRACTS')) {
-        toast.info('Админ не подписывает контракт')
+      if (code === 'ADMIN_DOES_NOT_SIGN_CONTRACTS') {
+        toast.info(getApiErrorMessage(err))
         return
       }
       toast.error('Не удалось подписать контракт')
@@ -213,8 +221,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
 
       {/* Info alert */}
       <p className="rounded-md border border-border bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
-        Данные в контракте: имя, email, реквизиты — задаются администратором. При ошибке обратитесь
-        к ADMIN.
+        Данные в контракте: имя, email, реквизиты — задаёт администратор. При ошибке обратитесь к
+        нему.
       </p>
 
       {/* Checkbox — h-6 w-6 per WCAG SC 2.5.8 (24×24px target) */}
@@ -244,8 +252,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           data-testid="legal-name-missing-alert"
         >
           <AlertTriangle className="inline h-4 w-4 mr-2" />
-          Юридическое ФИО не заполнено администратором. Подписание контракта невозможно. Обратитесь
-          к ADMIN.
+          Юридическое ФИО не заполнено. Подписание недоступно — обратитесь к администратору.
         </div>
       )}
 

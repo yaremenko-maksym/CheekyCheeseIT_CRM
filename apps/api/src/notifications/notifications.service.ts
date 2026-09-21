@@ -17,7 +17,7 @@
  * notification types only requires appending to the enum + a single emitter
  * call site.
  */
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   Notification as NotificationDto,
@@ -28,6 +28,7 @@ import type {
 } from '@crm/shared'
 import { isNewNotificationType, notificationDataSchemaFor } from '@crm/shared'
 import { safeNotificationLinkSchema } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { notificationEmails, notifications, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -295,7 +296,7 @@ export class NotificationsService {
    */
   private refuse(input: CreateNotificationInput, reason: string): null {
     this.logger.error(
-      `Уведомление пропущено (событие не откатываем): ${reason} [type=${input.type} userId=${input.userId}]`,
+      `Notification skipped (event not rolled back): ${reason} [type=${input.type} userId=${input.userId}]`,
     )
     this.report({
       source: 'API',
@@ -351,7 +352,7 @@ export class NotificationsService {
         // payload, когда ни типа, ни получателя ещё нет, и тогда
         // единственное, что называет сломавшегося производителя, — стек.
         this.logger.error(
-          `Путь производителя уведомлений упал (событие не откатываем): ${
+          `Notification producer path failed (event not rolled back): ${
             err instanceof Error ? (err.stack ?? err.message) : String(err)
           }`,
         )
@@ -367,7 +368,7 @@ export class NotificationsService {
         // Дальше падать некуда: событие продолжается независимо от того,
         // что случилось с самим наблюдением.
         this.logger.error(
-          `Обработчик отказа уведомлений сам упал (наблюдение потеряно, событие не откатываем): ${
+          `Notification failure handler itself failed (observability lost, event not rolled back): ${
             handlerErr instanceof Error ? handlerErr.message : String(handlerErr)
           }`,
         )
@@ -388,7 +389,7 @@ export class NotificationsService {
   private report(payload: Parameters<TelemetryErrorsService['recordError']>[0]): void {
     void this.telemetry.recordError(payload).catch((err: unknown) => {
       this.logger.error(
-        `Телеметрия не приняла отказ уведомления: ${err instanceof Error ? err.message : String(err)}`,
+        `Telemetry did not accept the notification failure: ${err instanceof Error ? err.message : String(err)}`,
       )
     })
   }
@@ -494,11 +495,11 @@ export class NotificationsService {
     const row = await this.db.db.query.notifications.findFirst({
       where: eq(notifications.id, notificationId),
     })
-    if (!row) throw new NotFoundException('Уведомление не найдено')
+    if (!row) throw apiError('NOTIFICATION_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (row.userId !== userId) {
       // SEC-10: return 404 (not 403) to avoid leaking that the notification
       // exists but belongs to another user (existence oracle).
-      throw new NotFoundException('Уведомление не найдено')
+      throw apiError('NOTIFICATION_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     if (row.readAt) return // idempotent
     await this.db.db
@@ -532,11 +533,11 @@ export class NotificationsService {
     const row = await this.db.db.query.notifications.findFirst({
       where: eq(notifications.id, notificationId),
     })
-    if (!row) throw new NotFoundException('Уведомление не найдено')
+    if (!row) throw apiError('NOTIFICATION_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (row.userId !== userId) {
       // SEC-10: return 404 (not 403) to avoid leaking that the notification
       // exists but belongs to another user (existence oracle).
-      throw new NotFoundException('Уведомление не найдено')
+      throw apiError('NOTIFICATION_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     await this.db.db.delete(notifications).where(eq(notifications.id, notificationId))
   }

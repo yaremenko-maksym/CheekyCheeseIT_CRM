@@ -3,7 +3,6 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { ConflictException, NotFoundException } from '@nestjs/common'
 import { ApprovalsService } from './approvals.service'
 import { DatabaseService } from '../database/database.service'
 import { uniqueViolationConstraint } from '../database/pg-errors'
@@ -174,7 +173,9 @@ describe.skipIf(!hasDatabaseUrl())('ApprovalsService — against real Postgres',
     // not as "still pending" (proof 5: a superseded row does not count).
     await expect(
       svc.approve({ subjectType: SUBJECT_TYPE, subjectId, approverUserId: SENIOR_ID }),
-    ).rejects.toBeInstanceOf(NotFoundException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_NOT_FOUND_OR_CLOSED', statusCode: 404 }),
+    })
   })
 
   // ---------------------------------------------------------------------------
@@ -230,10 +231,9 @@ describe.skipIf(!hasDatabaseUrl())('ApprovalsService — against real Postgres',
     expect(fulfilled[0]?.value.status).toBe('REJECTED')
 
     expect(settledRejections).toHaveLength(1)
-    expect(settledRejections[0]?.reason).toBeInstanceOf(NotFoundException)
-    expect((settledRejections[0]?.reason as Error).message).toBe(
-      'Подтверждение не найдено или уже закрыто',
-    )
+    expect(settledRejections[0]?.reason).toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_NOT_FOUND_OR_CLOSED', statusCode: 404 }),
+    })
 
     // The subject as a whole IS rejected either way (decision #5) — WHICH
     // approver "won" the race is not observable from outside, only that the
@@ -401,7 +401,9 @@ describe.skipIf(!hasDatabaseUrl())('ApprovalsService — against real Postgres',
 
     await expect(
       svc.approve({ subjectType: SUBJECT_TYPE, subjectId, approverUserId: SENIOR_ID }),
-    ).rejects.toBeInstanceOf(ConflictException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_ALREADY_DECIDED', statusCode: 409 }),
+    })
   })
 
   // ---------------------------------------------------------------------------

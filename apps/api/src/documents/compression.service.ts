@@ -80,6 +80,16 @@ export interface CompressionResult {
  * Thrown by CompressionService.compress() when the pipeline fails for a
  * known/whitelisted MIME type (corrupt image, malformed PDF, etc.).
  * DocumentsService catches this and converts it to a 415 UnsupportedMediaType.
+ *
+ * SPEC-H-1 (PR #702 fix-round 1): `message` is INTERNAL only — neither
+ * consumer puts it in an HTTP response body any more. The CRM-facing catch
+ * (`DocumentsService.upload`) maps this to `apiError('DOCUMENT_CONTENT_
+ * UNRECOGNIZED', ...)`, dropping `message` entirely; the public/anonymous
+ * catch (`vacancies/applications.service.ts::compressResume`) keeps its own
+ * English generic text (SR-M-3 / not this task's file-ownership). This is
+ * why the message below is English prose for a log line, not a translated
+ * user-facing string — it is read by a developer in
+ * `this.logger.error(...)` right before the throw, never by an end user.
  */
 export class CompressionError extends Error {
   constructor(message: string) {
@@ -241,7 +251,7 @@ export class CompressionService {
         `compression failed for mime="${mimeType}": ${(err as Error).message} — rejecting upload`,
       )
       throw new CompressionError(
-        `Не удалось обработать файл типа "${mimeType}": ${(err as Error).message}`,
+        `Failed to process file of type "${mimeType}": ${(err as Error).message}`,
       )
     }
 
