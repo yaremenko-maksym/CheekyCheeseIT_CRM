@@ -77,10 +77,7 @@ function renderImpactText(
         // never rendered by any real call site or test.
         other: 'співробітника',
       })
-      // Stryker disable next-line ObjectLiteral,StringLiteral: same
-      // ObjectLiteral reasoning as above, plus the `other` value here is
-      // the same structurally-unreachable branch as `roleGenitive`'s own
-      // `other` a few lines up.
+      // Stryker disable next-line ObjectLiteral,StringLiteral: same ObjectLiteral reasoning as the roleGenitive select() above (macro needs a literal object), and `other` here is the same structurally-unreachable branch as roleGenitive's own `other` a few lines up.
       const pairWord = select(role, { SENIOR: 'сеньйор', DROP: 'дроп', other: 'співробітник' })
       const projectNames = impact.projectNames ?? []
       return (
