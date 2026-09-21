@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Briefcase, Clock, HandCoins, Wallet } from 'lucide-react'
-import { plural } from '@lingui/core/macro'
+import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { formatMoney } from '@crm/shared'
 import type { TransactionDto } from '@crm/shared'
@@ -55,9 +55,30 @@ const card = {
 // DROP_INCOME in progress: PENDING (awaiting validation) or VALIDATED (awaiting payment).
 const IN_PROGRESS_INCOME_STATUSES = new Set<TransactionDto['status']>(['PENDING', 'VALIDATED'])
 
+// task-i18n-stage3a (Task 1), Step 6, fix-round 1 (FR-5): `KpiCard`'s `sub`
+// prop is `string`, not `ReactNode` (see KpiCards.tsx) — the JSX `<Plural>`
+// component every OTHER plural in this wave uses cannot go there, which is
+// why the original code called the `plural()` FUNCTION macro instead. That
+// macro reproducibly breaks under Stryker's per-test coverage
+// instrumentation: the compiled catalog's `#` placeholder is not substituted
+// even on the UNMUTATED baseline dry run ("Очікує виплати800,48 USD#
+// зобов'язання" — reproduced running the mutation gate directly, see
+// task-700-fix-round-1 FR-5), which fails Stryker's dry-run validation and
+// blocks the WHOLE gate before a single mutant runs — worse than a
+// survived-mutant finding, because nothing downstream of it can run either.
+// `plural()` is the only bare function-macro plural call anywhere in this
+// wave (every sibling file uses `<Plural>`); a module-level `msg` template
+// resolved via `i18n._()` at render time is a DIFFERENT compile path (same
+// pattern as this file's own `TITLE_MESSAGES`-style constants elsewhere in
+// the wave) that still yields a plain string for `sub`, sidestepping
+// whatever specifically breaks the `plural()` macro's compiled output under
+// Stryker's instrumentation — verified by re-running the mutation gate after
+// this change (see PR body for the passing numbers).
+const PENDING_OBLIGATION_MESSAGE = msg`{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}`
+
 export function DropDashboard() {
   const qc = useQueryClient()
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
   const locale = useLocale()
   const fmtUsd = (value: number) => formatMoney(value, 'USD', locale)
 
@@ -190,22 +211,13 @@ export function DropDashboard() {
                       ? // Reuses the exact same plural forms as
                         // DropBalanceCard.tsx's «зобов'язання» (COPY-M-core-6:
                         // «начисление»/«начисления» is on the _Избегать_
-                        // avoid-list) — same catalog entry, not a near-dup.
-                        // Stryker disable next-line ObjectLiteral: Lingui's
-                        // babel macro requires this object to stay a literal
-                        // it can statically read at compile time — replacing
-                        // it with `{}` (what the ObjectLiteral mutator does)
-                        // doesn't produce a mutant the test suite could catch
-                        // by running differently, it makes the macro
-                        // transform itself throw ("props is not iterable"),
-                        // failing BEFORE any test executes. Not a coverage
-                        // gap — the mutation is unrepresentable for this
-                        // macro's call shape.
-                        plural(pendingObligationCount, {
-                          one: "# зобов'язання",
-                          few: "# зобов'язання",
-                          many: "# зобов'язань",
-                          other: "# зобов'язання",
+                        // avoid-list) — same catalog entry, not a near-dup
+                        // (see `PENDING_OBLIGATION_MESSAGE` above for why
+                        // this is `i18n._()` + a module-level `msg`, not the
+                        // `<Plural>` component every sibling uses).
+                        i18n._({
+                          ...PENDING_OBLIGATION_MESSAGE,
+                          values: { pendingObligationCount },
                         })
                       : t`Немає зобов'язань`
                   }

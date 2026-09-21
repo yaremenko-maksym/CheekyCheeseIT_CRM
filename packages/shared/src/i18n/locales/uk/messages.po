@@ -524,7 +524,6 @@ msgstr "Завантаження PDF…"
 msgid "Завантаження…"
 msgstr "Завантаження…"
 
-#: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Закрити"
