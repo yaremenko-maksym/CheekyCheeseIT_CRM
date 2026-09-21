@@ -135,6 +135,13 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
       expect(text).not.toContain('JUNIOR')
       expect(text).toContain(role === 'SENIOR' ? 'сеньйора' : 'дропа')
       expect(text).toContain(role === 'SENIOR' ? 'сеньйор+команда' : 'дроп+команда')
+      // Pins the `{' '}` JSX whitespace nodes between adjacent <Trans>
+      // blocks / around the conditional teamName clause — a Stryker
+      // StringLiteral mutant turning `{' '}` into `{""}` joins two words
+      // with no space, invisible to a plain `.toContain(word)` check.
+      expect(text).toContain('Kovalenko та команда')
+      expect(text).toContain("» — пов'язана пара")
+      expect(text).toContain('стосується. Відновлення')
     },
   )
 
@@ -144,7 +151,11 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
 
     const dialog = await screen.findByRole('dialog')
     await screen.findByText(/пов'язана пара/)
-    expect(dialog.textContent ?? '').not.toContain('та команда')
+    const text = dialog.textContent ?? ''
+    expect(text).not.toContain('та команда')
+    // `{' '}` right after the (null) conditional still joins entityName to
+    // the dash — pins that space too, not just the teamName-present path.
+    expect(text).toContain('Oleksiy —')
   })
 
   it('projectsCount defaults to 0 (many-form "0 проєктів") when the field is absent', async () => {
@@ -187,6 +198,9 @@ describe('ArchiveConfirmDialog — renderImpactText: user/HR and user/ACCOUNTANT
     expect(text).toContain('5 команд')
     expect(text).toContain('роль HR')
     expect(text).not.toContain('бухгалтерська роль')
+    // `{' '}` boundaries: "з" -> plural count, and count -> "(роль HR)".
+    expect(text).toContain('Nina буде архівований і прибраний з 5 команд')
+    expect(text).toContain('5 команд (роль HR)')
   })
 
   it('ACCOUNTANT: same teamsCount field, DIFFERENT wording ("бухгалтерська роль")', async () => {
@@ -200,6 +214,8 @@ describe('ArchiveConfirmDialog — renderImpactText: user/HR and user/ACCOUNTANT
     expect(text).toContain('2 команди')
     expect(text).toContain('бухгалтерська роль')
     expect(text).not.toContain('роль HR')
+    expect(text).toContain('Olena буде архівований і прибраний з 2 команди')
+    expect(text).toContain('2 команди (бухгалтерська роль)')
   })
 })
 
@@ -214,6 +230,8 @@ describe('ArchiveConfirmDialog — renderImpactText: user/JUNIOR and user/ADMIN'
     // few-form (3): "3 активні проєкти"
     expect(text).toContain('3 активні проєкти')
     expect(text).not.toContain("пов'язана пара")
+    // `{' '}` boundary: "з" -> plural count.
+    expect(text).toContain('Petro буде архівований і прибраний з 3 активні проєкти')
   })
 
   it('ADMIN: static no-dependencies copy, ignores impact numeric fields entirely', async () => {
@@ -247,6 +265,9 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     // COPY-M-13: no more "При архівації будуть архівовані" tautology.
     expect(text).toContain('В архів підуть')
     expect(text).not.toContain('При архівації будуть архівовані')
+    // `{' '}` boundaries: "сеньйор" -> seniorName/fallback, block1 -> block2.
+    expect(text).toContain('сеньйор —')
+    expect(text).toContain('стосується. Це еквівалентно')
   })
 
   it('DROP team: uses dropName (trimmed), NOT the senior word (no cross-read of ROLE_RU.SENIOR)', async () => {
@@ -272,6 +293,9 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     expect(text).toContain('В архів підуть')
     expect(text).toContain('Активний сеньйор Ihor Senior')
     expect(text).toContain("від'єднається")
+    // `{' '}` boundaries: "дроп" -> dropName, block1 -> block2.
+    expect(text).toContain('дроп Dmytro Drop')
+    expect(text).toContain('стосується. Активний сеньйор')
   })
 
   it('DROP team: seniorWillBeDetached=false renders the "немає" branch, not the detach sentence', async () => {
@@ -293,6 +317,31 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     const text = dialog.textContent ?? ''
     expect(text).toContain('Активного сеньйора в команді немає')
     expect(text).not.toContain("від'єднається")
+    expect(text).toContain('стосується. Активного сеньйора')
+  })
+
+  it('DROP team: seniorWillBeDetached=true with NO seniorName omits the name suffix ("Активний сеньйор" alone)', async () => {
+    // Pins the `impact.seniorName ? \` ${name}\` : ''` FALSE branch — every
+    // other seniorWillBeDetached=true test in this file provides a
+    // non-empty seniorName, so that branch had zero coverage.
+    mockGet({
+      type: 'team',
+      isPaired: true,
+      teamName: 'Gamma Team',
+      seniorName: '',
+      teamType: 'DROP',
+      dropName: 'Dmytro Drop',
+      projectsCount: 0,
+      membersAffected: 0,
+      seniorWillBeDetached: true,
+    })
+    renderDialog({ entityType: 'team', entityId: 't-2', entityName: 'Gamma Team' })
+
+    const dialog = await screen.findByRole('dialog')
+    await screen.findByText(/і її дроп/)
+    const text = dialog.textContent ?? ''
+    expect(text).toContain("Активний сеньйор від'єднається від")
+    expect(text).not.toContain('Активний сеньйор  ') // no double space / stray name
   })
 
   it('DROP team: dropName absent falls back to "—" (dropName?.trim() || "—")', async () => {
@@ -332,6 +381,9 @@ describe('ArchiveConfirmDialog — renderImpactText: project', () => {
     expect(text).toContain('4 активні джуніори')
     expect(text).toContain('не')
     expect(text).toContain('будуть архівовані')
+    // `{' '}` boundaries: "архівований," -> count, count -> "будуть відв'язані".
+    expect(text).toContain('архівований, 4 активні джуніори')
+    expect(text).toContain("джуніори будуть відв'язані")
     // COPY-H-2: the standalone capitalized "Синьйор" sentence-opener in
     // this branch was missed by the first (lowercase-only) sweep.
     expect(text).toContain('Сеньйор і команда')

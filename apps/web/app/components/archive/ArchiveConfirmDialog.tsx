@@ -71,9 +71,16 @@ function renderImpactText(
       const roleGenitive = select(role, {
         SENIOR: 'сеньйора',
         DROP: 'дропа',
+        // Stryker disable next-line StringLiteral: unreachable inside this
+        // `role === 'SENIOR' || role === 'DROP'` guard (see the
+        // ObjectLiteral note above) — this branch's own string content is
+        // never rendered by any real call site or test.
         other: 'співробітника',
       })
-      // Stryker disable next-line ObjectLiteral: same reasoning as above.
+      // Stryker disable next-line ObjectLiteral,StringLiteral: same
+      // ObjectLiteral reasoning as above, plus the `other` value here is
+      // the same structurally-unreachable branch as `roleGenitive`'s own
+      // `other` a few lines up.
       const pairWord = select(role, { SENIOR: 'сеньйор', DROP: 'дроп', other: 'співробітник' })
       const projectNames = impact.projectNames ?? []
       return (
@@ -326,10 +333,11 @@ export function ArchiveConfirmDialog({
   const matches = typed.trim() === (expected ?? '').trim() && (expected ?? '').length > 0
 
   // Title for team archive — drop variant uses a tailored copy.
-  const title =
-    entityType === 'team' && isDropTeam
-      ? t`Архівувати команду дропа`
-      : i18n._(TITLE_MESSAGES[entityType])
+  // `isDropTeam` already implies `entityType === 'team'` (see its own
+  // definition above) — the redundant conjunct here was an equivalent
+  // mutant magnet (Stryker's `entityType === 'team'` -> `true` mutation
+  // changed nothing observable, since `isDropTeam` gates on it already).
+  const title = isDropTeam ? t`Архівувати команду дропа` : i18n._(TITLE_MESSAGES[entityType])
 
   // Confirm-input prompt label — different by entity type + team variant.
   const confirmInputLabel =
