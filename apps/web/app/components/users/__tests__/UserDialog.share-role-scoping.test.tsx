@@ -239,3 +239,136 @@ describe('UserDialog — DROP role-scoped share/salary fields (LOW findings PR #
     expect(payload).toHaveProperty('salaryCurrency', 'USD')
   })
 })
+
+/**
+ * fix-round 3 (mutation-gate closure, COPY-M-13 adjacent). `seniorSharePercent`
+ * / `dropSharePercent`'s hand-rolled `onBlur` range validators (`UserDialog.tsx`
+ * ~1568/~1642) had no test exercising an actual OUT-OF-RANGE value. Typing
+ * one is not possible through the real UI: `ShareSlider`'s own number-input
+ * `onChange` clamps every keystroke into `[min, max]` (`share-slider.tsx`'s
+ * `clamp`) before the value ever reaches `field.state.value` — so a value
+ * outside the validator's own range can ONLY exist as a pre-existing
+ * (legacy) profile value the admin has not touched yet. Reproduced here via
+ * the edit-mode fixture, blurring the field without changing it first.
+ */
+describe('UserDialog — share-percent range validators, out-of-range fixture values (fix-round 3, mutation-gate)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+  })
+
+  async function blurWithoutTouching(input: HTMLElement) {
+    const user = userEvent.setup()
+    await user.click(input)
+    await user.tab()
+  }
+
+  function numberInputByAriaLabel(label: string): HTMLElement {
+    const inputs = screen.getAllByLabelText(label)
+    const numberInput = inputs.find((el) => el.getAttribute('type') === 'number')
+    if (!numberInput) throw new Error(`no number input for aria-label "${label}"`)
+    return numberInput
+  }
+
+  // One mount covers three states for the SAME field — 0 (error, from the
+  // fixture — typing can never produce it, see the block comment above),
+  // then typed to 1 and to 100 (both valid boundaries, no error). Kills
+  // every mutant EXCEPT the >100 side, which needs its own out-of-range
+  // fixture (typing cannot reach it either) — see the next test.
+  it('SENIOR seniorSharePercent: legacy value 0 errors, boundaries 1 and 100 do not (one mount)', async () => {
+    const profile = makeProfile({
+      id: 'senior-low-and-boundaries',
+      email: 'senior-low-and-boundaries@example.com',
+      role: 'SENIOR',
+      seniorSharePercent: 0,
+    })
+    mockUseUser.mockReturnValue({ data: mockProfileResponse(profile), isLoading: false })
+    render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByLabelText('Доля синьора в процентах').length).toBeGreaterThan(0)
+    })
+    const input = numberInputByAriaLabel('Доля синьора в процентах')
+    await blurWithoutTouching(input)
+    expect(await screen.findByText('Вкажіть від 1 до 100')).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.clear(input)
+    await user.type(input, '1')
+    await user.tab()
+    expect(screen.queryByText('Вкажіть від 1 до 100')).not.toBeInTheDocument()
+
+    await user.clear(input)
+    await user.type(input, '100')
+    await user.tab()
+    expect(screen.queryByText('Вкажіть від 1 до 100')).not.toBeInTheDocument()
+  })
+
+  it('SENIOR seniorSharePercent above 100 (legacy value 101): shows the range error on blur', async () => {
+    const profile = makeProfile({
+      id: 'senior-high',
+      email: 'senior-high@example.com',
+      role: 'SENIOR',
+      seniorSharePercent: 101,
+    })
+    mockUseUser.mockReturnValue({ data: mockProfileResponse(profile), isLoading: false })
+    render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByLabelText('Доля синьора в процентах').length).toBeGreaterThan(0)
+    })
+    await blurWithoutTouching(numberInputByAriaLabel('Доля синьора в процентах'))
+
+    expect(await screen.findByText('Вкажіть від 1 до 100')).toBeInTheDocument()
+  })
+
+  // Same one-mount consolidation as SENIOR above: -1 (error, from the
+  // fixture) then typed to 0 and to 100 (both valid boundaries for DROP's
+  // wider 0-100 range).
+  it('DROP dropSharePercent: legacy value -1 errors, boundaries 0 and 100 do not (one mount)', async () => {
+    const profile = makeProfile({
+      id: 'drop-low-and-boundaries',
+      email: 'drop-low-and-boundaries@example.com',
+      role: 'DROP',
+      dropSharePercent: -1,
+    })
+    mockUseUser.mockReturnValue({ data: mockProfileResponse(profile), isLoading: false })
+    render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByLabelText('Доля дропа в процентах').length).toBeGreaterThan(0)
+    })
+    const input = numberInputByAriaLabel('Доля дропа в процентах')
+    await blurWithoutTouching(input)
+    expect(await screen.findByText('Вкажіть від 0 до 100')).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.clear(input)
+    await user.type(input, '0')
+    await user.tab()
+    expect(screen.queryByText('Вкажіть від 0 до 100')).not.toBeInTheDocument()
+
+    await user.clear(input)
+    await user.type(input, '100')
+    await user.tab()
+    expect(screen.queryByText('Вкажіть від 0 до 100')).not.toBeInTheDocument()
+  })
+
+  it('DROP dropSharePercent above 100 (legacy value 101): shows the range error on blur', async () => {
+    const profile = makeProfile({
+      id: 'drop-high',
+      email: 'drop-high@example.com',
+      role: 'DROP',
+      dropSharePercent: 101,
+    })
+    mockUseUser.mockReturnValue({ data: mockProfileResponse(profile), isLoading: false })
+    render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByLabelText('Доля дропа в процентах').length).toBeGreaterThan(0)
+    })
+    await blurWithoutTouching(numberInputByAriaLabel('Доля дропа в процентах'))
+
+    expect(await screen.findByText('Вкажіть від 0 до 100')).toBeInTheDocument()
+  })
+})

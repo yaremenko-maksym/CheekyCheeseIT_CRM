@@ -384,6 +384,26 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
     expect(captured[0]!.senderId).toBe(ADMIN_A_ID)
   })
 
+  // fix-round 1 (mutation-gate closure): every test in this describe supplies
+  // `receiptExternalUrl`, so the mandatory-receipt gate itself —
+  // `if (receiptErr) throw zodErrorBadRequest(receiptErr)`, which runs AFTER
+  // the sender/receiver/self-pay/archived checks above it — had zero direct
+  // coverage.
+  it('no receipt at all → 400 (receiptMandatoryError gate, after the sender/receiver checks)', async () => {
+    const captured: Array<{ senderId: string }> = []
+    const svc = makeAdminTransferService(userMap, captured)
+    const caller = makeViewer('ADMIN', ADMIN_A_ID)
+
+    await expect(
+      svc.createAdminTransfer({ receiverId: ADMIN_B_ID, amount: 100, currency: 'USDT' }, caller),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+    })
+    // Never reached the INSERT — the receipt gate refused first.
+    expect(captured).toHaveLength(0)
+  })
+
   it('ADMIN caller without senderId uses self as sender', async () => {
     const captured: Array<{ senderId: string }> = []
     const svc = makeAdminTransferService(userMap, captured)

@@ -7,7 +7,18 @@
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeAll, beforeEach } from 'vitest'
+import { i18n } from '@lingui/core'
+import { toast } from 'sonner'
+
+// task-i18n-stage4-task4: UserDialog's field validators now translate their
+// zod.<CODE> results through `translateZodMessage` (`i18n._` under the
+// hood) — an activated locale is required, same pattern as
+// `axios-utils.spec.ts`'s own tests.
+beforeAll(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -544,6 +555,60 @@ describe('UserDialog — step 1 legalFullName visible error on submit (BUG #2)',
       },
       { timeout: 2000 },
     )
+
+    // Note (fix-round 2 investigation, CI-5/CR-H-2): this particular path is
+    // NOT a counter-example for `createUserSchema.safeParse`'s own toast —
+    // `legalFullName`'s `onSubmit` field validator (this file, just above)
+    // duplicates the SAME check and TanStack Form never calls this
+    // component's `onSubmit` at all once a field validator reports an
+    // error, so `toast.error` is NEVER invoked on this exact path (verified:
+    // 0 calls). The schema-level `toast.error(translateZodMessage(first?.message)
+    // ?? translateZodCode('VALIDATION_FAILED_FORM'))` a few lines up in this
+    // file IS reachable, just not from an empty `legalFullName` — see the
+    // dedicated test below.
+  })
+})
+
+// fix-round 2 (CI-5/CR-H-2): the two tests above (BUG #2 + the personalEmail
+// describe block) only ever exercise a schema failure that ALSO has its own
+// TanStack Form field-level validator — which blocks `form.handleSubmit()`
+// from ever reaching this component's manual `createUserSchema.safeParse`
+// re-check, so `toast.error(translateZodMessage(first?.message) ??
+// translateZodCode('VALIDATION_FAILED_FORM'))` (this file, `isCreate`
+// non-drop branch) stayed unobserved by any test — a mutant on either `?.`
+// or `??` passed every existing assertion. `bankUahRecipient` /
+// `bankUahIban` / `bankUahRnokpp` have ONLY an `onBlur` validator (no
+// `onSubmit`), and that validator explicitly no-ops when the field was never
+// touched (`!fieldApi.state.meta.isDirty`) — so leaving them completely
+// untouched (not even focused) reaches this component's manual schema
+// check with `bankUahRecipient: ''`, which `createUserSchema`'s BASE field
+// shape (`.min(3, 'zod.RECIPIENT_NAME_MIN')`) rejects as the FIRST issue —
+// before `refineRequisitePresence`'s own `RECIPIENT_NAME_REQUIRED` superRefine
+// check ever runs (verified directly against the compiled schema).
+describe('UserDialog — schema-level toast fallback is reachable (fix-round 2, CI-5/CR-H-2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+    mockPost.mockResolvedValue(newUserResponse)
+  })
+
+  it('shows the translated RECIPIENT_NAME_MIN text when bank fields are left completely untouched', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-email'), 'norecipient@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Без Реквизитов')
+    await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Валідне ПІБ Тест')
+    // Deliberately NOT touching bankUahRecipient/Iban/Rnokpp — their onBlur
+    // validators no-op on an untouched field, so nothing blocks submit at
+    // the field level; the schema-level check is what has to catch it.
+
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    await waitFor(() => {
+      expect(mockPost).not.toHaveBeenCalled()
+      expect(toast.error).toHaveBeenCalledWith('ПІБ отримувача — мінімум 3 символи')
+    })
   })
 })
 
@@ -628,7 +693,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     await user.type(input, 'not-an-email')
     await user.tab()
 
-    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
     expect(input.className).toContain('border-destructive')
   })
 
@@ -644,7 +709,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     await user.tab()
 
     expect(
-      await screen.findByText('Личный email должен отличаться от рабочего'),
+      await screen.findByText('Особистий email має відрізнятися від робочого'),
     ).toBeInTheDocument()
     expect(screen.getByTestId('user-dialog-personal-email').className).toContain(
       'border-destructive',
@@ -658,16 +723,16 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     const input = screen.getByTestId('user-dialog-personal-email')
     await user.type(input, 'not-an-email')
     await user.tab()
-    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
 
     await user.clear(input)
     await user.type(input, 'ivan.personal@gmail.com')
     await user.tab()
 
     await waitFor(() => {
-      expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+      expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
       expect(
-        screen.queryByText('Личный email должен отличаться от рабочего'),
+        screen.queryByText('Особистий email має відрізнятися від робочого'),
       ).not.toBeInTheDocument()
     })
     expect(input.className).not.toContain('border-destructive')
@@ -695,7 +760,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
       const body = postCalls[0]?.[1] as Record<string, unknown>
       expect(body.personalEmail).toBe('ivan.personal@gmail.com')
     })
-    expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+    expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
   })
 
   it('omits a whitespace-only personalEmail from the POST body instead of sending it as an empty string', async () => {
@@ -712,7 +777,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     // whitespace-only is meant to behave exactly like untouched/empty, not
     // like invalid input.
     await waitFor(() => {
-      expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+      expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
     })
     expect(input.className).not.toContain('border-destructive')
 
@@ -772,5 +837,61 @@ describe('UserDialog — locale field (task-i18n-stage2)', () => {
       const body = postCalls[0]?.[1] as Record<string, unknown>
       expect(body.locale).toBe('uk')
     })
+  })
+})
+
+// fix-round 2 (CI-5/CR-H-2): the `email` and `displayName` field onBlur
+// validators (`EMAIL_REQUIRED`/`EMAIL_INVALID`/`DISPLAY_NAME_MIN`) had no
+// test asserting the RENDERED error text — only indirect coverage through
+// tests that fill valid values. A mutant flipping the `!trimmed` condition,
+// or blanking the `zod.EMAIL_INVALID`/`zod.DISPLAY_NAME_MIN` string
+// literals, left every existing test green.
+describe('UserDialog — email/displayName field errors (fix-round 2, CI-5/CR-H-2)', () => {
+  it('shows EMAIL_REQUIRED once the work email is touched and cleared', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-email')
+    await user.type(input, 'x')
+    await user.clear(input)
+    await user.tab()
+
+    expect(await screen.findByText('Введіть email')).toBeInTheDocument()
+  })
+
+  it('shows EMAIL_INVALID for a malformed work email', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-email')
+    await user.type(input, 'not-an-email')
+    await user.tab()
+
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
+  })
+
+  it('shows DISPLAY_NAME_MIN for a 1-character name', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    const input = screen.getByTestId('user-dialog-name')
+    await user.type(input, 'A')
+    await user.tab()
+
+    expect(await screen.findByText('Ім’я — мінімум 2 символи')).toBeInTheDocument()
+  })
+
+  it('shows LEGAL_FULL_NAME_MIN for a non-empty legalFullName under the 5-char minimum', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    // Non-empty (the onBlur validator no-ops on an empty value — the
+    // "required for contract" case is a SEPARATE onSubmit validator, see
+    // the dedicated BUG #2 describe block above) but under the 5-char floor.
+    const input = screen.getByTestId('user-dialog-legal-full-name')
+    await user.type(input, 'Абв')
+    await user.tab()
+
+    expect(await screen.findByText('ПІБ — мінімум 5 символів')).toBeInTheDocument()
   })
 })

@@ -36,7 +36,7 @@ describe('createAdminIncomeSchema — refineAdminIncomeCompanyAccountUsdt', () =
     )
     expect(result.success).toBe(false)
     const issue = !result.success
-      ? result.error.issues.find((i) => i.message.includes('счёта компании'))
+      ? result.error.issues.find((i) => i.message === 'zod.COMPANY_ACCOUNT_USDT_ONLY')
       : undefined
     expect(issue).toBeDefined()
     expect(issue?.path).toEqual(['currency'])
@@ -50,7 +50,7 @@ describe('createAdminIncomeSchema — refineAdminIncomeCompanyAccountUsdt', () =
     const result = createAdminIncomeSchema.safeParse(withoutCurrency)
     expect(result.success).toBe(false)
     const contradictionIssue = !result.success
-      ? result.error.issues.find((i) => i.message.includes('счёта компании'))
+      ? result.error.issues.find((i) => i.message === 'zod.COMPANY_ACCOUNT_USDT_ONLY')
       : undefined
     expect(contradictionIssue).toBeUndefined()
   })
@@ -116,8 +116,10 @@ describe('createAdminIncomeSchema — receipt currency resolver (COMPANY_ACCOUNT
       }),
     )
     expect(result.success).toBe(false)
+    // fix-round 1 (COPY-H-2): receiptMandatoryError now returns a
+    // `zod.<CODE>` key, not raw English prose — match the code.
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toMatch(/blockchain-explorer/)
+    expect(message).toBe('zod.RECEIPT_USDT_LINK_REQUIRED')
   })
 
   it('receiverId=a specific admin resolves the EFFECTIVE currency to `data.currency` (USD here) — a plain https link is accepted, explorer-only does NOT apply', () => {
@@ -148,7 +150,7 @@ describe('createAdminIncomeSchema — receipt currency resolver (COMPANY_ACCOUNT
     )
     expect(result.success).toBe(false)
     const receiptIssue = !result.success
-      ? result.error.issues.find((i) => i.message.match(/blockchain-explorer/))
+      ? result.error.issues.find((i) => i.message === 'zod.RECEIPT_USDT_LINK_REQUIRED')
       : undefined
     expect(receiptIssue).toBeDefined()
   })

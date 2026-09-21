@@ -59,6 +59,8 @@ import {
   createSalarySchema,
   createSeniorIncomeSchema,
   createUsdtIncomeSchema,
+  MAX_TRANSACTION_AMOUNT,
+  transactionAmountError,
   updateDropIncomeSchema,
   updateProjectFinanceSettingsSchema,
   updateSeniorIncomeSchema,
@@ -78,6 +80,42 @@ const TOO_SMALL = 1e-7
 // More than AMOUNT_DECIMAL_PLACES (6) — the column silently rounds the tail.
 const TOO_PRECISE = 1.1234567
 
+// task-i18n-stage4-task4 (mutation-gate closure): `transactionAmountError`
+// itself had NO direct test anywhere — every existing schema-level test
+// above only pins `.success`, so a mutant on this function's early branches
+// (`!Number.isFinite` → `false`, `value <= 0` → `false`) survives: the value
+// still ends up rejected by a LATER branch (or by the field's own
+// `.positive()`), so `.success` stays `false` either way and the WRONG code
+// goes unnoticed.
+describe('transactionAmountError — exact code per branch (task-i18n-stage4-task4)', () => {
+  it('returns null for a valid, storable amount', () => {
+    expect(transactionAmountError(100.5)).toBeNull()
+  })
+
+  it('NaN and both infinities: AMOUNT_NOT_A_NUMBER', () => {
+    expect(transactionAmountError(Number.NaN)).toBe('zod.AMOUNT_NOT_A_NUMBER')
+    expect(transactionAmountError(Number.POSITIVE_INFINITY)).toBe('zod.AMOUNT_NOT_A_NUMBER')
+    expect(transactionAmountError(Number.NEGATIVE_INFINITY)).toBe('zod.AMOUNT_NOT_A_NUMBER')
+  })
+
+  it('zero and negative: AMOUNT_MUST_BE_POSITIVE', () => {
+    expect(transactionAmountError(0)).toBe('zod.AMOUNT_MUST_BE_POSITIVE')
+    expect(transactionAmountError(-1)).toBe('zod.AMOUNT_MUST_BE_POSITIVE')
+  })
+
+  it('above the BIZ-13 ceiling: TRANSACTION_AMOUNT_EXCEEDS_MAX, boundary is inclusive', () => {
+    expect(transactionAmountError(MAX_TRANSACTION_AMOUNT + 1)).toBe(
+      'zod.TRANSACTION_AMOUNT_EXCEEDS_MAX',
+    )
+    expect(transactionAmountError(MAX_TRANSACTION_AMOUNT)).toBeNull()
+  })
+
+  it('delegates the floor+precision branches to moneyFloorAndPrecisionError (order: too-small before too-precise)', () => {
+    expect(transactionAmountError(TOO_SMALL)).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
+    expect(transactionAmountError(TOO_PRECISE)).toBe('zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS')
+  })
+})
+
 describe('createAdminIncomeSchema.amount — floor (task-money-floor-and-lying-comments)', () => {
   const base = {
     projectId: PROJECT_ID,
@@ -89,7 +127,7 @@ describe('createAdminIncomeSchema.amount — floor (task-money-floor-and-lying-c
     const result = createAdminIncomeSchema.safeParse({ ...base, amount: TOO_SMALL })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
     // Pins the ISSUE SHAPE `withMoneyFloor` emits, not just its message — a
     // mutant that keeps the message but corrupts `code` (e.g. 'custom' → '')
     // is otherwise unobserved (Zod does not validate a custom issue's `code`
@@ -141,7 +179,7 @@ describe('createSeniorIncomeSchema.amount — floor + the computed-path trap (AC
     const result = createSeniorIncomeSchema.safeParse({ ...base, amount: TOO_SMALL })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
   })
 
   it('accepts exactly the smallest storable amount', () => {
@@ -154,7 +192,7 @@ describe('createSeniorIncomeSchema.amount — floor + the computed-path trap (AC
     const result = createSeniorIncomeSchema.safeParse({ ...base, amount: TOO_PRECISE })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('знаков после запятой')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   // AC3 — the SECOND half of the fix. Without it, a blind "reject anything
@@ -245,6 +283,22 @@ describe('createExpenseSchema.amount — floor', () => {
       true,
     )
   })
+
+  // task-i18n-stage4-task4 (mutation-gate closure): `refineCompanyAccountUsdt`
+  // (shared by this schema / paySalarySchema / settleSeniorPayoutSchema) had
+  // no test anywhere asserting its exact message — only `createAdminIncomeSchema`'s
+  // SIBLING function (`refineAdminIncomeCompanyAccountUsdt`) was pinned.
+  it('COMPANY_ACCOUNT funding + a non-USDT currency: exact code on the currency path', () => {
+    const result = createExpenseSchema.safeParse({
+      ...base,
+      amount: 10,
+      fundingSource: 'COMPANY_ACCOUNT',
+      currency: 'UAH',
+    })
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find((i) => i.path.join('.') === 'currency')
+    expect(issue?.message).toBe('zod.COMPANY_ACCOUNT_USDT_ONLY')
+  })
 })
 
 // ── AC2 — the headline case from the task file, verbatim ───────────────────
@@ -255,7 +309,7 @@ describe('createSalarySchema.amount — floor (AC2, the field flagged in the tas
     const result = createSalarySchema.safeParse({ ...base, amount: TOO_SMALL })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
   })
 
   it('accepts exactly the smallest storable amount', () => {
@@ -268,7 +322,7 @@ describe('createSalarySchema.amount — floor (AC2, the field flagged in the tas
     const result = createSalarySchema.safeParse({ ...base, amount: TOO_PRECISE })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('знаков после запятой')
+    expect(message).toBe('zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   it('still enforces the pre-existing BIZ-13 ceiling (untouched by this fix)', () => {
@@ -340,7 +394,7 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
     const result = updateProjectFinanceSettingsSchema.safeParse({ juniorSalaryOverride: 0.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain('слишком мала')
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_SMALL')
     const code = !result.success ? result.error.issues[0]?.code : undefined
     expect(code).toBe('custom')
   })
@@ -357,7 +411,7 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
     const result = updateProjectFinanceSettingsSchema.safeParse({ juniorSalaryOverride: 1.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain(`${SALARY_AMOUNT_DECIMAL_PLACES} знаков после запятой`)
+    expect(message).toBe('zod.SALARY_AMOUNT_TOO_MANY_DECIMALS')
   })
 
   // `0` stays a legitimate, existing override ("this project's junior earns
@@ -402,7 +456,7 @@ describe('amount: 0 — schema-level wiring: only .positive()\'s own issue, neve
     })
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 
   it('createSalarySchema (AC2 headline field)', () => {
@@ -413,7 +467,7 @@ describe('amount: 0 — schema-level wiring: only .positive()\'s own issue, neve
     })
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 
   // The schema with NO `.max()` — the reviewer's own reproduction used this
@@ -428,13 +482,13 @@ describe('amount: 0 — schema-level wiring: only .positive()\'s own issue, neve
     })
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 
   it('adminUpdateTransactionSchema (optional field, explicitly set to 0)', () => {
     const result = adminUpdateTransactionSchema.safeParse({ amount: 0 })
     expect(result.success).toBe(false)
     const messages = !result.success ? result.error.issues.map((i) => i.message) : []
-    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+    expect(messages.some((m) => m === 'zod.TRANSACTION_AMOUNT_TOO_SMALL')).toBe(false)
   })
 })

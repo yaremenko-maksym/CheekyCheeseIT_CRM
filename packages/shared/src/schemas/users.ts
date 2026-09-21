@@ -26,7 +26,7 @@ export const SALARY_ELIGIBLE_ROLES = [
 
 const telegramSchema = z
   .string()
-  .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Telegram: 5–32 символа, латиница/цифры/_')
+  .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'zod.TELEGRAM_FORMAT')
   .max(33)
 
 const phoneSchema = z.string().max(30)
@@ -81,8 +81,8 @@ export const userProfileSchema = z.object({
    */
   legalFullName: z.string().nullable().optional(),
   /**
-   * Ukrainian registration address (ФОП). Used in contract template as {{registrationAddress}}.
-   * Example: "м. Київ, вул. Хрещатик, 1".
+   * Ukrainian registration address (FOP). Used in contract template as {{registrationAddress}}.
+   * Example: "Kyiv, Khreshchatyk St, 1".
    */
   registrationAddress: z.string().nullable().optional(),
   monthlySalary: z.string().nullable(),
@@ -151,12 +151,10 @@ export const updateProfileSchema = z.object({
  * fragments so the same regexes/messages are reused in the Edit dialog
  * and the dedicated requisites tab.
  */
-const usdtWalletField = z
-  .string()
-  .regex(/^0x[a-fA-F0-9]{40}$/, 'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа')
-const bankUahRecipientField = z.string().min(3, 'ФИО получателя минимум 3 символа').max(255)
-const bankUahIbanField = z.string().regex(/^UA\d{27}$/, 'IBAN должен быть в формате UA + 27 цифр')
-const bankUahRnokppField = z.string().regex(/^\d{10}$/, 'РНОКПП должен быть 10 цифр')
+const usdtWalletField = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'zod.USDT_ADDRESS_FORMAT')
+const bankUahRecipientField = z.string().min(3, 'zod.RECIPIENT_NAME_MIN').max(255)
+const bankUahIbanField = z.string().regex(/^UA\d{27}$/, 'zod.IBAN_FORMAT')
+const bankUahRnokppField = z.string().regex(/^\d{10}$/, 'zod.RNOKPP_FORMAT')
 
 /**
  * Refines a create-user payload to require the requisite fields that match
@@ -180,20 +178,24 @@ function refineRequisitePresence(
   if (isUsdtOnlyRole && data.paymentMethod !== 'USDT_ERC20') {
     ctx.addIssue({
       code: 'custom',
-      message: 'Senior/Admin могут использовать только USDT ERC-20',
+      message: 'zod.USDT_ONLY_FOR_SENIOR_ADMIN',
       path: ['paymentMethod'],
     })
   }
   if (data.paymentMethod === 'USDT_ERC20' && !data.walletUsdtErc20) {
-    ctx.addIssue({ code: 'custom', message: 'USDT кошелёк обязателен', path: ['walletUsdtErc20'] })
+    ctx.addIssue({ code: 'custom', message: 'zod.USDT_WALLET_REQUIRED', path: ['walletUsdtErc20'] })
   }
   if (data.paymentMethod === 'BANK_UAH_FOP') {
     if (!data.bankUahRecipient)
-      ctx.addIssue({ code: 'custom', message: 'ФИО обязательно', path: ['bankUahRecipient'] })
+      ctx.addIssue({
+        code: 'custom',
+        message: 'zod.RECIPIENT_NAME_REQUIRED',
+        path: ['bankUahRecipient'],
+      })
     if (!data.bankUahIban)
-      ctx.addIssue({ code: 'custom', message: 'IBAN обязателен', path: ['bankUahIban'] })
+      ctx.addIssue({ code: 'custom', message: 'zod.IBAN_REQUIRED', path: ['bankUahIban'] })
     if (!data.bankUahRnokpp)
-      ctx.addIssue({ code: 'custom', message: 'РНОКПП обязателен', path: ['bankUahRnokpp'] })
+      ctx.addIssue({ code: 'custom', message: 'zod.RNOKPP_REQUIRED', path: ['bankUahRnokpp'] })
   }
 }
 
@@ -223,7 +225,7 @@ export const createUserSchema = z
     // past validation and hits the column bound rolls back cleanly instead
     // of leaving a half-created user — but catching it here means the admin
     // sees a clear field error instead of a raw request failure at all.
-    email: z.string().email('Некорректный email').max(255, 'Email не длиннее 255 символов'),
+    email: z.string().email('zod.EMAIL_INVALID').max(255, 'zod.EMAIL_TOO_LONG'),
     /**
      * Personal address (§4.4) — optional, set by ADMIN at creation. `null`/
      * omitted = not set. Post-creation changes (typo fix, address rotation,
@@ -238,8 +240,8 @@ export const createUserSchema = z
      */
     personalEmail: z
       .string()
-      .email('Некорректный email')
-      .max(255, 'Email не длиннее 255 символов')
+      .email('zod.EMAIL_INVALID')
+      .max(255, 'zod.EMAIL_TOO_LONG')
       .nullable()
       .optional(),
     displayName: z.string().min(2).max(255),
@@ -277,8 +279,8 @@ export const createUserSchema = z
      * via superRefine below (A3-3 / A2c). When set, used in MSA contract
      * interpolation instead of displayName.
      */
-    legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
-    /** Ukrainian registration address (ФОП). Used in contract template as {{registrationAddress}}. */
+    legalFullName: z.string().min(5, 'zod.LEGAL_FULL_NAME_MIN').max(200).optional(),
+    /** Ukrainian registration address (FOP). Used in contract template as {{registrationAddress}}. */
     registrationAddress: z.string().max(500).nullable().optional(),
     /**
      * Senior-only: select between creating a fresh senior-team (default
@@ -294,7 +296,7 @@ export const createUserSchema = z
     dropTeamId: z.string().uuid().optional(),
     /**
      * task-i18n-stage2 (Task 3) — interface language selected by the admin
-     * in the create wizard's "Данные" step. Optional; service defaults to
+     * in the create wizard's "Data" step. Optional; service defaults to
      * `'uk'` when omitted (matches the DB column default).
      */
     locale: localeSchema.optional(),
@@ -312,7 +314,7 @@ export const createUserSchema = z
     if (data.personalEmail && data.personalEmail.toLowerCase() === data.email.toLowerCase()) {
       ctx.addIssue({
         code: 'custom',
-        message: 'Личный email должен отличаться от рабочего',
+        message: 'zod.PERSONAL_EMAIL_MUST_DIFFER',
         path: ['personalEmail'],
       })
     }
@@ -321,7 +323,7 @@ export const createUserSchema = z
     if (CONTRACT_ROLES.has(data.role) && !data.legalFullName?.trim()) {
       ctx.addIssue({
         code: 'custom',
-        message: 'ФИО обязательно для контракта',
+        message: 'zod.LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT',
         path: ['legalFullName'],
       })
     }
@@ -330,14 +332,14 @@ export const createUserSchema = z
       if (data.role !== 'SENIOR') {
         ctx.addIssue({
           code: 'custom',
-          message: 'teamMode=JOIN_DROP_TEAM доступен только при создании SENIOR',
+          message: 'zod.JOIN_DROP_TEAM_SENIOR_ONLY',
           path: ['teamMode'],
         })
       }
       if (!data.dropTeamId) {
         ctx.addIssue({
           code: 'custom',
-          message: 'dropTeamId обязателен при teamMode=JOIN_DROP_TEAM',
+          message: 'zod.DROP_TEAM_ID_REQUIRED',
           path: ['dropTeamId'],
         })
       }
@@ -355,7 +357,7 @@ export const createUserSchema = z
  */
 export const createDropSchema = z
   .object({
-    email: z.string().email('Некорректный email'),
+    email: z.string().email('zod.EMAIL_INVALID'),
     displayName: z.string().min(2).max(255),
     telegram: telegramSchema.nullable().optional(),
     phone: phoneSchema.nullable().optional(),
@@ -379,15 +381,15 @@ export const createDropSchema = z
      * data-loss bug this schema field closes). Same validators as
      * `createUserSchema` for consistency.
      */
-    legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
+    legalFullName: z.string().min(5, 'zod.LEGAL_FULL_NAME_MIN').max(200).optional(),
     /**
-     * Ukrainian registration address (ФОП). Used in the DROP contract template
+     * Ukrainian registration address (FOP). Used in the DROP contract template
      * as {{registrationAddress}}. Optional — matches the UI (no required
      * validator on the field). Persisted when provided so it is not lost.
      */
     registrationAddress: z.string().max(500).nullable().optional(),
     // Team section — identical shape to senior-team creation.
-    hrIds: z.array(z.string().uuid()).min(1, 'HR обязателен (минимум 1)'),
+    hrIds: z.array(z.string().uuid()).min(1, 'zod.HR_REQUIRED_MIN'),
     accountantId: z.string().uuid().nullable().optional(),
     /**
      * Telegram channel of the drop-team (`teams.telegram_channel`).
@@ -395,7 +397,7 @@ export const createDropSchema = z
      */
     telegramChannel: z
       .string()
-      .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Telegram: 5–32 символа, латиница/цифры/_')
+      .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'zod.TELEGRAM_FORMAT')
       .nullable()
       .optional(),
   })
@@ -404,12 +406,12 @@ export const createDropSchema = z
 
     // DROP is a contract-eligible role (CONTRACT_ROLES) — legalFullName is
     // mandatory at creation, mirroring `createUserSchema`. Without this the
-    // ФИО typed by the admin was never persisted (legal_full_name=null) and
+    // Full name typed by the admin was never persisted (legal_full_name=null) and
     // the MSA contract rendered with the platform display name instead.
     if (!data.legalFullName?.trim()) {
       ctx.addIssue({
         code: 'custom',
-        message: 'ФИО обязательно для контракта',
+        message: 'zod.LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT',
         path: ['legalFullName'],
       })
     }
@@ -432,14 +434,14 @@ export const rejoinTeamSchema = z
     if (data.teamMode === 'JOIN_DROP_TEAM' && !data.dropTeamId) {
       ctx.addIssue({
         code: 'custom',
-        message: 'dropTeamId обязателен при teamMode=JOIN_DROP_TEAM',
+        message: 'zod.DROP_TEAM_ID_REQUIRED',
         path: ['dropTeamId'],
       })
     }
     if (data.teamMode === 'CREATE_NEW' && (!data.hrIds || data.hrIds.length < 1)) {
       ctx.addIssue({
         code: 'custom',
-        message: 'HR обязателен (минимум 1) при teamMode=CREATE_NEW',
+        message: 'zod.HR_REQUIRED_MIN',
         path: ['hrIds'],
       })
     }
@@ -447,7 +449,7 @@ export const rejoinTeamSchema = z
 
 export const adminUpdateUserSchema = z
   .object({
-    email: z.string().email('Некорректный email').optional(),
+    email: z.string().email('zod.EMAIL_INVALID').optional(),
     displayName: z.string().min(2).max(255).optional(),
     role: roleSchema.optional(),
     telegram: telegramSchema.nullable().optional(),
@@ -491,7 +493,7 @@ export const adminUpdateUserSchema = z
     // 400 — UI hides it for other roles. Pair-invariant: SENIOR ≡ team.
     teamTelegramChannel: z
       .string()
-      .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Некорректный канал (5–32 латинских символов или _, опц. @)')
+      .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'zod.TELEGRAM_FORMAT')
       .nullable()
       .optional(),
     /**
@@ -499,9 +501,9 @@ export const adminUpdateUserSchema = z
      * admin update — set when ADMIN knows the legal name. When set, used in MSA
      * contract interpolation instead of displayName.
      */
-    legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
+    legalFullName: z.string().min(5, 'zod.LEGAL_FULL_NAME_MIN').max(200).optional(),
     /**
-     * Ukrainian registration address (ФОП). Used in contract template as {{registrationAddress}}.
+     * Ukrainian registration address (FOP). Used in contract template as {{registrationAddress}}.
      */
     registrationAddress: z.string().max(500).nullable().optional(),
   })
@@ -509,10 +511,10 @@ export const adminUpdateUserSchema = z
 
 /**
  * Dedicated payload for `PATCH /users/:id/personal-email` — security-review
- * PR #623 round 4, owner decision: "туда будет всегда попадать валидная
- * почта. В случае чего, мы можем быстро изменить почту, что за собой
- * изменит и правила для входа и со старой указанной почты уже нельзя будет
- * войти". Kept OUT of `adminUpdateUserSchema` (not folded into the general
+ * PR #623 round 4, owner decision: "a valid email always lands there. If
+ * something happens, we can quickly change the email, which also changes the
+ * login rules — login from the old address stops working immediately". Kept
+ * OUT of `adminUpdateUserSchema` (not folded into the general
  * profile PATCH) so this single-purpose, security-sensitive write — it
  * revokes login on whatever address was there before, unconditionally —
  * has its own narrow endpoint, its own audit action
@@ -527,11 +529,7 @@ export const adminUpdateUserSchema = z
  * whatever PERSONAL row exists, insert the new one if provided.
  */
 export const changePersonalEmailSchema = z.object({
-  personalEmail: z
-    .string()
-    .email('Некорректный email')
-    .max(255, 'Email не длиннее 255 символов')
-    .nullable(),
+  personalEmail: z.string().email('zod.EMAIL_INVALID').max(255, 'zod.EMAIL_TOO_LONG').nullable(),
 })
 
 export type ChangePersonalEmailDto = z.infer<typeof changePersonalEmailSchema>

@@ -37,6 +37,7 @@
 
 import { test, expect, REAL_API_BASE } from './fixtures'
 import type { Page } from '@playwright/test'
+import { loadMessages } from '../fixtures/catalog'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -392,8 +393,13 @@ test.describe('Transaction receipts — USDT explorer-only', () => {
       await dialog.getByTestId('receipt-input-url-field').fill('https://example.com/tx/0xabc')
 
       await dialog.getByTestId('create-transaction-submit').click()
+      // Text now comes from the shared zod-error catalog (fix-round 1,
+      // COPY-H-2) and was reworded again in fix-round 2 (COPY-M-10) — assert
+      // against the compiled uk catalog entry, not a hardcoded regex that
+      // drifts the moment copy-review changes the wording (CI-4/CR-H-1).
+      const receiptErrorMessages = await loadMessages('uk')
       await expect(dialog.getByTestId('create-transaction-error-receipt')).toContainText(
-        /blockchain-explorer/i,
+        receiptErrorMessages['zod-error.RECEIPT_USDT_LINK_REQUIRED']!,
       )
       await expect(dialog).toBeVisible()
     } finally {

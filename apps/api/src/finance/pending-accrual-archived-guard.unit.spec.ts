@@ -368,6 +368,24 @@ describe('createSeniorIncome — AC1: an archived senior is refused before any I
     )
   })
 
+  // fix-round 1 (mutation-gate closure): same ACTIVE-senior harness as the
+  // test above, minus the receipt — proves
+  // `if (seniorIncomeReceiptErr) throw zodErrorBadRequest(seniorIncomeReceiptErr)`
+  // actually refuses instead of reaching the INSERT. Every other test in this
+  // describe block supplies `payload.receiptExternalUrl`, so that guard had
+  // zero direct coverage on its own.
+  it('an ACTIVE senior with NO receipt at all is refused at the receipt gate, never reaches the INSERT', async () => {
+    const { svc } = makeService(SENIOR_PROJECT, ACTIVE_SENIOR)
+    const { receiptExternalUrl: _unused, ...payloadWithoutReceipt } = payload
+
+    await expect(
+      svc.createSeniorIncome(payloadWithoutReceipt, CURRENT_SENIOR_SESSION),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+    })
+  })
+
   it('replay-SELECT queries by (type=SENIOR_INCOME, idempotencyKey) — not an empty/wrong-literal read (backlog 73/A-3, mutation-gate)', async () => {
     const { svc, transactionsFindFirst } = makeService(SENIOR_PROJECT, ACTIVE_SENIOR)
 
@@ -511,6 +529,23 @@ describe('createDropIncome — AC1: an archived drop is refused before any INSER
     await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toThrow(
       'INSERT REACHED',
     )
+  })
+
+  // fix-round 1 (mutation-gate closure): same pattern as createSeniorIncome's
+  // sibling test above — every test in this describe supplies
+  // `payload.receiptExternalUrl`, so
+  // `if (dropIncomeReceiptErr) throw zodErrorBadRequest(dropIncomeReceiptErr)`
+  // had zero direct coverage.
+  it('an ACTIVE drop with NO receipt at all is refused at the receipt gate, never reaches the INSERT', async () => {
+    const { svc } = makeService(DROP_PROJECT, ACTIVE_DROP)
+    const { receiptExternalUrl: _unused, ...payloadWithoutReceipt } = payload
+
+    await expect(
+      svc.createDropIncome(payloadWithoutReceipt, CURRENT_DROP_SESSION),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+    })
   })
 
   it('does not fire when the drop user row failed to resolve (undefined, not archived)', async () => {
