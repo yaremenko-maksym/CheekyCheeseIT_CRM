@@ -107,6 +107,14 @@ vi.mock('@/lib/axios', () => ({
   api: { get: vi.fn(), post: (...args: unknown[]) => apiPostMock(...args) },
 }))
 
+// task-i18n-stage3a (Task 1), fix-round 2 (MUT-1/MUT-2): TosNewPage's publish
+// success/error toasts (its OWN catalog strings) are only reachable if
+// `sonner` is mockable — real `toast` is a no-op-ish singleton with no
+// jsdom rendering target, so asserting "was called with X" needs the mock.
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}))
+
 // URL.createObjectURL / revokeObjectURL are not in happy-dom — stub them so the
 // PdfPreview blob flow works in tests.
 const FAKE_BLOB_URL = 'blob:preview-pdf'
@@ -451,5 +459,158 @@ describe('TosNewPage layout', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('preview-tos-dialog-document')).not.toBeInTheDocument()
     })
+  })
+
+  // MUT-1 (fix-round 2): the back button's aria-label was only ever
+  // rendered, never asserted, by the four tests above.
+  it('back button carries the catalog aria-label', async () => {
+    await renderTosPage()
+    await resolveFlushPromises()
+
+    expect(screen.getByRole('button', { name: 'Назад до умов використання' })).toBeInTheDocument()
+  })
+
+  // MUT-1: pins the ArithmeticOperator on the header's OWN "next version"
+  // line (`currentTos.version + 1`, unguarded — this branch only renders
+  // when `currentTos` exists) — exact text catches +1 flipped to -1 (fixture
+  // version is 2, so this must read exactly "v3 (поточна — v2)").
+  it('shows the next/current version numbers in the header when a current ToS exists', async () => {
+    await renderTosPage()
+    await resolveFlushPromises()
+
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.tagName === 'P' && element.textContent === 'Наступна версія: v3 (поточна — v2)',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  // MUT-1: the publish-confirm dialog's OWN version arithmetic
+  // (`(currentTos?.version ?? 0) + 1`) has THREE survivors — `??`→`&&`,
+  // `?.`→`.`, `+1`→`-1` — none reachable by the fixture above, which always
+  // supplies a non-null `currentTos` (so `?.` vs `.` never differs there).
+  // Rendering with NO current ToS at all is what makes every one of them
+  // observable: `?.` becomes required (a bare `.` on null throws), `?? 0`
+  // is the only thing keeping the number defined, and the result (v1, not
+  // v-1 or v(NaN)) pins the arithmetic.
+  it('publish-confirm dialog shows "v1" when there is no current ToS yet (?? / ?. / +1 all exercised)', async () => {
+    const user = userEvent.setup()
+    const { useQuery } = vi.mocked(await import('@tanstack/react-query'))
+    // `mockReturnValue` (persistent), not `-Once` — TosNewPage re-renders
+    // more than once before the dialog check (typing into the mock editor
+    // triggers a state update), and `useQuery` is called again on every
+    // render; a `-Once` override is consumed by the FIRST render and later
+    // renders fall back to the shared version:2 default, silently
+    // re-defining `currentTos` out from under the assertion. Restored at
+    // the end so later tests in this file get the shared default back.
+    useQuery.mockReturnValue({
+      data: null,
+      isLoading: false,
+    } as ReturnType<typeof useQuery>)
+
+    try {
+      await renderTosPage()
+      await resolveFlushPromises()
+
+      expect(screen.getByText('Перша версія')).toBeInTheDocument()
+
+      // No `currentTos.bodyMarkdown` to fall back to here — the publish
+      // button stays `disabled` (`currentBody.trim() === ''`) until the
+      // editor itself has content.
+      await user.type(screen.getByTestId('mock-codemirror'), 'Draft text')
+
+      await user.click(screen.getByTestId('publish-tos-button'))
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: 'Опублікувати нову версію умов (v1)?' }),
+        ).toBeInTheDocument()
+      })
+    } finally {
+      useQuery.mockReturnValue({
+        data: {
+          id: 'tos-1',
+          version: 2,
+          bodyMarkdown: '# Terms of Service\n\nТекст ToS.',
+          isActive: true,
+          createdAt: '2024-01-01T00:00:00.000Z',
+        },
+        isLoading: false,
+      } as ReturnType<typeof useQuery>)
+    }
+  })
+
+  // MUT-1: the publish mutation's `onSuccess` toast — never fires under the
+  // file's shared static `useMutation` mock (`mutate: vi.fn()`, no-op).
+  // This test overrides it to actually invoke the callback the real hook
+  // would. `mockImplementation` (not `-Once`) — TosNewPage re-renders more
+  // than once before the click (state updates, Suspense settling), and each
+  // render calls `useMutation` again; a `-Once` override gets consumed by
+  // an earlier render and the click ends up back on the no-op default.
+  // Restored to the shared default at the end so later tests in this file
+  // aren't affected.
+  it('publish success shows the catalog toast', async () => {
+    const user = userEvent.setup()
+    const { useMutation } = vi.mocked(await import('@tanstack/react-query'))
+    const { toast } = vi.mocked(await import('sonner'))
+    useMutation.mockImplementation(
+      (opts) =>
+        ({
+          mutate: () => opts.onSuccess?.(undefined, undefined, undefined, undefined as never),
+          isPending: false,
+        }) as unknown as ReturnType<typeof useMutation>,
+    )
+
+    try {
+      await renderTosPage()
+      await resolveFlushPromises()
+
+      await user.click(screen.getByTestId('publish-tos-button'))
+      await waitFor(() => {
+        expect(screen.getByTestId('confirm-publish-tos-button')).toBeInTheDocument()
+      })
+      await user.click(screen.getByTestId('confirm-publish-tos-button'))
+
+      expect(toast.success).toHaveBeenCalledWith(
+        'Нову версію умов використання опубліковано. Користувачі побачать сповіщення.',
+      )
+    } finally {
+      useMutation.mockImplementation(
+        () => ({ mutate: vi.fn(), isPending: false }) as unknown as ReturnType<typeof useMutation>,
+      )
+    }
+  })
+
+  // MUT-1: mirrors the success test above for the `onError` branch.
+  it('publish failure shows the catalog error toast', async () => {
+    const user = userEvent.setup()
+    const { useMutation } = vi.mocked(await import('@tanstack/react-query'))
+    const { toast } = vi.mocked(await import('sonner'))
+    useMutation.mockImplementation(
+      (opts) =>
+        ({
+          mutate: () => opts.onError?.(new Error('boom'), undefined, undefined, undefined as never),
+          isPending: false,
+        }) as unknown as ReturnType<typeof useMutation>,
+    )
+
+    try {
+      await renderTosPage()
+      await resolveFlushPromises()
+
+      await user.click(screen.getByTestId('publish-tos-button'))
+      await waitFor(() => {
+        expect(screen.getByTestId('confirm-publish-tos-button')).toBeInTheDocument()
+      })
+      await user.click(screen.getByTestId('confirm-publish-tos-button'))
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'Помилка під час публікації версії умов використання',
+      )
+    } finally {
+      useMutation.mockImplementation(
+        () => ({ mutate: vi.fn(), isPending: false }) as unknown as ReturnType<typeof useMutation>,
+      )
+    }
   })
 })
