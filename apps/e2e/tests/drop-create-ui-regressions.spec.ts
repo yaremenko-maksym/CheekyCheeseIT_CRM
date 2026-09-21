@@ -73,9 +73,11 @@ test.describe('Drop create — UI regressions', () => {
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    // RoleSelect's canon option label (role-select.tsx `ROLE_LABEL_MESSAGES`,
-    // not the legacy `ROLE_LABELS` — COPY-M-21).
-    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
+    // UserDialog renders the legacy `ROLE_LABELS` map, NOT `RoleSelect` —
+    // «Синьор» until wave (b) migrates its eight consumers (COPY-M-21).
+    // Flip to assertInCatalog(uk, 'Сеньйор') together with those 17 other
+    // call sites, in the same commit that changes ROLE_LABELS.
+    await page.getByRole('option', { name: 'Синьор' }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()

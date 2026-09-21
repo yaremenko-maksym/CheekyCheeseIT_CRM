@@ -64,16 +64,22 @@ msgstr "<0>{entityName}</0> буде архівований і прибрани�
 msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
 msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
 
+#. placeholder {0}: impact.projectsCount ?? 0
+#. placeholder {1}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований разом із усіма своїми проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{1})."
+msgstr "<0>{entityName}</0> буде архівований разом із усіма своїми проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{1})."
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "<0>{entityName}</0> буде архівований. Нічого пов’язаного архівувати не треба."
 msgstr "<0>{entityName}</0> буде архівований. Нічого пов’язаного архівувати не треба."
 
-#. placeholder {0}: impact.teamName ? ( <> {' '} та команда «<strong>{impact.teamName}</strong>» </> ) : null
+#. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
 #. placeholder {2}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0>{0} — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
-msgstr "<0>{entityName}</0>{0} — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+msgstr "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
@@ -1802,6 +1808,7 @@ msgstr "Увійти як інший адміністратор не можна"
 msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
 msgstr "Увійти як самого себе не можна"
 
+#: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx

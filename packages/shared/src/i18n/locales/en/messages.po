@@ -64,16 +64,22 @@ msgstr "<0>{entityName}</0> will be archived and removed from <1>{0, plural, one
 msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
 msgstr "<0>{entityName}</0> will be archived and removed from <1>{0, plural, one {# team} other {# teams}}</1> (HR role). The teams themselves will remain active."
 
+#. placeholder {0}: impact.projectsCount ?? 0
+#. placeholder {1}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "<0>{entityName}</0> буде архівований разом із усіма своїми проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{1})."
+msgstr "<0>{entityName}</0> will be archived together with all their projects ({0, plural, one {# project} other {# projects}}{1})."
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "<0>{entityName}</0> буде архівований. Нічого пов’язаного архівувати не треба."
-msgstr "<0>{entityName}</0> will be archived. There is nothing linked to archive."
+msgstr "<0>{entityName}</0> will be archived. Nothing else is affected."
 
-#. placeholder {0}: impact.teamName ? ( <> {' '} та команда «<strong>{impact.teamName}</strong>» </> ) : null
+#. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
 #. placeholder {2}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0>{0} — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
-msgstr "<0>{entityName}</0>{0} — a linked pair you cannot remove one at a time. Archiving covers: the {roleGenitive} profile, the team and all its projects ({1, plural, one {# project} other {# projects}}{2})."
+msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+msgstr "<0>{entityName}</0> and the team “<1>{0}</1>” are a linked pair; you cannot remove just one. Archiving covers: the {roleGenitive} profile, the team and all its projects ({1, plural, one {# project} other {# projects}}{2})."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
@@ -492,7 +498,7 @@ msgstr "Only an administrator can restore a document"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити пов’язане"
-msgstr "Restore linked"
+msgstr "Restore linked items"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
@@ -1802,6 +1808,7 @@ msgstr "You can't sign in as another admin"
 msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
 msgstr "You can't sign in as yourself"
 
+#: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx

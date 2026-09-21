@@ -14,7 +14,7 @@
  * the diff).
  */
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { loadCatalog } from '@/test/i18n'
 import { CrmDialogContent, Dialog, DialogTitle } from '../crm-dialog'
 

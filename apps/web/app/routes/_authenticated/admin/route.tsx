@@ -93,7 +93,7 @@ function AdminTemplatesRoot() {
               {t`Контракти`}
             </a>
             <a data-testid="admin-templates-tab-tos" href="/admin/tos">
-              Terms of Service
+              {t`Умови використання`}
             </a>
             <a data-testid="admin-templates-tab-wallet" href="/admin/wallet">
               {t`Компанія`}

@@ -102,7 +102,7 @@ function TosEditorPage() {
       {displayedVersion ? (
         <>
           {previewVersion && (
-            <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2">
+            <div className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-amber-600 dark:text-amber-400">
                 <Trans>Перегляд архівної версії v{previewVersion.version}</Trans>
               </p>
@@ -111,6 +111,7 @@ function TosEditorPage() {
                 size="sm"
                 onClick={() => setPreviewVersion(null)}
                 data-testid="back-to-active-tos"
+                className="self-start sm:self-auto"
               >
                 <Trans>До активної версії</Trans>
               </Button>

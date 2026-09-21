@@ -59,6 +59,32 @@ function renderImpactText(
     // team and JUNIOR on the projects keep their membership and keep earning
     // off their own `archivedAt` — the cascade never touches it.
     if (role === 'SENIOR' || role === 'DROP') {
+      const projectNames = impact.projectNames ?? []
+
+      // task-i18n-stage3a fix-round 3 (COPY-M-13): `teamName` is nullable
+      // in `archiveImpactSchema` — a SENIOR/DROP with no team attached is
+      // NOT "a linked pair" and has no team-mates to warn about. The old
+      // single-message version substituted an empty ternary into a
+      // sentence that claimed a pair/team either way, which was false
+      // whenever `teamName` was absent. Branch explicitly instead.
+      if (!impact.teamName) {
+        return (
+          <Trans>
+            <strong className="text-foreground">{entityName}</strong> буде архівований разом із
+            усіма своїми проєктами (
+            <Plural
+              value={impact.projectsCount ?? 0}
+              one="# проєкт"
+              few="# проєкти"
+              many="# проєктів"
+              other="# проєктів"
+            />
+            {projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''}
+            ).
+          </Trans>
+        )
+      }
+
       // Template E (select, 2 variants used inline — no `other` reachable
       // through this guard, but the macro's signature still requires one).
       // Stryker disable next-line ObjectLiteral: Lingui's babel macro needs
@@ -79,19 +105,12 @@ function renderImpactText(
       })
       // Stryker disable next-line ObjectLiteral,StringLiteral: same ObjectLiteral reasoning as the roleGenitive select() above (macro needs a literal object), and `other` here is the same structurally-unreachable branch as roleGenitive's own `other` a few lines up.
       const pairWord = select(role, { SENIOR: 'сеньйор', DROP: 'дроп', other: 'співробітник' })
-      const projectNames = impact.projectNames ?? []
       return (
         <>
           <Trans>
-            <strong className="text-foreground">{entityName}</strong>
-            {impact.teamName ? (
-              <>
-                {' '}
-                та команда «<strong>{impact.teamName}</strong>»
-              </>
-            ) : null}{' '}
-            — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}
-            , команда і всі її проєкти (
+            <strong className="text-foreground">{entityName}</strong> та команда «
+            <strong>{impact.teamName}</strong>» — пов’язана пара, прибрати по одному не можна. В
+            архів підуть: профіль {roleGenitive}, команда і всі її проєкти (
             <Plural
               value={impact.projectsCount ?? 0}
               one="# проєкт"

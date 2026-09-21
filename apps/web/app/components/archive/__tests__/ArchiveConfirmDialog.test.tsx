@@ -151,32 +151,54 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
     },
   )
 
-  it('SENIOR without a teamName omits the "та команда «…»" clause', async () => {
+  // task-i18n-stage3a fix-round 3 (COPY-M-13): a SENIOR/DROP with no team
+  // attached is NOT "a linked pair" — the old single-message version
+  // substituted an empty ternary into a sentence that claimed a pair/team
+  // regardless, which was false when `teamName` was absent. The component
+  // now renders a plain single-entity message instead; these three tests
+  // cover that branch.
+  it('SENIOR without a teamName renders the plain single-entity message, not the pair/team wording', async () => {
     mockGet({ type: 'user', role: 'SENIOR', teamName: null, projectsCount: 1 })
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/пов’язана пара/)
+    await screen.findByText(/буде архівований разом із усіма своїми проєктами/)
     const text = dialog.textContent ?? ''
+    expect(text).not.toContain('пов’язана пара')
     expect(text).not.toContain('та команда')
-    // `{' '}` right after the (null) conditional still joins entityName to
-    // the dash — pins that space too, not just the teamName-present path.
-    expect(text).toContain('Oleksiy —')
+    expect(text).toContain('Oleksiy буде архівований')
+    expect(text).toContain('1 проєкт)')
   })
 
-  it('projectsCount defaults to 0 (many-form "0 проєктів") when the field is absent', async () => {
+  it('no-team branch: projectsCount defaults to 0 (many-form "0 проєктів") when the field is absent', async () => {
     mockGet({ type: 'user', role: 'SENIOR', teamName: null })
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/пов’язана пара/)
+    await screen.findByText(/буде архівований разом із усіма своїми проєктами/)
     expect(dialog.textContent ?? '').toContain('0 проєктів')
   })
 
-  it('one-form (1) renders singular "1 проєкт" / "1 HR/бухгалтер" / "1 джуніор"', async () => {
+  it('no-team branch: projectNames render the same "): X, Y" suffix as the has-team branch', async () => {
     mockGet({
       type: 'user',
       role: 'DROP',
+      teamName: null,
+      projectsCount: 2,
+      projectNames: ['Project A', 'Project B'],
+    })
+    renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Ihor' })
+
+    const dialog = await screen.findByRole('dialog')
+    await screen.findByText(/буде архівований разом із усіма своїми проєктами/)
+    expect(dialog.textContent ?? '').toContain('Project A, Project B')
+  })
+
+  it('has-team branch: teamName is always shown (no more conditional clause) and one-form (1) renders singular "1 проєкт" / "1 HR/бухгалтер" / "1 джуніор"', async () => {
+    mockGet({
+      type: 'user',
+      role: 'DROP',
+      teamName: 'Team X',
       projectsCount: 1,
       hrAccountantsOnTeam: 1,
       juniorsAffected: 1,
@@ -186,6 +208,7 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
     const dialog = await screen.findByRole('dialog')
     await screen.findByText(/пов’язана пара/)
     const text = dialog.textContent ?? ''
+    expect(text).toContain('Ihor та команда «Team X»')
     expect(text).toContain('1 проєкт)')
     expect(text).toContain('1 HR/бухгалтер)')
     expect(text).toContain('1 джуніор)')

@@ -206,13 +206,14 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
   })
 
   // MUT-1: the hidden E2E-compat links — each carries its OWN catalog
-  // string (or, for `tos`, a deliberately English placeholder — see the
-  // source's own comment) as its data-testid target text.
-  it('renders the hidden E2E-testid-compat links with their catalog/placeholder text', () => {
+  // string as its data-testid target text. UX-L-1 (fix-round 3): the `tos`
+  // link used to carry a hardcoded English literal ("Terms of Service")
+  // even in the uk locale — same msgid as the visible pill now.
+  it('renders the hidden E2E-testid-compat links with their catalog text', () => {
     render(<AdminTemplatesRoot />)
 
     expect(screen.getByTestId('admin-templates-tab-contracts')).toHaveTextContent('Контракти')
-    expect(screen.getByTestId('admin-templates-tab-tos')).toHaveTextContent('Terms of Service')
+    expect(screen.getByTestId('admin-templates-tab-tos')).toHaveTextContent('Умови використання')
     expect(screen.getByTestId('admin-templates-tab-wallet')).toHaveTextContent('Компанія')
     expect(screen.getByTestId('admin-templates-tab-login-as')).toHaveTextContent('Увійти як')
   })
