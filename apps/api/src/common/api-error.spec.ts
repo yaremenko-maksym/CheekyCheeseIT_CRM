@@ -1,5 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { API_ERROR_FALLBACK_EN } from '@crm/shared'
 import { apiError } from './api-error'
 
@@ -56,5 +56,26 @@ describe('apiError', () => {
     const response = e.getResponse() as { message: string }
     expect(response.message).toBe("Can't revert to draft: the contract is already signed")
     expect(response.message).not.toMatch(/[{}]/)
+  })
+
+  // Mutation-gate finding (fix-round 1, `interpolate`'s `setupI18n({ locale:
+  // 'en', messages: { en: {} } })` call): mutating the inner `en: {}` away
+  // (`messages: {}`) survived — the RETURNED `message` text is identical
+  // either way (verified empirically: `i18n._` falls back to `options.
+  // message` regardless), but `@lingui/core` logs `console.warn('Messages
+  // for locale "en" not loaded.')` on every single call when the `en` key
+  // is missing — i.e. on every refused request in this repo, since
+  // `interpolate` runs on every `apiError()` call. That is real,
+  // observable, undesirable behavior (production log spam), just not
+  // through the return value the earlier two tests already pin — this test
+  // is what makes it observable to the mutation gate too.
+  it('does not warn on a missing locale — the empty `en` catalog entry is registered, not omitted', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      apiError('TOS_ACCEPT_IMPERSONATION', HttpStatus.FORBIDDEN)
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

@@ -447,6 +447,10 @@ describe('ApplicationsService.apply()', () => {
     expect(caught).toBeInstanceOf(UnsupportedMediaTypeException)
     const exception = caught as UnsupportedMediaTypeException
     expect(exception.getStatus()).toBe(415)
+    // Pin the exact fixed string (mutation-gate finding, fix-round 1):
+    // `.not.toContain('corrupt PDF')` alone still passes against an EMPTY
+    // string, which is not the intended generic message either.
+    expect(exception.message).toBe("Couldn't process this file. Please try a different file.")
     expect(exception.message).not.toContain('corrupt PDF')
   })
 
