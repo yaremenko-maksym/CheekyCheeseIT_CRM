@@ -368,11 +368,11 @@ describe('DocumentsService.upload — MIME / size validation', () => {
         { category: 'RESUME' },
       ),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({
+      response: {
         code: 'DOCUMENT_MIME_NOT_ALLOWED',
         statusCode: 415,
         params: { mimeType: 'text/csv' },
-      }),
+      },
     })
   })
 
@@ -385,11 +385,11 @@ describe('DocumentsService.upload — MIME / size validation', () => {
         { category: 'RESUME' },
       ),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({
+      response: {
         code: 'DOCUMENT_TOO_LARGE',
         statusCode: 413,
         params: { maxMb: 10 },
-      }),
+      },
     })
   })
 
@@ -424,11 +424,11 @@ describe('DocumentsService.upload — RBAC by category', () => {
       await expect(
         h.service.upload(JUNIOR, pdfFile, { category: 'RESUME', ownerId: SENIOR.id }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_SELF_ONLY',
           statusCode: 403,
           params: { role: 'JUNIOR' },
-        }),
+        },
       })
     })
     it('JUNIOR upload for self → ok', async () => {
@@ -442,11 +442,11 @@ describe('DocumentsService.upload — RBAC by category', () => {
       await expect(
         h.service.upload(ACCOUNTANT, pdfFile, { category: 'RESUME' }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
           params: { role: 'ACCOUNTANT', category: 'RESUME' },
-        }),
+        },
       })
     })
     it('ADMIN/HR/SENIOR upload SCAN for any ownerId → ok', async () => {
@@ -516,11 +516,11 @@ describe('DocumentsService.upload — RBAC by category', () => {
     it('HR upload RECEIPT → 403', async () => {
       const h = makeHarness()
       await expect(h.service.upload(HR, pdfFile, { category: 'RECEIPT' })).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
           params: { role: 'HR', category: 'RECEIPT' },
-        }),
+        },
       })
     })
     it('JUNIOR upload RECEIPT → 403', async () => {
@@ -528,11 +528,11 @@ describe('DocumentsService.upload — RBAC by category', () => {
       await expect(
         h.service.upload(JUNIOR, pdfFile, { category: 'RECEIPT' }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
           params: { role: 'JUNIOR', category: 'RECEIPT' },
-        }),
+        },
       })
     })
     it('SENIOR for self → ok', async () => {
@@ -545,11 +545,11 @@ describe('DocumentsService.upload — RBAC by category', () => {
       await expect(
         h.service.upload(SENIOR, pdfFile, { category: 'RECEIPT', ownerId: SENIOR2.id }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
           params: { role: 'SENIOR', category: 'RECEIPT' },
-        }),
+        },
       })
     })
     it('ACCOUNTANT for any owner → ok', async () => {
@@ -602,11 +602,11 @@ describe('DocumentsService.upload — RBAC by category', () => {
     it('JUNIOR → 403', async () => {
       const h = makeHarness()
       await expect(h.service.upload(JUNIOR, pdfFile, { category: 'LOGO' })).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
           params: { role: 'JUNIOR', category: 'LOGO' },
-        }),
+        },
       })
     })
     it('ACCOUNTANT → 403', async () => {
@@ -614,11 +614,11 @@ describe('DocumentsService.upload — RBAC by category', () => {
       await expect(
         h.service.upload(ACCOUNTANT, pdfFile, { category: 'LOGO' }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
           params: { role: 'ACCOUNTANT', category: 'LOGO' },
-        }),
+        },
       })
     })
   })
@@ -2022,11 +2022,11 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { category: 'RESUME', ownerId: DROP2.id },
         ),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_SELF_ONLY',
           statusCode: 403,
           params: { role: 'DROP' },
-        }),
+        },
       })
     })
 
@@ -2050,11 +2050,11 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { category: 'SCAN', ownerId: DROP2.id },
         ),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_SELF_ONLY',
           statusCode: 403,
           params: { role: 'DROP' },
-        }),
+        },
       })
     })
 
@@ -2094,11 +2094,11 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { category: 'RECEIPT', ownerId: DROP.id },
         ),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
           params: { role: 'DROP', category: 'RECEIPT' },
-        }),
+        },
       })
     })
   })

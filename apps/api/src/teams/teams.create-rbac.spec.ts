@@ -214,11 +214,11 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     await expect(
       service.create('Team X', juniorUser.id, [hrUser.id], accUser.id, adminUser),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({
+      response: {
         code: 'TEAM_UNEXPECTED_USER_ROLE',
         statusCode: 400,
         params: { expectedRole: 'SENIOR', actualRole: 'JUNIOR' },
-      }),
+      },
     })
   })
 
@@ -236,11 +236,11 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     await expect(
       service.create('Team X', seniorUser.id, [seniorUser.id + '-2'], accUser.id, adminUser),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({
+      response: {
         code: 'TEAM_UNEXPECTED_USER_ROLE',
         statusCode: 400,
         params: { expectedRole: 'HR', actualRole: 'SENIOR' },
-      }),
+      },
     })
   })
 
@@ -257,11 +257,11 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     await expect(
       service.create('Team X', seniorUser.id, [hrUser.id], juniorUser.id, adminUser),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({
+      response: {
         code: 'TEAM_UNEXPECTED_USER_ROLE',
         statusCode: 400,
         params: { expectedRole: 'ACCOUNTANT', actualRole: 'JUNIOR' },
-      }),
+      },
     })
   })
 

@@ -411,11 +411,11 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
         { category: 'RESUME' },
       ),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({
+      response: {
         code: 'DOCUMENT_CONTENT_TYPE_MISMATCH',
         statusCode: 415,
         params: { declaredMime: 'image/jpeg', detectedMime: 'application/pdf' },
-      }),
+      },
     })
   })
 
@@ -428,11 +428,11 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
         { category: 'RESUME' },
       ),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({
+      response: {
         code: 'DOCUMENT_CONTENT_TYPE_MISMATCH',
         statusCode: 415,
         params: { declaredMime: 'application/pdf', detectedMime: 'image/jpeg' },
-      }),
+      },
     })
   })
 

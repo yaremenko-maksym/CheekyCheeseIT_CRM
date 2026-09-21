@@ -362,11 +362,11 @@ describe('EmployeeContractsService', () => {
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
       await expect(service.revert('user-uuid', mockViewer)).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'CONTRACT_ALREADY_STATUS_CANNOT_REVERT',
           statusCode: 409,
           params: { status: 'DRAFT' },
-        }),
+        },
       })
     })
 
@@ -650,11 +650,11 @@ describe('EmployeeContractsService', () => {
       await expect(
         service.updateCustomValues('user-uuid', { arbitraryKey: 'value' }, mockViewer),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({
+        response: {
           code: 'CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS',
           statusCode: 400,
           params: { keys: 'arbitraryKey' },
-        }),
+        },
       })
     })
 
