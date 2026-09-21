@@ -608,6 +608,19 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(res.statusCode).toBe(403)
     })
 
+    // SR-L-1 (PR #702 fix-round 1): the sentinel's `assertNotDrop` (below,
+    // in the controller) was migrated to `apiError('INTERVIEW_DROP_
+    // FORBIDDEN', ...)`, matching the real controller — but on THIS route
+    // (`GET /api/interviews`, `@Roles('ADMIN', 'SENIOR', 'HR')`) DROP is not
+    // in the allow-list at all, so the GLOBAL `RolesGuard` (which runs
+    // before any handler body) already rejects it with its own generic,
+    // code-less `ForbiddenException(GUARD_REFUSAL_MESSAGE)` — `assertNotDrop`
+    // is verified-unreachable for DROP through this endpoint (confirmed by
+    // running this spec against a real DB: the response body carries no
+    // `code` field at all, only `statusCode` + `message`). Pinning `code:
+    // 'INTERVIEW_DROP_FORBIDDEN'` here would assert something that is not
+    // and cannot become true without also adding DROP to the route's
+    // `@Roles` list — status-only is the correct, honest assertion.
     it('LIST 7. DROP → 403 (assertNotDrop, no seniorId)', async () => {
       const res = await app.inject({
         method: 'GET',
@@ -615,9 +628,6 @@ describe.skipIf(!hasDatabaseUrl())(
         cookies: { jwt: tokenFor(DROP) },
       })
       expect(res.statusCode).toBe(403)
-      // SR-L-1 (PR #702 fix-round 1): pin the migrated envelope `code`, not
-      // just the status — a bare ForbiddenException would also be 403.
-      expect(res.json()).toMatchObject({ code: 'INTERVIEW_DROP_FORBIDDEN', statusCode: 403 })
     })
 
     it('LIST 8. DROP → 403 even with a valid seniorId', async () => {
@@ -627,7 +637,6 @@ describe.skipIf(!hasDatabaseUrl())(
         cookies: { jwt: tokenFor(DROP) },
       })
       expect(res.statusCode).toBe(403)
-      expect(res.json()).toMatchObject({ code: 'INTERVIEW_DROP_FORBIDDEN', statusCode: 403 })
     })
 
     it('LIST 9. SENIOR_C (teamless) → 403 (active-team guard)', async () => {
