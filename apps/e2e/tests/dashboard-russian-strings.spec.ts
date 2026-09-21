@@ -36,6 +36,7 @@
 
 import { test, expect } from './fixtures'
 import type { Page } from '@playwright/test'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const ENGLISH_BLOCKLIST = [
   /Active Candidates/i,
@@ -60,26 +61,30 @@ const ENGLISH_BLOCKLIST = [
 // «Останні транзакції») was replaced by the real-data dashboard, so assert its
 // current uk labels instead.
 const UK_ADMIN_DASHBOARD_TOKENS = [
-  'Активних проектів',
+  'Активних проєктів',
   'Співробітників',
-  'Проектів не оплачено цього місяця',
+  'Проєктів не оплачено цього місяця',
   'Співбесід',
   'Активні транзакції',
 ]
 
 // SENIOR renders SeniorDashboard (робочий хаб) on /crm — its own uk copy.
-const UK_SENIOR_DASHBOARD_TOKENS = ['Активні проекти', 'Дохід за місяць', 'Очікують виплати']
+const UK_SENIOR_DASHBOARD_TOKENS = ['Активні проєкти', 'Дохід за місяць', 'Очікують виплати']
 
 // HR renders HRDashboard (рекрутинг хаб) on /crm instead of the generic
 // dashboard — assert its own uk copy. Checked against the same English
 // blocklist below.
-const UK_HR_DASHBOARD_TOKENS = ['Відкриті співбесіди', 'Найнято за місяць', 'Активні проекти']
+const UK_HR_DASHBOARD_TOKENS = ['Відкриті співбесіди', 'Найнято за місяць', 'Активні проєкти']
 
 /**
  * Navigate to /crm, assert all expected uk tokens are visible and no English
  * leftover from the blocklist appears in the dashboard <main>.
  */
 async function assertDashboardUk(page: Page, role: string, expectedTokens: string[]) {
+  // task-i18n-stage3a (Task 1), SPEC-H-1: confirm each token is still a real
+  // `uk` catalog entry before using it — a stale one now fails loudly here
+  // instead of a confusing Playwright visibility timeout below.
+  const uk = await loadMessages('uk')
   await page.goto('/')
   // HRDashboard renders its own nested <main data-testid="hr-dashboard-hub">,
   // so scope to the OUTER layout <main> (.first()) — it contains the hub too.
@@ -88,7 +93,7 @@ async function assertDashboardUk(page: Page, role: string, expectedTokens: strin
 
   for (const token of expectedTokens) {
     await expect(
-      main.getByText(token, { exact: false }).first(),
+      main.getByText(assertInCatalog(uk, token), { exact: false }).first(),
       `Expected uk token «${token}» on /crm for ${role}`,
     ).toBeVisible({ timeout: 6_000 })
   }

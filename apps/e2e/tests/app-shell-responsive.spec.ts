@@ -22,6 +22,7 @@
  */
 
 import { test, expect, USERS } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // ---------------------------------------------------------------------------
 // R1 — Desktop ≥lg (1280×720)
@@ -29,6 +30,7 @@ import { test, expect, USERS } from './fixtures'
 
 test.describe('R1 — App-shell desktop (1280×720)', () => {
   test('identity block visible, desktop sidebar visible, burger hidden', async ({ asSenior }) => {
+    const uk = await loadMessages('uk')
     await asSenior.goto('/')
 
     // Default Playwright Desktop Chrome viewport is already 1280×720, but set
@@ -49,7 +51,7 @@ test.describe('R1 — App-shell desktop (1280×720)', () => {
     await expect(asSenior.locator('aside').first()).toBeVisible()
 
     // Burger button (md:hidden) must NOT be visible at desktop width.
-    const burger = asSenior.getByRole('button', { name: 'Відкрити меню' })
+    const burger = asSenior.getByRole('button', { name: assertInCatalog(uk, 'Відкрити меню') })
     await expect(burger).not.toBeVisible()
   })
 })
@@ -60,6 +62,7 @@ test.describe('R1 — App-shell desktop (1280×720)', () => {
 
 test.describe('R2 — App-shell mobile (375×812)', () => {
   test('identity block hidden, desktop sidebar hidden, burger visible', async ({ asSenior }) => {
+    const uk = await loadMessages('uk')
     await asSenior.goto('/')
     await asSenior.setViewportSize({ width: 375, height: 812 })
 
@@ -75,15 +78,16 @@ test.describe('R2 — App-shell mobile (375×812)', () => {
     await expect(aside).toBeHidden()
 
     // Burger button (md:hidden means it IS shown below md=768px, and 375<768) must be visible.
-    const burger = asSenior.getByRole('button', { name: 'Відкрити меню' })
+    const burger = asSenior.getByRole('button', { name: assertInCatalog(uk, 'Відкрити меню') })
     await expect(burger).toBeVisible()
   })
 
   test('burger click opens Sheet dialog with navigation links', async ({ asSenior }) => {
+    const uk = await loadMessages('uk')
     await asSenior.goto('/')
     await asSenior.setViewportSize({ width: 375, height: 812 })
 
-    const burger = asSenior.getByRole('button', { name: 'Відкрити меню' })
+    const burger = asSenior.getByRole('button', { name: assertInCatalog(uk, 'Відкрити меню') })
     await expect(burger).toBeVisible()
     await burger.click()
 

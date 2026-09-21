@@ -10,6 +10,7 @@
  */
 
 import { test, expect, API_GLOB } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // ---------------------------------------------------------------------------
 // Routes visible to ALL roles (except JUNIOR for interviews)
@@ -295,13 +296,17 @@ test.describe('JUNIOR sidebar navigation', () => {
   test('JUNIOR does not see Команда, Проєкти, Дашборд, Співбесіди in sidebar', async ({
     asJunior: page,
   }) => {
+    // task-i18n-stage3a (Task 1), SPEC-H-1: assert against the live `uk`
+    // catalog, not a literal that could drift from what nav-sidebar.tsx
+    // actually renders after a future copy change.
+    const uk = await loadMessages('uk')
     await page.goto('/project')
     const nav = page.getByTestId('junior-nav')
     await expect(nav).toBeVisible()
-    await expect(nav.getByText('Команда')).not.toBeVisible()
-    await expect(nav.getByText('Проєкти')).not.toBeVisible()
-    await expect(nav.getByText('Дашборд')).not.toBeVisible()
-    await expect(nav.getByText('Співбесіди')).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Команда'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Проєкти'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Дашборд'))).not.toBeVisible()
+    await expect(nav.getByText(assertInCatalog(uk, 'Співбесіди'))).not.toBeVisible()
   })
 })
 

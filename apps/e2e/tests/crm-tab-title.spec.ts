@@ -1,5 +1,6 @@
 import { devices } from '@playwright/test'
 import { test, expect, USERS, mockAuthAs } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 /**
  * task-crm-tab-distinguishable — AC1/AC2 (E2E companion to the source-level
@@ -34,24 +35,28 @@ test.describe('CRM tab title (task-crm-tab-distinguishable)', () => {
   test('AC2: title does not reset across client-side navigation between sections', async ({
     page,
   }) => {
+    // task-i18n-stage3a (Task 1), SPEC-H-1: `nav-sidebar.tsx` is migrated —
+    // nav link names are `uk` catalog entries, not the pre-migration
+    // Russian literal this test used to click by.
+    const uk = await loadMessages('uk')
     await page.goto('/')
     await expect(page).toHaveTitle(CRM_TITLE)
 
     // Client-side navigation via the mobile Sheet nav (burger → link click) —
     // NOT page.goto(), which would just re-read index.html on every call and
     // could never catch a route component that calls `document.title = ...`.
-    const burger = page.getByRole('button', { name: 'Відкрити меню' })
+    const burger = page.getByRole('button', { name: assertInCatalog(uk, 'Відкрити меню') })
     await burger.click()
     const sheet = page.getByRole('dialog')
     await expect(sheet).toBeVisible()
-    await sheet.getByRole('link', { name: 'Финансы' }).click()
+    await sheet.getByRole('link', { name: assertInCatalog(uk, 'Фінанси') }).click()
 
     await expect(page).toHaveURL(/\/finance/)
     await expect(page).toHaveTitle(CRM_TITLE)
 
     await burger.click()
     await expect(sheet).toBeVisible()
-    await sheet.getByRole('link', { name: 'Дашборд' }).click()
+    await sheet.getByRole('link', { name: assertInCatalog(uk, 'Дашборд') }).click()
 
     await expect(page).toHaveURL(/\/$/)
     await expect(page).toHaveTitle(CRM_TITLE)
