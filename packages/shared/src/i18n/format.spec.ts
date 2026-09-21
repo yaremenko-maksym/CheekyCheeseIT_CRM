@@ -136,5 +136,48 @@ describe('format', () => {
         new Intl.RelativeTimeFormat('uk-UA', { numeric: 'auto' }).format(-5, 'minute'),
       )
     })
+
+    // CI-2/CR-H-2 (fix-round 2, @crm/shared mutation gate): the unit-picking
+    // loop's array literal (`units`), its numeric boundaries
+    // (31536000/2592000/86400/3600/60/1), and the `abs >= secondsPerUnit`
+    // comparison were exercised only in the middle of each range (5 min, 2h)
+    // — never at the EXACT boundary where a mutated `>=`→`>` or a mutated
+    // numeric literal would first become observable. Each pair below pins
+    // one boundary from both sides: `at - 1` must still resolve to the
+    // PREVIOUS (smaller) unit, `at` must resolve to the unit itself.
+    const rtfEn = new Intl.RelativeTimeFormat('en-GB', { numeric: 'auto' })
+    const agoMs = (seconds: number) => new Date(Date.now() - seconds * 1000)
+
+    it('day boundary (86400s): 86399s ago is still hours, 86400s ago is a day', () => {
+      expect(formatRelativeTime(agoMs(86399), 'en')).toBe(rtfEn.format(-24, 'hour'))
+      expect(formatRelativeTime(agoMs(86400), 'en')).toBe(rtfEn.format(-1, 'day'))
+    })
+
+    it('month boundary (2592000s): 2591999s ago is still days, 2592000s ago is a month', () => {
+      expect(formatRelativeTime(agoMs(2591999), 'en')).toBe(rtfEn.format(-30, 'day'))
+      expect(formatRelativeTime(agoMs(2592000), 'en')).toBe(rtfEn.format(-1, 'month'))
+    })
+
+    it('year boundary (31536000s): 31535999s ago is still months, 31536000s ago is a year', () => {
+      expect(formatRelativeTime(agoMs(31535999), 'en')).toBe(rtfEn.format(-12, 'month'))
+      expect(formatRelativeTime(agoMs(31536000), 'en')).toBe(rtfEn.format(-1, 'year'))
+    })
+
+    it('hour boundary (3600s): 3599s ago is still minutes, 3600s ago is an hour', () => {
+      expect(formatRelativeTime(agoMs(3599), 'en')).toBe(rtfEn.format(-60, 'minute'))
+      expect(formatRelativeTime(agoMs(3600), 'en')).toBe(rtfEn.format(-1, 'hour'))
+    })
+
+    it('minute boundary (60s): 59s ago is still seconds, 60s ago is a minute', () => {
+      expect(formatRelativeTime(agoMs(59), 'en')).toBe(rtfEn.format(-59, 'second'))
+      expect(formatRelativeTime(agoMs(60), 'en')).toBe(rtfEn.format(-1, 'minute'))
+    })
+
+    it('a future value crosses the same day/month/year boundaries the same way', () => {
+      const inMs = (seconds: number) => new Date(Date.now() + seconds * 1000)
+      expect(formatRelativeTime(inMs(86400), 'en')).toBe(rtfEn.format(1, 'day'))
+      expect(formatRelativeTime(inMs(2592000), 'en')).toBe(rtfEn.format(1, 'month'))
+      expect(formatRelativeTime(inMs(31536000), 'en')).toBe(rtfEn.format(1, 'year'))
+    })
   })
 })

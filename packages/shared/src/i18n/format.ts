@@ -66,13 +66,32 @@ export function compareNames(locale: Locale): (a: string, b: string) => number {
  * `formatDistanceToNow` + `date-fns/locale/ru` (notifications-bell.tsx):
  * `Intl.RelativeTimeFormat` covers the same "X minutes ago" need with the
  * locale determined by the caller, no extra bundle weight. Picks the
- * largest whole unit that fits (year > month > day > hour > minute >
- * second) — a value under a second falls through to `second` regardless
- * (the loop's own `unit === 'second'` guard), matching `numeric: 'auto'`'s
- * "now" wording for that case.
+ * largest whole unit that fits (year > month > day > hour > minute); a
+ * value under a minute falls through to the `second` return after the loop
+ * (`diffSeconds` is already the rounded seconds value, `Math.round(x / 1)`
+ * would be a no-op), matching `numeric: 'auto'`'s "now" wording for the
+ * abs===0 case.
+ *
+ * CI-2/CR-H-2 (fix-round 2, @crm/shared mutation gate): an earlier version
+ * kept `['second', 1]` as a 6th `units` entry and used
+ * `if (abs >= secondsPerUnit || unit === 'second')` to force a match on the
+ * last iteration regardless of `abs`. That disjunct produced FOUR distinct
+ * mutants sharing one line/mutator pair (whole-condition-true,
+ * whole-condition-false, left-operand-false, right-operand-false) — only
+ * the last of those four is equivalent, but Stryker's `// Stryker disable
+ * next-line <mutator>` suppresses every mutant of that mutator ON THAT LINE,
+ * not one specific AST node, so silencing the equivalent one would have
+ * ALSO silenced the other three, which are real bugs (verified against the
+ * raw JSON report, not assumed). Dropping the `second` entry and the
+ * disjunct removes the equivalent-mutant trap by construction instead of
+ * suppressing around it — the fallthrough `second` handling now lives on
+ * its own line, reachable exactly when `abs < 60`, nothing to suppress.
  */
 export function formatRelativeTime(value: Date | string, locale: Locale): string {
-  const d = typeof value === 'string' ? new Date(value) : value
+  // `new Date(x)` accepts a `Date` exactly as well as a date string (same
+  // no-op-copy-constructor reasoning as `formatDate`'s own `d` above) — no
+  // separate "already a Date" ternary to write.
+  const d = new Date(value)
   const diffSeconds = Math.round((d.getTime() - Date.now()) / 1000)
   const rtf = new Intl.RelativeTimeFormat(INTL_TAG[locale], { numeric: 'auto' })
   const abs = Math.abs(diffSeconds)
@@ -82,12 +101,11 @@ export function formatRelativeTime(value: Date | string, locale: Locale): string
     ['day', 86400],
     ['hour', 3600],
     ['minute', 60],
-    ['second', 1],
   ]
   for (const [unit, secondsPerUnit] of units) {
-    if (abs >= secondsPerUnit || unit === 'second') {
+    if (abs >= secondsPerUnit) {
       return rtf.format(Math.round(diffSeconds / secondsPerUnit), unit)
     }
   }
-  return rtf.format(0, 'second')
+  return rtf.format(diffSeconds, 'second')
 }
