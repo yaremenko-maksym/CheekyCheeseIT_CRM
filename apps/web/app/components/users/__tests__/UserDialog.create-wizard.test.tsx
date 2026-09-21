@@ -556,16 +556,58 @@ describe('UserDialog — step 1 legalFullName visible error on submit (BUG #2)',
       { timeout: 2000 },
     )
 
-    // fix-round 2 (CI-5/CR-H-2): the assertions above only checked that
-    // submit was BLOCKED, not what the admin was actually TOLD — a mutant on
-    // `translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM')`
-    // (the `?.` OR the `??`) still passes both of them, since neither
-    // observes the toast text. `createUserSchema`'s superRefine puts
-    // `zod.LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT` as the ONLY issue for this
-    // payload (JUNIOR is contract-eligible, `legalFullName` is empty) — pin
-    // the exact translated uk text the toast receives.
+    // Note (fix-round 2 investigation, CI-5/CR-H-2): this particular path is
+    // NOT a counter-example for `createUserSchema.safeParse`'s own toast —
+    // `legalFullName`'s `onSubmit` field validator (this file, just above)
+    // duplicates the SAME check and TanStack Form never calls this
+    // component's `onSubmit` at all once a field validator reports an
+    // error, so `toast.error` is NEVER invoked on this exact path (verified:
+    // 0 calls). The schema-level `toast.error(translateZodMessage(first?.message)
+    // ?? translateZodCode('VALIDATION_FAILED_FORM'))` a few lines up in this
+    // file IS reachable, just not from an empty `legalFullName` — see the
+    // dedicated test below.
+  })
+})
+
+// fix-round 2 (CI-5/CR-H-2): the two tests above (BUG #2 + the personalEmail
+// describe block) only ever exercise a schema failure that ALSO has its own
+// TanStack Form field-level validator — which blocks `form.handleSubmit()`
+// from ever reaching this component's manual `createUserSchema.safeParse`
+// re-check, so `toast.error(translateZodMessage(first?.message) ??
+// translateZodCode('VALIDATION_FAILED_FORM'))` (this file, `isCreate`
+// non-drop branch) stayed unobserved by any test — a mutant on either `?.`
+// or `??` passed every existing assertion. `bankUahRecipient` /
+// `bankUahIban` / `bankUahRnokpp` have ONLY an `onBlur` validator (no
+// `onSubmit`), and that validator explicitly no-ops when the field was never
+// touched (`!fieldApi.state.meta.isDirty`) — so leaving them completely
+// untouched (not even focused) reaches this component's manual schema
+// check with `bankUahRecipient: ''`, which `createUserSchema`'s BASE field
+// shape (`.min(3, 'zod.RECIPIENT_NAME_MIN')`) rejects as the FIRST issue —
+// before `refineRequisitePresence`'s own `RECIPIENT_NAME_REQUIRED` superRefine
+// check ever runs (verified directly against the compiled schema).
+describe('UserDialog — schema-level toast fallback is reachable (fix-round 2, CI-5/CR-H-2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+    mockPost.mockResolvedValue(newUserResponse)
+  })
+
+  it('shows the translated RECIPIENT_NAME_MIN text when bank fields are left completely untouched', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-email'), 'norecipient@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Без Реквизитов')
+    await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Валідне ПІБ Тест')
+    // Deliberately NOT touching bankUahRecipient/Iban/Rnokpp — their onBlur
+    // validators no-op on an untouched field, so nothing blocks submit at
+    // the field level; the schema-level check is what has to catch it.
+
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith('ПІБ обов’язкове для контракту')
+      expect(mockPost).not.toHaveBeenCalled()
+      expect(toast.error).toHaveBeenCalledWith('ПІБ отримувача — мінімум 3 символи')
     })
   })
 })
@@ -837,5 +879,19 @@ describe('UserDialog — email/displayName field errors (fix-round 2, CI-5/CR-H-
     await user.tab()
 
     expect(await screen.findByText('Ім’я — мінімум 2 символи')).toBeInTheDocument()
+  })
+
+  it('shows LEGAL_FULL_NAME_MIN for a non-empty legalFullName under the 5-char minimum', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    // Non-empty (the onBlur validator no-ops on an empty value — the
+    // "required for contract" case is a SEPARATE onSubmit validator, see
+    // the dedicated BUG #2 describe block above) but under the 5-char floor.
+    const input = screen.getByTestId('user-dialog-legal-full-name')
+    await user.type(input, 'Абв')
+    await user.tab()
+
+    expect(await screen.findByText('ПІБ — мінімум 5 символів')).toBeInTheDocument()
   })
 })

@@ -1111,6 +1111,7 @@ export function UserDialog(props: UserDialogProps) {
                       const trimmed = value.trim()
                       if (!trimmed) return translateZodCode('EMAIL_REQUIRED')
                       const r = z.string().email('zod.EMAIL_INVALID').safeParse(trimmed)
+                      // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
                       return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                     },
                   }}
@@ -1258,6 +1259,7 @@ export function UserDialog(props: UserDialogProps) {
                         .min(2, 'zod.DISPLAY_NAME_MIN')
                         .max(255)
                         .safeParse(value.trim())
+                      // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
                       return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                     },
                   }}
@@ -1382,9 +1384,9 @@ export function UserDialog(props: UserDialogProps) {
                               .min(5, 'zod.LEGAL_FULL_NAME_MIN')
                               .max(200)
                               .safeParse(value.trim())
-                            return r.success
-                              ? undefined
-                              : translateZodMessage(r.error.issues[0]?.message)
+                            if (r.success) return undefined
+                            // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
+                            return translateZodMessage(r.error.issues[0]?.message)
                           },
                           // A3-3 AC6 / bug #2: surface superRefine error on submit attempt
                           // for contract-eligible roles (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP).

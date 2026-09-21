@@ -118,6 +118,12 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     expect(payload.currency).toBe('USDT')
     expect(payload.payerAdminId).toBeUndefined()
     expect(payload.receiptExternalUrl).toBe('https://etherscan.io/tx/0xabc123')
+    // fix-round 2 (CI-5/CR-H-2): `setReceiptError(receiptErr ? ... : null)`
+    // is unconditional (fixes a stale-error bug — see that call site's own
+    // comment) — a mutant that always takes the truthy branch would show an
+    // error here even though the receipt is valid and the mutation
+    // succeeded. No test asserted the ABSENCE of the error element before.
+    expect(screen.queryByTestId('pay-salary-error-receipt')).not.toBeInTheDocument()
   })
 
   it('blocks submit and shows an inline error when the receipt is missing', async () => {

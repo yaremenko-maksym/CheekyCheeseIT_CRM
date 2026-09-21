@@ -196,7 +196,19 @@ export function PaySalaryDialog({
     // fix-round 1 (CR-M-1 sweep): `receiptErr` is now a `zod.<CODE>` key —
     // translate before rendering (this dialog already imports
     // `translateZodMessage` for `transactionAmountError` above; same fix).
-    if (receiptErr) setReceiptError(translateZodMessage(receiptErr) ?? receiptErr)
+    //
+    // fix-round 2 (CI-5/CR-H-2): unconditional, not `if (receiptErr) setReceiptError(...)`
+    // — the OLD guarded form left a STALE error on screen if the receipt
+    // became valid through something OTHER than editing the receipt fields
+    // themselves (e.g. switching the payer account/currency changes which
+    // rule `effectiveCurrency` applies, without touching `receipt`) and the
+    // admin clicked submit again: `receiptErr` would be `null` here, the old
+    // `if` skipped the call entirely, and whatever text was set on the
+    // PREVIOUS failed attempt kept rendering even though the receipt now
+    // passes. Always resolving to either the translated error or `null`
+    // keeps this state in sync with the CURRENT validity on every submit
+    // attempt, not just the ones that fail.
+    setReceiptError(receiptErr ? (translateZodMessage(receiptErr) ?? receiptErr) : null)
     if (!hasAmountInput) setAmountSubmitError('Укажите сумму выплаты')
     if (receiptErr || !hasAmountInput || liveAmountError) return
     mutation.mutate()

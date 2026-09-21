@@ -296,6 +296,25 @@ describe('translateZodMessage', () => {
     expect(translateZodMessage('zod.NOT_A_REAL_CODE')).toBe('zod.NOT_A_REAL_CODE')
   })
 
+  /**
+   * mutation-gate closure (fix-round 2, CI-5): same class as
+   * `zodErrorFallbackText`'s own pinning test (`zod-errors.spec.ts`) and
+   * `zodErrorBadRequest`'s (`zod-error-exception.spec.ts`) — a message with
+   * no `zod.` prefix at all passes through unchanged EITHER because the
+   * early-return actually ran, OR — if `startsWith('zod.')` were mutated
+   * away (forced `false`, or its `'zod.'` literal blanked to `''`) —
+   * because `message.slice(4)` happened not to collide with a real code,
+   * so neither existing "non-coded" test above can tell the two apart.
+   * This message is built so a BROKEN early-return slices its first 4
+   * characters off into `RECEIPT_REQUIRED` — a REAL code — and would
+   * translate it instead of returning the plain string below.
+   */
+  it("a non-coded message whose 4th-character-onward slice collides with a real code still passes through unchanged (pins the actual startsWith('zod.') check)", () => {
+    const message = 'abcdRECEIPT_REQUIRED'
+    expect(message.startsWith('zod.')).toBe(false)
+    expect(translateZodMessage(message)).toBe(message)
+  })
+
   it("returns undefined for null/undefined input — matches @tanstack/react-form's validator return convention", () => {
     expect(translateZodMessage(null)).toBeUndefined()
     expect(translateZodMessage(undefined)).toBeUndefined()

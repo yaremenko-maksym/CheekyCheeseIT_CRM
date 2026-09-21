@@ -224,6 +224,14 @@ function isZodErrorCode(value: string): value is ZodErrorCode {
  */
 function translateZodError(code: ZodErrorCode): string {
   const descriptor = ZOD_ERROR_MESSAGES[code]
+  // Same ternary, same exactOptionalPropertyTypes reason, same two-mutant
+  // split as `translateApiError`'s own options object above — see that
+  // function's comment for the full reasoning per mutant (forced-true:
+  // unobservable, every `ZOD_ERROR_MESSAGES[code]` descriptor sets `message`,
+  // pinned by `zod-errors.spec.ts`'s "every code has a message descriptor"
+  // invariant; forced-false: genuinely observable, breaks the empty-catalog
+  // fallback this file's own tests rely on).
+  // Stryker disable next-line ConditionalExpression: this ONE directive silences both mutants a ternary produces — see translateApiError's identical comment above for the per-mutant reasoning
   const options = descriptor.message !== undefined ? { message: descriptor.message } : undefined
   return i18n._(descriptor.id, undefined, options)
 }
@@ -341,6 +349,7 @@ export function extractBackendMessage(err: unknown): string | undefined {
         // kept ONLY for a legacy issue (`message` with no `code`), where the
         // field name is the only positional context the reader has.
         const rawCode = e['code']
+        // Stryker disable next-line ConditionalExpression: `isZodErrorCode` calls `(ZOD_ERROR_CODES as readonly string[]).includes(value)` — SameValueZero comparison against an array of strings, so it returns `false` for ANY non-string `value` (never throws, never coerces) exactly like the `typeof rawCode === 'string'` guard it's paired with would have short-circuited to. Forcing this condition's left operand to `true` is therefore unobservable for every possible `rawCode` — no assertion can tell the two apart. Same reasoning `zod-exception.filter.ts`'s own `isZodErrorCode` doc comment gives for its twin ("`[].includes(null)` is `false`, never throws").
         if (typeof rawCode === 'string' && isZodErrorCode(rawCode)) {
           return translateZodError(rawCode)
         }
@@ -371,6 +380,7 @@ export function extractBackendMessage(err: unknown): string | undefined {
   // Ukrainian/English UI. Same `code`-over-`errors[]` shape as the branch
   // above, just for a code that isn't wrapped in an array.
   const rawTopCode = d['code']
+  // Stryker disable next-line ConditionalExpression: same reasoning as the `errors[]` branch's identical guard above — `isZodErrorCode` returns `false` for any non-string value via `.includes()`'s SameValueZero comparison, so forcing this condition's left operand to `true` is unobservable for every possible `rawTopCode`.
   if (typeof rawTopCode === 'string' && isZodErrorCode(rawTopCode)) {
     return translateZodError(rawTopCode)
   }
