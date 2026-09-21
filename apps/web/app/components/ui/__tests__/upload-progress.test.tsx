@@ -102,4 +102,55 @@ describe('UploadProgress', () => {
     expect(el.tagName).toBe('SPAN')
     expect(el).toHaveTextContent('Завантаження… 7%')
   })
+
+  // MUT-1 (fix-round 2): `phaseLabel()`'s OWN error branch (`if (state.phase
+  // === 'error') return override ?? state.error ?? i18n._(...)`) is
+  // computed for EVERY size (feeds `aria-valuetext`), but its return value
+  // is only actually RENDERED as visible text in the `size="sm"` variant —
+  // the `size="default"` error block (tested above) reads `state.error`
+  // directly, bypassing `phaseLabel()` entirely. No existing test rendered
+  // size="sm" with phase="error" at all.
+  it('size="sm" error phase shows the explicit error message', () => {
+    renderProgress({
+      state: { phase: 'error', error: 'Сеть недоступна' },
+      size: 'sm',
+      testId: 'up',
+    })
+    expect(screen.getByTestId('up')).toHaveTextContent('Сеть недоступна')
+  })
+
+  // MUT-1: the DEFAULT error message (`DEFAULT_LABEL_MESSAGES.error`) was
+  // never exercised by ANY test — every error-phase fixture above supplies
+  // its own explicit `state.error`.
+  it('size="sm" error phase falls back to the default catalog message when state.error is absent', () => {
+    renderProgress({ state: { phase: 'error' }, size: 'sm', testId: 'up' })
+    expect(screen.getByTestId('up')).toHaveTextContent('Не вдалося завантажити файл')
+  })
+
+  // MUT-1: an `override` (the `label` prop) during error phase must win
+  // over BOTH `state.error` and the default message — the `??` chain's
+  // FIRST link, never exercised by any test.
+  it('size="sm" error phase prefers the label override over state.error', () => {
+    renderProgress({
+      state: { phase: 'error', error: 'Сеть недоступна' },
+      label: 'Custom override',
+      size: 'sm',
+      testId: 'up',
+    })
+    expect(screen.getByTestId('up')).toHaveTextContent('Custom override')
+    expect(screen.getByTestId('up')).not.toHaveTextContent('Сеть недоступна')
+  })
+
+  // MUT-1: `label ?? i18n._(DEFAULT_LABEL_MESSAGES.uploading)` (the
+  // size="default" uploading label — a SEPARATE ternary from `phaseLabel()`)
+  // — no existing test ever passed a `label` override during 'uploading'.
+  it('size="default" uploading phase prefers the label override over the default "Завантаження…"', () => {
+    renderProgress({
+      state: { phase: 'uploading', percent: 50 },
+      label: 'Custom uploading label',
+      testId: 'up',
+    })
+    expect(screen.getByText('Custom uploading label')).toBeInTheDocument()
+    expect(screen.queryByText('Завантаження…')).not.toBeInTheDocument()
+  })
 })
