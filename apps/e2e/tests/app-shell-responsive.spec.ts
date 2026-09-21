@@ -102,7 +102,13 @@ test.describe('R2 — App-shell mobile (375×812)', () => {
     await expect(navInsideSheet).toBeVisible()
 
     // Verify at least one known nav link is present inside the Sheet.
-    await expect(navInsideSheet.getByRole('link', { name: /Профиль/i })).toBeVisible()
+    // task-i18n-stage3a (Task 1): nav-sidebar.tsx is migrated to uk — the
+    // pre-migration /Профиль/i (Russian и) regex never matches the current
+    // uk "Профіль" (Ukrainian і) and silently timed out (SPEC-H-1 finding,
+    // found by actually running this spec — not caught by static review).
+    await expect(
+      navInsideSheet.getByRole('link', { name: assertInCatalog(uk, 'Профіль') }),
+    ).toBeVisible()
   })
 })
 

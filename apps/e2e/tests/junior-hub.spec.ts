@@ -941,12 +941,16 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
   test('Regression — ADMIN nav is unaffected (no junior-nav testid, more items visible)', async ({
     asAdmin: page,
   }) => {
+    // task-i18n-stage3a (Task 1), SPEC-H-1: nav-sidebar.tsx is migrated to
+    // uk — the pre-migration 'Проекты' (Russian) literal never matches the
+    // current uk 'Проєкти' and silently timed out.
+    const uk = await loadMessages('uk')
     await page.goto('/team')
 
     await expect(page.getByTestId('junior-nav')).not.toBeVisible()
 
-    await expect(page.getByRole('link', { name: 'Команда' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Проекты' })).toBeVisible()
+    await expect(page.getByRole('link', { name: assertInCatalog(uk, 'Команда') })).toBeVisible()
+    await expect(page.getByRole('link', { name: assertInCatalog(uk, 'Проєкти') })).toBeVisible()
   })
 
   test('Regression — SENIOR nav is unaffected', async ({ asSenior: page }) => {
