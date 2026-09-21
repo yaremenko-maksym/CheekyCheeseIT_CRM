@@ -11,7 +11,7 @@
  * already exercises elsewhere (see users.archive.spec.ts) but slimmer: we
  * only need to verify routing and validation messages.
  */
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
@@ -207,9 +207,9 @@ describe('TeamsService.createDropTeam', () => {
       teamMembers: [],
       projects: [],
     })
-    await expect(svc.createDropTeam('drop-1', [], 'acc-1', null)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.createDropTeam('drop-1', [], 'acc-1', null)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'HR_REQUIRED_MINIMUM_ONE', statusCode: 400 }),
+    })
   })
 
   it('rejects when dropId user is not DROP', async () => {
@@ -223,9 +223,29 @@ describe('TeamsService.createDropTeam', () => {
       teamMembers: [],
       projects: [],
     })
-    await expect(svc.createDropTeam('sn-1', ['hr-1'], 'acc-1', null)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.createDropTeam('sn-1', ['hr-1'], 'acc-1', null)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 400 }),
+    })
+  })
+
+  it('rejects DROP_NOT_FOUND when the drop-user row vanishes between the role check and the name lookup', async () => {
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    const drop = { id: 'drop-1', role: 'DROP', displayName: 'Drop One' }
+    const hr = { id: 'hr-1', role: 'HR' }
+    // assertUserRole(drop) → [drop], assertUserRole(hr) → [hr], then the
+    // dedicated dropUser-for-name-fetch → [] (race: row gone).
+    const sequence: unknown[][] = [[drop], [hr], []]
+    let call = 0
+    db.select = vi.fn().mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          then: (fn: (rows: unknown[]) => unknown) => Promise.resolve(fn(sequence[call++] ?? [])),
+        }),
+      }),
+    }))
+    await expect(svc.createDropTeam('drop-1', ['hr-1'], null, null)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_NOT_FOUND', statusCode: 400 }),
+    })
   })
 
   // Bug-fix: accountant is OPTIONAL. A drop-team must be creatable with a null
@@ -311,7 +331,52 @@ describe('TeamsService.archiveDropTeam', () => {
         }),
       }),
     }))
-    await expect(svc.archiveDropTeam('team-1')).rejects.toBeInstanceOf(BadRequestException)
+    await expect(svc.archiveDropTeam('team-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_DROP_TEAMS_ONLY', statusCode: 400 }),
+    })
+  })
+
+  it('rejects a non-existent team with TEAM_NOT_FOUND', async () => {
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.select = vi.fn().mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          for: () => ({
+            then: (fn: (rows: unknown[]) => unknown) => Promise.resolve(fn([])),
+          }),
+        }),
+      }),
+    }))
+    await expect(svc.archiveDropTeam('ghost-team')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
+  })
+
+  it('rejects an already-archived DROP team with TEAM_ALREADY_ARCHIVED', async () => {
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.select = vi.fn().mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          for: () => ({
+            then: (fn: (rows: unknown[]) => unknown) =>
+              Promise.resolve(
+                fn([
+                  {
+                    id: 'team-1',
+                    name: 'X',
+                    type: 'DROP',
+                    archivedAt: new Date(),
+                    telegramChannel: null,
+                  },
+                ]),
+              ),
+          }),
+        }),
+      }),
+    }))
+    await expect(svc.archiveDropTeam('team-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_ALREADY_ARCHIVED', statusCode: 400 }),
+    })
   })
 })
 
@@ -345,9 +410,9 @@ describe('TeamsService.addSeniorToDropTeam', () => {
         }),
       }),
     }))
-    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_DROP_TEAMS_ONLY', statusCode: 400 }),
+    })
   })
 
   it('rejects when team is archived', async () => {
@@ -375,9 +440,52 @@ describe('TeamsService.addSeniorToDropTeam', () => {
         }),
       }),
     }))
-    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_ALREADY_ARCHIVED', statusCode: 400 }),
+    })
+  })
+
+  it('rejects TEAM_NOT_FOUND when the team row does not exist', async () => {
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.select = vi.fn().mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          then: (fn: (rows: unknown[]) => unknown) => Promise.resolve(fn([])),
+        }),
+      }),
+    }))
+    await expect(svc.addSeniorToDropTeam('ghost-team', 'sn-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
+  })
+
+  it('succeeds for a non-archived DROP team with no existing senior (kills the archivedAt-always-throws mutant)', async () => {
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    // Call order: team lookup, assertUserRole(senior), existingSenior (via
+    // innerJoin), otherMembership. Each empty/non-archived so every guard
+    // in the method passes through to the final insert.
+    const selectResults: unknown[][] = [
+      [{ id: 'team-1', name: 'X', type: 'DROP', archivedAt: null, telegramChannel: null }],
+      [{ id: 'sn-1', role: 'SENIOR' }],
+      [],
+      [],
+    ]
+    let call = 0
+    db.select = vi.fn().mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          then: (fn: (rows: unknown[]) => unknown) =>
+            Promise.resolve(fn(selectResults[call++] ?? [])),
+        }),
+        innerJoin: () => ({
+          where: () => ({
+            then: (fn: (rows: unknown[]) => unknown) =>
+              Promise.resolve(fn(selectResults[call++] ?? [])),
+          }),
+        }),
+      }),
+    }))
+    await expect(svc.addSeniorToDropTeam('team-1', 'sn-1')).resolves.toBeUndefined()
   })
 })
 
@@ -436,9 +544,48 @@ describe('TeamsService.rotateSenior', () => {
         }),
       }),
     }))
-    await expect(svc.rotateSenior('team-1', 'sn-2', adminUser)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.rotateSenior('team-1', 'sn-2', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_DROP_TEAMS_ONLY', statusCode: 400 }),
+    })
+  })
+
+  it('rejects TEAM_NOT_FOUND when the team row does not exist', async () => {
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.select = vi.fn().mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          then: (fn: (rows: unknown[]) => unknown) => Promise.resolve(fn([])),
+        }),
+      }),
+    }))
+    await expect(svc.rotateSenior('ghost-team', 'sn-2', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
+  })
+
+  it('rejects TEAM_ALREADY_ARCHIVED for an archived DROP team', async () => {
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.select = vi.fn().mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          then: (fn: (rows: unknown[]) => unknown) =>
+            Promise.resolve(
+              fn([
+                {
+                  id: 'team-1',
+                  name: 'X',
+                  type: 'DROP',
+                  archivedAt: new Date(),
+                  telegramChannel: null,
+                },
+              ]),
+            ),
+        }),
+      }),
+    }))
+    await expect(svc.rotateSenior('team-1', 'sn-2', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_ALREADY_ARCHIVED', statusCode: 400 }),
+    })
   })
 })
 

@@ -5,7 +5,7 @@
  * Событие — перевод договора DRAFT → READY_TO_SIGN, то есть ровно момент,
  * когда от сотрудника начинают ждать подписи. Получатель — он один.
  */
-import { ConflictException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -174,10 +174,10 @@ describe('«ждёт решения: документ на подпись»', ()
     // текстом, а не голая `Error` (500). Одновременность здесь легитимна, и
     // отвечать на неё отказом сервера значит показывать нормальную работу
     // двух админов как поломку — в ответе клиенту и в телеметрии ошибок.
-    const reason = (rejected[0] as PromiseRejectedResult).reason as ConflictException
-    expect(reason).toBeInstanceOf(ConflictException)
-    expect(reason.getStatus()).toBe(409)
-    expect(reason.message).toContain('no longer DRAFT')
+    const reason = (rejected[0] as PromiseRejectedResult).reason as HttpException
+    expect(reason).toMatchObject({
+      response: expect.objectContaining({ code: 'CONTRACT_NOT_DRAFT', statusCode: 409 }),
+    })
     // ...и сотрудник получил ОДНУ просьбу подписать, а не две.
     expect(h.created).toHaveLength(1)
   })
@@ -205,7 +205,9 @@ describe('«ждёт решения: документ на подпись»', ()
     // случае не рассылается просьба подписать несуществующий договор.
     const h = makeHarness('DRAFT', true)
 
-    await expect(h.svc.markReady('junior-1', ADMIN)).rejects.toThrow(ConflictException)
+    await expect(h.svc.markReady('junior-1', ADMIN)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CONTRACT_NOT_DRAFT', statusCode: 409 }),
+    })
     expect(h.created).toHaveLength(0)
   })
 })

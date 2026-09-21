@@ -141,7 +141,7 @@ export function classifyApprovalRow(status: ApprovalStatus): ApprovalRowClassifi
       return 'superseded'
     default: {
       const exhaustive: never = status
-      throw new Error(`classifyApprovalRow: неизвестный статус ${String(exhaustive)}`)
+      throw new Error(`classifyApprovalRow: unknown status ${String(exhaustive)}`)
     }
   }
 }
@@ -215,7 +215,7 @@ export function computeSubjectState(
       break
     default: {
       const exhaustive: never = state
-      throw new Error(`computeSubjectState: неизвестное состояние ${String(exhaustive)}`)
+      throw new Error(`computeSubjectState: unknown state ${String(exhaustive)}`)
     }
   }
   if (!awaitsApproval(row.type)) return 'active'

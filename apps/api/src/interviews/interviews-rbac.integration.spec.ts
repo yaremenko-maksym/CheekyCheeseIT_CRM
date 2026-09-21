@@ -3,9 +3,9 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Global,
+  HttpStatus,
   Inject,
   Module,
   Param,
@@ -34,6 +34,7 @@ import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { InterviewsService } from './interviews.service'
 import { ProjectsService } from '../projects/projects.service'
@@ -111,10 +112,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 class SentinelInterviewsController {
   constructor(@Inject(INTERVIEWS_SERVICE_TOKEN) private readonly svc: InterviewsService) {}
 
-  // Mirror of InterviewsController.assertNotDrop (private in the real controller).
+  // Mirror of InterviewsController.assertNotDrop (private in the real
+  // controller) — SR-L-1 (PR #702 fix-round 1): kept in sync with the real
+  // controller's migration to `apiError('INTERVIEW_DROP_FORBIDDEN', ...)`.
   private assertNotDrop(user: SessionUser): void {
     if (user.role === 'DROP') {
-      throw new ForbiddenException('Дроп не имеет доступа к собеседованиям')
+      throw apiError('INTERVIEW_DROP_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
   }
 
@@ -605,6 +608,19 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(res.statusCode).toBe(403)
     })
 
+    // SR-L-1 (PR #702 fix-round 1): the sentinel's `assertNotDrop` (below,
+    // in the controller) was migrated to `apiError('INTERVIEW_DROP_
+    // FORBIDDEN', ...)`, matching the real controller — but on THIS route
+    // (`GET /api/interviews`, `@Roles('ADMIN', 'SENIOR', 'HR')`) DROP is not
+    // in the allow-list at all, so the GLOBAL `RolesGuard` (which runs
+    // before any handler body) already rejects it with its own generic,
+    // code-less `ForbiddenException(GUARD_REFUSAL_MESSAGE)` — `assertNotDrop`
+    // is verified-unreachable for DROP through this endpoint (confirmed by
+    // running this spec against a real DB: the response body carries no
+    // `code` field at all, only `statusCode` + `message`). Pinning `code:
+    // 'INTERVIEW_DROP_FORBIDDEN'` here would assert something that is not
+    // and cannot become true without also adding DROP to the route's
+    // `@Roles` list — status-only is the correct, honest assertion.
     it('LIST 7. DROP → 403 (assertNotDrop, no seniorId)', async () => {
       const res = await app.inject({
         method: 'GET',

@@ -19,15 +19,7 @@
  *   A generic role guard can't express any of that — keeping the rules here
  *   makes them testable in isolation.
  */
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  PayloadTooLargeException,
-  UnsupportedMediaTypeException,
-} from '@nestjs/common'
+import { BadRequestException, HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import {
@@ -71,6 +63,7 @@ import { HrAccessService } from '../common/hr-access.service'
 import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.service'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 import type { DrizzleTx } from '../database/types'
+import { apiError } from '../common/api-error'
 
 /** What the controller hands us after parsing the multipart request. */
 export interface UploadFileInput {
@@ -101,9 +94,7 @@ export class DocumentsService {
   ): Promise<DocumentDto> {
     // ---- 1. Validate MIME — two-stage: client Content-Type whitelist + magic-byte confirmation ----
     if (!(DOCUMENT_MIME_WHITELIST as readonly string[]).includes(file.mimetype)) {
-      throw new UnsupportedMediaTypeException(
-        `MIME type "${file.mimetype}" не разрешён. Разрешены: ${DOCUMENT_MIME_WHITELIST.join(', ')}`,
-      )
+      throw apiError('DOCUMENT_MIME_NOT_ALLOWED', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
     // Magic-byte check: detect real content type from buffer signatures.
     // Guards against clients sending a false Content-Type (e.g. "image/jpeg"
@@ -111,21 +102,17 @@ export class DocumentsService {
     // from the declared type OR if we cannot identify the buffer at all.
     const detectedMime = detectMimeFromBuffer(file.buffer)
     if (!detectedMime) {
-      throw new UnsupportedMediaTypeException(
-        `Содержимое файла не соответствует ни одному разрешённому формату (magic-byte не распознан)`,
-      )
+      throw apiError('DOCUMENT_CONTENT_UNRECOGNIZED', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
     if (detectedMime !== file.mimetype) {
-      throw new UnsupportedMediaTypeException(
-        `Содержимое файла не соответствует заявленному типу: заявлен "${file.mimetype}", обнаружен "${detectedMime}"`,
-      )
+      throw apiError('DOCUMENT_CONTENT_TYPE_MISMATCH', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
 
     // ---- 2. Validate size ----
     if (file.buffer.length > DOCUMENT_MAX_BYTES) {
-      throw new PayloadTooLargeException(
-        `Файл больше ${Math.floor(DOCUMENT_MAX_BYTES / 1024 / 1024)} MB`,
-      )
+      throw apiError('DOCUMENT_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
+        maxMb: Math.floor(DOCUMENT_MAX_BYTES / 1024 / 1024),
+      })
     }
 
     // ---- 3. Resolve target owner (default = self) ----
@@ -136,19 +123,33 @@ export class DocumentsService {
 
     // ---- 5. CONTRACT requires projectId (Zod already enforced this; double-check defensively) ----
     if (meta.category === 'CONTRACT' && !meta.projectId) {
-      throw new BadRequestException('projectId is required for CONTRACT documents')
+      throw apiError('DOCUMENT_PROJECT_ID_REQUIRED', HttpStatus.BAD_REQUEST)
     }
 
     // ---- 6. Compression (always — backend handles all formats) ----
     // CompressionError is thrown when sharp/pdf-lib rejects the buffer (corrupt
     // file, misidentified content). Surface as 415 — the client must provide a
     // valid, processable file rather than getting a silent raw-byte passthrough.
+    //
+    // SPEC-H-1 (PR #702 fix-round 1): this is the CRM-facing (authenticated)
+    // catch site for `CompressionError` — task plan scope explicitly requires
+    // migrating it, unlike the public/anonymous one in
+    // `vacancies/applications.service.ts::compressResume` (kept as
+    // `UnsupportedMediaTypeException`, see that file's own comment). The
+    // `DOCUMENT_CONTENT_UNRECOGNIZED` code already covers "couldn't process
+    // this file — it may be damaged" (same 415, same meaning as a
+    // sharp/pdf-lib processing failure on a whitelisted MIME) — reused here
+    // rather than minting a near-duplicate code. `err.message` (which used
+    // to carry a Russian sentence plus the raw library error) is dropped
+    // entirely from the response; it stays in the server log only, via
+    // `CompressionService`'s own `this.logger.error(...)` call right before
+    // this throw.
     let compressed: Awaited<ReturnType<CompressionService['compress']>>
     try {
       compressed = await this.compression.compress(file.buffer, file.mimetype)
     } catch (err) {
       if (err instanceof CompressionError) {
-        throw new UnsupportedMediaTypeException(err.message)
+        throw apiError('DOCUMENT_CONTENT_UNRECOGNIZED', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
       }
       throw err
     }
@@ -333,7 +334,7 @@ export class DocumentsService {
     const doc = await db.query.documents.findFirst({
       where: eq(documents.id, docId),
     })
-    if (!doc) throw new NotFoundException('Документ не найден')
+    if (!doc) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (doc.deletedAt) return
     await db
       .update(documents)
@@ -795,11 +796,11 @@ export class DocumentsService {
     const doc = await this.db.db.query.documents.findFirst({
       where: eq(documents.id, docId),
     })
-    if (!doc) throw new NotFoundException('Документ не найден')
+    if (!doc) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // RBAC: owner OR ADMIN
     if (actor.role !== 'ADMIN' && doc.ownerId !== actor.id) {
-      throw new ForbiddenException('Только владелец или ADMIN может удалить документ')
+      throw apiError('DOCUMENT_DELETE_OWNER_OR_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
 
     // Idempotent: skip if already soft-deleted
@@ -813,13 +814,13 @@ export class DocumentsService {
 
   async restore(actor: SessionUser, docId: string): Promise<DocumentDto> {
     if (actor.role !== 'ADMIN') {
-      throw new ForbiddenException('Только ADMIN может восстановить документ')
+      throw apiError('DOCUMENT_RESTORE_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
 
     const doc = await this.db.db.query.documents.findFirst({
       where: eq(documents.id, docId),
     })
-    if (!doc) throw new NotFoundException('Документ не найден')
+    if (!doc) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const [restored] = await this.db.db
       .update(documents)
@@ -827,7 +828,7 @@ export class DocumentsService {
       .where(eq(documents.id, docId))
       .returning()
 
-    if (!restored) throw new NotFoundException('Документ не найден')
+    if (!restored) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Resolve uploader display name so the restored row matches what
     // `list()` would have returned (UI relies on this field).
@@ -868,7 +869,7 @@ export class DocumentsService {
     const doc = await this.db.db.query.documents.findFirst({
       where: eq(documents.id, docId),
     })
-    if (!doc) throw new NotFoundException('Документ не найден')
+    if (!doc) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // S3 deletes are idempotent in S3Service (missing key → 204, errors
     // logged + swallowed). Delete main object first, then thumbnail if present.
@@ -926,18 +927,16 @@ export class DocumentsService {
 
   async hardDelete(actor: SessionUser, docId: string): Promise<void> {
     if (actor.role !== 'ADMIN') {
-      throw new ForbiddenException('Только ADMIN может удалить документ окончательно')
+      throw apiError('DOCUMENT_HARD_DELETE_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
 
     const doc = await this.db.db.query.documents.findFirst({
       where: eq(documents.id, docId),
     })
-    if (!doc) throw new NotFoundException('Документ не найден')
+    if (!doc) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     if (!doc.deletedAt) {
-      throw new BadRequestException(
-        'Сначала переместите документ в корзину (soft delete), затем удалите окончательно',
-      )
+      throw apiError('DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE', HttpStatus.BAD_REQUEST)
     }
 
     // S3 deletes are idempotent in S3Service (errors logged + swallowed).
@@ -990,42 +989,49 @@ export class DocumentsService {
       case 'RESUME':
       case 'SCAN':
         if (role === 'ACCOUNTANT') {
-          throw new ForbiddenException(`Роль ${role} не может загружать ${category}`)
+          throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, { category })
         }
         if (role === 'JUNIOR' && !isSelf) {
-          throw new ForbiddenException('JUNIOR может загружать только свои документы')
+          throw apiError('DOCUMENT_UPLOAD_SELF_ONLY', HttpStatus.FORBIDDEN)
         }
         if (role === 'DROP' && !isSelf) {
-          throw new ForbiddenException('DROP может загружать только свои документы')
+          throw apiError('DOCUMENT_UPLOAD_SELF_ONLY', HttpStatus.FORBIDDEN)
         }
         return
       case 'CONTRACT':
         if (role === 'ADMIN') return
         if (role === 'SENIOR' && isSelf) return
         if (role === 'DROP' && isSelf) return
-        throw new ForbiddenException(
-          'CONTRACT может загрузить только ADMIN, SENIOR или DROP для себя',
-        )
+        throw apiError('DOCUMENT_UPLOAD_CONTRACT_RESTRICTED', HttpStatus.FORBIDDEN)
       case 'RECEIPT':
         if (role === 'ADMIN' || role === 'ACCOUNTANT') return
-        if (role === 'SENIOR' && isSelf) return
-        throw new ForbiddenException(`Роль ${role} не может загружать чеки`)
+        if (role === 'SENIOR') {
+          if (isSelf) return
+          // A senior CAN upload receipts, just not for someone else — the
+          // blanket "you don't have access to receipts" text of
+          // DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN would be false here
+          // (COPY-M-14, PR #702 fix-round 2).
+          throw apiError('DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY', HttpStatus.FORBIDDEN)
+        }
+        throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, {
+          category: 'RECEIPT',
+        })
       case 'AVATAR':
         if (role === 'ADMIN') return
         if (isSelf) return
-        throw new ForbiddenException('Аватар можно загрузить только для своего профиля')
+        throw apiError('DOCUMENT_UPLOAD_AVATAR_SELF_ONLY', HttpStatus.FORBIDDEN)
       case 'LOGO':
         if (role === 'ADMIN' || role === 'HR' || role === 'SENIOR') return
-        throw new ForbiddenException(`Роль ${role} не может загружать логотипы`)
+        throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, {
+          category: 'LOGO',
+        })
       case 'INVOICE':
         // INVOICE documents are produced by the system only (PDF generated
         // server-side by InvoicesService — see Invoice Signing Epic). They
         // must never be uploaded via the regular /api/documents endpoint
         // — InvoicesService bypasses this check by calling the internal
         // upload helper directly.
-        throw new ForbiddenException(
-          'INVOICE documents are generated by the system and cannot be uploaded via this endpoint',
-        )
+        throw apiError('DOCUMENT_UPLOAD_INVOICE_FORBIDDEN', HttpStatus.FORBIDDEN)
       default: {
         // Exhaustiveness check
         const _exhaustive: never = category
@@ -1394,7 +1400,7 @@ export class DocumentsService {
     const doc = await this.db.db.query.documents.findFirst({
       where: and(eq(documents.id, docId), isNull(documents.deletedAt)),
     })
-    if (!doc) throw new NotFoundException('Документ не найден')
+    if (!doc) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Reuse the visibility builder by asking it for "show me only this
     // category" — if the actor has no clause that matches this owner, deny.
@@ -1414,7 +1420,7 @@ export class DocumentsService {
     ) {
       const teammateIds = await this.getTeammateIds(actor.id, actor.role)
       if (teammateIds.includes(doc.ownerId)) return doc
-      throw new NotFoundException('Документ не найден')
+      throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
     // ACCOUNTANT reads any SCAN — owner decision 2026-08-03 (security-review
@@ -1446,7 +1452,7 @@ export class DocumentsService {
       return doc
     }
 
-    throw new NotFoundException('Документ не найден')
+    throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
   }
 
   /**

@@ -1,11 +1,9 @@
 import {
-  BadRequestException,
   ForbiddenException,
   HttpStatus,
   Injectable,
   InternalServerErrorException,
   Logger,
-  NotFoundException,
 } from '@nestjs/common'
 import { randomBytes } from 'crypto'
 import { and, desc, eq, isNull } from 'drizzle-orm'
@@ -102,7 +100,7 @@ export class SignedContractsService {
       throw apiError('CONTRACT_SIGN_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
     if (userRole === 'ADMIN') {
-      throw new BadRequestException('ADMIN_DOES_NOT_SIGN_CONTRACTS')
+      throw apiError('ADMIN_DOES_NOT_SIGN_CONTRACTS', HttpStatus.BAD_REQUEST)
     }
 
     const inserted = await this.db.db.transaction(async (tx: DrizzleTx) => {
@@ -119,14 +117,14 @@ export class SignedContractsService {
       const user = (await tx.query.users.findFirst({
         where: (tbl, { eq }) => eq(tbl.id, userId),
       })) as User | undefined
-      if (!user) throw new NotFoundException('User not found')
+      if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
       // PD-4 guard (spec §6.1): legalFullName MUST be set by ADMIN before
       // signing. Signing with a platform displayName would produce a
       // legally-invalid contract (non-Cyrillic name). Frontend disables the
       // button on the same condition, but we guard on the server as well.
       if (!user.legalFullName?.trim()) {
-        throw new BadRequestException('LEGAL_NAME_REQUIRED')
+        throw apiError('LEGAL_NAME_REQUIRED', HttpStatus.BAD_REQUEST)
       }
 
       const signedAt = new Date()
@@ -231,7 +229,7 @@ export class SignedContractsService {
     const row = await this.db.db.query.signedContracts.findFirst({
       where: (tbl, { eq }) => eq(tbl.id, id),
     })
-    if (!row) throw new NotFoundException('Signed contract not found')
+    if (!row) throw apiError('SIGNED_CONTRACT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     if (requester.role === 'ADMIN' || requester.role === 'ACCOUNTANT') return row
     if (row.userId === requester.id) return row

@@ -181,7 +181,7 @@ export class NotificationSubjectStateService {
         // молча падает в `missing` (для action-required-письма это теперь
         // `SKIPPED/STALE`, а не «попап показал деградированную карточку»).
         const exhaustive: never = subjectType
-        throw new Error(`loadSubjectStates: неизвестный вид объекта ${String(exhaustive)}`)
+        throw new Error(`loadSubjectStates: unknown subject kind ${String(exhaustive)}`)
       }
     }
   }

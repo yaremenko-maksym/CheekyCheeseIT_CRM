@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { i18n } from '@lingui/core'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -39,6 +40,21 @@ vi.mock('@/lib/axios', () => ({
 }))
 
 /**
+ * task-i18n-stage4-task3 — the onError branch reads `getApiErrorCode(err)`
+ * (envelope `code`) instead of substring-matching `err.message`; mocking
+ * `sonner` lets the two new tests below assert WHICH toast fired for
+ * `LEGAL_NAME_REQUIRED` vs `ADMIN_DOES_NOT_SIGN_CONTRACTS` without a real
+ * toast provider mounted.
+ */
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+  },
+}))
+
+/**
  * Бэклог 212 — a STABLE object reference, mutated in place (never
  * reassigned to a new literal) via `Object.assign`. `useAuth()`'s mock used
  * to return a FRESH `{ user: {...} }` literal on every call — unlike the
@@ -72,9 +88,20 @@ vi.mock('@/context/auth', () => ({
 }))
 
 // Import AFTER vi.mock declarations so hoisting resolves correctly.
-import { CONTRACT_SIGN_IMPERSONATION_MESSAGE } from '@crm/shared'
+import { API_ERROR_MESSAGES, CONTRACT_SIGN_IMPERSONATION_MESSAGE } from '@crm/shared'
+import { toast } from 'sonner'
 import { api } from '@/lib/axios'
 import { SignContractStep } from './SignContractStep'
+
+// COPY-H-1 (PR #702 fix-round 1): the sign-mutation onError branches now
+// call `getApiErrorMessage(err)` (catalog translation by `code`) instead of
+// a hardcoded Russian literal — `translateApiError` (axios-utils.ts) throws
+// if no locale is activated, same requirement as `axios-utils.spec.ts`'s
+// identical setup for the same reason.
+beforeAll(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -137,6 +164,19 @@ describe('SignContractStep', () => {
 
     // All visible text + attributes (aria-label, title) must not contain "MSA".
     expect(container.innerHTML).not.toContain('MSA')
+  })
+
+  // COPY-M-16 (PR #702 fix-round 3): COPY-M-15 fixed the raw `ADMIN` enum in
+  // the legalNameMissing alert but left an identical leak three lines above
+  // it, in the unconditional "Info alert" paragraph — that one renders on
+  // EVERY open of this step, unlike the alert above it (which only renders
+  // when the admin left legalFullName blank), so it was the more visible of
+  // the two. Scoping the assertion to the whole rendered step (not one
+  // testid) is what COPY-M-15's narrower assertion missed.
+  it('no raw role enum anywhere in the rendered step (COPY-M-16)', () => {
+    render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+    expect(screen.queryByText(/\b(ADMIN|SENIOR|JUNIOR|ACCOUNTANT|DROP)\b/)).toBeNull()
   })
 
   it('T4d. renders sign button and confirm checkbox', () => {
@@ -280,6 +320,89 @@ describe('SignContractStep', () => {
       checkbox.click()
 
       expect(screen.getByTestId('sign-button')).toBeDisabled()
+    })
+
+    // COPY-M-15 (PR #702 fix-round 2): the legalNameMissing alert used to
+    // read "...Обратитесь к ADMIN." — a raw role enum leaking into text
+    // meant for a human. It must read the role as a word, matching the
+    // pdf-error alert and the tooltip, which already said "администратору"
+    // before this fix. (The Info-alert paragraph above it still said
+    // "ADMIN" at the time this test was written — that leak is COPY-M-16,
+    // fixed separately, see the whole-step assertion below.)
+    it('legalNameMissing alert reads the role as a word, no raw "ADMIN" enum (COPY-M-15)', async () => {
+      mockUser.legalFullName = null
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      const alert = await screen.findByTestId('legal-name-missing-alert')
+      expect(alert).toHaveTextContent('обратитесь к администратору')
+      expect(alert.textContent).not.toMatch(/\bADMIN\b/)
+    })
+  })
+
+  /**
+   * task-i18n-stage4-task3 — the sign mutation's onError branches on
+   * `getApiErrorCode(err)` (server envelope `code`) instead of
+   * `err.message.includes(...)`. These pin the two codes the server
+   * actually throws (`signed-contracts.service.ts`) to their toast.
+   */
+  describe('sign mutation onError — branches on envelope code (task-i18n-stage4-task3)', () => {
+    async function clickSign() {
+      await waitFor(() => expect(globalThis.URL.createObjectURL).toHaveBeenCalled())
+      const checkbox = screen.getByTestId('confirm-checkbox')
+      checkbox.click()
+      await waitFor(() => expect(screen.getByTestId('sign-button')).not.toBeDisabled())
+      const signButton = screen.getByTestId('sign-button')
+      signButton.click()
+    }
+
+    it('LEGAL_NAME_REQUIRED shows the legal-name error toast', async () => {
+      vi.mocked(api.post).mockRejectedValue({
+        response: {
+          status: 400,
+          data: { statusCode: 400, code: 'LEGAL_NAME_REQUIRED', message: 'x' },
+        },
+      })
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      await clickSign()
+
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(i18n._(API_ERROR_MESSAGES.LEGAL_NAME_REQUIRED)),
+      )
+      expect(toast.info).not.toHaveBeenCalled()
+    })
+
+    it('ADMIN_DOES_NOT_SIGN_CONTRACTS shows the admin-info toast, not the generic error', async () => {
+      vi.mocked(api.post).mockRejectedValue({
+        response: {
+          status: 400,
+          data: { statusCode: 400, code: 'ADMIN_DOES_NOT_SIGN_CONTRACTS', message: 'x' },
+        },
+      })
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      await clickSign()
+
+      await waitFor(() =>
+        expect(toast.info).toHaveBeenCalledWith(
+          i18n._(API_ERROR_MESSAGES.ADMIN_DOES_NOT_SIGN_CONTRACTS),
+        ),
+      )
+      expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it('an unrelated code falls through to the generic failure toast', async () => {
+      vi.mocked(api.post).mockRejectedValue({
+        response: {
+          status: 500,
+          data: { statusCode: 500, code: 'GENERIC', message: 'x' },
+        },
+      })
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      await clickSign()
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось подписать контракт'))
     })
   })
 })

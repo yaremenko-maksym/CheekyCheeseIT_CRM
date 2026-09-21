@@ -19,7 +19,6 @@
  *   addEntry: 403 if !canAccess; 404 if no legend; inserts entry
  */
 import { describe, it, expect, vi } from 'vitest'
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { LegendsService } from './legends.service'
@@ -225,26 +224,34 @@ describe('LegendsService.getLegend', () => {
   it('throws NotFoundException if project not found', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([]) // project not found
-    await expect(service.getLegend(admin, PROJECT_ID)).rejects.toThrow(NotFoundException)
+    await expect(service.getLegend(admin, PROJECT_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('throws ForbiddenException if viewer has no access (ACCOUNTANT)', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([seniorProject]) // project found
     // canAccess(accountant, ...) returns false immediately (no DB calls)
-    await expect(service.getLegend(accountant, PROJECT_ID)).rejects.toThrow(ForbiddenException)
+    await expect(service.getLegend(accountant, PROJECT_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('throws ForbiddenException if seniorId is the viewer (subject excluded)', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([seniorProject])
-    await expect(service.getLegend(senior, PROJECT_ID)).rejects.toThrow(ForbiddenException)
+    await expect(service.getLegend(senior, PROJECT_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('throws ForbiddenException if dropId is the viewer (subject excluded)', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([dropProject])
-    await expect(service.getLegend(drop, PROJECT_ID)).rejects.toThrow(ForbiddenException)
+    await expect(service.getLegend(drop, PROJECT_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('returns null if legend does not exist yet (accessible project, no legend created)', async () => {
@@ -293,27 +300,33 @@ describe('LegendsService.upsertLegend', () => {
   it('throws ForbiddenException for subject (seniorId)', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([seniorProject])
-    await expect(service.upsertLegend(senior, PROJECT_ID, dto)).rejects.toThrow(ForbiddenException)
+    await expect(service.upsertLegend(senior, PROJECT_ID, dto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_EDIT_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('throws ForbiddenException for subject (dropId)', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([dropProject])
-    await expect(service.upsertLegend(drop, PROJECT_ID, dto)).rejects.toThrow(ForbiddenException)
+    await expect(service.upsertLegend(drop, PROJECT_ID, dto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_EDIT_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('throws ForbiddenException for ACCOUNTANT', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([seniorProject])
-    await expect(service.upsertLegend(accountant, PROJECT_ID, dto)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(service.upsertLegend(accountant, PROJECT_ID, dto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_EDIT_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('throws NotFoundException if project not found', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([]) // project not found
-    await expect(service.upsertLegend(admin, PROJECT_ID, dto)).rejects.toThrow(NotFoundException)
+    await expect(service.upsertLegend(admin, PROJECT_ID, dto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('ADMIN can create legend (first upsert)', async () => {
@@ -335,6 +348,15 @@ describe('LegendsService.upsertLegend', () => {
     expect(result.fullName).toBe('Новий Іван')
   })
 
+  it('throws LEGEND_UPSERT_FAILED when the upsert returns no row (defensive branch)', async () => {
+    const { service, chain } = buildService()
+    chain.limit.mockResolvedValueOnce([seniorProject])
+    chain.returning.mockResolvedValueOnce([]) // upsert somehow returns nothing
+    await expect(service.upsertLegend(admin, PROJECT_ID, dto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_UPSERT_FAILED', statusCode: 404 }),
+    })
+  })
+
   it('HR with team access can upsert', async () => {
     const { service, chain } = buildService()
     chain.limit
@@ -350,7 +372,9 @@ describe('LegendsService.upsertLegend', () => {
   it('HR without team access CANNOT upsert', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([seniorProject]).mockResolvedValueOnce([]) // no HR teams
-    await expect(service.upsertLegend(hr, PROJECT_ID, dto)).rejects.toThrow(ForbiddenException)
+    await expect(service.upsertLegend(hr, PROJECT_ID, dto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_EDIT_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 })
 
@@ -364,21 +388,25 @@ describe('LegendsService.addEntry', () => {
   it('throws ForbiddenException if no access (ACCOUNTANT)', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([seniorProject])
-    await expect(service.addEntry(accountant, PROJECT_ID, entryDto)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(service.addEntry(accountant, PROJECT_ID, entryDto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('throws ForbiddenException for subject (seniorId)', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([seniorProject])
-    await expect(service.addEntry(senior, PROJECT_ID, entryDto)).rejects.toThrow(ForbiddenException)
+    await expect(service.addEntry(senior, PROJECT_ID, entryDto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('throws NotFoundException if project not found', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([])
-    await expect(service.addEntry(admin, PROJECT_ID, entryDto)).rejects.toThrow(NotFoundException)
+    await expect(service.addEntry(admin, PROJECT_ID, entryDto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('throws NotFoundException if legend does not exist yet', async () => {
@@ -386,7 +414,9 @@ describe('LegendsService.addEntry', () => {
     chain.limit
       .mockResolvedValueOnce([seniorProject]) // project
       .mockResolvedValueOnce([]) // no legend
-    await expect(service.addEntry(admin, PROJECT_ID, entryDto)).rejects.toThrow(NotFoundException)
+    await expect(service.addEntry(admin, PROJECT_ID, entryDto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('ADMIN can add entry and gets back updated legend', async () => {
@@ -432,7 +462,9 @@ describe('LegendsService — TASK 7: cross-project isolation + team isolation', 
     chain.limit.mockResolvedValueOnce([projectB]) // project B found
     // Junior has no membership in project B
     chain.limit.mockResolvedValueOnce([]) // no active membership in project B
-    await expect(service.getLegend(junior, PROJECT_ID_B)).rejects.toThrow(ForbiddenException)
+    await expect(service.getLegend(junior, PROJECT_ID_B)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 
   it('HR of team X → DENIED for project whose senior is only in team Y', async () => {
@@ -441,7 +473,9 @@ describe('LegendsService — TASK 7: cross-project isolation + team isolation', 
       .mockResolvedValueOnce([seniorProject]) // project found
       .mockResolvedValueOnce([{ teamId: 'team-X' }]) // HR teams = [X]
       .mockResolvedValueOnce([]) // seniorId NOT in team-X
-    await expect(service.getLegend(hr, PROJECT_ID)).rejects.toThrow(ForbiddenException)
+    await expect(service.getLegend(hr, PROJECT_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 })
 
@@ -637,8 +671,9 @@ describe('LegendsService — SR-M-1: a non-ACTIVE project is invisible via loadP
       const { service, chain } = buildService()
       chain.limit.mockResolvedValueOnce([{ ...seniorProject, status }]) // project — not ACTIVE
       const err = await service.getLegend(junior, PROJECT_ID).catch((e: unknown) => e)
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toBe('Проект не найден')
+      expect(err).toMatchObject({
+        response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+      })
       // Never reaches juniorCanAccess's own membership select — only ONE
       // .limit() call total for this invocation.
       expect(chain.limit).toHaveBeenCalledTimes(1)
@@ -648,8 +683,9 @@ describe('LegendsService — SR-M-1: a non-ACTIVE project is invisible via loadP
       const { service, chain } = buildService()
       chain.limit.mockResolvedValueOnce([{ ...seniorProject, status }])
       const err = await service.upsertLegend(hr, PROJECT_ID, dto).catch((e: unknown) => e)
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toBe('Проект не найден')
+      expect(err).toMatchObject({
+        response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+      })
     })
   }
 
@@ -680,6 +716,8 @@ describe('LegendsService — SR-M-1: a non-ACTIVE project is invisible via loadP
     chain.limit
       .mockResolvedValueOnce([seniorProject]) // project, status ACTIVE
       .mockResolvedValueOnce([]) // no active membership
-    await expect(service.getLegend(junior, PROJECT_ID)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(service.getLegend(junior, PROJECT_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
+    })
   })
 })

@@ -142,6 +142,11 @@ msgstr "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажуєт�
 msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
 msgstr "Telegram-канал можна вказати лише сеньйору"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY"
+msgstr "Аватар можна завантажити лише для власного профілю"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Адмін"
 msgstr "Адмін"
@@ -151,9 +156,29 @@ msgid "Адміністратор"
 msgstr "Адміністратор"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_CONTRACT_RESTRICTED"
+msgstr "Адміністратор завантажує будь-який контракт, а сеньйор і дроп — лише свій"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ADMIN_CANNOT_BE_MEMBER"
+msgstr "Адміністратор не може бути учасником команди"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_CANNOT_CHANGE_OWN_ROLE"
 msgstr "Адміністратор не може змінити власну роль"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_ADMIN_NOT_ALLOWED"
+msgstr "Адміністратор не може мати трудовий контракт"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.ADMIN_DOES_NOT_SIGN_CONTRACTS"
+msgstr "Адміністратор не підписує контракт — підписувати нема чого"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -174,6 +199,16 @@ msgstr "Активна версія: v{0} · оновлена {1}"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Активний сеньйор{0} від’єднається від команди без архівації"
 msgstr "Активний сеньйор{0} від’єднається від команди без архівації"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.EMPLOYEE_CONTRACT_NOT_FOUND"
+msgstr "Активний трудовий контракт для цього користувача не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_DUPLICATE_ACTIVE"
+msgstr "Активний шаблон контракту для цієї ролі вже існує"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Активних проєктів"
@@ -251,6 +286,11 @@ msgstr "Валідація доходів"
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідовано за місяць"
 msgstr "Валідовано за місяць"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
+msgstr "Вам недоступне завантаження {category, select, RESUME {резюме} SCAN {сканів} RECEIPT {чеків} LOGO {логотипів} other {таких документів}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -380,6 +420,16 @@ msgid "api-error.DROP_TEAM_ID_REQUIRED"
 msgstr "Виберіть команду дропа, до якої приєднати сеньйора"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_PROJECT_ID_REQUIRED"
+msgstr "Виберіть проєкт — без нього контракт завантажити не можна"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_SENIOR_ID_REQUIRED"
+msgstr "Виберіть сеньйора"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.HR_REQUIRED_MIN"
 msgstr "Виберіть щонайменше одного HR"
@@ -391,6 +441,16 @@ msgstr "Вибрати файл"
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Видалити {tag}"
 msgstr "Видалити {tag}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_DELETE_OWNER_OR_ADMIN_ONLY"
+msgstr "Видалити документ може лише власник або адміністратор"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_HARD_DELETE_ADMIN_ONLY"
+msgstr "Видалити документ остаточно може лише адміністратор"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 #: apps/web/app/components/layout/notifications-bell.tsx
@@ -424,6 +484,11 @@ msgstr "Відкриті співбесіди"
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити все"
 msgstr "Відновити все"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_RESTORE_ADMIN_ONLY"
+msgstr "Відновити документ може лише адміністратор"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити пов’язане"
@@ -471,6 +536,16 @@ msgstr "Вкажіть причину видалення — вона потра
 msgid "zod-error.REASON_REQUIRED_RESTORE"
 msgstr "Вкажіть причину відновлення — вона потрапить до журналу"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_USER_NOT_FOUND_OR_WRONG_ROLE"
+msgstr "Вказаного користувача не знайдено або він має невідповідну роль"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
+msgstr "Вміст файлу не збігається з його розширенням — збережіть його заново й спробуйте ще раз"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Всього зароблено · за весь час"
 msgstr "Всього зароблено · за весь час"
@@ -512,9 +587,19 @@ msgid "api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT"
 msgstr "Джуніор уже є активним учасником іншого проєкту"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_JUNIOR_FORBIDDEN"
+msgstr "Джуніорам недоступні співбесіди"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_USDT_LINK_ONLY"
 msgstr "Для USDT додайте посилання на транзакцію, а не файл"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_ADMIN_NONE"
+msgstr "Для адміністратора немає шаблону контракту"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
@@ -543,6 +628,11 @@ msgid "Додати дохід"
 msgstr "Додати дохід"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
+msgstr "Додати сеньйора до команди може лише адміністратор"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.AVATAR_DOCUMENT_DELETED"
 msgstr "Документ аватара видалено"
@@ -561,6 +651,11 @@ msgstr "Документ логотипа видалено"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.LOGO_DOCUMENT_NOT_FOUND"
 msgstr "Документ логотипа не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_NOT_FOUND"
+msgstr "Документ не знайдено"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Документи"
@@ -613,6 +708,11 @@ msgstr "Дропа вже заархівовано"
 msgid "api-error.DROP_NOT_FOUND"
 msgstr "Дропа не знайдено"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
+msgstr "Дропам недоступні співбесіди"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
 msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
@@ -628,6 +728,11 @@ msgstr "Завантаження PDF…"
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Завантаження…"
 msgstr "Завантаження…"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
+msgstr "Завантажувати можна лише власні документи"
 
 #: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
@@ -658,6 +763,11 @@ msgstr "Зарплата"
 msgid "api-error.PROJECT_NOT_ACTIVE"
 msgstr "Заявити дохід можна лише за активним проєктом"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_HR_SUMMARY_FORBIDDEN"
+msgstr "Зведення для HR бачать лише HR і адміністратор"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Згорнути"
 msgstr "Згорнути"
@@ -666,6 +776,11 @@ msgstr "Згорнути"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT"
 msgstr "Змінити роль на «дроп» цим способом не можна"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
+msgstr "Змінити частку сеньйора на рівні команди можуть лише адміністратор і бухгалтер"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Зовнішнє посилання на зображення (https://…)"
@@ -726,6 +841,21 @@ msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов�
 msgid "Командне меню"
 msgstr "Командне меню"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ALREADY_ARCHIVED"
+msgstr "Команду вже заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_NOT_ARCHIVED"
+msgstr "Команду не заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_NOT_FOUND"
+msgstr "Команду не знайдено"
+
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "компанії"
 msgstr "компанії"
@@ -739,6 +869,21 @@ msgstr "Компанія"
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
 msgstr "Компанія вже нарахувала вам цю суму, але ще не перерахувала — окремо від «Виплачено» вище"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_NOT_EDITABLE"
+msgstr "Контракт більше не можна редагувати"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_NOT_DRAFT"
+msgstr "Контракт більше не чернетка — оновіть сторінку"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_NOT_READY"
+msgstr "Контракт не готовий до підпису"
 
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
@@ -754,6 +899,11 @@ msgstr "Користувач (сеньйор)"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ALREADY_ACTIVE_PROJECT_MEMBER"
 msgstr "Користувач уже є активним учасником цього проєкту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_USER_ALREADY_MEMBER"
+msgstr "Користувач уже є учасником команди"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -886,6 +1036,11 @@ msgstr "Не вдалося завантажити файл"
 msgid "Не вдалося завантажити фінансове зведення"
 msgstr "Не вдалося завантажити фінансове зведення"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGEND_UPSERT_FAILED"
+msgstr "Не вдалося зберегти легенду. Спробуйте ще раз"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
@@ -894,6 +1049,11 @@ msgstr "Не вдалося змінити мову інтерфейсу. Спр
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SHARE_CHANGE_REQUESTER_REQUIRED"
 msgstr "Не вдалося змінити частку. Спробуйте ще раз"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
+msgstr "Не вдалося обробити файл — можливо, він пошкоджений. Спробуйте інший"
 
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
@@ -912,6 +1072,11 @@ msgstr "Не вдалося повернутися до вашого облік�
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Не вдалося повернутися: {errMessage}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_SENIOR_ID_INVALID"
+msgstr "Не вдалося розпізнати вибраного сеньйора — виберіть зі списку"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Не вдалося увійти: {errMessage}"
@@ -937,6 +1102,11 @@ msgstr "Не можна редагувати обліковий запис ін�
 msgid "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
 msgstr "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_INVALID_ROLE"
+msgstr "Некоректна роль шаблону контракту"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Немає активних проєктів"
 msgstr "Немає активних проєктів"
@@ -954,6 +1124,16 @@ msgstr "Немає активної версії умов використанн
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.NO_HR_CONTACT_ACCESS"
 msgstr "Немає доступу до контакту HR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGEND_ACCESS_DENIED"
+msgstr "Немає доступу до легенди проєкту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGEND_EDIT_ACCESS_DENIED"
+msgstr "Немає доступу до редагування легенди проєкту"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1035,6 +1215,11 @@ msgstr "Опублікувати"
 msgid "Опублікувати нову версію умов (v{0})?"
 msgstr "Опублікувати нову версію умов (v{0})?"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_ADMIN_PUBLISH_FORBIDDEN"
+msgstr "Опублікувати шаблон контракту адміністратора не можна"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Основна навігація"
@@ -1100,6 +1285,11 @@ msgstr "Перевірте заповнені поля"
 msgid "Перегляд архівної версії v{0}"
 msgstr "Перегляд архівної версії v{0}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
+msgstr "Переглянути можна лише власний контракт"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Перейшли в «Найнято»"
 msgstr "Перейшли в «Найнято»"
@@ -1136,6 +1326,11 @@ msgstr "ПІБ отримувача обов’язкове"
 msgid "Підготовка файлу…"
 msgstr "Підготовка файлу…"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
+msgstr "Підписаний контракт не знайдено"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Підтверджені доходи, які ви ще не перерахували"
 msgstr "Підтверджені доходи, які ви ще не перерахували"
@@ -1144,9 +1339,19 @@ msgstr "Підтверджені доходи, які ви ще не перер�
 msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 msgstr "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.APPROVAL_NOT_FOUND_OR_CLOSED"
+msgstr "Підтвердження не знайдено або вже закрито"
+
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернення…"
 msgstr "Повернення…"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_ALREADY_STATUS_CANNOT_REVERT"
+msgstr "Повернути в чернетку не можна: контракт уже {status, select, DRAFT {є чернеткою} READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1207,6 +1412,11 @@ msgid "Поточна версія умов буде деактивована (�
 msgstr "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_UNEXPECTED_USER_ROLE"
+msgstr "Потрібен {expectedRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}, а вибраний користувач — {actualRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
 msgstr "Потрібен щонайменше один HR"
@@ -1226,6 +1436,11 @@ msgstr "Пошук і виконання команд"
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Пошук країни…"
 msgstr "Пошук країни…"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_CANNOT_REMOVE_SENIOR"
+msgstr "Прибрати сеньйора з команди не можна — видаліть саму команду"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1305,9 +1520,19 @@ msgid "Рахуємо, що зміниться…"
 msgstr "Рахуємо, що зміниться…"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
+msgstr "Рахунки створює система — завантажити їх вручну не можна"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REQUISITES_TOO_LONG"
 msgstr "Реквізити не довші за 10 000 символів"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.APPROVAL_ALREADY_DECIDED"
+msgstr "Рішення щодо цього підтвердження вже ухвалено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1353,6 +1578,11 @@ msgstr "Сеньйор"
 msgid "zod-error.USDT_ONLY_FOR_SENIOR_ADMIN"
 msgstr "Сеньйор і адмін отримують лише на USDT ERC-20"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM"
+msgstr "Сеньйор уже перебуває в іншій активній команді"
+
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "сеньйора"
 msgstr "сеньйора"
@@ -1379,6 +1609,11 @@ msgstr "Скасувати пропозицію частки може лише �
 msgid "api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY"
 msgstr "Скасувати пропозицію частки можуть лише адміністратор і бухгалтер"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE"
+msgstr "Спершу перемістіть документ у кошик, а потім видаліть остаточно"
+
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співбесід"
 msgstr "Співбесід"
@@ -1386,6 +1621,11 @@ msgstr "Співбесід"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Співбесіди"
 msgstr "Співбесіди"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_NOT_FOUND"
+msgstr "Співбесіду не знайдено"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співробітників"
@@ -1395,6 +1635,11 @@ msgstr "Співробітників"
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Сповіщення"
 msgstr "Сповіщення"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.NOTIFICATION_NOT_FOUND"
+msgstr "Сповіщення не знайдено"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Сповіщень немає"
@@ -1445,6 +1690,11 @@ msgid "zod-error.TRANSACTION_AMOUNT_EXCEEDS_MAX"
 msgstr "Сума не може перевищувати 500 000"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
+msgstr "Такий тип файлу не підтримується. Дозволені формати: PDF, JPEG, PNG, WEBP, HEIC"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_EXPIRED"
 msgstr "Термін дії запрошення закінчився"
@@ -1467,9 +1717,29 @@ msgid "Тут з’являться події за вашими проєкта�
 msgstr "Тут з’являться події за вашими проєктами, грошима та документами"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_NO_ACTIVE_TEAM"
+msgstr "У вас немає активної команди"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ALREADY_HAS_ACTIVE_TEAM"
 msgstr "У вас уже є активна команда"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ALREADY_HAS_SENIOR"
+msgstr "У команді вже є сеньйор"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE"
+msgstr "У команді має залишитися щонайменше один бухгалтер"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE"
+msgstr "У команді немає активного сеньйора — заархівувати її не можна"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1486,9 +1756,19 @@ msgstr "У проєкті має залишитися хоча б один уч�
 msgid "api-error.PROJECT_HAS_ACTIVE_JUNIOR"
 msgstr "У проєкту вже є активний джуніор"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGEND_NOT_FOUND"
+msgstr "У проєкту ще немає легенди — створіть її"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "У роботі"
 msgstr "У роботі"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS"
+msgstr "У шаблоні немає таких змінних: {keys}"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Увійти"
@@ -1532,6 +1812,11 @@ msgstr "Умови використання"
 msgid "Усе, що чекає рішення"
 msgstr "Усе, що чекає рішення"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_MEMBER_NOT_FOUND"
+msgstr "Учасника команди не знайдено"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Файл"
 msgstr "Файл"
@@ -1539,6 +1824,21 @@ msgstr "Файл"
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Файл більший за {MAX_MB} МБ — виберіть інший"
 msgstr "Файл більший за {MAX_MB} МБ — виберіть інший"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_TOO_LARGE"
+msgstr "Файл більший за {maxMb} МБ"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_MULTIPART_REQUIRED"
+msgstr "Файл не передано — виберіть файл і спробуйте ще раз"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_FILE_FIELD_MISSING"
+msgstr "Файл не передано — виберіть файл і спробуйте ще раз"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Фінальний вигляд документа «Умови використання» — як PDF."
@@ -1598,6 +1898,11 @@ msgid "Цей місяць"
 msgstr "Цей місяць"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS"
+msgstr "Цей сеньйор не входить до ваших команд"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.GOOGLE_ACCOUNT_MISMATCH"
 msgstr "Ця адреса вже прив’язана до іншого облікового запису Google"
@@ -1606,6 +1911,11 @@ msgstr "Ця адреса вже прив’язана до іншого обл�
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.METHOD_DROP_ONLY"
 msgstr "Ця дія доступна лише для дропів"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_DROP_TEAMS_ONLY"
+msgstr "Ця дія доступна лише для команд-дропів"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1658,6 +1968,11 @@ msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
 msgstr "Чек — це файл або посилання, не обидва одночасно"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY"
+msgstr "Чек можна завантажити лише для себе"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "Чек обов’язковий — додайте файл або посилання"
@@ -1665,3 +1980,13 @@ msgstr "Чек обов’язковий — додайте файл або по
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Чекають рішення"
 msgstr "Чекають рішення"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.CONTRACT_TEMPLATE_NOT_FOUND"
+msgstr "Шаблон контракту не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.LEGAL_NAME_REQUIRED"
+msgstr "Юридичне ПІБ не заповнено. Зверніться до адміністратора"

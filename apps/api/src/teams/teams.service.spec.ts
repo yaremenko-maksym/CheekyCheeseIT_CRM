@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
@@ -240,9 +240,9 @@ describe('TeamsService.update', () => {
   it('throws NotFoundException when team not found', async () => {
     const db = makeDb({ team: undefined })
     const service = makeService(db)
-    await expect(service.update('ghost', 'X', null, null, adminUser)).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(service.update('ghost', 'X', null, null, adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -281,18 +281,46 @@ describe('TeamsService.addMember', () => {
     const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
     const db = makeDb({ team, user: adminUser })
     const service = makeService(db)
-    await expect(service.addMember('team-1', 'admin-1', adminUser)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(service.addMember('team-1', 'admin-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_ADMIN_CANNOT_BE_MEMBER', statusCode: 400 }),
+    })
   })
 
   it('throws BadRequestException when user is an ACTIVE member', async () => {
     const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
     const db = makeDb({ team, user: juniorUser, existingMember: makeMember('junior-1', 'JUNIOR') })
     const service = makeService(db)
-    await expect(service.addMember('team-1', 'junior-1', adminUser)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(service.addMember('team-1', 'junior-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_USER_ALREADY_MEMBER', statusCode: 400 }),
+    })
+  })
+
+  it('throws JUNIOR_ALREADY_ON_ANOTHER_PROJECT when the junior has an active project elsewhere', async () => {
+    const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
+    const activeProject = {
+      id: 'proj-1',
+      seniorId: 'senior-1',
+      dropId: null,
+      archivedAt: null,
+      members: [
+        {
+          id: 'pm-1',
+          userId: 'junior-1',
+          projectId: 'proj-1',
+          leftAt: null,
+          joinedAt: new Date(),
+          user: { id: 'junior-1', role: 'JUNIOR', displayName: 'Junior', email: 'j@cc.com' },
+        },
+      ],
+    }
+    const db = makeDb({ team, user: juniorUser, projectList: [activeProject] })
+    const service = makeService(db)
+    await expect(service.addMember('team-1', 'junior-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'JUNIOR_ALREADY_ON_ANOTHER_PROJECT',
+        statusCode: 400,
+      }),
+    })
   })
 
   it('reactivates a soft-deleted member instead of inserting a duplicate (re-add works)', async () => {
@@ -313,15 +341,17 @@ describe('TeamsService.addMember', () => {
     const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
     const db = makeDb({ team, user: undefined })
     const service = makeService(db)
-    await expect(service.addMember('team-1', 'ghost', adminUser)).rejects.toThrow(NotFoundException)
+    await expect(service.addMember('team-1', 'ghost', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('throws NotFoundException when team not found', async () => {
     const db = makeDb({ team: undefined })
     const service = makeService(db)
-    await expect(service.addMember('ghost-team', 'user-x', adminUser)).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(service.addMember('ghost-team', 'user-x', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -399,9 +429,9 @@ describe('TeamsService.removeMember', () => {
       members: [makeMember('hr-1', 'HR'), makeMember('hr-2', 'HR', new Date('2024-01-01'))],
     })
     const service = makeService(makeDb({ team }))
-    await expect(service.removeMember('team-1', 'hr-2', adminUser)).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(service.removeMember('team-1', 'hr-2', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_MEMBER_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('counts only ACTIVE members for the last-HR guard (soft-deleted HR ignored)', async () => {
@@ -410,49 +440,52 @@ describe('TeamsService.removeMember', () => {
       members: [makeMember('hr-1', 'HR'), makeMember('hr-2', 'HR', new Date('2024-01-01'))],
     })
     const service = makeService(makeDb({ team }))
-    await expect(service.removeMember('team-1', 'hr-1', adminUser)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(service.removeMember('team-1', 'hr-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'HR_REQUIRED_MINIMUM_ONE', statusCode: 400 }),
+    })
   })
 
   it('throws BadRequestException when removing the last HR', async () => {
     const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
     const service = makeService(makeDb({ team }))
-    await expect(service.removeMember('team-1', 'hr-1', adminUser)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(service.removeMember('team-1', 'hr-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'HR_REQUIRED_MINIMUM_ONE', statusCode: 400 }),
+    })
   })
 
   it('throws BadRequestException when removing the SENIOR (must delete team instead)', async () => {
     const team = makeTeam({ members: [makeMember('senior-1', 'SENIOR')] })
     const service = makeService(makeDb({ team }))
-    await expect(service.removeMember('team-1', 'senior-1', adminUser)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(service.removeMember('team-1', 'senior-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_CANNOT_REMOVE_SENIOR', statusCode: 400 }),
+    })
   })
 
   it('throws BadRequestException when removing the last ACCOUNTANT', async () => {
     const team = makeTeam({ members: [makeMember('acc-1', 'ACCOUNTANT')] })
     const service = makeService(makeDb({ team }))
-    await expect(service.removeMember('team-1', 'acc-1', adminUser)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(service.removeMember('team-1', 'acc-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE',
+        statusCode: 400,
+      }),
+    })
   })
 
   it('throws NotFoundException when member not in team', async () => {
     const team = makeTeam({ members: [] })
     const service = makeService(makeDb({ team }))
-    await expect(service.removeMember('team-1', 'nobody', adminUser)).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(service.removeMember('team-1', 'nobody', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_MEMBER_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('throws NotFoundException when team not found', async () => {
     const db = makeDb({ team: undefined })
     const service = makeService(db)
-    await expect(service.removeMember('ghost-team', 'user-x', adminUser)).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(service.removeMember('ghost-team', 'user-x', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -512,6 +545,15 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
       },
     ],
   }
+
+  it('throws TEAM_NOT_FOUND when the team row does not exist', async () => {
+    const db = makeDb({ team: undefined })
+    const service = makeService(db)
+
+    await expect(service.findOne('ghost-team', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
+  })
 
   it('JUNIOR viewer → SENIOR member email is null', async () => {
     const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')

@@ -431,11 +431,27 @@ describe('ApplicationsService.apply()', () => {
     ).rejects.toThrow(UnsupportedMediaTypeException)
   })
 
-  it('compression failure (CompressionError) → 415 with the service message', async () => {
+  // SR-M-3 (PR #702 fix-round 1): `err.message` — the raw sharp/pdf-lib
+  // failure reason, "corrupt PDF" here — must NOT reach this public,
+  // unauthenticated endpoint's response body (information disclosure to an
+  // anonymous applicant). The 415 body is now a fixed generic English
+  // string instead of an echo of `CompressionError.message`.
+  it('compression failure (CompressionError) → 415 with a generic message, not the raw library error', async () => {
     h.compression.compress.mockRejectedValue(new CompressionError('corrupt PDF'))
-    await expect(
-      h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4'),
-    ).rejects.toThrow(UnsupportedMediaTypeException)
+    let caught: unknown
+    try {
+      await h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(UnsupportedMediaTypeException)
+    const exception = caught as UnsupportedMediaTypeException
+    expect(exception.getStatus()).toBe(415)
+    // Pin the exact fixed string (mutation-gate finding, fix-round 1):
+    // `.not.toContain('corrupt PDF')` alone still passes against an EMPTY
+    // string, which is not the intended generic message either.
+    expect(exception.message).toBe("Couldn't process this file. Please try a different file.")
+    expect(exception.message).not.toContain('corrupt PDF')
   })
 
   it('R2 upload failure compensates by deleting the DB row, then rethrows', async () => {

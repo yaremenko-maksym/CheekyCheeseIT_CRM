@@ -16,7 +16,6 @@
  *     transactional UPDATE here would just restate it, not verify it).
  */
 import { describe, expect, it, vi } from 'vitest'
-import { ConflictException, NotFoundException } from '@nestjs/common'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { ApprovalsService } from './approvals.service'
@@ -295,8 +294,9 @@ describe('ApprovalsService.approve', () => {
         approverUserId: SENIOR_ID,
       }),
     )
-    expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as Error).message).toBe('Подтверждение не найдено или уже закрыто')
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_NOT_FOUND_OR_CLOSED', statusCode: 404 }),
+    })
     expect(txHandle.update).not.toHaveBeenCalled()
     // The row lookup must lock FOR UPDATE, not for an empty/mutated mode
     // (kills the StringLiteral→"" mutant on .for('update')).
@@ -315,8 +315,9 @@ describe('ApprovalsService.approve', () => {
         approverUserId: SENIOR_ID,
       }),
     )
-    expect(err).toBeInstanceOf(ConflictException)
-    expect((err as Error).message).toBe('Подтверждение уже получило ответ')
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_ALREADY_DECIDED', statusCode: 409 }),
+    })
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 
@@ -418,8 +419,9 @@ describe('ApprovalsService.reject', () => {
         reason: 'Не согласен',
       }),
     )
-    expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as Error).message).toBe('Подтверждение не найдено или уже закрыто')
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_NOT_FOUND_OR_CLOSED', statusCode: 404 }),
+    })
     expect(txHandle.update).not.toHaveBeenCalled()
     expect(selectChain.orderBy).toHaveBeenCalledTimes(1)
     expect(selectChain.for).toHaveBeenCalledWith('update')
@@ -441,8 +443,9 @@ describe('ApprovalsService.reject', () => {
         reason: 'Ещё раз',
       }),
     )
-    expect(err).toBeInstanceOf(ConflictException)
-    expect((err as Error).message).toBe('Подтверждение уже получило ответ')
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_ALREADY_DECIDED', statusCode: 409 }),
+    })
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 
@@ -520,8 +523,9 @@ describe('ApprovalsService.cancel', () => {
     const service = makeService(txHandle)
 
     const err = await catchRejection(() => service.cancel(SUBJECT_TYPE, SUBJECT_ID))
-    expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as Error).message).toBe('Подтверждение не найдено или уже закрыто')
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_NOT_FOUND_OR_CLOSED', statusCode: 404 }),
+    })
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 
@@ -539,8 +543,9 @@ describe('ApprovalsService.cancel', () => {
     const service = makeService(txHandle)
 
     const err = await catchRejection(() => service.cancel(SUBJECT_TYPE, SUBJECT_ID))
-    expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as Error).message).toBe('Подтверждение не найдено или уже закрыто')
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'APPROVAL_NOT_FOUND_OR_CLOSED', statusCode: 404 }),
+    })
     expect(txHandle.update).not.toHaveBeenCalled()
   })
 

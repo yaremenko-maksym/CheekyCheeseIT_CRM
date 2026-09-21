@@ -25,7 +25,7 @@
  * TDD: RED tests written first, then production code patched.
  */
 
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
@@ -185,7 +185,12 @@ describe('TeamsService.update — HIGH-1: override gate on REAL CHANGE not key p
       service.update(TEAM_ID, 'Alpha', undefined, null, hrUser, undefined, {
         seniorSharePercentOverride: 40, // null → 40, real change
       }),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN',
+        statusCode: 403,
+      }),
+    })
   })
 
   it('H1e: HR sends seniorSharePercentOverride:null when stored is 30 → 403 (REAL change: clear override)', async () => {
@@ -196,7 +201,12 @@ describe('TeamsService.update — HIGH-1: override gate on REAL CHANGE not key p
       service.update(TEAM_ID, 'Alpha', undefined, null, hrUser, undefined, {
         seniorSharePercentOverride: null, // 30 → null, real change
       }),
-    ).rejects.toThrow(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN',
+        statusCode: 403,
+      }),
+    })
   })
 
   it('H1f: ADMIN can change override from null to 40 → 200 + audit log entry', async () => {
@@ -468,9 +478,9 @@ describe('TeamsService.addMember — SEC-02 HIGH: HR cannot attach arbitrary SEN
     const { dbSvc } = makeAddMemberDb({ targetUserRole: 'SENIOR' })
     const service = makeAddMemberService(dbSvc)
 
-    await expect(service.addMember(TEAM_ID, 'target-user-id', hrUser)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(service.addMember(TEAM_ID, 'target-user-id', hrUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_ADD_SENIOR_ADMIN_ONLY', statusCode: 403 }),
+    })
   })
 
   it('AM-b: ADMIN caller adding a SENIOR to a team with no existing SENIOR → resolves', async () => {
@@ -498,8 +508,8 @@ describe('TeamsService.addMember — SEC-02 HIGH: HR cannot attach arbitrary SEN
     const { dbSvc } = makeAddMemberDb({ targetUserRole: 'SENIOR', teamHasSenior: true })
     const service = makeAddMemberService(dbSvc)
 
-    await expect(service.addMember(TEAM_ID, 'target-user-id', adminUser)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(service.addMember(TEAM_ID, 'target-user-id', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_ALREADY_HAS_SENIOR', statusCode: 400 }),
+    })
   })
 })

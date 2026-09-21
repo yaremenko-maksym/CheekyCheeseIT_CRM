@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { HttpStatus, Injectable } from '@nestjs/common'
 import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import type {
   Approval,
@@ -14,6 +14,7 @@ import {
   rejectApprovalInputSchema,
 } from '@crm/shared'
 import { NOTIFICATION_TITLES, notificationTextPreview } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { approvals, projects, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -351,7 +352,7 @@ export class ApprovalsService {
       // "согласование" (internal/comment vocabulary only) or "погашено"
       // (jargon a caller cannot act on). Same wording as `assertRespondable`
       // below, for the same reason.
-      throw new NotFoundException('Подтверждение не найдено или уже закрыто')
+      throw apiError('APPROVAL_NOT_FOUND_OR_CLOSED', HttpStatus.NOT_FOUND)
     }
 
     await tx
@@ -690,8 +691,8 @@ export class ApprovalsService {
    * `cancelInTx`'s identical comment above for the full reasoning.
    */
   private assertRespondable(row: ApprovalRow | null): asserts row is ApprovalRow {
-    if (!row) throw new NotFoundException('Подтверждение не найдено или уже закрыто')
-    if (row.status !== 'PENDING') throw new ConflictException('Подтверждение уже получило ответ')
+    if (!row) throw apiError('APPROVAL_NOT_FOUND_OR_CLOSED', HttpStatus.NOT_FOUND)
+    if (row.status !== 'PENDING') throw apiError('APPROVAL_ALREADY_DECIDED', HttpStatus.CONFLICT)
   }
 }
 

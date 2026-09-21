@@ -1,10 +1,9 @@
 import {
   Body,
   Controller,
-  ForbiddenException,
   Get,
   Header,
-  NotFoundException,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -16,6 +15,7 @@ import type { FastifyReply } from 'fastify'
 import { Throttle } from '@nestjs/throttler'
 import type { SessionUser } from '@crm/shared'
 import { updateCustomValuesSchema, updateEmployeeContractSchema } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -64,7 +64,7 @@ export class EmployeeContractsController {
   @Roles() // override class ADMIN-only — owner-or-ADMIN enforced below
   async get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() viewer: SessionUser) {
     if (viewer.role !== 'ADMIN' && viewer.id !== id) {
-      throw new ForbiddenException('Можно просмотреть только свой контракт')
+      throw apiError('CONTRACT_VIEW_SELF_ONLY', HttpStatus.FORBIDDEN)
     }
     // ADMIN: lazy-create DRAFT if needed (original behaviour).
     if (viewer.role === 'ADMIN') {
@@ -166,7 +166,7 @@ export class EmployeeContractsController {
     @Res() reply: FastifyReply,
   ): Promise<void> {
     if (requester.role !== 'ADMIN' && requester.id !== id) {
-      throw new ForbiddenException('Можно открыть только свой контракт')
+      throw apiError('CONTRACT_VIEW_SELF_ONLY', HttpStatus.FORBIDDEN)
     }
 
     const contract = await this.service.getActiveForUser(id)
@@ -174,7 +174,7 @@ export class EmployeeContractsController {
     const userRow = (await this.db.db.query.users.findFirst({
       where: (tbl, { eq }) => eq(tbl.id, id),
     })) as User | undefined
-    if (!userRow) throw new NotFoundException('User not found')
+    if (!userRow) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000'
 
@@ -188,7 +188,7 @@ export class EmployeeContractsController {
       const signed = await this.db.db.query.signedContracts.findFirst({
         where: (tbl, { eq }) => eq(tbl.id, contract.signedContractId!),
       })
-      if (!signed) throw new NotFoundException('Signed contract record not found')
+      if (!signed) throw apiError('SIGNED_CONTRACT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
       const { body } = SignedContractsService.interpolateVariables(
         contract.bodyMarkdown,

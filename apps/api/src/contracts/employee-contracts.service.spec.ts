@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  HttpException,
-  NotFoundException,
-} from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { EmployeeContract } from '../database/schema'
@@ -139,18 +134,18 @@ describe('EmployeeContractsService', () => {
       const { service, db } = makeService()
       db.db.query.users.findFirst.mockResolvedValue({ id: 'admin-uuid', role: 'ADMIN' })
 
-      await expect(service.getOrCreateForUser('admin-uuid', mockViewer)).rejects.toThrow(
-        BadRequestException,
-      )
+      await expect(service.getOrCreateForUser('admin-uuid', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_ADMIN_NOT_ALLOWED', statusCode: 400 }),
+      })
     })
 
     it('throws 404 when user not found', async () => {
       const { service, db } = makeService()
       db.db.query.users.findFirst.mockResolvedValue(null)
 
-      await expect(service.getOrCreateForUser('nonexistent', mockViewer)).rejects.toThrow(
-        NotFoundException,
-      )
+      await expect(service.getOrCreateForUser('nonexistent', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+      })
     })
 
     it('throws 404 with the CONTRACT_TEMPLATE_MISSING envelope code when no active template for role (task-i18n-stage2-task5)', async () => {
@@ -194,8 +189,9 @@ describe('EmployeeContractsService', () => {
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
       const err = await service.updateBody('user-uuid', '# New', mockViewer).catch((e) => e)
-      expect(err).toBeInstanceOf(ConflictException)
-      expect((err as ConflictException).message).toBe('CONTRACT_NOT_EDITABLE')
+      expect(err).toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_EDITABLE', statusCode: 409 }),
+      })
     })
 
     it('throws 409 CONTRACT_NOT_EDITABLE when contract is SIGNED (MED#2)', async () => {
@@ -204,17 +200,18 @@ describe('EmployeeContractsService', () => {
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
       const err = await service.updateBody('user-uuid', '# New', mockViewer).catch((e) => e)
-      expect(err).toBeInstanceOf(ConflictException)
-      expect((err as ConflictException).message).toBe('CONTRACT_NOT_EDITABLE')
+      expect(err).toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_EDITABLE', statusCode: 409 }),
+      })
     })
 
     it('throws 404 when no active contract', async () => {
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
 
-      await expect(service.updateBody('user-uuid', '# New', mockViewer)).rejects.toThrow(
-        NotFoundException,
-      )
+      await expect(service.updateBody('user-uuid', '# New', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMPLOYEE_CONTRACT_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 
@@ -242,7 +239,9 @@ describe('EmployeeContractsService', () => {
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
-      await expect(service.markReady('user-uuid', mockViewer)).rejects.toThrow(ConflictException)
+      await expect(service.markReady('user-uuid', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_DRAFT', statusCode: 409 }),
+      })
     })
 
     it('throws 409 when SIGNED', async () => {
@@ -250,7 +249,9 @@ describe('EmployeeContractsService', () => {
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
-      await expect(service.markReady('user-uuid', mockViewer)).rejects.toThrow(ConflictException)
+      await expect(service.markReady('user-uuid', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_DRAFT', statusCode: 409 }),
+      })
     })
   })
 
@@ -360,14 +361,22 @@ describe('EmployeeContractsService', () => {
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
-      await expect(service.revert('user-uuid', mockViewer)).rejects.toThrow(ConflictException)
+      await expect(service.revert('user-uuid', mockViewer)).rejects.toMatchObject({
+        response: {
+          code: 'CONTRACT_ALREADY_STATUS_CANNOT_REVERT',
+          statusCode: 409,
+          params: { status: 'DRAFT' },
+        },
+      })
     })
 
     it('throws 409 when CANCELLED', async () => {
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null) // CANCELLED → no active contract
 
-      await expect(service.revert('user-uuid', mockViewer)).rejects.toThrow(NotFoundException)
+      await expect(service.revert('user-uuid', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMPLOYEE_CONTRACT_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 
@@ -439,9 +448,20 @@ describe('EmployeeContractsService', () => {
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
-      await expect(service.resetToTemplate('user-uuid', mockViewer)).rejects.toThrow(
-        ConflictException,
-      )
+      await expect(service.resetToTemplate('user-uuid', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_DRAFT', statusCode: 409 }),
+      })
+    })
+
+    it('throws USER_NOT_FOUND when the user row is missing (DRAFT contract, orphaned user)', async () => {
+      const contract = makeContract({ status: 'DRAFT' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue(null)
+
+      await expect(service.resetToTemplate('user-uuid', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 
@@ -468,7 +488,9 @@ describe('EmployeeContractsService', () => {
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
 
-      await expect(service.cancel('user-uuid', mockViewer)).rejects.toThrow(NotFoundException)
+      await expect(service.cancel('user-uuid', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMPLOYEE_CONTRACT_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 
@@ -487,8 +509,9 @@ describe('EmployeeContractsService', () => {
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
 
       const error = await service.getReadyForSigning('user-uuid').catch((e) => e)
-      expect(error).toBeInstanceOf(ConflictException)
-      expect((error as ConflictException).message).toBe('CONTRACT_NOT_READY')
+      expect(error).toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_READY', statusCode: 409 }),
+      })
     })
   })
 
@@ -576,7 +599,9 @@ describe('EmployeeContractsService', () => {
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
 
-      await expect(service.markSigned('user-uuid', 'sc-uuid')).rejects.toThrow(ConflictException)
+      await expect(service.markSigned('user-uuid', 'sc-uuid')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_READY', statusCode: 409 }),
+      })
     })
   })
 
@@ -623,8 +648,20 @@ describe('EmployeeContractsService', () => {
       })
 
       await expect(
-        service.updateCustomValues('user-uuid', { arbitraryKey: 'value' }, mockViewer),
-      ).rejects.toThrow(BadRequestException)
+        service.updateCustomValues(
+          'user-uuid',
+          { arbitraryKey: 'value', anotherBadKey: 'value2' },
+          mockViewer,
+        ),
+      ).rejects.toMatchObject({
+        // Two keys, not one — join(', ') vs join('') are only distinguishable
+        // with >= 2 elements (a single-element join ignores the separator).
+        response: {
+          code: 'CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS',
+          statusCode: 400,
+          params: { keys: 'arbitraryKey, anotherBadKey' },
+        },
+      })
     })
 
     it('LOW-1: allows all keys when template has no declared variables (null/empty)', async () => {
@@ -658,7 +695,9 @@ describe('EmployeeContractsService', () => {
 
       await expect(
         service.updateCustomValues('user-uuid', { key: 'val' }, mockViewer),
-      ).rejects.toThrow(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_EDITABLE', statusCode: 409 }),
+      })
     })
 
     it('throws 409 CONTRACT_NOT_EDITABLE when status is SIGNED', async () => {
@@ -668,7 +707,9 @@ describe('EmployeeContractsService', () => {
 
       await expect(
         service.updateCustomValues('user-uuid', { key: 'val' }, mockViewer),
-      ).rejects.toThrow(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_EDITABLE', statusCode: 409 }),
+      })
     })
 
     it('throws 404 when no active contract found', async () => {
@@ -677,7 +718,9 @@ describe('EmployeeContractsService', () => {
 
       await expect(
         service.updateCustomValues('user-uuid', { key: 'val' }, mockViewer),
-      ).rejects.toThrow(NotFoundException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'EMPLOYEE_CONTRACT_NOT_FOUND', statusCode: 404 }),
+      })
     })
 
     it('LOW-1: throws 404 CONTRACT_TEMPLATE_NOT_FOUND when sourceTemplateId is orphaned', async () => {
@@ -697,8 +740,22 @@ describe('EmployeeContractsService', () => {
         .updateCustomValues('user-uuid', { anyKey: 'value' }, mockViewer)
         .catch((e) => e)
 
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toBe('CONTRACT_TEMPLATE_NOT_FOUND')
+      expect(err).toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_TEMPLATE_NOT_FOUND', statusCode: 404 }),
+      })
+    })
+  })
+
+  describe('getContractVariables — user row missing', () => {
+    it('throws USER_NOT_FOUND when the user row is missing', async () => {
+      const contract = makeContract()
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue(null)
+
+      await expect(service.getContractVariables('user-uuid')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 

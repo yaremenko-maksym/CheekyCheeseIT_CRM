@@ -1,12 +1,11 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
   Get,
   Header,
+  HttpStatus,
   Inject,
-  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -21,6 +20,7 @@ import {
   type ContractTargetRole,
   type SessionUser,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -72,7 +72,7 @@ export class ContractTemplatesController {
   async current(@Param('role') role: string, @CurrentUser() user: SessionUser) {
     const parsed = contractTargetRoleSchema.safeParse(role)
     if (!parsed.success) {
-      throw new BadRequestException('Invalid role')
+      throw apiError('CONTRACT_TEMPLATE_INVALID_ROLE', HttpStatus.BAD_REQUEST)
     }
     const targetRole = parsed.data as ContractTargetRole
 
@@ -171,14 +171,14 @@ export class ContractTemplatesController {
   ): Promise<{ bodyMarkdown: string }> {
     const template = await this.service.getById(templateId)
     if (!template) {
-      throw new NotFoundException('Contract template not found')
+      throw apiError('CONTRACT_TEMPLATE_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
     const userRow = await this.db.db.query.users.findFirst({
       where: (tbl, { eq }) => eq(tbl.id, user.id),
     })
     if (!userRow) {
-      throw new NotFoundException('User not found')
+      throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
     const { body } = renderContractTemplate(template.bodyMarkdown, userRow, new Date())

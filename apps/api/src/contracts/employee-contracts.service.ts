@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  HttpStatus,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+import { HttpStatus, Injectable } from '@nestjs/common'
 import { and, eq, ne, sql } from 'drizzle-orm'
 import type {
   ContractTargetRole,
@@ -83,9 +77,9 @@ export class EmployeeContractsService {
     const user = await this.db.db.query.users.findFirst({
       where: (tbl, { eq }) => eq(tbl.id, userId),
     })
-    if (!user) throw new NotFoundException('User not found')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (user.role === 'ADMIN') {
-      throw new BadRequestException('ADMIN users cannot have employee contracts')
+      throw apiError('CONTRACT_ADMIN_NOT_ALLOWED', HttpStatus.BAD_REQUEST)
     }
 
     const existing = await this.db.db.query.employeeContracts.findFirst({
@@ -138,7 +132,7 @@ export class EmployeeContractsService {
     const contract = await this.getActiveOrThrow(userId)
 
     if (contract.status !== 'DRAFT') {
-      throw new ConflictException('CONTRACT_NOT_EDITABLE')
+      throw apiError('CONTRACT_NOT_EDITABLE', HttpStatus.CONFLICT)
     }
 
     const [updated] = await this.db.db
@@ -159,9 +153,7 @@ export class EmployeeContractsService {
     const contract = await this.getActiveOrThrow(userId)
 
     if (contract.status !== 'DRAFT') {
-      throw new ConflictException(
-        `Cannot mark ready: contract is ${contract.status}, expected DRAFT`,
-      )
+      throw apiError('CONTRACT_NOT_DRAFT', HttpStatus.CONFLICT)
     }
 
     // task-notification-types-producers (позиция 6): DRAFT → READY_TO_SIGN —
@@ -198,9 +190,7 @@ export class EmployeeContractsService {
       // отказом клиента, то отказом сервера значит показывать легитимную
       // одновременность как поломку — в том числе в телеметрии ошибок.
       if (!row) {
-        throw new ConflictException(
-          'Cannot mark ready: contract is no longer DRAFT (concurrent update)',
-        )
+        throw apiError('CONTRACT_NOT_DRAFT', HttpStatus.CONFLICT)
       }
 
       // SR-H-2 (круг 2): путь производителя — во вложенной транзакции.
@@ -249,7 +239,9 @@ export class EmployeeContractsService {
     const contract = await this.getActiveOrThrow(userId)
 
     if (contract.status === 'DRAFT' || contract.status === 'CANCELLED') {
-      throw new ConflictException(`Cannot revert: contract is already ${contract.status}`)
+      throw apiError('CONTRACT_ALREADY_STATUS_CANNOT_REVERT', HttpStatus.CONFLICT, {
+        status: contract.status,
+      })
     }
 
     const wasSigned = contract.status === 'SIGNED'
@@ -297,15 +289,13 @@ export class EmployeeContractsService {
     const contract = await this.getActiveOrThrow(userId)
 
     if (contract.status !== 'DRAFT') {
-      throw new ConflictException(
-        `Cannot reset to template: contract is ${contract.status}, expected DRAFT`,
-      )
+      throw apiError('CONTRACT_NOT_DRAFT', HttpStatus.CONFLICT)
     }
 
     const user = await this.db.db.query.users.findFirst({
       where: (tbl, { eq }) => eq(tbl.id, userId),
     })
-    if (!user) throw new NotFoundException('User not found')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const template = await this.contractTemplatesService.getCurrentForRole(
       user.role as ContractTargetRole,
@@ -374,7 +364,7 @@ export class EmployeeContractsService {
         .limit(1)
 
       if (!rows[0]) {
-        throw new ConflictException('CONTRACT_NOT_READY')
+        throw apiError('CONTRACT_NOT_READY', HttpStatus.CONFLICT)
       }
       return rows[0]
     }
@@ -385,7 +375,7 @@ export class EmployeeContractsService {
     })
 
     if (!contract) {
-      throw new ConflictException('CONTRACT_NOT_READY')
+      throw apiError('CONTRACT_NOT_READY', HttpStatus.CONFLICT)
     }
 
     return contract
@@ -501,7 +491,7 @@ export class EmployeeContractsService {
     const contract = await this.getActiveOrThrow(userId)
 
     if (contract.status !== 'DRAFT') {
-      throw new ConflictException('CONTRACT_NOT_EDITABLE')
+      throw apiError('CONTRACT_NOT_EDITABLE', HttpStatus.CONFLICT)
     }
 
     // Cross-validate keys against the template's declared customVariables.
@@ -513,15 +503,15 @@ export class EmployeeContractsService {
       where: eq(contractTemplates.id, contract.sourceTemplateId),
     })
     if (!template) {
-      throw new NotFoundException('CONTRACT_TEMPLATE_NOT_FOUND')
+      throw apiError('CONTRACT_TEMPLATE_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     const declared = template.customVariables as CustomVariable[] | null | undefined
     const allowedKeys = new Set((declared ?? []).map((v) => v.key))
     const unknownKeys = Object.keys(customValues).filter((k) => !allowedKeys.has(k))
     if (unknownKeys.length > 0) {
-      throw new BadRequestException(
-        `Неизвестные ключи кастомных переменных: ${unknownKeys.join(', ')}`,
-      )
+      throw apiError('CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS', HttpStatus.BAD_REQUEST, {
+        keys: unknownKeys.join(', '),
+      })
     }
 
     const [updated] = await this.db.db
@@ -554,7 +544,7 @@ export class EmployeeContractsService {
     const user = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: eqOp }) => eqOp(tbl.id, userId),
     })
-    if (!user) throw new NotFoundException('User not found')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Load template for customVariables definition
     const [templateRow] = await this.db.db
@@ -725,7 +715,7 @@ export class EmployeeContractsService {
     })
 
     if (!contract) {
-      throw new NotFoundException('No active employee contract found for user')
+      throw apiError('EMPLOYEE_CONTRACT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
     return contract

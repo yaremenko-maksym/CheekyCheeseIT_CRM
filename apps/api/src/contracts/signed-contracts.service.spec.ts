@@ -1,11 +1,7 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common'
+import { ForbiddenException, HttpStatus } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import type { DatabaseService } from '../database/database.service'
 import type { ContractPdfService } from './contract-pdf.service'
 import type { EmployeeContractsService } from './employee-contracts.service'
@@ -225,7 +221,7 @@ function makeEmployeeContractsSvc({
 } = {}) {
   return {
     getReadyForSigning: vi.fn().mockImplementation(async () => {
-      if (!readyContract) throw new ConflictException('CONTRACT_NOT_READY')
+      if (!readyContract) throw apiError('CONTRACT_NOT_READY', HttpStatus.CONFLICT)
       return readyContract
     }),
     markSigned: vi.fn().mockResolvedValue({ ...makeEmployeeContract(), status: 'SIGNED' }),
@@ -468,7 +464,12 @@ describe('SignedContractsService', () => {
           userAgent: 'vt',
           impersonatorId: null,
         }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'ADMIN_DOES_NOT_SIGN_CONTRACTS',
+          statusCode: 400,
+        }),
+      })
     })
 
     it('refuses to sign under impersonation (backlog 212) — 403, no DB write', async () => {
@@ -546,7 +547,33 @@ describe('SignedContractsService', () => {
           userAgent: 'vt',
           impersonatorId: null,
         }),
-      ).rejects.toThrow(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_READY', statusCode: 409 }),
+      })
+    })
+
+    it('throws USER_NOT_FOUND when the user row is missing inside the tx', async () => {
+      const mockDb = makeDb()
+      mockDb.db.query.users.findFirst.mockResolvedValue(undefined)
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: '',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+          impersonatorId: null,
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+      })
     })
 
     it('throws LEGAL_NAME_REQUIRED when legalFullName is null', async () => {
@@ -568,7 +595,9 @@ describe('SignedContractsService', () => {
           userAgent: 'vt',
           impersonatorId: null,
         }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'LEGAL_NAME_REQUIRED', statusCode: 400 }),
+      })
     })
 
     it('throws LEGAL_NAME_REQUIRED when legalFullName is whitespace-only', async () => {
@@ -590,7 +619,9 @@ describe('SignedContractsService', () => {
           userAgent: 'vt',
           impersonatorId: null,
         }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'LEGAL_NAME_REQUIRED', statusCode: 400 }),
+      })
     })
 
     it('happy path: creates signed contract with CHK-<6 hex> format and calls markSigned', async () => {
@@ -811,7 +842,9 @@ describe('SignedContractsService', () => {
           userAgent: null,
           impersonatorId: null,
         }),
-      ).rejects.toThrow(ConflictException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'CONTRACT_NOT_READY', statusCode: 409 }),
+      })
     })
 
     it('eager PDF size: recordPdfSizeIfAbsent is called with real buffer length after signing', async () => {
@@ -939,7 +972,9 @@ describe('SignedContractsService', () => {
         makePdfSvc(),
       )
 
-      await expect(service.findById('nope', adminUser)).rejects.toThrow(NotFoundException)
+      await expect(service.findById('nope', adminUser)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'SIGNED_CONTRACT_NOT_FOUND', statusCode: 404 }),
+      })
     })
   })
 
