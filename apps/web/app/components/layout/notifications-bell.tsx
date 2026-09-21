@@ -175,7 +175,7 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
               сделал её ложной — попап теперь несёт не только инвойсы, а
               «инвойс» вдобавок слово из `_Избегать_` (CONTEXT.md: «Счёт»). */}
             <p className="mt-1 text-xs text-muted-foreground">
-              <Trans>Тут з'являться події за вашими проєктами, грошима та документами</Trans>
+              <Trans>Тут з’являться події за вашими проєктами, грошима та документами</Trans>
             </p>
           </div>
         ) : (

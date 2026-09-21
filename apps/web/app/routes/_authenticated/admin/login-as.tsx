@@ -232,8 +232,8 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                   return-button label verbatim (ImpersonationBanner.tsx —
                   t`Повернутися до свого профілю`), not a generic paraphrase. */}
               <Trans>
-                Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть
-                «Повернутися до свого профілю», щоб вийти.
+                Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс —
+                натисніть «Повернутися до свого профілю», щоб вийти.
               </Trans>
             </DialogDescription>
           </DialogHeader>

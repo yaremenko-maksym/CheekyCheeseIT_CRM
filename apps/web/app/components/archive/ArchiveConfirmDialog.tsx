@@ -90,7 +90,7 @@ function renderImpactText(
                 та команда «<strong>{impact.teamName}</strong>»
               </>
             ) : null}{' '}
-            — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}
+            — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}
             , команда і всі її проєкти (
             <Plural
               value={impact.projectsCount ?? 0}
@@ -184,7 +184,7 @@ function renderImpactText(
       return (
         <Trans>
           <strong className="text-foreground">{entityName}</strong> буде архівований. Нічого
-          пов'язаного архівувати не треба.
+          пов’язаного архівувати не треба.
         </Trans>
       )
     }
@@ -207,7 +207,7 @@ function renderImpactText(
         <>
           <Trans>
             Команда <strong className="text-foreground">{impact.teamName}</strong> і її дроп{' '}
-            <strong>{dropName}</strong> — пов'язана пара, прибрати по одному не можна. В архів
+            <strong>{dropName}</strong> — пов’язана пара, прибрати по одному не можна. В архів
             підуть: профіль <strong>дропа</strong>, команда і всі її drop-проєкти (
             <Plural
               value={impact.projectsCount}
@@ -232,7 +232,7 @@ function renderImpactText(
           </Trans>{' '}
           {impact.seniorWillBeDetached ? (
             <Trans>
-              Активний сеньйор{impact.seniorName ? ` ${impact.seniorName}` : ''} від'єднається від
+              Активний сеньйор{impact.seniorName ? ` ${impact.seniorName}` : ''} від’єднається від
               команди без архівації
             </Trans>
           ) : (
@@ -245,7 +245,7 @@ function renderImpactText(
       <>
         <Trans>
           <strong className="text-foreground">{impact.teamName}</strong> і її сеньйор{' '}
-          <strong>{impact.seniorName || '—'}</strong> — пов'язана пара, прибрати по одному не можна.
+          <strong>{impact.seniorName || '—'}</strong> — пов’язана пара, прибрати по одному не можна.
           В архів підуть: профіль сеньйора, команда і всі його проєкти (
           <Plural
             value={impact.projectsCount}
@@ -286,7 +286,7 @@ function renderImpactText(
             other="# активних джуніорів"
           />
         </strong>{' '}
-        будуть відв'язані. Сеньйор і команда <strong>не</strong> будуть архівовані. Фінансова
+        будуть відв’язані. Сеньйор і команда <strong>не</strong> будуть архівовані. Фінансова
         історія (транзакції, інвойси) залишається доступною.
       </Trans>
     )
@@ -340,11 +340,11 @@ export function ArchiveConfirmDialog({
   const confirmInputLabel =
     entityType === 'team'
       ? isDropTeam
-        ? t`ім'я дропа`
-        : t`ім'я сеньйора`
+        ? t`ім’я дропа`
+        : t`ім’я сеньйора`
       : entityType === 'project'
         ? t`назва проєкту`
-        : t`ім'я`
+        : t`ім’я`
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -360,7 +360,7 @@ export function ArchiveConfirmDialog({
         <CrmDialogHeader>
           <DialogTitle className="text-destructive">{title}</DialogTitle>
           <DialogDescription className="sr-only">
-            <Trans>Підтвердження архівації. Введіть ім'я для підтвердження дії.</Trans>
+            <Trans>Підтвердження архівації. Введіть ім’я для підтвердження дії.</Trans>
           </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">

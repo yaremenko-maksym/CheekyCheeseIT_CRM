@@ -176,7 +176,7 @@ export function AmountCurrencyInput({
         <div className="flex items-center gap-2 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
           <span className="font-medium">1 USDT = 1 USD</span>
           <span className="text-muted-foreground">
-            · <Trans>ERC-20, прив&apos;язаний до долара</Trans>
+            · <Trans>ERC-20, прив’язаний до долара</Trans>
           </span>
         </div>
       )}

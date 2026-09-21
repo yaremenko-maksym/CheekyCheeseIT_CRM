@@ -46,10 +46,10 @@ export function CascadeUnarchiveModal({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            <Trans>Відновити пов'язане</Trans>
+            <Trans>Відновити пов’язане</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <Trans>Відновлення проєкту разом із пов'язаними командою і профілем.</Trans>
+            <Trans>Відновлення проєкту разом із пов’язаними командою і профілем.</Trans>
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">
@@ -78,7 +78,7 @@ export function CascadeUnarchiveModal({
           </div>
           <p className="text-xs text-muted-foreground">
             <Trans>
-              HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново.
+              HR/бухгалтери команди після відновлення залишаються відв’язаними — додайте їх заново.
             </Trans>
           </p>
         </div>

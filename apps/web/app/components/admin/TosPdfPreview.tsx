@@ -169,8 +169,8 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
         {blobUrl && !hasError && (
           <iframe
             src={blobUrl}
-            title={t`Попередній перегляд Terms of Service`}
-            aria-label={t`Попередній перегляд Terms of Service`}
+            title={t`Попередній перегляд умов використання`}
+            aria-label={t`Попередній перегляд умов використання`}
             tabIndex={0}
             className={cn('h-full w-full rounded-b-lg border-0', iframeLoading && 'invisible')}
             style={{ minHeight: '480px' }}
@@ -189,7 +189,7 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
                     download="tos-preview.pdf"
                     className="underline hover:text-foreground"
                   >
-                    Завантажити ToS
+                    Завантажити умови використання
                   </a>
                 </Trans>
               </p>

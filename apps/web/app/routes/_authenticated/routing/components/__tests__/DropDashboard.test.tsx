@@ -244,14 +244,14 @@ describe('DropDashboard', () => {
       const card = screen.getByTestId('drop-kpi-pending-obligation')
       expect(card).toHaveTextContent(ukMoney(800.48))
       // pendingObligationCount: 2 → uk CLDR 'few' category (2-4, not 12-14).
-      expect(card).toHaveTextContent("2 зобов'язання")
+      expect(card).toHaveTextContent('2 зобов’язання')
       expect(card).not.toHaveTextContent(ukMoney(4000.48))
       const balanceCard = screen.getByTestId('drop-kpi-balance')
       expect(balanceCard).toHaveTextContent(ukMoney(3200))
       expect(balanceCard).not.toHaveTextContent(ukMoney(800.48))
     })
 
-    it("shows «Немає зобов'язань» when pendingObligationCount is 0", () => {
+    it('shows «Немає зобов’язань» when pendingObligationCount is 0', () => {
       useDropSummaryMock.mockReturnValue({
         data: { ...makeDropSummary(), pendingObligationAmount: 0, pendingObligationCount: 0 },
         isLoading: false,
@@ -259,8 +259,54 @@ describe('DropDashboard', () => {
       })
       renderDashboard()
       expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent(
-        "Немає зобов'язань",
+        'Немає зобов’язань',
       )
+    })
+
+    // CR-M-3 (fix-round 2): PENDING_OBLIGATION_MESSAGE is an ICU plural with
+    // FOUR uk categories (one/few/many/other) — round 1 only exercised
+    // `few` (count: 2) and the separate count:0 branch (no plural macro at
+    // all). `one` and `many` were never confirmed to resolve correctly,
+    // which is exactly the mechanism FR-5 (fix-round 1) had to work around
+    // (Stryker + bare `plural()` incompatibility) — untested categories
+    // would have hidden a regression in the SAME mechanism silently.
+    it('shows the CLDR "one" plural form when pendingObligationCount is 1', () => {
+      useDropSummaryMock.mockReturnValue({
+        data: { ...makeDropSummary(), pendingObligationAmount: 400.24, pendingObligationCount: 1 },
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+      // 1 → uk CLDR 'one' category (n%10==1 && n%100!=11).
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('1 зобов’язання')
+    })
+
+    it('shows the CLDR "many" plural form when pendingObligationCount is 5', () => {
+      useDropSummaryMock.mockReturnValue({
+        data: { ...makeDropSummary(), pendingObligationAmount: 2000.0, pendingObligationCount: 5 },
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+      // 5 → uk CLDR 'many' category (n%10 in 5-9, or n%100 in 11-14).
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('5 зобов’язань')
+    })
+
+    it('shows the CLDR "many" plural form when pendingObligationCount is 11 (the n%100 11-14 trap)', () => {
+      useDropSummaryMock.mockReturnValue({
+        data: {
+          ...makeDropSummary(),
+          pendingObligationAmount: 4400.0,
+          pendingObligationCount: 11,
+        },
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+      // 11 → uk CLDR 'many' (n%10==1 would normally be 'one', but n%100==11
+      // is the exception CLDR carves out — this is the case a naive
+      // `n % 10` check gets wrong).
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('11 зобов’язань')
     })
 
     it('shows pendingIncomesCount from useDropSummary', () => {

@@ -59,7 +59,7 @@ test.describe('Users management page', () => {
   test.describe('Access control', () => {
     test('ADMIN can access users page', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await expect(page.getByText(/пользователи/i).first()).toBeVisible()
+      await expect(page.getByText(/користувачі/i).first()).toBeVisible()
       await expect(page.getByText(/доступ только для администратора/i)).not.toBeVisible()
     })
 
@@ -458,7 +458,7 @@ test.describe('Users management page', () => {
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/users')
-      await expect(page.getByText(/пользователи/i).first()).toBeVisible()
+      await expect(page.getByText(/користувачі/i).first()).toBeVisible()
     })
 
     test('API error on create shows no crash', async ({ asAdmin: page }) => {
@@ -490,7 +490,7 @@ test.describe('Users management page', () => {
       // A3-3: wizard step 1 «Далее» (wizard-next-btn) fires POST.
       await page.getByTestId('wizard-next-btn').click()
 
-      await expect(page.getByText(/пользователи/i).first()).toBeVisible()
+      await expect(page.getByText(/користувачі/i).first()).toBeVisible()
     })
 
     test('telegram visible in row meta', async ({ asAdmin: page }) => {

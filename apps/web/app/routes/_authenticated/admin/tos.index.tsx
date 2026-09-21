@@ -110,7 +110,7 @@ function TosEditorPage() {
                 onClick={() => setPreviewVersion(null)}
                 data-testid="back-to-active-tos"
               >
-                <Trans>До активної</Trans>
+                <Trans>До активної версії</Trans>
               </Button>
             </div>
           )}

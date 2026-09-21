@@ -238,7 +238,7 @@ describe('пустое состояние отражает актуальный 
     await openBell()
 
     expect(screen.getByTestId('notifications-empty')).toHaveTextContent(
-      "Тут з'являться події за вашими проєктами, грошима та документами",
+      'Тут з’являться події за вашими проєктами, грошима та документами',
     )
     expect(screen.getByTestId('notifications-empty')).not.toHaveTextContent('инвойс')
   })

@@ -129,7 +129,7 @@ describe('TosPdfPreview', () => {
 
     // Found by its accessible title (TosPdfPreview.tsx sets one) instead of
     // document.querySelector — task-lint-teeth.
-    const iframe = screen.getByTitle('Попередній перегляд Terms of Service')
+    const iframe = screen.getByTitle('Попередній перегляд умов використання')
     expect(iframe).toBeInTheDocument()
     expect(iframe).toHaveAttribute('src', expect.stringContaining('blob:'))
     expect(mockToastError).not.toHaveBeenCalled()

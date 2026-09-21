@@ -62,7 +62,7 @@ const IN_PROGRESS_INCOME_STATUSES = new Set<TransactionDto['status']>(['PENDING'
 // macro reproducibly breaks under Stryker's per-test coverage
 // instrumentation: the compiled catalog's `#` placeholder is not substituted
 // even on the UNMUTATED baseline dry run ("Очікує виплати800,48 USD#
-// зобов'язання" — reproduced running the mutation gate directly, see
+// зобов’язання" — reproduced running the mutation gate directly, see
 // task-700-fix-round-1 FR-5), which fails Stryker's dry-run validation and
 // blocks the WHOLE gate before a single mutant runs — worse than a
 // survived-mutant finding, because nothing downstream of it can run either.
@@ -74,7 +74,7 @@ const IN_PROGRESS_INCOME_STATUSES = new Set<TransactionDto['status']>(['PENDING'
 // whatever specifically breaks the `plural()` macro's compiled output under
 // Stryker's instrumentation — verified by re-running the mutation gate after
 // this change (see PR body for the passing numbers).
-const PENDING_OBLIGATION_MESSAGE = msg`{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}`
+const PENDING_OBLIGATION_MESSAGE = msg`{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}`
 
 export function DropDashboard() {
   const qc = useQueryClient()
@@ -209,7 +209,7 @@ export function DropDashboard() {
                   sub={
                     pendingObligationCount > 0
                       ? // Reuses the exact same plural forms as
-                        // DropBalanceCard.tsx's «зобов'язання» (COPY-M-core-6:
+                        // DropBalanceCard.tsx's «зобов’язання» (COPY-M-core-6:
                         // «начисление»/«начисления» is on the _Избегать_
                         // avoid-list) — same catalog entry, not a near-dup
                         // (see `PENDING_OBLIGATION_MESSAGE` above for why
@@ -223,7 +223,7 @@ export function DropDashboard() {
                         // (`...PENDING_OBLIGATION_MESSAGE`) has no `.name`
                         // for it to read, crashing extraction entirely.
                         i18n._(PENDING_OBLIGATION_MESSAGE.id, { pendingObligationCount })
-                      : t`Немає зобов'язань`
+                      : t`Немає зобов’язань`
                   }
                   icon={<HandCoins className="h-5 w-5" />}
                   color="red"

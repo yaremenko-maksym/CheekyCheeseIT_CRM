@@ -120,7 +120,7 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
       renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy Kovalenko' })
 
       const dialog = await screen.findByRole('dialog')
-      await screen.findByText(/пов'язана пара/)
+      await screen.findByText(/пов’язана пара/)
       const text = dialog.textContent ?? ''
       expect(text).toContain('Oleksiy Kovalenko')
       expect(text).toContain('Alpha Team')
@@ -140,7 +140,7 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
       // StringLiteral mutant turning `{' '}` into `{""}` joins two words
       // with no space, invisible to a plain `.toContain(word)` check.
       expect(text).toContain('Kovalenko та команда')
-      expect(text).toContain("» — пов'язана пара")
+      expect(text).toContain('» — пов’язана пара')
       expect(text).toContain('стосується. Відновлення')
     },
   )
@@ -150,7 +150,7 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/пов'язана пара/)
+    await screen.findByText(/пов’язана пара/)
     const text = dialog.textContent ?? ''
     expect(text).not.toContain('та команда')
     // `{' '}` right after the (null) conditional still joins entityName to
@@ -163,7 +163,7 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/пов'язана пара/)
+    await screen.findByText(/пов’язана пара/)
     expect(dialog.textContent ?? '').toContain('0 проєктів')
   })
 
@@ -178,7 +178,7 @@ describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pa
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Ihor' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/пов'язана пара/)
+    await screen.findByText(/пов’язана пара/)
     const text = dialog.textContent ?? ''
     expect(text).toContain('1 проєкт)')
     expect(text).toContain('1 HR/бухгалтер)')
@@ -229,7 +229,7 @@ describe('ArchiveConfirmDialog — renderImpactText: user/JUNIOR and user/ADMIN'
     const text = dialog.textContent ?? ''
     // few-form (3): "3 активні проєкти"
     expect(text).toContain('3 активні проєкти')
-    expect(text).not.toContain("пов'язана пара")
+    expect(text).not.toContain('пов’язана пара')
     // `{' '}` boundary: "з" -> plural count.
     expect(text).toContain('Petro буде архівований і прибраний з 3 активні проєкти')
   })
@@ -239,7 +239,7 @@ describe('ArchiveConfirmDialog — renderImpactText: user/JUNIOR and user/ADMIN'
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Root Admin' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/Нічого\s*пов'язаного архівувати не треба/)
+    await screen.findByText(/Нічого\s*пов’язаного архівувати не треба/)
     expect(dialog.textContent ?? '').toContain('Root Admin')
   })
 })
@@ -292,7 +292,7 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     expect(text).toContain('дропа')
     expect(text).toContain('В архів підуть')
     expect(text).toContain('Активний сеньйор Ihor Senior')
-    expect(text).toContain("від'єднається")
+    expect(text).toContain('від’єднається')
     // `{' '}` boundaries: "дроп" -> dropName, block1 -> block2.
     expect(text).toContain('дроп Dmytro Drop')
     expect(text).toContain('стосується. Активний сеньйор')
@@ -316,7 +316,7 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     await screen.findByText(/і її дроп/)
     const text = dialog.textContent ?? ''
     expect(text).toContain('Активного сеньйора в команді немає')
-    expect(text).not.toContain("від'єднається")
+    expect(text).not.toContain('від’єднається')
     expect(text).toContain('стосується. Активного сеньйора')
   })
 
@@ -340,7 +340,7 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     const dialog = await screen.findByRole('dialog')
     await screen.findByText(/і її дроп/)
     const text = dialog.textContent ?? ''
-    expect(text).toContain("Активний сеньйор від'єднається від")
+    expect(text).toContain('Активний сеньйор від’єднається від')
     expect(text).not.toContain('Активний сеньйор  ') // no double space / stray name
   })
 
@@ -381,9 +381,9 @@ describe('ArchiveConfirmDialog — renderImpactText: project', () => {
     expect(text).toContain('4 активні джуніори')
     expect(text).toContain('не')
     expect(text).toContain('будуть архівовані')
-    // `{' '}` boundaries: "архівований," -> count, count -> "будуть відв'язані".
+    // `{' '}` boundaries: "архівований," -> count, count -> "будуть відв’язані".
     expect(text).toContain('архівований, 4 активні джуніори')
-    expect(text).toContain("джуніори будуть відв'язані")
+    expect(text).toContain('джуніори будуть відв’язані')
     // COPY-H-2: the standalone capitalized "Синьйор" sentence-opener in
     // this branch was missed by the first (lowercase-only) sweep.
     expect(text).toContain('Сеньйор і команда')
@@ -431,7 +431,7 @@ describe('ArchiveConfirmDialog — title + confirm-input label per entity/team-v
     const dialog = await screen.findByRole('dialog')
     await screen.findByText(/Для підтвердження введіть/)
     expect(within(dialog).getByText('Архівувати користувача')).toBeInTheDocument()
-    expect(dialog.textContent ?? '').toContain("Для підтвердження введіть ім'я:")
+    expect(dialog.textContent ?? '').toContain('Для підтвердження введіть ім’я:')
   })
 
   it('project: title is "Архівувати проєкт", label is "назва проєкту"', async () => {
@@ -458,7 +458,7 @@ describe('ArchiveConfirmDialog — title + confirm-input label per entity/team-v
     const dialog = await screen.findByRole('dialog')
     await screen.findByText(/Для підтвердження введіть/)
     expect(within(dialog).getByText('Архівувати команду')).toBeInTheDocument()
-    expect(dialog.textContent ?? '').toContain("Для підтвердження введіть ім'я сеньйора:")
+    expect(dialog.textContent ?? '').toContain('Для підтвердження введіть ім’я сеньйора:')
   })
 
   it('team (DROP variant): title is "Архівувати команду дропа", label is "ім\'я дропа"', async () => {
@@ -477,7 +477,7 @@ describe('ArchiveConfirmDialog — title + confirm-input label per entity/team-v
     const dialog = await screen.findByRole('dialog')
     await screen.findByText(/Для підтвердження введіть/)
     expect(within(dialog).getByText('Архівувати команду дропа')).toBeInTheDocument()
-    expect(dialog.textContent ?? '').toContain("Для підтвердження введіть ім'я дропа:")
+    expect(dialog.textContent ?? '').toContain('Для підтвердження введіть ім’я дропа:')
   })
 })
 

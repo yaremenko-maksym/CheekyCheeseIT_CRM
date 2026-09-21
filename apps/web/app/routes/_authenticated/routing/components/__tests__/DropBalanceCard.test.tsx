@@ -17,7 +17,7 @@
  * `toLocaleString('en-US', { style: 'currency', ... })` — its contract is
  * always `<amount> <CODE>` (see `format.ts`'s own doc comment), so "$800.48"
  * became "800,48 USD" (uk-UA separator). The obligation-count copy moved off "начисление" —
- * `_Избегать_`-listed — onto "зобов'язання" (Plural, uk grammar).
+ * `_Избегать_`-listed — onto "зобов’язання" (Plural, uk grammar).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -79,7 +79,7 @@ describe('DropBalanceCard (self-view)', () => {
       expect(screen.getByTestId('drop-balance-pending-obligation')).toHaveTextContent('0,00 USD')
     })
 
-    it("pluralises the obligation count (1 зобов'язання / 2 зобов'язання)", () => {
+    it('pluralises the obligation count (1 зобов’язання / 2 зобов’язання / 5 зобов’язань)', () => {
       const { rerender } = render(
         <DropBalanceCard
           summary={makeSummary({ pendingObligationAmount: 300.48, pendingObligationCount: 1 })}
@@ -89,8 +89,9 @@ describe('DropBalanceCard (self-view)', () => {
         />,
         { wrapper: I18nTestProvider },
       )
+      // 1 → uk CLDR 'one' category.
       expect(screen.getByTestId('drop-balance-pending-obligation-count')).toHaveTextContent(
-        "1 зобов'язання",
+        '1 зобов’язання',
       )
 
       rerender(
@@ -101,8 +102,25 @@ describe('DropBalanceCard (self-view)', () => {
           onRetry={vi.fn()}
         />,
       )
+      // 2 → uk CLDR 'few' category (2-4, not 12-14).
       expect(screen.getByTestId('drop-balance-pending-obligation-count')).toHaveTextContent(
-        "2 зобов'язання",
+        '2 зобов’язання',
+      )
+
+      // CR-M-3 (fix-round 2): 'many' was the one of the four ICU categories
+      // never exercised by any test — 5 → uk CLDR 'many' (n%10 in 5-9, or
+      // n%100 in 11-14), which resolves to a DIFFERENT lemma
+      // ("зобов’язань", not "зобов’язання").
+      rerender(
+        <DropBalanceCard
+          summary={makeSummary({ pendingObligationAmount: 2000, pendingObligationCount: 5 })}
+          isLoading={false}
+          isError={false}
+          onRetry={vi.fn()}
+        />,
+      )
+      expect(screen.getByTestId('drop-balance-pending-obligation-count')).toHaveTextContent(
+        '5 зобов’язань',
       )
     })
 
@@ -115,8 +133,8 @@ describe('DropBalanceCard (self-view)', () => {
       })
       const el = screen.getByTestId('drop-balance-pending-obligation-count')
       expect(el).toHaveTextContent('Очікує виплати')
-      expect(el).not.toHaveTextContent("зобов'язання")
-      expect(el).not.toHaveTextContent("зобов'язань")
+      expect(el).not.toHaveTextContent('зобов’язання')
+      expect(el).not.toHaveTextContent('зобов’язань')
       // Exact-text (not substring) check — mutation-gate round 2: a
       // survivor mutated the empty branch to a non-empty literal, which
       // every substring-only assertion above happily ignored, since it only

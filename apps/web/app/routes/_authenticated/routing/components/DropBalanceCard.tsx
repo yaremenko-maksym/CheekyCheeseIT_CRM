@@ -116,10 +116,10 @@ export function DropBalanceCard({
                         {' · '}
                         <Plural
                           value={pendingObligationCount}
-                          one="# зобов'язання"
-                          few="# зобов'язання"
-                          many="# зобов'язань"
-                          other="# зобов'язання"
+                          one="# зобов’язання"
+                          few="# зобов’язання"
+                          many="# зобов’язань"
+                          other="# зобов’язання"
                         />
                       </>
                     ) : null}

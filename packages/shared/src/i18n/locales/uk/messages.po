@@ -26,8 +26,8 @@ msgstr "{0} із {1}"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
-msgid "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
-msgstr "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
+msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
+msgstr "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "{role, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
@@ -46,8 +46,8 @@ msgstr "+{0} цього місяця"
 #. placeholder {1}: impact.seniorName || '—'
 #. placeholder {2}: impact.projectsCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{0}</0> і її сеньйор <1>{1}</1> — пов'язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
-msgstr "<0>{0}</0> і її сеньйор <1>{1}</1> — пов'язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgid "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgstr "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -65,15 +65,15 @@ msgid "<0>{entityName}</0> буде архівований і прибраний
 msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0> буде архівований. Нічого пов'язаного архівувати не треба."
-msgstr "<0>{entityName}</0> буде архівований. Нічого пов'язаного архівувати не треба."
+msgid "<0>{entityName}</0> буде архівований. Нічого пов’язаного архівувати не треба."
+msgstr "<0>{entityName}</0> буде архівований. Нічого пов’язаного архівувати не треба."
 
 #. placeholder {0}: impact.teamName ? ( <> {' '} та команда «<strong>{impact.teamName}</strong>» </> ) : null
 #. placeholder {1}: impact.projectsCount ?? 0
 #. placeholder {2}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0>{0} — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
-msgstr "<0>{entityName}</0>{0} — пов'язана пара, прибрати по одному не можна. Будуть архівовані: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+msgid "<0>{entityName}</0>{0} — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
+msgstr "<0>{entityName}</0>{0} — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
@@ -85,8 +85,8 @@ msgid "zod-error.EMAIL_TOO_LONG"
 msgstr "Email не довше 255 символів"
 
 #: apps/web/app/components/ui/amount-currency-input.tsx
-msgid "ERC-20, прив'язаний до долара"
-msgstr "ERC-20, прив'язаний до долара"
+msgid "ERC-20, прив’язаний до долара"
+msgstr "ERC-20, прив’язаний до долара"
 
 #: apps/web/app/components/ui/role-select.tsx
 msgid "HR"
@@ -120,8 +120,8 @@ msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухг
 msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніорів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
-msgid "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
-msgstr "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
+msgid "HR/бухгалтери команди після відновлення залишаються відв’язаними — додайте їх заново."
+msgstr "HR/бухгалтери команди після відновлення залишаються відв’язаними — додайте їх заново."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -172,8 +172,8 @@ msgstr "Активна версія: v{0} · оновлена {1}"
 
 #. placeholder {0}: impact.seniorName ? ` ${impact.seniorName}` : ''
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Активний сеньйор{0} від'єднається від команди без архівації"
-msgstr "Активний сеньйор{0} від'єднається від команди без архівації"
+msgid "Активний сеньйор{0} від’єднається від команди без архівації"
+msgstr "Активний сеньйор{0} від’єднається від команди без архівації"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Активних проєктів"
@@ -269,8 +269,8 @@ msgid "Ваша частка: {0}% · сеньйор: {1}"
 msgstr "Ваша частка: {0}% · сеньйор: {1}"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
-msgid "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
-msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
+msgid "Вбудований перегляд PDF недоступний. <0>Завантажити умови використання</0>"
+msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити умови використання</0>"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -302,10 +302,6 @@ msgstr "Введіть суму числом — наприклад 1000.50"
 msgid "Версія v{0}"
 msgstr "Версія v{0}"
 
-#: apps/web/app/routes/_authenticated/admin/login-as.tsx
-msgid "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
-msgstr "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_ALREADY_ACTIVE"
@@ -319,6 +315,10 @@ msgstr "Ви маєте сплатити компанії"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_NOT_ACTIVE"
 msgstr "Ви не входили як інший співробітник"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
+msgstr "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
@@ -426,16 +426,16 @@ msgid "Відновити все"
 msgstr "Відновити все"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
-msgid "Відновити пов'язане"
-msgstr "Відновити пов'язане"
+msgid "Відновити пов’язане"
+msgstr "Відновити пов’язане"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
 msgstr "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
-msgid "Відновлення проєкту разом із пов'язаними командою і профілем."
-msgstr "Відновлення проєкту разом із пов'язаними командою і профілем."
+msgid "Відновлення проєкту разом із пов’язаними командою і профілем."
+msgstr "Відновлення проєкту разом із пов’язаними командою і профілем."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновлення…"
@@ -530,8 +530,8 @@ msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
 msgstr "Для сеньйора й адміністратора доступний лише один спосіб виплати — USDT ERC-20"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
-msgid "До активної"
-msgstr "До активної"
+msgid "До активної версії"
+msgstr "До активної версії"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -672,8 +672,8 @@ msgid "Зовнішнє посилання на зображення (https://�
 msgstr "Зовнішнє посилання на зображення (https://…)"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "ім'я"
-msgstr "ім'я"
+msgid "ім’я"
+msgstr "ім’я"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -681,12 +681,12 @@ msgid "zod-error.DISPLAY_NAME_MIN"
 msgstr "Ім’я — мінімум 2 символи"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "ім'я дропа"
-msgstr "ім'я дропа"
+msgid "ім’я дропа"
+msgstr "ім’я дропа"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "ім'я сеньйора"
-msgstr "ім'я сеньйора"
+msgid "ім’я сеньйора"
+msgstr "ім’я сеньйора"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -719,8 +719,8 @@ msgstr "Команда"
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
-msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Командне меню"
@@ -965,8 +965,8 @@ msgid "Немає доходів, що очікують валідації"
 msgstr "Немає доходів, що очікують валідації"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
-msgid "Немає зобов'язань"
-msgstr "Немає зобов'язань"
+msgid "Немає зобов’язань"
+msgstr "Немає зобов’язань"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Немає транзакцій у роботі. Додайте дохід, щоб почати."
@@ -1141,8 +1141,8 @@ msgid "Підтверджені доходи, які ви ще не перера
 msgstr "Підтверджені доходи, які ви ще не перерахували"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Підтвердження архівації. Введіть ім'я для підтвердження дії."
-msgstr "Підтвердження архівації. Введіть ім'я для підтвердження дії."
+msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
+msgstr "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернення…"
@@ -1184,14 +1184,14 @@ msgstr "Попередній перегляд"
 msgid "Попередній перегляд PDF"
 msgstr "Попередній перегляд PDF"
 
-#: apps/web/app/components/admin/TosPdfPreview.tsx
-#: apps/web/app/components/admin/TosPdfPreview.tsx
-msgid "Попередній перегляд Terms of Service"
-msgstr "Попередній перегляд Terms of Service"
-
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Попередній перегляд умов"
 msgstr "Попередній перегляд умов"
+
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/admin/TosPdfPreview.tsx
+msgid "Попередній перегляд умов використання"
+msgstr "Попередній перегляд умов використання"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Посилання"
@@ -1239,8 +1239,8 @@ msgstr "Призначити роль адміністратора не можн
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв'язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
-msgstr "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв'язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
+msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
+msgstr "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1464,8 +1464,8 @@ msgid "Транзакції в роботі"
 msgstr "Транзакції в роботі"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
-msgid "Тут з'являться події за вашими проєктами, грошима та документами"
-msgstr "Тут з'являться події за вашими проєктами, грошима та документами"
+msgid "Тут з’являться події за вашими проєктами, грошима та документами"
+msgstr "Тут з’являться події за вашими проєктами, грошима та документами"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts

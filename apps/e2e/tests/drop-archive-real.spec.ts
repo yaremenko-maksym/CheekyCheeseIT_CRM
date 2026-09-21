@@ -12,9 +12,9 @@
  *   - `createDropViaAPI` POSTs to /api/users/drops to provision a drop +
  *     drop-team atomically
  *   - `addSeniorToDropTeamViaAPI` attaches a seed SENIOR to the drop-team
- *   - The «Архивировать» button on `/team/<id>` is clicked
+ *   - The «Архівувати» button on `/team/<id>` is clicked
  *   - The shared archive dialog (`ArchiveConfirmDialog` in
- *     `components/archive/`) shows DROP-specific copy: title «Архивировать
+ *     `components/archive/`) shows DROP-specific copy: title «Архівувати
  *     команду дропа», impact text contains «дроп», confirm-input prompt
  *     asks for the *drop name* (not the senior name)
  *   - After submit, real-API assertions verify:
@@ -29,6 +29,7 @@
  */
 
 import { test, expect } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -73,23 +74,25 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
         seniorEmail: SEED_EMAILS.seniorB,
       })
 
-      // Step 4: navigate to the drop-team detail and click Архивировать.
+      // Step 4: navigate to the drop-team detail and click Архівувати.
       await page.goto(`/team/${teamId}`)
       const archiveBtn = page.getByTestId('team-archive-button')
       await expect(archiveBtn).toBeVisible({ timeout: 10_000 })
       await archiveBtn.click()
 
       // Step 5: assert the dialog uses drop-specific copy.
-      // Title: «Архивировать команду дропа» (drop variant of TITLES.team).
+      // Title: «Архівувати команду дропа» (drop variant of TITLES.team,
+      // ArchiveConfirmDialog.tsx `isDropTeam` branch) — catalog text (COPY-H-2/CI-1).
       const dialog = page.getByRole('dialog')
       await expect(dialog).toBeVisible({ timeout: 8_000 })
-      await expect(dialog.getByText(/Архивировать команду дропа/i)).toBeVisible()
+      const uk = await loadMessages('uk')
+      await expect(dialog.getByText(assertInCatalog(uk, 'Архівувати команду дропа'))).toBeVisible()
       // Impact text must mention «дроп» — round-2 backend wording.
       // Scoped to the dialog so the team-detail headline (which also says
       // «дроп») doesn't bleed into the assertion.
       await expect(dialog.getByText(/дроп/i).first()).toBeVisible()
 
-      // Confirm-input prompt: «введите имя дропа: <dropDisplayName>».
+      // Confirm-input prompt: «введіть ім’я дропа: <dropDisplayName>».
       // The dialog renders `<strong>` containing the expected drop name —
       // assertion gates on the visible strong text matching the drop.
       //
@@ -102,7 +105,7 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
       // own `<strong>{dropName}</strong>` and the confirm prompt's
       // `<strong>{expected}</strong>`. Scope to the confirm-prompt sentence
       // specifically, which is unique in the dialog.
-      const confirmPrompt = dialog.getByText(/Для подтверждения введите/i)
+      const confirmPrompt = dialog.getByText(/Для підтвердження введіть/i)
       await expect(confirmPrompt).toBeVisible()
       await expect(confirmPrompt).toContainText(dropDisplayName)
 
@@ -199,7 +202,8 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
       const dialog = page.getByRole('dialog')
       await expect(dialog).toBeVisible({ timeout: 8_000 })
       // Drop wording surfaces even when no senior is attached.
-      await expect(dialog.getByText(/Архивировать команду дропа/i)).toBeVisible()
+      const uk = await loadMessages('uk')
+      await expect(dialog.getByText(assertInCatalog(uk, 'Архівувати команду дропа'))).toBeVisible()
 
       await page.getByTestId('archive-confirm-input').fill(dropDisplayName)
       const deleteReq = page.waitForResponse(

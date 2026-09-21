@@ -28,6 +28,7 @@
 
 import { test, expect, USERS, API_RE } from './fixtures'
 import { VALID_USDT_WALLET } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // task-e2e-origin-agnostic: this used to be an env-derived ABSOLUTE origin
 // (`${E2E_REAL_API_BASE ?? 'http://localhost:3001'}/api`) fixing the earlier
@@ -58,22 +59,30 @@ test.describe('Drop create — UI regressions', () => {
     await expect(sliders).toHaveCount(2)
 
     // Senior aria text MUST NOT be present (regression catcher).
-    await expect(dialog.locator('[aria-label="Частка синьйора у відсотках"]')).toHaveCount(0)
+    // «синьйора» -> «сеньйора» (COPY-H-2). Catalog-checked (COPY-H-7).
+    const uk = await loadMessages('uk')
+    const seniorShareAria = assertInCatalog(uk, 'Частка сеньйора у відсотках')
+    await expect(dialog.locator(`[aria-label="${seniorShareAria}"]`)).toHaveCount(0)
   })
 
-  test('slider for SENIOR role still uses «Частка синьйора у відсотках» (regression-safe)', async ({
+  test('slider for SENIOR role still uses «Частка сеньйора у відсотках» (regression-safe)', async ({
     asAdmin: page,
   }) => {
     // Sanity: the role-flip didn't accidentally re-label SENIOR sliders too.
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    // RoleSelect's canon option label (role-select.tsx `ROLE_LABEL_MESSAGES`,
+    // not the legacy `ROLE_LABELS` — COPY-M-21).
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.locator('[aria-label="Частка синьйора у відсотках"]')).toHaveCount(2)
-    await expect(dialog.locator('[aria-label="Частка дропа у відсотках"]')).toHaveCount(0)
+    const seniorShareAria = assertInCatalog(uk, 'Частка сеньйора у відсотках')
+    const dropShareAria = assertInCatalog(uk, 'Частка дропа у відсотках')
+    await expect(dialog.locator(`[aria-label="${seniorShareAria}"]`)).toHaveCount(2)
+    await expect(dialog.locator(`[aria-label="${dropShareAria}"]`)).toHaveCount(0)
   })
 
   test('submit without HR shows inline «Выберите минимум одного HR» error; dialog stays open', async ({

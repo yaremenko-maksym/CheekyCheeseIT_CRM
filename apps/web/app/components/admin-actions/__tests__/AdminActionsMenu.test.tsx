@@ -263,7 +263,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     const dialog = await screen.findByRole('dialog')
     const dialogText = dialog.textContent ?? ''
     expect(dialogText).toContain('1 активний проєкт')
-    expect(dialogText).not.toContain("пов'язана пара, прибрати по одному не можна")
+    expect(dialogText).not.toContain('пов’язана пара, прибрати по одному не можна')
   })
 
   // task-archive-pending-modal (AC7/AC9). `role === 'SENIOR' || role ===
@@ -301,7 +301,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
 
       const dialog = await screen.findByRole('dialog')
       const dialogText = dialog.textContent ?? ''
-      expect(dialogText).toContain("пов'язана пара, прибрати по одному не можна")
+      expect(dialogText).toContain('пов’язана пара, прибрати по одному не можна')
       expect(dialogText).toContain(role === 'SENIOR' ? 'профіль сеньйора' : 'профіль дропа')
       // Named projects, joined with ", " — not a coincidence of a single item.
       expect(dialogText).toContain('Project A, Project B')
@@ -369,7 +369,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     // The space between "имя:" and the expected value is a `{' '}` JSX
     // expression container — pin it explicitly (a mutant collapsing it to
     // `{''}` would run the words together).
-    expect(dialog.textContent ?? '').toContain("ім'я: Alpha Team")
+    expect(dialog.textContent ?? '').toContain('ім’я: Alpha Team')
 
     const input = within(dialog).getByTestId('archive-confirm-input')
     expect(input).toHaveAttribute('placeholder', 'Alpha Team')
