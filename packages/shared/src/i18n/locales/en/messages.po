@@ -659,7 +659,6 @@ msgid "api-error.PROJECT_NOT_ACTIVE"
 msgstr "Income can only be declared for an active project"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
-#: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Згорнути"
 msgstr "Collapse"
 
@@ -1320,7 +1319,6 @@ msgstr "The tax ID is required"
 msgid "api-error.WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL"
 msgstr "The work email must be different from the personal email"
 
-#: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Розгорнути"
 msgstr "Expand"

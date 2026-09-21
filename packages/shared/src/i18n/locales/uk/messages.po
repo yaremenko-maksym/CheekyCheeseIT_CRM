@@ -659,7 +659,6 @@ msgid "api-error.PROJECT_NOT_ACTIVE"
 msgstr "Заявити дохід можна лише за активним проєктом"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
-#: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Згорнути"
 msgstr "Згорнути"
 
@@ -1320,7 +1319,6 @@ msgstr "РНОКПП обов’язковий"
 msgid "api-error.WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL"
 msgstr "Робоча адреса має відрізнятися від особистої"
 
-#: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Розгорнути"
 msgstr "Розгорнути"
