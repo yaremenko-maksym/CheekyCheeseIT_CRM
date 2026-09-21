@@ -13,14 +13,14 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useChangePersonalEmail } from '@/hooks/use-user-profile'
+import { translateZodMessage } from '@/lib/axios-utils'
 
 /** Mirrors `createUserSchema.personalEmail` (`@crm/shared`) — same bound,
- * same message, kept local since this dialog posts to a dedicated
- * endpoint (`changePersonalEmailSchema`), not that schema. */
-const personalEmailValidator = z
-  .string()
-  .email('Некорректный email')
-  .max(255, 'Email не длиннее 255 символов')
+ * same codes (task-i18n-stage4-task4: `zod.EMAIL_INVALID`/`zod.EMAIL_TOO_LONG`,
+ * translated on read via `translateZodMessage`), kept local since this
+ * dialog posts to a dedicated endpoint (`changePersonalEmailSchema`), not
+ * that schema. */
+const personalEmailValidator = z.string().email('zod.EMAIL_INVALID').max(255, 'zod.EMAIL_TOO_LONG')
 
 /**
  * ADMIN action (security-review PR #623 round 4, owner decision — see
@@ -104,10 +104,21 @@ export function ChangePersonalEmailDialog({
     // (verified: packages/shared, zod's own contract) — `issues[0]` cannot
     // be undefined here. Same invariant, same suppression, as this field's
     // sibling in UserDialog.tsx (`personalEmail`'s own validator).
-    // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
-    if (!result.success) return result.error.issues[0]?.message ?? 'Некорректный email'
+    //
+    // fix-round 2 (CI-5/CR-H-2): the suppression comment used to sit two
+    // lines above the actual `?.` (on the `if (!result.success)` line, not
+    // the `return (...)` body) — Stryker's `// Stryker disable next-line`
+    // only silences a mutant on the IMMEDIATELY following line, so it was
+    // silencing nothing and the real OptionalChaining mutant on the line
+    // below survived uncaught. Pulled the parse into its own statement so
+    // the comment can sit directly above the line it actually suppresses.
+    if (!result.success) {
+      // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
+      const issueMessage = result.error.issues[0]?.message
+      return translateZodMessage(issueMessage) ?? translateZodMessage('zod.EMAIL_INVALID') ?? null
+    }
     if (trimmed.toLowerCase() === workEmail.toLowerCase()) {
-      return 'Личный email должен отличаться от рабочего'
+      return translateZodMessage('zod.PERSONAL_EMAIL_MUST_DIFFER') ?? null
     }
     return null
   }

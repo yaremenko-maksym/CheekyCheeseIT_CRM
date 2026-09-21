@@ -1,5 +1,12 @@
 import { i18n } from '@lingui/core'
-import { API_ERROR_MESSAGES, apiErrorEnvelopeSchema, type ApiErrorCode } from '@crm/shared'
+import {
+  API_ERROR_MESSAGES,
+  apiErrorEnvelopeSchema,
+  ZOD_ERROR_CODES,
+  ZOD_ERROR_MESSAGES,
+  type ApiErrorCode,
+  type ZodErrorCode,
+} from '@crm/shared'
 
 /**
  * Extracts the HTTP status code from an unknown Axios error value.
@@ -199,6 +206,86 @@ function translateApiError(
 }
 
 /**
+ * task-i18n-stage4-task4. Runtime narrowing for a string read off the wire
+ * (or off a shared validator's return value) against the registry's
+ * compile-time union — mirrors `ZOD_ERROR_CODES`'s role in
+ * `zod-exception.filter.ts` (server) exactly, just on the client.
+ */
+function isZodErrorCode(value: string): value is ZodErrorCode {
+  return (ZOD_ERROR_CODES as readonly string[]).includes(value)
+}
+
+/**
+ * Translates one `ZOD_ERROR_MESSAGES` code through the Lingui catalog — same
+ * pattern as `translateApiError` above (`options` built conditionally per
+ * `exactOptionalPropertyTypes`; the non-object-literal `i18n._` call shape so
+ * `lingui extract`'s babel plugin does not choke on this call site — see
+ * `translateApiError`'s own comment for why).
+ */
+function translateZodError(code: ZodErrorCode): string {
+  const descriptor = ZOD_ERROR_MESSAGES[code]
+  // Same ternary, same exactOptionalPropertyTypes reason, same two-mutant
+  // split as `translateApiError`'s own options object above — see that
+  // function's comment for the full reasoning per mutant (forced-true:
+  // unobservable, every `ZOD_ERROR_MESSAGES[code]` descriptor sets `message`,
+  // pinned by `zod-errors.spec.ts`'s "every code has a message descriptor"
+  // invariant; forced-false: genuinely observable, breaks the empty-catalog
+  // fallback this file's own tests rely on).
+  // Stryker disable next-line ConditionalExpression: this ONE directive silences both mutants a ternary produces — see translateApiError's identical comment above for the per-mutant reasoning
+  const options = descriptor.message !== undefined ? { message: descriptor.message } : undefined
+  return i18n._(descriptor.id, undefined, options)
+}
+
+/**
+ * Translates a KNOWN registry code straight through the catalog — for a
+ * caller that already has a literal `ZodErrorCode` in hand (typically a
+ * fallback for a `translateZodMessage` that CAN be `undefined`, e.g.
+ * `toast.error(translateZodMessage(x) ?? translateZodCode('VALIDATION_FAILED_FORM'))`).
+ * Unlike `translateZodMessage`, the result is never `undefined` — the code
+ * is a compile-time-checked member of `ZodErrorCode`, not a runtime-unknown
+ * string, so there is no "not one of ours" branch to fall through (fix-round
+ * 1, COPY-M-8/SR-M-1 — replaces the plain-Russian-literal fallbacks these
+ * `toast.error` calls used to carry).
+ */
+export function translateZodCode(code: ZodErrorCode): string {
+  return translateZodError(code)
+}
+
+/**
+ * Translates a RAW Zod issue message for direct display, covering both
+ * shapes that message can arrive in:
+ *  - read off a FAILED backend response body (`extractBackendMessage`'s
+ *    Priority 1, below);
+ *  - returned DIRECTLY by a `@crm/shared` validator called CLIENT-SIDE for
+ *    live, pre-submit validation — e.g. `transactionAmountError` in
+ *    `PaySalaryDialog` — same `'zod.<CODE>'` convention, no HTTP round-trip
+ *    involved at all, so `extractBackendMessage`'s envelope-parsing path
+ *    never sees it.
+ *
+ * A message that is NOT one of our codes (an ordinary Zod built-in message,
+ * or a not-yet-migrated schema's literal) passes through unchanged — the
+ * SAME "migrated code vs. legacy prose" branch `ZodExceptionFilter` applies
+ * server-side, kept in agreement on both sides by reading the same prefix
+ * convention. Exported so every form that calls a shared validator directly
+ * (not only ones that go through an HTTP response) gets translated text
+ * instead of a raw `zod.<CODE>` string.
+ *
+ * Returns `undefined` (not `null`) for a null/undefined/absent input —
+ * matches the field-validator return convention every caller of this
+ * function actually needs (`@tanstack/react-form`'s `validators.onBlur`
+ * requires `string | undefined`, never `null`). A caller that itself needs
+ * `null` for "no error" (e.g. `transactionAmountError`'s own convention in
+ * `PaySalaryDialog`) is unaffected — `??` treats `undefined` exactly like
+ * `null`, and every render site already coerces with `?? undefined` besides.
+ */
+export function translateZodMessage(message: string | null | undefined): string | undefined {
+  if (message === null || message === undefined) return undefined
+  if (!message.startsWith('zod.')) return message
+  const code = message.slice('zod.'.length)
+  return isZodErrorCode(code) ? translateZodError(code) : message
+}
+
+/**
  * Extracts a message the BACKEND explicitly put in the response body, or
  * `undefined` if the body carried nothing usable — nothing usable now also
  * covers Nest's own generic reason phrase (finding 110, see
@@ -216,6 +303,10 @@ function translateApiError(
  *    `{ statusCode, message: "Validation failed", errors: [{ path, message }] }`
  *    path is already a dot-joined string from the filter, but we also accept
  *    array paths defensively. Multiple errors joined with "; ".
+ * 1.5. `response.data.code` (fix-round 2, SR-M-4/COPY-H-4) — a `zodErrorBadRequest`
+ *    direct-throw envelope's TOP-LEVEL code (`{ statusCode, code, message }`,
+ *    no `errors[]` wrapper): translated through the SAME `ZOD_ERROR_MESSAGES`
+ *    registry as the `errors[]` branch above, one code at a time.
  * 2. `response.data.message` — NestJS exception string or string[], UNLESS it
  *    is nothing more than one of Nest's own generic reason phrases (checked
  *    against the message text alone, not cross-referenced with the status —
@@ -241,12 +332,52 @@ export function extractBackendMessage(err: unknown): string | undefined {
   const d = data as Record<string, unknown>
 
   // Priority 1: ZodExceptionFilter errors array → field-level details.
-  // Filter emits: errors: [{ path: string, message: string }]
-  // path is already dot-joined on the server, but accept arrays defensively.
+  // Filter emits, per issue: `{ path, code, params?, message }` for a
+  // MIGRATED schema's issue (task-i18n-stage4-task4 — `code` translated
+  // through the catalog, `message` the English fallback for a client
+  // without one) or `{ path, message }` for a not-yet-migrated one (as
+  // before this task). path is already dot-joined on the server, but accept
+  // arrays defensively.
   if (Array.isArray(d['errors']) && d['errors'].length > 0) {
     const parts = (d['errors'] as unknown[])
       .filter((e): e is Record<string, unknown> => e !== null && typeof e === 'object')
       .map((e) => {
+        // fix-round 1 (COPY-M-9): a MIGRATED issue (`code` present) already
+        // names its field in the translated text itself — prepending the raw
+        // API field name (`walletUsdtErc20: …`) on top is both redundant and,
+        // unlike the translated text, untranslated. The `path:` prefix is
+        // kept ONLY for a legacy issue (`message` with no `code`), where the
+        // field name is the only positional context the reader has.
+        const rawCode = e['code']
+        // fix-round 3 (SR-L-2): this ONE directive silences all THREE
+        // ConditionalExpression mutants Stryker generates on this line —
+        // Stryker groups by line+mutator, it cannot suppress one and not
+        // the others. Reasoning per mutant (confirmed by actually running
+        // the gate with the directive removed, not just reasoned about):
+        //   - whole-condition forced-true (every issue treated as a valid
+        //     code): genuinely observable — KILLED, this round, by "falls
+        //     back to the message field when code is present but unknown"
+        //     below, which throws through `translateZodError`'s registry
+        //     lookup on a code with no entry. Suppressed only as an
+        //     unavoidable side effect of sharing the line with the
+        //     survivor below — coverage stays real, Stryker just no
+        //     longer re-verifies it every run.
+        //   - whole-condition forced-false (branch body never runs): also
+        //     KILLED, same test — falls through to the path-prefixed raw
+        //     message instead of the translated text. Same caveat.
+        //   - left-operand-only forced-true (`typeof rawCode === 'string'`
+        //     replaced by `true`, `isZodErrorCode(rawCode)` still runs):
+        //     genuinely unobservable. `isZodErrorCode` is `.includes()` —
+        //     SameValueZero comparison against `ZOD_ERROR_CODES` — which
+        //     safely returns `false` for ANY non-string input (never
+        //     throws, never coerces), exactly like the `typeof` guard it's
+        //     paired with would have short-circuited to. No assertion can
+        //     tell "checked the type first" from "skipped the check, let
+        //     `.includes()` reject it anyway" apart.
+        // Stryker disable next-line ConditionalExpression: left-operand-only forced-true is unobservable — isZodErrorCode's .includes() rejects any non-string anyway; the sibling whole-condition mutants this line also silences are killed by the 'NOT_A_REAL_CODE' fallback tests above
+        if (typeof rawCode === 'string' && isZodErrorCode(rawCode)) {
+          return translateZodError(rawCode)
+        }
         const rawPath = e['path']
         const pathStr = Array.isArray(rawPath)
           ? rawPath.map((p) => String(p)).join('.')
@@ -258,6 +389,33 @@ export function extractBackendMessage(err: unknown): string | undefined {
       })
       .filter(Boolean)
     if (parts.length > 0) return parts.join('; ')
+  }
+
+  // Priority 1.5 (fix-round 2, SR-M-4/COPY-H-4): a direct-throw envelope
+  // built by `zodErrorBadRequest` (`apps/api/src/common/zod-error-exception.ts`)
+  // — `{ statusCode, code: 'RECEIPT_REQUIRED', message: <english fallback> }`
+  // at the TOP level, not wrapped inside `errors[]`. These calls happen
+  // BEFORE Zod's own `.parse()` boundary (a server-method defense-in-depth
+  // re-check, not a schema issue), so `ZodExceptionFilter` never builds its
+  // usual per-issue array for them, AND `apiErrorEnvelopeSchema`'s `code`
+  // enum (`API_ERROR_CODES`, a DIFFERENT registry from `ZOD_ERROR_CODES`)
+  // never matches `code`, so `parseApiErrorEnvelope` in the caller can't
+  // catch this body either — without this branch, Priority 2 below would
+  // return the envelope's raw English `message` fallback verbatim, in
+  // Ukrainian/English UI. Same `code`-over-`errors[]` shape as the branch
+  // above, just for a code that isn't wrapped in an array.
+  const rawTopCode = d['code']
+  // fix-round 3 (SR-L-2): same reasoning as the `errors[]` branch's
+  // identical guard above — this ONE directive silences all THREE
+  // ConditionalExpression mutants Stryker generates on this line (whole-
+  // condition forced-true/forced-false, both KILLED this round by "falls
+  // through to response.data.message when the top-level code is not one
+  // of ours" below; left-operand-only forced-true, genuinely unobservable
+  // — `isZodErrorCode`'s `.includes()` safely returns `false` for any
+  // non-string value, so skipping the `typeof` check changes nothing).
+  // Stryker disable next-line ConditionalExpression: left-operand-only forced-true is unobservable — isZodErrorCode's .includes() rejects any non-string anyway; the two whole-condition mutants this line also silences are killed by the top-level 'NOT_A_REAL_CODE' fallback test above
+  if (typeof rawTopCode === 'string' && isZodErrorCode(rawTopCode)) {
+    return translateZodError(rawTopCode)
   }
 
   // Priority 2: standard NestJS message field (string or string[]).

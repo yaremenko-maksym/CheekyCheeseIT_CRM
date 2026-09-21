@@ -7,6 +7,7 @@ import {
   getApiErrorMessage,
   getUserFacingErrorMessage,
   stripQueryString,
+  translateZodMessage,
   GENERIC_HTTP_REASON_PHRASES,
 } from './axios-utils'
 
@@ -148,6 +149,175 @@ describe('getApiErrorMessage', () => {
     // Should show field detail, not the generic "Validation failed"
     expect(result).not.toBe('Validation failed')
     expect(result).toContain('salaryMonth')
+  })
+})
+
+// task-i18n-stage4-task4 (Step 9) — ZodExceptionFilter's per-issue shape now
+// carries `code` for a migrated schema and plain `message` for one not yet
+// migrated, IN THE SAME response. `getApiErrorMessage` must translate the
+// former through the catalog and pass the latter through unchanged.
+describe('getApiErrorMessage — mixed migrated/legacy ZodExceptionFilter issues (task-i18n-stage4-task4)', () => {
+  beforeAll(() => {
+    // Empty catalog on purpose — `ZOD_ERROR_MESSAGES[code].message` (the uk
+    // source text) is what `i18n._` falls back to when the id isn't in the
+    // loaded catalog, same pattern `catalog.spec.ts`/the envelope tests above
+    // rely on. Only an ACTIVATED locale is required.
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('translates a migrated field (code) and keeps prose for a non-migrated one, in the same response', () => {
+    const err = {
+      response: {
+        data: {
+          message: 'Validation failed',
+          errors: [
+            { path: 'bankUahRnokpp', code: 'RNOKPP_FORMAT' },
+            { path: 'email', message: 'Некорректный email' },
+          ],
+        },
+      },
+    }
+    // fix-round 1 (COPY-M-9): a migrated issue (code present) no longer gets
+    // the raw API field name prefixed — the translated text already names
+    // the field ("Введіть 10 цифр РНОКПП"). The `path:` prefix survives ONLY
+    // for the legacy (code-less) issue.
+    expect(getApiErrorMessage(err)).toBe('Введіть 10 цифр РНОКПП; email: Некорректный email')
+  })
+
+  it('falls back to the message field when code is present but unknown (defensive — should not happen from a real filter)', () => {
+    const err = {
+      response: {
+        data: {
+          errors: [{ path: 'x', code: 'NOT_A_REAL_CODE', message: 'fallback text' }],
+        },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe('x: fallback text')
+  })
+
+  it('does NOT prefix the path for a migrated (coded) issue, even standalone', () => {
+    const err = {
+      response: {
+        data: {
+          errors: [{ path: 'walletUsdtErc20', code: 'USDT_ADDRESS_FORMAT' }],
+        },
+      },
+    }
+    const result = getApiErrorMessage(err)
+    expect(result).not.toContain('walletUsdtErc20:')
+    expect(result).toBe('Адреса USDT ERC-20 має починатися з 0x і містити 42 символи')
+  })
+})
+
+// fix-round 2 (SR-M-4/COPY-H-4): `zodErrorBadRequest`
+// (`apps/api/src/common/zod-error-exception.ts`) builds its envelope at the
+// TOP level — `{ statusCode, code, message }`, no `errors[]` wrapper — for a
+// server-side caller that throws BEFORE Zod's own `.parse()` boundary.
+// `apiErrorEnvelopeSchema`'s `code` enum (a DIFFERENT registry) never
+// matches a Zod code, so priority 0 in `getApiErrorMessage` doesn't catch
+// this body either — `extractBackendMessage`'s new priority-1.5 branch is
+// the only thing that can.
+describe('getApiErrorMessage / getUserFacingErrorMessage — zodErrorBadRequest top-level code envelope (fix-round 2, SR-M-4/COPY-H-4)', () => {
+  beforeAll(() => {
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('translates a zodErrorBadRequest top-level code through the catalog (getApiErrorMessage)', () => {
+    const err = {
+      response: {
+        data: {
+          statusCode: 400,
+          code: 'RECEIPT_REQUIRED',
+          message: 'A receipt is required — attach a file or a link',
+        },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe('Чек обов’язковий — додайте файл або посилання')
+  })
+
+  it('translates a zodErrorBadRequest top-level code through the catalog (getUserFacingErrorMessage)', () => {
+    const err = {
+      isAxiosError: true,
+      response: {
+        data: {
+          statusCode: 400,
+          code: 'SENDER_RECEIVER_SAME',
+          message: 'Sender and receiver cannot be the same',
+        },
+      },
+    }
+    expect(getUserFacingErrorMessage(err)).toBe('Відправник і отримувач не можуть збігатися')
+  })
+
+  it('falls through to response.data.message when the top-level code is not one of ours (defensive)', () => {
+    const err = {
+      response: {
+        data: { statusCode: 400, code: 'NOT_A_REAL_CODE', message: 'fallback text' },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe('fallback text')
+  })
+
+  it('is unaffected by an errors[]-shaped envelope (priority 1 still wins over the top-level code branch)', () => {
+    const err = {
+      response: {
+        data: {
+          message: 'Validation failed',
+          errors: [{ path: 'bankUahRnokpp', code: 'RNOKPP_FORMAT' }],
+          // A stray top-level `code` should never be reached while errors[]
+          // has usable parts — pins the branch ORDER, not just its presence.
+          code: 'SENDER_RECEIVER_SAME',
+        },
+      },
+    }
+    expect(getApiErrorMessage(err)).toBe('Введіть 10 цифр РНОКПП')
+  })
+})
+
+describe('translateZodMessage', () => {
+  beforeAll(() => {
+    i18n.load('uk', {})
+    i18n.activate('uk')
+  })
+
+  it('translates a zod.<CODE> message through the catalog', () => {
+    expect(translateZodMessage('zod.RNOKPP_FORMAT')).toBe('Введіть 10 цифр РНОКПП')
+  })
+
+  it('passes through a message that is not one of our codes, unchanged', () => {
+    expect(translateZodMessage('Invalid input: expected number, received string')).toBe(
+      'Invalid input: expected number, received string',
+    )
+  })
+
+  it('passes through a zod.-prefixed string that is NOT a real code, unchanged (defensive)', () => {
+    expect(translateZodMessage('zod.NOT_A_REAL_CODE')).toBe('zod.NOT_A_REAL_CODE')
+  })
+
+  /**
+   * mutation-gate closure (fix-round 2, CI-5): same class as
+   * `zodErrorFallbackText`'s own pinning test (`zod-errors.spec.ts`) and
+   * `zodErrorBadRequest`'s (`zod-error-exception.spec.ts`) — a message with
+   * no `zod.` prefix at all passes through unchanged EITHER because the
+   * early-return actually ran, OR — if `startsWith('zod.')` were mutated
+   * away (forced `false`, or its `'zod.'` literal blanked to `''`) —
+   * because `message.slice(4)` happened not to collide with a real code,
+   * so neither existing "non-coded" test above can tell the two apart.
+   * This message is built so a BROKEN early-return slices its first 4
+   * characters off into `RECEIPT_REQUIRED` — a REAL code — and would
+   * translate it instead of returning the plain string below.
+   */
+  it("a non-coded message whose 4th-character-onward slice collides with a real code still passes through unchanged (pins the actual startsWith('zod.') check)", () => {
+    const message = 'abcdRECEIPT_REQUIRED'
+    expect(message.startsWith('zod.')).toBe(false)
+    expect(translateZodMessage(message)).toBe(message)
+  })
+
+  it("returns undefined for null/undefined input — matches @tanstack/react-form's validator return convention", () => {
+    expect(translateZodMessage(null)).toBeUndefined()
+    expect(translateZodMessage(undefined)).toBeUndefined()
   })
 })
 

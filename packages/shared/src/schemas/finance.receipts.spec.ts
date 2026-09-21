@@ -91,29 +91,37 @@ describe('BLOCKCHAIN_EXPLORER_HOSTS + isExplorerUrl', () => {
 // ── receiptMandatoryError (shared pure rule) ─────────────────────────────────
 
 describe('receiptMandatoryError', () => {
-  it('errors when neither doc nor url present (mandatory)', () => {
-    expect(receiptMandatoryError({}, 'USD')).toBeTruthy()
+  // fix-round 1 (COPY-H-2): the function now returns a `zod.<CODE>` key
+  // instead of a raw English literal — pin the exact code per branch, not
+  // just truthiness, so a future edit that silently changes WHICH code a
+  // branch returns (still truthy, still "an error") is caught.
+  it('errors when neither doc nor url present (mandatory) — zod.RECEIPT_REQUIRED', () => {
+    expect(receiptMandatoryError({}, 'USD')).toBe('zod.RECEIPT_REQUIRED')
     expect(
       receiptMandatoryError({ receiptDocumentId: null, receiptExternalUrl: null }, 'USD'),
-    ).toBeTruthy()
+    ).toBe('zod.RECEIPT_REQUIRED')
   })
 
-  it('errors when both present (XOR)', () => {
+  it('errors when both present (XOR) — zod.RECEIPT_BOTH_NOT_ALLOWED', () => {
     expect(
       receiptMandatoryError({ receiptDocumentId: UUID, receiptExternalUrl: EXPLORER_URL }, 'USD'),
-    ).toBeTruthy()
+    ).toBe('zod.RECEIPT_BOTH_NOT_ALLOWED')
   })
 
-  it('USDT + file → error (explorer-only)', () => {
-    expect(receiptMandatoryError({ receiptDocumentId: UUID }, 'USDT')).toBeTruthy()
+  it('USDT + file → error (explorer-only) — zod.RECEIPT_USDT_LINK_ONLY', () => {
+    expect(receiptMandatoryError({ receiptDocumentId: UUID }, 'USDT')).toBe(
+      'zod.RECEIPT_USDT_LINK_ONLY',
+    )
   })
 
   it('USDT + explorer url → ok', () => {
     expect(receiptMandatoryError({ receiptExternalUrl: EXPLORER_URL }, 'USDT')).toBeNull()
   })
 
-  it('USDT + non-explorer url → error', () => {
-    expect(receiptMandatoryError({ receiptExternalUrl: 'https://evil.com/x' }, 'USDT')).toBeTruthy()
+  it('USDT + non-explorer url → error — zod.RECEIPT_USDT_LINK_REQUIRED', () => {
+    expect(receiptMandatoryError({ receiptExternalUrl: 'https://evil.com/x' }, 'USDT')).toBe(
+      'zod.RECEIPT_USDT_LINK_REQUIRED',
+    )
   })
 
   it('non-USDT + file → ok', () => {
@@ -391,7 +399,7 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
     expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: kyivToday() }).success).toBe(true)
   })
 
-  it('rejects a future date, on the txDate field, with a russian "future" message', () => {
+  it('rejects a future date, on the txDate field, with the "future" code', () => {
     // "Tomorrow" relative to the KYIV calendar day the schema itself uses —
     // plain calendar-day arithmetic (no timezone involved once we already
     // have a YYYY-MM-DD string), so this stays correct regardless of when
@@ -407,7 +415,7 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
     // the WRONG path/message is caught too.
     const issue = result.error.issues.find((i) => i.path.join('.') === 'txDate')
     expect(issue).toBeTruthy()
-    expect(issue?.message).toMatch(/будущем/)
+    expect(issue?.message).toBe('zod.DATE_NOT_IN_FUTURE')
     expect(issue?.code).toBe('custom')
   })
 
@@ -416,7 +424,7 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
     expect(result.success).toBe(false)
     if (result.success) return
     const issue = result.error.issues.find((i) => i.path.join('.') === 'txDate')
-    expect(issue?.message).toBe('Дата должна быть в формате YYYY-MM-DD')
+    expect(issue?.message).toBe('zod.DATE_FORMAT_YYYYMMDD')
   })
 
   // Regex anchor coverage — a bare `\d{4}-\d{2}-\d{2}` (no `^`/`$`) would
@@ -459,8 +467,13 @@ describe('attachReceiptSchema', () => {
     expect(attachReceiptSchema.safeParse({ receiptExternalUrl: EXPLORER_URL }).success).toBe(true)
   })
 
-  it('rejects an empty body (mandatory)', () => {
-    expect(attachReceiptSchema.safeParse({}).success).toBe(false)
+  it('rejects an empty body (mandatory) with the exact code (task-i18n-stage4-task4)', () => {
+    const result = attachReceiptSchema.safeParse({})
+    expect(result.success).toBe(false)
+    const issue = (result.error?.issues ?? []).find(
+      (i) => i.path.join('.') === 'receiptExternalUrl',
+    )
+    expect(issue?.message).toBe('zod.RECEIPT_REQUIRED')
   })
 
   it('rejects both doc and url (XOR)', () => {

@@ -3,7 +3,7 @@
  *
  * 1.  SENIOR регистрирует приход (SENIOR_INCOME → PENDING)
  *     ВАЖНО: SENIOR_INCOME ТРЕБУЕТ чек (receiptDocumentId или receiptExternalUrl) — мутация в CreateTransactionDialog
- *     бросает "Прикрепите чек или укажите ссылку на подтверждение" если URL пустой.
+ *     бросает `RECEIPT_REQUIRED` (zod-error catalog, fix-round 1) если URL пустой.
  * 2a. ACCOUNTANT отклоняет транзакцию (→ REJECTED)
  * 2b. SENIOR видит причину отклонения и исправляет (→ PENDING снова)
  * 3.  ACCOUNTANT принимает транзакцию (→ VALIDATED)
@@ -12,6 +12,7 @@
  */
 
 import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
+import { loadMessages } from '../fixtures/catalog'
 
 // Origin-agnostic patterns — Playwright intercepts at the browser layer
 // (http://localhost:3000/api/*). Using '**/api' glob for string routes and
@@ -233,11 +234,14 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
     await fillSeniorIncomeForm(asSenior, { amount: '5000', withReceipt: false })
 
     await asSenior.getByTestId('create-transaction-submit').click()
-    // The Russian error text IS the contract here — `containText` regex keeps
-    // intent visible. Dialog itself anchored by its testid.
+    // Text now comes from the shared zod-error catalog (`RECEIPT_REQUIRED`,
+    // fix-round 1) — assert against the compiled uk catalog entry, not a
+    // hardcoded Russian regex that drifts the moment copy-review changes the
+    // wording (fix-round 2, CI-3 sweep).
     const dialog = asSenior.getByTestId('create-transaction-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText(/прикрепите чек|подтверждение/i)
+    const receiptMessages = await loadMessages('uk')
+    await expect(dialog).toContainText(receiptMessages['zod-error.RECEIPT_REQUIRED']!)
   })
 
   test('SENIOR не может создать транзакцию без суммы — показывается ошибка', async ({

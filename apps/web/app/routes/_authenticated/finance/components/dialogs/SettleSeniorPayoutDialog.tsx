@@ -16,6 +16,7 @@ import {
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { DatePickerField } from '@/components/ui/date-picker'
 import { api } from '@/lib/axios'
+import { translateZodMessage } from '@/lib/axios-utils'
 import { financeApi } from '../../api'
 import { settlementSplit } from '../../cascade-preview'
 import { fmtAmount, fmtDate, fmtYyyymmdd, convertAmount, type ExchangeRates } from '../../constants'
@@ -396,7 +397,9 @@ export function SettleSeniorPayoutDialog({
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
     const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, effectiveCurrency)
     if (err) {
-      setReceiptError(err)
+      // fix-round 1 (CR-M-1): `err` is now a `zod.<CODE>` key — translate
+      // before rendering (see `CreateTransactionDialog.tsx`'s identical fix).
+      setReceiptError(translateZodMessage(err) ?? err)
       return
     }
     mutation.mutate()

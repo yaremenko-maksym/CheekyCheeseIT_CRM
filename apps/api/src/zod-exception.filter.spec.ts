@@ -133,3 +133,94 @@ describe('ZodExceptionFilter — non-finance routes (full detail for all)', () =
     expect(code).toBe(HttpStatus.BAD_REQUEST)
   })
 })
+
+// task-i18n-stage4-task4 (Step 7) — the SAME response can carry a mix of
+// migrated (code-shaped) and not-yet-migrated (prose-shaped) issues; each
+// issue is classified on its OWN `message`, independent of its neighbours.
+describe('ZodExceptionFilter — migrated vs non-migrated issues (task-i18n-stage4-task4)', () => {
+  const filter = new ZodExceptionFilter()
+
+  function mixedZodError(): ZodError {
+    return new ZodError([
+      { code: 'custom', path: ['bankUahRnokpp'], message: 'zod.RNOKPP_FORMAT' },
+      { code: 'custom', path: ['email'], message: 'Некорректный email' },
+    ])
+  }
+
+  it('returns { path, code, message } (EN fallback) for a migrated issue, { path, message } for a legacy one, in the same response', () => {
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(mixedZodError(), host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+
+    const migrated = errors.find((e) => e['path'] === 'bankUahRnokpp')
+    expect(migrated).toEqual({
+      path: 'bankUahRnokpp',
+      code: 'RNOKPP_FORMAT',
+      message: 'Enter the 10 digits of the RNOKPP (tax ID)',
+    })
+
+    const legacy = errors.find((e) => e['path'] === 'email')
+    expect(legacy).toEqual({ path: 'email', message: 'Некорректный email' })
+  })
+
+  it('a message that merely starts with "zod." but is not a real registry code falls back to legacy shape (defensive)', () => {
+    const err = new ZodError([{ code: 'custom', path: ['x'], message: 'zod.NOT_A_REAL_CODE' }])
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(err, host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+    expect(errors[0]).toEqual({ path: 'x', message: 'zod.NOT_A_REAL_CODE' })
+  })
+
+  // mutation-gate closure: pins the ACTUAL `'zod.'` prefix check, not merely
+  // its outcome — a message that does NOT start with `'zod.'` but whose
+  // first 4 characters happen to be something else entirely still contains
+  // a real code name once 4 characters are dropped. Real code takes the
+  // legacy branch for this (the `startsWith` check is false, full stop); a
+  // mutant that widens the prefix to `''` would slice unconditionally and
+  // wrongly treat it as migrated. `'zod.'.length === 4` is what makes this
+  // pair observable at all — the slice amount itself is a separate,
+  // unmutated line.
+  it('a message NOT starting with "zod." is never treated as migrated, even if its tail happens to spell a real code', () => {
+    const err = new ZodError([{ code: 'custom', path: ['x'], message: 'XXXXEMAIL_INVALID' }])
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(err, host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+    expect(errors[0]).toEqual({ path: 'x', message: 'XXXXEMAIL_INVALID' })
+  })
+
+  // mutation-gate closure: `.join('.')` vs `.join('')` are indistinguishable
+  // on every single-segment path used elsewhere in this file — a nested path
+  // is the only input that observes the separator at all.
+  it('joins a nested path with a dot separator', () => {
+    const err = new ZodError([
+      { code: 'custom', path: ['nested', 'field'], message: 'zod.RNOKPP_FORMAT' },
+    ])
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(err, host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+    expect(errors[0]?.['path']).toBe('nested.field')
+  })
+
+  it('joins a nested path with a dot separator for a legacy (non-migrated) issue too', () => {
+    const err = new ZodError([
+      { code: 'custom', path: ['nested', 'field'], message: 'Some legacy prose' },
+    ])
+    const host = makeHost('/api/users', 'SENIOR')
+    filter.catch(err, host)
+    const { body } = capture(host)
+    const errors = (body as Record<string, unknown>)['errors'] as Array<Record<string, unknown>>
+    expect(errors[0]?.['path']).toBe('nested.field')
+  })
+
+  it('on a finance-critical route, a migrated issue is still hidden from non-ADMIN (existing info-disclosure guard is unaffected)', () => {
+    const host = makeHost('/api/transactions', 'SENIOR')
+    filter.catch(mixedZodError(), host)
+    const { body } = capture(host)
+    expect((body as Record<string, unknown>)['message']).toBe('Invalid request body')
+    expect((body as Record<string, unknown>)['errors']).toBeUndefined()
+  })
+})

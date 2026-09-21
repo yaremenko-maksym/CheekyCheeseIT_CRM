@@ -10,9 +10,21 @@
 import { useState } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeAll, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { i18n } from '@lingui/core'
+
+// task-i18n-stage4-task4: `validate()` now translates its zod.<CODE> results
+// through `translateZodMessage` (`i18n._` under the hood) — an activated
+// locale is required, same pattern as `axios-utils.spec.ts`'s own tests.
+// Runs once as a baseline (empty catalog, falls back to source text); the
+// per-test `beforeEach` below re-activates 'uk' with the REAL compiled
+// catalog for the `I18nTestProvider`-rendered assertions.
+beforeAll(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -230,7 +242,7 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     const user = userEvent.setup()
     await user.type(input(), 'not-an-email')
     await user.tab() // blur
-    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
     expect(input().className).toContain('border-destructive')
   })
 
@@ -240,7 +252,7 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     const tooLong = `${'a'.repeat(250)}@x.com`
     await user.type(input(), tooLong)
     await user.tab()
-    expect(await screen.findByText('Email не длиннее 255 символов')).toBeInTheDocument()
+    expect(await screen.findByText('Email не довше 255 символів')).toBeInTheDocument()
   })
 
   it('an address identical to the work email is rejected, distinctly from the format error', async () => {
@@ -249,7 +261,7 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     await user.type(input(), WORK_EMAIL)
     await user.tab()
     expect(
-      await screen.findByText('Личный email должен отличаться от рабочего'),
+      await screen.findByText('Особистий email має відрізнятися від робочого'),
     ).toBeInTheDocument()
   })
 
@@ -258,8 +270,10 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     const user = userEvent.setup()
     await user.type(input(), 'brand.new@gmail.com')
     await user.tab()
-    expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
-    expect(screen.queryByText('Личный email должен отличаться от рабочего')).not.toBeInTheDocument()
+    expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Особистий email має відрізнятися від робочого'),
+    ).not.toBeInTheDocument()
   })
 
   it('editing the field after an error clears it immediately (does not wait for the next blur)', async () => {
@@ -267,9 +281,9 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     const user = userEvent.setup()
     await user.type(input(), 'not-an-email')
     await user.tab()
-    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
     await user.type(input(), 'x')
-    expect(screen.queryByText('Некорректный email')).not.toBeInTheDocument()
+    expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
   })
 })
 
@@ -303,7 +317,7 @@ describe('ChangePersonalEmailDialog — error-state styling (mutation-gate closu
     await user.type(input(), 'not-an-email')
     await user.tab()
     const errorParagraph = await screen.findByTestId('change-personal-email-error')
-    expect(errorParagraph).toHaveTextContent('Некорректный email')
+    expect(errorParagraph).toHaveTextContent('Введіть email у форматі name@domain')
     expect(errorParagraph.className).toContain('text-destructive')
     expect(label().className).toContain('text-destructive')
   })
@@ -316,7 +330,7 @@ describe('ChangePersonalEmailDialog — submit', () => {
     await user.type(input(), 'not-an-email')
     // Button is enabled (non-noop), but clicking must still validate.
     await user.click(submitButton())
-    expect(await screen.findByText('Некорректный email')).toBeInTheDocument()
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
     expect(api.patch).not.toHaveBeenCalled()
   })
 

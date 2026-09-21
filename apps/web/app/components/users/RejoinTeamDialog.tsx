@@ -6,6 +6,7 @@ import type { AxiosError } from 'axios'
 import type { TeamDto, TeamMode, UserProfileDto } from '@crm/shared'
 import { rejoinTeamSchema } from '@crm/shared'
 import { toast } from 'sonner'
+import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { Button } from '@/components/ui/button'
 import {
   CrmDialogBody,
@@ -116,11 +117,11 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
       const isJoin = value.teamMode === 'JOIN_DROP_TEAM'
 
       if (isJoin && !value.dropTeamId) {
-        toast.error('Выберите команду дропа')
+        toast.error(translateZodCode('DROP_TEAM_ID_REQUIRED'))
         return
       }
       if (!isJoin && selectedHrIds.length === 0) {
-        toast.error('Выберите хотя бы одного HR')
+        toast.error(translateZodCode('HR_REQUIRED_MIN'))
         return
       }
 
@@ -134,8 +135,16 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
 
       const result = rejoinTeamSchema.safeParse(payload)
       if (!result.success) {
+        // fix-round 1 (SR-M-1): this branch is latent today (the two local
+        // checks above catch the same two conditions first) but IS the
+        // defense-in-depth layer for whatever the schema's `superRefine`
+        // guards next — without `translateZodMessage` it would show the raw
+        // `zod.<CODE>` key verbatim.
         const first = result.error.issues[0]
-        toast.error(first?.message ?? 'Ошибка валидации данных')
+        toast.error(
+          // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see UserDialog.tsx's own field validators for the same invariant
+          translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
+        )
         return
       }
       mutation.mutate(payload)

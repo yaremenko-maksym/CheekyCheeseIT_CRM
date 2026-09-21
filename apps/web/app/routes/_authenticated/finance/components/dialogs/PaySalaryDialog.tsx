@@ -9,6 +9,7 @@ import {
   transactionAmountError,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
+import { translateZodMessage } from '@/lib/axios-utils'
 import {
   Dialog,
   CrmDialogContent,
@@ -105,7 +106,9 @@ export function PaySalaryDialog({
   // without loss (`1e-7` → `0.000000`) is refused here too, inline, instead of
   // coming back as a 400. Silent while the field is empty — an error before the
   // first keystroke is noise, and `handleSubmit` covers the empty case.
-  const liveAmountError = !hasAmountInput ? null : transactionAmountError(parsedPaidAmount)
+  const liveAmountError = !hasAmountInput
+    ? null
+    : translateZodMessage(transactionAmountError(parsedPaidAmount))
   const amountError = liveAmountError ?? amountSubmitError
 
   // task-salary-pay-amount (AC5): a WARNING, never a block. The owner may settle
@@ -190,7 +193,22 @@ export function PaySalaryDialog({
       { receiptDocumentId, receiptExternalUrl },
       effectiveCurrency,
     )
-    if (receiptErr) setReceiptError(receiptErr)
+    // fix-round 1 (CR-M-1 sweep): `receiptErr` is now a `zod.<CODE>` key —
+    // translate before rendering (this dialog already imports
+    // `translateZodMessage` for `transactionAmountError` above; same fix).
+    //
+    // fix-round 2 (CI-5/CR-H-2): unconditional, not `if (receiptErr) setReceiptError(...)`
+    // — the OLD guarded form left a STALE error on screen if the receipt
+    // became valid through something OTHER than editing the receipt fields
+    // themselves (e.g. switching the payer account/currency changes which
+    // rule `effectiveCurrency` applies, without touching `receipt`) and the
+    // admin clicked submit again: `receiptErr` would be `null` here, the old
+    // `if` skipped the call entirely, and whatever text was set on the
+    // PREVIOUS failed attempt kept rendering even though the receipt now
+    // passes. Always resolving to either the translated error or `null`
+    // keeps this state in sync with the CURRENT validity on every submit
+    // attempt, not just the ones that fail.
+    setReceiptError(receiptErr ? (translateZodMessage(receiptErr) ?? receiptErr) : null)
     if (!hasAmountInput) setAmountSubmitError('Укажите сумму выплаты')
     if (receiptErr || !hasAmountInput || liveAmountError) return
     mutation.mutate()

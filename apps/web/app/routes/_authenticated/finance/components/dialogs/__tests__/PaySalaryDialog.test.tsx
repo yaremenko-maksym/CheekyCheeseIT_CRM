@@ -128,6 +128,12 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     expect(payload.currency).toBe('USDT')
     expect(payload.payerAdminId).toBeUndefined()
     expect(payload.receiptExternalUrl).toBe('https://etherscan.io/tx/0xabc123')
+    // fix-round 2 (CI-5/CR-H-2): `setReceiptError(receiptErr ? ... : null)`
+    // is unconditional (fixes a stale-error bug — see that call site's own
+    // comment) — a mutant that always takes the truthy branch would show an
+    // error here even though the receipt is valid and the mutation
+    // succeeded. No test asserted the ABSENCE of the error element before.
+    expect(screen.queryByTestId('pay-salary-error-receipt')).not.toBeInTheDocument()
   })
 
   it('blocks submit and shows an inline error when the receipt is missing', async () => {
@@ -135,7 +141,14 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     await screen.findByTestId('pay-salary-account-company')
     fireEvent.click(screen.getByTestId('pay-salary-submit'))
     expect(paySalaryMock).not.toHaveBeenCalled()
-    expect(screen.getByTestId('pay-salary-error-receipt')).toBeInTheDocument()
+    // fix-round 2 (CI-5/CR-H-2): only asserting the testid's PRESENCE leaves
+    // `translateZodMessage(receiptErr) ?? receiptErr` unobserved — a mutant
+    // flipping `??` to `&&` renders the raw `zod.RECEIPT_REQUIRED` key
+    // instead of translated text, and this assertion alone would not notice.
+    // Pin the actual translated uk text the admin sees.
+    expect(screen.getByTestId('pay-salary-error-receipt')).toHaveTextContent(
+      'Чек обов’язковий — додайте файл або посилання',
+    )
   })
 
   it('submitting with a partner → paySalary(ADMIN_PERSONAL, payerAdminId set)', async () => {

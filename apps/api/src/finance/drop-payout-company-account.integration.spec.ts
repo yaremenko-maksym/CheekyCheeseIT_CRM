@@ -883,12 +883,19 @@ describe.skipIf(!hasDatabaseUrl())(
         where: eq(pendingObligations.sourceTransactionId, dropObligation!.sourceTransactionId),
       })
 
+      // fix-round 1 (CI-1): `receiptMandatoryError` now returns a
+      // `zod.<CODE>` key, translated to `{ statusCode, code, message }` by
+      // `zodErrorBadRequest` (task-i18n-stage4-lessons-701, lesson 2 —
+      // assert `code` + `statusCode`, never the translated text).
       await expect(
         settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: ADMIN_MAKSYM.id,
         }),
-      ).rejects.toThrow(/Чек обязателен/)
+      ).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+      })
 
       const stillPending = await dbSvc.db.query.pendingObligations.findFirst({
         where: eq(pendingObligations.id, dropObRow!.id),

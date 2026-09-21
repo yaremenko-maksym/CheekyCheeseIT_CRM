@@ -77,7 +77,12 @@ import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
-import { getApiErrorCode, getApiErrorMessage } from '@/lib/axios-utils'
+import {
+  getApiErrorCode,
+  getApiErrorMessage,
+  translateZodCode,
+  translateZodMessage,
+} from '@/lib/axios-utils'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
 import {
@@ -606,8 +611,8 @@ export function UserDialog(props: UserDialogProps) {
         // field-specific toast so the user sees *which* field blocked submit
         // even if their eyes are off the form.
         if (hrIds.length === 0) {
-          setHrError('Выберите минимум одного HR')
-          toast.error('Выберите минимум одного HR')
+          setHrError(translateZodCode('HR_REQUIRED_MIN'))
+          toast.error(translateZodCode('HR_REQUIRED_MIN'))
           return
         }
         const trimmedChannel = value.teamTelegramChannelDrop.trim()
@@ -656,7 +661,10 @@ export function UserDialog(props: UserDialogProps) {
         const result = createDropSchema.safeParse(payload)
         if (!result.success) {
           const first = result.error.issues[0]
-          toast.error(first?.message ?? 'Ошибка валидации данных')
+          toast.error(
+            // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
+            translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
+          )
           return
         }
         createDropMutation.mutate(result.data)
@@ -705,7 +713,10 @@ export function UserDialog(props: UserDialogProps) {
           const updateResult = adminUpdateUserSchema.safeParse(updatePayload)
           if (!updateResult.success) {
             const first = updateResult.error.issues[0]
-            toast.error(first?.message ?? 'Ошибка валидации данных')
+            toast.error(
+              // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
+              translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
+            )
             return
           }
           wizardUpdateMutation.mutate(updateResult.data)
@@ -720,12 +731,12 @@ export function UserDialog(props: UserDialogProps) {
         if (isSenior && !isJoinDropTeam && hrIds.length === 0) {
           // Same inline + toast pair as the DROP branch — see comment above.
           // Toast names the field so the user knows what blocked submit.
-          setHrError('Выберите минимум одного HR')
-          toast.error('Выберите минимум одного HR')
+          setHrError(translateZodCode('HR_REQUIRED_MIN'))
+          toast.error(translateZodCode('HR_REQUIRED_MIN'))
           return
         }
         if (isJoinDropTeam && !value.dropTeamId) {
-          toast.error('Выберите команду дропа')
+          toast.error(translateZodCode('DROP_TEAM_ID_REQUIRED'))
           return
         }
 
@@ -807,7 +818,10 @@ export function UserDialog(props: UserDialogProps) {
           // Surface the first issue inline + as a single toast — the form
           // fields keep their own per-field error indicators below.
           const first = result.error.issues[0]
-          toast.error(first?.message ?? 'Ошибка валидации данных')
+          toast.error(
+            // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
+            translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
+          )
           return
         }
         createMutation.mutate(result.data)
@@ -916,7 +930,10 @@ export function UserDialog(props: UserDialogProps) {
         const result = adminUpdateUserSchema.safeParse(payload)
         if (!result.success) {
           const first = result.error.issues[0]
-          toast.error(first?.message ?? 'Ошибка валидации данных')
+          toast.error(
+            // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
+            translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
+          )
           return
         }
         updateMutation.mutate(result.data)
@@ -1100,9 +1117,10 @@ export function UserDialog(props: UserDialogProps) {
                       // "Invalid email" hint.
                       if (!fieldApi.state.meta.isDirty) return undefined
                       const trimmed = value.trim()
-                      if (!trimmed) return 'Email обязателен'
-                      const r = z.string().email('Некорректный email').safeParse(trimmed)
-                      return r.success ? undefined : r.error.issues[0]?.message
+                      if (!trimmed) return translateZodCode('EMAIL_REQUIRED')
+                      const r = z.string().email('zod.EMAIL_INVALID').safeParse(trimmed)
+                      // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
+                      return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                     },
                   }}
                 >
@@ -1179,18 +1197,18 @@ export function UserDialog(props: UserDialogProps) {
                         // Stryker disable next-line MethodExpression: unreachable via any typed input on a type="email" field — see the paragraph above
                         const trimmed = value.trim()
                         if (!trimmed) return undefined
-                        const r = z.string().email('Некорректный email').safeParse(trimmed)
+                        const r = z.string().email('zod.EMAIL_INVALID').safeParse(trimmed)
                         // zod's SafeParseError.error.issues is never empty on a
                         // failed parse (verified: packages/shared, `zod`'s own
                         // contract) — `issues[0]` cannot be undefined here.
                         // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see the comment above
-                        if (!r.success) return r.error.issues[0]?.message
+                        if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
                         if (
                           trimmed.toLowerCase() ===
                           // Stryker disable next-line MethodExpression: `email` is also type="email" — same unreachable-via-typing reasoning as this validator's own `trimmed` above
                           fieldApi.form.getFieldValue('email').trim().toLowerCase()
                         ) {
-                          return 'Личный email должен отличаться от рабочего'
+                          return translateZodCode('PERSONAL_EMAIL_MUST_DIFFER')
                         }
                         return undefined
                       },
@@ -1246,10 +1264,11 @@ export function UserDialog(props: UserDialogProps) {
                       if (!fieldApi.state.meta.isDirty) return undefined
                       const r = z
                         .string()
-                        .min(2, 'Имя минимум 2 символа')
+                        .min(2, 'zod.DISPLAY_NAME_MIN')
                         .max(255)
                         .safeParse(value.trim())
-                      return r.success ? undefined : r.error.issues[0]?.message
+                      // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
+                      return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                     },
                   }}
                 >
@@ -1370,10 +1389,12 @@ export function UserDialog(props: UserDialogProps) {
                             if (!value.trim()) return undefined
                             const r = z
                               .string()
-                              .min(5, 'ФИО минимум 5 символов')
+                              .min(5, 'zod.LEGAL_FULL_NAME_MIN')
                               .max(200)
                               .safeParse(value.trim())
-                            return r.success ? undefined : r.error.issues[0]?.message
+                            if (r.success) return undefined
+                            // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see this file's other field validators for the same invariant
+                            return translateZodMessage(r.error.issues[0]?.message)
                           },
                           // A3-3 AC6 / bug #2: surface superRefine error on submit attempt
                           // for contract-eligible roles (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP).
@@ -1388,7 +1409,7 @@ export function UserDialog(props: UserDialogProps) {
                               'DROP',
                             ])
                             if (isCreate && CONTRACT_ROLES.has(role) && !value.trim()) {
-                              return 'Юридическое ФИО обязательно для этой роли'
+                              return translateZodCode('LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT')
                             }
                             return undefined
                           },
@@ -1463,7 +1484,7 @@ export function UserDialog(props: UserDialogProps) {
                       if (!fieldApi.state.meta.isDirty) return undefined
                       if (!value.trim()) return undefined
                       const r = telegramFieldSchema.safeParse(value.trim())
-                      return r.success ? undefined : r.error.issues[0]?.message
+                      return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                     },
                   }}
                 >
@@ -1496,8 +1517,8 @@ export function UserDialog(props: UserDialogProps) {
                       const v = value as string
                       if (!v || v.replace(/\D/g, '').length < 5) return undefined
                       const r = phoneFieldSchema.safeParse(v)
-                      if (!r.success) return r.error.issues[0]?.message
-                      if (!isValidPhoneNumber(v)) return 'Некорректный номер телефона'
+                      if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
+                      if (!isValidPhoneNumber(v)) return translateZodCode('PHONE_INVALID')
                       return undefined
                     },
                   }}
@@ -1544,7 +1565,8 @@ export function UserDialog(props: UserDialogProps) {
                         name="seniorSharePercent"
                         validators={{
                           onBlur: ({ value }) => {
-                            if (value < 1 || value > 100) return 'Введите от 1 до 100'
+                            if (value < 1 || value > 100)
+                              return translateZodCode('SHARE_PERCENT_RANGE_1_100')
                             return undefined
                           },
                         }}
@@ -1617,7 +1639,8 @@ export function UserDialog(props: UserDialogProps) {
                         name="dropSharePercent"
                         validators={{
                           onBlur: ({ value }) => {
-                            if (value < 0 || value > 100) return 'Введите от 0 до 100'
+                            if (value < 0 || value > 100)
+                              return translateZodCode('SHARE_PERCENT_RANGE_0_100')
                             return undefined
                           },
                         }}
@@ -1728,10 +1751,11 @@ export function UserDialog(props: UserDialogProps) {
                                 validators={{
                                   onBlur: ({ value, fieldApi }) => {
                                     if (!fieldApi.state.meta.isDirty) return undefined
-                                    if (!value.trim()) return 'USDT кошелёк обязателен'
+                                    if (!value.trim())
+                                      return translateZodCode('USDT_WALLET_REQUIRED')
                                     return usdtWalletPattern.test(value.trim())
                                       ? undefined
-                                      : 'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа'
+                                      : translateZodCode('USDT_ADDRESS_FORMAT')
                                   },
                                 }}
                               >
@@ -1782,7 +1806,7 @@ export function UserDialog(props: UserDialogProps) {
                                     if (!fieldApi.state.meta.isDirty) return undefined
                                     return value.trim().length >= 3
                                       ? undefined
-                                      : 'ФИО получателя минимум 3 символа'
+                                      : translateZodCode('RECIPIENT_NAME_MIN')
                                   },
                                 }}
                               >
@@ -1816,7 +1840,7 @@ export function UserDialog(props: UserDialogProps) {
                                     if (!fieldApi.state.meta.isDirty) return undefined
                                     return ibanPattern.test(value.trim())
                                       ? undefined
-                                      : 'IBAN должен быть в формате UA + 27 цифр'
+                                      : translateZodCode('IBAN_FORMAT')
                                   },
                                 }}
                               >
@@ -1851,7 +1875,7 @@ export function UserDialog(props: UserDialogProps) {
                                     if (!fieldApi.state.meta.isDirty) return undefined
                                     return rnokppPattern.test(value.trim())
                                       ? undefined
-                                      : 'РНОКПП должен быть 10 цифр'
+                                      : translateZodCode('RNOKPP_FORMAT')
                                   },
                                 }}
                               >
@@ -1939,7 +1963,7 @@ export function UserDialog(props: UserDialogProps) {
                               if (!trimmed) return undefined
                               return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
                                 ? undefined
-                                : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
+                                : translateZodCode('TELEGRAM_CHANNEL_FORMAT')
                             },
                           }}
                         >
@@ -2098,7 +2122,7 @@ export function UserDialog(props: UserDialogProps) {
                                 validators={{
                                   onBlur: ({ value, fieldApi }) => {
                                     if (!fieldApi.state.meta.isDirty) return undefined
-                                    if (!value) return 'Выберите команду дропа'
+                                    if (!value) return translateZodCode('DROP_TEAM_ID_REQUIRED')
                                     return undefined
                                   },
                                 }}
@@ -2169,7 +2193,7 @@ export function UserDialog(props: UserDialogProps) {
                                     if (!trimmed) return undefined
                                     return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
                                       ? undefined
-                                      : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
+                                      : translateZodCode('TELEGRAM_CHANNEL_FORMAT')
                                   },
                                 }}
                               >

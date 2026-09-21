@@ -55,6 +55,7 @@ import {
   NOTIFICATION_TITLES,
   notificationTextPreview,
 } from '@crm/shared'
+import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -1924,7 +1925,7 @@ export class TransactionsService {
       { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
       fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : data.currency,
     )
-    if (adminIncomeReceiptErr) throw new BadRequestException(adminIncomeReceiptErr)
+    if (adminIncomeReceiptErr) throw zodErrorBadRequest(adminIncomeReceiptErr)
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
@@ -2096,7 +2097,7 @@ export class TransactionsService {
       { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
       'USDT',
     )
-    if (receiptErr) throw new BadRequestException(receiptErr)
+    if (receiptErr) throw zodErrorBadRequest(receiptErr)
 
     // task-project-draft-status (Д2): fused fetch+status guard.
     const project = assertProjectActive(
@@ -2406,7 +2407,7 @@ export class TransactionsService {
       { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
       data.currency,
     )
-    if (seniorIncomeReceiptErr) throw new BadRequestException(seniorIncomeReceiptErr)
+    if (seniorIncomeReceiptErr) throw zodErrorBadRequest(seniorIncomeReceiptErr)
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
@@ -2538,7 +2539,7 @@ export class TransactionsService {
       { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
       data.currency,
     )
-    if (dropIncomeReceiptErr) throw new BadRequestException(dropIncomeReceiptErr)
+    if (dropIncomeReceiptErr) throw zodErrorBadRequest(dropIncomeReceiptErr)
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
@@ -2917,7 +2918,7 @@ export class TransactionsService {
       { receiptDocumentId: nextDocId, receiptExternalUrl: nextExtUrl },
       tx.currency,
     )
-    if (receiptErr) throw new BadRequestException(receiptErr)
+    if (receiptErr) throw zodErrorBadRequest(receiptErr)
 
     // The receipt document must be a RECEIPT owned by the caller — you can only
     // attach a document you uploaded (self-ownership, no cross-owner binding).
@@ -5042,7 +5043,7 @@ export class TransactionsService {
     // either invariant would otherwise surface as an opaque DB CHECK error
     // instead of this clean 400.
     const confirmSelfPayErr = selfPayError(payoutTx.senderId, recipient.id)
-    if (confirmSelfPayErr) throw new BadRequestException(confirmSelfPayErr)
+    if (confirmSelfPayErr) throw zodErrorBadRequest(confirmSelfPayErr)
 
     // security-review PR #456 round 2 (MED-3): under impersonation, attribute
     // `validatedBy` (and the note) to the REAL admin/accountant operator, never
@@ -5189,7 +5190,7 @@ export class TransactionsService {
       { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
       data.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : data.currency,
     )
-    if (expenseReceiptErr) throw new BadRequestException(expenseReceiptErr)
+    if (expenseReceiptErr) throw zodErrorBadRequest(expenseReceiptErr)
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
@@ -5469,12 +5470,13 @@ export class TransactionsService {
     // DB CHECK (ck_transactions_sender_ne_receiver) would reject the insert
     // below with an opaque constraint-violation error. Shared with every
     // other write path via `selfPayError` — one rule, not five copies.
-    const transferSelfPayErr = selfPayError(
-      effectiveSenderId,
-      receiver.id,
-      'Cannot transfer to yourself',
-    )
-    if (transferSelfPayErr) throw new BadRequestException(transferSelfPayErr)
+    // fix-round 2 (COPY-M-12): no third argument — the default coded message
+    // (`SENDER_RECEIVER_SAME`, translated through `zodErrorBadRequest` below)
+    // replaces the literal `'Cannot transfer to yourself'` this call used to
+    // pass, so this refusal reads the SAME sentence in the SAME language as
+    // every other self-pay check, instead of an untranslated English literal.
+    const transferSelfPayErr = selfPayError(effectiveSenderId, receiver.id)
+    if (transferSelfPayErr) throw zodErrorBadRequest(transferSelfPayErr)
     // task-archived-user-completeness (AC3). RECEIVER only — the asymmetry is
     // the whole point. In the HOLDING model an ADMIN_TRANSFER credits the
     // receiver (`received` in getSummary), i.e. it puts more company money into
@@ -5509,7 +5511,7 @@ export class TransactionsService {
       { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
       transferCurrency,
     )
-    if (receiptErr) throw new BadRequestException(receiptErr)
+    if (receiptErr) throw zodErrorBadRequest(receiptErr)
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
@@ -8225,7 +8227,7 @@ export class TransactionsService {
       { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
       effectiveReceiptCurrency,
     )
-    if (receiptErr) throw new BadRequestException(receiptErr)
+    if (receiptErr) throw zodErrorBadRequest(receiptErr)
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
@@ -8280,7 +8282,7 @@ export class TransactionsService {
     // and it stops relying on "the ADMIN pool is fixed" holding forever
     // across every future change to those two methods.
     const paySalarySelfPayErr = selfPayError(senderId, tx.receiverId)
-    if (paySalarySelfPayErr) throw new BadRequestException(paySalarySelfPayErr)
+    if (paySalarySelfPayErr) throw zodErrorBadRequest(paySalarySelfPayErr)
 
     // ── task-salary-pay-amount: the FACT of the payment vs the OBLIGATION ────
     //
@@ -8313,7 +8315,23 @@ export class TransactionsService {
     // obligation closed in full by a payment recorded as zero.
     if (paidAmountProvided) {
       const amountError = transactionAmountError(data.paidAmount!)
-      if (amountError) throw new BadRequestException(amountError)
+      // task-i18n-stage4-task4: `transactionAmountError` now returns a
+      // `zod.<CODE>` key (translated by `ZodExceptionFilter`/`translateZodError`
+      // on the Zod-boundary path this same function backs). THIS call site is
+      // the one server-side caller that never goes through Zod at all (see the
+      // comment above) — without this translation, the raw key would leak into
+      // the exception body verbatim instead of readable text.
+      //
+      // fix-round 2 (CR-M-2): routed through `zodErrorBadRequest` — the SAME
+      // helper every other direct-throw call site in this file uses — instead
+      // of re-implementing the `zod.<CODE>` → English-fallback lookup a third
+      // time by hand. This also upgrades the body to the coded
+      // `{ statusCode, code, message }` shape (was a plain string before),
+      // which `extractBackendMessage` (`axios-utils.ts`, SR-M-4) now
+      // recognizes and translates client-side.
+      if (amountError) {
+        throw zodErrorBadRequest(amountError)
+      }
     }
     const paidAmount = paidAmountProvided ? data.paidAmount! : obligationAmount
     // Effective applied rate = paid / original (units of the paid currency per 1

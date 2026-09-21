@@ -117,17 +117,17 @@ export const MIN_TRANSACTION_AMOUNT = 1e-6 // 0.000001 — one unit at scale 6
  *
  * security-review, BLOCKER round: this exact promise — "does not touch
  * 0/NaN/negative" — was UNTESTED and a mutant dropping it survived: `amount:
- * 0` gained a SECOND, misleading "слишком мала" issue alongside
+ * 0` gained a SECOND, misleading `zod.TRANSACTION_AMOUNT_TOO_SMALL` issue alongside
  * `.positive()`'s own rejection. Pinned directly (see `money.spec.ts`) so it
  * cannot regress the same way.
  */
 export function moneyFloorAndPrecisionError(value: number): string | null {
   if (!Number.isFinite(value) || value <= 0) return null
   if (value < MIN_TRANSACTION_AMOUNT) {
-    return `Сумма слишком мала — минимум ${MIN_TRANSACTION_AMOUNT.toFixed(AMOUNT_DECIMAL_PLACES)}`
+    return 'zod.TRANSACTION_AMOUNT_TOO_SMALL'
   }
   if (decimalPlacesOf(value) > AMOUNT_DECIMAL_PLACES) {
-    return `Не больше ${AMOUNT_DECIMAL_PLACES} знаков после запятой — иначе сумма запишется округлённой`
+    return 'zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS'
   }
   return null
 }
@@ -166,17 +166,17 @@ export const MIN_SALARY_AMOUNT = 0.01 // one cent at scale 2
  * security-review (task-money-floor-and-lying-comments, BLOCKER round):
  * this exact promise — "does not reject 0/NaN itself" — was UNTESTED for the
  * scale-6 sibling (`moneyFloorAndPrecisionError` above) and a mutant that
- * dropped it survived, producing a second "слишком мала" issue alongside
+ * dropped it survived, producing a second `zod.SALARY_AMOUNT_TOO_SMALL` issue alongside
  * `amount: 0`'s own positivity error. Pinned directly here (see
  * `money.spec.ts`) so this copy never regresses the same way.
  */
 export function salaryAmountFloorError(value: number): string | null {
   if (!Number.isFinite(value) || value <= 0) return null
   if (value < MIN_SALARY_AMOUNT) {
-    return `Сумма слишком мала — минимум ${MIN_SALARY_AMOUNT.toFixed(SALARY_AMOUNT_DECIMAL_PLACES)}`
+    return 'zod.SALARY_AMOUNT_TOO_SMALL'
   }
   if (decimalPlacesOf(value) > SALARY_AMOUNT_DECIMAL_PLACES) {
-    return `Не больше ${SALARY_AMOUNT_DECIMAL_PLACES} знаков после запятой — иначе сумма запишется округлённой`
+    return 'zod.SALARY_AMOUNT_TOO_MANY_DECIMALS'
   }
   return null
 }

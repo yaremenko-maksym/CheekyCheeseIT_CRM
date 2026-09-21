@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
+import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -207,7 +208,15 @@ function HrCreateSeniorDialog({
       }
       const result = createUserSchema.safeParse(payload)
       if (!result.success) {
-        toast.error('Ошибка валидации данных')
+        // fix-round 2 (SR-M-6/COPY-H-3): translate the actual issue when it
+        // is a migrated code, same pattern as every other submit-toast in
+        // UserDialog.tsx — was a fixed Russian literal regardless of which
+        // field actually failed.
+        const first = result.error.issues[0]
+        toast.error(
+          // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see UserDialog.tsx's own field validators for the same invariant
+          translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
+        )
         return
       }
       mutation.mutate(result.data)
@@ -243,7 +252,7 @@ function HrCreateSeniorDialog({
               validators={{
                 onBlur: ({ value }) => {
                   const r = createUserSchema.shape.email.safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
+                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                 },
               }}
             >
@@ -276,7 +285,7 @@ function HrCreateSeniorDialog({
               validators={{
                 onBlur: ({ value }) => {
                   const r = createUserSchema.shape.displayName.safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
+                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                 },
               }}
             >
@@ -321,7 +330,7 @@ function HrCreateSeniorDialog({
                 onBlur: ({ value }) => {
                   if (!value.trim()) return undefined
                   const r = telegramFieldSchema.safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
+                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
                 },
               }}
             >
@@ -353,8 +362,8 @@ function HrCreateSeniorDialog({
                   const v = value as string
                   if (!v) return undefined
                   const r = phoneFieldSchema.safeParse(v)
-                  if (!r.success) return r.error.issues[0]?.message
-                  if (!isValidPhoneNumber(v)) return 'Некорректный номер телефона'
+                  if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
+                  if (!isValidPhoneNumber(v)) return translateZodCode('PHONE_INVALID')
                   return undefined
                 },
               }}
@@ -385,7 +394,8 @@ function HrCreateSeniorDialog({
                 name="seniorSharePercent"
                 validators={{
                   onBlur: ({ value }) => {
-                    if (value < 1 || value > 100) return 'Введите от 1 до 100'
+                    if (value < 1 || value > 100)
+                      return translateZodCode('SHARE_PERCENT_RANGE_1_100')
                     return undefined
                   },
                 }}
