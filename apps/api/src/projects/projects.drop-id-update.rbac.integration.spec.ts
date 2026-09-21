@@ -501,10 +501,8 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect(res.statusCode, 'dropId pointing to a non-DROP user must return 400').toBe(400)
 
-      const body = res.json() as { message?: string }
-      expect(body.message, "400 body must contain 'User is not a DROP'").toContain(
-        'User is not a DROP',
-      )
+      const body = res.json() as { code?: string }
+      expect(body.code, '400 body code must be USER_NOT_DROP').toBe('USER_NOT_DROP')
     })
 
     // ── DROP-UPD-4: Archived DROP user → 400 'Drop is archived' ─────────────────
@@ -518,8 +516,8 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect(res.statusCode, 'Archived DROP user as dropId must return 400').toBe(400)
 
-      const body = res.json() as { message?: string }
-      expect(body.message, "400 body must contain 'Drop is archived'").toContain('Drop is archived')
+      const body = res.json() as { code?: string }
+      expect(body.code, '400 body code must be DROP_ARCHIVED').toBe('DROP_ARCHIVED')
     })
 
     // ── DROP-UPD-5: dropId: null on project with existing dropId → 200, cleared ──

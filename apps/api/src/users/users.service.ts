@@ -5,7 +5,6 @@ import {
   HttpStatus,
   Inject,
   Injectable,
-  NotFoundException,
   forwardRef,
 } from '@nestjs/common'
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
@@ -331,7 +330,7 @@ export class UsersService {
       .where(eq(users.id, userId))
       .for('update')
       .limit(1)
-    if (!locked) throw new NotFoundException('Пользователь не найден')
+    if (!locked) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     await this.approvals.cancelInTx(tx, UsersService.SENIOR_SHARE_SUBJECT_TYPE, userId)
     // Reaching this line means `cancelInTx` found a real PENDING proposal —
     // same "no separate existence check needed" reasoning
@@ -347,7 +346,7 @@ export class UsersService {
       // task-648-fix-round-1 (COPY-H-1): user-facing text is Russian
       // (russian-language.md) — this exception's message reaches the caller
       // verbatim through `getApiErrorMessage`'s backend-message priority.
-      throw new ForbiddenException('Отменить предложение по доле может только ADMIN')
+      throw apiError('SHARE_CANCEL_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction((tx) => this.cancelSeniorShareChangeCore(tx, id))
     // SR-M-3 (task-648-fix-round-1): route through the allow-list, not a
@@ -394,7 +393,7 @@ export class UsersService {
       // task-648-fix-round-1 (COPY-H-1): Russian — same defensive-only
       // reasoning as ProjectsService.approveSeniorShareChange's identical
       // check.
-      if (!row) throw new NotFoundException('Пользователь не найден')
+      if (!row) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       await this.approvals.approveInTx(tx, {
         subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
         subjectId: id,
@@ -439,7 +438,7 @@ export class UsersService {
       // task-648-fix-round-2 (SR-M-6): `users` before `approvals` — see the
       // lock-order note on `approveSeniorShareChange` above.
       const [locked] = await tx.select().from(users).where(eq(users.id, id)).for('update').limit(1)
-      if (!locked) throw new NotFoundException('Пользователь не найден')
+      if (!locked) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       await this.approvals.rejectInTx(tx, {
         subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
         subjectId: id,
@@ -453,7 +452,7 @@ export class UsersService {
         .returning()
       // task-648-fix-round-1 (COPY-H-1): Russian — same defensive-only
       // reasoning as approveSeniorShareChange's identical check above.
-      if (!updated) throw new NotFoundException('Пользователь не найден')
+      if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     })
     // SR-M-3 (task-648-fix-round-1): same allow-list reasoning as
     // approveSeniorShareChange above.
@@ -573,7 +572,7 @@ export class UsersService {
     if (!existing) return
     const isOwnRow = existing.userId === excludeUserId
     if (isOwnRow) return
-    throw new ConflictException('Этот адрес уже занят другим пользователем.')
+    throw apiError('EMAIL_TAKEN_BY_ANOTHER_USER', HttpStatus.CONFLICT)
   }
 
   /**
@@ -628,7 +627,7 @@ export class UsersService {
       return await write()
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictException('Этот адрес уже используется — введите другой.')
+        throw apiError('EMAIL_ALREADY_IN_USE', HttpStatus.CONFLICT)
       }
       throw err
     }
@@ -739,7 +738,7 @@ export class UsersService {
 
   async getProfile(id: string): Promise<User> {
     const user = await this.findById(id)
-    if (!user) throw new NotFoundException('User not found')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     return user
   }
 
@@ -759,15 +758,15 @@ export class UsersService {
     const row = await this.db.db.query.documents.findFirst({
       where: eq(documents.id, documentId),
     })
-    if (!row) throw new BadRequestException('Аватар: документ не найден')
+    if (!row) throw apiError('AVATAR_DOCUMENT_NOT_FOUND', HttpStatus.BAD_REQUEST)
     if (row.category !== 'AVATAR') {
-      throw new BadRequestException('Категория документа должна быть AVATAR')
+      throw apiError('AVATAR_DOCUMENT_WRONG_CATEGORY', HttpStatus.BAD_REQUEST)
     }
     if (row.ownerId !== expectedOwnerId) {
-      throw new BadRequestException('Аватар: документ принадлежит другому пользователю')
+      throw apiError('AVATAR_DOCUMENT_WRONG_OWNER', HttpStatus.BAD_REQUEST)
     }
     if (row.deletedAt !== null) {
-      throw new BadRequestException('Аватар: документ удалён')
+      throw apiError('AVATAR_DOCUMENT_DELETED', HttpStatus.BAD_REQUEST)
     }
   }
 
@@ -834,20 +833,20 @@ export class UsersService {
     // ut-12: ADMIN creation is reserved to the seed pool — block here as a
     // defense-in-depth measure even if the controller / Roles guard let it slip.
     if (data.role === 'ADMIN') {
-      throw new ForbiddenException('Создание ADMIN запрещено — пул фиксирован')
+      throw apiError('ADMIN_CREATION_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     // Drop role - phase 1: DROP must be created via `createDrop` (mandatory
     // team section). Reject here defensively in case a malformed request
     // reaches the legacy endpoint.
     if (data.role === 'DROP') {
-      throw new BadRequestException('Создание DROP — через POST /api/users/drops')
+      throw apiError('DROP_CREATE_VIA_DEDICATED_ENDPOINT', HttpStatus.BAD_REQUEST)
     }
     if (data.teamMode === 'JOIN_DROP_TEAM') {
       if (data.role !== 'SENIOR') {
-        throw new BadRequestException('teamMode=JOIN_DROP_TEAM доступен только при создании SENIOR')
+        throw apiError('JOIN_DROP_TEAM_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
       }
       if (!data.dropTeamId) {
-        throw new BadRequestException('dropTeamId обязателен при teamMode=JOIN_DROP_TEAM')
+        throw apiError('DROP_TEAM_ID_REQUIRED', HttpStatus.BAD_REQUEST)
       }
       // MED-3 (security-review round 2): `TeamsService.addSeniorToDropTeam`
       // explicitly delegates RBAC to its caller (see that method's own
@@ -863,12 +862,12 @@ export class UsersService {
         // string to `isActiveMemberOfTeam` instead of failing loudly.
         const isMember = await this.teamsService.isActiveMemberOfTeam(data.dropTeamId, data.actorId)
         if (!isMember) {
-          throw new ForbiddenException('HR может присоединять синьора только к своей drop-команде')
+          throw apiError('HR_JOIN_OWN_DROP_TEAM_ONLY', HttpStatus.FORBIDDEN)
         }
       }
     }
     const existing = await this.findByEmail(data.email)
-    if (existing) throw new ConflictException('User with this email already exists')
+    if (existing) throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
     // §4.4: `users.email` uniqueness alone cannot see a PERSONAL row on
     // another user — check the whole `user_emails` table too, for both the
     // work address AND the optional personal one, BEFORE creating anything.
@@ -1071,10 +1070,10 @@ export class UsersService {
     // ut-10/11: ADMIN protection. Fetch the existing row first so we can apply
     // role-aware guards before any UPDATE statement.
     const existing = await this.findById(id)
-    if (!existing) throw new NotFoundException('User not found')
+    if (!existing) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     if (existing.role === 'ADMIN' && actorId !== null && existing.id !== actorId) {
-      throw new ForbiddenException('Cannot edit another admin')
+      throw apiError('CANNOT_EDIT_ANOTHER_ADMIN', HttpStatus.FORBIDDEN)
     }
     if (
       data.role !== undefined &&
@@ -1083,7 +1082,7 @@ export class UsersService {
       existing.id === actorId &&
       data.role !== 'ADMIN'
     ) {
-      throw new ForbiddenException('Cannot change own ADMIN role')
+      throw apiError('ADMIN_CANNOT_CHANGE_OWN_ROLE', HttpStatus.FORBIDDEN)
     }
     // MED (security-audit authz-hardening): mirror changeRole's privilege-
     // escalation guards here. PATCH /:id/role already forbids elevating
@@ -1096,10 +1095,10 @@ export class UsersService {
     // or editing a DROP user's other fields) is unaffected.
     if (data.role !== undefined && data.role !== existing.role) {
       if (data.role === 'ADMIN') {
-        throw new ForbiddenException('Назначение роли ADMIN запрещено — пул фиксирован')
+        throw apiError('ADMIN_ROLE_ASSIGNMENT_FORBIDDEN', HttpStatus.FORBIDDEN)
       }
       if (data.role === 'DROP') {
-        throw new ForbiddenException('Изменение роли на DROP — через POST /api/users/drops')
+        throw apiError('DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT', HttpStatus.FORBIDDEN)
       }
     }
     // ut-17: Telegram channel of the team is a SENIOR-only field. The pair
@@ -1107,13 +1106,13 @@ export class UsersService {
     // contract violation — reject early with 400.
     const effectiveRole = data.role ?? existing.role
     if (data.teamTelegramChannel !== undefined && effectiveRole !== 'SENIOR') {
-      throw new BadRequestException('Telegram channel can only be set for SENIOR users')
+      throw apiError('TELEGRAM_CHANNEL_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
     }
     // Email uniqueness check — only when actually changing it.
     if (data.email !== undefined && data.email !== existing.email) {
       const conflict = await this.findByEmail(data.email)
       if (conflict && conflict.id !== id) {
-        throw new ConflictException('User with this email already exists')
+        throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
       }
       // COPY-M-15 (copy-review PR #623 closing round): the routine case of
       // this SAME user's own WORK/PERSONAL swap, named and dispatched with
@@ -1135,7 +1134,7 @@ export class UsersService {
         where: and(eq(userEmails.userId, id), eq(userEmails.kind, 'PERSONAL')),
       })
       if (ownPersonalRow && ownPersonalRow.email.toLowerCase() === data.email.toLowerCase()) {
-        throw new BadRequestException('Рабочий email должен отличаться от личного')
+        throw apiError('WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL', HttpStatus.BAD_REQUEST)
       }
       // §4.4 — see createUser's identical check: users.email alone cannot
       // see a collision with someone else's PERSONAL row.
@@ -1272,7 +1271,7 @@ export class UsersService {
       // silently vanished (or vice versa).
       if (requestedSeniorSharePercent !== undefined) {
         if (!actorId) {
-          throw new BadRequestException('Смена доли требует определённого инициатора запроса')
+          throw apiError('SHARE_CHANGE_REQUESTER_REQUIRED', HttpStatus.BAD_REQUEST)
         }
         const shareChangeResult = await this.proposeSeniorShareChangeInTx(
           tx,
@@ -1553,7 +1552,7 @@ export class UsersService {
 
     const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
     const updated = rows[0]
-    if (!updated) throw new NotFoundException('User not found')
+    if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     return updated
   }
 
@@ -1590,7 +1589,7 @@ export class UsersService {
     }
     const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
     const updated = rows[0]
-    if (!updated) throw new NotFoundException('User not found')
+    if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     return updated
   }
 
@@ -1687,7 +1686,7 @@ export class UsersService {
         .where(eq(users.id, id))
       if (current?.archivedAt) throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
     }
-    throw new NotFoundException('User not found')
+    throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
   }
 
   async changeRole(id: string, role: User['role'], actorId: string): Promise<User> {
@@ -1697,29 +1696,29 @@ export class UsersService {
 
     // (1) ADMIN pool is fixed — elevation to ADMIN is always forbidden here.
     if (role === 'ADMIN') {
-      throw new ForbiddenException('Назначение роли ADMIN запрещено — пул фиксирован')
+      throw apiError('ADMIN_ROLE_ASSIGNMENT_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // (2) DROP must be created via the dedicated POST /users/drops endpoint
     // which provisions the associated drop-team atomically. Routing through
     // changeRole would leave the user without a team (broken invariant).
     if (role === 'DROP') {
-      throw new ForbiddenException('Изменение роли на DROP — через POST /api/users/drops')
+      throw apiError('DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT', HttpStatus.FORBIDDEN)
     }
 
     const existing = await this.findById(id)
-    if (!existing) throw new NotFoundException('User not found')
+    if (!existing) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // (3) Cannot change the role of any ADMIN (even to a lower role) unless
     // the actor is editing their own record — and even then self-demotion is
     // blocked by rule (4). Mirrors adminUpdateUser :410.
     if (existing.role === 'ADMIN' && actorId !== existing.id) {
-      throw new ForbiddenException('Нельзя изменить роль другого администратора')
+      throw apiError('CANNOT_EDIT_ANOTHER_ADMIN', HttpStatus.FORBIDDEN)
     }
 
     // (4) An ADMIN cannot demote themselves via this endpoint.
     if (existing.role === 'ADMIN' && actorId === existing.id) {
-      throw new ForbiddenException('Администратор не может сменить собственную роль')
+      throw apiError('ADMIN_CANNOT_CHANGE_OWN_ROLE', HttpStatus.FORBIDDEN)
     }
 
     // (5) task-archived-user-completeness (AC2): an archived user's role is
@@ -1758,7 +1757,7 @@ export class UsersService {
     // The read is what `updateUserRow` compares against — without it every
     // resubmit of an unchanged salary would look like a change and 400.
     const existing = await this.findById(id)
-    if (!existing) throw new NotFoundException('User not found')
+    if (!existing) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     // task-648-fix-round-4 (SR-L-5): the same role gate `adminUpdateUser`
     // applies to its own propose (`effectiveRole === 'SENIOR'`). This
     // endpoint carries no `role` field, so the effective role is simply the
@@ -1783,7 +1782,7 @@ export class UsersService {
       return this.updateUserRow(this.db.db, id, existing, set)
     }
     if (!actorId) {
-      throw new BadRequestException('Смена доли требует определённого инициатора запроса')
+      throw apiError('SHARE_CHANGE_REQUESTER_REQUIRED', HttpStatus.BAD_REQUEST)
     }
     return this.db.db.transaction(async (tx) => {
       const updated = await this.updateUserRow(tx, id, existing, set)
@@ -1808,7 +1807,7 @@ export class UsersService {
       .where(eq(users.id, id))
       .returning()
     const updated = rows[0]
-    if (!updated) throw new NotFoundException('User not found')
+    if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     return updated
   }
 
@@ -1842,13 +1841,13 @@ export class UsersService {
         .where(eq(users.id, id))
         .for('update')
         .then((rows) => rows[0])
-      if (!user) throw new NotFoundException('User not found')
-      if (user.archivedAt) throw new BadRequestException('User is already archived')
+      if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+      if (user.archivedAt) throw apiError('USER_ALREADY_ARCHIVED', HttpStatus.BAD_REQUEST)
       // Defense-in-depth: ADMIN cannot archive another ADMIN. The controller
       // already blocks self-archive; this guard makes ADMINs mutually
       // indestructible regardless of how the endpoint is called.
       if (user.role === 'ADMIN' && actorId !== null && user.id !== actorId) {
-        throw new ForbiddenException('Cannot archive another admin')
+        throw apiError('CANNOT_ARCHIVE_ANOTHER_ADMIN', HttpStatus.FORBIDDEN)
       }
 
       const now = new Date()
@@ -2006,7 +2005,17 @@ export class UsersService {
         .from(users)
         .where(eq(users.id, id))
         .then((rows) => rows[0])
-      if (!updated) throw new NotFoundException('User not found')
+      // Stryker disable next-line ConditionalExpression: task-i18n-stage4-task1
+      // mutation-gate finding — provably unreachable, not merely untested.
+      // The guard at the top of this same transaction (`if (!user) throw ...`,
+      // under a `FOR UPDATE` lock) already confirmed this row exists, and the
+      // `tx.update(users)...` a few lines up wrote to that same locked row and
+      // has not committed. No peer transaction can delete a row this one
+      // holds locked, and this method issues no DELETE of its own, so between
+      // that write and this re-read the row cannot have vanished — a unit
+      // mock could only "kill" this mutant by asserting a scenario Postgres
+      // itself rules out.
+      if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       return updated
     })
   }
@@ -2024,7 +2033,17 @@ export class UsersService {
         .from(users)
         .where(eq(users.id, id))
         .then((rows) => rows[0])
-      if (!updated) throw new NotFoundException('User not found')
+      // Stryker disable next-line ConditionalExpression: task-i18n-stage4-task1
+      // mutation-gate finding — provably unreachable, not merely untested.
+      // `unarchivePairTx` just above already confirmed this row exists (its
+      // own `if (!user) throw ...`) and issued a `tx.update(users)...` write
+      // to it within this SAME still-open transaction — an implicit row lock
+      // that holds until commit. No peer transaction can delete a row this
+      // one holds locked, and neither this method nor `unarchivePairTx`
+      // issues a DELETE, so between that write and this re-read the row
+      // cannot have vanished — a unit mock could only "kill" this mutant by
+      // asserting a scenario Postgres itself rules out.
+      if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       return updated
     })
   }
@@ -2047,8 +2066,8 @@ export class UsersService {
       .from(users)
       .where(eq(users.id, id))
       .then((rows) => rows[0])
-    if (!user) throw new NotFoundException('User not found')
-    if (!user.archivedAt) throw new BadRequestException('User is not archived')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (!user.archivedAt) throw apiError('USER_NOT_ARCHIVED', HttpStatus.BAD_REQUEST)
 
     const now = new Date()
     const previousArchivedAt = user.archivedAt
@@ -2150,7 +2169,7 @@ export class UsersService {
     // @Roles only).
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
     const user = await this.findById(id)
-    if (!user) throw new NotFoundException('User not found')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const pendingTransactions = await this.getPendingTransactionsForArchiveWarning(id)
 
@@ -2340,7 +2359,7 @@ export class UsersService {
    */
   async getTeamMembersForUser(userId: string, viewerRole: AppRole): Promise<TeamMemberPreview[]> {
     const user = await this.findById(userId)
-    if (!user) throw new NotFoundException('User not found')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Equivalence proof: every reachable path below (the `if` branch AND the
     // `else` branch, exhaustive on `user.role === 'DROP'`) unconditionally
@@ -2596,7 +2615,7 @@ export class UsersService {
    */
   async buildProfileView(viewer: User, targetId: string, actorImpersonatorId?: string) {
     const target = await this.findById(targetId)
-    if (!target) throw new NotFoundException('User not found')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     const permissions = await this.accessService.getViewPermissions(viewer, target)
 
     // Empty tabs means the viewer has no access to this profile at all.
@@ -2957,16 +2976,14 @@ export class UsersService {
     actorId: string,
   ): Promise<{ rawToken: string; email: string; displayName: string }> {
     const target = await this.findById(userId)
-    if (!target) throw new NotFoundException('Пользователь не найден')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     const row = await this.db.db.query.userEmails.findFirst({
       // Stryker disable next-line StringLiteral: same class as buildProfileView's identical suppression above — `kind: 'PERSONAL'` inside a Drizzle `where` a plain vi.fn() mock cannot distinguish from `""` (mutation-gate-integration-specs.md); exercised end-to-end against real Postgres by user-email-invites.integration.spec.ts, which seeds a PERSONAL row and resends against it.
       where: and(eq(userEmails.userId, userId), eq(userEmails.kind, 'PERSONAL')),
     })
-    if (!row) throw new BadRequestException('У пользователя не задан личный email')
+    if (!row) throw apiError('PERSONAL_EMAIL_NOT_SET', HttpStatus.BAD_REQUEST)
     if (row.canLogin) {
-      throw new ConflictException(
-        'Личный email уже подтверждён — повторное приглашение не требуется',
-      )
+      throw apiError('PERSONAL_EMAIL_ALREADY_VERIFIED', HttpStatus.CONFLICT)
     }
     const rawToken = await this.issuePersonalEmailInviteTx(this.db.db, row.id)
     // security-review PR #623 round 4 (SR-M-12): this was the only write
@@ -3029,7 +3046,7 @@ export class UsersService {
     actorId: string,
   ): Promise<{ rawToken: string; email: string; displayName: string } | null> {
     const target = await this.findById(userId)
-    if (!target) throw new NotFoundException('Пользователь не найден')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const existingRow = await this.db.db.query.userEmails.findFirst({
       // Stryker disable next-line StringLiteral: same class as resendPersonalEmailInvite's identical suppression above — `kind: 'PERSONAL'` inside a Drizzle `where` a plain vi.fn() mock cannot distinguish from `""` (mutation-gate-integration-specs.md); exercised end-to-end against real Postgres by user-email-invites.integration.spec.ts.
@@ -3042,7 +3059,7 @@ export class UsersService {
 
     if (newEmail) {
       if (newEmail.toLowerCase() === target.email.toLowerCase()) {
-        throw new BadRequestException('Личный email должен отличаться от рабочего')
+        throw apiError('PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK', HttpStatus.BAD_REQUEST)
       }
       // SR-L-1 (security-review PR #623 round 5): `excludeUserId` — the
       // no-op check above (`existingRow?.email === newEmail`) is a plain,
@@ -3116,32 +3133,43 @@ export class UsersService {
    * and never mints a session (task §2: "Токен НЕ выдаёт сессию").
    *
    * Throws — `AuthController.mapInviteAcceptError` maps each to a distinct
-   * `?error=` redirect:
-   *   - NotFoundException — token hash matches no row (garbage link, or a
-   *     token that was superseded by a resend — the OLD hash is gone from
-   *     the DB the moment `issuePersonalEmailInviteTx` overwrites it, so
-   *     this is indistinguishable from "never existed", which is correct:
-   *     an old, superseded link should behave exactly like a bad one).
-   *   - BadRequestException — token expired.
-   *   - ConflictException — either the token was already used (task:
-   *     "Токен использован дважды — второй раз отказ"), OR (LOW-1,
+   * `?error=` redirect. SR-H-1 (security-review PR #701 round 1): the
+   * dispatch is by `apiError()`'s envelope `code`, NOT by exception class —
+   * `apiError()` returns a plain `HttpException`, never a
+   * `ForbiddenException`/`ConflictException`/`BadRequestException`
+   * subclass, so an `instanceof` check on those classes cannot tell these
+   * apart. The contract below is stated in terms of `code`:
+   *   - `INVITE_INVALID` (404) — token hash matches no row (garbage link,
+   *     or a token that was superseded by a resend — the OLD hash is gone
+   *     from the DB the moment `issuePersonalEmailInviteTx` overwrites it,
+   *     so this is indistinguishable from "never existed", which is
+   *     correct: an old, superseded link should behave exactly like a bad
+   *     one). Also the two defense-in-depth "row vanished mid-transaction"
+   *     branches below.
+   *   - `INVITE_EXPIRED` (400) — token expired.
+   *   - `INVITE_ALREADY_USED` (409) — the token was already used (task:
+   *     "Токен использован дважды — второй раз отказ").
+   *   - a plain `ConflictException` (NOT `apiError()` — kept as a sentinel,
+   *     see `mapInviteAcceptError`'s comment) with the exported
+   *     `GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE` message — (LOW-1,
    *     security-review PR #623 round 4) the confirming Google account is
    *     already bound to a DIFFERENT `user_emails` row
-   *     (`idx_user_emails_google_id`) — these are DIFFERENT situations
-   *     (the second one leaves `used_at` NULL, since the whole transaction
-   *     below rolls back) and get DIFFERENT messages via the exported
-   *     `GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE` sentinel —
-   *     `mapInviteAcceptError` inspects it to pick `invite_account_taken`
-   *     instead of `invite_used`.
-   *   - ForbiddenException — either Google confirmed a DIFFERENT address
-   *     than the one this token was issued for (task §2: "Не совпал —
-   *     внятный отказ, а не тихое ничего"; `canLogin` is left untouched —
-   *     an opportunistic wrong-Google-account attempt against a stolen or
-   *     guessed link gets no second, better-informed try), OR (LOW-2,
-   *     security-review PR #623 round 4) the target account was archived
-   *     (fired) after the invite was issued — `INVITE_TARGET_ARCHIVED_MESSAGE`
-   *     sentinel, mapped to `account_disabled` (the SAME code the ordinary
-   *     login path already uses for a fired user).
+   *     (`idx_user_emails_google_id`); DIFFERENT situation from
+   *     `INVITE_ALREADY_USED` above (this one leaves `used_at` NULL, since
+   *     the whole transaction below rolls back) — `mapInviteAcceptError`
+   *     inspects the message to pick `invite_account_taken` instead of
+   *     `invite_used`.
+   *   - `INVITE_GOOGLE_ACCOUNT_MISMATCH` (403) — Google confirmed a
+   *     DIFFERENT address than the one this token was issued for (task §2:
+   *     "Не совпал — внятный отказ, а не тихое ничего"; `canLogin` is left
+   *     untouched — an opportunistic wrong-Google-account attempt against a
+   *     stolen or guessed link gets no second, better-informed try).
+   *   - a plain `ForbiddenException` (NOT `apiError()` — kept as a
+   *     sentinel) with the exported `INVITE_TARGET_ARCHIVED_MESSAGE`
+   *     message — (LOW-2, security-review PR #623 round 4) the target
+   *     account was archived (fired) after the invite was issued, mapped
+   *     to `account_disabled` (the SAME code the ordinary login path
+   *     already uses for a fired user).
    *
    * On success: ONE transaction marks the invite used AND flips
    * `canLogin`/`verifiedAt`/`googleId` on the `user_emails` row — either
@@ -3158,10 +3186,10 @@ export class UsersService {
     const invite = await this.db.db.query.userEmailInvites.findFirst({
       where: eq(userEmailInvites.tokenHash, tokenHash),
     })
-    if (!invite) throw new NotFoundException('Приглашение недействительно')
-    if (invite.usedAt) throw new ConflictException('Приглашение уже использовано')
+    if (!invite) throw apiError('INVITE_INVALID', HttpStatus.NOT_FOUND)
+    if (invite.usedAt) throw apiError('INVITE_ALREADY_USED', HttpStatus.CONFLICT)
     if (invite.expiresAt.getTime() < Date.now()) {
-      throw new BadRequestException('Срок действия приглашения истёк')
+      throw apiError('INVITE_EXPIRED', HttpStatus.BAD_REQUEST)
     }
     const row = await this.db.db.query.userEmails.findFirst({
       where: eq(userEmails.id, invite.userEmailId),
@@ -3169,9 +3197,9 @@ export class UsersService {
     // Defensive only — `ON DELETE CASCADE` (schema.ts) means an invite row
     // cannot outlive the user_emails row it points at; unreachable via any
     // real flow.
-    if (!row) throw new NotFoundException('Приглашение недействительно')
+    if (!row) throw apiError('INVITE_INVALID', HttpStatus.NOT_FOUND)
     if (row.email.toLowerCase() !== googleEmail.toLowerCase()) {
-      throw new ForbiddenException('Адрес аккаунта Google не совпадает с приглашённым адресом')
+      throw apiError('INVITE_GOOGLE_ACCOUNT_MISMATCH', HttpStatus.FORBIDDEN)
     }
     // LOW-2 (security-review PR #623 round 4): checked AFTER the address
     // match above, deliberately — only someone who already controls the
@@ -3240,7 +3268,7 @@ export class UsersService {
       // caller's perspective it IS the same situation: the row this token
       // pointed at no longer exists.
       if (!emailRows[0]) {
-        throw new NotFoundException('Приглашение недействительно')
+        throw apiError('INVITE_INVALID', HttpStatus.NOT_FOUND)
       }
       const inviteRows = await tx
         .update(userEmailInvites)
@@ -3254,7 +3282,7 @@ export class UsersService {
       // it: e.g. a future writer of `user_email_invites` alone (not
       // through `changePersonalEmail`) would only be caught here.
       if (!inviteRows[0]) {
-        throw new NotFoundException('Приглашение недействительно')
+        throw apiError('INVITE_INVALID', HttpStatus.NOT_FOUND)
       }
     })
   }
@@ -3303,7 +3331,7 @@ export class UsersService {
     actor: SessionUser,
   ): Promise<{ user: User; teamId: string }> {
     if (actor.role !== 'ADMIN') {
-      throw new ForbiddenException('Создание дропа доступно только администратору')
+      throw apiError('DROP_CREATE_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
     // security-review round 2 (authz-hardening): attribute audit rows below
     // to the REAL operator under impersonation, not the impersonated
@@ -3315,10 +3343,10 @@ export class UsersService {
     // defensively rather than left to silently drift.
     const effectiveActorId = actor.impersonatorId ?? actor.id
     if (data.hrIds.length < 1) {
-      throw new BadRequestException('HR обязателен (минимум 1)')
+      throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
     }
     const existing = await this.findByEmail(data.email)
-    if (existing) throw new ConflictException('Пользователь с таким email уже существует')
+    if (existing) throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
     // §4.4 — see createUser's identical check for the full rationale.
     await this.assertEmailAvailable(this.db.db, data.email)
 
@@ -3420,7 +3448,7 @@ export class UsersService {
     actor: SessionUser,
   ): Promise<{ archivedProjects: number; detachedSeniorId: string | null }> {
     if (actor.role !== 'ADMIN') {
-      throw new ForbiddenException('Архивация дропа доступна только администратору')
+      throw apiError('DROP_ARCHIVE_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
     // security-review round 2 (authz-hardening) — see createDrop's identical
     // comment above for the full rationale.
@@ -3436,11 +3464,11 @@ export class UsersService {
         .where(eq(users.id, dropId))
         .for('update')
         .then((rows) => rows[0])
-      if (!user) throw new NotFoundException('Пользователь не найден')
+      if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       if (user.role !== 'DROP') {
-        throw new BadRequestException('Метод доступен только для DROP')
+        throw apiError('METHOD_DROP_ONLY', HttpStatus.BAD_REQUEST)
       }
-      if (user.archivedAt) throw new BadRequestException('Дроп уже архивирован')
+      if (user.archivedAt) throw apiError('DROP_ARCHIVED', HttpStatus.BAD_REQUEST)
 
       const dropMembership = await tx
         .select()
@@ -3486,9 +3514,9 @@ export class UsersService {
     },
   ): Promise<{ teamId: string }> {
     const user = await this.findById(seniorId)
-    if (!user) throw new NotFoundException('Пользователь не найден')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (user.role !== 'SENIOR') {
-      throw new BadRequestException('Rejoin-team доступен только для SENIOR')
+      throw apiError('REJOIN_TEAM_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
     }
     // Caller must currently have NO active team membership.
     const activeMembership = await this.db.db
@@ -3497,12 +3525,12 @@ export class UsersService {
       .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
       .then((rows) => rows[0])
     if (activeMembership) {
-      throw new BadRequestException('У вас уже есть активная команда')
+      throw apiError('ALREADY_HAS_ACTIVE_TEAM', HttpStatus.BAD_REQUEST)
     }
 
     if (data.teamMode === 'JOIN_DROP_TEAM') {
       if (!data.dropTeamId) {
-        throw new BadRequestException('dropTeamId обязателен при teamMode=JOIN_DROP_TEAM')
+        throw apiError('DROP_TEAM_ID_REQUIRED', HttpStatus.BAD_REQUEST)
       }
       // LOW (security-review round 3, follow-up to #436): this is a
       // self-service call — the SENIOR is the caller, so there is no
@@ -3517,9 +3545,7 @@ export class UsersService {
         seniorId,
       )
       if (!wasFormerMember) {
-        throw new ForbiddenException(
-          'Самостоятельно присоединиться можно только к команде, в которой вы уже состояли',
-        )
+        throw apiError('REJOIN_TEAM_MUST_BE_FORMER_MEMBER', HttpStatus.FORBIDDEN)
       }
       await this.teamsService.addSeniorToDropTeam(data.dropTeamId, seniorId)
       return { teamId: data.dropTeamId }
@@ -3527,7 +3553,7 @@ export class UsersService {
 
     // CREATE_NEW path — mirrors createUser SENIOR branch.
     if (!data.hrIds || data.hrIds.length < 1) {
-      throw new BadRequestException('HR обязателен (минимум 1) при teamMode=CREATE_NEW')
+      throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
     }
     return this.db.db.transaction(async (tx) => {
       const inserted = await tx

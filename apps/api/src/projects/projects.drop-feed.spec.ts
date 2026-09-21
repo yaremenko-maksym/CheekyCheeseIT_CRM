@@ -18,7 +18,6 @@
  * findMany ignores the `where`, so these tests target the in-memory
  * enrichment/mapping the WHERE clause cannot cover.
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { ProjectsService } from './projects.service'
@@ -84,7 +83,9 @@ describe('findDropOwnProjects — RBAC (self-only)', () => {
   for (const role of forbiddenRoles) {
     it(`throws ForbiddenException for role ${role}`, async () => {
       const svc = makeSvc([], [])
-      await expect(svc.findDropOwnProjects(user(role))).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(svc.findDropOwnProjects(user(role))).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'DROP_PROJECT_ACCESS_DENIED', statusCode: 403 }),
+      })
     })
   }
 
