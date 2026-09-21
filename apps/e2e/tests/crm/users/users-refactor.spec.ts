@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { test, expect, USERS, mockAuthAs, API_RE } from '../../fixtures'
+import { loadMessages } from '../../../fixtures/catalog'
 
 /**
  * E2E for /users PR 2 refactor:
@@ -541,9 +542,14 @@ test.describe('Users page refactor (PR 2)', () => {
       // Tab moves focus away → triggers onBlur validator.
       await page.keyboard.press('Tab')
 
-      // Inline validation error text within the Phone field.
+      // Inline validation error text within the Phone field. Text now comes
+      // from the shared zod-error catalog (fix-round 1, COPY-M-8/SR-M-1) —
+      // assert against the compiled uk catalog entry, not a hardcoded
+      // literal that drifts the moment copy-review changes the wording
+      // (fix-round 2, CI-3/CR-H-1).
+      const messages = await loadMessages('uk')
       const dialog = page.getByRole('dialog')
-      await expect(dialog.getByText('Некорректный номер телефона')).toBeVisible()
+      await expect(dialog.getByText(messages['zod-error.PHONE_INVALID']!)).toBeVisible()
       // PhoneInput receives `[&_input]:border-destructive` on its wrapper —
       // Tailwind's child-combinator applies `border-destructive` to the inner
       // <input> at runtime, but the literal class string is on the wrapper.

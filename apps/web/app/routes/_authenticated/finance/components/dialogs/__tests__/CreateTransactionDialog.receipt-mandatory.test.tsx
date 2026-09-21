@@ -98,7 +98,13 @@ describe('CreateTransactionDialog — ADMIN_INCOME mandatory receipt (legacy fun
     await screen.findByTestId('create-transaction-type-admin_income')
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
-    expect(screen.getByTestId('create-transaction-error-receipt')).toBeInTheDocument()
+    // fix-round 2 (CI-5/CR-H-2/SR-M-7): presence alone leaves
+    // `translateZodMessage(receiptError) ?? receiptError` unobserved — a
+    // mutant flipping `??` to `&&` renders the raw `zod.RECEIPT_REQUIRED`
+    // key instead of translated text. Pin the actual translated uk text.
+    expect(screen.getByTestId('create-transaction-error-receipt')).toHaveTextContent(
+      'Чек обов’язковий — додайте файл або посилання',
+    )
     expect(createAdminIncomeMock).not.toHaveBeenCalled()
   })
 

@@ -11,7 +11,7 @@ import {
 } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
-import { getApiErrorMessage } from '@/lib/axios-utils'
+import { getApiErrorMessage, translateZodMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -543,7 +543,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         { receiptDocumentId, receiptExternalUrl },
         effectiveCurrency,
       )
-      if (receiptError) errors.receipt = receiptError
+      // fix-round 1 (CR-M-1): `receiptMandatoryError` now returns a
+      // `zod.<CODE>` key, not prose — translate it through the catalog
+      // before showing it (falls back to the raw key only if the code were
+      // ever unrecognized, which cannot happen for a real return value).
+      if (receiptError) errors.receipt = translateZodMessage(receiptError) ?? receiptError
     }
     // task-admin-income-unified (§2, was task-drop-share-override-and-receiver
     // Surface B). ADMIN now ALWAYS picks an explicit receiver for ADMIN_INCOME

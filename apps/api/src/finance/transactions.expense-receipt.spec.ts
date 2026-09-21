@@ -140,6 +140,23 @@ describe('createExpense — receipt-bind ownership guard (п.3 no-op by design)'
     await expect(service.createExpense(payload, ADMIN)).rejects.toThrow(NotFoundException)
   })
 
+  // fix-round 1 (mutation-gate closure): every test above supplies
+  // `receiptDocumentId`, so the mandatory-receipt gate itself — the ONE line
+  // before all of these ownership checks run —
+  // `if (expenseReceiptErr) throw zodErrorBadRequest(expenseReceiptErr)` —
+  // had zero direct coverage.
+  it('no receipt at all → 400 (receiptMandatoryError gate, runs before the ownership check)', async () => {
+    const db = makeDbMock(null)
+    service = makeTransactionsService({ db, invoicesService })
+
+    const payload = { amount: 50, currency: 'USD', category: 'Travel' }
+
+    await expect(service.createExpense(payload, ADMIN)).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+    })
+  })
+
   it('no-op by design: default expectedOwner === currentUser.id for EXPENSE', () => {
     // This test documents the design decision:
     // createExpense calls assertReceiptDocumentBindable(docId, currentUser) without

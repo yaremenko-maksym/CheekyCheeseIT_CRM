@@ -22,8 +22,19 @@
  * rather than by clicking the picker.
  */
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeAll, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { i18n } from '@lingui/core'
+
+// task-i18n-stage4-task4: the live amount validity check now runs
+// `transactionAmountError`'s `zod.<CODE>` result through `translateZodMessage`
+// (`i18n._` under the hood) — an activated locale is required, same pattern
+// as `axios-utils.spec.ts`'s own envelope tests (an empty compiled catalog
+// still resolves through the descriptor's own `message`, the uk source text).
+beforeAll(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 const RATES = { usdUah: '41.50', usdtUah: '41.50', eurUah: '45.00', date: '20260805' }
 
@@ -264,7 +275,7 @@ describe('PaySalaryDialog — amount validity (blocks, unlike the warning)', () 
     fireEvent.change(amountInput(), { target: { value: '0.0000001' } })
     await fillReceipt()
     fireEvent.click(screen.getByTestId('pay-salary-submit'))
-    expect(await screen.findByTestId('pay-salary-amount-error')).toHaveTextContent('слишком мала')
+    expect(await screen.findByTestId('pay-salary-amount-error')).toHaveTextContent('занадто мала')
     expect(paySalaryMock).not.toHaveBeenCalled()
   })
 
@@ -284,7 +295,7 @@ describe('PaySalaryDialog — amount validity (blocks, unlike the warning)', () 
     await fillReceipt()
     fireEvent.click(screen.getByTestId('pay-salary-submit'))
     expect(await screen.findByTestId('pay-salary-amount-error')).toHaveTextContent(
-      'знаков после запятой',
+      'знаків після крапки',
     )
     expect(paySalaryMock).not.toHaveBeenCalled()
   })

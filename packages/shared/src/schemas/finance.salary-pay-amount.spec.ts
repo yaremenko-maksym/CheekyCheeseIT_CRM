@@ -103,14 +103,16 @@ describe('paySalarySchema — paidAmount (task-salary-pay-amount)', () => {
     ).toBe(false)
   })
 
-  it('explains WHY in Russian, and reports a tiny amount as too small (not as too precise)', () => {
+  it('explains WHY by code, and reports a tiny amount as too small (not as too precise)', () => {
     const tiny = paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 1e-7 })
     expect(tiny.success).toBe(false)
-    expect((tiny.error?.issues ?? [])[0]?.message).toContain('слишком мала')
+    expect((tiny.error?.issues ?? [])[0]?.message).toBe('zod.TRANSACTION_AMOUNT_TOO_SMALL')
 
     const precise = paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 1.1234567 })
     expect(precise.success).toBe(false)
-    expect((precise.error?.issues ?? [])[0]?.message).toContain('знаков после запятой')
+    expect((precise.error?.issues ?? [])[0]?.message).toBe(
+      'zod.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS',
+    )
   })
 
   it('still forces USDT for a company-account payout (existing refine untouched)', () => {

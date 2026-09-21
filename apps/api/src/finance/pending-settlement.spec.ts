@@ -1415,6 +1415,29 @@ describe('PendingSettlementService.settleByCompany', () => {
         expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledAmount']).toBe('680.000000')
       })
 
+      // fix-round 1 (mutation-gate closure): the sibling test above is the only
+      // one in this suite that reaches this exact `funding` branch on a clean
+      // happy path — dropping the receipt from that SAME setup and expecting a
+      // refusal instead of success is what actually exercises
+      // `if (receiptErr) throw zodErrorBadRequest(receiptErr)`. Every other
+      // `funding`-passing test in this file supplies a receipt, so that guard
+      // itself had zero direct coverage.
+      it('REFUSES the settle when funding is present but the receipt is missing entirely', async () => {
+        const { svc, state } = makeService()
+        reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: 'Admin' })
+
+        await expect(
+          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN_PAYER_ID,
+            currency: 'USDT',
+          }),
+        ).rejects.toMatchObject({
+          status: 400,
+          response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+        })
+      })
+
       it('names the admin who paid last time, so the operator knows who must finish it', async () => {
         // "Из другого источника" is useless when both sides read
         // «личный счёт администратора». The refusal has to say WHOSE.

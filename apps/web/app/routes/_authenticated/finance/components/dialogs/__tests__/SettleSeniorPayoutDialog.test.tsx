@@ -232,7 +232,13 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     await screen.findByTestId('settle-senior-account-company')
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
     expect(settleMock).not.toHaveBeenCalled()
-    expect(screen.getByTestId('settle-senior-error-receipt')).toBeInTheDocument()
+    // fix-round 2 (CI-5/CR-H-2/SR-M-7): only asserting the testid's PRESENCE
+    // leaves `translateZodMessage(err) ?? err` unobserved — a mutant
+    // flipping `??` to `&&` renders the raw `zod.RECEIPT_REQUIRED` key
+    // instead of translated text. Pin the actual translated uk text.
+    expect(screen.getByTestId('settle-senior-error-receipt')).toHaveTextContent(
+      'Чек обов’язковий — додайте файл або посилання',
+    )
   })
 
   it('submitting with a partner → settle(ADMIN_PERSONAL, payerAdminId set, no currency)', async () => {

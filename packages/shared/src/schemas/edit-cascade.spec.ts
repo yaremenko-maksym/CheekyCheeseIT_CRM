@@ -1216,12 +1216,14 @@ describe('cascadeEditPreviewQuerySchema — wire contract', () => {
   })
 
   it('rejects a value below the money floor (moneyFloorAndPrecisionError, superRefine branch)', () => {
-    expect(() => cascadeEditPreviewQuerySchema.parse({ amount: 1e-7 })).toThrowError(/минимум/)
+    expect(() => cascadeEditPreviewQuerySchema.parse({ amount: 1e-7 })).toThrowError(
+      /zod\.TRANSACTION_AMOUNT_TOO_SMALL/,
+    )
   })
 
   it('rejects more than 6 decimal places (moneyFloorAndPrecisionError, superRefine branch)', () => {
     expect(() => cascadeEditPreviewQuerySchema.parse({ amount: 100.1234567 })).toThrowError(
-      /знаков после запятой/,
+      /zod\.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS/,
     )
   })
 

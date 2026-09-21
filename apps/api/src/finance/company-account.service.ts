@@ -13,6 +13,7 @@ import type {
   DepositStatusDto,
   SessionUser,
 } from '@crm/shared'
+import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import {
   companyAccount,
@@ -638,7 +639,7 @@ export class CompanyAccountService {
       { receiptDocumentId: input.receiptDocumentId, receiptExternalUrl: input.receiptExternalUrl },
       'USDT',
     )
-    if (receiptErr) throw new BadRequestException(receiptErr)
+    if (receiptErr) throw zodErrorBadRequest(receiptErr)
 
     // BIZ-19 (MED-2): idempotency check. Look for an existing DIVIDEND_TO_ADMIN
     // row with that key BEFORE acquiring the advisory lock (the lookup is a plain

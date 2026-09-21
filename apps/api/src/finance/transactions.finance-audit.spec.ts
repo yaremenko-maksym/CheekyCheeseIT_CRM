@@ -426,6 +426,21 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     expect(invoiceSpy).not.toHaveBeenCalled()
   })
 
+  // fix-round 1 (mutation-gate closure): `payData` above always supplies
+  // `receiptExternalUrl`, so `if (receiptErr) throw zodErrorBadRequest(receiptErr)`
+  // — which runs AFTER the archived-receiver pre-check but BEFORE the atomic
+  // flip this describe otherwise tests — had zero direct coverage.
+  it('no receipt at all → 400 (receiptMandatoryError gate, before the atomic flip)', async () => {
+    const { svc, invoiceSpy } = makeSvc([{ id: 'sal-1' }])
+    const { receiptExternalUrl: _unused, ...payDataWithoutReceipt } = payData
+
+    await expect(svc.paySalary('sal-1', payDataWithoutReceipt, admin())).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'RECEIPT_REQUIRED', statusCode: 400 }),
+    })
+    expect(invoiceSpy).not.toHaveBeenCalled()
+  })
+
   // security-review round 2 (MED-1, mutation gate): the `selfPayError`
   // defense-in-depth guard (senderId === tx.receiverId) is not reachable
   // through legitimate role data today — verified by reading (not assuming)
