@@ -276,6 +276,11 @@ describe('LoginAsPage — confirm dialog (real render, real useMutation)', () =>
     expect(
       screen.getByRole('heading', { name: `Увійти як «${SENIOR_USER.displayName}»?` }),
     ).toBeInTheDocument()
+
+    // MUT-1: the OK button's idle-state label — the OTHER branch of
+    // `impersonateMutation.isPending ? t\`Входимо…\` : t\`Увійти як\`` — L11
+    // only exercises the pending branch.
+    expect(screen.getByTestId('login-as-confirm-ok')).toHaveTextContent('Увійти як')
   })
 
   it('the target user\'s "Увійти як" button carries the catalog aria-label with their name (MUT-1)', async () => {
@@ -320,10 +325,7 @@ describe('LoginAsPage — confirm dialog (real render, real useMutation)', () =>
     await waitFor(() => {
       expect(screen.getByTestId('login-as-confirm-ok')).toBeDisabled()
     })
-    expect(screen.getByText('Входимо…')).toBeInTheDocument()
-    expect(
-      screen.queryByText('Увійти як', { selector: '[data-testid="login-as-confirm-ok"] *' }),
-    ).not.toBeInTheDocument()
+    expect(screen.getByTestId('login-as-confirm-ok')).toHaveTextContent('Входимо…')
   })
 
   it('L12. impersonate failure shows the catalog error toast with the server message interpolated (MUT-1)', async () => {
