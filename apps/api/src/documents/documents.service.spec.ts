@@ -368,7 +368,11 @@ describe('DocumentsService.upload — MIME / size validation', () => {
         { category: 'RESUME' },
       ),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'DOCUMENT_MIME_NOT_ALLOWED', statusCode: 415 }),
+      response: expect.objectContaining({
+        code: 'DOCUMENT_MIME_NOT_ALLOWED',
+        statusCode: 415,
+        params: { mimeType: 'text/csv' },
+      }),
     })
   })
 
@@ -381,7 +385,11 @@ describe('DocumentsService.upload — MIME / size validation', () => {
         { category: 'RESUME' },
       ),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'DOCUMENT_TOO_LARGE', statusCode: 413 }),
+      response: expect.objectContaining({
+        code: 'DOCUMENT_TOO_LARGE',
+        statusCode: 413,
+        params: { maxMb: 10 },
+      }),
     })
   })
 
@@ -416,7 +424,11 @@ describe('DocumentsService.upload — RBAC by category', () => {
       await expect(
         h.service.upload(JUNIOR, pdfFile, { category: 'RESUME', ownerId: SENIOR.id }),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'DOCUMENT_UPLOAD_SELF_ONLY', statusCode: 403 }),
+        response: expect.objectContaining({
+          code: 'DOCUMENT_UPLOAD_SELF_ONLY',
+          statusCode: 403,
+          params: { role: 'JUNIOR' },
+        }),
       })
     })
     it('JUNIOR upload for self → ok', async () => {
@@ -433,6 +445,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: expect.objectContaining({
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
+          params: { role: 'ACCOUNTANT', category: 'RESUME' },
         }),
       })
     })
@@ -506,6 +519,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: expect.objectContaining({
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
+          params: { role: 'HR', category: 'RECEIPT' },
         }),
       })
     })
@@ -517,6 +531,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: expect.objectContaining({
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
+          params: { role: 'JUNIOR', category: 'RECEIPT' },
         }),
       })
     })
@@ -533,6 +548,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: expect.objectContaining({
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
+          params: { role: 'SENIOR', category: 'RECEIPT' },
         }),
       })
     })
@@ -589,6 +605,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: expect.objectContaining({
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
+          params: { role: 'JUNIOR', category: 'LOGO' },
         }),
       })
     })
@@ -600,6 +617,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: expect.objectContaining({
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
+          params: { role: 'ACCOUNTANT', category: 'LOGO' },
         }),
       })
     })
@@ -752,6 +770,13 @@ describe('DocumentsService.softDelete', () => {
     })
     await expect(h.service.softDelete(SENIOR, 'd1')).resolves.toBeUndefined()
   })
+
+  it('throws DOCUMENT_NOT_FOUND when the doc row does not exist', async () => {
+    const h = makeHarness({ docs: [] })
+    await expect(h.service.softDelete(SENIOR, 'no-such-doc')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
+  })
 })
 
 describe('DocumentsService.restore', () => {
@@ -780,6 +805,28 @@ describe('DocumentsService.restore', () => {
     })
     const restored = await h.service.restore(ADMIN, 'd1')
     expect(restored.uploadedByDisplayName).toBeNull()
+  })
+
+  it('throws DOCUMENT_NOT_FOUND when the doc row does not exist', async () => {
+    const h = makeHarness({ docs: [] })
+    await expect(h.service.restore(ADMIN, 'no-such-doc')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
+  })
+
+  it('throws DOCUMENT_NOT_FOUND when the row vanishes between findFirst and the UPDATE (race)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
+    })
+    // findFirst still sees the row, but the UPDATE's own .returning() comes
+    // back empty — the defensive branch this pins, distinct from the
+    // "row never existed" case above.
+    h.db.db.update = () => ({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(h.service.restore(ADMIN, 'd1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
@@ -1975,7 +2022,11 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { category: 'RESUME', ownerId: DROP2.id },
         ),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'DOCUMENT_UPLOAD_SELF_ONLY', statusCode: 403 }),
+        response: expect.objectContaining({
+          code: 'DOCUMENT_UPLOAD_SELF_ONLY',
+          statusCode: 403,
+          params: { role: 'DROP' },
+        }),
       })
     })
 
@@ -1999,7 +2050,11 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
           { category: 'SCAN', ownerId: DROP2.id },
         ),
       ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'DOCUMENT_UPLOAD_SELF_ONLY', statusCode: 403 }),
+        response: expect.objectContaining({
+          code: 'DOCUMENT_UPLOAD_SELF_ONLY',
+          statusCode: 403,
+          params: { role: 'DROP' },
+        }),
       })
     })
 
@@ -2042,6 +2097,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
         response: expect.objectContaining({
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
+          params: { role: 'DROP', category: 'RECEIPT' },
         }),
       })
     })

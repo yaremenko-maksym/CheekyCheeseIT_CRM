@@ -621,6 +621,13 @@ describe('TeamsService.unarchive', () => {
 // ---------------------------------------------------------------------------
 
 describe('TeamsService.getArchiveImpact', () => {
+  it('throws TEAM_NOT_FOUND when the team row does not exist', async () => {
+    const { service } = buildService({ team: undefined })
+    await expect(service.getArchiveImpact('ghost-team', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
+  })
+
   it('translates SENIOR pair impact into team shape', async () => {
     const team = makeActiveTeam()
     const { service } = buildService({

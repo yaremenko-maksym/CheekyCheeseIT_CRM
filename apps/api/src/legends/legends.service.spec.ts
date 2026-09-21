@@ -348,6 +348,15 @@ describe('LegendsService.upsertLegend', () => {
     expect(result.fullName).toBe('Новий Іван')
   })
 
+  it('throws LEGEND_UPSERT_FAILED when the upsert returns no row (defensive branch)', async () => {
+    const { service, chain } = buildService()
+    chain.limit.mockResolvedValueOnce([seniorProject])
+    chain.returning.mockResolvedValueOnce([]) // upsert somehow returns nothing
+    await expect(service.upsertLegend(admin, PROJECT_ID, dto)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LEGEND_UPSERT_FAILED', statusCode: 404 }),
+    })
+  })
+
   it('HR with team access can upsert', async () => {
     const { service, chain } = buildService()
     chain.limit

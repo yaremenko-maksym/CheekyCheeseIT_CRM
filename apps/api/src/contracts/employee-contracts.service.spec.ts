@@ -365,6 +365,7 @@ describe('EmployeeContractsService', () => {
         response: expect.objectContaining({
           code: 'CONTRACT_ALREADY_STATUS_CANNOT_REVERT',
           statusCode: 409,
+          params: { status: 'DRAFT' },
         }),
       })
     })
@@ -449,6 +450,17 @@ describe('EmployeeContractsService', () => {
 
       await expect(service.resetToTemplate('user-uuid', mockViewer)).rejects.toMatchObject({
         response: expect.objectContaining({ code: 'CONTRACT_NOT_DRAFT', statusCode: 409 }),
+      })
+    })
+
+    it('throws USER_NOT_FOUND when the user row is missing (DRAFT contract, orphaned user)', async () => {
+      const contract = makeContract({ status: 'DRAFT' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue(null)
+
+      await expect(service.resetToTemplate('user-uuid', mockViewer)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
       })
     })
   })
@@ -641,6 +653,7 @@ describe('EmployeeContractsService', () => {
         response: expect.objectContaining({
           code: 'CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS',
           statusCode: 400,
+          params: { keys: 'arbitraryKey' },
         }),
       })
     })
@@ -723,6 +736,19 @@ describe('EmployeeContractsService', () => {
 
       expect(err).toMatchObject({
         response: expect.objectContaining({ code: 'CONTRACT_TEMPLATE_NOT_FOUND', statusCode: 404 }),
+      })
+    })
+  })
+
+  describe('getContractVariables — user row missing', () => {
+    it('throws USER_NOT_FOUND when the user row is missing', async () => {
+      const contract = makeContract()
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue(null)
+
+      await expect(service.getContractVariables('user-uuid')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
       })
     })
   })

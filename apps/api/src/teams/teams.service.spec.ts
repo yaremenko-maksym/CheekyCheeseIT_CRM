@@ -295,6 +295,34 @@ describe('TeamsService.addMember', () => {
     })
   })
 
+  it('throws JUNIOR_ALREADY_ON_ANOTHER_PROJECT when the junior has an active project elsewhere', async () => {
+    const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
+    const activeProject = {
+      id: 'proj-1',
+      seniorId: 'senior-1',
+      dropId: null,
+      archivedAt: null,
+      members: [
+        {
+          id: 'pm-1',
+          userId: 'junior-1',
+          projectId: 'proj-1',
+          leftAt: null,
+          joinedAt: new Date(),
+          user: { id: 'junior-1', role: 'JUNIOR', displayName: 'Junior', email: 'j@cc.com' },
+        },
+      ],
+    }
+    const db = makeDb({ team, user: juniorUser, projectList: [activeProject] })
+    const service = makeService(db)
+    await expect(service.addMember('team-1', 'junior-1', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'JUNIOR_ALREADY_ON_ANOTHER_PROJECT',
+        statusCode: 400,
+      }),
+    })
+  })
+
   it('reactivates a soft-deleted member instead of inserting a duplicate (re-add works)', async () => {
     const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
     // Previously removed member: a soft-deleted row (leftAt != null) survives.
@@ -517,6 +545,15 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
       },
     ],
   }
+
+  it('throws TEAM_NOT_FOUND when the team row does not exist', async () => {
+    const db = makeDb({ team: undefined })
+    const service = makeService(db)
+
+    await expect(service.findOne('ghost-team', adminUser)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TEAM_NOT_FOUND', statusCode: 404 }),
+    })
+  })
 
   it('JUNIOR viewer → SENIOR member email is null', async () => {
     const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')

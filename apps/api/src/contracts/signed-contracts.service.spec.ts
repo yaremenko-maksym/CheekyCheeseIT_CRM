@@ -552,6 +552,30 @@ describe('SignedContractsService', () => {
       })
     })
 
+    it('throws USER_NOT_FOUND when the user row is missing inside the tx', async () => {
+      const mockDb = makeDb()
+      mockDb.db.query.users.findFirst.mockResolvedValue(undefined)
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: '',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+          impersonatorId: null,
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+      })
+    })
+
     it('throws LEGAL_NAME_REQUIRED when legalFullName is null', async () => {
       const userWithoutLegal = makeUser({ legalFullName: null })
       const mockDb = makeDb({ userRow: userWithoutLegal })
