@@ -349,7 +349,32 @@ export function extractBackendMessage(err: unknown): string | undefined {
         // kept ONLY for a legacy issue (`message` with no `code`), where the
         // field name is the only positional context the reader has.
         const rawCode = e['code']
-        // Stryker disable next-line ConditionalExpression: `isZodErrorCode` calls `(ZOD_ERROR_CODES as readonly string[]).includes(value)` — SameValueZero comparison against an array of strings, so it returns `false` for ANY non-string `value` (never throws, never coerces) exactly like the `typeof rawCode === 'string'` guard it's paired with would have short-circuited to. Forcing this condition's left operand to `true` is therefore unobservable for every possible `rawCode` — no assertion can tell the two apart. Same reasoning `zod-exception.filter.ts`'s own `isZodErrorCode` doc comment gives for its twin ("`[].includes(null)` is `false`, never throws").
+        // fix-round 3 (SR-L-2): this ONE directive silences all THREE
+        // ConditionalExpression mutants Stryker generates on this line —
+        // Stryker groups by line+mutator, it cannot suppress one and not
+        // the others. Reasoning per mutant (confirmed by actually running
+        // the gate with the directive removed, not just reasoned about):
+        //   - whole-condition forced-true (every issue treated as a valid
+        //     code): genuinely observable — KILLED, this round, by "falls
+        //     back to the message field when code is present but unknown"
+        //     below, which throws through `translateZodError`'s registry
+        //     lookup on a code with no entry. Suppressed only as an
+        //     unavoidable side effect of sharing the line with the
+        //     survivor below — coverage stays real, Stryker just no
+        //     longer re-verifies it every run.
+        //   - whole-condition forced-false (branch body never runs): also
+        //     KILLED, same test — falls through to the path-prefixed raw
+        //     message instead of the translated text. Same caveat.
+        //   - left-operand-only forced-true (`typeof rawCode === 'string'`
+        //     replaced by `true`, `isZodErrorCode(rawCode)` still runs):
+        //     genuinely unobservable. `isZodErrorCode` is `.includes()` —
+        //     SameValueZero comparison against `ZOD_ERROR_CODES` — which
+        //     safely returns `false` for ANY non-string input (never
+        //     throws, never coerces), exactly like the `typeof` guard it's
+        //     paired with would have short-circuited to. No assertion can
+        //     tell "checked the type first" from "skipped the check, let
+        //     `.includes()` reject it anyway" apart.
+        // Stryker disable next-line ConditionalExpression
         if (typeof rawCode === 'string' && isZodErrorCode(rawCode)) {
           return translateZodError(rawCode)
         }
@@ -380,7 +405,15 @@ export function extractBackendMessage(err: unknown): string | undefined {
   // Ukrainian/English UI. Same `code`-over-`errors[]` shape as the branch
   // above, just for a code that isn't wrapped in an array.
   const rawTopCode = d['code']
-  // Stryker disable next-line ConditionalExpression: same reasoning as the `errors[]` branch's identical guard above — `isZodErrorCode` returns `false` for any non-string value via `.includes()`'s SameValueZero comparison, so forcing this condition's left operand to `true` is unobservable for every possible `rawTopCode`.
+  // fix-round 3 (SR-L-2): same reasoning as the `errors[]` branch's
+  // identical guard above — this ONE directive silences all THREE
+  // ConditionalExpression mutants Stryker generates on this line (whole-
+  // condition forced-true/forced-false, both KILLED this round by "falls
+  // through to response.data.message when the top-level code is not one
+  // of ours" below; left-operand-only forced-true, genuinely unobservable
+  // — `isZodErrorCode`'s `.includes()` safely returns `false` for any
+  // non-string value, so skipping the `typeof` check changes nothing).
+  // Stryker disable next-line ConditionalExpression
   if (typeof rawTopCode === 'string' && isZodErrorCode(rawTopCode)) {
     return translateZodError(rawTopCode)
   }

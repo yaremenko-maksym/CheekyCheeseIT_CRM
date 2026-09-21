@@ -122,6 +122,39 @@ describe('numbers baked into ZOD_ERROR_MESSAGES/ZOD_ERROR_FALLBACK_EN pin the li
   })
 })
 
+/**
+ * fix-round 3, COPY-M-13. `SHARE_PERCENT_RANGE_1_100`/`SHARE_PERCENT_RANGE_0_100`
+ * have no shared numeric constant to pin against (unlike the `money.ts`/
+ * `finance.ts` amounts above — these are hand-rolled `onBlur` bounds inline
+ * in the form components, not exported from `@crm/shared`). The invariant
+ * this suite CAN check without one: the uk message and the en fallback name
+ * the SAME two numbers, so a future copy-edit to one locale cannot silently
+ * drift the stated range away from the other's.
+ */
+describe('SHARE_PERCENT_RANGE codes carry the same numbers in uk and en', () => {
+  const digitsOf = (text: string) => text.match(/\d+/g) ?? []
+
+  it('SHARE_PERCENT_RANGE_1_100: uk and en text, and both say 1 and 100', () => {
+    expect(ZOD_ERROR_MESSAGES.SHARE_PERCENT_RANGE_1_100.message).toBe('Вкажіть від 1 до 100')
+    expect(ZOD_ERROR_FALLBACK_EN.SHARE_PERCENT_RANGE_1_100).toBe('Enter a value from 1 to 100')
+    expect(digitsOf(ZOD_ERROR_MESSAGES.SHARE_PERCENT_RANGE_1_100.message ?? '')).toEqual([
+      '1',
+      '100',
+    ])
+    expect(digitsOf(ZOD_ERROR_FALLBACK_EN.SHARE_PERCENT_RANGE_1_100)).toEqual(['1', '100'])
+  })
+
+  it('SHARE_PERCENT_RANGE_0_100: uk and en text, and both say 0 and 100', () => {
+    expect(ZOD_ERROR_MESSAGES.SHARE_PERCENT_RANGE_0_100.message).toBe('Вкажіть від 0 до 100')
+    expect(ZOD_ERROR_FALLBACK_EN.SHARE_PERCENT_RANGE_0_100).toBe('Enter a value from 0 to 100')
+    expect(digitsOf(ZOD_ERROR_MESSAGES.SHARE_PERCENT_RANGE_0_100.message ?? '')).toEqual([
+      '0',
+      '100',
+    ])
+    expect(digitsOf(ZOD_ERROR_FALLBACK_EN.SHARE_PERCENT_RANGE_0_100)).toEqual(['0', '100'])
+  })
+})
+
 describe('zodErrorFallbackText', () => {
   it('translates a coded zod.<CODE> message to its English fallback', () => {
     expect(zodErrorFallbackText('zod.RECEIPT_REQUIRED')).toBe(
@@ -155,4 +188,21 @@ describe('zodErrorFallbackText', () => {
     expect(message.startsWith('zod.')).toBe(false)
     expect(zodErrorFallbackText(message)).toBe(message)
   })
+
+  /**
+   * fix-round 3, SR-L-1. `ZOD_ERROR_FALLBACK_EN` is an ordinary object
+   * literal — `['__proto__']`/`['constructor']`/`['toString']` resolve to
+   * INHERITED, non-`undefined` values (`Object.prototype` itself, and two
+   * functions), so a bracket-index-then-`?? message` fallback would return
+   * an object/function instead of a string for each. The `isZodErrorCode`
+   * allow-list guard must return `message` verbatim for all three.
+   */
+  it.each(['zod.__proto__', 'zod.constructor', 'zod.toString'])(
+    'treats %s as an unknown code, not a prototype lookup — returns the message verbatim as a string',
+    (message) => {
+      const result = zodErrorFallbackText(message)
+      expect(typeof result).toBe('string')
+      expect(result).toBe(message)
+    },
+  )
 })

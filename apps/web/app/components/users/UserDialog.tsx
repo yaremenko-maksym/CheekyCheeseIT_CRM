@@ -1565,7 +1565,8 @@ export function UserDialog(props: UserDialogProps) {
                         name="seniorSharePercent"
                         validators={{
                           onBlur: ({ value }) => {
-                            if (value < 1 || value > 100) return 'Введите от 1 до 100'
+                            if (value < 1 || value > 100)
+                              return translateZodCode('SHARE_PERCENT_RANGE_1_100')
                             return undefined
                           },
                         }}
@@ -1638,7 +1639,8 @@ export function UserDialog(props: UserDialogProps) {
                         name="dropSharePercent"
                         validators={{
                           onBlur: ({ value }) => {
-                            if (value < 0 || value > 100) return 'Введите от 0 до 100'
+                            if (value < 0 || value > 100)
+                              return translateZodCode('SHARE_PERCENT_RANGE_0_100')
                             return undefined
                           },
                         }}

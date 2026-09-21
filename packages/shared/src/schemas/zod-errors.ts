@@ -91,6 +91,13 @@ export const ZOD_ERROR_CODES = [
   // "channel" vs "nick" is a different noun, so reusing `TELEGRAM_FORMAT`'s
   // text here would say the wrong thing, not just the right thing twice.
   'TELEGRAM_CHANNEL_FORMAT',
+  // UserDialog.tsx / team/index.tsx hand-rolled share-percent `onBlur`
+  // validators (fix-round 3, COPY-M-13) — the last Russian inline-error
+  // literals in forms this PR otherwise migrated; two codes because
+  // `seniorSharePercent`'s valid range (1–100) differs from
+  // `dropSharePercent`'s (0–100).
+  'SHARE_PERCENT_RANGE_1_100',
+  'SHARE_PERCENT_RANGE_0_100',
 ] as const
 export type ZodErrorCode = (typeof ZOD_ERROR_CODES)[number]
 
@@ -133,10 +140,12 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   RECEIPT_REQUIRED: /* i18n */ {
     id: 'zod-error.RECEIPT_REQUIRED',
-    // fix-round 2 (COPY-L-13, decision A1): «чек» — the term already on the
-    // field label in every diaog that shows this error (`Чек / підтвердження
-    // *`) and in the integration specs; «квитанція» would have introduced a
-    // second term for the same object the moment that label migrates.
+    // fix-round 2 (COPY-L-13, decision A1): «чек» — the term used in the
+    // integration specs, and it matches the field label these dialogs
+    // render today (`Чек / подтверждение *`, still Russian — not migrated
+    // by this task; fix-round 3, COPY-L-14). «квитанція» would introduce a
+    // second term for the same object the moment that label migrates, so
+    // the label's migration should pick «Чек» as its first word too.
     message: 'Чек обов’язковий — додайте файл або посилання',
   },
   RECEIPT_BOTH_NOT_ALLOWED: /* i18n */ {
@@ -296,6 +305,14 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.TELEGRAM_CHANNEL_FORMAT',
     message: 'Канал у Telegram: 5–32 символи — латиниця, цифри або _',
   },
+  SHARE_PERCENT_RANGE_1_100: /* i18n */ {
+    id: 'zod-error.SHARE_PERCENT_RANGE_1_100',
+    message: 'Вкажіть від 1 до 100',
+  },
+  SHARE_PERCENT_RANGE_0_100: /* i18n */ {
+    id: 'zod-error.SHARE_PERCENT_RANGE_0_100',
+    message: 'Вкажіть від 0 до 100',
+  },
 }
 
 /**
@@ -352,6 +369,24 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   DISPLAY_NAME_MIN: 'Name — at least 2 characters',
   PHONE_INVALID: 'Enter the number in international format, e.g. +380671234567',
   TELEGRAM_CHANNEL_FORMAT: 'Telegram channel: 5–32 characters — Latin letters, digits or _',
+  SHARE_PERCENT_RANGE_1_100: 'Enter a value from 1 to 100',
+  SHARE_PERCENT_RANGE_0_100: 'Enter a value from 0 to 100',
+}
+
+/**
+ * fix-round 3 (SR-L-1). A membership check against `ZOD_ERROR_CODES` — not a
+ * bracket-index-then-`??`-fallback — because `ZOD_ERROR_FALLBACK_EN` is an
+ * ordinary object literal: `ZOD_ERROR_FALLBACK_EN['__proto__']` resolves to
+ * `Object.prototype` (an object), and `['constructor']`/`['toString']`
+ * resolve to functions — all three are INHERITED, non-`undefined` values, so
+ * `?? message` never fires for them. `.includes()` on the `ZOD_ERROR_CODES`
+ * array does a SameValueZero string comparison and cannot be fooled by
+ * prototype-chain lookups the way bracket indexing can. Mirrors the same
+ * pattern (and the same reasoning) as `zod-exception.filter.ts`'s and
+ * `axios-utils.ts`'s own `isZodErrorCode` guards.
+ */
+function isZodErrorCode(value: string): value is ZodErrorCode {
+  return (ZOD_ERROR_CODES as readonly string[]).includes(value)
 }
 
 /**
@@ -367,6 +402,6 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
  */
 export function zodErrorFallbackText(message: string): string {
   if (!message.startsWith('zod.')) return message
-  const code = message.slice('zod.'.length) as ZodErrorCode
-  return ZOD_ERROR_FALLBACK_EN[code] ?? message
+  const code = message.slice('zod.'.length)
+  return isZodErrorCode(code) ? ZOD_ERROR_FALLBACK_EN[code] : message
 }

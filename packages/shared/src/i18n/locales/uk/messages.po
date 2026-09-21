@@ -170,6 +170,16 @@ msgstr "Вкажіть адресу USDT ERC-20"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SHARE_PERCENT_RANGE_0_100"
+msgstr "Вкажіть від 0 до 100"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SHARE_PERCENT_RANGE_1_100"
+msgstr "Вкажіть від 1 до 100"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REASON_REQUIRED_DELETE"
 msgstr "Вкажіть причину видалення — вона потрапить до журналу"
 
