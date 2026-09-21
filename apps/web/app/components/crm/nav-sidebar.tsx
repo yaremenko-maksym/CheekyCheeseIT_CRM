@@ -220,12 +220,18 @@ export function NavSidebar({
 
           <div className="border-t border-border/60 p-2">
             {(() => {
+              // MUT-1 (fix-round 2): a single evaluation shared by the
+              // button's `aria-label` AND the tooltip's own content — was
+              // two separate `collapsed ? t\`Розгорнути\` : t\`Згорнути\`\``
+              // AST nodes, so mutating the tooltip's copy alone changed
+              // nothing any aria-label-only assertion could see.
+              const toggleLabel = collapsed ? t`Розгорнути` : t`Згорнути`
               const toggleButton = (
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={onToggle}
-                  aria-label={collapsed ? t`Розгорнути` : t`Згорнути`}
+                  aria-label={toggleLabel}
                   className="h-8 w-full cursor-pointer text-muted-foreground hover:text-foreground"
                 >
                   {collapsed ? (
@@ -242,9 +248,7 @@ export function NavSidebar({
               return (
                 <Tooltip>
                   <TooltipTrigger asChild>{toggleButton}</TooltipTrigger>
-                  <TooltipContent side="right">
-                    {collapsed ? t`Розгорнути` : t`Згорнути`}
-                  </TooltipContent>
+                  <TooltipContent side="right">{toggleLabel}</TooltipContent>
                 </Tooltip>
               )
             })()}

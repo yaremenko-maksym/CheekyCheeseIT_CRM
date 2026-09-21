@@ -79,15 +79,35 @@ const seniorUser: SessionUser = {
   locale: 'uk',
 }
 
-function renderSidebar(opts: { mobileOpen?: boolean } = {}) {
+const adminUser: SessionUser = {
+  ...seniorUser,
+  id: '22222222-2222-2222-2222-222222222222',
+  email: 'admin@cc.com',
+  displayName: 'Admin',
+  role: 'ADMIN',
+  seniorSharePercent: 0,
+}
+
+const juniorUser: SessionUser = {
+  ...seniorUser,
+  id: '33333333-3333-3333-3333-333333333333',
+  email: 'junior@cc.com',
+  displayName: 'Junior',
+  role: 'JUNIOR',
+  seniorSharePercent: 0,
+}
+
+function renderSidebar(
+  opts: { mobileOpen?: boolean; user?: SessionUser; collapsed?: boolean } = {},
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const rootRoute = createRootRoute({
     component: () => (
       <I18nTestProvider>
         <QueryClientProvider client={qc}>
           <NavSidebar
-            user={seniorUser}
-            collapsed={false}
+            user={opts.user ?? seniorUser}
+            collapsed={opts.collapsed ?? false}
             onToggle={() => {}}
             mobileOpen={opts.mobileOpen ?? false}
             onMobileClose={() => {}}
@@ -251,5 +271,105 @@ describe('NavSidebar — «Чекають рішення» nav item (label, link
     const mobileBadge = await screen.findByTestId('nav-pending-badge-mobile')
     expect(mobileBadge).toHaveTextContent('99')
     expect(mobileBadge).not.toHaveTextContent('99+')
+  })
+})
+
+// MUT-1 (fix-round 2): every NAV_ITEMS entry pairs a `label: msg\`...\`` with
+// a `to: '...'` route — mutating EITHER to empty produced no failure before
+// this block, because no test asserted a link's accessible name AND its
+// `href` together for most items. `getByRole('link', { name })` fails on
+// BOTH mutants at once: an empty label means the name lookup itself fails,
+// and (for items whose label is unique) an empty `to` still resolves the
+// link by name but the `href` assertion then catches the empty target.
+describe('NAV_ITEMS — label + route target, per role (MUT-1)', () => {
+  it('SENIOR sees Дашборд / Команда / Проєкти / Фінанси / Співбесіди / Документи / Профіль, each linking to its own route', async () => {
+    renderSidebar({ user: seniorUser })
+    await screen.findByRole('navigation')
+
+    const cases: [string, string][] = [
+      ['Дашборд', '/'],
+      ['Команда', '/team'],
+      ['Проєкти', '/projects'],
+      ['Фінанси', '/finance'],
+      ['Співбесіди', '/interviews'],
+      ['Документи', '/documents'],
+      ['Профіль', '/profile'],
+    ]
+    for (const [label, to] of cases) {
+      expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', to)
+    }
+  })
+
+  it('ADMIN additionally sees Користувачі / Адмін / Статистика / Вакансії, each linking to its own route', async () => {
+    renderSidebar({ user: adminUser })
+    await screen.findByRole('navigation')
+
+    const cases: [string, string][] = [
+      ['Користувачі', '/users'],
+      ['Адмін', '/admin'],
+      ['Статистика', '/stats'],
+      ['Вакансії', '/vacancies'],
+    ]
+    for (const [label, to] of cases) {
+      expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', to)
+    }
+  })
+
+  it('JUNIOR sees Мій проєкт / Легенда, each linking to its own route', async () => {
+    renderSidebar({ user: juniorUser })
+    await screen.findByRole('navigation')
+
+    const cases: [string, string][] = [
+      ['Мій проєкт', '/project'],
+      ['Легенда', '/legend'],
+    ]
+    for (const [label, to] of cases) {
+      expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', to)
+    }
+  })
+})
+
+// MUT-1 (fix-round 2): the collapse-toggle's `aria-label` (and its tooltip
+// content, the SAME ternary evaluated a second time) — only the `collapsed:
+// false` branch ("Згорнути") was ever rendered by any test; "Розгорнути"
+// (collapsed: true) was pure no-coverage.
+describe('collapse-toggle button (MUT-1)', () => {
+  it('names itself "Згорнути" when expanded (collapsed=false)', async () => {
+    renderSidebar({ collapsed: false })
+    expect(await screen.findByLabelText('Згорнути')).toBeInTheDocument()
+  })
+
+  it('names itself "Розгорнути" when collapsed (collapsed=true)', async () => {
+    renderSidebar({ collapsed: true })
+    expect(await screen.findByLabelText('Розгорнути')).toBeInTheDocument()
+  })
+})
+
+// MUT-1 (fix-round 2): TWO separate `<nav aria-label={t\`Основна
+// навігація\`}>` elements exist — desktop (always mounted, CSS-hidden on
+// mobile) and the mobile Sheet's own copy (mounted only while open).
+// `findByRole('navigation')` with no `name` option (the pre-existing SR-L-5
+// tests above) resolves regardless of the label's actual text — it never
+// pinned the STRING.
+describe('nav landmark aria-label (MUT-1)', () => {
+  it('desktop nav names itself "Основна навігація"', async () => {
+    renderSidebar()
+    expect(await screen.findByRole('navigation', { name: 'Основна навігація' })).toBeInTheDocument()
+  })
+
+  it('the mobile Sheet nav (a SEPARATE JSX node from the desktop one) also carries the label', async () => {
+    renderSidebar({ mobileOpen: true })
+    // While the Sheet (a modal dialog) is open, Radix marks the desktop
+    // <aside> `aria-hidden` (standard modal background-inert behavior), so
+    // the DEFAULT (accessible-only) query would resolve to just the Sheet's
+    // OWN <nav> (line 271's separate JSX, not line 201's) — already proof
+    // enough that IT carries the label. `{ hidden: true }` additionally
+    // includes the aria-hidden desktop one, confirming there are TWO such
+    // landmarks (not that the same one was found twice).
+    const navs = await screen.findAllByRole('navigation', {
+      name: 'Основна навігація',
+      hidden: true,
+    })
+    expect(navs).toHaveLength(2)
   })
 })
