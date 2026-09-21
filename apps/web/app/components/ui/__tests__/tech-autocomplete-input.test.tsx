@@ -23,9 +23,11 @@ beforeEach(async () => {
 function Controlled({
   initial = [] as string[],
   onChange,
+  maxItems,
 }: {
   initial?: string[]
   onChange?: (v: string[]) => void
+  maxItems?: number
 }) {
   const [value, setValue] = React.useState<string[]>(initial)
   return (
@@ -36,6 +38,7 @@ function Controlled({
           setValue(next)
           onChange?.(next)
         }}
+        {...(maxItems !== undefined ? { maxItems } : {})}
       />
     </I18nTestProvider>
   )
@@ -218,5 +221,27 @@ describe('TechAutocompleteInput — chip interactions', () => {
     await user.keyboard('{Backspace}')
 
     expect(onChange).toHaveBeenCalledWith(['React'])
+  })
+})
+
+// MUT-1 (fix-round 2): placeholder text and the per-chip remove button's
+// aria-label had no assertions at all before this round.
+describe('TechAutocompleteInput — placeholder + chip remove button labels', () => {
+  it('shows the default placeholder when no chips are entered', () => {
+    render(<Controlled />)
+    expect(getInput()).toHaveAttribute('placeholder', 'Почніть вводити технологію…')
+  })
+
+  it('shows the limit-reached placeholder (and disables the input) once maxItems is hit', () => {
+    render(<Controlled initial={['React']} maxItems={1} />)
+    const input = getInput()
+    expect(input).toHaveAttribute('placeholder', 'Досягнуто ліміт 1 тегів')
+    expect(input).toBeDisabled()
+  })
+
+  it('each chip’s remove button names the specific chip in aria-label', () => {
+    render(<Controlled initial={['React', 'TypeScript']} />)
+    expect(screen.getByLabelText('Видалити React')).toBeInTheDocument()
+    expect(screen.getByLabelText('Видалити TypeScript')).toBeInTheDocument()
   })
 })
