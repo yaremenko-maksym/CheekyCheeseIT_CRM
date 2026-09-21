@@ -61,11 +61,19 @@ function renderImpactText(
     if (role === 'SENIOR' || role === 'DROP') {
       // Template E (select, 2 variants used inline — no `other` reachable
       // through this guard, but the macro's signature still requires one).
+      // Stryker disable next-line ObjectLiteral: Lingui's babel macro needs
+      // this options object to stay a literal it can statically read at
+      // compile time — replacing it with `{}` (the ObjectLiteral mutator)
+      // makes the macro transform itself throw ("props is not iterable"),
+      // failing BEFORE any test runs. Not a coverage gap — the mutation is
+      // unrepresentable for this macro's call shape (same reasoning as
+      // DropDashboard.tsx's plural() call).
       const roleGenitive = select(role, {
         SENIOR: 'синьйора',
         DROP: 'дропа',
         other: 'співробітника',
       })
+      // Stryker disable next-line ObjectLiteral: same reasoning as above.
       const pairWord = select(role, { SENIOR: 'синьйор', DROP: 'дроп', other: 'співробітник' })
       const projectNames = impact.projectNames ?? []
       return (

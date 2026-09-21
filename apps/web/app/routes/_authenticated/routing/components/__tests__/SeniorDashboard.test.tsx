@@ -208,11 +208,15 @@ describe('SeniorDashboard', () => {
       const cardEl = screen.getByTestId('kpi-active-projects')
       expect(cardEl).toHaveTextContent('2')
       expect(cardEl).toHaveTextContent('Активні проекти')
+      // Mutation gate (StringLiteral): the card's `sub` had no assertion.
+      expect(cardEl).toHaveTextContent('Проекти, де ви синьйор')
     })
 
     it('shows income this month + total sub-label (senior-share aggregate stays USD)', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-senior-income')
+      // Mutation gate (StringLiteral): the card's `title` had no assertion.
+      expect(cardEl).toHaveTextContent('Дохід за місяць')
       // Independent of the component's own implementation — computed straight
       // from `Intl`, the same source `format.spec.ts` uses (formatMoney is
       // `<amount> <CODE>`, not the old $-prefixed toLocaleString). jest-dom's
@@ -233,6 +237,8 @@ describe('SeniorDashboard', () => {
     it('shows pending-payouts count + amount', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-pending-payouts')
+      // Mutation gate (StringLiteral): the card's `title` had no assertion.
+      expect(cardEl).toHaveTextContent('Очікують виплати')
       const uk2dp = (n: number) =>
         new Intl.NumberFormat('uk-UA', {
           minimumFractionDigits: 2,
@@ -408,6 +414,14 @@ describe('SeniorDashboard', () => {
       expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent(
         'надходжень від компаній',
       )
+      // Mutation gate (StringLiteral): the `{' '}` between the fraction span
+      // and "надходжень…" had no assertion strict enough to require the
+      // space itself — a plain substring match still finds "надходжень…"
+      // even with the space removed, since the missing space sits BEFORE
+      // it. A regex requiring at least one whitespace char between "1/2"
+      // and "надходжень" distinguishes "1/2надходжень" (mutant) from
+      // "1/2 надходжень" (real behavior).
+      expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent(/1\/2\s+надходжень/)
       expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent('50%')
       const bar = screen.getByRole('progressbar', {
         name: 'Надходження від компаній за цей місяць',
@@ -481,6 +495,28 @@ describe('SeniorDashboard', () => {
       expect(screen.getByTestId('senior-in-progress-row-validated-1')).toBeInTheDocument()
       // PAID (terminal / «зелёные») must NOT appear in the in-progress list.
       expect(screen.queryByTestId('senior-in-progress-row-paid-1')).not.toBeInTheDocument()
+    })
+
+    // Mutation gate (InProgressPanel.tsx's `t.projectName ?? '—'` row title):
+    // no test previously asserted the row's actual displayed project name —
+    // `?? '—'` and `&& '—'` produce IDENTICAL results only when
+    // `projectName` is falsy; with a real name they diverge (`??` keeps the
+    // name, `&&` would show the em-dash instead).
+    it('shows the transaction project name (not the em-dash fallback) when present', async () => {
+      getTransactionsMock.mockResolvedValue([makeTx({ id: 'pending-1', status: 'PENDING' })])
+      renderDashboard()
+      const row = await screen.findByTestId('senior-in-progress-row-pending-1')
+      expect(row).toHaveTextContent('Acme Migration')
+    })
+
+    it('falls back to an em-dash when a non-payout row has no project name', async () => {
+      getTransactionsMock.mockResolvedValue([
+        makeTx({ id: 'pending-noname', status: 'PENDING', projectName: null }),
+      ])
+      renderDashboard()
+      const row = await screen.findByTestId('senior-in-progress-row-pending-noname')
+      expect(row).toHaveTextContent('—')
+      expect(row).not.toHaveTextContent('Acme Migration')
     })
 
     it('renders «Создать выплату» ONLY on VALIDATED rows without a payout', async () => {

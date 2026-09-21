@@ -97,6 +97,8 @@ describe('HRDashboard', () => {
       const cardEl = screen.getByTestId('kpi-open-interviews')
       expect(cardEl).toHaveTextContent('7')
       expect(cardEl).toHaveTextContent('Відкриті співбесіди')
+      // Mutation gate (StringLiteral): the card's `sub` had no assertion.
+      expect(cardEl).toHaveTextContent('В активних стадіях')
     })
 
     it('shows hired-this-month count', () => {
@@ -104,6 +106,8 @@ describe('HRDashboard', () => {
       const cardEl = screen.getByTestId('kpi-hired-month')
       expect(cardEl).toHaveTextContent('2')
       expect(cardEl).toHaveTextContent('Найнято за місяць')
+      // Mutation gate (StringLiteral): the card's `sub` had no assertion.
+      expect(cardEl).toHaveTextContent('Перейшли в «Найнято»')
     })
 
     it('shows active-projects count', () => {
@@ -111,6 +115,8 @@ describe('HRDashboard', () => {
       const cardEl = screen.getByTestId('kpi-active-projects')
       expect(cardEl).toHaveTextContent('4')
       expect(cardEl).toHaveTextContent('Активні проекти')
+      // Mutation gate (StringLiteral): the card's `sub` had no assertion.
+      expect(cardEl).toHaveTextContent('Проекти синьйорів команд')
     })
 
     it('shows active-projects = 0 when no projects', () => {

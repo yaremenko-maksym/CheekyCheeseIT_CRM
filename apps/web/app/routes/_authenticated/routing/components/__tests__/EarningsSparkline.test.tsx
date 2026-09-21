@@ -40,7 +40,9 @@ describe('EarningsSparkline', () => {
 
   it('renders an svg + month labels for non-empty data', () => {
     render(<EarningsSparkline data={HISTORY} />)
-    expect(screen.getByTestId('earnings-sparkline')).toBeInTheDocument()
+    const svg = screen.getByTestId('earnings-sparkline').querySelector('svg')
+    // Mutation gate (StringLiteral): the aria-label had no assertion.
+    expect(svg).toHaveAttribute('aria-label', 'Історія заробітку по місяцях')
     const labels = screen.getByTestId('earnings-sparkline-labels')
     // Independent of `formatDate`'s own implementation — computed straight
     // from `Intl`, the same source-of-truth `format.spec.ts` uses, not by
@@ -82,5 +84,49 @@ describe('EarningsSparkline', () => {
     const polyline = document.querySelector('polyline')
     expect(polyline).not.toBeNull()
     expect(polyline!.getAttribute('points')!.trim().split(/\s+/)).toHaveLength(1)
+  })
+
+  // Mutation gate (monthLabel's malformed-key guard): nothing previously
+  // exercised the `!Number.isFinite(y) || !Number.isFinite(m) || m < 1 ||
+  // m > 12` branch — every mutant on that line survived with no test
+  // reaching it at all.
+  it('renders an empty label for a malformed month key, not a crash', () => {
+    render(<EarningsSparkline data={[{ month: 'not-a-month', amount: 100 }]} />)
+    const labels = screen.getByTestId('earnings-sparkline-labels')
+    expect(labels.textContent).toBe('')
+  })
+
+  it('renders an empty label when the month number is out of range (13)', () => {
+    render(<EarningsSparkline data={[{ month: '2026-13', amount: 100 }]} />)
+    const labels = screen.getByTestId('earnings-sparkline-labels')
+    expect(labels.textContent).toBe('')
+  })
+
+  // Mutation gate: distinguishes `||` from `&&` between the two
+  // `!Number.isFinite(...)` checks — needs a key where EXACTLY ONE of
+  // year/month is non-finite (the two tests above have both-true or
+  // both-false, which cannot tell `||` and `&&` apart here).
+  it('renders an empty label when only the month segment is non-numeric (valid year)', () => {
+    render(<EarningsSparkline data={[{ month: '2026-abc', amount: 100 }]} />)
+    const labels = screen.getByTestId('earnings-sparkline-labels')
+    expect(labels.textContent).toBe('')
+  })
+
+  // Mutation gate: distinguishes `m < 1` from `false` — needs a key where
+  // the month is BELOW range (0) with an otherwise-valid year, which no
+  // other test exercises.
+  it('renders an empty label when the month number is out of range (0)', () => {
+    render(<EarningsSparkline data={[{ month: '2026-00', amount: 100 }]} />)
+    const labels = screen.getByTestId('earnings-sparkline-labels')
+    expect(labels.textContent).toBe('')
+  })
+
+  // Mutation gate: distinguishes `m > 12` from `m >= 12` — needs the exact
+  // boundary value 12 (December), which must NOT trigger the guard.
+  it('renders a normal label for the boundary month 12 (December)', () => {
+    render(<EarningsSparkline data={[{ month: '2026-12', amount: 100 }]} />)
+    const labels = screen.getByTestId('earnings-sparkline-labels')
+    const ukMonthFmt = new Intl.DateTimeFormat('uk-UA', { month: 'short', timeZone: 'UTC' })
+    expect(labels).toHaveTextContent(ukMonthFmt.format(new Date(Date.UTC(2026, 11, 1))))
   })
 })

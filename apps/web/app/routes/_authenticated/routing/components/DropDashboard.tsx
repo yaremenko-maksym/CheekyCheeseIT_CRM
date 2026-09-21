@@ -191,6 +191,16 @@ export function DropDashboard() {
                         // DropBalanceCard.tsx's «зобов'язання» (COPY-M-core-6:
                         // «начисление»/«начисления» is on the _Избегать_
                         // avoid-list) — same catalog entry, not a near-dup.
+                        // Stryker disable next-line ObjectLiteral: Lingui's
+                        // babel macro requires this object to stay a literal
+                        // it can statically read at compile time — replacing
+                        // it with `{}` (what the ObjectLiteral mutator does)
+                        // doesn't produce a mutant the test suite could catch
+                        // by running differently, it makes the macro
+                        // transform itself throw ("props is not iterable"),
+                        // failing BEFORE any test executes. Not a coverage
+                        // gap — the mutation is unrepresentable for this
+                        // macro's call shape.
                         plural(pendingObligationCount, {
                           one: "# зобов'язання",
                           few: "# зобов'язання",
