@@ -308,6 +308,20 @@ describe('SignContractStep', () => {
 
       expect(screen.getByTestId('sign-button')).toBeDisabled()
     })
+
+    // COPY-M-15 (PR #702 fix-round 2): the legalNameMissing alert used to
+    // read "...Обратитесь к ADMIN." — a raw role enum leaking into text
+    // meant for a human. It must read the role as a word, matching the rest
+    // of this screen (the pdf-error alert and the tooltip both already say
+    // "администратору").
+    it('legalNameMissing alert reads the role as a word, no raw "ADMIN" enum (COPY-M-15)', async () => {
+      mockUser.legalFullName = null
+      render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+
+      const alert = await screen.findByTestId('legal-name-missing-alert')
+      expect(alert).toHaveTextContent('обратитесь к администратору')
+      expect(alert.textContent).not.toMatch(/\bADMIN\b/)
+    })
   })
 
   /**

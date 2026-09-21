@@ -1005,7 +1005,14 @@ export class DocumentsService {
         throw apiError('DOCUMENT_UPLOAD_CONTRACT_RESTRICTED', HttpStatus.FORBIDDEN)
       case 'RECEIPT':
         if (role === 'ADMIN' || role === 'ACCOUNTANT') return
-        if (role === 'SENIOR' && isSelf) return
+        if (role === 'SENIOR') {
+          if (isSelf) return
+          // A senior CAN upload receipts, just not for someone else — the
+          // blanket "you don't have access to receipts" text of
+          // DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN would be false here
+          // (COPY-M-14, PR #702 fix-round 2).
+          throw apiError('DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY', HttpStatus.FORBIDDEN)
+        }
         throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, {
           category: 'RECEIPT',
         })

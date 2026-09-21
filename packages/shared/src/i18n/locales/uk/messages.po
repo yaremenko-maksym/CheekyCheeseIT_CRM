@@ -175,11 +175,6 @@ msgstr "Вказаного користувача не знайдено або �
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
-msgstr "Вміст файлу не відповідає жодному з дозволених форматів"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
 msgstr "Вміст файлу не збігається з його розширенням — збережіть його заново й спробуйте ще раз"
 
@@ -383,6 +378,11 @@ msgid "api-error.SHARE_CHANGE_REQUESTER_REQUIRED"
 msgstr "Не вдалося змінити частку. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
+msgstr "Не вдалося обробити цей файл — можливо, він пошкоджений. Спробуйте інший"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.GOOGLE_CREDENTIAL_INVALID"
 msgstr "Не вдалося підтвердити вхід через Google. Спробуйте ще раз"
@@ -484,7 +484,7 @@ msgstr "Підтвердження не знайдено або вже закр�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_ALREADY_STATUS_CANNOT_REVERT"
-msgstr "Повернути в чернетку не можна: контракт уже {status, select, DRAFT {чернетка} READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}"
+msgstr "Повернути в чернетку не можна: контракт уже {status, select, DRAFT {є чернеткою} READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -770,6 +770,11 @@ msgstr "Ця електронна адреса вже зайнята. Введі
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
 msgstr "Ця електронна адреса не має доступу. Зверніться до адміністратора"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY"
+msgstr "Чек можна завантажити лише для себе"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

@@ -46,6 +46,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_CODES = [
   'DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE',
   'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
   'DOCUMENT_UPLOAD_SELF_ONLY',
+  'DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY',
   'DOCUMENT_UPLOAD_CONTRACT_RESTRICTED',
   'DOCUMENT_UPLOAD_AVATAR_SELF_ONLY',
   'DOCUMENT_UPLOAD_INVOICE_FORBIDDEN',
@@ -121,6 +122,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_PARAMS = {
   DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE: [],
   DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN: ['category'],
   DOCUMENT_UPLOAD_SELF_ONLY: [],
+  DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY: [],
   DOCUMENT_UPLOAD_CONTRACT_RESTRICTED: [],
   DOCUMENT_UPLOAD_AVATAR_SELF_ONLY: [],
   DOCUMENT_UPLOAD_INVOICE_FORBIDDEN: [],
@@ -185,7 +187,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   DOCUMENT_CONTENT_UNRECOGNIZED: /* i18n */ {
     id: 'api-error.DOCUMENT_CONTENT_UNRECOGNIZED',
-    message: 'Вміст файлу не відповідає жодному з дозволених форматів',
+    message: 'Не вдалося обробити цей файл — можливо, він пошкоджений. Спробуйте інший',
   },
   DOCUMENT_CONTENT_TYPE_MISMATCH: /* i18n */ {
     id: 'api-error.DOCUMENT_CONTENT_TYPE_MISMATCH',
@@ -228,6 +230,10 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   DOCUMENT_UPLOAD_SELF_ONLY: /* i18n */ {
     id: 'api-error.DOCUMENT_UPLOAD_SELF_ONLY',
     message: 'Завантажувати можна лише власні документи',
+  },
+  DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY: /* i18n */ {
+    id: 'api-error.DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY',
+    message: 'Чек можна завантажити лише для себе',
   },
   DOCUMENT_UPLOAD_CONTRACT_RESTRICTED: /* i18n */ {
     id: 'api-error.DOCUMENT_UPLOAD_CONTRACT_RESTRICTED',
@@ -292,7 +298,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   CONTRACT_ALREADY_STATUS_CANNOT_REVERT: /* i18n */ {
     id: 'api-error.CONTRACT_ALREADY_STATUS_CANNOT_REVERT',
     message:
-      'Повернути в чернетку не можна: контракт уже {status, select, DRAFT {чернетка} READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}',
+      'Повернути в чернетку не можна: контракт уже {status, select, DRAFT {є чернеткою} READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}',
   },
   CONTRACT_NOT_READY: /* i18n */ {
     id: 'api-error.CONTRACT_NOT_READY',
@@ -448,7 +454,8 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_FALLBACK_EN: Record<
 > = {
   DOCUMENT_MIME_NOT_ALLOWED:
     "This file type isn't supported. Allowed formats: PDF, JPEG, PNG, WEBP, HEIC",
-  DOCUMENT_CONTENT_UNRECOGNIZED: "The file's content doesn't match any of the allowed formats",
+  DOCUMENT_CONTENT_UNRECOGNIZED:
+    "Couldn't process this file — it may be damaged. Try a different one",
   DOCUMENT_CONTENT_TYPE_MISMATCH:
     "The file's content doesn't match its extension — re-save it and try again",
   DOCUMENT_TOO_LARGE: 'The file is larger than {maxMb} MB',
@@ -462,6 +469,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_FALLBACK_EN: Record<
   DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN:
     "You can't upload {category, select, RESUME {resumes} SCAN {scans} RECEIPT {receipts} LOGO {logos} other {documents of this type}}",
   DOCUMENT_UPLOAD_SELF_ONLY: 'You can only upload your own documents',
+  DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY: 'You can only upload a receipt for yourself',
   DOCUMENT_UPLOAD_CONTRACT_RESTRICTED:
     'An administrator can upload any contract; a senior or a drop can upload only their own',
   DOCUMENT_UPLOAD_AVATAR_SELF_ONLY: 'You can only upload an avatar to your own profile',

@@ -538,15 +538,14 @@ describe('DocumentsService.upload — RBAC by category', () => {
       const doc = await h.service.upload(SENIOR, pdfFile, { category: 'RECEIPT' })
       expect(doc.ownerId).toBe(SENIOR.id)
     })
-    it('SENIOR for someone else → 403', async () => {
+    it('SENIOR for someone else → 403 DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY (COPY-M-14, fix-round 2)', async () => {
       const h = makeHarness()
       await expect(
         h.service.upload(SENIOR, pdfFile, { category: 'RECEIPT', ownerId: SENIOR2.id }),
       ).rejects.toMatchObject({
         response: {
-          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
+          code: 'DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY',
           statusCode: 403,
-          params: { category: 'RECEIPT' },
         },
       })
     })

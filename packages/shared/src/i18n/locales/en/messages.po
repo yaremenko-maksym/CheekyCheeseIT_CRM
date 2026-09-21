@@ -175,11 +175,6 @@ msgstr "The specified user wasn't found or has the wrong role"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
-msgstr "The file's content doesn't match any of the allowed formats"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
 msgstr "The file's content doesn't match its extension — re-save it and try again"
 
@@ -381,6 +376,11 @@ msgstr "Could not change the interface language. Try again"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SHARE_CHANGE_REQUESTER_REQUIRED"
 msgstr "Couldn't change the share. Try again"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
+msgstr "Couldn't process this file — it may be damaged. Try a different one"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -770,6 +770,11 @@ msgstr "This email is already taken. Enter a different one"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
 msgstr "This email is not authorized. Contact an admin"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY"
+msgstr "You can only upload a receipt for yourself"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

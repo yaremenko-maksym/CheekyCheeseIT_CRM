@@ -29,7 +29,6 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
-  UnsupportedMediaTypeException,
   UseGuards,
 } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
@@ -510,9 +509,12 @@ describe('DocumentsService.upload — compression error surfaces as 415', () => 
       )
       .catch((e: unknown) => e)
 
-    // Must be the original error — NOT wrapped as UnsupportedMediaTypeException
+    // Must be the original error, untouched — pinned on its own message
+    // rather than `not.toBeInstanceOf(UnsupportedMediaTypeException)`, which
+    // stopped guarding anything once the CompressionError catch site
+    // migrated to `apiError(...)` (a base HttpException, never that Nest
+    // subclass either way) — SR-L-6, PR #702 fix-round 2.
     expect(rejection).toBeInstanceOf(Error)
-    expect(rejection).not.toBeInstanceOf(UnsupportedMediaTypeException)
     expect((rejection as Error).message).toBe('S3 connection refused')
   })
 })

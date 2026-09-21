@@ -252,8 +252,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           data-testid="legal-name-missing-alert"
         >
           <AlertTriangle className="inline h-4 w-4 mr-2" />
-          Юридическое ФИО не заполнено администратором. Подписание контракта невозможно. Обратитесь
-          к ADMIN.
+          Юридическое ФИО не заполнено. Подписание недоступно — обратитесь к администратору.
         </div>
       )}
 
