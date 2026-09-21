@@ -73,8 +73,10 @@ function TosEditorPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header — UX-M-3 (fix-round 2): «Нова версія умов»/«New Terms
+          version» crowded the title at 320px on a single `items-center
+          justify-between` row (no mobile stacking) — stacks below `sm:`. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold">
             <Trans>Умови використання</Trans>
@@ -88,7 +90,7 @@ function TosEditorPage() {
             </p>
           )}
         </div>
-        <Button asChild data-testid="publish-new-tos-button">
+        <Button asChild data-testid="publish-new-tos-button" className="self-start sm:self-auto">
           <Link to="/admin/tos/new">
             <Plus className="mr-1.5 h-4 w-4" />
             <Trans>Нова версія умов</Trans>

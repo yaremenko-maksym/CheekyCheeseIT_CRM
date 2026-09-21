@@ -629,6 +629,7 @@ msgstr "Loading PDF…"
 msgid "Завантаження…"
 msgstr "Uploading…"
 
+#: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Закрити"
@@ -1523,6 +1524,8 @@ msgstr "You can't sign in as another admin"
 msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
 msgstr "You can't sign in as yourself"
 
+#: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Умови використання"
 msgstr "Terms of Service"

@@ -109,8 +109,21 @@ describe('ArchivePendingTransactionsList', () => {
     expect(screen.getByTestId('archive-pending-transaction-row')).toHaveTextContent('—')
   })
 
-  it('formats the amount with the currency code (formatAmount)', () => {
+  it('formats the amount via formatMoney at the uk locale (comma decimal separator)', () => {
     renderList([salaryTx])
     expect(screen.getByTestId('archive-pending-transaction-row')).toHaveTextContent('1 500,00 USD')
+  })
+
+  // UX-M-2 (fix-round 2): was `formatAmount(tx.amount, tx.currency)` — hardcoded
+  // ru-RU (comma decimal) regardless of the active locale, while `formatPeriod`
+  // right above it already went through `formatDate(..., locale)`. Pins the
+  // en locale (period decimal separator) to prove the amount now follows
+  // `locale` too, not a fixed ru-RU format.
+  it('formats the amount via formatMoney at the en locale (period decimal separator)', async () => {
+    await loadCatalog('en')
+    renderList([salaryTx])
+    const row = screen.getByTestId('archive-pending-transaction-row')
+    expect(row).toHaveTextContent('1,500.00 USD')
+    expect(row).not.toHaveTextContent('1 500,00')
   })
 })

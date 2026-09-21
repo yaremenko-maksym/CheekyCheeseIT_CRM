@@ -2,8 +2,7 @@ import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { ArchivePendingTransaction } from '@crm/shared'
-import { formatDate } from '@crm/shared'
-import { formatAmount } from '@/lib/format-amount'
+import { formatDate, formatMoney } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 
 /**
@@ -65,7 +64,13 @@ export function ArchivePendingTransactionsList({
               {i18n._(TYPE_LABEL_MESSAGES[tx.type])} · {formatPeriod(tx)}
             </span>
             <span className="shrink-0 font-medium tabular-nums text-foreground">
-              {formatAmount(tx.amount, tx.currency)}
+              {/* UX-M-2 (fix-round 2): was `formatAmount(tx.amount, tx.currency)` —
+                  hardcoded ru-RU regardless of `locale`, while `formatPeriod`
+                  right above it already goes through `formatDate(..., locale)`.
+                  `archivePendingTransactionSchema.currency` is `z.string()` (loosely
+                  typed at the schema level; the DB constrains actual values to
+                  `formatMoney`'s currency union) — cast, not widen the shared helper. */}
+              {formatMoney(tx.amount, tx.currency as Parameters<typeof formatMoney>[1], locale)}
             </span>
           </li>
         ))}

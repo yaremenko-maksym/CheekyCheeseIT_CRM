@@ -25,7 +25,7 @@ function AdminTemplatesRoot() {
   // load).
   const ADMIN_TABS = [
     { value: 'contracts', label: t`Контракти`, ariaLabel: t`Контракти` },
-    { value: 'tos', label: 'Terms of Service', ariaLabel: 'Terms of Service' },
+    { value: 'tos', label: t`Умови використання`, ariaLabel: t`Умови використання` },
     // Route key stays `wallet` (avoids route churn); the tab now covers the whole
     // company config — wallet + requisites — so its label is «Компанія».
     { value: 'wallet', label: t`Компанія`, ariaLabel: t`Компанія` },
