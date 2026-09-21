@@ -371,7 +371,6 @@ describe('DocumentsService.upload — MIME / size validation', () => {
       response: {
         code: 'DOCUMENT_MIME_NOT_ALLOWED',
         statusCode: 415,
-        params: { mimeType: 'text/csv' },
       },
     })
   })
@@ -427,7 +426,6 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_SELF_ONLY',
           statusCode: 403,
-          params: { role: 'JUNIOR' },
         },
       })
     })
@@ -445,7 +443,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
-          params: { role: 'ACCOUNTANT', category: 'RESUME' },
+          params: { category: 'RESUME' },
         },
       })
     })
@@ -519,7 +517,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
-          params: { role: 'HR', category: 'RECEIPT' },
+          params: { category: 'RECEIPT' },
         },
       })
     })
@@ -531,7 +529,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
-          params: { role: 'JUNIOR', category: 'RECEIPT' },
+          params: { category: 'RECEIPT' },
         },
       })
     })
@@ -548,7 +546,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
-          params: { role: 'SENIOR', category: 'RECEIPT' },
+          params: { category: 'RECEIPT' },
         },
       })
     })
@@ -605,7 +603,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
-          params: { role: 'JUNIOR', category: 'LOGO' },
+          params: { category: 'LOGO' },
         },
       })
     })
@@ -617,7 +615,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
-          params: { role: 'ACCOUNTANT', category: 'LOGO' },
+          params: { category: 'LOGO' },
         },
       })
     })
@@ -2034,7 +2032,6 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_SELF_ONLY',
           statusCode: 403,
-          params: { role: 'DROP' },
         },
       })
     })
@@ -2062,7 +2059,6 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_SELF_ONLY',
           statusCode: 403,
-          params: { role: 'DROP' },
         },
       })
     })
@@ -2106,7 +2102,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
         response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
-          params: { role: 'DROP', category: 'RECEIPT' },
+          params: { category: 'RECEIPT' },
         },
       })
     })

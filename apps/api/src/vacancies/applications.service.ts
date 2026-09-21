@@ -371,6 +371,17 @@ export class ApplicationsService {
    * threw before this was extracted (security-review round 2 follow-up,
    * owner decision 2026-08-03 — `updateDuplicateApplication` below needs
    * the identical behaviour, not a second copy of the try/catch).
+   *
+   * SR-M-3 (PR #702 fix-round 1, out of this task's file-ownership — see
+   * `documents.service.ts`'s SPEC-H-1 comment for the CRM-facing sibling of
+   * this catch): this endpoint is PUBLIC and UNAUTHENTICATED (an anonymous
+   * candidate applying to a vacancy), so `err.message` — which carries the
+   * raw sharp/pdf-lib failure reason — is dropped rather than forwarded.
+   * Forwarding it would hand an anonymous caller a dictionary of internal
+   * library error strings (information disclosure) and, before this fix,
+   * shipped a Russian sentence to a UI that never asks the applicant which
+   * language they read (task plan: public sites get a status code, not
+   * translated text). Status code (415) is unchanged — only the body text.
    */
   private async compressResume(
     buffer: Buffer,
@@ -381,7 +392,9 @@ export class ApplicationsService {
       })
     } catch (err) {
       if (err instanceof CompressionError) {
-        throw new UnsupportedMediaTypeException(err.message)
+        throw new UnsupportedMediaTypeException(
+          "Couldn't process this file. Please try a different file.",
+        )
       }
       throw err
     }

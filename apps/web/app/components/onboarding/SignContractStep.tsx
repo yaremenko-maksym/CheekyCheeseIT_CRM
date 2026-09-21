@@ -5,7 +5,7 @@ import { AlertTriangle, FileText, Loader2 } from 'lucide-react'
 import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SignedContractDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
-import { getApiErrorCode } from '@/lib/axios-utils'
+import { getApiErrorCode, getApiErrorMessage } from '@/lib/axios-utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -98,11 +98,11 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       // on `err.message` cannot survive a client-side catalog translation).
       const code = getApiErrorCode(err)
       if (code === 'LEGAL_NAME_REQUIRED') {
-        toast.error('Юридическое ФИО не заполнено. Обратитесь к администратору.')
+        toast.error(getApiErrorMessage(err))
         return
       }
       if (code === 'ADMIN_DOES_NOT_SIGN_CONTRACTS') {
-        toast.info('Админ не подписывает контракт')
+        toast.info(getApiErrorMessage(err))
         return
       }
       toast.error('Не удалось подписать контракт')

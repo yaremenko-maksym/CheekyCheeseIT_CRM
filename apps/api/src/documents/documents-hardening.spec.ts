@@ -414,7 +414,6 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
       response: {
         code: 'DOCUMENT_CONTENT_TYPE_MISMATCH',
         statusCode: 415,
-        params: { declaredMime: 'image/jpeg', detectedMime: 'application/pdf' },
       },
     })
   })
@@ -431,7 +430,6 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
       response: {
         code: 'DOCUMENT_CONTENT_TYPE_MISMATCH',
         statusCode: 415,
-        params: { declaredMime: 'application/pdf', detectedMime: 'image/jpeg' },
       },
     })
   })
@@ -475,7 +473,12 @@ describe('DocumentsService.upload — magic-byte MIME validation', () => {
 })
 
 describe('DocumentsService.upload — compression error surfaces as 415', () => {
-  it('returns 415 when CompressionService throws CompressionError', async () => {
+  // SPEC-H-1 (PR #702 fix-round 1): the CRM-facing catch site now migrates
+  // through `apiError('DOCUMENT_CONTENT_UNRECOGNIZED', ...)` instead of
+  // `new UnsupportedMediaTypeException(err.message)` — a base `HttpException`
+  // carrying the standard envelope (`code` + `statusCode`), not the Nest
+  // subclass, and no trace of the raw sharp/pdf-lib failure text in the body.
+  it('returns 415 with code DOCUMENT_CONTENT_UNRECOGNIZED when CompressionService throws CompressionError', async () => {
     const { service, compression } = makeMimeHarness()
     // Override compression mock to simulate a sharp/pdf-lib failure
     compression.compress.mockRejectedValueOnce(new CompressionError('sharp: Input file is missing'))
@@ -486,7 +489,12 @@ describe('DocumentsService.upload — compression error surfaces as 415', () => 
         { buffer: PDF_MAGIC, mimetype: 'application/pdf', originalname: 'corrupt.pdf' },
         { category: 'RESUME' },
       ),
-    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DOCUMENT_CONTENT_UNRECOGNIZED',
+        statusCode: 415,
+      }),
+    })
   })
 
   it('re-throws non-CompressionError (infrastructure errors bubble up)', async () => {

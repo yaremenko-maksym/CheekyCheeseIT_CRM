@@ -3,9 +3,9 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Global,
+  HttpStatus,
   Inject,
   Module,
   Param,
@@ -34,6 +34,7 @@ import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { InterviewsService } from './interviews.service'
 import { ProjectsService } from '../projects/projects.service'
@@ -111,10 +112,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 class SentinelInterviewsController {
   constructor(@Inject(INTERVIEWS_SERVICE_TOKEN) private readonly svc: InterviewsService) {}
 
-  // Mirror of InterviewsController.assertNotDrop (private in the real controller).
+  // Mirror of InterviewsController.assertNotDrop (private in the real
+  // controller) — SR-L-1 (PR #702 fix-round 1): kept in sync with the real
+  // controller's migration to `apiError('INTERVIEW_DROP_FORBIDDEN', ...)`.
   private assertNotDrop(user: SessionUser): void {
     if (user.role === 'DROP') {
-      throw new ForbiddenException('Дроп не имеет доступа к собеседованиям')
+      throw apiError('INTERVIEW_DROP_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
   }
 
@@ -612,6 +615,9 @@ describe.skipIf(!hasDatabaseUrl())(
         cookies: { jwt: tokenFor(DROP) },
       })
       expect(res.statusCode).toBe(403)
+      // SR-L-1 (PR #702 fix-round 1): pin the migrated envelope `code`, not
+      // just the status — a bare ForbiddenException would also be 403.
+      expect(res.json()).toMatchObject({ code: 'INTERVIEW_DROP_FORBIDDEN', statusCode: 403 })
     })
 
     it('LIST 8. DROP → 403 even with a valid seniorId', async () => {
@@ -621,6 +627,7 @@ describe.skipIf(!hasDatabaseUrl())(
         cookies: { jwt: tokenFor(DROP) },
       })
       expect(res.statusCode).toBe(403)
+      expect(res.json()).toMatchObject({ code: 'INTERVIEW_DROP_FORBIDDEN', statusCode: 403 })
     })
 
     it('LIST 9. SENIOR_C (teamless) → 403 (active-team guard)', async () => {

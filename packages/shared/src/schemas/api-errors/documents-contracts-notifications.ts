@@ -109,9 +109,9 @@ export type DocumentsContractsNotificationsErrorCode =
   (typeof DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_CODES)[number]
 
 export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_PARAMS = {
-  DOCUMENT_MIME_NOT_ALLOWED: ['mimeType'],
+  DOCUMENT_MIME_NOT_ALLOWED: [],
   DOCUMENT_CONTENT_UNRECOGNIZED: [],
-  DOCUMENT_CONTENT_TYPE_MISMATCH: ['declaredMime', 'detectedMime'],
+  DOCUMENT_CONTENT_TYPE_MISMATCH: [],
   DOCUMENT_TOO_LARGE: ['maxMb'],
   DOCUMENT_PROJECT_ID_REQUIRED: [],
   DOCUMENT_NOT_FOUND: [],
@@ -119,8 +119,8 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_PARAMS = {
   DOCUMENT_RESTORE_ADMIN_ONLY: [],
   DOCUMENT_HARD_DELETE_ADMIN_ONLY: [],
   DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE: [],
-  DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN: ['role', 'category'],
-  DOCUMENT_UPLOAD_SELF_ONLY: ['role'],
+  DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN: ['category'],
+  DOCUMENT_UPLOAD_SELF_ONLY: [],
   DOCUMENT_UPLOAD_CONTRACT_RESTRICTED: [],
   DOCUMENT_UPLOAD_AVATAR_SELF_ONLY: [],
   DOCUMENT_UPLOAD_INVOICE_FORBIDDEN: [],
@@ -181,8 +181,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
 > = {
   DOCUMENT_MIME_NOT_ALLOWED: /* i18n */ {
     id: 'api-error.DOCUMENT_MIME_NOT_ALLOWED',
-    message:
-      'Тип файлу «{mimeType}» не підтримується. Дозволені формати: PDF, JPEG, PNG, WEBP, HEIC',
+    message: 'Такий тип файлу не підтримується. Дозволені формати: PDF, JPEG, PNG, WEBP, HEIC',
   },
   DOCUMENT_CONTENT_UNRECOGNIZED: /* i18n */ {
     id: 'api-error.DOCUMENT_CONTENT_UNRECOGNIZED',
@@ -191,7 +190,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   DOCUMENT_CONTENT_TYPE_MISMATCH: /* i18n */ {
     id: 'api-error.DOCUMENT_CONTENT_TYPE_MISMATCH',
     message:
-      'Вміст файлу не відповідає заявленому типу: заявлено «{declaredMime}», виявлено «{detectedMime}»',
+      'Вміст файлу не збігається з його розширенням — збережіть його заново й спробуйте ще раз',
   },
   DOCUMENT_TOO_LARGE: /* i18n */ {
     id: 'api-error.DOCUMENT_TOO_LARGE',
@@ -199,7 +198,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   DOCUMENT_PROJECT_ID_REQUIRED: /* i18n */ {
     id: 'api-error.DOCUMENT_PROJECT_ID_REQUIRED',
-    message: 'Для документів категорії «Договір» потрібен проєкт',
+    message: 'Виберіть проєкт — без нього контракт завантажити не можна',
   },
   DOCUMENT_NOT_FOUND: /* i18n */ {
     id: 'api-error.DOCUMENT_NOT_FOUND',
@@ -219,22 +218,20 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE: /* i18n */ {
     id: 'api-error.DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE',
-    message: 'Спершу перемістіть документ у кошик, а тоді видаляйте остаточно',
+    message: 'Спершу перемістіть документ у кошик, а потім видаліть остаточно',
   },
   DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN: /* i18n */ {
     id: 'api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
     message:
-      '{role, select, JUNIOR {Джуніор} HR {HR} ACCOUNTANT {Бухгалтер} SENIOR {Сеньйор} DROP {Дроп} other {Співробітник}} ' +
-      'не може завантажувати {category, select, CONTRACT {договори} RECEIPT {чеки} LOGO {логотипи} other {документи}}',
+      'Вам недоступне завантаження {category, select, RESUME {резюме} SCAN {сканів} RECEIPT {чеків} LOGO {логотипів} other {таких документів}}',
   },
   DOCUMENT_UPLOAD_SELF_ONLY: /* i18n */ {
     id: 'api-error.DOCUMENT_UPLOAD_SELF_ONLY',
-    message:
-      '{role, select, JUNIOR {Джуніор} DROP {Дроп} other {Співробітник}} може завантажувати лише власні документи',
+    message: 'Завантажувати можна лише власні документи',
   },
   DOCUMENT_UPLOAD_CONTRACT_RESTRICTED: /* i18n */ {
     id: 'api-error.DOCUMENT_UPLOAD_CONTRACT_RESTRICTED',
-    message: 'Завантажити договір може лише адміністратор, сеньйор або дроп — за себе',
+    message: 'Адміністратор завантажує будь-який контракт, а сеньйор і дроп — лише свій',
   },
   DOCUMENT_UPLOAD_AVATAR_SELF_ONLY: /* i18n */ {
     id: 'api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY',
@@ -242,16 +239,15 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   DOCUMENT_UPLOAD_INVOICE_FORBIDDEN: /* i18n */ {
     id: 'api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN',
-    message:
-      'Документи категорії «Рахунок» створює лише система — завантажити їх через цей запит не можна',
+    message: 'Рахунки створює система — завантажити їх вручну не можна',
   },
   DOCUMENT_MULTIPART_REQUIRED: /* i18n */ {
     id: 'api-error.DOCUMENT_MULTIPART_REQUIRED',
-    message: 'Тип вмісту запиту має бути multipart/form-data',
+    message: 'Файл не передано — виберіть файл і спробуйте ще раз',
   },
   DOCUMENT_FILE_FIELD_MISSING: /* i18n */ {
     id: 'api-error.DOCUMENT_FILE_FIELD_MISSING',
-    message: 'У тілі запиту відсутнє поле «file»',
+    message: 'Файл не передано — виберіть файл і спробуйте ще раз',
   },
   CONTRACT_TEMPLATE_INVALID_ROLE: /* i18n */ {
     id: 'api-error.CONTRACT_TEMPLATE_INVALID_ROLE',
@@ -283,7 +279,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   CONTRACT_ADMIN_NOT_ALLOWED: /* i18n */ {
     id: 'api-error.CONTRACT_ADMIN_NOT_ALLOWED',
-    message: 'Адміністратори не можуть мати трудовий контракт',
+    message: 'Адміністратор не може мати трудовий контракт',
   },
   CONTRACT_NOT_EDITABLE: /* i18n */ {
     id: 'api-error.CONTRACT_NOT_EDITABLE',
@@ -291,12 +287,12 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   CONTRACT_NOT_DRAFT: /* i18n */ {
     id: 'api-error.CONTRACT_NOT_DRAFT',
-    message: 'Контракт більше не в статусі чернетки — оновіть сторінку',
+    message: 'Контракт більше не чернетка — оновіть сторінку',
   },
   CONTRACT_ALREADY_STATUS_CANNOT_REVERT: /* i18n */ {
     id: 'api-error.CONTRACT_ALREADY_STATUS_CANNOT_REVERT',
     message:
-      'Повернути в чернетку не можна: контракт уже {status, select, READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}',
+      'Повернути в чернетку не можна: контракт уже {status, select, DRAFT {чернетка} READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}',
   },
   CONTRACT_NOT_READY: /* i18n */ {
     id: 'api-error.CONTRACT_NOT_READY',
@@ -304,15 +300,15 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS: /* i18n */ {
     id: 'api-error.CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS',
-    message: 'Невідомі ключі кастомних змінних: {keys}',
+    message: 'У шаблоні немає таких змінних: {keys}',
   },
   EMPLOYEE_CONTRACT_NOT_FOUND: /* i18n */ {
     id: 'api-error.EMPLOYEE_CONTRACT_NOT_FOUND',
-    message: 'Активний трудовий контракт для користувача не знайдено',
+    message: 'Активний трудовий контракт для цього користувача не знайдено',
   },
   ADMIN_DOES_NOT_SIGN_CONTRACTS: /* i18n */ {
     id: 'api-error.ADMIN_DOES_NOT_SIGN_CONTRACTS',
-    message: 'Адміністратор не підписує контракт',
+    message: 'Адміністратор не підписує контракт — підписувати нема чого',
   },
   LEGAL_NAME_REQUIRED: /* i18n */ {
     id: 'api-error.LEGAL_NAME_REQUIRED',
@@ -336,7 +332,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE: /* i18n */ {
     id: 'api-error.TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE',
-    message: 'У команді немає активного сеньйора — архівування через парний перехід неможливе',
+    message: 'У команді немає активного сеньйора — заархівувати її не можна',
   },
   TEAM_NOT_ARCHIVED: /* i18n */ {
     id: 'api-error.TEAM_NOT_ARCHIVED',
@@ -364,11 +360,11 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   TEAM_CANNOT_REMOVE_SENIOR: /* i18n */ {
     id: 'api-error.TEAM_CANNOT_REMOVE_SENIOR',
-    message: 'Прибрати сеньйора з команди не можна — видаліть команду замість цього',
+    message: 'Прибрати сеньйора з команди не можна — видаліть саму команду',
   },
   TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE: /* i18n */ {
     id: 'api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE',
-    message: 'Потрібен щонайменше один бухгалтер у команді',
+    message: 'У команді має залишитися щонайменше один бухгалтер',
   },
   TEAM_USER_NOT_FOUND_OR_WRONG_ROLE: /* i18n */ {
     id: 'api-error.TEAM_USER_NOT_FOUND_OR_WRONG_ROLE',
@@ -377,12 +373,12 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   TEAM_UNEXPECTED_USER_ROLE: /* i18n */ {
     id: 'api-error.TEAM_UNEXPECTED_USER_ROLE',
     message:
-      'Очікувалася роль {expectedRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}, ' +
-      'а отримано {actualRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}',
+      'Потрібен {expectedRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}, ' +
+      'а вибраний користувач — {actualRole, select, ADMIN {адміністратор} SENIOR {сеньйор} JUNIOR {джуніор} HR {HR} ACCOUNTANT {бухгалтер} DROP {дроп} other {співробітник}}',
   },
   TEAM_DROP_TEAMS_ONLY: /* i18n */ {
     id: 'api-error.TEAM_DROP_TEAMS_ONLY',
-    message: 'Ця операція доступна лише для команд-дропів',
+    message: 'Ця дія доступна лише для команд-дропів',
   },
   LEGEND_ACCESS_DENIED: /* i18n */ {
     id: 'api-error.LEGEND_ACCESS_DENIED',
@@ -394,11 +390,11 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   LEGEND_UPSERT_FAILED: /* i18n */ {
     id: 'api-error.LEGEND_UPSERT_FAILED',
-    message: 'Не вдалося зберегти легенду — рядок не повернуто',
+    message: 'Не вдалося зберегти легенду. Спробуйте ще раз',
   },
   LEGEND_NOT_FOUND: /* i18n */ {
     id: 'api-error.LEGEND_NOT_FOUND',
-    message: 'Легенду проєкту не знайдено — спочатку створіть легенду',
+    message: 'У проєкту ще немає легенди — створіть її',
   },
   APPROVAL_NOT_FOUND_OR_CLOSED: /* i18n */ {
     id: 'api-error.APPROVAL_NOT_FOUND_OR_CLOSED',
@@ -406,7 +402,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   APPROVAL_ALREADY_DECIDED: /* i18n */ {
     id: 'api-error.APPROVAL_ALREADY_DECIDED',
-    message: 'Підтвердження вже отримало відповідь',
+    message: 'Рішення щодо цього підтвердження вже ухвалено',
   },
   INTERVIEW_NO_ACTIVE_TEAM: /* i18n */ {
     id: 'api-error.INTERVIEW_NO_ACTIVE_TEAM',
@@ -414,7 +410,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   INTERVIEW_SENIOR_ID_REQUIRED: /* i18n */ {
     id: 'api-error.INTERVIEW_SENIOR_ID_REQUIRED',
-    message: 'Потрібен ідентифікатор сеньйора',
+    message: 'Виберіть сеньйора',
   },
   INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS: /* i18n */ {
     id: 'api-error.INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS',
@@ -430,15 +426,15 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   INTERVIEW_HR_SUMMARY_FORBIDDEN: /* i18n */ {
     id: 'api-error.INTERVIEW_HR_SUMMARY_FORBIDDEN',
-    message: 'Зведення для HR доступне лише HR або адміністратору',
+    message: 'Зведення для HR бачать лише HR і адміністратор',
   },
   INTERVIEW_DROP_FORBIDDEN: /* i18n */ {
     id: 'api-error.INTERVIEW_DROP_FORBIDDEN',
-    message: 'Дроп не має доступу до співбесід',
+    message: 'Дропам недоступні співбесіди',
   },
   INTERVIEW_SENIOR_ID_INVALID: /* i18n */ {
     id: 'api-error.INTERVIEW_SENIOR_ID_INVALID',
-    message: 'Ідентифікатор сеньйора має бути коректним UUID',
+    message: 'Не вдалося розпізнати вибраного сеньйора — виберіть зі списку',
   },
   NOTIFICATION_NOT_FOUND: /* i18n */ {
     id: 'api-error.NOTIFICATION_NOT_FOUND',
@@ -451,12 +447,12 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_FALLBACK_EN: Record<
   string
 > = {
   DOCUMENT_MIME_NOT_ALLOWED:
-    "File type '{mimeType}' isn't supported. Allowed formats: PDF, JPEG, PNG, WEBP, HEIC",
+    "This file type isn't supported. Allowed formats: PDF, JPEG, PNG, WEBP, HEIC",
   DOCUMENT_CONTENT_UNRECOGNIZED: "The file's content doesn't match any of the allowed formats",
   DOCUMENT_CONTENT_TYPE_MISMATCH:
-    "The file's content doesn't match its declared type: declared '{declaredMime}', detected '{detectedMime}'",
+    "The file's content doesn't match its extension — re-save it and try again",
   DOCUMENT_TOO_LARGE: 'The file is larger than {maxMb} MB',
-  DOCUMENT_PROJECT_ID_REQUIRED: 'A project is required for contract documents',
+  DOCUMENT_PROJECT_ID_REQUIRED: "Choose a project — a contract can't be uploaded without one",
   DOCUMENT_NOT_FOUND: 'Document not found',
   DOCUMENT_DELETE_OWNER_OR_ADMIN_ONLY: 'Only the owner or an administrator can delete a document',
   DOCUMENT_RESTORE_ADMIN_ONLY: 'Only an administrator can restore a document',
@@ -464,17 +460,15 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_FALLBACK_EN: Record<
   DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE:
     'Move the document to trash first, then delete it permanently',
   DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN:
-    "{role, select, JUNIOR {A junior} HR {HR} ACCOUNTANT {An accountant} SENIOR {A senior} DROP {A drop} other {An employee}} can't upload " +
-    '{category, select, CONTRACT {contracts} RECEIPT {receipts} LOGO {logos} other {documents}}',
-  DOCUMENT_UPLOAD_SELF_ONLY:
-    '{role, select, JUNIOR {A junior} DROP {A drop} other {An employee}} can only upload their own documents',
+    "You can't upload {category, select, RESUME {resumes} SCAN {scans} RECEIPT {receipts} LOGO {logos} other {documents of this type}}",
+  DOCUMENT_UPLOAD_SELF_ONLY: 'You can only upload your own documents',
   DOCUMENT_UPLOAD_CONTRACT_RESTRICTED:
-    'Only an administrator, a senior, or a drop (for themselves) can upload a contract',
-  DOCUMENT_UPLOAD_AVATAR_SELF_ONLY: 'An avatar can only be uploaded for your own profile',
+    'An administrator can upload any contract; a senior or a drop can upload only their own',
+  DOCUMENT_UPLOAD_AVATAR_SELF_ONLY: 'You can only upload an avatar to your own profile',
   DOCUMENT_UPLOAD_INVOICE_FORBIDDEN:
-    'Invoice documents are generated by the system and cannot be uploaded through this endpoint',
-  DOCUMENT_MULTIPART_REQUIRED: 'Content-Type must be multipart/form-data',
-  DOCUMENT_FILE_FIELD_MISSING: "Missing 'file' field in the request body",
+    "Invoices are generated by the system and can't be uploaded manually",
+  DOCUMENT_MULTIPART_REQUIRED: 'No file was received — choose a file and try again',
+  DOCUMENT_FILE_FIELD_MISSING: 'No file was received — choose a file and try again',
   CONTRACT_TEMPLATE_INVALID_ROLE: 'Invalid contract template role',
   CONTRACT_TEMPLATE_NOT_FOUND: 'Contract template not found',
   CONTRACT_TEMPLATE_ADMIN_NONE: 'There is no contract template for an administrator',
@@ -483,23 +477,23 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_FALLBACK_EN: Record<
   CONTRACT_TEMPLATE_DUPLICATE_ACTIVE: 'An active contract template for this role already exists',
   CONTRACT_VIEW_SELF_ONLY: 'You can only view your own contract',
   SIGNED_CONTRACT_NOT_FOUND: 'Signed contract not found',
-  CONTRACT_ADMIN_NOT_ALLOWED: "Administrators can't have an employee contract",
+  CONTRACT_ADMIN_NOT_ALLOWED: "An administrator can't have an employee contract",
   CONTRACT_NOT_EDITABLE: 'This contract can no longer be edited',
   CONTRACT_NOT_DRAFT: 'This contract is no longer a draft — refresh the page',
   CONTRACT_ALREADY_STATUS_CANNOT_REVERT:
-    "Can't revert to draft: the contract is already {status, select, READY_TO_SIGN {awaiting signature} SIGNED {signed} CANCELLED {cancelled} other {in another status}}",
+    "Can't revert to draft: the contract is already {status, select, DRAFT {a draft} READY_TO_SIGN {awaiting signature} SIGNED {signed} CANCELLED {cancelled} other {in another status}}",
   CONTRACT_NOT_READY: "The contract isn't ready to sign",
-  CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS: 'Unknown custom variable keys: {keys}',
+  CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS: 'The template has no such variables: {keys}',
   EMPLOYEE_CONTRACT_NOT_FOUND: 'No active employee contract found for this user',
-  ADMIN_DOES_NOT_SIGN_CONTRACTS: "An administrator doesn't sign a contract",
+  ADMIN_DOES_NOT_SIGN_CONTRACTS:
+    "An administrator doesn't sign a contract — there's nothing to sign",
   LEGAL_NAME_REQUIRED: "Legal full name isn't filled in. Contact an administrator",
   TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM: 'The senior is already on another active team',
   TEAM_NOT_FOUND: 'Team not found',
   TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN:
     "Only an administrator or an accountant can change the senior's share at the team level",
   TEAM_ALREADY_ARCHIVED: 'The team is already archived',
-  TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE:
-    "The team has no active senior — archiving through the pair flow isn't possible",
+  TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE: "The team has no active senior, so it can't be archived",
   TEAM_NOT_ARCHIVED: "The team isn't archived",
   TEAM_ADMIN_CANNOT_BE_MEMBER: "An administrator can't be a team member",
   TEAM_ADD_SENIOR_ADMIN_ONLY: 'Only an administrator can add a senior to a team',
@@ -507,25 +501,25 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_FALLBACK_EN: Record<
   TEAM_USER_ALREADY_MEMBER: 'The user is already a team member',
   TEAM_MEMBER_NOT_FOUND: 'Team member not found',
   TEAM_CANNOT_REMOVE_SENIOR: "The senior can't be removed from a team — delete the team instead",
-  TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE: 'The team needs at least one accountant',
+  TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE: 'The team must keep at least one accountant',
   TEAM_USER_NOT_FOUND_OR_WRONG_ROLE: "The specified user wasn't found or has the wrong role",
   TEAM_UNEXPECTED_USER_ROLE:
-    'Expected the role {expectedRole, select, ADMIN {administrator} SENIOR {senior} JUNIOR {junior} HR {HR} ACCOUNTANT {accountant} DROP {drop} other {employee}}, ' +
-    'got {actualRole, select, ADMIN {administrator} SENIOR {senior} JUNIOR {junior} HR {HR} ACCOUNTANT {accountant} DROP {drop} other {employee}}',
-  TEAM_DROP_TEAMS_ONLY: 'This operation is only available for drop teams',
-  LEGEND_ACCESS_DENIED: "No access to the project's legend",
-  LEGEND_EDIT_ACCESS_DENIED: "No access to editing the project's legend",
-  LEGEND_UPSERT_FAILED: 'Failed to save the legend — no row was returned',
-  LEGEND_NOT_FOUND: "The project's legend wasn't found — create a legend first",
+    'This action needs {expectedRole, select, ADMIN {an administrator} SENIOR {a senior} JUNIOR {a junior} HR {an HR} ACCOUNTANT {an accountant} DROP {a drop} other {an employee}}, ' +
+    'but the selected user is {actualRole, select, ADMIN {an administrator} SENIOR {a senior} JUNIOR {a junior} HR {an HR} ACCOUNTANT {an accountant} DROP {a drop} other {an employee}}',
+  TEAM_DROP_TEAMS_ONLY: 'This action is only available for drop teams',
+  LEGEND_ACCESS_DENIED: "You don't have access to this project's legend",
+  LEGEND_EDIT_ACCESS_DENIED: "You can't edit this project's legend",
+  LEGEND_UPSERT_FAILED: "Couldn't save the legend. Try again",
+  LEGEND_NOT_FOUND: 'This project has no legend yet — create one',
   APPROVAL_NOT_FOUND_OR_CLOSED: 'Approval not found or already closed',
-  APPROVAL_ALREADY_DECIDED: 'The approval already received a decision',
+  APPROVAL_ALREADY_DECIDED: 'This approval has already been decided',
   INTERVIEW_NO_ACTIVE_TEAM: "You don't have an active team",
-  INTERVIEW_SENIOR_ID_REQUIRED: 'A senior ID is required',
+  INTERVIEW_SENIOR_ID_REQUIRED: 'Choose a senior',
   INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS: "This senior isn't in your teams",
   INTERVIEW_JUNIOR_FORBIDDEN: "Juniors can't access interviews",
   INTERVIEW_NOT_FOUND: 'Interview not found',
-  INTERVIEW_HR_SUMMARY_FORBIDDEN: 'The HR summary is only available to HR or an administrator',
-  INTERVIEW_DROP_FORBIDDEN: "A drop doesn't have access to interviews",
-  INTERVIEW_SENIOR_ID_INVALID: 'The senior ID must be a valid UUID',
+  INTERVIEW_HR_SUMMARY_FORBIDDEN: 'Only HR and administrators can see the HR summary',
+  INTERVIEW_DROP_FORBIDDEN: "Drops can't access interviews",
+  INTERVIEW_SENIOR_ID_INVALID: "Couldn't recognize the selected senior — pick one from the list",
   NOTIFICATION_NOT_FOUND: 'Notification not found',
 }

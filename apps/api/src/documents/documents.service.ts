@@ -19,13 +19,7 @@
  *   A generic role guard can't express any of that — keeping the rules here
  *   makes them testable in isolation.
  */
-import {
-  BadRequestException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  UnsupportedMediaTypeException,
-} from '@nestjs/common'
+import { BadRequestException, HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import {
@@ -100,9 +94,7 @@ export class DocumentsService {
   ): Promise<DocumentDto> {
     // ---- 1. Validate MIME — two-stage: client Content-Type whitelist + magic-byte confirmation ----
     if (!(DOCUMENT_MIME_WHITELIST as readonly string[]).includes(file.mimetype)) {
-      throw apiError('DOCUMENT_MIME_NOT_ALLOWED', HttpStatus.UNSUPPORTED_MEDIA_TYPE, {
-        mimeType: file.mimetype,
-      })
+      throw apiError('DOCUMENT_MIME_NOT_ALLOWED', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
     // Magic-byte check: detect real content type from buffer signatures.
     // Guards against clients sending a false Content-Type (e.g. "image/jpeg"
@@ -113,10 +105,7 @@ export class DocumentsService {
       throw apiError('DOCUMENT_CONTENT_UNRECOGNIZED', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
     if (detectedMime !== file.mimetype) {
-      throw apiError('DOCUMENT_CONTENT_TYPE_MISMATCH', HttpStatus.UNSUPPORTED_MEDIA_TYPE, {
-        declaredMime: file.mimetype,
-        detectedMime,
-      })
+      throw apiError('DOCUMENT_CONTENT_TYPE_MISMATCH', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
 
     // ---- 2. Validate size ----
@@ -141,12 +130,26 @@ export class DocumentsService {
     // CompressionError is thrown when sharp/pdf-lib rejects the buffer (corrupt
     // file, misidentified content). Surface as 415 — the client must provide a
     // valid, processable file rather than getting a silent raw-byte passthrough.
+    //
+    // SPEC-H-1 (PR #702 fix-round 1): this is the CRM-facing (authenticated)
+    // catch site for `CompressionError` — task plan scope explicitly requires
+    // migrating it, unlike the public/anonymous one in
+    // `vacancies/applications.service.ts::compressResume` (kept as
+    // `UnsupportedMediaTypeException`, see that file's own comment). The
+    // `DOCUMENT_CONTENT_UNRECOGNIZED` code already covers "this file's
+    // content doesn't match an allowed format" (same 415, same meaning as a
+    // sharp/pdf-lib processing failure on a whitelisted MIME) — reused here
+    // rather than minting a near-duplicate code. `err.message` (which used
+    // to carry a Russian sentence plus the raw library error) is dropped
+    // entirely from the response; it stays in the server log only, via
+    // `CompressionService`'s own `this.logger.error(...)` call right before
+    // this throw.
     let compressed: Awaited<ReturnType<CompressionService['compress']>>
     try {
       compressed = await this.compression.compress(file.buffer, file.mimetype)
     } catch (err) {
       if (err instanceof CompressionError) {
-        throw new UnsupportedMediaTypeException(err.message)
+        throw apiError('DOCUMENT_CONTENT_UNRECOGNIZED', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
       }
       throw err
     }
@@ -986,16 +989,13 @@ export class DocumentsService {
       case 'RESUME':
       case 'SCAN':
         if (role === 'ACCOUNTANT') {
-          throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, {
-            role,
-            category,
-          })
+          throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, { category })
         }
         if (role === 'JUNIOR' && !isSelf) {
-          throw apiError('DOCUMENT_UPLOAD_SELF_ONLY', HttpStatus.FORBIDDEN, { role: 'JUNIOR' })
+          throw apiError('DOCUMENT_UPLOAD_SELF_ONLY', HttpStatus.FORBIDDEN)
         }
         if (role === 'DROP' && !isSelf) {
-          throw apiError('DOCUMENT_UPLOAD_SELF_ONLY', HttpStatus.FORBIDDEN, { role: 'DROP' })
+          throw apiError('DOCUMENT_UPLOAD_SELF_ONLY', HttpStatus.FORBIDDEN)
         }
         return
       case 'CONTRACT':
@@ -1007,7 +1007,6 @@ export class DocumentsService {
         if (role === 'ADMIN' || role === 'ACCOUNTANT') return
         if (role === 'SENIOR' && isSelf) return
         throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, {
-          role,
           category: 'RECEIPT',
         })
       case 'AVATAR':
@@ -1017,7 +1016,6 @@ export class DocumentsService {
       case 'LOGO':
         if (role === 'ADMIN' || role === 'HR' || role === 'SENIOR') return
         throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, {
-          role,
           category: 'LOGO',
         })
       case 'INVOICE':
