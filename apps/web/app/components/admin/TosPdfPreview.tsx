@@ -95,6 +95,18 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
         }
       }
     },
+    // MUT-1 (fix-round 2): `i18n` (from `useLingui()`) is the SAME singleton
+    // object reference for the lifetime of the app (`@/lib/i18n`'s `i18n`,
+    // mutated in place by `activateLocale` — never reconstructed), so this
+    // dependency's VALUE never actually changes between renders either way.
+    // Verified live: a test that switches locale mid-session and asserts
+    // the toast comes out in the NEW language passes identically whether
+    // this array reads `[i18n]` or `[]` — the closure always reads
+    // `i18n._(...)`'s CURRENT state regardless, because `i18n` itself is
+    // mutable, not replaced. Kept for correctness/lint-intent (React's own
+    // exhaustive-deps rule expects it) rather than removed, since dropping
+    // it would just trade one no-op for another.
+    // Stryker disable next-line ArrayDeclaration: i18n is a stable singleton reference, see comment above
     [i18n],
   )
 
