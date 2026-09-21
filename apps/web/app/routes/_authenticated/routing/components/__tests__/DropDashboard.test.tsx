@@ -227,6 +227,9 @@ describe('DropDashboard', () => {
       const card = screen.getByTestId('drop-kpi-active-projects')
       expect(card).toHaveTextContent('2')
       expect(card).toHaveTextContent('Активні проєкти')
+      // MUT-1 (fix-round 2): the card's `sub` — a SEPARATE `t\`...\`` call
+      // site from its `title`, above.
+      expect(card).toHaveTextContent('Проєкти, де ви дроп')
     })
 
     it('shows balance and dropSharePercent from useDropSummary', () => {
@@ -234,6 +237,9 @@ describe('DropDashboard', () => {
       const card = screen.getByTestId('drop-kpi-balance')
       expect(card).toHaveTextContent(ukMoney(3200))
       expect(card).toHaveTextContent('30%')
+      // MUT-1 (fix-round 2): the card's own `title` — nothing pinned it
+      // before (only its `value`/`sub` were asserted).
+      expect(card).toHaveTextContent('Мій баланс (частка)')
     })
 
     // task-drop-sees-own-obligations (§AC1/§AC2): the core bug this task
@@ -243,6 +249,8 @@ describe('DropDashboard', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-pending-obligation')
       expect(card).toHaveTextContent(ukMoney(800.48))
+      // MUT-1 (fix-round 2): the card's own `title` — nothing pinned it before.
+      expect(card).toHaveTextContent('Очікує виплати')
       // pendingObligationCount: 2 → uk CLDR 'few' category (2-4, not 12-14).
       expect(card).toHaveTextContent('2 зобов’язання')
       expect(card).not.toHaveTextContent(ukMoney(4000.48))
@@ -314,6 +322,9 @@ describe('DropDashboard', () => {
       const card = screen.getByTestId('drop-kpi-pending')
       expect(card).toHaveTextContent('2')
       expect(card).toHaveTextContent('Доходи в роботі')
+      // MUT-1 (fix-round 2): the card's `sub` — a SEPARATE `t\`...\`` call
+      // site from its `title`, above.
+      expect(card).toHaveTextContent('Очікують валідації')
     })
   })
 

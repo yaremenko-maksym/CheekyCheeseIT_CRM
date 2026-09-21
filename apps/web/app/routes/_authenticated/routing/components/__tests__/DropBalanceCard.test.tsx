@@ -56,6 +56,22 @@ describe('DropBalanceCard (self-view)', () => {
     renderCard({ summary: undefined, isLoading: false, isError: true, onRetry })
     expect(screen.getByTestId('drop-balance-card')).toBeInTheDocument()
     expect(screen.getByText('Помилка завантаження балансу')).toBeInTheDocument()
+    // MUT-1 (fix-round 2): the retry button's own `aria-label` — a
+    // SEPARATE `t\`Повторити спробу\`` call site from its visible
+    // "Повторити" text.
+    expect(screen.getByRole('button', { name: 'Повторити спробу' })).toBeInTheDocument()
+  })
+
+  // MUT-1 (fix-round 2): the whole card's own `aria-label` (distinct from
+  // the "Мій баланс" heading text rendered inside it).
+  it('names itself in aria-label', () => {
+    renderCard({
+      summary: makeSummary({ pendingObligationAmount: 0, pendingObligationCount: 0 }),
+      isLoading: false,
+      isError: false,
+      onRetry: vi.fn(),
+    })
+    expect(screen.getByTestId('drop-balance-card')).toHaveAttribute('aria-label', 'Мій баланс')
   })
 
   describe('§AC1: pending obligation is visible', () => {
@@ -92,6 +108,13 @@ describe('DropBalanceCard (self-view)', () => {
       // 1 → uk CLDR 'one' category.
       expect(screen.getByTestId('drop-balance-pending-obligation-count')).toHaveTextContent(
         '1 зобов’язання',
+      )
+      // MUT-1 (fix-round 2): exact-text (not substring) — pins the `{' · '}`
+      // JSX-whitespace separator between "Очікує виплати" and the count; a
+      // mutant collapsing it to `{""}` would run the words together and
+      // every substring-only assertion above would still pass.
+      expect(screen.getByTestId('drop-balance-pending-obligation-count').textContent).toBe(
+        'Очікує виплати · 1 зобов’язання',
       )
 
       rerender(
