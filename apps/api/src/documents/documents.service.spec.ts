@@ -807,8 +807,17 @@ describe('DocumentsService.restore', () => {
     expect(restored.uploadedByDisplayName).toBeNull()
   })
 
-  it('throws DOCUMENT_NOT_FOUND when the doc row does not exist', async () => {
+  it('throws DOCUMENT_NOT_FOUND when the doc row does not exist (never reaches the UPDATE)', async () => {
     const h = makeHarness({ docs: [] })
+    // With an empty docsRows array the harness's own update().returning()
+    // would ALSO resolve empty, so a plain rejects.toMatchObject on the code
+    // alone cannot distinguish "never called update" from "called it and it
+    // came back empty" — both guards throw the identical DOCUMENT_NOT_FOUND.
+    // Force update() to throw if reached at all, so this test pins the
+    // FIRST guard (findFirst) specifically, distinct from the race test below.
+    h.db.db.update = () => {
+      throw new Error('must not reach UPDATE when the doc row was never found')
+    }
     await expect(h.service.restore(ADMIN, 'no-such-doc')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
     })

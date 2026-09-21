@@ -648,12 +648,18 @@ describe('EmployeeContractsService', () => {
       })
 
       await expect(
-        service.updateCustomValues('user-uuid', { arbitraryKey: 'value' }, mockViewer),
+        service.updateCustomValues(
+          'user-uuid',
+          { arbitraryKey: 'value', anotherBadKey: 'value2' },
+          mockViewer,
+        ),
       ).rejects.toMatchObject({
+        // Two keys, not one — join(', ') vs join('') are only distinguishable
+        // with >= 2 elements (a single-element join ignores the separator).
         response: {
           code: 'CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS',
           statusCode: 400,
-          params: { keys: 'arbitraryKey' },
+          params: { keys: 'arbitraryKey, anotherBadKey' },
         },
       })
     })
