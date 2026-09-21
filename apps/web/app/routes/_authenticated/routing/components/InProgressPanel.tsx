@@ -109,7 +109,7 @@ export function InProgressPanel({
                   <Trans>Транзакції в роботі</Trans>
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  <Trans>Прибутки на валідації та виплати, що очікують</Trans>
+                  <Trans>Доходи на валідації та виплати в черзі</Trans>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -132,7 +132,7 @@ export function InProgressPanel({
                   data-testid={`${testIdPrefix}-add-income`}
                 >
                   <Plus className="h-4 w-4" aria-hidden="true" />
-                  <Trans>Додати прибуток</Trans>
+                  <Trans>Додати дохід</Trans>
                 </Button>
               </div>
             </div>
@@ -143,7 +143,7 @@ export function InProgressPanel({
                 className="text-xs text-muted-foreground py-2"
                 data-testid={`${testIdPrefix}-in-progress-empty`}
               >
-                <Trans>Немає транзакцій у роботі. Додайте прибуток, щоб почати.</Trans>
+                <Trans>Немає транзакцій у роботі. Додайте дохід, щоб почати.</Trans>
               </p>
             ) : (
               <ul className="space-y-2" data-testid={`${testIdPrefix}-in-progress-list`}>

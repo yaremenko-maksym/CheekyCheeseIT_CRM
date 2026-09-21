@@ -73,7 +73,7 @@ export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProp
           disabled={stopMutation.isPending}
           onClick={() => stopMutation.mutate()}
         >
-          {stopMutation.isPending ? t`Повернення...` : t`Повернутися до свого профілю`}
+          {stopMutation.isPending ? t`Повернення…` : t`Повернутися до свого профілю`}
         </Button>
       </div>
     </motion.div>

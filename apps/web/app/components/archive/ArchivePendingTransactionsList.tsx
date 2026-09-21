@@ -18,7 +18,7 @@ import { useLocale } from '@/lib/i18n'
  */
 const TYPE_LABEL_MESSAGES: Record<ArchivePendingTransaction['type'], MessageDescriptor> = {
   SALARY: msg`Зарплата`,
-  SENIOR_INCOME: msg`Дохід синьйора (неоплачена частка)`,
+  SENIOR_INCOME: msg`Дохід сеньйора (неоплачена частка)`,
   DROP_INCOME: msg`Дохід дропа (неоплачена частка)`,
 }
 
@@ -30,8 +30,13 @@ export function ArchivePendingTransactionsList({
   const { i18n } = useLingui()
   const locale = useLocale()
 
+  // COPY-M-12 (copy review round 1): `salaryMonth` used to render as the raw
+  // `YYYY-MM` string while `txDate` went through `formatDate` — two rows in
+  // the same list looked like they came from different systems. Both paths
+  // now go through the same `formatDate(..., 'monthYear')` style this PR
+  // already introduced for exactly this shape («Травень 2026» / «May 2026»).
   function formatPeriod(tx: ArchivePendingTransaction): string {
-    if (tx.salaryMonth) return tx.salaryMonth
+    if (tx.salaryMonth) return formatDate(new Date(`${tx.salaryMonth}-01`), locale, 'monthYear')
     if (tx.txDate) return formatDate(tx.txDate, locale)
     return '—'
   }
@@ -45,8 +50,8 @@ export function ArchivePendingTransactionsList({
     >
       <p className="text-sm font-medium text-destructive">
         <Trans>
-          Незакриті PENDING-транзакції ({transactions.length}) — залишаться в системі і
-          продовжуватимуть підлягати виплаті
+          Незакриті транзакції, що чекають виплати ({transactions.length}) — залишаться в системі і
+          підлягатимуть виплаті
         </Trans>
       </p>
       <ul className="space-y-1.5 text-sm">

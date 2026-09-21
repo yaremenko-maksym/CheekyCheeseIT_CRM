@@ -226,7 +226,7 @@ describe('DropDashboard', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-active-projects')
       expect(card).toHaveTextContent('2')
-      expect(card).toHaveTextContent('Активні проекти')
+      expect(card).toHaveTextContent('Активні проєкти')
     })
 
     it('shows balance and dropSharePercent from useDropSummary', () => {
@@ -267,7 +267,7 @@ describe('DropDashboard', () => {
       renderDashboard()
       const card = screen.getByTestId('drop-kpi-pending')
       expect(card).toHaveTextContent('2')
-      expect(card).toHaveTextContent('Приходи в роботі')
+      expect(card).toHaveTextContent('Доходи в роботі')
     })
   })
 

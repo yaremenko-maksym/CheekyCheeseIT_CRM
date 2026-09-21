@@ -239,7 +239,7 @@ const CountrySelect = ({
           <CommandInput
             value={searchValue}
             onValueChange={setSearchValue}
-            placeholder={t`Пошук країни...`}
+            placeholder={t`Пошук країни…`}
           />
           <CommandList>
             <CommandEmpty>

@@ -71,7 +71,7 @@ export function DropBalanceCard({
           <div className="flex items-center gap-2">
             <Wallet className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              <Trans>МІЙ БАЛАНС</Trans>
+              <Trans>Мій баланс</Trans>
             </span>
           </div>
         </CardHeader>
@@ -151,7 +151,7 @@ export function DropBalanceCard({
                 </span>
               </div>
               <span className="text-xs text-muted-foreground">
-                <Trans>Ставка</Trans>
+                <Trans>Частка</Trans>
               </span>
             </div>
 
@@ -197,7 +197,7 @@ export function DropBalanceCard({
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                <Trans>Підтверджені прибутки, які ви ще не перерахували</Trans>
+                <Trans>Підтверджені доходи, які ви ще не перерахували</Trans>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -207,7 +207,7 @@ export function DropBalanceCard({
             <>
               <Separator />
               <p className="text-xs text-muted-foreground">
-                <Trans>Розширена інформація доступна в таблиці приходів нижче</Trans>
+                <Trans>Розширена інформація доступна в таблиці доходів нижче</Trans>
               </p>
             </>
           )}

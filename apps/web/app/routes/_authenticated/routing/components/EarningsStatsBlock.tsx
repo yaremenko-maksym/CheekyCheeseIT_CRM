@@ -97,7 +97,7 @@ export function EarningsStatsBlock({
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              <Trans>Частка синьйора за весь час</Trans>
+              <Trans>Частка сеньйора за весь час</Trans>
             </p>
             <EarningsSparkline data={monthlyHistory} className="pt-1" />
           </CardContent>
@@ -108,13 +108,13 @@ export function EarningsStatsBlock({
           <CardContent className="flex h-full flex-col gap-3 pt-5">
             <div className="flex items-center justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <Trans>Мої проекти</Trans>
+                <Trans>Мої проєкти</Trans>
               </p>
               <Briefcase className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             </div>
             {activeProjects.length === 0 ? (
               <p className="text-xs text-muted-foreground" data-testid="senior-projects-empty">
-                <Trans>Немає активних проектів</Trans>
+                <Trans>Немає активних проєктів</Trans>
               </p>
             ) : (
               <ul className="space-y-2 flex-1 max-h-[160px] overflow-y-auto pr-0.5">

@@ -164,7 +164,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     await user.click(await screen.findByTestId('admin-action-archive'))
 
     expect(await screen.findByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
-    expect(screen.getByText(/Незакриті PENDING-транзакції/)).toBeInTheDocument()
+    expect(screen.getByText(/Незакриті транзакції, що чекають виплати/)).toBeInTheDocument()
     // The named-projects list actually renders BOTH names joined with ", ".
     expect(screen.getByText(/Project A, Project B/)).toBeInTheDocument()
     // seniorName renders as given (also used as the confirm-input's expected
@@ -302,7 +302,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
       const dialog = await screen.findByRole('dialog')
       const dialogText = dialog.textContent ?? ''
       expect(dialogText).toContain("пов'язана пара, прибрати по одному не можна")
-      expect(dialogText).toContain(role === 'SENIOR' ? 'профіль синьйора' : 'профіль дропа')
+      expect(dialogText).toContain(role === 'SENIOR' ? 'профіль сеньйора' : 'профіль дропа')
       // Named projects, joined with ", " — not a coincidence of a single item.
       expect(dialogText).toContain('Project A, Project B')
       expect(dialogText).toContain('2')

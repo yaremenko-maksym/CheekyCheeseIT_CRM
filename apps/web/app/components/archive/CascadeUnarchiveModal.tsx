@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import type { UnarchiveCascadeEntity } from '@/hooks/use-archive'
 
 const ENTITY_LABEL_MESSAGES: Record<UnarchiveCascadeEntity['type'], MessageDescriptor> = {
-  user: msg`Користувач (синьйор)`,
+  user: msg`Користувач (сеньйор)`,
   team: msg`Команда`,
 }
 
@@ -46,10 +46,10 @@ export function CascadeUnarchiveModal({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            <Trans>Відновити пов'язані сутності</Trans>
+            <Trans>Відновити пов'язане</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <Trans>Відновлення проєкту разом із пов'язаними сутностями.</Trans>
+            <Trans>Відновлення проєкту разом із пов'язаними командою і профілем.</Trans>
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">

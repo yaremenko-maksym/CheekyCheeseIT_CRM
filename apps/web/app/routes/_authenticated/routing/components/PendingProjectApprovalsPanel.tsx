@@ -110,7 +110,9 @@ export function PendingProjectApprovalsPanel() {
       // below says "решения" ("Ждёт вашего решения") — this error uses the
       // same word for the same object.
       <p className="text-xs text-muted-foreground" data-testid="pending-project-approvals-error">
-        <Trans>Не вдалося перевірити, чи чекає на вас рішення по проекту. Оновіть сторінку.</Trans>
+        <Trans>
+          Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку.
+        </Trans>
       </p>
     )
   }
@@ -159,12 +161,17 @@ export function PendingProjectApprovalsPanel() {
                     the actionable half of it. */}
                 {item.viewerSharePercent != null ? (
                   <p className="truncate text-[11px] text-amber-300/70">
-                    <Trans>Ваша частка: {item.viewerSharePercent}%</Trans>
-                    {item.seniorName ? <Trans> · синьйор: {item.seniorName}</Trans> : ''}
+                    {item.seniorName ? (
+                      <Trans>
+                        Ваша частка: {item.viewerSharePercent}% · сеньйор: {item.seniorName}
+                      </Trans>
+                    ) : (
+                      <Trans>Ваша частка: {item.viewerSharePercent}%</Trans>
+                    )}
                   </p>
                 ) : (
                   <p className="line-clamp-2 text-[11px] text-amber-300/70">
-                    <Trans>Частка невідома. Оновіть сторінку.</Trans>
+                    <Trans>Частка невідома. Оновіть сторінку</Trans>
                   </p>
                 )}
               </div>

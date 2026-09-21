@@ -105,7 +105,7 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                 <Input
                   type="search"
                   enterKeyHint="search"
-                  placeholder={t`Пошук за іменем, email, telegram...`}
+                  placeholder={t`Пошук за іменем, email, telegram…`}
                   className="pl-8"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -254,7 +254,7 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                 if (confirm) impersonateMutation.mutate(confirm.user.id)
               }}
             >
-              {impersonateMutation.isPending ? t`Входимо...` : t`Увійти як`}
+              {impersonateMutation.isPending ? t`Входимо…` : t`Увійти як`}
             </Button>
           </DialogFooter>
         </DialogContent>

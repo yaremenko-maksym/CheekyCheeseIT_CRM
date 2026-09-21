@@ -33,7 +33,7 @@ describe('EarningsSparkline', () => {
   it('renders a placeholder when there is no data', () => {
     render(<EarningsSparkline data={[]} />)
     expect(screen.getByTestId('earnings-sparkline-empty')).toHaveTextContent(
-      'Немає даних за період',
+      'Заробітку за останні місяці ще немає',
     )
     expect(screen.queryByTestId('earnings-sparkline')).not.toBeInTheDocument()
   })

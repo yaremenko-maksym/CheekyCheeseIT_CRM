@@ -349,7 +349,7 @@ describe('ContractEditorPage layout', () => {
     })
   })
 
-  it('preview dialog closes on «Закрыть» button click', async () => {
+  it('preview dialog closes on «Закрити» button click', async () => {
     const user = userEvent.setup()
     await renderContractEditor()
     await resolveFlushPromises()
@@ -436,7 +436,7 @@ describe('TosNewPage layout', () => {
     })
   })
 
-  it('ToS preview dialog closes on «Закрыть» click', async () => {
+  it('ToS preview dialog closes on «Закрити» click', async () => {
     const user = userEvent.setup()
     await renderTosPage()
     await resolveFlushPromises()

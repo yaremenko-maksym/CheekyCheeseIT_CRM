@@ -12,8 +12,8 @@ import { getAxiosStatus } from '@/lib/axios-utils'
 // — this file lands first (PR1), and PR3's `axios-utils.ts` migration
 // (Task 3, Step 2) reuses this EXACT string instead of writing its own — a
 // `grep` there checks the two never drift apart again.
-const RATE_LIMIT_MESSAGE = msg`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз.`
-const PDF_LOAD_ERROR_MESSAGE = msg`Не вдалося завантажити PDF попереднього перегляду.`
+const RATE_LIMIT_MESSAGE = msg`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`
+const PDF_LOAD_ERROR_MESSAGE = msg`Не вдалося завантажити PDF попереднього перегляду`
 
 export interface TosPdfPreviewProps {
   /** Raw markdown to render as PDF. */
@@ -212,7 +212,7 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
           >
             <AlertTriangle className="h-8 w-8 text-destructive/60" />
             <p className="text-center text-sm text-muted-foreground">
-              <Trans>Не вдалося завантажити PDF.</Trans>
+              <Trans>Не вдалося завантажити PDF</Trans>
             </p>
             <Button size="sm" variant="outline" onClick={handleRefresh}>
               <Trans>Повторити</Trans>

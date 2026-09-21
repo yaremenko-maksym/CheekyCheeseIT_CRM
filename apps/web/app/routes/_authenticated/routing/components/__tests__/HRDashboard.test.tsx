@@ -114,9 +114,9 @@ describe('HRDashboard', () => {
       render(<HRDashboard />)
       const cardEl = screen.getByTestId('kpi-active-projects')
       expect(cardEl).toHaveTextContent('4')
-      expect(cardEl).toHaveTextContent('Активні проекти')
+      expect(cardEl).toHaveTextContent('Активні проєкти')
       // Mutation gate (StringLiteral): the card's `sub` had no assertion.
-      expect(cardEl).toHaveTextContent('Проекти синьйорів команд')
+      expect(cardEl).toHaveTextContent('Проєкти сеньйорів команд')
     })
 
     it('shows active-projects = 0 when no projects', () => {

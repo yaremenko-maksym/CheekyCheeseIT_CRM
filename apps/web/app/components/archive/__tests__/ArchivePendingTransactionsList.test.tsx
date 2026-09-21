@@ -68,7 +68,9 @@ describe('ArchivePendingTransactionsList', () => {
   it('renders the warning header with the count and the destructive testid', () => {
     renderList([salaryTx])
     expect(screen.getByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
-    expect(screen.getByText(/Незакриті PENDING-транзакції \(1\)/)).toBeInTheDocument()
+    // COPY-M-7 (copy review round 1): the internal "PENDING" status enum no
+    // longer leaks into the user-facing header text.
+    expect(screen.getByText(/Незакриті транзакції, що чекають виплати \(1\)/)).toBeInTheDocument()
   })
 
   it('renders one row per transaction, in order', () => {
@@ -76,17 +78,21 @@ describe('ArchivePendingTransactionsList', () => {
     expect(screen.getAllByTestId('archive-pending-transaction-row')).toHaveLength(2)
   })
 
-  it('labels SALARY as "Зарплата" and shows salaryMonth as the period', () => {
+  it('labels SALARY as "Зарплата" and shows salaryMonth formatted via formatDate (monthYear), not the raw "YYYY-MM" string', () => {
+    // COPY-M-12: both period sources now go through the same formatter — a
+    // raw "2026-07" would mean the fix regressed back to two date formats
+    // in one list.
     renderList([salaryTx])
     const row = screen.getByTestId('archive-pending-transaction-row')
     expect(row).toHaveTextContent('Зарплата')
-    expect(row).toHaveTextContent('2026-07')
+    expect(row).toHaveTextContent('липень 2026')
+    expect(row).not.toHaveTextContent('2026-07')
   })
 
-  it('labels SENIOR_INCOME as "Дохід синьйора (неоплачена частка)" and formats txDate', () => {
+  it('labels SENIOR_INCOME as "Дохід сеньйора (неоплачена частка)" and formats txDate', () => {
     renderList([seniorIncomeTx])
     const row = screen.getByTestId('archive-pending-transaction-row')
-    expect(row).toHaveTextContent('Дохід синьйора (неоплачена частка)')
+    expect(row).toHaveTextContent('Дохід сеньйора (неоплачена частка)')
     expect(row).toHaveTextContent('15.07.2026')
   })
 

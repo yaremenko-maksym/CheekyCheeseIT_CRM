@@ -163,9 +163,9 @@ export function DropDashboard() {
             >
               <motion.div variants={card} data-testid="drop-kpi-active-projects">
                 <KpiCard
-                  title={t`Активні проекти`}
+                  title={t`Активні проєкти`}
                   value={String(projects?.length ?? 0)}
-                  sub={t`Проекти, де ви дроп`}
+                  sub={t`Проєкти, де ви дроп`}
                   icon={<Briefcase className="h-5 w-5" />}
                   color="blue"
                 />
@@ -175,7 +175,7 @@ export function DropDashboard() {
                 <KpiCard
                   title={t`Мій баланс (частка)`}
                   value={fmtUsd(summary.balance)}
-                  sub={t`Ставка: ${summary.dropSharePercent}%`}
+                  sub={t`Частка: ${summary.dropSharePercent}%`}
                   icon={<Wallet className="h-5 w-5" />}
                   color="green"
                 />
@@ -216,7 +216,7 @@ export function DropDashboard() {
 
               <motion.div variants={card} data-testid="drop-kpi-pending">
                 <KpiCard
-                  title={t`Приходи в роботі`}
+                  title={t`Доходи в роботі`}
                   value={String(summary.pendingIncomesCount)}
                   sub={t`Очікують валідації`}
                   icon={<Clock className="h-5 w-5" />}

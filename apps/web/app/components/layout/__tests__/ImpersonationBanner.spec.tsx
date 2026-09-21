@@ -100,7 +100,7 @@ describe('ImpersonationBanner', () => {
   it('B2. shows impersonated user displayName and role label', () => {
     render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
     expect(screen.getByText(/«Иван Старший»/)).toBeInTheDocument()
-    expect(screen.getByText(/Синьйор/)).toBeInTheDocument()
+    expect(screen.getByText(/Сеньйор/)).toBeInTheDocument()
   })
 
   it('B3. shows return button with correct testid and aria-label', () => {
@@ -129,7 +129,7 @@ describe('ImpersonationBanner', () => {
     await user.click(screen.getByTestId('impersonation-banner-return'))
 
     expect(screen.getByTestId('impersonation-banner-return')).toBeDisabled()
-    expect(screen.getByText('Повернення...')).toBeInTheDocument()
+    expect(screen.getByText('Повернення…')).toBeInTheDocument()
   })
 
   it('B6. shows error toast on stop-impersonating failure', async () => {

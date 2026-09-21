@@ -207,9 +207,9 @@ describe('SeniorDashboard', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-active-projects')
       expect(cardEl).toHaveTextContent('2')
-      expect(cardEl).toHaveTextContent('Активні проекти')
+      expect(cardEl).toHaveTextContent('Активні проєкти')
       // Mutation gate (StringLiteral): the card's `sub` had no assertion.
-      expect(cardEl).toHaveTextContent('Проекти, де ви синьйор')
+      expect(cardEl).toHaveTextContent('Проєкти, де ви сеньйор')
     })
 
     it('shows income this month + total sub-label (senior-share aggregate stays USD)', () => {

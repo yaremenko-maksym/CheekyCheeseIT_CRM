@@ -71,7 +71,7 @@ export interface UploadProgressProps {
 
 const DEFAULT_LABEL_MESSAGES: Record<Exclude<UploadPhase, 'idle'>, MessageDescriptor> = {
   preparing: msg`Підготовка файлу…`,
-  uploading: msg`Завантаження`,
+  uploading: msg`Завантаження…`,
   processing: msg`Обробка…`,
   success: msg`Готово`,
   error: msg`Не вдалося завантажити файл`,

@@ -213,7 +213,7 @@ describe('UserDialog — edit-mode SENIOR share % persists on submit (regression
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
 
     const shareInput = await screen.findByRole('spinbutton', {
-      name: 'Частка синьйора у відсотках',
+      name: 'Частка сеньйора у відсотках',
     })
     expect(shareInput).toHaveValue(26)
 

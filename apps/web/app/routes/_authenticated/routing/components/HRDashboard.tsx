@@ -84,9 +84,9 @@ export function HRDashboard() {
 
               <motion.div variants={card} data-testid="kpi-active-projects">
                 <KpiCard
-                  title={t`Активні проекти`}
+                  title={t`Активні проєкти`}
                   value={String(summary.activeProjects)}
-                  sub={t`Проекти синьйорів команд`}
+                  sub={t`Проєкти сеньйорів команд`}
                   icon={<Briefcase className="h-5 w-5" />}
                   color="default"
                 />

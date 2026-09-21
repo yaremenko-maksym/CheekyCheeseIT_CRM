@@ -13,15 +13,10 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#. placeholder {0}: item.seniorName
-#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
-msgid " · синьйор: {0}"
-msgstr " · синьйор: {0}"
-
 #. placeholder {0}: summary.pendingValidation.count
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
-msgid "{0, plural, one {# прихід чекає на вашу перевірку} few {# приходи чекають на вашу перевірку} many {# приходів чекають на вашу перевірку} other {# приходу чекають на вашу перевірку}}"
-msgstr "{0, plural, one {# прихід чекає на вашу перевірку} few {# приходи чекають на вашу перевірку} many {# приходів чекають на вашу перевірку} other {# приходу чекають на вашу перевірку}}"
+msgid "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
+msgstr "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
 
 #. placeholder {0}: filtered.length
 #. placeholder {1}: users?.length ?? 0
@@ -35,12 +30,12 @@ msgid "{pendingObligationCount, plural, one {# зобов'язання} few {# �
 msgstr "{pendingObligationCount, plural, one {# зобов'язання} few {# зобов'язання} many {# зобов'язань} other {# зобов'язання}}"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "{role, select, SENIOR {синьйор} DROP {дроп} other {співробітник}}"
-msgstr "{role, select, SENIOR {синьйор} DROP {дроп} other {співробітник}}"
+msgid "{role, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
+msgstr "{role, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "{role, select, SENIOR {синьйора} DROP {дропа} other {співробітника}}"
-msgstr "{role, select, SENIOR {синьйора} DROP {дропа} other {співробітника}}"
+msgid "{role, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
+msgstr "{role, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 
 #. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -51,8 +46,8 @@ msgstr "+{0} цього місяця"
 #. placeholder {1}: impact.seniorName || '—'
 #. placeholder {2}: impact.projectsCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{0}</0> і її синьйор <1>{1}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль синьйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
-msgstr "<0>{0}</0> і її синьйор <1>{1}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль синьйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgid "<0>{0}</0> і її сеньйор <1>{1}</1> — пов'язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgstr "<0>{0}</0> і її сеньйор <1>{1}</1> — пов'язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -70,8 +65,8 @@ msgid "<0>{entityName}</0> буде архівований і прибраний
 msgstr "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0> буде архівований. Пов'язаних сутностей немає."
-msgstr "<0>{entityName}</0> буде архівований. Пов'язаних сутностей немає."
+msgid "<0>{entityName}</0> буде архівований. Нічого пов'язаного архівувати не треба."
+msgstr "<0>{entityName}</0> буде архівований. Нічого пов'язаного архівувати не треба."
 
 #. placeholder {0}: impact.teamName ? ( <> {' '} та команда «<strong>{impact.teamName}</strong>» </> ) : null
 #. placeholder {1}: impact.projectsCount ?? 0
@@ -110,14 +105,14 @@ msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бух�
 #. placeholder {0}: impact.membersAffected
 #. placeholder {1}: impact.seniorName || '—'
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації синьйора <0>{1}</0>."
-msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації синьйора <0>{1}</0>."
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
+msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
 
 #. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
 #. placeholder {1}: impact.juniorsAffected ?? 0
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і JUNIOR на цих проєктах ({1, plural, one {# джун} few {# джуни} many {# джунів} other {# джунів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
-msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і JUNIOR на цих проєктах ({1, plural, one {# джун} few {# джуни} many {# джунів} other {# джунів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніорів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
+msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніорів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
@@ -157,26 +152,26 @@ msgstr "Активна версія: v{0} · оновлена {1}"
 
 #. placeholder {0}: impact.seniorName ? ` ${impact.seniorName}` : ''
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Активний синьйор{0} відʼєднається від команди без архівації."
-msgstr "Активний синьйор{0} відʼєднається від команди без архівації."
+msgid "Активний сеньйор{0} від'єднається від команди без архівації"
+msgstr "Активний сеньйор{0} від'єднається від команди без архівації"
 
 #: apps/web/app/routes/_authenticated/index.tsx
-msgid "Активних проектів"
-msgstr "Активних проектів"
+msgid "Активних проєктів"
+msgstr "Активних проєктів"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
-msgid "Активні проекти"
-msgstr "Активні проекти"
+msgid "Активні проєкти"
+msgstr "Активні проєкти"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Активні транзакції"
 msgstr "Активні транзакції"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Активного синьйора в команді немає."
-msgstr "Активного синьйора в команді немає."
+msgid "Активного сеньйора в команді немає."
+msgstr "Активного сеньйора в команді немає."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -230,17 +225,12 @@ msgid "Вакансії"
 msgstr "Вакансії"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
-msgid "Валідація приходів"
-msgstr "Валідація приходів"
+msgid "Валідація доходів"
+msgstr "Валідація доходів"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідовано за місяць"
 msgstr "Валідовано за місяць"
-
-#. placeholder {0}: summary.pendingValidation.count
-#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
-msgid "Валідувати очікуючі ({0})"
-msgstr "Валідувати очікуючі ({0})"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -251,6 +241,12 @@ msgstr "Ваш обліковий запис вимкнено. Зверніть�
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}%"
 msgstr "Ваша частка: {0}%"
+
+#. placeholder {0}: item.viewerSharePercent
+#. placeholder {1}: item.seniorName
+#: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
+msgid "Ваша частка: {0}% · сеньйор: {1}"
+msgstr "Ваша частка: {0}% · сеньйор: {1}"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
@@ -375,16 +371,16 @@ msgid "Відновити все"
 msgstr "Відновити все"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
-msgid "Відновити пов'язані сутності"
-msgstr "Відновити пов'язані сутності"
+msgid "Відновити пов'язане"
+msgstr "Відновити пов'язане"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
 msgstr "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
-msgid "Відновлення проєкту разом із пов'язаними сутностями."
-msgstr "Відновлення проєкту разом із пов'язаними сутностями."
+msgid "Відновлення проєкту разом із пов'язаними командою і профілем."
+msgstr "Відновлення проєкту разом із пов'язаними командою і профілем."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновлення…"
@@ -400,8 +396,8 @@ msgid "Всього: {0}"
 msgstr "Всього: {0}"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
-msgid "Входимо..."
-msgstr "Входимо..."
+msgid "Входимо…"
+msgstr "Входимо…"
 
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Готово"
@@ -412,8 +408,8 @@ msgid "Дашборд"
 msgstr "Дашборд"
 
 #: apps/web/app/components/ui/role-select.tsx
-msgid "Джун"
-msgstr "Джун"
+msgid "Джуніор"
+msgstr "Джуніор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -443,8 +439,8 @@ msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
 msgstr "До складу проєкту можна додати лише джуніора, HR або бухгалтера"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
-msgid "Додати прибуток"
-msgstr "Додати прибуток"
+msgid "Додати дохід"
+msgstr "Додати дохід"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -483,8 +479,16 @@ msgid "Дохід за місяць"
 msgstr "Дохід за місяць"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
-msgid "Дохід синьйора (неоплачена частка)"
-msgstr "Дохід синьйора (неоплачена частка)"
+msgid "Дохід сеньйора (неоплачена частка)"
+msgstr "Дохід сеньйора (неоплачена частка)"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Доходи в роботі"
+msgstr "Доходи в роботі"
+
+#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
+msgid "Доходи на валідації та виплати в черзі"
+msgstr "Доходи на валідації та виплати в черзі"
 
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Дроп"
@@ -505,25 +509,22 @@ msgid "api-error.DROP_NOT_FOUND"
 msgstr "Дропа не знайдено"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
-msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
-msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
+msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
+msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Завантажений файл"
 msgstr "Завантажений файл"
 
-#: apps/web/app/components/ui/upload-progress.tsx
-msgid "Завантаження"
-msgstr "Завантаження"
-
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Завантаження PDF…"
 msgstr "Завантаження PDF…"
 
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Завантажуємо вплив…"
-msgstr "Завантажуємо вплив…"
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Завантаження…"
+msgstr "Завантаження…"
 
+#: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Закрити"
@@ -538,6 +539,10 @@ msgstr "Запрошення вже використано"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_INVALID"
 msgstr "Запрошення недійсне"
+
+#: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
+msgid "Заробітку за останні місяці ще немає"
+msgstr "Заробітку за останні місяці ще немає"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Зарплата"
@@ -571,8 +576,8 @@ msgid "ім'я дропа"
 msgstr "ім'я дропа"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "ім'я синьйора"
-msgstr "ім'я синьйора"
+msgid "ім'я сеньйора"
+msgstr "ім'я сеньйора"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -600,8 +605,8 @@ msgstr "Команда"
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
-msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. При архівації будуть архівовані: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов'язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Командне меню"
@@ -628,8 +633,8 @@ msgid "Контракти"
 msgstr "Контракти"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
-msgid "Користувач (синьйор)"
-msgstr "Користувач (синьйор)"
+msgid "Користувач (сеньйор)"
+msgstr "Користувач (сеньйор)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -677,20 +682,17 @@ msgid "Меню користувача"
 msgstr "Меню користувача"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Мій баланс"
 msgstr "Мій баланс"
-
-#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
-msgid "МІЙ БАЛАНС"
-msgstr "МІЙ БАЛАНС"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Мій баланс (частка)"
 msgstr "Мій баланс (частка)"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
-msgid "Мій проект"
-msgstr "Мій проект"
+msgid "Мій проєкт"
+msgstr "Мій проєкт"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
@@ -698,8 +700,8 @@ msgid "Мова інтерфейсу"
 msgstr "Мова інтерфейсу"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
-msgid "Мої проекти"
-msgstr "Мої проекти"
+msgid "Мої проєкти"
+msgstr "Мої проєкти"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Навігація"
@@ -710,8 +712,8 @@ msgid "Надходження від компаній за цей місяць"
 msgstr "Надходження від компаній за цей місяць"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Назад до ToS"
-msgstr "Назад до ToS"
+msgid "Назад до умов використання"
+msgstr "Назад до умов використання"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "назва проєкту"
@@ -737,12 +739,12 @@ msgid "api-error.GENERIC"
 msgstr "Не вдалося виконати дію. Спробуйте ще раз"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
-msgid "Не вдалося завантажити PDF попереднього перегляду."
-msgstr "Не вдалося завантажити PDF попереднього перегляду."
+msgid "Не вдалося завантажити PDF"
+msgstr "Не вдалося завантажити PDF"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
-msgid "Не вдалося завантажити PDF."
-msgstr "Не вдалося завантажити PDF."
+msgid "Не вдалося завантажити PDF попереднього перегляду"
+msgstr "Не вдалося завантажити PDF попереднього перегляду"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
@@ -770,8 +772,8 @@ msgid "api-error.SHARE_CHANGE_REQUESTER_REQUIRED"
 msgstr "Не вдалося змінити частку. Спробуйте ще раз"
 
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
-msgid "Не вдалося перевірити, чи чекає на вас рішення по проекту. Оновіть сторінку."
-msgstr "Не вдалося перевірити, чи чекає на вас рішення по проекту. Оновіть сторінку."
+msgid "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
+msgstr "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -808,12 +810,12 @@ msgstr "Не можна редагувати обліковий запис ін�
 
 #. placeholder {0}: transactions.length
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
-msgid "Незакриті PENDING-транзакції ({0}) — залишаться в системі і продовжуватимуть підлягати виплаті"
-msgstr "Незакриті PENDING-транзакції ({0}) — залишаться в системі і продовжуватимуть підлягати виплаті"
+msgid "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
+msgstr "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
-msgid "Немає активних проектів"
-msgstr "Немає активних проектів"
+msgid "Немає активних проєктів"
+msgstr "Немає активних проєктів"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/base.ts
@@ -821,12 +823,8 @@ msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "Немає активного шаблону контракту для цієї ролі. Додайте шаблон у розділі «Контракти»"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
-msgid "Немає активної версії ToS. Створіть першу версію."
-msgstr "Немає активної версії ToS. Створіть першу версію."
-
-#: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
-msgid "Немає даних за період"
-msgstr "Немає даних за період"
+msgid "Немає активної версії умов використання. Створіть першу версію."
+msgstr "Немає активної версії умов використання. Створіть першу версію."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -838,29 +836,26 @@ msgstr "Немає доступу до контакту HR"
 msgid "api-error.PROJECT_NOT_IN_YOUR_TEAMS"
 msgstr "Немає доступу: проєкт не належить вашим командам"
 
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Немає доходів, що очікують валідації"
+msgstr "Немає доходів, що очікують валідації"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Немає зобов'язань"
 msgstr "Немає зобов'язань"
 
-#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
-msgid "Немає приходів, що очікують валідації"
-msgstr "Немає приходів, що очікують валідації"
-
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
-msgid "Немає транзакцій у роботі. Додайте прибуток, щоб почати."
-msgstr "Немає транзакцій у роботі. Додайте прибуток, щоб почати."
+msgid "Немає транзакцій у роботі. Додайте дохід, щоб почати."
+msgstr "Немає транзакцій у роботі. Додайте дохід, щоб почати."
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
-msgid "Нова версія"
-msgstr "Нова версія"
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Нова версія умов"
+msgstr "Нова версія умов"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Нова версія ToS"
-msgstr "Нова версія ToS"
-
-#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Нову версію ToS опубліковано. Користувачі побачать сповіщення."
-msgstr "Нову версію ToS опубліковано. Користувачі побачать сповіщення."
+msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
+msgstr "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
 
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Номер телефону"
@@ -898,8 +893,8 @@ msgstr "Опублікувати"
 
 #. placeholder {0}: (currentTos?.version ?? 0) + 1
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Опублікувати нову версію ToS (v{0})?"
-msgstr "Опублікувати нову версію ToS (v{0})?"
+msgid "Опублікувати нову версію умов (v{0})?"
+msgstr "Опублікувати нову версію умов (v{0})?"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -946,6 +941,11 @@ msgstr "Очікують валідації"
 msgid "Очікують виплати"
 msgstr "Очікують виплати"
 
+#. placeholder {0}: summary.pendingValidation.count
+#: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
+msgid "Перевірити доходи ({0})"
+msgstr "Перевірити доходи ({0})"
+
 #. placeholder {0}: previewVersion.version
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Перегляд архівної версії v{0}"
@@ -968,16 +968,16 @@ msgid "Підготовка файлу…"
 msgstr "Підготовка файлу…"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
-msgid "Підтверджені прибутки, які ви ще не перерахували"
-msgstr "Підтверджені прибутки, які ви ще не перерахували"
+msgid "Підтверджені доходи, які ви ще не перерахували"
+msgstr "Підтверджені доходи, які ви ще не перерахували"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Підтвердження архівації. Введіть ім'я для підтвердження дії."
 msgstr "Підтвердження архівації. Введіть ім'я для підтвердження дії."
 
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
-msgid "Повернення..."
-msgstr "Повернення..."
+msgid "Повернення…"
+msgstr "Повернення…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1004,8 +1004,8 @@ msgid "Помилка завантаження балансу"
 msgstr "Помилка завантаження балансу"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Помилка під час публікації версії ToS"
-msgstr "Помилка під час публікації версії ToS"
+msgid "Помилка під час публікації версії умов використання"
+msgstr "Помилка під час публікації версії умов використання"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Попередній перегляд"
@@ -1021,16 +1021,16 @@ msgid "Попередній перегляд Terms of Service"
 msgstr "Попередній перегляд Terms of Service"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Попередній перегляд ToS"
-msgstr "Попередній перегляд ToS"
+msgid "Попередній перегляд умов"
+msgstr "Попередній перегляд умов"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Посилання"
 msgstr "Посилання"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
-msgstr "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
+msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
+msgstr "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1038,24 +1038,20 @@ msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
 msgstr "Потрібен щонайменше один HR"
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
-msgid "Почніть вводити технологію..."
-msgstr "Почніть вводити технологію..."
+msgid "Почніть вводити технологію…"
+msgstr "Почніть вводити технологію…"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
-msgid "Пошук за іменем, email, telegram..."
-msgstr "Пошук за іменем, email, telegram..."
+msgid "Пошук за іменем, email, telegram…"
+msgstr "Пошук за іменем, email, telegram…"
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Пошук і виконання команд"
 msgstr "Пошук і виконання команд"
 
 #: apps/web/app/components/ui/phone-input.tsx
-msgid "Пошук країни..."
-msgstr "Пошук країни..."
-
-#: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
-msgid "Прибутки на валідації та виплати, що очікують"
-msgstr "Прибутки на валідації та виплати, що очікують"
+msgid "Пошук країни…"
+msgstr "Пошук країни…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1067,30 +1063,10 @@ msgstr "Приєднати до команди дропа можна лише с
 msgid "api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN"
 msgstr "Призначити роль адміністратора не можна — пул фіксований"
 
-#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
-msgid "Приходи в роботі"
-msgstr "Приходи в роботі"
-
-#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
-msgid "Проекти синьйорів команд"
-msgstr "Проекти синьйорів команд"
-
-#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
-msgid "Проекти, де ви дроп"
-msgstr "Проекти, де ви дроп"
-
-#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
-msgid "Проекти, де ви синьйор"
-msgstr "Проекти, де ви синьйор"
-
-#: apps/web/app/routes/_authenticated/index.tsx
-msgid "Проектів не оплачено цього місяця"
-msgstr "Проектів не оплачено цього місяця"
-
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джун} few {# активні джуни} many {# активних джунів} other {# активних джунів}}</1> будуть відв'язані. Синьйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
-msgstr "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джун} few {# активні джуни} many {# активних джунів} other {# активних джунів}}</1> будуть відв'язані. Синьйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
+msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв'язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
+msgstr "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв'язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1116,6 +1092,22 @@ msgstr "Проєкти"
 msgid "api-error.DROP_PROJECT_ACCESS_DENIED"
 msgstr "Проєкти дропа доступні лише дропам"
 
+#: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
+msgid "Проєкти сеньйорів команд"
+msgstr "Проєкти сеньйорів команд"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Проєкти, де ви дроп"
+msgstr "Проєкти, де ви дроп"
+
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Проєкти, де ви сеньйор"
+msgstr "Проєкти, де ви сеньйор"
+
+#: apps/web/app/routes/_authenticated/index.tsx
+msgid "Проєктів не оплачено цього місяця"
+msgstr "Проєктів не оплачено цього місяця"
+
 #. placeholder {0}: item.proposedBy
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Пропонує {0}"
@@ -1133,6 +1125,10 @@ msgstr "Прочитати все"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Публікація…"
 msgstr "Публікація…"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Рахуємо, що зміниться…"
+msgstr "Рахуємо, що зміниться…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1153,8 +1149,8 @@ msgid "Розділи адміністратора"
 msgstr "Розділи адміністратора"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
-msgid "Розширена інформація доступна в таблиці приходів нижче"
-msgstr "Розширена інформація доступна в таблиці приходів нижче"
+msgid "Розширена інформація доступна в таблиці доходів нижче"
+msgstr "Розширена інформація доступна в таблиці доходів нижче"
 
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Роль"
@@ -1165,18 +1161,18 @@ msgstr "Роль"
 msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
 msgstr "Самостійно приєднатися можна лише до команди, в якій ви вже були"
 
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Сеньйор"
+msgstr "Сеньйор"
+
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "сеньйора"
+msgstr "сеньйора"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Сеньйора не знайдено"
-
-#: apps/web/app/components/ui/role-select.tsx
-msgid "Синьйор"
-msgstr "Синьйор"
-
-#: apps/web/app/components/ui/share-slider.tsx
-msgid "синьйора"
-msgstr "синьйора"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
@@ -1216,15 +1212,6 @@ msgstr "Сповіщення"
 msgid "Сповіщень немає"
 msgstr "Сповіщень немає"
 
-#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
-msgid "Ставка"
-msgstr "Ставка"
-
-#. placeholder {0}: summary.dropSharePercent
-#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
-msgid "Ставка: {0}%"
-msgstr "Ставка: {0}%"
-
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Статистика"
 msgstr "Статистика"
@@ -1255,8 +1242,8 @@ msgid "api-error.INVITE_EXPIRED"
 msgstr "Термін дії запрошення закінчився"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
-msgid "Тип {mimeType} не підтримується"
-msgstr "Тип {mimeType} не підтримується"
+msgid "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
+msgstr "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1327,6 +1314,10 @@ msgstr "Увійти як інший адміністратор не можна"
 msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
 msgstr "Увійти як самого себе не можна"
 
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Умови використання"
+msgstr "Умови використання"
+
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Усе, що чекає рішення"
 msgstr "Усе, що чекає рішення"
@@ -1340,8 +1331,8 @@ msgid "Файл більший за {MAX_MB} МБ — виберіть інши�
 msgstr "Файл більший за {MAX_MB} МБ — виберіть інший"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Фінальний вигляд документа Terms of Service — як PDF."
-msgstr "Фінальний вигляд документа Terms of Service — як PDF."
+msgid "Фінальний вигляд документа «Умови використання» — як PDF."
+msgstr "Фінальний вигляд документа «Умови використання» — як PDF."
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Фінанси"
@@ -1411,21 +1402,30 @@ msgstr "Ця електронна адреса вже зайнята. Введі
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
 msgstr "Ця електронна адреса не має доступу. Зверніться до адміністратора"
 
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Частка"
+msgstr "Частка"
+
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка дропа у відсотках"
 msgstr "Частка дропа у відсотках"
 
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
-msgid "Частка невідома. Оновіть сторінку."
-msgstr "Частка невідома. Оновіть сторінку."
+msgid "Частка невідома. Оновіть сторінку"
+msgstr "Частка невідома. Оновіть сторінку"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
-msgid "Частка синьйора за весь час"
-msgstr "Частка синьйора за весь час"
+msgid "Частка сеньйора за весь час"
+msgstr "Частка сеньйора за весь час"
 
 #: apps/web/app/components/ui/share-slider.tsx
-msgid "Частка синьйора у відсотках"
-msgstr "Частка синьйора у відсотках"
+msgid "Частка сеньйора у відсотках"
+msgstr "Частка сеньйора у відсотках"
+
+#. placeholder {0}: summary.dropSharePercent
+#: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
+msgid "Частка: {0}%"
+msgstr "Частка: {0}%"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Чекають рішення"

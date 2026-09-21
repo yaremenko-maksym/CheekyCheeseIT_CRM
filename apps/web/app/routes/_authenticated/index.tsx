@@ -178,7 +178,7 @@ function AdminDashboard() {
           >
             <motion.div variants={item} className="h-full" data-testid="kpi-active-projects">
               <KpiCard
-                title={t`Активних проектів`}
+                title={t`Активних проєктів`}
                 value={String(kpis.activeProjects)}
                 icon={<Briefcase className="h-5 w-5" />}
                 color="default"
@@ -196,7 +196,7 @@ function AdminDashboard() {
             </motion.div>
             <motion.div variants={item} className="h-full" data-testid="kpi-projects-unpaid">
               <KpiCard
-                title={t`Проектів не оплачено цього місяця`}
+                title={t`Проєктів не оплачено цього місяця`}
                 value={String(kpis.projectsUnpaidThisMonth)}
                 icon={<CalendarClock className="h-5 w-5" />}
                 color="default"

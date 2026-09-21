@@ -49,7 +49,7 @@ const ROLE_LABEL_MESSAGES: Record<
   ShareSliderRole,
   { side: MessageDescriptor; aria: MessageDescriptor }
 > = {
-  SENIOR: { side: msg`синьйора`, aria: msg`Частка синьйора у відсотках` },
+  SENIOR: { side: msg`сеньйора`, aria: msg`Частка сеньйора у відсотках` },
   DROP: { side: msg`дропа`, aria: msg`Частка дропа у відсотках` },
 }
 

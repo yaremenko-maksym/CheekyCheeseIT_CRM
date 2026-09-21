@@ -189,7 +189,7 @@ describe('AccountantDashboard', () => {
       })
       render(<AccountantDashboard />)
       expect(screen.getByTestId('accountant-validate-cta')).toHaveTextContent(
-        'Валідувати очікуючі (4)',
+        'Перевірити доходи (4)',
       )
     })
 
@@ -243,7 +243,7 @@ describe('AccountantDashboard', () => {
         isError: false,
       })
       render(<AccountantDashboard />)
-      expect(screen.getByText('Немає приходів, що очікують валідації')).toBeInTheDocument()
+      expect(screen.getByText('Немає доходів, що очікують валідації')).toBeInTheDocument()
       expect(screen.getByTestId('accountant-validate-cta')).toBeDisabled()
     })
   })

@@ -202,7 +202,7 @@ describe('UserDialog — SR-M-5/QA-HIGH-3: an untouched share % never reaches th
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
 
     const shareInput = await screen.findByRole('spinbutton', {
-      name: 'Частка синьйора у відсотках',
+      name: 'Частка сеньйора у відсотках',
     })
     fireEvent.change(shareInput, { target: { value: '40' } })
     fireEvent.blur(shareInput)
@@ -240,7 +240,7 @@ describe('UserDialog — COPY-H-6: saving a share change says the change is not 
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
 
     const shareInput = await screen.findByRole('spinbutton', {
-      name: 'Частка синьйора у відсотках',
+      name: 'Частка сеньйора у відсотках',
     })
     fireEvent.change(shareInput, { target: { value: '40' } })
     fireEvent.blur(shareInput)
@@ -379,7 +379,7 @@ describe('UserDialog — edit dialog announces a live proposal', () => {
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
     // Wait for the share field itself so "absent" is a real absence, not a
     // race against the dialog rendering at all.
-    await screen.findByRole('spinbutton', { name: 'Частка синьйора у відсотках' })
+    await screen.findByRole('spinbutton', { name: 'Частка сеньйора у відсотках' })
     expect(screen.queryByTestId('pending-share-edit-notice-user')).toBeNull()
   })
 
@@ -393,7 +393,7 @@ describe('UserDialog — edit dialog announces a live proposal', () => {
     render(<UserDialog mode="create" open={true} hrOnly onClose={vi.fn()} />)
     await screen.findByTestId('user-dialog-name')
     expect(
-      screen.getByRole('spinbutton', { name: 'Частка синьйора у відсотках' }),
+      screen.getByRole('spinbutton', { name: 'Частка сеньйора у відсотках' }),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('pending-share-edit-notice-user')).toBeNull()
   })

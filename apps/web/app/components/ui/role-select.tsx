@@ -42,8 +42,8 @@ export const ROLE_LABELS: Record<Role, string> = {
  */
 export const ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor> = {
   ADMIN: msg`Адміністратор`,
-  SENIOR: msg`Синьйор`,
-  JUNIOR: msg`Джун`,
+  SENIOR: msg`Сеньйор`,
+  JUNIOR: msg`Джуніор`,
   HR: msg`HR`,
   ACCOUNTANT: msg`Бухгалтер`,
   DROP: msg`Дроп`,

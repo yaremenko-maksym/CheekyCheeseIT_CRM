@@ -87,7 +87,7 @@ export function EarningsSparkline({ data, showLabels = true, className }: Earnin
         className={'text-[11px] text-muted-foreground ' + (className ?? '')}
         data-testid="earnings-sparkline-empty"
       >
-        <Trans>Немає даних за період</Trans>
+        <Trans>Заробітку за останні місяці ще немає</Trans>
       </div>
     )
   }

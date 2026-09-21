@@ -66,7 +66,7 @@ interface NavItem {
 // roles берутся из единого источника истины lib/route-access (navRolesFor),
 // чтобы карта ролей-по-роуту НЕ дублировалась между меню и route-guard'ом.
 const NAV_ITEMS: NavItem[] = [
-  { label: msg`Мій проект`, icon: Home, to: '/project', roles: navRolesFor('/project') },
+  { label: msg`Мій проєкт`, icon: Home, to: '/project', roles: navRolesFor('/project') },
   { label: msg`Легенда`, icon: BookOpen, to: '/legend', roles: navRolesFor('/legend') },
   {
     // Единый «Дашборд» для всех ролей кроме JUNIOR.

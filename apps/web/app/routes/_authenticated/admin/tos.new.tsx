@@ -73,7 +73,7 @@ function TosNewPage() {
       return api.post('/tos', { bodyMarkdown: currentBody })
     },
     onSuccess: () => {
-      toast.success(t`Нову версію ToS опубліковано. Користувачі побачать сповіщення.`)
+      toast.success(t`Нову версію умов використання опубліковано. Користувачі побачать сповіщення.`)
       void qc.invalidateQueries({ queryKey: ['tos-current'] })
       void qc.invalidateQueries({ queryKey: ['tos-versions-all'] })
       void qc.invalidateQueries({ queryKey: ['onboarding-status'] })
@@ -81,7 +81,7 @@ function TosNewPage() {
       void navigate({ to: '/admin/tos' })
     },
     onError: () => {
-      toast.error(t`Помилка під час публікації версії ToS`)
+      toast.error(t`Помилка під час публікації версії умов використання`)
       setShowConfirm(false)
     },
   })
@@ -105,13 +105,13 @@ function TosNewPage() {
             size="icon"
             onClick={() => void navigate({ to: '/admin/tos' })}
             data-testid="back-button"
-            aria-label={t`Назад до ToS`}
+            aria-label={t`Назад до умов використання`}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div>
             <h2 className="text-lg font-semibold">
-              <Trans>Нова версія ToS</Trans>
+              <Trans>Нова версія умов</Trans>
             </h2>
             <p className="text-xs text-muted-foreground">
               {currentTos ? (
@@ -185,10 +185,10 @@ function TosNewPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Eye className="h-4 w-4" />
-              <Trans>Попередній перегляд ToS</Trans>
+              <Trans>Попередній перегляд умов</Trans>
             </DialogTitle>
             <DialogDescription>
-              <Trans>Фінальний вигляд документа Terms of Service — як PDF.</Trans>
+              <Trans>Фінальний вигляд документа «Умови використання» — як PDF.</Trans>
             </DialogDescription>
           </DialogHeader>
 
@@ -219,12 +219,12 @@ function TosNewPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              <Trans>Опублікувати нову версію ToS (v{(currentTos?.version ?? 0) + 1})?</Trans>
+              <Trans>Опублікувати нову версію умов (v{(currentTos?.version ?? 0) + 1})?</Trans>
             </DialogTitle>
             <DialogDescription>
               <Trans>
-                Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають
-                прийняти нову версію Terms of Service заново.
+                Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають
+                прийняти нову версію умов використання заново.
               </Trans>
             </DialogDescription>
           </DialogHeader>

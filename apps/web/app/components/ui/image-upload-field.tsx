@@ -93,7 +93,7 @@ export function ImageUploadField({
     // wasting bandwidth on a doomed POST.
     if (!DOCUMENT_MIME_WHITELIST.includes(file.type as (typeof DOCUMENT_MIME_WHITELIST)[number])) {
       const mimeType = file.type || 'unknown'
-      toast.error(t`Тип ${mimeType} не підтримується`)
+      toast.error(t`Тип ${mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP`)
       return
     }
     if (file.size > DOCUMENT_MAX_BYTES) {

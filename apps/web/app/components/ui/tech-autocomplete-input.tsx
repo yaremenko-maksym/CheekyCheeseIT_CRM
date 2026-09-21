@@ -199,7 +199,7 @@ export function TechAutocompleteInput({
           placeholder={
             limitReached
               ? t`Досягнуто ліміт ${maxItems} тегів`
-              : (placeholder ?? t`Почніть вводити технологію...`)
+              : (placeholder ?? t`Почніть вводити технологію…`)
           }
           disabled={limitReached}
           aria-autocomplete="list"

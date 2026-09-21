@@ -154,19 +154,19 @@ export function AccountantDashboard() {
                           DROP_INCOME), not payouts; corrected, not just
                           translated. */}
                       <p className="text-sm font-semibold">
-                        <Trans>Валідація приходів</Trans>
+                        <Trans>Валідація доходів</Trans>
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {summary.pendingValidation.count > 0 ? (
                           <Plural
                             value={summary.pendingValidation.count}
-                            one="# прихід чекає на вашу перевірку"
-                            few="# приходи чекають на вашу перевірку"
-                            many="# приходів чекають на вашу перевірку"
-                            other="# приходу чекають на вашу перевірку"
+                            one="# дохід чекає на вашу перевірку"
+                            few="# доходи чекають на вашу перевірку"
+                            many="# доходів чекають на вашу перевірку"
+                            other="# доходу чекає на вашу перевірку"
                           />
                         ) : (
-                          <Trans>Немає приходів, що очікують валідації</Trans>
+                          <Trans>Немає доходів, що очікують валідації</Trans>
                         )}
                       </p>
                     </div>
@@ -177,7 +177,7 @@ export function AccountantDashboard() {
                     className="gap-1.5 sm:flex-none"
                     data-testid="accountant-validate-cta"
                   >
-                    <Trans>Валідувати очікуючі ({summary.pendingValidation.count})</Trans>
+                    <Trans>Перевірити доходи ({summary.pendingValidation.count})</Trans>
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </CardContent>

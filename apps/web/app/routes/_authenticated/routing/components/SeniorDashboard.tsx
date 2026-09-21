@@ -159,9 +159,9 @@ export function SeniorDashboard() {
             >
               <motion.div variants={card} data-testid="kpi-active-projects">
                 <KpiCard
-                  title={t`Активні проекти`}
+                  title={t`Активні проєкти`}
                   value={String(summary.activeProjects.count)}
-                  sub={t`Проекти, де ви синьйор`}
+                  sub={t`Проєкти, де ви сеньйор`}
                   icon={<Briefcase className="h-5 w-5" />}
                   color="blue"
                 />

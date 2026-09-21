@@ -76,7 +76,9 @@ function TosEditorPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Terms of Service</h2>
+          <h2 className="text-lg font-semibold">
+            <Trans>Умови використання</Trans>
+          </h2>
           {activeVersion && (
             <p className="text-xs text-muted-foreground">
               <Trans>
@@ -89,7 +91,7 @@ function TosEditorPage() {
         <Button asChild data-testid="publish-new-tos-button">
           <Link to="/admin/tos/new">
             <Plus className="mr-1.5 h-4 w-4" />
-            <Trans>Нова версія</Trans>
+            <Trans>Нова версія умов</Trans>
           </Link>
         </Button>
       </div>
@@ -163,7 +165,7 @@ function TosEditorPage() {
       ) : (
         <div className="rounded-lg border border-dashed border-border p-12 text-center">
           <p className="text-muted-foreground">
-            <Trans>Немає активної версії ToS. Створіть першу версію.</Trans>
+            <Trans>Немає активної версії умов використання. Створіть першу версію.</Trans>
           </p>
         </div>
       )}

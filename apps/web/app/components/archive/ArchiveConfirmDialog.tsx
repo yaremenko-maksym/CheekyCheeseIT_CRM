@@ -48,7 +48,7 @@ function renderImpactText(
   if (!impact)
     return (
       <span className="text-muted-foreground">
-        <Trans>Завантажуємо вплив…</Trans>
+        <Trans>Рахуємо, що зміниться…</Trans>
       </span>
     )
 
@@ -69,12 +69,12 @@ function renderImpactText(
       // unrepresentable for this macro's call shape (same reasoning as
       // DropDashboard.tsx's plural() call).
       const roleGenitive = select(role, {
-        SENIOR: 'синьйора',
+        SENIOR: 'сеньйора',
         DROP: 'дропа',
         other: 'співробітника',
       })
       // Stryker disable next-line ObjectLiteral: same reasoning as above.
-      const pairWord = select(role, { SENIOR: 'синьйор', DROP: 'дроп', other: 'співробітник' })
+      const pairWord = select(role, { SENIOR: 'сеньйор', DROP: 'дроп', other: 'співробітник' })
       const projectNames = impact.projectNames ?? []
       return (
         <>
@@ -107,13 +107,13 @@ function renderImpactText(
               many="# HR/бухгалтерів"
               other="# HR/бухгалтерів"
             />
-            ) і JUNIOR на цих проєктах (
+            ) і джуніори на цих проєктах (
             <Plural
               value={impact.juniorsAffected ?? 0}
-              one="# джун"
-              few="# джуни"
-              many="# джунів"
-              other="# джунів"
+              one="# джуніор"
+              few="# джуніори"
+              many="# джуніорів"
+              other="# джуніорів"
             />
             ) залишаються активними учасниками і продовжують отримувати оплату — архівація
             команди/проєктів їх не стосується.
@@ -179,8 +179,8 @@ function renderImpactText(
     if (role === 'ADMIN') {
       return (
         <Trans>
-          <strong className="text-foreground">{entityName}</strong> буде архівований. Пов'язаних
-          сутностей немає.
+          <strong className="text-foreground">{entityName}</strong> буде архівований. Нічого
+          пов'язаного архівувати не треба.
         </Trans>
       )
     }
@@ -203,8 +203,8 @@ function renderImpactText(
         <>
           <Trans>
             Команда <strong className="text-foreground">{impact.teamName}</strong> і її дроп{' '}
-            <strong>{dropName}</strong> — пов'язана пара, прибрати по одному не можна. При архівації
-            будуть архівовані: профіль <strong>дропа</strong>, команда і всі її drop-проєкти (
+            <strong>{dropName}</strong> — пов'язана пара, прибрати по одному не можна. В архів
+            підуть: профіль <strong>дропа</strong>, команда і всі її drop-проєкти (
             <Plural
               value={impact.projectsCount}
               one="# проєкт"
@@ -228,11 +228,11 @@ function renderImpactText(
           </Trans>{' '}
           {impact.seniorWillBeDetached ? (
             <Trans>
-              Активний синьйор{impact.seniorName ? ` ${impact.seniorName}` : ''} відʼєднається від
-              команди без архівації.
+              Активний сеньйор{impact.seniorName ? ` ${impact.seniorName}` : ''} від'єднається від
+              команди без архівації
             </Trans>
           ) : (
-            <Trans>Активного синьйора в команді немає.</Trans>
+            <Trans>Активного сеньйора в команді немає.</Trans>
           )}
         </>
       )
@@ -240,9 +240,9 @@ function renderImpactText(
     return (
       <>
         <Trans>
-          <strong className="text-foreground">{impact.teamName}</strong> і її синьйор{' '}
+          <strong className="text-foreground">{impact.teamName}</strong> і її сеньйор{' '}
           <strong>{impact.seniorName || '—'}</strong> — пов'язана пара, прибрати по одному не можна.
-          При архівації будуть архівовані: профіль синьйора, команда і всі його проєкти (
+          В архів підуть: профіль сеньйора, команда і всі його проєкти (
           <Plural
             value={impact.projectsCount}
             one="# проєкт"
@@ -262,7 +262,7 @@ function renderImpactText(
             other="# HR/бухгалтерів"
           />
           ) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не
-          стосується. Це еквівалентно архівації синьйора <strong>{impact.seniorName || '—'}</strong>
+          стосується. Це еквівалентно архівації сеньйора <strong>{impact.seniorName || '—'}</strong>
           .
         </Trans>
       </>
@@ -276,13 +276,13 @@ function renderImpactText(
         <strong>
           <Plural
             value={impact.activeMembersCount}
-            one="# активний джун"
-            few="# активні джуни"
-            many="# активних джунів"
-            other="# активних джунів"
+            one="# активний джуніор"
+            few="# активні джуніори"
+            many="# активних джуніорів"
+            other="# активних джуніорів"
           />
         </strong>{' '}
-        будуть відв'язані. Синьйор і команда <strong>не</strong> будуть архівовані. Фінансова
+        будуть відв'язані. Сеньйор і команда <strong>не</strong> будуть архівовані. Фінансова
         історія (транзакції, інвойси) залишається доступною.
       </Trans>
     )
@@ -336,7 +336,7 @@ export function ArchiveConfirmDialog({
     entityType === 'team'
       ? isDropTeam
         ? t`ім'я дропа`
-        : t`ім'я синьйора`
+        : t`ім'я сеньйора`
       : entityType === 'project'
         ? t`назва проєкту`
         : t`ім'я`
