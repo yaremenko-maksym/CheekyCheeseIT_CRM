@@ -2,7 +2,7 @@
  * project-draft-status.spec.ts — task-project-draft-status.
  *
  * Direct-API regression for the confirmation gate itself: a fresh project
- * starts DRAFT and refuses ANY income (400 PROJECT_NOT_ACTIVE_MESSAGE) until
+ * starts DRAFT and refuses ANY income (400 `PROJECT_NOT_ACTIVE`) until
  * every invited approver (the senior, and the drop when the project has one
  * — design spec §3 decision 4, "Проект подтверждают оба") confirms it via
  * POST /api/projects/:id/approve. A REJECTED project refuses the same way.
@@ -71,10 +71,14 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       // 1. DRAFT — the routed DROP cannot declare income yet. Server-side
       // refusal, not a UI-only restriction (no dialog exists to even try).
       await loginViaApi(page, dropEmail)
-      // Message assertion (not just "some 400") proves it's THIS gate
-      // that fired, not an unrelated validation error.
+      // Code assertion (not just "some 400") proves it's THIS gate that
+      // fired, not an unrelated validation error. CR-H-1/SPEC-M-1
+      // (PR #701 round 1): the guard's Russian literal message was migrated
+      // to the `PROJECT_NOT_ACTIVE` code — the raw HTTP body (matched by
+      // `createDropIncomeViaAPI`'s error `Error` message) now carries
+      // `"code":"PROJECT_NOT_ACTIVE"` instead of the old text.
       await expect(createDropIncomeViaAPI(page, { projectId, amount: 1000 })).rejects.toThrow(
-        'Проект ещё не подтверждён',
+        'PROJECT_NOT_ACTIVE',
       )
 
       // 2. Partial approval — senior confirms, drop has not. Still DRAFT:
@@ -85,7 +89,7 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       await loginViaApi(page, dropEmail)
       // One of two invited approvers confirming must not be enough.
       await expect(createDropIncomeViaAPI(page, { projectId, amount: 1000 })).rejects.toThrow(
-        'Проект ещё не подтверждён',
+        'PROJECT_NOT_ACTIVE',
       )
 
       // 3. Drop confirms too — every invited approver has now agreed → ACTIVE.
@@ -127,7 +131,7 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       await loginViaApi(page, SEED_EMAILS.seniorA)
       // A REJECTED project must refuse income exactly like DRAFT.
       await expect(createSeniorIncomeViaAPI(page, { projectId, amount: 500 })).rejects.toThrow(
-        'Проект ещё не подтверждён',
+        'PROJECT_NOT_ACTIVE',
       )
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)

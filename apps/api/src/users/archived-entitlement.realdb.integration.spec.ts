@@ -337,9 +337,15 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
   // ── AC1 — the membership subscription ────────────────────────────────────
   describe('AC1 — ProjectsService.addMember', () => {
     it('refuses an archived user, and inserts no membership row', async () => {
+      // Not the shared ENTITLEMENT_REFUSAL sentinel (users.service.ts's
+      // ARCHIVED_ENTITLEMENT_MESSAGE) — addMember's own refusal migrated to
+      // apiError('ARCHIVED_USER_CANNOT_JOIN_PROJECT', ...) under
+      // task-i18n-stage4-task1, so assert on the code instead.
       await expect(
         projectsService.addMember(PROJECT_ID, ARCHIVED_JUNIOR_ID, ADMIN),
-      ).rejects.toThrow(ENTITLEMENT_REFUSAL)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'ARCHIVED_USER_CANNOT_JOIN_PROJECT' }),
+      })
 
       // The refusal is only worth anything if nothing was written. `leftAt IS
       // NULL` is precisely what `createMonthlySalaries` walks.

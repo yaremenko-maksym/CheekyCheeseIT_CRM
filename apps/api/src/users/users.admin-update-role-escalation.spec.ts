@@ -17,7 +17,6 @@
  * for these transitions.
  */
 
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
@@ -143,9 +142,11 @@ describe('UsersService.adminUpdateUser — MED: role-escalation guard bypass (PA
     const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
 
-    await expect(service.adminUpdateUser(SENIOR_ID, { role: 'ADMIN' }, ADMIN_ID)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(
+      service.adminUpdateUser(SENIOR_ID, { role: 'ADMIN' }, ADMIN_ID),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ADMIN_ROLE_ASSIGNMENT_FORBIDDEN' }),
+    })
   })
 
   it('moving a SENIOR to DROP via adminUpdateUser is forbidden (must use POST /users/drops)', async () => {
@@ -154,9 +155,11 @@ describe('UsersService.adminUpdateUser — MED: role-escalation guard bypass (PA
     const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
 
-    await expect(service.adminUpdateUser(SENIOR_ID, { role: 'DROP' }, ADMIN_ID)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(
+      service.adminUpdateUser(SENIOR_ID, { role: 'DROP' }, ADMIN_ID),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT' }),
+    })
   })
 
   it('REGRESSION: ADMIN self-edit round-trip with role unchanged (ADMIN -> ADMIN) still succeeds', async () => {

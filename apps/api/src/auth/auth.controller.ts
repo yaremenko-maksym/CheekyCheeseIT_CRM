@@ -1,11 +1,11 @@
 import {
-  BadRequestException,
   Body,
   ConflictException,
   Controller,
   ForbiddenException,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Logger,
   NotFoundException,
@@ -29,6 +29,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import type { Env } from '../config/env'
 import { AdminWriteThrottle, AuthThrottle, RelaxableThrottle } from '../config/throttle-decorators'
+import { apiError } from '../common/api-error'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import type { User, UserEmail } from '../database/schema'
@@ -507,21 +508,21 @@ export class AuthController {
 
     // Block nested impersonation — the current token already represents someone else.
     if (currentUser.impersonatorId) {
-      throw new ForbiddenException('Нельзя применить имперсонацию во время другой имперсонации')
+      throw apiError('IMPERSONATION_ALREADY_ACTIVE', HttpStatus.FORBIDDEN)
     }
 
     const target = await this.usersService.findById(userId)
-    if (!target) throw new NotFoundException('Пользователь не найден')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Cannot impersonate self — checked before the ADMIN-role guard so that
     // self-impersonation by an ADMIN yields 400 (not 403).
     if (target.id === currentUser.id) {
-      throw new BadRequestException('Нельзя войти как самого себя')
+      throw apiError('IMPERSONATION_SELF_FORBIDDEN', HttpStatus.BAD_REQUEST)
     }
 
     // ADMIN → cannot impersonate another ADMIN.
     if (target.role === 'ADMIN') {
-      throw new ForbiddenException('Нельзя войти как другой администратор')
+      throw apiError('IMPERSONATION_TARGET_ADMIN_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const jwtPayload = jwtPayloadSchema.parse({
@@ -573,13 +574,13 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     if (!currentUser.impersonatorId) {
-      throw new BadRequestException('Нет активной имперсонации')
+      throw apiError('IMPERSONATION_NOT_ACTIVE', HttpStatus.BAD_REQUEST)
     }
 
     const admin = await this.usersService.findById(currentUser.impersonatorId)
     if (!admin || admin.role !== 'ADMIN') {
       // Safety check: if the original admin was demoted or deleted, reject.
-      throw new UnauthorizedException('Исходный администратор недоступен')
+      throw apiError('IMPERSONATION_ORIGIN_UNAVAILABLE', HttpStatus.UNAUTHORIZED)
     }
 
     const jwtPayload = jwtPayloadSchema.parse({
@@ -610,21 +611,21 @@ export class AuthController {
     try {
       googleUser = await this.authService.verifyGoogleIdToken(body.credential)
     } catch {
-      throw new UnauthorizedException('Invalid Google credential')
+      throw apiError('GOOGLE_CREDENTIAL_INVALID', HttpStatus.UNAUTHORIZED)
     }
 
     // §4.4/§5 — same rationale as googleCallback above.
     const emailRow = await this.usersService.findLoginableEmailRow(googleUser.email)
     const user = emailRow ? await this.usersService.findById(emailRow.userId) : undefined
-    if (!emailRow || !user) throw new UnauthorizedException('Email not authorized')
+    if (!emailRow || !user) throw apiError('EMAIL_NOT_AUTHORIZED', HttpStatus.UNAUTHORIZED)
 
     // LOW (security-audit authz-hardening): mirrors the same check in
     // googleCallback — an archived (fired) user must never receive a
     // session, not even a 401-request's worth of DB re-hydration lag.
-    if (user.archivedAt) throw new UnauthorizedException('Account disabled')
+    if (user.archivedAt) throw apiError('ACCOUNT_DISABLED', HttpStatus.UNAUTHORIZED)
 
     if (!(await this.verifyOrBindGoogleIdentity(user, emailRow, googleUser.sub, 'one-tap'))) {
-      throw new UnauthorizedException('Google account mismatch')
+      throw apiError('GOOGLE_ACCOUNT_MISMATCH', HttpStatus.UNAUTHORIZED)
     }
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
@@ -732,6 +733,27 @@ function exceptionMessage(err: ForbiddenException | ConflictException): string {
 }
 
 /**
+ * SR-H-1 (security-review PR #701 round 1): `apiError()` returns a plain
+ * `HttpException` — never a `ForbiddenException`/`ConflictException`/
+ * `BadRequestException` subclass — so `mapInviteAcceptError` below MUST
+ * dispatch on the envelope's `code`, not on exception class. Extracts the
+ * `{ code }` field `apiError()` puts on the envelope body
+ * (`apps/api/src/common/api-error.ts`); returns `undefined` for anything
+ * that is not an `HttpException` with an object body carrying `code` — the
+ * two remaining sentinel throws (`INVITE_TARGET_ARCHIVED_MESSAGE`/
+ * `GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE`, both plain
+ * `ForbiddenException`/`ConflictException`, see `mapInviteAcceptError`)
+ * fall into this `undefined` case by construction.
+ */
+function envelopeCode(err: unknown): string | undefined {
+  if (!(err instanceof HttpException)) return undefined
+  const response = err.getResponse()
+  return typeof response === 'object' && response !== null
+    ? (response as { code?: string }).code
+    : undefined
+}
+
+/**
  * task-user-emails-invite: maps `UsersService.acceptPersonalEmailInvite`'s
  * exceptions to the `?error=` code `googleCallback`'s invite branch
  * redirects with — the login page (`login.tsx`) owns the Russian copy
@@ -739,6 +761,26 @@ function exceptionMessage(err: ForbiddenException | ConflictException): string {
  * has no dependency on controller state — a pure exception → string map.
  */
 function mapInviteAcceptError(err: unknown): string {
+  switch (envelopeCode(err)) {
+    case 'INVITE_ALREADY_USED':
+      return 'invite_used'
+    case 'INVITE_EXPIRED':
+      return 'invite_expired'
+    case 'INVITE_GOOGLE_ACCOUNT_MISMATCH':
+      return 'invite_email_mismatch'
+  }
+  // No `case 'INVITE_INVALID':` above — the final `return 'invite_invalid'`
+  // below already covers it (mutation-gate finding, PR #701 round 1): a
+  // dedicated case here was a mutant Stryker could never kill, since
+  // removing it still falls through, past the two `instanceof` checks
+  // (neither matches a plain `apiError()`-built exception), to the SAME
+  // string. Anything unrecognised — a garbage/superseded token, a genuinely
+  // unexpected error shape — belongs in the same "nothing more specific to
+  // tell the visitor" bucket `INVITE_INVALID` itself would have mapped to.
+  //
+  // The two throw sites `acceptPersonalEmailInvite` deliberately kept as
+  // plain (non-`apiError()`) exceptions — `envelopeCode` above returns
+  // `undefined` for both, so they fall through to here.
   if (err instanceof ForbiddenException) {
     // LOW-2: target account was archived (fired) after the invite was
     // issued — reuse the SAME code the ordinary login path already emits
@@ -755,8 +797,7 @@ function mapInviteAcceptError(err: unknown): string {
       ? 'invite_account_taken'
       : 'invite_used'
   }
-  if (err instanceof BadRequestException) return 'invite_expired'
-  // NotFoundException and anything unexpected — same bucket as "garbage
-  // link": nothing more specific to tell the visitor.
+  // Anything unexpected — same bucket as "garbage link": nothing more
+  // specific to tell the visitor.
   return 'invite_invalid'
 }

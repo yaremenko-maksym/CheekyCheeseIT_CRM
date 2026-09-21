@@ -24,7 +24,6 @@
  * like "passed" with zero assertions.
  */
 
-import { ForbiddenException } from '@nestjs/common'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
@@ -202,7 +201,9 @@ describe.skipIf(!hasDatabaseUrl())(
           actorRole: 'HR',
           actorId: HR_A_ID,
         }),
-      ).rejects.toThrow(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'HR_JOIN_OWN_DROP_TEAM_ONLY' }),
+      })
 
       // The attach must never have happened — HR_FOREIGN_TEAM_ID must still
       // have exactly its original member (HR_B), no new senior attached.

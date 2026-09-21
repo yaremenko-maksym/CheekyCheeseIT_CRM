@@ -13,7 +13,6 @@
  * patched to accept actorId and enforce the rules above.
  */
 
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
@@ -127,9 +126,9 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
     const service = makeUsersService(db)
 
     // Any actor trying to promote anyone to ADMIN must be rejected.
-    await expect(service.changeRole(SENIOR_ID, 'ADMIN', ADMIN_ID)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(service.changeRole(SENIOR_ID, 'ADMIN', ADMIN_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ADMIN_ROLE_ASSIGNMENT_FORBIDDEN' }),
+    })
   })
 
   it('AC2b: throws ForbiddenException when changing another ADMIN role', async () => {
@@ -138,9 +137,9 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
     const service = makeUsersService(db)
 
     // ADMIN_ID tries to change ADMIN2_ID role → must be rejected.
-    await expect(service.changeRole(ADMIN2_ID, 'SENIOR', ADMIN_ID)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(service.changeRole(ADMIN2_ID, 'SENIOR', ADMIN_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CANNOT_EDIT_ANOTHER_ADMIN' }),
+    })
   })
 
   it('AC2c: throws ForbiddenException when ADMIN tries to demote themselves', async () => {
@@ -149,9 +148,9 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
     const service = makeUsersService(db)
 
     // ADMIN tries to change own role → self-demotion → rejected.
-    await expect(service.changeRole(ADMIN_ID, 'SENIOR', ADMIN_ID)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(service.changeRole(ADMIN_ID, 'SENIOR', ADMIN_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ADMIN_CANNOT_CHANGE_OWN_ROLE' }),
+    })
   })
 
   it('AC2d: throws ForbiddenException when dto.role === DROP (route through createDrop)', async () => {
@@ -159,17 +158,17 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
     const db = makeDb({ existingUser: existing })
     const service = makeUsersService(db)
 
-    await expect(service.changeRole(SENIOR_ID, 'DROP', ADMIN_ID)).rejects.toThrow(
-      ForbiddenException,
-    )
+    await expect(service.changeRole(SENIOR_ID, 'DROP', ADMIN_ID)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT' }),
+    })
   })
 
   it('AC2e: throws NotFoundException when target user does not exist', async () => {
     const db = makeDb({ existingUser: null })
     const service = makeUsersService(db)
 
-    await expect(service.changeRole('non-existent-uuid', 'SENIOR', ADMIN_ID)).rejects.toThrow(
-      NotFoundException,
+    await expect(service.changeRole('non-existent-uuid', 'SENIOR', ADMIN_ID)).rejects.toMatchObject(
+      { response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) },
     )
   })
 

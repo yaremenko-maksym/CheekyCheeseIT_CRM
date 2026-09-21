@@ -4,6 +4,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -36,6 +37,7 @@ import {
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { AdminWriteThrottle } from '../config/throttle-decorators'
+import { apiError } from '../common/api-error'
 import { Roles } from '../common/decorators/roles.decorator'
 import { AuditLog } from '../common/decorators/audit-log.decorator'
 import { SENIOR_SHARE_ROUTES } from '../approvals/senior-share-routes'
@@ -112,14 +114,14 @@ export class UsersController {
     // Service has its own guard, but failing early avoids the email uniqueness
     // round-trip and surfaces a 403 instead of a 409 if the email collides.
     if (dto.role === 'ADMIN') {
-      throw new ForbiddenException('Создание ADMIN запрещено — пул фиксирован')
+      throw apiError('ADMIN_CREATION_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     // Drop role - phase 1: DROP creation goes through POST /api/users/drops.
     if (dto.role === 'DROP') {
-      throw new ForbiddenException('Создание DROP — через POST /api/users/drops')
+      throw apiError('DROP_CREATE_VIA_DEDICATED_ENDPOINT', HttpStatus.FORBIDDEN)
     }
     if (currentUser.role === 'HR' && dto.role !== 'SENIOR') {
-      throw new ForbiddenException('HR может создавать только синьоров')
+      throw apiError('HR_SENIOR_ONLY_CREATION', HttpStatus.FORBIDDEN)
     }
     // MED (security-audit authz-hardening): an HR actor's ONLY established
     // provisioning ability is team/index.tsx's HrCreateSeniorDialog, which
@@ -233,7 +235,7 @@ export class UsersController {
   @Post('me/rejoin-team')
   async rejoinTeam(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
     if (currentUser.role !== 'SENIOR') {
-      throw new ForbiddenException('Rejoin-team доступен только для SENIOR')
+      throw apiError('REJOIN_TEAM_SENIOR_ONLY', HttpStatus.FORBIDDEN)
     }
     const dto = rejoinTeamSchema.parse(body)
     return this.usersService.rejoinTeam(currentUser.id, {
@@ -270,7 +272,7 @@ export class UsersController {
       (currentUser.role === 'SENIOR' || currentUser.role === 'ADMIN') &&
       dto.paymentMethod !== 'USDT_ERC20'
     ) {
-      throw new ForbiddenException('Senior/Admin могут использовать только USDT ERC-20')
+      throw apiError('SENIOR_ADMIN_USDT_ONLY', HttpStatus.FORBIDDEN)
     }
     return this.usersService.updateRequisites(
       currentUser.id,
@@ -445,12 +447,12 @@ export class UsersController {
   async changeRequisites(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
     const dto = changeRequisitesSchema.parse(body)
     const target = await this.usersService.findById(id)
-    if (!target) throw new ForbiddenException('User not found')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.FORBIDDEN)
     if (
       (target.role === 'SENIOR' || target.role === 'ADMIN') &&
       dto.paymentMethod !== 'USDT_ERC20'
     ) {
-      throw new ForbiddenException('Senior/Admin могут использовать только USDT ERC-20')
+      throw apiError('SENIOR_ADMIN_USDT_ONLY', HttpStatus.FORBIDDEN)
     }
     return this.usersService.updateRequisites(
       id,
@@ -553,7 +555,7 @@ export class UsersController {
     @CurrentUser() currentUser: SessionUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    if (id === currentUser.id) throw new ForbiddenException('Cannot archive yourself')
+    if (id === currentUser.id) throw apiError('CANNOT_ARCHIVE_YOURSELF', HttpStatus.FORBIDDEN)
     return this.usersService.archive(id, currentUser.id)
   }
 

@@ -44,7 +44,6 @@
  * like "passed" with zero assertions.
  */
 
-import { ForbiddenException } from '@nestjs/common'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
@@ -268,7 +267,9 @@ describe.skipIf(!hasDatabaseUrl())(
           teamMode: 'JOIN_DROP_TEAM',
           dropTeamId: FOREIGN_TEAM_ID,
         }),
-      ).rejects.toThrow(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'REJOIN_TEAM_MUST_BE_FORMER_MEMBER' }),
+      })
 
       // The attach must never have happened — FOREIGN_TEAM_ID must still have
       // exactly its original member (OTHER_HR_ID), no SENIOR attached.
@@ -309,7 +310,9 @@ describe.skipIf(!hasDatabaseUrl())(
           teamMode: 'JOIN_DROP_TEAM',
           dropTeamId: PROMOTED_TEAM_ID,
         }),
-      ).rejects.toThrow(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'REJOIN_TEAM_MUST_BE_FORMER_MEMBER' }),
+      })
 
       // No new active membership was created.
       const db = drizzle(pool!, { schema })
@@ -332,7 +335,9 @@ describe.skipIf(!hasDatabaseUrl())(
           teamMode: 'JOIN_DROP_TEAM',
           dropTeamId: LEGACY_TEAM_ID,
         }),
-      ).rejects.toThrow(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'REJOIN_TEAM_MUST_BE_FORMER_MEMBER' }),
+      })
 
       const db = drizzle(pool!, { schema })
       const activeMembership = await db

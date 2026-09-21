@@ -92,6 +92,16 @@ msgstr "ERC-20, pegged to the dollar"
 msgid "HR"
 msgstr "HR"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.HR_JOIN_OWN_DROP_TEAM_ONLY"
+msgstr "HR can only add a senior to their own drop team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.HR_SENIOR_ONLY_CREATION"
+msgstr "HR can only create seniors"
+
 #. placeholder {0}: impact.membersAffected
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується."
@@ -117,6 +127,11 @@ msgstr "The team's HR/accountants remain unlinked after restoring — add them a
 msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 msgstr "PNG, JPEG, WebP — up to {MAX_MB} MB. The file is uploaded to secure storage."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
+msgstr "A Telegram channel can only be set for a senior"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Адмін"
 msgstr "Admin"
@@ -124,6 +139,11 @@ msgstr "Admin"
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Адміністратор"
 msgstr "Admin"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ADMIN_CANNOT_CHANGE_OWN_ROLE"
+msgstr "An admin can't change their own role"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "активна"
@@ -158,10 +178,20 @@ msgstr "Active transactions"
 msgid "Активного синьйора в команді немає."
 msgstr "There is no active senior on the team."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ACTIVE_MEMBER_NOT_FOUND"
+msgstr "Active member not found in the project"
+
 #. placeholder {0}: displayedVersion.version
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "архів v{0}"
 msgstr "archive v{0}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
+msgstr "Only an admin can archive a drop"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Архівувати"
@@ -212,6 +242,11 @@ msgstr "Validated this month"
 msgid "Валідувати очікуючі ({0})"
 msgstr "Validate pending ({0})"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ACCOUNT_DISABLED"
+msgstr "Your account is disabled. Contact an admin"
+
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}%"
@@ -230,9 +265,19 @@ msgstr "Version v{0}"
 msgid "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
 msgstr "You will act on their behalf. A banner will remind you of the active session — click «Return to your profile» to exit."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_ALREADY_ACTIVE"
+msgstr "You're already signed in as another employee — return to your own account first"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Ви маєте сплатити компанії"
 msgstr "You owe the company"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_NOT_ACTIVE"
+msgstr "You're not signed in as another employee"
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
@@ -240,38 +285,53 @@ msgid "Ви увійшли як <0>«{0}»</0> <1>({roleName})</1>"
 msgstr "You're signed in as <0>«{0}»</0> <1>({roleName})</1>"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_REJECT_IMPERSONATION_FORBIDDEN"
+msgstr "You're signed in as another employee — only they can reject their share"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.NOTIFICATION_PREFERENCES_IMPERSONATION"
 msgstr "You're signed in as another employee — notification preferences are view-only"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.CONTRACT_SIGN_IMPERSONATION"
 msgstr "You're signed in as another employee — only they can sign their contract"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.INVOICE_SIGN_IMPERSONATION"
 msgstr "You're signed in as another employee — only they can sign their invoice"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_APPROVE_IMPERSONATION_FORBIDDEN"
+msgstr "You're signed in as another employee — only they can approve their share"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.SHARE_DECISION_IMPERSONATION"
 msgstr "You're signed in as another employee — only they can decide on their share"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.TOS_ACCEPT_IMPERSONATION"
 msgstr "You're signed in as another employee — only they can accept the terms"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.PROJECT_DECISION_IMPERSONATION"
 msgstr "You're signed in as another employee — only they can decide on the project"
 
 #: apps/web/app/components/ui/date-picker.tsx
 msgid "Виберіть дату"
 msgstr "Choose a date"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_TEAM_ID_REQUIRED"
+msgstr "Choose the drop team to add the senior to"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Вибрати файл"
@@ -355,6 +415,11 @@ msgstr "Dashboard"
 msgid "Джун"
 msgstr "Junior"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT"
+msgstr "The junior is already an active member of another project"
+
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
 msgstr "To restore the project <0>{projectName}</0> you also need to restore the pair:"
@@ -363,13 +428,43 @@ msgstr "To restore the project <0>{projectName}</0> you also need to restore the
 msgid "Для підтвердження введіть {confirmInputLabel}:"
 msgstr "To confirm, enter {confirmInputLabel}:"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
+msgstr "Seniors and admins can only be paid to USDT ERC-20"
+
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "До активної"
 msgstr "To active"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
+msgstr "Only a junior, an HR, or an accountant can be added to a project"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Додати прибуток"
 msgstr "Add income"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.AVATAR_DOCUMENT_DELETED"
+msgstr "The avatar document was deleted"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.AVATAR_DOCUMENT_NOT_FOUND"
+msgstr "The avatar document was not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.LOGO_DOCUMENT_DELETED"
+msgstr "The logo document was deleted"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.LOGO_DOCUMENT_NOT_FOUND"
+msgstr "The logo document was not found"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Документи"
@@ -399,6 +494,16 @@ msgstr "Drop"
 msgid "дропа"
 msgstr "drop's"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_ARCHIVED"
+msgstr "The drop is already archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_NOT_FOUND"
+msgstr "Drop not found"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз."
 msgstr "Too many requests in a row. Wait a bit and try again."
@@ -424,14 +529,34 @@ msgstr "Loading impact…"
 msgid "Закрити"
 msgstr "Close"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.INVITE_ALREADY_USED"
+msgstr "The invite has already been used"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.INVITE_INVALID"
+msgstr "The invite is invalid"
+
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Зарплата"
 msgstr "Salary"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_ACTIVE"
+msgstr "Income can only be declared for an active project"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Згорнути"
 msgstr "Collapse"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT"
+msgstr "The role can't be changed to drop this way"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Зовнішнє посилання на зображення (https://…)"
@@ -448,6 +573,16 @@ msgstr "drop's name"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім'я синьйора"
 msgstr "senior's name"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_SHARE_OVERRIDE_FORBIDDEN"
+msgstr "Only an admin or an accountant can change the drop's project share"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN"
+msgstr "Only an admin or an accountant can change the senior's project share"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Історія версій"
@@ -495,6 +630,31 @@ msgstr "Contracts"
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Користувач (синьйор)"
 msgstr "User (senior)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ALREADY_ACTIVE_PROJECT_MEMBER"
+msgstr "The user is already an active member of this project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_ALREADY_ARCHIVED"
+msgstr "The user is already archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ARCHIVED_USER_CANNOT_JOIN_PROJECT"
+msgstr "The user is archived — they can't be added to the project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_NOT_ARCHIVED"
+msgstr "The user is not archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_NOT_FOUND"
+msgstr "User not found"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Користувачі"
@@ -572,7 +732,7 @@ msgid "Натисніть ще раз, щоб повторити заванта�
 msgstr "Click again to retry the upload."
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.GENERIC"
 msgstr "Something went wrong. Please try again"
 
@@ -604,9 +764,24 @@ msgstr "Failed to load the financial summary"
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Could not change the interface language. Try again"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_CHANGE_REQUESTER_REQUIRED"
+msgstr "Couldn't change the share. Try again"
+
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Не вдалося перевірити, чи чекає на вас рішення по проекту. Оновіть сторінку."
 msgstr "Failed to check whether a project decision is waiting on you. Refresh the page."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.GOOGLE_CREDENTIAL_INVALID"
+msgstr "Couldn't verify your Google sign-in. Try again"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_ORIGIN_UNAVAILABLE"
+msgstr "Couldn't return to your own account. Sign in again"
 
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Не вдалося повернутися: {errMessage}"
@@ -615,6 +790,21 @@ msgstr "Could not return: {errMessage}"
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Не вдалося увійти: {errMessage}"
 msgstr "Failed to log in: {errMessage}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CANNOT_ARCHIVE_ANOTHER_ADMIN"
+msgstr "You can't archive another admin"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CANNOT_ARCHIVE_YOURSELF"
+msgstr "You can't archive yourself"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CANNOT_EDIT_ANOTHER_ADMIN"
+msgstr "You can't edit another admin's account"
 
 #. placeholder {0}: transactions.length
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
@@ -626,7 +816,7 @@ msgid "Немає активних проектів"
 msgstr "No active projects"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors.ts
+#: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.CONTRACT_TEMPLATE_MISSING"
 msgstr "No active contract template for this role. Add one under Contracts"
 
@@ -637,6 +827,16 @@ msgstr "No active ToS version. Create the first version."
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
 msgid "Немає даних за період"
 msgstr "No data for this period"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.NO_HR_CONTACT_ACCESS"
+msgstr "No access to the HR contact"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_IN_YOUR_TEAMS"
+msgstr "No access: this project isn't in your teams"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Немає зобов'язань"
@@ -665,6 +865,11 @@ msgstr "The new ToS version has been published. Users will see a notification."
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Номер телефону"
 msgstr "Phone number"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.INVITE_GOOGLE_ACCOUNT_MISMATCH"
+msgstr "This Google account doesn't match the email the invite was sent to"
 
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Обробка…"
@@ -700,6 +905,16 @@ msgstr "Publish the new ToS version (v{0})?"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Основна навігація"
 msgstr "Main navigation"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK"
+msgstr "The personal email must be different from the work email"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PERSONAL_EMAIL_ALREADY_VERIFIED"
+msgstr "The personal email is already verified — there's no need to send another invite"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Отримувачів"
@@ -764,6 +979,11 @@ msgstr "Confirm archiving. Enter the name to confirm the action."
 msgid "Повернення..."
 msgstr "Returning..."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.REJOIN_TEAM_SENIOR_ONLY"
+msgstr "Only a senior can rejoin a team"
+
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернутися до свого профілю"
@@ -812,6 +1032,11 @@ msgstr "Link"
 msgid "Поточна версія ToS буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію Terms of Service заново."
 msgstr "The current ToS version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
+msgstr "At least one HR is required"
+
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію..."
 msgstr "Start typing a technology..."
@@ -831,6 +1056,16 @@ msgstr "Search country..."
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Прибутки на валідації та виплати, що очікують"
 msgstr "Income pending validation and payouts awaiting completion"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
+msgstr "Only a senior can be added to a drop team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN"
+msgstr "You can't assign the admin role — the pool is fixed"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Приходи в роботі"
@@ -857,9 +1092,29 @@ msgstr "Projects not paid this month"
 msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джун} few {# активні джуни} many {# активних джунів} other {# активних джунів}}</1> будуть відв'язані. Синьйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
 msgstr "Project <0>{entityName}</0> will be archived, <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be unlinked. The senior and the team will <2>not</2> be archived. Financial history (transactions, invoices) remains accessible."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_ARCHIVED"
+msgstr "The project is not archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_NOT_FOUND"
+msgstr "Project not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_ALREADY_ARCHIVED"
+msgstr "The project is already archived"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Проєкти"
 msgstr "Projects"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_PROJECT_ACCESS_DENIED"
+msgstr "Drop projects are only available to drops"
 
 #. placeholder {0}: item.proposedBy
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
@@ -878,6 +1133,11 @@ msgstr "Mark all read"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Публікація…"
 msgstr "Publishing…"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL"
+msgstr "The work email must be different from the personal email"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -900,6 +1160,16 @@ msgstr "Extended details are available in the income table below"
 msgid "Роль"
 msgstr "Role"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
+msgstr "You can only rejoin a team you were previously a member of"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_NOT_FOUND"
+msgstr "Senior not found"
+
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Синьйор"
 msgstr "Senior"
@@ -914,6 +1184,16 @@ msgstr "senior's"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Скасувати"
 msgstr "Cancel"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_CANCEL_ADMIN_ONLY"
+msgstr "Only an admin can cancel a share proposal"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY"
+msgstr "Only an admin or an accountant can cancel a share proposal"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співбесід"
@@ -949,14 +1229,39 @@ msgstr "Rate: {0}%"
 msgid "Статистика"
 msgstr "Statistics"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_CREATE_ADMIN_ONLY"
+msgstr "Only an admin can create a drop"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ADMIN_CREATION_FORBIDDEN"
+msgstr "You can't create an admin — the pool is fixed"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Створити виплату"
 msgstr "Create payout"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.DROP_CREATE_VIA_DEDICATED_ENDPOINT"
+msgstr "A drop can't be created this way"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.INVITE_EXPIRED"
+msgstr "The invite has expired"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Тип {mimeType} не підтримується"
 msgstr "Type {mimeType} is not supported"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN"
+msgstr "Only an admin or an accountant can change the project's payment type"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Транзакції в роботі"
@@ -965,6 +1270,26 @@ msgstr "Transactions in progress"
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Тут з'являться події за вашими проєктами, грошима та документами"
 msgstr "Events about your projects, money, and documents will appear here"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ALREADY_HAS_ACTIVE_TEAM"
+msgstr "You already have an active team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PERSONAL_EMAIL_NOT_SET"
+msgstr "The user has no personal email set"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CANNOT_REMOVE_LAST_ROLE_MEMBER"
+msgstr "The project must keep at least one member with this role"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.PROJECT_HAS_ACTIVE_JUNIOR"
+msgstr "The project already has an active junior member"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "У роботі"
@@ -992,6 +1317,16 @@ msgstr "Log in as «{0}»?"
 msgid "Увійти як {0}"
 msgstr "Log in as {0}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_TARGET_ADMIN_FORBIDDEN"
+msgstr "You can't sign in as another admin"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
+msgstr "You can't sign in as yourself"
+
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Усе, що чекає рішення"
 msgstr "Everything awaiting a decision"
@@ -1012,9 +1347,69 @@ msgstr "The final look of the Terms of Service document — as a PDF."
 msgid "Фінанси"
 msgstr "Finance"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.AVATAR_DOCUMENT_WRONG_OWNER"
+msgstr "This document belongs to another user"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.LOGO_DOCUMENT_WRONG_PROJECT"
+msgstr "This document belongs to another project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.AVATAR_DOCUMENT_WRONG_CATEGORY"
+msgstr "This document is not an avatar"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.LOGO_DOCUMENT_WRONG_CATEGORY"
+msgstr "This document is not a logo"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_NOT_DROP"
+msgstr "This user is not a drop"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_NOT_SENIOR_OR_ADMIN"
+msgstr "This user is neither a senior nor an admin"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Цей місяць"
 msgstr "This month"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.GOOGLE_ACCOUNT_MISMATCH"
+msgstr "This email is already linked to a different Google account"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.METHOD_DROP_ONLY"
+msgstr "This action is only available for drops"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.EMAIL_ALREADY_IN_USE"
+msgstr "This email is already taken. Enter a different one"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.EMAIL_TAKEN_BY_ANOTHER_USER"
+msgstr "This email is already taken. Enter a different one"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.USER_EMAIL_EXISTS"
+msgstr "This email is already taken. Enter a different one"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.EMAIL_NOT_AUTHORIZED"
+msgstr "This email is not authorized. Contact an admin"
 
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка дропа у відсотках"

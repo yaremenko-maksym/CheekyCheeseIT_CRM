@@ -12,7 +12,6 @@
  * (see scripts/coder & migration 0020) and against the in-memory store in
  * `teams.drop.spec.ts`.
  */
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { UsersService } from './users.service'
@@ -110,7 +109,9 @@ describe('UsersService.createDrop — validation/RBAC', () => {
         },
         hrActor,
       ),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_CREATE_ADMIN_ONLY', statusCode: 403 }),
+    })
   })
 
   it('rejects SENIOR actor with 403', async () => {
@@ -127,7 +128,9 @@ describe('UsersService.createDrop — validation/RBAC', () => {
         },
         seniorActor,
       ),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_CREATE_ADMIN_ONLY', statusCode: 403 }),
+    })
   })
 
   it('rejects empty hrIds with 400', async () => {
@@ -144,7 +147,9 @@ describe('UsersService.createDrop — validation/RBAC', () => {
         },
         adminUser,
       ),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'HR_REQUIRED_MINIMUM_ONE', statusCode: 400 }),
+    })
   })
 
   it('rejects on email collision with 409', async () => {
@@ -161,7 +166,9 @@ describe('UsersService.createDrop — validation/RBAC', () => {
         },
         adminUser,
       ),
-    ).rejects.toBeInstanceOf(ConflictException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_EMAIL_EXISTS', statusCode: 409 }),
+    })
   })
 
   // Bug-fix: accountant is OPTIONAL for drop creation. A workspace with 0
@@ -352,14 +359,16 @@ describe('UsersService.createDrop — validation/RBAC', () => {
 describe('UsersService.archiveDrop — RBAC', () => {
   it('rejects HR actor with 403', async () => {
     const { service } = makeService()
-    await expect(service.archiveDrop('drop-1', hrActor)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(service.archiveDrop('drop-1', hrActor)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_ARCHIVE_ADMIN_ONLY', statusCode: 403 }),
+    })
   })
 
   it('rejects SENIOR actor with 403', async () => {
     const { service } = makeService()
-    await expect(service.archiveDrop('drop-1', seniorActor)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    await expect(service.archiveDrop('drop-1', seniorActor)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_ARCHIVE_ADMIN_ONLY', statusCode: 403 }),
+    })
   })
 })
 
@@ -380,7 +389,9 @@ describe('UsersService.createUser — teamMode handling', () => {
         teamMode: 'JOIN_DROP_TEAM',
         dropTeamId: '00000000-0000-0000-0000-000000000123',
       }),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'JOIN_DROP_TEAM_SENIOR_ONLY', statusCode: 400 }),
+    })
   })
 
   it('rejects teamMode=JOIN_DROP_TEAM without dropTeamId with 400', async () => {
@@ -394,7 +405,9 @@ describe('UsersService.createUser — teamMode handling', () => {
         role: 'SENIOR',
         teamMode: 'JOIN_DROP_TEAM',
       }),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'DROP_TEAM_ID_REQUIRED', statusCode: 400 }),
+    })
   })
 
   it('rejects DROP role on legacy createUser endpoint with 400', async () => {
@@ -407,6 +420,11 @@ describe('UsersService.createUser — teamMode handling', () => {
         displayName: 'New Drop',
         role: 'DROP',
       }),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DROP_CREATE_VIA_DEDICATED_ENDPOINT',
+        statusCode: 400,
+      }),
+    })
   })
 })

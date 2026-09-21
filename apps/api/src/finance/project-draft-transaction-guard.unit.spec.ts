@@ -5,10 +5,17 @@
  * createAdminIncome, declareUsdtProjectIncome, createSeniorIncome,
  * createDropIncome — each on BOTH refused statuses.
  *
- * Each test asserts the SPECIFIC `PROJECT_NOT_ACTIVE_MESSAGE` (not just "any
- * BadRequestException") — the fixture is otherwise valid for that entry
- * point's OWN later checks (payment type, ownership, receipt), so a pass
- * here proves the Д2 gate fired, not some other guard down the line.
+ * Each test asserts the SPECIFIC `PROJECT_NOT_ACTIVE` code (not just "any
+ * 400") — the fixture is otherwise valid for that entry point's OWN later
+ * checks (payment type, ownership, receipt), so a pass here proves the Д2
+ * gate fired, not some other guard down the line.
+ *
+ * CR-H-1/SPEC-M-1 (code-review + spec-review PR #701 round 1): this file is
+ * the cross-module (Task 2 `finance`) consumer of `project-status.util.ts`'s
+ * `assertProjectActive` (Task 1 `projects`) — the guard's literal Russian
+ * message was migrated to the `PROJECT_NOT_ACTIVE` code as part of Task 1,
+ * so the assertions here moved from message-matching to `code`/`statusCode`
+ * in the same commit, orchestrator decision, recorded under «Допущения».
  *
  * The ACTIVE-status happy path for each of these four methods is already
  * exercised end-to-end by admin-income-unified.unit.spec.ts /
@@ -17,11 +24,9 @@
  * see those files' own task-project-draft-status comments) — not duplicated
  * here.
  */
-import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
-import { PROJECT_NOT_ACTIVE_MESSAGE } from '../projects/project-status.util'
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
@@ -91,12 +96,9 @@ describe('Д2 — transaction creation refuses a DRAFT or REJECTED project', () 
   for (const status of ['DRAFT', 'REJECTED'] as const) {
     it(`createAdminIncome refuses a ${status} project`, async () => {
       const svc = makeTransactionsService({ db: makeDb(status) as never })
-      await expect(svc.createAdminIncome(BASE_PAYLOAD, ADMIN)).rejects.toThrow(
-        PROJECT_NOT_ACTIVE_MESSAGE,
-      )
-      await expect(svc.createAdminIncome(BASE_PAYLOAD, ADMIN)).rejects.toBeInstanceOf(
-        BadRequestException,
-      )
+      await expect(svc.createAdminIncome(BASE_PAYLOAD, ADMIN)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PROJECT_NOT_ACTIVE', statusCode: 400 }),
+      })
     })
 
     it(`declareUsdtProjectIncome refuses a ${status} project`, async () => {
@@ -112,21 +114,23 @@ describe('Д2 — transaction creation refuses a DRAFT or REJECTED project', () 
           },
           ADMIN,
         ),
-      ).rejects.toThrow(PROJECT_NOT_ACTIVE_MESSAGE)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PROJECT_NOT_ACTIVE', statusCode: 400 }),
+      })
     })
 
     it(`createSeniorIncome refuses a ${status} project`, async () => {
       const svc = makeTransactionsService({ db: makeDb(status) as never })
-      await expect(svc.createSeniorIncome(BASE_PAYLOAD, SENIOR)).rejects.toThrow(
-        PROJECT_NOT_ACTIVE_MESSAGE,
-      )
+      await expect(svc.createSeniorIncome(BASE_PAYLOAD, SENIOR)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PROJECT_NOT_ACTIVE', statusCode: 400 }),
+      })
     })
 
     it(`createDropIncome refuses a ${status} project`, async () => {
       const svc = makeTransactionsService({ db: makeDb(status) as never })
-      await expect(svc.createDropIncome(BASE_PAYLOAD, DROP)).rejects.toThrow(
-        PROJECT_NOT_ACTIVE_MESSAGE,
-      )
+      await expect(svc.createDropIncome(BASE_PAYLOAD, DROP)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PROJECT_NOT_ACTIVE', statusCode: 400 }),
+      })
     })
   }
 })

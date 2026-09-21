@@ -1,11 +1,9 @@
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpStatus,
   Inject,
   Injectable,
-  NotFoundException,
   forwardRef,
 } from '@nestjs/common'
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
@@ -534,15 +532,15 @@ export class ProjectsService {
     const row = await this.db.db.query.documents.findFirst({
       where: eq(documents.id, documentId),
     })
-    if (!row) throw new BadRequestException('Логотип: документ не найден')
+    if (!row) throw apiError('LOGO_DOCUMENT_NOT_FOUND', HttpStatus.BAD_REQUEST)
     if (row.category !== 'LOGO') {
-      throw new BadRequestException('Категория документа должна быть LOGO')
+      throw apiError('LOGO_DOCUMENT_WRONG_CATEGORY', HttpStatus.BAD_REQUEST)
     }
     if (row.deletedAt !== null) {
-      throw new BadRequestException('Логотип: документ удалён')
+      throw apiError('LOGO_DOCUMENT_DELETED', HttpStatus.BAD_REQUEST)
     }
     if (projectId !== null && row.projectId !== null && row.projectId !== projectId) {
-      throw new BadRequestException('Логотип: документ принадлежит другому проекту')
+      throw apiError('LOGO_DOCUMENT_WRONG_PROJECT', HttpStatus.BAD_REQUEST)
     }
   }
 
@@ -564,12 +562,12 @@ export class ProjectsService {
     if (user.role !== 'HR') return
 
     if (!seniorId) {
-      throw new ForbiddenException('Проект не в ваших командах')
+      throw apiError('PROJECT_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
     }
 
     const allowedSeniorIds = await this.getHrSeniorIds(user.id)
     if (!allowedSeniorIds.includes(seniorId)) {
-      throw new ForbiddenException('Проект не в ваших командах')
+      throw apiError('PROJECT_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
     }
   }
 
@@ -743,7 +741,7 @@ export class ProjectsService {
    */
   async findDropOwnProjects(currentUser: SessionUser): Promise<DropProjectDto[]> {
     if (currentUser.role !== 'DROP') {
-      throw new ForbiddenException('Access denied: drop projects are available to DROP role only')
+      throw apiError('DROP_PROJECT_ACCESS_DENIED', HttpStatus.FORBIDDEN)
     }
 
     const ownProjects = (await this.db.db.query.projects.findMany({
@@ -800,7 +798,7 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations | undefined
 
-    if (!project) throw new NotFoundException('Project not found')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     await this.assertAccess(project, currentUser)
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
@@ -1000,20 +998,16 @@ export class ProjectsService {
       role !== 'ADMIN' &&
       role !== 'ACCOUNTANT'
     ) {
-      throw new ForbiddenException(
-        'Only ADMIN or ACCOUNTANT can change senior share percent override',
-      )
+      throw apiError('SENIOR_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     // task-drop-share-override-and-receiver (D1/D6). Field-scoped RBAC for
     // paymentType + dropSharePercentOverride — same contract as the senior
     // override: only ADMIN/ACCOUNTANT may send these fields.
     if (data.dropSharePercentOverride !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Only ADMIN or ACCOUNTANT can change drop share percent override',
-      )
+      throw apiError('DROP_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     if (data.paymentType !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw new ForbiddenException('Only ADMIN or ACCOUNTANT can change project payment type')
+      throw apiError('PAYMENT_TYPE_CHANGE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     if (role !== 'ADMIN' && role !== 'HR') {
@@ -1023,9 +1017,9 @@ export class ProjectsService {
     const senior = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.seniorId),
     })
-    if (!senior) throw new NotFoundException('Senior not found')
+    if (!senior) throw apiError('SENIOR_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (senior.role !== 'SENIOR' && senior.role !== 'ADMIN')
-      throw new BadRequestException('User is not a SENIOR or ADMIN')
+      throw apiError('USER_NOT_SENIOR_OR_ADMIN', HttpStatus.BAD_REQUEST)
 
     // HR cross-team scoping: HR may only create projects for seniors in their own teams.
     await this.assertHrCanManageProject(data.seniorId, currentUser)
@@ -1055,9 +1049,9 @@ export class ProjectsService {
       const drop = await this.db.db.query.users.findFirst({
         where: eq(users.id, data.dropId),
       })
-      if (!drop) throw new NotFoundException('Drop not found')
-      if (drop.role !== 'DROP') throw new BadRequestException('User is not a DROP')
-      if (drop.archivedAt) throw new BadRequestException('Drop is archived')
+      if (!drop) throw apiError('DROP_NOT_FOUND', HttpStatus.NOT_FOUND)
+      if (drop.role !== 'DROP') throw apiError('USER_NOT_DROP', HttpStatus.BAD_REQUEST)
+      if (drop.archivedAt) throw apiError('DROP_ARCHIVED', HttpStatus.BAD_REQUEST)
       resolvedDropId = drop.id
     }
 
@@ -1325,7 +1319,7 @@ export class ProjectsService {
       where: eq(projects.id, id),
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations | undefined
-    if (!project) throw new NotFoundException('Project not found')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
     // SPEC-M-2 (PR #646 fix-round 1). Computed HERE (not by the caller, unlike
     // rejectionReasonByProjectId above) because it needs the SAME guard for
@@ -1484,9 +1478,7 @@ export class ProjectsService {
       // `UsersService.approveSeniorShareChange`'s identical comment.
       // task-648-fix-round-2 (COPY-M-13): wording matches
       // `ImpersonationBanner`'s «Вы вошли как …» — see the users-half twin.
-      throw new ForbiddenException(
-        'Пока вы вошли как другой сотрудник, подтвердить его долю нельзя — это должен сделать он сам',
-      )
+      throw apiError('SHARE_APPROVE_IMPERSONATION_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction(async (tx) => {
       await this.approvals.approveInTx(tx, {
@@ -1504,7 +1496,7 @@ export class ProjectsService {
       // above already proved a live PENDING row exists; only a project
       // deleted in the instant between that check and this re-select could
       // reach here), but still user-facing text if it ever fires.
-      if (!row) throw new NotFoundException('Проект не найден')
+      if (!row) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
       // `row.pendingSeniorSharePercentOverride` is read as-is (including
       // `null`, a legitimate "clear the override" outcome) — safe to trust
       // here because `approveInTx` above already threw for "no live PENDING
@@ -1549,9 +1541,7 @@ export class ProjectsService {
   async rejectSeniorShareChange(id: string, reason: string, currentUser: SessionUser) {
     if (currentUser.impersonatorId) {
       // task-648-fix-round-1 (COPY-H-1): same reasoning as approve above.
-      throw new ForbiddenException(
-        'Пока вы вошли как другой сотрудник, отклонить его долю нельзя — это должен сделать он сам',
-      )
+      throw apiError('SHARE_REJECT_IMPERSONATION_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction(async (tx) => {
       await this.approvals.rejectInTx(tx, {
@@ -1593,7 +1583,7 @@ export class ProjectsService {
       // task-648-fix-round-1 (COPY-H-1): user-facing text is Russian
       // (russian-language.md) — see `UsersService.cancelSeniorShareChange`'s
       // identical comment.
-      throw new ForbiddenException('Отменить предложение по доле может только ADMIN или ACCOUNTANT')
+      throw apiError('SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction(async (tx) => {
       // task-648-fix-round-3 (SR-M-8 / CR-H-4): `approvals` FIRST, then the
@@ -1618,7 +1608,7 @@ export class ProjectsService {
         .where(eq(projects.id, id))
         .for('update')
         .limit(1)
-      if (!row) throw new NotFoundException('Проект не найден')
+      if (!row) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
       // Reaching this line means `cancelInTx` found a real PENDING proposal
       // for `id` (it throws otherwise) — same "no separate existence check
       // needed" reasoning `approveSeniorShareChange` documents above.
@@ -1702,20 +1692,16 @@ export class ProjectsService {
       role !== 'ADMIN' &&
       role !== 'ACCOUNTANT'
     ) {
-      throw new ForbiddenException(
-        'Only ADMIN or ACCOUNTANT can change senior share percent override',
-      )
+      throw apiError('SENIOR_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     // task-drop-share-override-and-receiver (D1/D6). Field-scoped RBAC for
     // paymentType + dropSharePercentOverride (including explicit null) — only
     // ADMIN/ACCOUNTANT may touch these fields.
     if (data.dropSharePercentOverride !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Only ADMIN or ACCOUNTANT can change drop share percent override',
-      )
+      throw apiError('DROP_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     if (data.paymentType !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw new ForbiddenException('Only ADMIN or ACCOUNTANT can change project payment type')
+      throw apiError('PAYMENT_TYPE_CHANGE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // ACCOUNTANT may patch only when EVERY field touched is finance-scoped
@@ -1740,7 +1726,7 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations | undefined
 
-    if (!project) throw new NotFoundException('Project not found')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // SR-H-1 (PR #646 fix-round 2). update() is a WRITE path, and predates
     // the draft-visibility gate (task-project-draft-status) — it never
@@ -1776,9 +1762,9 @@ export class ProjectsService {
         const drop = await this.db.db.query.users.findFirst({
           where: eq(users.id, data.dropId),
         })
-        if (!drop) throw new NotFoundException('Drop not found')
-        if (drop.role !== 'DROP') throw new BadRequestException('User is not a DROP')
-        if (drop.archivedAt) throw new BadRequestException('Drop is archived')
+        if (!drop) throw apiError('DROP_NOT_FOUND', HttpStatus.NOT_FOUND)
+        if (drop.role !== 'DROP') throw apiError('USER_NOT_DROP', HttpStatus.BAD_REQUEST)
+        if (drop.archivedAt) throw apiError('DROP_ARCHIVED', HttpStatus.BAD_REQUEST)
         resolvedDropId = drop.id
       }
     }
@@ -2022,8 +2008,8 @@ export class ProjectsService {
         .from(projects)
         .where(eq(projects.id, id))
         .then((rows) => rows[0])
-      if (!project) throw new NotFoundException('Project not found')
-      if (project.archivedAt) throw new BadRequestException('Project is already archived')
+      if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
+      if (project.archivedAt) throw apiError('PROJECT_ALREADY_ARCHIVED', HttpStatus.BAD_REQUEST)
 
       const now = new Date()
       await tx.update(projects).set({ archivedAt: now, updatedAt: now }).where(eq(projects.id, id))
@@ -2087,8 +2073,8 @@ export class ProjectsService {
         .from(projects)
         .where(eq(projects.id, id))
         .then((rows) => rows[0])
-      if (!project) throw new NotFoundException('Project not found')
-      if (!project.archivedAt) throw new BadRequestException('Project is not archived')
+      if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
+      if (!project.archivedAt) throw apiError('PROJECT_NOT_ARCHIVED', HttpStatus.BAD_REQUEST)
 
       const senior = await tx
         .select()
@@ -2163,7 +2149,7 @@ export class ProjectsService {
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
     })
-    if (!project) throw new NotFoundException('Project not found')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const activeJuniors = await this.db.db
       .select({ id: projectMembers.id })
@@ -2190,7 +2176,7 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations | undefined
 
-    if (!project) throw new NotFoundException('Project not found')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // HR cross-team scoping: HR may only add members to projects in their own teams.
     await this.assertHrCanManageProject(project.seniorId, currentUser)
@@ -2198,7 +2184,7 @@ export class ProjectsService {
     const user = await this.db.db.query.users.findFirst({
       where: eq(users.id, userId),
     })
-    if (!user) throw new NotFoundException('User not found')
+    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     // task-archived-user-completeness (AC1). A membership row is an ACCRUAL
     // SUBSCRIPTION, not a label: `createMonthlySalaries` walks
     // `project_members WHERE left_at IS NULL` and mints a fresh PENDING salary
@@ -2219,12 +2205,10 @@ export class ProjectsService {
     // actually stands between an archived junior and money, and it re-reads
     // the flag at accrual time, so a race here cannot mint a salary.
     if (user.archivedAt) {
-      throw new BadRequestException('Пользователь архивирован — добавить в проект нельзя')
+      throw apiError('ARCHIVED_USER_CANNOT_JOIN_PROJECT', HttpStatus.BAD_REQUEST)
     }
     if (user.role !== 'JUNIOR' && user.role !== 'HR' && user.role !== 'ACCOUNTANT') {
-      throw new BadRequestException(
-        'Only JUNIORs, HRs, and ACCOUNTANTs can be added as project members',
-      )
+      throw apiError('PROJECT_MEMBER_ROLE_RESTRICTED', HttpStatus.BAD_REQUEST)
     }
 
     // Prevent duplicate active membership on same project
@@ -2235,8 +2219,7 @@ export class ProjectsService {
         isNull(projectMembers.leftAt),
       ),
     })
-    if (existingActive)
-      throw new BadRequestException('User is already an active member of this project')
+    if (existingActive) throw apiError('ALREADY_ACTIVE_PROJECT_MEMBER', HttpStatus.BAD_REQUEST)
 
     // JUNIOR: max 1 per project
     if (user.role === 'JUNIOR') {
@@ -2244,7 +2227,7 @@ export class ProjectsService {
         (m) => m.leftAt === null && m.user?.role === 'JUNIOR',
       )
       if (existingJunior) {
-        throw new BadRequestException('Project already has an active junior member')
+        throw apiError('PROJECT_HAS_ACTIVE_JUNIOR', HttpStatus.BAD_REQUEST)
       }
 
       // JUNIOR: cannot be active on another project simultaneously
@@ -2252,7 +2235,7 @@ export class ProjectsService {
         where: and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)),
       })
       if (otherProjectMembership) {
-        throw new BadRequestException('Junior is already an active member of another project')
+        throw apiError('JUNIOR_ALREADY_ON_ANOTHER_PROJECT', HttpStatus.BAD_REQUEST)
       }
     }
 
@@ -2300,7 +2283,7 @@ export class ProjectsService {
       where: eq(projects.id, projectId),
       with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations | undefined
-    if (!projectForScope) throw new NotFoundException('Project not found')
+    if (!projectForScope) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     await this.assertHrCanManageProject(projectForScope.seniorId, currentUser)
 
@@ -2311,7 +2294,7 @@ export class ProjectsService {
         isNull(projectMembers.leftAt),
       ),
     })
-    if (!activeMember) throw new NotFoundException('Active member not found in project')
+    if (!activeMember) throw apiError('ACTIVE_MEMBER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Prevent removing last HR or last ACCOUNTANT from project
     const userToRemove = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
@@ -2324,9 +2307,7 @@ export class ProjectsService {
           (m) => m.leftAt === null && m.user?.role === userToRemove.role,
         )
         if (activeOfRole.length <= 1) {
-          throw new BadRequestException(
-            `Cannot remove the last ${userToRemove.role} from a project`,
-          )
+          throw apiError('CANNOT_REMOVE_LAST_ROLE_MEMBER', HttpStatus.BAD_REQUEST)
         }
       }
     }
@@ -2544,7 +2525,7 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations | undefined
 
-    if (!project) throw new NotFoundException('Проект не найден')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // RBAC: ADMIN, active JUNIOR member, HR of project's team
     const isAdmin = currentUser.role === 'ADMIN'
@@ -2557,7 +2538,7 @@ export class ProjectsService {
       (await this.hrAccess.hrSharesActiveTeamWith(currentUser.id, project.seniorId))
 
     if (!isAdmin && !isActiveJunior && !isTeamHr) {
-      throw new ForbiddenException('Нет доступа к контакту HR')
+      throw apiError('NO_HR_CONTACT_ACCESS', HttpStatus.FORBIDDEN)
     }
 
     if (!project.seniorId) {
@@ -2620,7 +2601,7 @@ export class ProjectsService {
         currentUser.id,
       )
       if (invited) return
-      throw new NotFoundException('Project not found')
+      throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
     if (currentUser.role === 'SENIOR' && project.seniorId === currentUser.id) return

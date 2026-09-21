@@ -12,7 +12,7 @@
  * `project.status !== 'ACTIVE'`, so a single representative case per role
  * is a structural proof, not a sampled one — see that method's own comment.
  */
-import { NotFoundException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -166,31 +166,37 @@ describe('AC5 — draft project visibility (findOne/assertAccess)', () => {
     const { service } = buildService(invited)
     await expect(
       service.findOne(PROJECT_ID, sessionFor(OTHER_SENIOR_ID, 'SENIOR')),
-    ).rejects.toBeInstanceOf(NotFoundException)
+    ).rejects.toBeInstanceOf(HttpException)
     await expect(
       service.findOne(PROJECT_ID, sessionFor(OTHER_SENIOR_ID, 'SENIOR')),
-    ).rejects.toThrow('Project not found')
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('JUNIOR gets 404', async () => {
     const { service } = buildService(invited)
     await expect(
       service.findOne(PROJECT_ID, sessionFor(JUNIOR_ID, 'JUNIOR')),
-    ).rejects.toBeInstanceOf(NotFoundException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('HR gets 404 (even though HR would otherwise manage this senior once ACTIVE)', async () => {
     const { service } = buildService(invited)
-    await expect(service.findOne(PROJECT_ID, sessionFor(HR_ID, 'HR'))).rejects.toBeInstanceOf(
-      NotFoundException,
-    )
+    await expect(service.findOne(PROJECT_ID, sessionFor(HR_ID, 'HR'))).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 
   it('ACCOUNTANT gets 404 — NOT the unconditional access ACCOUNTANT has on an ACTIVE project', async () => {
     const { service } = buildService(invited)
     await expect(
       service.findOne(PROJECT_ID, sessionFor(ACCOUNTANT_ID, 'ACCOUNTANT')),
-    ).rejects.toBeInstanceOf(NotFoundException)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
+    })
   })
 })
 
