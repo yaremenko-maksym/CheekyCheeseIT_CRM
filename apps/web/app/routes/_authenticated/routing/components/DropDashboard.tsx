@@ -214,11 +214,15 @@ export function DropDashboard() {
                         // avoid-list) — same catalog entry, not a near-dup
                         // (see `PENDING_OBLIGATION_MESSAGE` above for why
                         // this is `i18n._()` + a module-level `msg`, not the
-                        // `<Plural>` component every sibling uses).
-                        i18n._({
-                          ...PENDING_OBLIGATION_MESSAGE,
-                          values: { pendingObligationCount },
-                        })
+                        // `<Plural>` component every sibling uses). Calling
+                        // the `(id, values)` overload by `.id` — not
+                        // spreading the descriptor into a fresh object —
+                        // because `lingui extract`'s own babel plugin walks
+                        // `i18n._({...})` object-literal call sites looking
+                        // for a message shape, and a SpreadElement property
+                        // (`...PENDING_OBLIGATION_MESSAGE`) has no `.name`
+                        // for it to read, crashing extraction entirely.
+                        i18n._(PENDING_OBLIGATION_MESSAGE.id, { pendingObligationCount })
                       : t`Немає зобов'язань`
                   }
                   icon={<HandCoins className="h-5 w-5" />}

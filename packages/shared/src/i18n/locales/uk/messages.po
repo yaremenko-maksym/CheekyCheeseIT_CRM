@@ -79,6 +79,11 @@ msgstr "<0>{entityName}</0>{0} — пов'язана пара, прибрати 
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
 msgstr "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.EMAIL_TOO_LONG"
+msgstr "Email не довше 255 символів"
+
 #: apps/web/app/components/ui/amount-currency-input.tsx
 msgid "ERC-20, прив'язаний до долара"
 msgstr "ERC-20, прив'язаний до долара"
@@ -86,11 +91,6 @@ msgstr "ERC-20, прив'язаний до долара"
 #: apps/web/app/components/ui/role-select.tsx
 msgid "HR"
 msgstr "HR"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.EMAIL_TOO_LONG"
-msgstr "Email не довше 255 символів"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -123,10 +123,6 @@ msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бух�
 msgid "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
 msgstr "HR/бухгалтери команди після відновлення залишаються відв'язаними — додайте їх заново."
 
-#: apps/web/app/components/ui/image-upload-field.tsx
-msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
-msgstr "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.IBAN_FORMAT"
@@ -136,6 +132,10 @@ msgstr "IBAN має бути у форматі UA + 27 цифр (29 символ
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.IBAN_REQUIRED"
 msgstr "IBAN обов’язковий"
+
+#: apps/web/app/components/ui/image-upload-field.tsx
+msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
+msgstr "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -154,6 +154,11 @@ msgstr "Адміністратор"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_CANNOT_CHANGE_OWN_ROLE"
 msgstr "Адміністратор не може змінити власну роль"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.USDT_ADDRESS_FORMAT"
+msgstr "Адреса USDT ERC-20 має починатися з 0x і містити 42 символи"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "активна"
@@ -187,11 +192,6 @@ msgstr "Активні транзакції"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Активного сеньйора в команді немає."
 msgstr "Активного сеньйора в команді немає."
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.USDT_ADDRESS_FORMAT"
-msgstr "Адреса USDT ERC-20 має починатися з 0x і містити 42 символи"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -272,15 +272,6 @@ msgstr "Ваша частка: {0}% · сеньйор: {1}"
 msgid "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
 msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити ToS</0>"
 
-#. placeholder {0}: ver.version
-#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
-msgid "Версія v{0}"
-msgstr "Версія v{0}"
-
-#: apps/web/app/routes/_authenticated/admin/login-as.tsx
-msgid "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
-msgstr "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RNOKPP_FORMAT"
@@ -305,6 +296,15 @@ msgstr "Введіть номер у міжнародному форматі, н
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.AMOUNT_NOT_A_NUMBER"
 msgstr "Введіть суму числом — наприклад 1000.50"
+
+#. placeholder {0}: ver.version
+#: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+msgid "Версія v{0}"
+msgstr "Версія v{0}"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
+msgstr "Ви будете діяти від його імені. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -379,6 +379,11 @@ msgstr "Виберіть команду дропа"
 msgid "api-error.DROP_TEAM_ID_REQUIRED"
 msgstr "Виберіть команду дропа, до якої приєднати сеньйора"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.HR_REQUIRED_MIN"
+msgstr "Виберіть щонайменше одного HR"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Вибрати файл"
 msgstr "Вибрати файл"
@@ -436,36 +441,6 @@ msgstr "Відновлення проєкту разом із пов'язани�
 msgid "Відновлення…"
 msgstr "Відновлення…"
 
-#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
-msgid "Всього зароблено · за весь час"
-msgstr "Всього зароблено · за весь час"
-
-#. placeholder {0}: fmtUsd(summary.seniorShareIncome.total)
-#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
-msgid "Всього: {0}"
-msgstr "Всього: {0}"
-
-#: apps/web/app/routes/_authenticated/admin/login-as.tsx
-msgid "Входимо…"
-msgstr "Входимо…"
-
-#: apps/web/app/components/ui/upload-progress.tsx
-msgid "Готово"
-msgstr "Готово"
-
-#: apps/web/app/components/crm/nav-sidebar.tsx
-msgid "Дашборд"
-msgstr "Дашборд"
-
-#: apps/web/app/components/ui/role-select.tsx
-msgid "Джуніор"
-msgstr "Джуніор"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.HR_REQUIRED_MIN"
-msgstr "Виберіть щонайменше одного HR"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENDER_RECEIVER_SAME"
@@ -496,6 +471,23 @@ msgstr "Вкажіть причину видалення — вона потра
 msgid "zod-error.REASON_REQUIRED_RESTORE"
 msgstr "Вкажіть причину відновлення — вона потрапить до журналу"
 
+#: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+msgid "Всього зароблено · за весь час"
+msgstr "Всього зароблено · за весь час"
+
+#. placeholder {0}: fmtUsd(summary.seniorShareIncome.total)
+#: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+msgid "Всього: {0}"
+msgstr "Всього: {0}"
+
+#: apps/web/app/routes/_authenticated/admin/login-as.tsx
+msgid "Входимо…"
+msgstr "Входимо…"
+
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Готово"
+msgstr "Готово"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_FORMAT_YYYYMMDD"
@@ -506,10 +498,23 @@ msgstr "Дата має бути у форматі YYYY-MM-DD"
 msgid "zod-error.DATE_NOT_IN_FUTURE"
 msgstr "Дата транзакції не може бути в майбутньому"
 
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Дашборд"
+msgstr "Дашборд"
+
+#: apps/web/app/components/ui/role-select.tsx
+msgid "Джуніор"
+msgstr "Джуніор"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT"
 msgstr "Джуніор уже є активним учасником іншого проєкту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RECEIPT_USDT_LINK_ONLY"
+msgstr "Для USDT додайте посилання на транзакцію, а не файл"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
@@ -518,11 +523,6 @@ msgstr "Для відновлення проєкту <0>{projectName}</0> пот
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Для підтвердження введіть {confirmInputLabel}:"
 msgstr "Для підтвердження введіть {confirmInputLabel}:"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.RECEIPT_USDT_LINK_ONLY"
-msgstr "Для USDT додайте посилання на транзакцію, а не файл"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -566,6 +566,11 @@ msgstr "Документ логотипа не знайдено"
 msgid "Документи"
 msgstr "Документи"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
+msgstr "Долучити до команди дропа можна лише сеньйора"
+
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Досягнуто ліміт {maxItems} тегів"
 msgstr "Досягнуто ліміт {maxItems} тегів"
@@ -597,11 +602,6 @@ msgstr "Дроп"
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "дропа"
 msgstr "дропа"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
-msgstr "Долучити до команди дропа можна лише сеньйора"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -675,6 +675,11 @@ msgstr "Зовнішнє посилання на зображення (https://�
 msgid "ім'я"
 msgstr "ім'я"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.DISPLAY_NAME_MIN"
+msgstr "Ім’я — мінімум 2 символи"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім'я дропа"
 msgstr "ім'я дропа"
@@ -682,11 +687,6 @@ msgstr "ім'я дропа"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім'я сеньйора"
 msgstr "ім'я сеньйора"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.DISPLAY_NAME_MIN"
-msgstr "Ім’я — мінімум 2 символи"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -705,6 +705,11 @@ msgstr "Історія версій"
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
 msgid "Історія заробітку по місяцях"
 msgstr "Історія заробітку по місяцях"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
+msgstr "Канал у Telegram: 5–32 символи — латиниця, цифри або _"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -744,11 +749,6 @@ msgstr "Контракти"
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Користувач (сеньйор)"
 msgstr "Користувач (сеньйор)"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
-msgstr "Канал у Telegram: 5–32 символи — латиниця, цифри або _"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -972,6 +972,11 @@ msgstr "Немає зобов'язань"
 msgid "Немає транзакцій у роботі. Додайте дохід, щоб почати."
 msgstr "Немає транзакцій у роботі. Додайте дохід, щоб почати."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TELEGRAM_FORMAT"
+msgstr "Нік у Telegram: 5–32 символи — латиниця, цифри або _"
+
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нова версія умов"
@@ -984,11 +989,6 @@ msgstr "Нову версію умов використання опубліко
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Номер телефону"
 msgstr "Номер телефону"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.TELEGRAM_FORMAT"
-msgstr "Нік у Telegram: 5–32 символи — латиниця, цифри або _"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1011,6 +1011,16 @@ msgstr "Оновити"
 msgid "Оновіть сторінку або спробуйте пізніше"
 msgstr "Оновіть сторінку або спробуйте пізніше"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.COMPANY_ACCOUNT_USDT_ONLY"
+msgstr "Операція з рахунку компанії проводиться лише в USDT"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.REASON_REQUIRED_RELEASE"
+msgstr "Опишіть причину — вона потрапить до журналу"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Оплатити"
 msgstr "Оплатити"
@@ -1029,16 +1039,6 @@ msgstr "Опублікувати нову версію умов (v{0})?"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Основна навігація"
 msgstr "Основна навігація"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.COMPANY_ACCOUNT_USDT_ONLY"
-msgstr "Операція з рахунку компанії проводиться лише в USDT"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.REASON_REQUIRED_RELEASE"
-msgstr "Опишіть причину — вона потрапить до журналу"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1090,6 +1090,11 @@ msgstr "Очікують виплати"
 msgid "Перевірити доходи ({0})"
 msgstr "Перевірити доходи ({0})"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.VALIDATION_FAILED_FORM"
+msgstr "Перевірте заповнені поля"
+
 #. placeholder {0}: previewVersion.version
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Перегляд архівної версії v{0}"
@@ -1098,10 +1103,6 @@ msgstr "Перегляд архівної версії v{0}"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Перейшли в «Найнято»"
 msgstr "Перейшли в «Найнято»"
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.VALIDATION_FAILED_FORM"
-msgstr "Перевірте заповнені поля"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
@@ -1110,22 +1111,6 @@ msgstr "Переклад ще триває — частина екранів п�
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Перша версія"
 msgstr "Перша версія"
-
-#: apps/web/app/components/ui/upload-progress.tsx
-msgid "Підготовка файлу…"
-msgstr "Підготовка файлу…"
-
-#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
-msgid "Підтверджені доходи, які ви ще не перерахували"
-msgstr "Підтверджені доходи, які ви ще не перерахували"
-
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Підтвердження архівації. Введіть ім'я для підтвердження дії."
-msgstr "Підтвердження архівації. Введіть ім'я для підтвердження дії."
-
-#: apps/web/app/components/layout/ImpersonationBanner.tsx
-msgid "Повернення…"
-msgstr "Повернення…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1146,6 +1131,22 @@ msgstr "ПІБ отримувача — мінімум 3 символи"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECIPIENT_NAME_REQUIRED"
 msgstr "ПІБ отримувача обов’язкове"
+
+#: apps/web/app/components/ui/upload-progress.tsx
+msgid "Підготовка файлу…"
+msgstr "Підготовка файлу…"
+
+#: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
+msgid "Підтверджені доходи, які ви ще не перерахували"
+msgstr "Підтверджені доходи, які ви ще не перерахували"
+
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "Підтвердження архівації. Введіть ім'я для підтвердження дії."
+msgstr "Підтвердження архівації. Введіть ім'я для підтвердження дії."
+
+#: apps/web/app/components/layout/ImpersonationBanner.tsx
+msgid "Повернення…"
+msgstr "Повернення…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1196,14 +1197,14 @@ msgstr "Попередній перегляд умов"
 msgid "Посилання"
 msgstr "Посилання"
 
-#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
-msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
-msgstr "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
 msgstr "Посилання має вести на etherscan.io, tronscan.org або інший експлорер"
+
+#: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
+msgstr "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1348,14 +1349,14 @@ msgstr "Самостійно приєднатися можна лише до к�
 msgid "Сеньйор"
 msgstr "Сеньйор"
 
-#: apps/web/app/components/ui/share-slider.tsx
-msgid "сеньйора"
-msgstr "сеньйора"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.USDT_ONLY_FOR_SENIOR_ADMIN"
 msgstr "Сеньйор і адмін отримують лише на USDT ERC-20"
+
+#: apps/web/app/components/ui/share-slider.tsx
+msgid "сеньйора"
+msgstr "сеньйора"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1650,9 +1651,6 @@ msgstr "Частка сеньйора у відсотках"
 msgid "Частка: {0}%"
 msgstr "Частка: {0}%"
 
-#: apps/web/app/components/crm/nav-sidebar.tsx
-msgid "Чекають рішення"
-msgstr "Чекають рішення"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
@@ -1662,3 +1660,7 @@ msgstr "Чек — це файл або посилання, не обидва о
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "Чек обов’язковий — додайте файл або посилання"
+
+#: apps/web/app/components/crm/nav-sidebar.tsx
+msgid "Чекають рішення"
+msgstr "Чекають рішення"

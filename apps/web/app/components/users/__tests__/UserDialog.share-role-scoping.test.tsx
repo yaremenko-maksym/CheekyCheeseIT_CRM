@@ -301,9 +301,9 @@ describe('UserDialog — share-percent range validators, out-of-range fixture va
     render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля синьора в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка сеньйора у відсотках').length).toBeGreaterThan(0)
     })
-    const input = numberInputByAriaLabel('Доля синьора в процентах')
+    const input = numberInputByAriaLabel('Частка сеньйора у відсотках')
     await blurWithoutTouching(input)
     expect(await screen.findByText('Вкажіть від 1 до 100')).toBeInTheDocument()
 
@@ -330,9 +330,9 @@ describe('UserDialog — share-percent range validators, out-of-range fixture va
     render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля синьора в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка сеньйора у відсотках').length).toBeGreaterThan(0)
     })
-    await blurWithoutTouching(numberInputByAriaLabel('Доля синьора в процентах'))
+    await blurWithoutTouching(numberInputByAriaLabel('Частка сеньйора у відсотках'))
 
     expect(await screen.findByText('Вкажіть від 1 до 100')).toBeInTheDocument()
   })
@@ -351,9 +351,9 @@ describe('UserDialog — share-percent range validators, out-of-range fixture va
     render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля дропа в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка дропа у відсотках').length).toBeGreaterThan(0)
     })
-    const input = numberInputByAriaLabel('Доля дропа в процентах')
+    const input = numberInputByAriaLabel('Частка дропа у відсотках')
     await blurWithoutTouching(input)
     expect(await screen.findByText('Вкажіть від 0 до 100')).toBeInTheDocument()
 
@@ -380,9 +380,9 @@ describe('UserDialog — share-percent range validators, out-of-range fixture va
     render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля дропа в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка дропа у відсотках').length).toBeGreaterThan(0)
     })
-    await blurWithoutTouching(numberInputByAriaLabel('Доля дропа в процентах'))
+    await blurWithoutTouching(numberInputByAriaLabel('Частка дропа у відсотках'))
 
     expect(await screen.findByText('Вкажіть від 0 до 100')).toBeInTheDocument()
   })
