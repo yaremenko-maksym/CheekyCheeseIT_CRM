@@ -901,7 +901,7 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
     await expect(navLinks).toHaveCount(5)
   })
 
-  test('JUNIOR nav contains Мой проект, Легенда, Финансы, Документы, Профиль', async ({
+  test('JUNIOR nav contains Мой проект, Легенда, Финансы, Документы, Профіль', async ({
     asJunior: page,
   }) => {
     await mockJuniorProjectsAndLegend(page)
@@ -914,7 +914,7 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
     await expect(nav.getByText('Легенда')).toBeVisible()
     await expect(nav.getByText('Финансы')).toBeVisible()
     await expect(nav.getByText('Документы')).toBeVisible()
-    await expect(nav.getByText('Профиль')).toBeVisible()
+    await expect(nav.getByText('Профіль')).toBeVisible()
   })
 
   test('JUNIOR nav does NOT contain Дашборд, Команда, Проекты, Собеседования', async ({

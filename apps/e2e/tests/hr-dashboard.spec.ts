@@ -44,12 +44,12 @@ test.describe('B. HR hub — KPI cards', () => {
     const open = page.getByTestId('kpi-open-interviews')
     await expect(open).toBeVisible()
     await expect(open).toContainText('3')
-    await expect(open).toContainText('Открытые собеседования')
+    await expect(open).toContainText('Відкриті співбесіди')
 
     const hired = page.getByTestId('kpi-hired-month')
     await expect(hired).toBeVisible()
     await expect(hired).toContainText('1')
-    await expect(hired).toContainText('Нанято за месяц')
+    await expect(hired).toContainText('Найнято за місяць')
 
     const salary = page.getByTestId('kpi-my-salary')
     await expect(salary).toBeVisible()

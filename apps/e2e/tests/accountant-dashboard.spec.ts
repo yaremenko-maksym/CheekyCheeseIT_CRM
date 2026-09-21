@@ -116,7 +116,7 @@ test.describe('C. ACCOUNTANT hub — validate CTA', () => {
 
     const cta = page.getByTestId('accountant-validate-cta')
     await expect(cta).toBeVisible({ timeout: 8_000 })
-    await expect(cta).toContainText('Валидировать ожидающие (4)')
+    await expect(cta).toContainText('Валідувати очікуючі (4)')
 
     await cta.click()
 

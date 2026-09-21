@@ -17,7 +17,7 @@
  *     Playwright's default 1280px context is overridden in the mobile tests only.
  *   - The desktop aside is the `<aside>` / complementary landmark rendered by
  *     NavSidebar for md+ screens (hidden md:block CSS class → aria-hidden on mobile).
- *   - The mobile burger has aria-label="Открыть меню" and is md:hidden.
+ *   - The mobile burger has aria-label="Відкрити меню" and is md:hidden.
  *   - The mobile Sheet opens as role="dialog" and contains the nav links.
  */
 
@@ -49,7 +49,7 @@ test.describe('R1 — App-shell desktop (1280×720)', () => {
     await expect(asSenior.locator('aside').first()).toBeVisible()
 
     // Burger button (md:hidden) must NOT be visible at desktop width.
-    const burger = asSenior.getByRole('button', { name: 'Открыть меню' })
+    const burger = asSenior.getByRole('button', { name: 'Відкрити меню' })
     await expect(burger).not.toBeVisible()
   })
 })
@@ -75,7 +75,7 @@ test.describe('R2 — App-shell mobile (375×812)', () => {
     await expect(aside).toBeHidden()
 
     // Burger button (md:hidden means it IS shown below md=768px, and 375<768) must be visible.
-    const burger = asSenior.getByRole('button', { name: 'Открыть меню' })
+    const burger = asSenior.getByRole('button', { name: 'Відкрити меню' })
     await expect(burger).toBeVisible()
   })
 
@@ -83,7 +83,7 @@ test.describe('R2 — App-shell mobile (375×812)', () => {
     await asSenior.goto('/')
     await asSenior.setViewportSize({ width: 375, height: 812 })
 
-    const burger = asSenior.getByRole('button', { name: 'Открыть меню' })
+    const burger = asSenior.getByRole('button', { name: 'Відкрити меню' })
     await expect(burger).toBeVisible()
     await burger.click()
 

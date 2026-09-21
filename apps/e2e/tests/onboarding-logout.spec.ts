@@ -71,7 +71,7 @@ test.describe('Onboarding logout', () => {
   // -------------------------------------------------------------------------
   test('AC1: logout button is visible on /onboarding', async ({ page }) => {
     await expect(page.getByTestId('onboarding-logout')).toBeVisible()
-    await expect(page.getByTestId('onboarding-logout')).toContainText('Выйти')
+    await expect(page.getByTestId('onboarding-logout')).toContainText('Вийти')
   })
 
   // -------------------------------------------------------------------------

@@ -40,7 +40,7 @@ test.describe('CRM tab title (task-crm-tab-distinguishable)', () => {
     // Client-side navigation via the mobile Sheet nav (burger → link click) —
     // NOT page.goto(), which would just re-read index.html on every call and
     // could never catch a route component that calls `document.title = ...`.
-    const burger = page.getByRole('button', { name: 'Открыть меню' })
+    const burger = page.getByRole('button', { name: 'Відкрити меню' })
     await burger.click()
     const sheet = page.getByRole('dialog')
     await expect(sheet).toBeVisible()
