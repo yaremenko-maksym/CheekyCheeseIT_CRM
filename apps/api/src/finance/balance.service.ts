@@ -21,7 +21,7 @@
  * `PAYOUT_ADMIN + ADMIN_INCOME + ADMIN_TRANSFER + PAYOUT_CONFIRMED` map,
  * BalanceService reads only the Phase 4 personal-credit types.
  */
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { HttpStatus, Injectable } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 // C-4 (mega-audit wave 2, AC9/AC10): scaled-integer accumulation — the SAME
@@ -31,6 +31,7 @@ import type { SessionUser } from '@crm/shared'
 // both are summing the same PAID-row ledger. MONEY_SCALE imported from
 // @crm/shared, not redeclared, per AC10.
 import { MONEY_SCALE } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 // security-review PR #456 round 2: full-ledger scans read the
 // `nonDeletedTransactions` VIEW, not the raw table — see schema.ts. No
@@ -340,7 +341,7 @@ export class BalanceService {
     const target = await this.db.db.query.users.findFirst({
       where: eq(users.id, targetUserId),
     })
-    if (!target) throw new NotFoundException('Пользователь не найден')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const rates = await this.nbu.getRates()
     // security-review PR #456 round 2: sourced from the `nonDeletedTransactions`
@@ -514,7 +515,7 @@ export class BalanceService {
   assertCanReadAdminBalance(viewer: SessionUser, targetAdminId: string): void {
     if (viewer.role === 'ACCOUNTANT') return
     if (viewer.role === 'ADMIN' && viewer.id === targetAdminId) return
-    throw new ForbiddenException('Доступ к балансу админа: ADMIN (свой) или ACCOUNTANT')
+    throw apiError('FINANCE_ADMIN_BALANCE_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
 
   /**
@@ -524,7 +525,7 @@ export class BalanceService {
   assertCanReadSeniorBalance(viewer: SessionUser, targetSeniorId: string): void {
     if (viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT') return
     if (viewer.role === 'SENIOR' && viewer.id === targetSeniorId) return
-    throw new ForbiddenException('Доступ к балансу синьора: ADMIN, ACCOUNTANT или сам синьор')
+    throw apiError('FINANCE_SENIOR_BALANCE_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
 
   /**
@@ -537,7 +538,7 @@ export class BalanceService {
    */
   assertCanReadTotalEarned(viewer: SessionUser): void {
     if (viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT') return
-    throw new ForbiddenException('Доступ к показателю «всего заработано»: ADMIN или ACCOUNTANT')
+    throw apiError('FINANCE_TOTAL_EARNED_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
 
   /**
@@ -547,9 +548,7 @@ export class BalanceService {
    */
   assertCanListPendingObligations(viewer: SessionUser): void {
     if (viewer.role !== 'ADMIN' && viewer.role !== 'ACCOUNTANT' && viewer.role !== 'SENIOR') {
-      throw new ForbiddenException(
-        'Доступ к pending obligations: ADMIN, ACCOUNTANT или SENIOR (свои)',
-      )
+      throw apiError('FINANCE_PENDING_OBLIGATIONS_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
   }
 }

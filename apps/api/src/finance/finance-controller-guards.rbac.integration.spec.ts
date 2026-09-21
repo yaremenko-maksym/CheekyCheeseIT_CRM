@@ -428,7 +428,11 @@ describe.skipIf(!hasDatabaseUrl())(
         // all and would carry a different message shape.
         const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(ADMIN) } })
         expect(res.statusCode).toBe(404)
-        expect(JSON.parse(res.payload).message).toBe('Транзакция не найдена')
+        // task-i18n-stage4-task2: `message` is now the English fallback of
+        // the api-error code (`apiError()`, `apps/api/src/common/api-error.ts`)
+        // — the client re-translates by `code`, not by this string.
+        expect(JSON.parse(res.payload).code).toBe('FINANCE_TRANSACTION_NOT_FOUND')
+        expect(JSON.parse(res.payload).message).toBe('Transaction not found')
       })
     })
 

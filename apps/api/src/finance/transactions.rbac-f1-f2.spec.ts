@@ -11,7 +11,7 @@
  *   - No real Postgres connection.
  *   - Never mock the method under test itself.
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -314,7 +314,9 @@ describe('F2 — payout-request IDOR: findPayoutRequest', () => {
     const svc = makeServiceWithPayoutRequest(null) // no req found
     const admin = user('ADMIN')
 
-    await expect(svc.findPayoutRequest('req-missing', admin)).rejects.toThrow(NotFoundException)
+    await expect(svc.findPayoutRequest('req-missing', admin)).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_REQUEST_NOT_FOUND', statusCode: 404 },
+    })
   })
 })
 

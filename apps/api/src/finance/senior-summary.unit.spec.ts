@@ -20,7 +20,6 @@
  *     AWAITING_CREATION / EXISTS) + the DEPRECATED mySalaryStatus field
  *     derived from it (security-review MED-3, task-salary-month-gap-and-status).
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -118,7 +117,9 @@ describe('getSeniorSummary — RBAC guard (AC2)', () => {
         },
       }
       const svc = makeTransactionsService({ db: throwingDb as never })
-      await expect(svc.getSeniorSummary(user(role))).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(svc.getSeniorSummary(user(role))).rejects.toMatchObject({
+        response: { code: 'FINANCE_SENIOR_SUMMARY_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 

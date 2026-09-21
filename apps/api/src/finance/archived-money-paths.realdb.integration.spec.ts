@@ -338,7 +338,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — money-out vs settlement (r
           },
           ADMIN_A,
         ),
-      ).rejects.toThrow(/архивирован/)
+      ).rejects.toThrow(/archived/)
 
       const after = await dbSvc.db
         .select({ id: transactions.id })
@@ -367,7 +367,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — money-out vs settlement (r
           { receiverId: ADMIN_B_ID, amount: 50, receiptExternalUrl: `${EXPLORER_RECEIPT}tr` },
           ADMIN_A,
         ),
-      ).rejects.toThrow(/архивирован/)
+      ).rejects.toThrow(/archived/)
     })
 
     it('CONTROL: an archived SENDER may still hand money back', async () => {

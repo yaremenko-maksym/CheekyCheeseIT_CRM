@@ -88,7 +88,9 @@ describe('adminUpdateTransaction — #6: settled company-funded edit guard', () 
     const { svc } = makeSvc(settledSalary)
     await expect(
       svc.adminUpdateTransaction('tx-1', { amount: 999 }, admin()),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW', statusCode: 400 },
+    })
   })
 
   it('rejects a currency edit on a PAID company-funded EXPENSE', async () => {
@@ -127,9 +129,11 @@ describe('adminUpdateTransaction — #6: settled company-funded edit guard', () 
   // cash; retroactive amount edits would desync the ledger.
   it('BLOCKS an amount edit on a PAID admin-personal SALARY (BIZ-18 broadened guard)', async () => {
     const { svc } = makeSvc({ ...settledSalary, fundingSource: 'ADMIN_PERSONAL' })
-    await expect(svc.adminUpdateTransaction('tx-1', { amount: 999 }, admin())).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(
+      svc.adminUpdateTransaction('tx-1', { amount: 999 }, admin()),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW', statusCode: 400 },
+    })
   })
 })
 
@@ -327,7 +331,9 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
     const { svc } = makeSvc(paidAdminIncome)
     await expect(
       svc.adminUpdateTransaction('tx-biz18-001', { amount: 999, currency: 'USD' }, admin()),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW', statusCode: 400 },
+    })
   })
 
   // AC3: PAID + different currency → must BLOCK (400).
@@ -420,9 +426,9 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
 
   it('loser of the race (0 rows flipped — already PAID) → throws, NO invoice', async () => {
     const { svc, invoiceSpy } = makeSvc([])
-    await expect(svc.paySalary('sal-1', payData, admin())).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.paySalary('sal-1', payData, admin())).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_PENDING', statusCode: 400 },
+    })
     expect(invoiceSpy).not.toHaveBeenCalled()
   })
 

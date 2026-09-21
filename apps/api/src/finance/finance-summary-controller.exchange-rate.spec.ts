@@ -10,7 +10,6 @@
  * reaches the upstream URL as-is, which is the same cache-poisoning-shaped
  * risk the round-3 MED fix closes for the trusted internal path.
  */
-import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { FinanceSummaryController } from './transactions.controller'
@@ -46,26 +45,32 @@ describe('FinanceSummaryController.getExchangeRate — ?date= validation (LOW-1,
   it("rejects a date with dashes (the settle dialog's OWN internal format, before it strips them — a real caller mistake this guards against), with a precise Russian message", () => {
     const { controller, getRates } = makeController()
     expect(() => controller.getExchangeRate('2026-08-01')).toThrow(
-      'date должен быть в формате YYYYMMDD',
+      'The date must be in YYYYMMDD format',
     )
     expect(getRates).not.toHaveBeenCalled()
   })
 
   it('rejects a non-numeric / malformed string', () => {
     const { controller, getRates } = makeController()
-    expect(() => controller.getExchangeRate('not-a-date')).toThrow(BadRequestException)
+    expect(() => controller.getExchangeRate('not-a-date')).toThrow(
+      'The date must be in YYYYMMDD format',
+    )
     expect(getRates).not.toHaveBeenCalled()
   })
 
   it('rejects a date with the wrong digit count (7 or 9 digits)', () => {
     const { controller } = makeController()
-    expect(() => controller.getExchangeRate('2026801')).toThrow(BadRequestException)
-    expect(() => controller.getExchangeRate('202608011')).toThrow(BadRequestException)
+    expect(() => controller.getExchangeRate('2026801')).toThrow(
+      'The date must be in YYYYMMDD format',
+    )
+    expect(() => controller.getExchangeRate('202608011')).toThrow(
+      'The date must be in YYYYMMDD format',
+    )
   })
 
   it('rejects an empty string (distinct from omitted — an explicit ?date= with no value)', () => {
     const { controller, getRates } = makeController()
-    expect(() => controller.getExchangeRate('')).toThrow(BadRequestException)
+    expect(() => controller.getExchangeRate('')).toThrow('The date must be in YYYYMMDD format')
     expect(getRates).not.toHaveBeenCalled()
   })
 })

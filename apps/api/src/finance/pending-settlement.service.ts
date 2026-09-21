@@ -35,15 +35,7 @@
  * The DTO denormalises debtor/senior/project names so the UI cards render
  * without follow-up requests.
  */
-import {
-  BadRequestException,
-  ForbiddenException,
-  forwardRef,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common'
+import { forwardRef, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { MAX_TRANSACTION_AMOUNT, receiptMandatoryError, selfPayError } from '@crm/shared'
 import type {
@@ -52,6 +44,7 @@ import type {
   SessionUser,
   TransactionDto,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -71,7 +64,11 @@ import {
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { convertToBase, type BalanceCurrency } from './balance.service'
-import { isStorableExchangeRate, settledAmountError } from './exchange-rate.util'
+import {
+  isStorableExchangeRate,
+  settledAmountError,
+  throwSettledAmountError,
+} from './exchange-rate.util'
 
 /**
  * security-review PR #521 round 3, LOW — mirrors the EXACT peg predicate
@@ -168,9 +165,9 @@ const SETTLE_ALLOWED_CURRENCIES: ReadonlySet<string> = new Set(['USDT', 'USD'])
 
 function assertSettleCurrencyAllowed(currency: string): void {
   if (!SETTLE_ALLOWED_CURRENCIES.has(currency)) {
-    throw new BadRequestException(
-      `Закрытие USDT-обязательства в ${currency} не поддерживается без конверсии суммы. Используйте USD или USDT.`,
-    )
+    throw apiError('FINANCE_USDT_OBLIGATION_CLOSE_CURRENCY_UNSUPPORTED', HttpStatus.BAD_REQUEST, {
+      currency,
+    })
   }
 }
 
@@ -198,9 +195,7 @@ export class PendingSettlementService {
    */
   async listSeniorObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
     if (actor.role !== 'SENIOR' && actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Список ожидающих зачислений доступен синьорам, бухгалтерам и админам',
-      )
+      throw apiError('FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     const conjuncts: Array<ReturnType<typeof eq>> = [eq(pendingObligations.status, 'PENDING')]
     // Include both new COMPANY-debt rows and legacy DROP-debt rows so the
@@ -222,9 +217,7 @@ export class PendingSettlementService {
    */
   async listCompanyObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
     if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Список долгов компании перед синьорами доступен только админам и бухгалтерам',
-      )
+      throw apiError('FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     const rows = await this.db.db.query.pendingObligations.findMany({
       where: and(
@@ -267,23 +260,21 @@ export class PendingSettlementService {
     funding?: SettleFunding,
   ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
     if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException('Закрывать долг компании могут только админ или бухгалтер')
+      throw apiError('FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const obligation = await this.loadObligation(obligationId)
     if (obligation.debtorType !== 'COMPANY' && obligation.debtorType !== 'DROP') {
       // Keep legacy 'DROP'-debt closeable through this endpoint so admins
       // can clean up pre-refactor rows the same way.
-      throw new BadRequestException(
-        'Этот долг не закрывается компанией (debtorType должен быть COMPANY)',
-      )
+      throw apiError('FINANCE_OBLIGATION_NOT_COMPANY_TYPE', HttpStatus.BAD_REQUEST)
     }
     // NOTE: this is only a fast-fail UX gate read OUTSIDE the transaction; it is
     // NOT the authority. The PENDING→PAID transition is decided atomically by the
     // conditional UPDATE inside the transaction below (see SECURITY note), which
     // is the single source of truth against a double-settle race.
     if (obligation.status !== 'PENDING') {
-      throw new BadRequestException('Долг уже закрыт или отменён')
+      throw apiError('FINANCE_OBLIGATION_ALREADY_CLOSED', HttpStatus.BAD_REQUEST)
     }
 
     // We only need the source IOU's TYPE (the drop-vs-senior discriminator),
@@ -436,9 +427,7 @@ export class PendingSettlementService {
     // (admin-declared path) is treated as "known safe to debit the company
     // account".
     if (isDropObligation && sourceDropCascadeOrigin !== false && debitsCompanyAccount) {
-      throw new BadRequestException(
-        'Доля дропа из этой выплаты не проходила через счёт компании — выберите личный счёт админа',
-      )
+      throw apiError('FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT', HttpStatus.BAD_REQUEST)
     }
 
     let senderId: string | null = null
@@ -459,7 +448,7 @@ export class PendingSettlementService {
         where: eq(users.id, payerAdminId),
       })
       if (!payer || payer.role !== 'ADMIN') {
-        throw new BadRequestException('Личный счёт-плательщик должен принадлежать ADMIN')
+        throw apiError('FINANCE_PAYER_ACCOUNT_MUST_BE_ADMIN', HttpStatus.BAD_REQUEST)
       }
       senderId = payer.id
       senderLabel = payer.displayName
@@ -597,9 +586,7 @@ export class PendingSettlementService {
       // silently — a SENIOR settle already gets the equivalent protection
       // from `assertSettleCurrencyAllowed`, which still runs for it.
       if (obligationCurrency !== 'USDT') {
-        throw new BadRequestException(
-          'Обязательство дропа испорчено: валюта обязательства не USDT — конверсия невозможна',
-        )
+        throw apiError('FINANCE_DROP_OBLIGATION_CORRUPTED_CURRENCY', HttpStatus.BAD_REQUEST)
       }
 
       // task-drop-topup (task 3b, AC8 / addendum 3b, 1.3 + 2.6) — the ONE
@@ -631,13 +618,9 @@ export class PendingSettlementService {
       // out in another currency is an existing, working feature
       // (task-drop-payout-currency).
       if (priorSettledAmount > 0 && targetCurrency !== obligationCurrency) {
-        throw new BadRequestException(
-          `По этой строке уже выплачено ${priorSettledAmount} ${obligationCurrency}, поэтому доплата ` +
-            `возможна только в ${obligationCurrency}: записанный курс — это отношение всей выплаченной ` +
-            `суммы к обязательству, и выплата в ${targetCurrency} сделала бы его средним между двумя ` +
-            `курсами, по которому не проходил ни один платёж. Закрыть остаток в ${targetCurrency} можно ` +
-            `только вручную, отдельной сверкой.`,
-        )
+        throw apiError('FINANCE_SETTLEMENT_CURRENCY_MISMATCH_MANUAL_ONLY', HttpStatus.BAD_REQUEST, {
+          obligationCurrency,
+        })
       }
 
       // task-drop-payout-currency (owner addendum): resolve + validate the
@@ -663,9 +646,7 @@ export class PendingSettlementService {
       if (selectedDateStr) {
         const obligationCreatedStr = obligation.createdAt.toISOString().slice(0, 10)
         if (selectedDateStr < obligationCreatedStr) {
-          throw new BadRequestException(
-            `Дата выплаты не может быть раньше даты возникновения обязательства (${obligationCreatedStr})`,
-          )
+          throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
         }
         txDateToWrite = new Date(`${selectedDateStr}T00:00:00.000Z`)
       }
@@ -735,9 +716,7 @@ export class PendingSettlementService {
         // can retry once NBU recovers, or settle in the obligation's own
         // currency (USDT) right now, which never needs a rate at all.
         if (rates.stale && rates.rateDate === undefined) {
-          throw new BadRequestException(
-            'Курс НБУ недоступен — выплата в конвертированной валюте временно невозможна. Повторите позже или выплатите в валюте обязательства (USDT).',
-          )
+          throw apiError('FINANCE_NBU_RATE_UNAVAILABLE', HttpStatus.BAD_REQUEST)
         }
         const rawPaidAmount = convertToBase(owedNow, obligationCurrency, targetCurrency, rates)
         // LOW (security-review PR #521 round 1): round to the money
@@ -769,7 +748,7 @@ export class PendingSettlementService {
       // "Ожидает выплаты" — negative/NaN/Infinity/over-ceiling still
       // rejected, only the floor moved from "> 0" to ">= 0".
       const paidAmountError = settledAmountError(paidAmount, MAX_TRANSACTION_AMOUNT)
-      if (paidAmountError) throw new BadRequestException(paidAmountError)
+      if (paidAmountError) throwSettledAmountError(paidAmountError)
 
       // LOW (security-review PR #521 round 3): the 2dp rounding above can
       // legitimately round a genuinely NON-zero obligation down to exactly
@@ -790,9 +769,7 @@ export class PendingSettlementService {
       // left to pay). Refusing it here would recreate the dead end AC15 exists
       // to prevent: a reopened obligation with nothing that can close it.
       if (paidAmount === 0 && owedNow > 0) {
-        throw new BadRequestException(
-          'После округления сумма выплаты получилась нулевой, хотя обязательство не нулевое — выберите другую валюту выплаты',
-        )
+        throw apiError('FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO', HttpStatus.BAD_REQUEST)
       }
 
       originalAmount = obligation.amount
@@ -915,9 +892,7 @@ export class PendingSettlementService {
     // this stays as a fail-loud tripwire in case it is ever reached another
     // way, because paying a negative amount is not a thing.
     if (settledAmountThisSettle < 0) {
-      throw new BadRequestException(
-        'По этому обязательству уже выплачено больше, чем оно стоит — требуется ручное решение по переплате',
-      )
+      throw apiError('FINANCE_OBLIGATION_OVERPAID', HttpStatus.BAD_REQUEST)
     }
 
     // MED-2 (security-review round 1, PR #599): `pending_obligations.amount`
@@ -940,7 +915,7 @@ export class PendingSettlementService {
     // identical, same reasoning as the `funding.currency !== undefined`
     // Stryker note above.)
     const settledAmountErr = settledAmountError(settledAmountThisSettle, MAX_TRANSACTION_AMOUNT)
-    if (settledAmountErr) throw new BadRequestException(settledAmountErr)
+    if (settledAmountErr) throwSettledAmountError(settledAmountErr)
 
     // MED-1 (security-review round 1, PR #599): the accumulator sums FACT
     // amounts across every settle of THIS row — summing amounts recorded in
@@ -954,9 +929,10 @@ export class PendingSettlementService {
     // cascade exists, rather than silently mislabel it. `sourceSettledCurrency`
     // is NULL on a first-ever settle (nothing to conflict with yet).
     if (sourceSettledCurrency && sourceSettledCurrency !== currency) {
-      throw new BadRequestException(
-        `Накопленная сумма выплат по этой строке уже записана в ${sourceSettledCurrency} — повторная выплата в ${currency} невозможна без сверки валют`,
-      )
+      throw apiError('FINANCE_SETTLEMENT_ALREADY_IN_OTHER_CURRENCY', HttpStatus.BAD_REQUEST, {
+        sourceSettledCurrency,
+        currency,
+      })
     }
 
     // task-cascade-apply (task 3, AC14 / addendum §1.13, security-review
@@ -1034,12 +1010,17 @@ export class PendingSettlementService {
       // `ADMIN_PERSONAL` settle, 'COMPANY' otherwise), so no extra read is
       // needed to name them.
       const priorPayer = sourceSenderId ? ` (плательщик — ${sourceSenderLabel ?? 'админ'})` : ''
-      throw new BadRequestException(
-        `Предыдущая выплата по этой строке прошла из источника «${describe(sourceFundingSource)}»${priorPayer}, ` +
-          `а эта — из «${describe(settleFundingSource)}». Доплата обязана идти из того же источника, ` +
-          `и закрыть остаток должен он же: на этой паре держится учёт в счёте компании и в балансах ` +
-          `админов, и смена плательщика стёрла бы уже учтённую выплату.`,
+      // task-i18n-stage4-task2 (Step 1 pattern, "разбор — в лог"): the
+      // funding-source description + payer NAME stay server-side only — a
+      // display name is PII and does not belong in an `apiError` `params`
+      // object (task file "Уточнения оркестратора" §4). The generic code
+      // below carries the actionable instruction; this log line keeps the
+      // full diagnostic for whoever investigates the refusal.
+      this.logger.warn(
+        `settleByCompany funding source mismatch: source=«${describe(sourceFundingSource)}»` +
+          `${priorPayer}, settle=«${describe(settleFundingSource)}»`,
       )
+      throw apiError('FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH', HttpStatus.BAD_REQUEST)
     }
 
     const created: Transaction[] = []
@@ -1070,7 +1051,7 @@ export class PendingSettlementService {
         .returning({ id: pendingObligations.id, amount: pendingObligations.amount })
       if (claimed.length === 0) {
         // Idempotent: a concurrent / repeated call already closed this obligation.
-        throw new BadRequestException('Долг уже закрыт или отменён')
+        throw apiError('FINANCE_OBLIGATION_ALREADY_CLOSED', HttpStatus.BAD_REQUEST)
       }
 
       // SECURITY (TOCTOU, task-fix-obligation-amount-divergence follow-up,
@@ -1101,9 +1082,7 @@ export class PendingSettlementService {
       // has run yet) rather than a wrong debit either direction.
       const claimedAmount = claimed[0]!.amount
       if (Number(claimedAmount).toFixed(6) !== Number(obligation.amount).toFixed(6)) {
-        throw new BadRequestException(
-          'Сумма обязательства изменилась после загрузки — обновите страницу и повторите закрытие',
-        )
+        throw apiError('FINANCE_OBLIGATION_AMOUNT_CHANGED', HttpStatus.BAD_REQUEST)
       }
 
       // SECURITY (TOCTOU): a company-account DEBIT must serialize against every
@@ -1139,9 +1118,7 @@ export class PendingSettlementService {
         // test can tell apart, and "how much is still owed" said once.
         const amount = remainingOwed(claimedAmount)
         if (amount > balance) {
-          throw new BadRequestException(
-            'Недостаточно средств на счёте компании для закрытия долга перед синьором',
-          )
+          throw apiError('FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', HttpStatus.BAD_REQUEST)
         }
       }
 
@@ -1267,8 +1244,8 @@ export class PendingSettlementService {
           settledAmount: accumulatedAmount,
           settledCurrency: currency,
           notes: isDropObligation
-            ? `Выплата drop IOU (obligation ${obligation.id})`
-            : `Выплата senior IOU (obligation ${obligation.id})`,
+            ? `Закриття зобов’язання дропа (${obligation.id})`
+            : `Закриття зобов’язання сеньйора (${obligation.id})`,
           updatedAt: new Date(),
           // Income rows carry validation provenance; a PAYOUT_DROP is a payout,
           // not a validated income, so it leaves these untouched (mirrors the
@@ -1313,9 +1290,7 @@ export class PendingSettlementService {
         // have been PENDING_PAYMENT. Zero rows here means a corrupted invariant
         // (source flipped / deleted out of band) — abort so we never leave the
         // obligation PAID with no closing row (rolls back the claim too).
-        throw new BadRequestException(
-          'Не удалось закрыть долг: исходная транзакция обязательства не в статусе ожидания выплаты',
-        )
+        throw apiError('FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING', HttpStatus.BAD_REQUEST)
       }
       created.push(paidRow)
       // Point closingTransactionId at the SAME row we just flipped (self-
@@ -1406,7 +1381,7 @@ export class PendingSettlementService {
     funding?: SettleFunding,
   ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
     if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException('Закрывать долг компании могут только админ или бухгалтер')
+      throw apiError('FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // Find the single still-open obligation backing this SENIOR_PENDING_PAYOUT
@@ -1420,7 +1395,7 @@ export class PendingSettlementService {
       ),
     })
     if (!obligation) {
-      throw new NotFoundException('Открытый долг для этой транзакции не найден')
+      throw apiError('FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION', HttpStatus.NOT_FOUND)
     }
 
     return this.settleByCompany(obligation.id, actor, funding)
@@ -1432,7 +1407,7 @@ export class PendingSettlementService {
     const row = await this.db.db.query.pendingObligations.findFirst({
       where: eq(pendingObligations.id, obligationId),
     })
-    if (!row) throw new NotFoundException('Обязательство не найдено')
+    if (!row) throw apiError('FINANCE_OBLIGATION_NOT_FOUND', HttpStatus.NOT_FOUND)
     return row
   }
 

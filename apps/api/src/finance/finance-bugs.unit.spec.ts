@@ -9,7 +9,7 @@
  * AC3 (BIZ-04): getSeniorBalance + getTotalEarned apply share % to SENIOR_INCOME.
  * AC4 (BIZ-05): signInvoice PAYOUT renders same amount/currency as autoCreateForPayout.
  */
-import { BadRequestException } from '@nestjs/common'
+
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { PendingSettlementService } from './pending-settlement.service'
@@ -162,7 +162,9 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
         payerAdminId: ADMIN_ID,
         currency: 'UAH',
       }),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_USDT_OBLIGATION_CLOSE_CURRENCY_UNSUPPORTED', statusCode: 400 },
+    })
   })
 
   it('AC2-b: ADMIN_PERSONAL with currency=EUR when obligation is USDT → BadRequest (no EUR settlement)', async () => {
@@ -173,7 +175,9 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
         payerAdminId: ADMIN_ID,
         currency: 'EUR',
       }),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_USDT_OBLIGATION_CLOSE_CURRENCY_UNSUPPORTED', statusCode: 400 },
+    })
   })
 
   it('AC2-c: ADMIN_PERSONAL with currency=USDT when obligation is USDT → succeeds', async () => {
@@ -247,7 +251,7 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
         // No `currency` field — the bug this guards would default `currency`
         // straight to the corrupted `obligation.currency` (EUR) unvalidated.
       }),
-    ).rejects.toThrow(/не поддерживается без конверсии/)
+    ).rejects.toThrow(/without converting the amount is not supported/)
   })
 })
 

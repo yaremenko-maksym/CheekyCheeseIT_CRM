@@ -247,7 +247,9 @@ describe('TransactionsService.updateSeniorIncome — receipt replace-with-delete
     const h = makeHarness({ tx: { status: 'PENDING' } })
     await expect(
       h.service.updateSeniorIncome('tx-1', { receiptDocumentId: 'new-doc-id' }, SENIOR),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_EDIT_REJECTED_ONLY', statusCode: 400 },
+    })
   })
 
   it('throws NotFoundException when tx not found', async () => {
@@ -255,7 +257,9 @@ describe('TransactionsService.updateSeniorIncome — receipt replace-with-delete
     ;(h.db.db.query.transactions.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
     await expect(
       h.service.updateSeniorIncome('tx-1', { receiptDocumentId: 'new-doc-id' }, SENIOR),
-    ).rejects.toBeInstanceOf(NotFoundException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
   })
 
   it('calls deleteS3Keys post-commit when switching to external URL (old doc gets removed)', async () => {

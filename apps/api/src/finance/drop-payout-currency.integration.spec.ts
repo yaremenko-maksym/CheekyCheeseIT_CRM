@@ -493,7 +493,7 @@ describe.skipIf(!hasDatabaseUrl())(
           currency: 'UAH',
           ...FILE_RECEIPT,
         }),
-      ).rejects.toThrow(/курс/i)
+      ).rejects.toThrow(/exchange rate/i)
 
       const stillPendingPayment = await dbSvc.db.query.transactions.findFirst({
         where: eq(transactions.id, SOURCE_TX_ID),

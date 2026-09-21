@@ -487,7 +487,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         },
         DROP,
       ),
-    ).rejects.toThrow(/USDT-проекте/)
+    ).rejects.toThrow(/USDT project/)
     await expect(
       svc.createSeniorIncome(
         {
@@ -498,7 +498,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         },
         SENIOR,
       ),
-    ).rejects.toThrow(/USDT-проекте/)
+    ).rejects.toThrow(/USDT project/)
 
     // FOP project: DROP declares fine (returns the created income).
     // task-receipts-backend (review round 1): currency='USDT' now requires a
@@ -545,7 +545,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         { projectId: FOP_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
       ),
-    ).rejects.toThrow(/USDT-проекте/)
+    ).rejects.toThrow(/USDT project/)
   })
 
   it('AC10: receiver=ADMIN X → ADMIN_INCOME(funding=null, receiverId=X)', async () => {
@@ -647,7 +647,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
     await settle(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' })
     await expect(
       settle(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' }),
-    ).rejects.toThrow(/закрыт/)
+    ).rejects.toThrow(/already closed/)
     // Exactly one PAYOUT_DROP settlement row.
     expect(await txsOfType('PAYOUT_DROP')).toHaveLength(1)
   })
@@ -804,7 +804,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
 
     await expect(
       settle(seniorObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' }),
-    ).rejects.toThrow(/не в статусе ожидания выплаты/)
+    ).rejects.toThrow(/isn't in pending-payout status/)
 
     // The whole transaction rolled back — the obligation claim is UNDONE, not
     // left half-closed. If this were only a mock we could not observe this; on

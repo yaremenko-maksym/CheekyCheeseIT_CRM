@@ -27,7 +27,6 @@
  * Both halves are asserted below, because a fix that only implemented the first
  * one would refuse legitimate payouts every weekend and every all-USDT batch.
  */
-import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -167,8 +166,7 @@ function makeService(lockedRows: unknown[], nbu: 'live' | 'weekend' | 'outage') 
   return { svc, prValues }
 }
 
-const OUTAGE_MESSAGE =
-  'Курс НБУ недоступен — сумма выплаты в USDT не может быть рассчитана. Повторите позже.'
+const OUTAGE_MESSAGE = 'The NBU exchange rate is unavailable — try again later'
 
 // ── AC6 + AC9(a): a genuine outage refuses when a rate is applied ────────────
 
@@ -188,9 +186,9 @@ describe('createPayoutRequest — AC6: a genuine NBU outage refuses a converted 
       'outage',
     )
 
-    await expect(svc.createPayoutRequest(['inc-1', 'inc-2'], SENIOR_USER)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.createPayoutRequest(['inc-1', 'inc-2'], SENIOR_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_NBU_RATE_UNAVAILABLE', statusCode: 400 },
+    })
     expect(prValues).not.toHaveBeenCalled()
   })
 

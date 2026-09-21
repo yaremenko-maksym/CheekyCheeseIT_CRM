@@ -50,7 +50,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { ForbiddenException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -352,12 +351,9 @@ describe('createSeniorIncome — AC1: an archived senior is refused before any I
   it('refuses with the archived-receiver message; does not reach the INSERT', async () => {
     const { svc } = makeService(SENIOR_PROJECT, ARCHIVED_SENIOR)
 
-    await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toThrow(
-      'Пользователь архивирован — доход не декларируется',
-    )
-    await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toMatchObject({
+      response: { code: 'FINANCE_INCOME_RECEIVER_ARCHIVED', statusCode: 403 },
+    })
   })
 
   it('lets an ACTIVE senior through the gate (reaches the INSERT)', async () => {
@@ -515,12 +511,9 @@ describe('createDropIncome — AC1: an archived drop is refused before any INSER
   it('refuses with the archived-receiver message; does not reach the INSERT', async () => {
     const { svc } = makeService(DROP_PROJECT, ARCHIVED_DROP)
 
-    await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toThrow(
-      'Пользователь архивирован — доход не декларируется',
-    )
-    await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    await expect(svc.createDropIncome(payload, CURRENT_DROP_SESSION)).rejects.toMatchObject({
+      response: { code: 'FINANCE_INCOME_RECEIVER_ARCHIVED', statusCode: 403 },
+    })
   })
 
   it('lets an ACTIVE drop through the gate (reaches the INSERT)', async () => {
@@ -696,10 +689,9 @@ describe('updateSeniorIncome — AC1/MED-1: an archived receiver is refused befo
 
     await expect(
       svc.updateSeniorIncome(REJECTED_SENIOR_INCOME.id, {}, CURRENT_SENIOR_SESSION),
-    ).rejects.toThrow('Пользователь архивирован — доход не декларируется')
-    await expect(
-      svc.updateSeniorIncome(REJECTED_SENIOR_INCOME.id, {}, CURRENT_SENIOR_SESSION),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_INCOME_RECEIVER_ARCHIVED', statusCode: 403 },
+    })
   })
 
   it('lets an ACTIVE senior through the gate (reaches the resubmit)', async () => {
@@ -764,10 +756,9 @@ describe('updateDropIncome — AC1/MED-1: an archived receiver is refused before
 
     await expect(
       svc.updateDropIncome(REJECTED_DROP_INCOME.id, {}, CURRENT_DROP_SESSION),
-    ).rejects.toThrow('Пользователь архивирован — доход не декларируется')
-    await expect(
-      svc.updateDropIncome(REJECTED_DROP_INCOME.id, {}, CURRENT_DROP_SESSION),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_INCOME_RECEIVER_ARCHIVED', statusCode: 403 },
+    })
   })
 
   it('lets an ACTIVE drop through the gate (reaches the resubmit)', async () => {

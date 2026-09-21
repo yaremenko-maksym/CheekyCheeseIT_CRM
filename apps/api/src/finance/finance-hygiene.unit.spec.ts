@@ -227,7 +227,9 @@ describe('AC5 SEC-13 — assertCanReadAdminBalance: ADMIN scoped to own target',
   it('ADMIN cannot read a DIFFERENT admin balance → ForbiddenException', () => {
     const svc = makeBalanceService()
     const viewer = makeViewer('ADMIN', ADMIN_A_ID)
-    expect(() => svc.assertCanReadAdminBalance(viewer, ADMIN_B_ID)).toThrow(ForbiddenException)
+    expect(() => svc.assertCanReadAdminBalance(viewer, ADMIN_B_ID)).toThrow(
+      'Only the administrator themself or an accountant can see this admin balance',
+    )
   })
 
   it('ACCOUNTANT can read ANY admin balance (privileged reader)', () => {
@@ -240,14 +242,14 @@ describe('AC5 SEC-13 — assertCanReadAdminBalance: ADMIN scoped to own target',
   it('SENIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeBalanceService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('SENIOR'), ADMIN_A_ID)).toThrow(
-      ForbiddenException,
+      'Only the administrator themself or an accountant can see this admin balance',
     )
   })
 
   it('JUNIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeBalanceService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('JUNIOR'), ADMIN_A_ID)).toThrow(
-      ForbiddenException,
+      'Only the administrator themself or an accountant can see this admin balance',
     )
   })
 })
@@ -449,7 +451,9 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
         { receiverId: ADMIN_B_ID, amount: 100, currency: 'USDT' },
         accountant,
       ),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSFER_SENDER_ID_REQUIRED', statusCode: 400 },
+    })
   })
 
   // ── task-sender-receiver-invariant (backlog A-2) ────────────────────────
@@ -570,9 +574,11 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       fundingSource: null,
     })
     const admin = makeViewer('ADMIN', 'admin-id')
-    await expect(svc.adminUpdateTransaction('tx-paid-001', { amount: 999 }, admin)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(
+      svc.adminUpdateTransaction('tx-paid-001', { amount: 999 }, admin),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW', statusCode: 400 },
+    })
   })
 
   it('PAID ADMIN_INCOME (non-company-funded) — editing currency throws BadRequestException', async () => {
@@ -773,7 +779,7 @@ describe('AC4 BIZ-17 — updateDropIncome: resubmit REJECTED DROP_INCOME', () =>
     })
     const drop = makeViewer('DROP', DROP_ID)
     await expect(svc.updateDropIncome('drop-tx-002', { amount: 500 }, drop)).rejects.toThrow(
-      BadRequestException,
+      'Only rejected transactions can be edited',
     )
   })
 

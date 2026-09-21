@@ -578,7 +578,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2500, cascadeVersion: stale.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/прежний расчёт больше не действует/)
+    ).rejects.toThrow(/no longer applies/)
 
     // Not one row moved — including the SOURCE, whose own edit is inside the
     // same transaction.
@@ -706,7 +706,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2500, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/валют/)
+    ).rejects.toThrow(/currency/i)
 
     const after = await derivativeFor(SENIOR.id)
     expect(after.row.amount).toBe((await derivativeFor(SENIOR.id)).row.amount)
@@ -958,7 +958,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         currency: 'USDT',
         receiptExternalUrl: 'https://etherscan.io/tx/0xcascadetopup',
       }),
-    ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+    ).rejects.toThrow(/must come from the same source/)
 
     // Nothing moved. Without the guard the row would have dropped out of term
     // 7 (funding_source no longer COMPANY_ACCOUNT) AND out of term 9 (status
@@ -997,7 +997,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
 
     const reopened = await derivativeFor(SENIOR.id)
     await expect(settleSvc.settleByCompany(reopened.obligation.id, ADMIN)).rejects.toThrow(
-      /Доплата обязана идти из того же источника/,
+      /must come from the same source/,
     )
   })
 
@@ -1034,7 +1034,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         currency: 'USDT',
         receiptExternalUrl: 'https://etherscan.io/tx/0xadmintwo',
       }),
-    ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+    ).rejects.toThrow(/must come from the same source/)
 
     expect((await derivativeFor(SENIOR.id)).row.senderId).toBe(ADMIN.id)
     expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PENDING')
@@ -1297,7 +1297,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+    ).rejects.toThrow(/can't be computed for this pair/)
 
     // Zero writes — including on the SENIOR derivative, which was perfectly
     // fine. The cascade is all-or-nothing.
@@ -1332,7 +1332,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+    ).rejects.toThrow(/can't be computed for this pair/)
 
     expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PAID')
     expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)

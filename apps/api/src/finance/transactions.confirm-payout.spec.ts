@@ -18,7 +18,7 @@
  * and `InvoicesService`; we mock only the `db` call shape exercised by
  * `confirmPayout`.
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -273,7 +273,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       const { svc } = makeService({ payoutRow: null })
       await expect(
         svc.confirmPayout('missing-id', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(NotFoundException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+      })
     })
 
     it('Wrong type (SENIOR_INCOME) → BadRequestException', async () => {
@@ -282,7 +284,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       })
       await expect(
         svc.confirmPayout('senior-income-id', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_CONFIRM_PAYOUT_ONLY', statusCode: 400 },
+      })
     })
 
     it('Status already PAID → BadRequestException (idempotency)', async () => {
@@ -291,7 +295,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       })
       await expect(
         svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_PAYOUT_NOT_PENDING_PAYMENT', statusCode: 400 },
+      })
     })
 
     it('Status REJECTED → BadRequestException', async () => {
@@ -300,7 +306,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       })
       await expect(
         svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_PAYOUT_NOT_PENDING_PAYMENT', statusCode: 400 },
+      })
     })
 
     it('Status PENDING (not PENDING_PAYMENT) → BadRequestException', async () => {
@@ -309,7 +317,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       })
       await expect(
         svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_PAYOUT_NOT_PENDING_PAYMENT', statusCode: 400 },
+      })
     })
   })
 
@@ -319,7 +329,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       const { svc } = makeService({ recipient: null })
       await expect(
         svc.confirmPayout('payout-tx-1', 'ghost-id', accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECIPIENT_ADMIN_NOT_FOUND', statusCode: 400 },
+      })
     })
 
     it('Recipient is not ADMIN (SENIOR) → BadRequestException', async () => {
@@ -328,7 +340,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       })
       await expect(
         svc.confirmPayout('payout-tx-1', 'senior-2', accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECIPIENT_MUST_BE_ADMIN', statusCode: 400 },
+      })
     })
 
     it('Recipient is ACCOUNTANT (not ADMIN) → BadRequestException', async () => {
@@ -337,7 +351,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       })
       await expect(
         svc.confirmPayout('payout-tx-1', 'acc-2', accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECIPIENT_MUST_BE_ADMIN', statusCode: 400 },
+      })
     })
 
     it('Recipient archived → BadRequestException', async () => {
@@ -346,7 +362,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       })
       await expect(
         svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECIPIENT_ADMIN_ARCHIVED', statusCode: 400 },
+      })
     })
 
     // security-review round 2 (MED-1, mutation gate): the `selfPayError`
@@ -566,7 +584,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       const { svc } = makeService()
       await expect(
         svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CRYPTO' }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_CRYPTO_TX_HASH_TOO_SHORT', statusCode: 400 },
+      })
     })
 
     it('method=CRYPTO with txHash < 10 chars → BadRequestException', async () => {
@@ -576,7 +596,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
           method: 'CRYPTO',
           txHash: '0xshort',
         }),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_CRYPTO_TX_HASH_TOO_SHORT', statusCode: 400 },
+      })
     })
 
     it('method=CRYPTO with valid txHash → records txHash on PAYOUT_CONFIRMED', async () => {

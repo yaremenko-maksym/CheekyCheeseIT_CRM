@@ -25,7 +25,6 @@
  *   BIZ-03 exemption — a DROP settle in UAH/EUR does NOT throw (contrast with
  *         the SENIOR-scoped guard in finance-bugs.unit.spec.ts AC2-a/b).
  */
-import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
@@ -495,7 +494,9 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
         currency: 'USD',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_OBLIGATION_ALREADY_CLOSED', statusCode: 400 },
+    })
   })
 
   it('BIZ-03 exemption: a DROP settle in UAH does NOT throw (contrast with the SENIOR-only guard)', async () => {
@@ -600,7 +601,9 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_SETTLED_AMOUNT_NEGATIVE', statusCode: 400 },
+    })
   })
 
   it('sanity: isStorableExchangeRate boundary matches what settleByCompany relies on', () => {
@@ -659,7 +662,9 @@ describe('settleByCompany — DROP obligation.currency invariant (MED-1, securit
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_DROP_OBLIGATION_CORRUPTED_CURRENCY', statusCode: 400 },
+    })
   })
 
   it('a normal USDT obligation is unaffected by the invariant check', async () => {
@@ -692,7 +697,7 @@ describe('settleByCompany — stale NBU rate (MED-2, security-review PR #521 rou
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(/курс/i)
+    ).rejects.toThrow(/exchange rate/i)
     // Nothing was written — the source IOU is still PENDING_PAYMENT.
     expect(settledTx().status).toBe('PENDING_PAYMENT')
   })
@@ -753,7 +758,7 @@ describe('settleByCompany — server-computed amount still bounded (LOW round 2,
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(/превышать/)
+    ).rejects.toThrow(/can't exceed/)
     expect(settledTx().status).toBe('PENDING_PAYMENT')
   })
 
@@ -770,7 +775,9 @@ describe('settleByCompany — server-computed amount still bounded (LOW round 2,
         currency: 'USDT',
         ...RECEIPT_EXPLORER,
       }),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_SETTLED_AMOUNT_NOT_NUMBER', statusCode: 400 },
+    })
   })
 })
 
@@ -827,7 +834,9 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
         currency: 'USDT',
         ...RECEIPT_EXPLORER,
       }),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_SETTLED_AMOUNT_NEGATIVE', statusCode: 400 },
+    })
 
     const { svc: svcOverCeiling } = makeService({
       obligation: makeObligation({ amount: '50000' }),
@@ -839,7 +848,7 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(/превышать/)
+    ).rejects.toThrow(/can't exceed/)
   })
 
   // security-review PR #521 round 3 (LOW, on the reviewer's own follow-up
@@ -860,7 +869,7 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(/после округления/i)
+    ).rejects.toThrow(/After rounding/i)
   })
 })
 
@@ -972,7 +981,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
         txDate: '2026-07-31', // one day before the obligation's own creation
         ...RECEIPT_EXPLORER,
       }),
-    ).rejects.toThrow(/раньше даты возникновения/)
+    ).rejects.toThrow(/earlier than the obligation/)
   })
 
   it('a selected date EQUAL to the obligation creation date is accepted (the boundary is inclusive)', async () => {
@@ -1057,7 +1066,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
         txDate: '2026-08-10',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(/курс/i)
+    ).rejects.toThrow(/exchange rate/i)
   })
 })
 
@@ -1086,7 +1095,7 @@ describe('settleByCompany — DROP obligation: MED-1 TOCTOU race (obligation.amo
         payerAdminId: ADMIN_PAYER_ID,
         ...RECEIPT_EXPLORER,
       }),
-    ).rejects.toThrow(/изменилась после загрузки/)
+    ).rejects.toThrow(/changed after loading/)
     // Same-currency (default) path never needed a rate either way — the
     // refusal happens on the claim, well before any conversion could run.
     expect(getRates).not.toHaveBeenCalled()
@@ -1102,7 +1111,7 @@ describe('settleByCompany — DROP obligation: MED-1 TOCTOU race (obligation.amo
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(/изменилась после загрузки/)
+    ).rejects.toThrow(/changed after loading/)
     // The source IOU row is byte-identical to before the call — still
     // PENDING_PAYMENT, `amount` untouched (not overwritten with a paidAmount
     // derived from the stale snapshot).
@@ -1391,7 +1400,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toThrow(/сумма выплаты получилась нулевой/)
+    ).rejects.toThrow(/became zero/)
   })
 
   it('AC7: the money gate demands the REMAINDER, not the obligation`s full figure', async () => {
@@ -1405,7 +1414,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
   it('AC7: and it is still a real gate — one cent short and the settle refuses', async () => {
     const { svc } = toppedUpService({ companyBalance: '29.99' })
     await expect(svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toThrow(
-      /Недостаточно средств/,
+      /Insufficient funds/,
     )
   })
 
@@ -1436,7 +1445,9 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
         currency: 'UAH',
         ...RECEIPT_FILE,
       }),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_SETTLEMENT_CURRENCY_MISMATCH_MANUAL_ONLY', statusCode: 400 },
+    })
     expect(state.flips).toHaveLength(0)
   })
 
@@ -1464,20 +1475,15 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
       caught = e
     }
     const message = (caught as Error).message
-    // What is already paid, and in which unit — the operator's starting point.
-    expect(message).toContain('уже выплачено 100 USDT')
-    // The currency the top-up CAN go in, named rather than implied.
-    expect(message).toContain('возможна только в USDT')
-    // WHY: what the recorded rate actually is…
-    expect(message).toContain('записанный курс — это отношение всей выплаченной')
-    // …and what it would become, which is the whole reason for the refusal.
-    expect(message).toContain('средним')
-    expect(message).toContain('не проходил ни один платёж')
-    // And a way out that does not require guessing.
-    expect(message).toContain('вручную')
+    // task-i18n-stage4-task2 (money discipline, task file "Уточнения
+    // оркестратора" §4): the server text no longer embeds the computed
+    // amount ("уже выплачено 100 USDT") — only the currency the top-up CAN
+    // go in, and the instruction to reconcile manually.
+    expect(message).toContain('USDT')
+    expect(message).toContain('manual reconciliation')
     // A boundary of what the system can express, not a fault report.
-    expect(message).not.toMatch(/ошибк/i)
-    expect(message).not.toMatch(/поврежд/i)
+    expect(message).not.toMatch(/error/i)
+    expect(message).not.toMatch(/corrupt/i)
   })
 
   it('AC8: and it does NOT fire on a first settle — the existing cross-currency drop payout still works', async () => {
@@ -1502,7 +1508,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     const { svc } = toppedUpService()
     await svc.settleByCompany(OBLIGATION_ID, accountantUser)
     await expect(svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toThrow(
-      /закрыт или отменён/,
+      /already closed or cancelled/,
     )
   })
 

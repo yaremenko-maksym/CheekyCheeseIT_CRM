@@ -36,7 +36,6 @@
  * `collectUuids` in finance-hygiene.unit.spec.ts) to assert on the type list
  * directly — this is what actually kills that class of mutant.
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { DropIncomesQuery, SessionUser } from '@crm/shared'
 import { dropIncomesQuerySchema } from '@crm/shared'
@@ -129,9 +128,9 @@ describe('getDropSelfIncomes — RBAC (self-only)', () => {
   for (const role of forbiddenRoles) {
     it(`throws ForbiddenException for role ${role}`, async () => {
       const svc = makeSvc([])
-      await expect(svc.getDropSelfIncomes(user(role), q())).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(svc.getDropSelfIncomes(user(role), q())).rejects.toMatchObject({
+        response: { code: 'FINANCE_DROP_INCOMES_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 
@@ -499,7 +498,9 @@ describe('getDropSelfPayments — RBAC (self-only)', () => {
   for (const role of forbiddenRoles) {
     it(`throws ForbiddenException for role ${role}`, async () => {
       const svc = makeSvc([])
-      await expect(svc.getDropSelfPayments(user(role))).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(svc.getDropSelfPayments(user(role))).rejects.toMatchObject({
+        response: { code: 'FINANCE_DROP_PAYMENTS_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 

@@ -1,10 +1,10 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   HttpCode,
+  HttpStatus,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import {
   adminUpdateTransactionSchema,
   attachReceiptSchema,
@@ -326,9 +327,7 @@ export class TransactionsController {
     // introduced by moving the hash into a query parameter. Narrow here and let
     // the service answer with its normal 400.
     if (typeof txHash !== 'string') {
-      throw new BadRequestException(
-        'Укажите ровно один параметр txHash (0x + 64 hex или ссылка на Etherscan)',
-      )
+      throw apiError('FINANCE_TX_HASH_PARAM_REQUIRED', HttpStatus.BAD_REQUEST)
     }
     return this.svc.inspectOnChainHash(txHash, user)
   }
@@ -655,7 +654,7 @@ export class FinanceSummaryController {
   @Get('exchange-rate')
   getExchangeRate(@Query('date') date: string | undefined) {
     if (date !== undefined && !/^\d{8}$/.test(date)) {
-      throw new BadRequestException('date должен быть в формате YYYYMMDD')
+      throw apiError('FINANCE_DATE_FORMAT_INVALID', HttpStatus.BAD_REQUEST)
     }
     return this.nbu.getRates(date)
   }

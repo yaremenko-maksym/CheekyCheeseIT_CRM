@@ -938,12 +938,12 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccounthigh1001',
         }),
-      ).rejects.toThrow(/не проходила через счёт компании/)
+      ).rejects.toThrow(/didn't go through the company account/)
 
       // Legacy no-funding call ALSO defaults to COMPANY_ACCOUNT for a COMPANY
       // debt (useCompanyAccount=isCompanyDebt) — the guard covers this branch too.
       await expect(settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT)).rejects.toThrow(
-        /не проходила через счёт компании/,
+        /didn't go through the company account/,
       )
 
       // No money moved, obligation untouched — the rejected attempts are pure no-ops.
@@ -1017,7 +1017,7 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed1r3001',
         }),
-      ).rejects.toThrow(/не проходила через счёт компании/)
+      ).rejects.toThrow(/didn't go through the company account/)
 
       // No money moved, obligation untouched.
       expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
@@ -1054,7 +1054,7 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed2r4001',
         }),
-      ).rejects.toThrow(/не проходила через счёт компании/)
+      ).rejects.toThrow(/didn't go through the company account/)
 
       // No money moved, obligation untouched by the rejected attempt.
       expect(await displayBalance()).toBeCloseTo(before, 6)

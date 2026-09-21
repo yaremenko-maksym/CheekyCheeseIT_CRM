@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { inspect } from 'util'
-import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common'
+import { Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { CompanyAccountService } from './company-account.service'
 import type { DatabaseService } from '../database/database.service'
@@ -202,7 +202,9 @@ describe('CompanyAccountService.getAccount — balance derivation (AC6)', () => 
   it('ACCOUNTANT may read; non-privileged role → 403', async () => {
     const db = makeDb({ select: selectReturning(['0', '0', '0', '0', '0', '0']) })
     const svc = makeService(db)
-    await expect(svc.getAccount(JUNIOR)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(svc.getAccount(JUNIOR)).rejects.toMatchObject({
+      response: { code: 'FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN', statusCode: 403 },
+    })
   })
 })
 
@@ -415,7 +417,7 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     const svc = makeService(db, { verifyDeposit })
     await expect(
       svc.submitDeposit({ txHashOrLink: '0x' + '4'.repeat(64) }, SENIOR),
-    ).rejects.toThrowError(/уже использован/)
+    ).rejects.toThrowError(/already been used/)
     expect(verifyDeposit).not.toHaveBeenCalled()
     expect(insertSpy).not.toHaveBeenCalled()
   })
@@ -457,14 +459,18 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     const svc = makeService(makeDb())
     await expect(
       svc.submitDeposit({ txHashOrLink: '0x' + 'd'.repeat(64) }, ADMIN),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_COMPANY_DEPOSIT_FORBIDDEN', statusCode: 403 },
+    })
   })
 
   it('un-extractable hash → 400', async () => {
     const svc = makeService(makeDb())
     await expect(
       svc.submitDeposit({ txHashOrLink: 'not-a-hash-at-all' }, SENIOR),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TX_HASH_INVALID', statusCode: 400 },
+    })
   })
 
   it('extracts hash from an Etherscan link', async () => {
@@ -621,9 +627,9 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
     })
     const svc = makeService(db, { verifyDeposit: vi.fn() })
     const otherSenior: SessionUser = { ...SENIOR, id: 'other' }
-    await expect(svc.getDepositStatus('dep-1', otherSenior)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    await expect(svc.getDepositStatus('dep-1', otherSenior)).rejects.toMatchObject({
+      response: { code: 'FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN', statusCode: 403 },
+    })
   })
 })
 
@@ -663,16 +669,16 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
 
   it('non-ADMIN → 403', async () => {
     const svc = makeService(makeDb())
-    await expect(svc.createDividend({ amount: 100 }, SENIOR)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    await expect(svc.createDividend({ amount: 100 }, SENIOR)).rejects.toMatchObject({
+      response: { code: 'FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY', statusCode: 403 },
+    })
   })
 
   it('non-positive amount → 400', async () => {
     const svc = makeService(makeDb())
-    await expect(svc.createDividend({ amount: 0 }, ADMIN)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.createDividend({ amount: 0 }, ADMIN)).rejects.toMatchObject({
+      response: { code: 'FINANCE_DIVIDEND_AMOUNT_MUST_BE_POSITIVE', statusCode: 400 },
+    })
   })
 
   it('non-admin receiver → 400', async () => {
@@ -689,7 +695,9 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
         { amount: 100, adminId: 'x', receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
         ADMIN,
       ),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN', statusCode: 400 },
+    })
   })
 
   // fix-round 1 (mutation-gate closure): no existing test in this describe
@@ -716,7 +724,7 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
         { amount: 1234, receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
         ADMIN,
       ),
-    ).rejects.toThrowError(/Недостаточно средств/)
+    ).rejects.toThrowError(/Insufficient funds/)
   })
 
   it('ADMIN, amount within balance → PAID DIVIDEND_TO_ADMIN crediting an admin', async () => {
@@ -823,15 +831,17 @@ describe('CompanyAccountService.updateRequisites (ADMIN only)', () => {
   it('non-ADMIN → 403', async () => {
     const { db } = makeRequisitesDb(null)
     const svc = makeService(db)
-    await expect(svc.updateRequisites('x', SENIOR)).rejects.toBeInstanceOf(ForbiddenException)
+    await expect(svc.updateRequisites('x', SENIOR)).rejects.toMatchObject({
+      response: { code: 'FINANCE_COMPANY_REQUISITES_CHANGE_ADMIN_ONLY', statusCode: 403 },
+    })
   })
 
   it('body over the 10000-char cap → 400', async () => {
     const { db } = makeRequisitesDb(null)
     const svc = makeService(db)
-    await expect(svc.updateRequisites('a'.repeat(10001), ADMIN)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.updateRequisites('a'.repeat(10001), ADMIN)).rejects.toMatchObject({
+      response: { code: 'FINANCE_COMPANY_REQUISITES_TOO_LONG', statusCode: 400 },
+    })
   })
 
   it('ADMIN sets non-empty requisites → persisted verbatim + DTO reflects it', async () => {

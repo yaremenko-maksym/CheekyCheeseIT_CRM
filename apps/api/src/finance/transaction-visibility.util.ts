@@ -76,12 +76,13 @@
  * deleted transaction's amount/counterparty through `GET /api/invoices` and
  * the documents "Требует подписи" badge).
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { HttpStatus } from '@nestjs/common'
 import { eq, isNull } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { transactions, type Transaction } from '../database/schema'
 import type { DatabaseService } from '../database/database.service'
 import type { DrizzleTx } from '../database/types'
+import { apiError } from '../common/api-error'
 
 /** Reusable predicate for LIST/JOIN reads — AND this into every multi-row query. */
 export const TRANSACTION_NOT_DELETED = isNull(transactions.deletedAt)
@@ -102,14 +103,14 @@ export function assertTransactionVisible(
   currentUser: SessionUser | null,
 ): void {
   if (tx.deletedAt && !isPrivilegedViewer(currentUser)) {
-    throw new NotFoundException('Транзакция не найдена')
+    throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
   }
 }
 
 /** Write-side gate. Applies regardless of role — see file header, invariant #2. */
 export function assertTransactionNotDeleted(tx: { deletedAt: Date | null }): void {
   if (tx.deletedAt) {
-    throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+    throw apiError('FINANCE_TRANSACTION_DELETED_RESTORE_FIRST', HttpStatus.BAD_REQUEST)
   }
 }
 
@@ -155,7 +156,7 @@ export function assertFoundAndVisible<T extends { deletedAt: Date | null }>(
   tx: T | undefined,
   currentUser: SessionUser | null,
 ): T {
-  if (!tx) throw new NotFoundException('Транзакция не найдена')
+  if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
   assertTransactionVisible(tx, currentUser)
   return tx
 }

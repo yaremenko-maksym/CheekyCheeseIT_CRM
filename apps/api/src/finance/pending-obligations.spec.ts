@@ -12,7 +12,6 @@
  * post-condition (filter shape after the controller's swap is what the
  * service receives).
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { BalanceService } from './balance.service'
@@ -151,11 +150,13 @@ describe('assertCanReadAdminBalance', () => {
   // share on that page (ACCOUNTANT unrestricted and sees both partners).
   it("ADMIN cannot read another admin's balance → ForbiddenException", () => {
     expect(() => svc.assertCanReadAdminBalance(adminUser, 'other-admin')).toThrow(
-      ForbiddenException,
+      'Only the administrator themself or an accountant can see this admin balance',
     )
   })
   it.each([seniorA, juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
-    expect(() => svc.assertCanReadAdminBalance(user, 'any-admin')).toThrow(ForbiddenException)
+    expect(() => svc.assertCanReadAdminBalance(user, 'any-admin')).toThrow(
+      'Only the administrator themself or an accountant can see this admin balance',
+    )
   })
 })
 
@@ -173,10 +174,14 @@ describe('assertCanReadSeniorBalance', () => {
     expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorA.id)).not.toThrow()
   })
   it("SENIOR can NOT read another senior's balance", () => {
-    expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorB.id)).toThrow(ForbiddenException)
+    expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorB.id)).toThrow(
+      "can see the senior's balance",
+    )
   })
   it.each([juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
-    expect(() => svc.assertCanReadSeniorBalance(user, seniorA.id)).toThrow(ForbiddenException)
+    expect(() => svc.assertCanReadSeniorBalance(user, seniorA.id)).toThrow(
+      "can see the senior's balance",
+    )
   })
 })
 
@@ -194,7 +199,9 @@ describe('assertCanListPendingObligations', () => {
     expect(() => svc.assertCanListPendingObligations(seniorA)).not.toThrow()
   })
   it.each([juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
-    expect(() => svc.assertCanListPendingObligations(user)).toThrow(ForbiddenException)
+    expect(() => svc.assertCanListPendingObligations(user)).toThrow(
+      'This section is available to an accountant and an administrator',
+    )
   })
 })
 

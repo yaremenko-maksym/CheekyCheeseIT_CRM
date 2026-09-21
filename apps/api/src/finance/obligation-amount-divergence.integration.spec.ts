@@ -423,7 +423,7 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xobligationdivergencespec',
         }),
-      ).rejects.toThrow(/Недостаточно средств/)
+      ).rejects.toThrow(/Insufficient funds/)
 
       // No partial debit — the rejected settle changed nothing on the ledger.
       expect(await gateBalance()).toBeCloseTo(afterDeclare, 6)
@@ -577,7 +577,7 @@ describe.skipIf(!hasDatabaseUrl())(
             fundingSource: 'COMPANY_ACCOUNT',
             receiptExternalUrl: 'https://etherscan.io/tx/0xobligationdivergencedropspec',
           }),
-        ).rejects.toThrow(/изменилась после загрузки/)
+        ).rejects.toThrow(/changed after loading/)
       } finally {
         svcAsPrivate.loadObligation = originalLoadObligation
       }

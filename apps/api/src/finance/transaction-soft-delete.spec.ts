@@ -15,7 +15,7 @@
  * .integration.spec.ts and transaction-soft-delete-balance-regression
  * .integration.spec.ts).
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -194,9 +194,9 @@ describe('adminDeleteTransaction — RBAC + mandatory reason', () => {
     const mocks = makeDb({ txRow: makeTxRow() })
     const svc = makeService(mocks)
 
-    await expect(svc.adminDeleteTransaction(TX_ID, '   ', ADMIN_USER)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(svc.adminDeleteTransaction(TX_ID, '   ', ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_DELETE_REASON_REQUIRED', statusCode: 400 },
+    })
     expect(mocks.findFirstMock).not.toHaveBeenCalled()
   })
 
@@ -204,18 +204,22 @@ describe('adminDeleteTransaction — RBAC + mandatory reason', () => {
     const mocks = makeDb({ txRow: undefined })
     const svc = makeService(mocks)
 
-    await expect(svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(
+      svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
   })
 
   it('rejects an already-deleted transaction with BadRequestException (no double-delete)', async () => {
     const mocks = makeDb({ txRow: makeTxRow({ deletedAt: new Date() }) })
     const svc = makeService(mocks)
 
-    await expect(svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(
+      svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_ALREADY_DELETED', statusCode: 400 },
+    })
     expect(mocks.transactionMock).not.toHaveBeenCalled()
   })
 
@@ -225,9 +229,11 @@ describe('adminDeleteTransaction — RBAC + mandatory reason', () => {
       const mocks = makeDb({ txRow: makeTxRow({ type }) })
       const svc = makeService(mocks)
 
-      await expect(svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toThrow(
-        BadRequestException,
-      )
+      await expect(
+        svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_DELETE_PAYOUT_FORBIDDEN', statusCode: 400 },
+      })
       expect(mocks.transactionMock).not.toHaveBeenCalled()
     })
   }
@@ -236,9 +242,11 @@ describe('adminDeleteTransaction — RBAC + mandatory reason', () => {
     const mocks = makeDb({ txRow: makeTxRow({ payoutRequestId: 'pr-1' }) })
     const svc = makeService(mocks)
 
-    await expect(svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(
+      svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_DELETE_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN', statusCode: 400 },
+    })
     expect(mocks.transactionMock).not.toHaveBeenCalled()
   })
 
@@ -252,9 +260,11 @@ describe('adminDeleteTransaction — RBAC + mandatory reason', () => {
     })
     const svc = makeService(mocks)
 
-    await expect(svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(
+      svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_DELETE_SOURCE_OF_OBLIGATION_FORBIDDEN', statusCode: 400 },
+    })
     // security-review PR #456 (MED-1): the obligation re-check moved INSIDE
     // db.transaction (right before the UPDATE) to shrink the create-obligation
     // ↔ delete race window — the transaction callback now DOES run (and
@@ -344,7 +354,9 @@ describe('restoreTransaction — RBAC + mandatory reason (AC6)', () => {
     const mocks = makeDb({ txRow: makeTxRow({ deletedAt: new Date() }) })
     const svc = makeService(mocks)
 
-    await expect(svc.restoreTransaction(TX_ID, '', ADMIN_USER)).rejects.toThrow(BadRequestException)
+    await expect(svc.restoreTransaction(TX_ID, '', ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_RESTORE_REASON_REQUIRED', statusCode: 400 },
+    })
     expect(mocks.findFirstMock).not.toHaveBeenCalled()
   })
 
@@ -352,18 +364,18 @@ describe('restoreTransaction — RBAC + mandatory reason (AC6)', () => {
     const mocks = makeDb({ txRow: undefined })
     const svc = makeService(mocks)
 
-    await expect(svc.restoreTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(svc.restoreTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
   })
 
   it('rejects restoring a transaction that is not deleted', async () => {
     const mocks = makeDb({ txRow: makeTxRow({ deletedAt: null }) })
     const svc = makeService(mocks)
 
-    await expect(svc.restoreTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(svc.restoreTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_DELETED', statusCode: 400 },
+    })
     expect(mocks.transactionMock).not.toHaveBeenCalled()
   })
 })

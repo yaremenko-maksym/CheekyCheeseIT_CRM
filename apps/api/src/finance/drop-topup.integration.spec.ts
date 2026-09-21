@@ -517,7 +517,7 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
         currency: 'UAH',
         receiptExternalUrl: 'https://drive.google.com/file/uah-topup-receipt',
       }),
-    ).rejects.toThrow(/возможна только в USDT/)
+    ).rejects.toThrow(/only possible in/)
 
     const after = await derivativeFor(DROP.id)
     expect(after.obligation.status).toBe('PENDING')
@@ -608,7 +608,7 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
         currency: 'USDT',
         receiptExternalUrl: SECOND_RECEIPT,
       }),
-    ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+    ).rejects.toThrow(/must come from the same source/)
 
     // Nothing moved: without the guard the row would drop out of term 7 (its
     // funding marker gone) AND out of term 9 (no longer PENDING_PAYMENT), and
