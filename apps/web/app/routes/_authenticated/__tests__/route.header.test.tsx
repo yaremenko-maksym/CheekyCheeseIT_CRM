@@ -42,7 +42,7 @@ const MOCK_USER: SessionUser = {
   avatarUrl: null,
   avatarDocumentId: null,
   legalFullName: null,
-  seniorSharePercent: null,
+  seniorSharePercent: 0,
   locale: 'uk',
   impersonating: false,
 }
