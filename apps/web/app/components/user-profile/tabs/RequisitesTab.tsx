@@ -11,13 +11,8 @@ import {
   User as UserIcon,
   Wallet,
 } from 'lucide-react'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { UserProfileDto } from '@crm/shared'
@@ -37,9 +32,10 @@ function FieldRow({
   copyable?: boolean
   mono?: boolean
 }) {
+  const { t } = useLingui()
   const [copied, setCopied] = useState(false)
   const empty = !value
-  const display = value ?? 'не указано'
+  const display = value ?? t`не вказано`
 
   function copy() {
     if (!value) return
@@ -72,14 +68,10 @@ function FieldRow({
           variant="ghost"
           size="sm"
           onClick={copy}
-          aria-label={`Скопировать ${label}`}
+          aria-label={t`Скопіювати ${label}`}
           className="shrink-0"
         >
-          {copied ? (
-            <Check className="h-4 w-4 text-green-500" />
-          ) : (
-            <Copy className="h-4 w-4" />
-          )}
+          {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
         </Button>
       )}
     </div>
@@ -87,12 +79,17 @@ function FieldRow({
 }
 
 export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'self' | 'view' }) {
+  const { t } = useLingui()
   if (mode === 'self') {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Реквизиты для выплат</CardTitle>
-          <CardDescription>Выберите метод и заполните реквизиты для выплат</CardDescription>
+          <CardTitle>
+            <Trans>Реквізити для виплат</Trans>
+          </CardTitle>
+          <CardDescription>
+            <Trans>Оберіть метод і заповніть реквізити для виплат</Trans>
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <RequisitesEditForm user={user} />
@@ -111,15 +108,21 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
           <CardTitle className="flex items-center gap-2 text-base">
             {isUsdt && <Bitcoin className="h-4 w-4 text-primary" />}
             {isBank && <Landmark className="h-4 w-4 text-primary" />}
-            Реквизиты для выплат
+            <Trans>Реквізити для виплат</Trans>
           </CardTitle>
-          {isUsdt && <CardDescription>USDT ERC-20 — Ethereum mainnet</CardDescription>}
-          {isBank && <CardDescription>Банковский счёт в Украине (ФОП)</CardDescription>}
+          {isUsdt && (
+            <CardDescription>
+              <Trans>USDT (ERC-20) — мережа Ethereum</Trans>
+            </CardDescription>
+          )}
+          {isBank && (
+            <CardDescription>
+              <Trans>Банківський рахунок в Україні (ФОП)</Trans>
+            </CardDescription>
+          )}
         </div>
         {user.paymentMethod && (
-          <Badge variant="outline">
-            {isUsdt ? 'USDT ERC-20' : 'Банк UAH (ФОП)'}
-          </Badge>
+          <Badge variant="outline">{isUsdt ? 'USDT (ERC-20)' : t`ФОП (UAH)`}</Badge>
         )}
       </CardHeader>
       <CardContent className="space-y-2.5">
@@ -127,7 +130,7 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
           <>
             <FieldRow
               icon={<Wallet className="h-4 w-4" />}
-              label="USDT кошелёк"
+              label={t`Гаманець USDT`}
               value={user.walletUsdtErc20}
               copyable
               mono
@@ -135,7 +138,7 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
             {user.walletUsdtLabel && (
               <FieldRow
                 icon={<Tag className="h-4 w-4" />}
-                label="Метка"
+                label={t`Мітка`}
                 value={user.walletUsdtLabel}
               />
             )}
@@ -145,7 +148,7 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
           <>
             <FieldRow
               icon={<UserIcon className="h-4 w-4" />}
-              label="Получатель"
+              label={t`Отримувач`}
               value={user.bankUahRecipient}
             />
             <FieldRow
@@ -157,7 +160,7 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
             />
             <FieldRow
               icon={<IdCard className="h-4 w-4" />}
-              label="РНОКПП"
+              label={t`РНОКПП`}
               value={user.bankUahRnokpp}
               copyable
               mono
@@ -165,14 +168,16 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
             {user.bankUahBankName && (
               <FieldRow
                 icon={<Building2 className="h-4 w-4" />}
-                label="Банк"
+                label={t`Банк`}
                 value={user.bankUahBankName}
               />
             )}
           </>
         )}
         {!user.paymentMethod && (
-          <p className="text-sm text-muted-foreground">Реквизиты не указаны</p>
+          <p className="text-sm text-muted-foreground">
+            <Trans>Реквізити не вказано</Trans>
+          </p>
         )}
       </CardContent>
     </Card>
