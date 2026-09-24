@@ -181,9 +181,11 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   AuthUsersProjectsErrorCode,
   MessageDescriptor
 > = {
+  // copy round 1 (COPY-M-2): aligned with `login.tsx`'s `account_disabled`
+  // banner — one text for the same refusal on both entry points.
   ACCOUNT_DISABLED: /* i18n */ {
     id: 'api-error.ACCOUNT_DISABLED',
-    message: 'Ваш обліковий запис вимкнено. Зверніться до адміністратора',
+    message: 'Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору',
   },
   ACTIVE_MEMBER_NOT_FOUND: /* i18n */ {
     id: 'api-error.ACTIVE_MEMBER_NOT_FOUND',
@@ -500,7 +502,8 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
 }
 
 export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErrorCode, string> = {
-  ACCOUNT_DISABLED: 'Your account is disabled. Contact an admin',
+  ACCOUNT_DISABLED:
+    'Your access to the CRM has been turned off. If this is a mistake, contact an admin',
   ACTIVE_MEMBER_NOT_FOUND: 'Active member not found in the project',
   ADMIN_CANNOT_CHANGE_OWN_ROLE: "An admin can't change their own role",
   ADMIN_CREATION_FORBIDDEN: "You can't create an admin — the pool is fixed",
@@ -527,7 +530,7 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
     "Only an admin or an accountant can change the drop's project share",
   DROP_TEAM_ID_REQUIRED: 'Choose the drop team to add the senior to',
   EMAIL_ALREADY_IN_USE: 'This email is already taken. Enter a different one',
-  EMAIL_NOT_AUTHORIZED: 'This email is not authorized. Contact an admin',
+  EMAIL_NOT_AUTHORIZED: "This email doesn't have access. Contact an admin",
   EMAIL_TAKEN_BY_ANOTHER_USER: 'This email is already taken. Enter a different one',
   GOOGLE_ACCOUNT_MISMATCH: 'This email is already linked to a different Google account',
   GOOGLE_CREDENTIAL_INVALID: "Couldn't verify your Google sign-in. Try again",

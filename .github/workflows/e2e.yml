@@ -34,15 +34,15 @@ jobs:
       VITE_API_URL: http://localhost:3001/api
       NODE_ENV: test
       API_PORT: 3001
-      # S3 / MinIO (PHASE 6) — dev dummy creds, MinIO service started below.
+      # S3 / RustFS (PHASE 6) — dev creds, S3 stand started below.
       # Prod overrides via secrets: AWS_ACCESS_KEY_ID_PROD / AWS_SECRET_ACCESS_KEY_PROD / S3_BUCKET_PROD / S3_REGION_PROD.
       S3_ENDPOINT: http://localhost:9000
       S3_FORCE_PATH_STYLE: 'true'
       S3_REGION: us-east-1
       S3_BUCKET: crm-documents
       S3_USE_SSE: 'false'
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_ACCESS_KEY_ID: crmdevaccesskey
+      AWS_SECRET_ACCESS_KEY: crmdevsecretkey
       # Throttler: raise limits so full-suite manual run does not get 429 on drop-finance specs.
       # THROTTLE_RELAXED is only honoured in non-production (guardrail in env.ts).
       THROTTLE_RELAXED: 'true'
@@ -69,9 +69,9 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      # MinIO нельзя запустить через `services:` — GHA service container schema
-      # не поддерживает `command:`/`args:`, а MinIO image без команды exit'ит.
-      # Поднимаем через `docker run` ниже (см. step "Start MinIO + bucket").
+      # S3-стенд (RustFS) поднимается через `docker run` в шаге ниже, а не
+      # `services:` — бакет нужно забутстрапить сразу после старта сервера,
+      # это делаем в том же шаге (см. "Start S3 stand + bucket").
 
     steps:
       - name: Get PR head ref
@@ -101,32 +101,37 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Start MinIO + bucket
+      - name: Start S3 stand + bucket
         run: |
-          # Pinned quay.io: MinIO stopped publishing Docker Hub / quay.io images
-          # on 2025-10-15 (source-only + Community-Edition freeze), and Docker
-          # Hub's `minio/minio` repo now 404s anonymous pulls entirely ("pull
-          # access denied ... repository does not exist"). These are the last
-          # tags quay.io published before the freeze — still pullable
-          # anonymously (verified 2026-09-11); `latest` is not an option here.
-          docker run -d --name minio \
+          # RustFS — S3-compatible stand for CI/dev (owner decision
+          # 2026-09-24, replaces the previous stand whose images became
+          # unpullable everywhere: quay.io 401, dl.min.io 410, Docker Hub
+          # 404). Apache-2.0, active, https://github.com/rustfs/rustfs.
+          # Pinned by multi-arch index digest (amd64+arm64), tag 1.0.0,
+          # verified 2026-09-24 against https://hub.docker.com/r/rustfs/rustfs.
+          docker run -d --name s3-stand \
             --network host \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data --console-address ":9001"
+            -e RUSTFS_ACCESS_KEY=crmdevaccesskey \
+            -e RUSTFS_SECRET_KEY=crmdevsecretkey \
+            -e RUSTFS_CORS_ALLOWED_ORIGINS=http://localhost:3000 \
+            rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
           # Wait for healthy
           for i in {1..30}; do
-            if curl -sf http://localhost:9000/minio/health/live; then echo "MinIO ready"; break; fi
-            echo "Waiting for MinIO... ($i/30)"
+            if curl -sf http://localhost:9000/health; then echo "S3 stand ready"; break; fi
+            echo "Waiting for S3 stand... ($i/30)"
             sleep 2
           done
-          # Bootstrap bucket (mc image entrypoint is `mc`, override with /bin/sh).
-          # Pinned quay.io/minio/mc for the same reason as the server image above.
-          docker run --rm --network host --entrypoint /bin/sh quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z -c "
-            mc alias set local http://localhost:9000 minioadmin minioadmin &&
-            mc mb --ignore-existing local/crm-documents &&
-            echo 'MinIO bucket crm-documents ready (CI)'
-          "
+          # Bootstrap bucket. `aws s3 mb` against RustFS is idempotent by
+          # itself (verified locally, re-run exits 0) — no
+          # `--ignore-existing`-style flag needed.
+          # Pinned by multi-arch index digest (amd64+arm64), verified 2026-09-24.
+          docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=crmdevaccesskey \
+            -e AWS_SECRET_ACCESS_KEY=crmdevsecretkey \
+            -e AWS_DEFAULT_REGION=us-east-1 \
+            amazon/aws-cli:2.37.1@sha256:b0dd5a4d216a1786863541a201baa7b7b4c5032bec9c6e72c38d01cafd7e8db8 \
+            --endpoint-url http://localhost:9000 s3 mb s3://crm-documents
+          echo "S3 bucket crm-documents ready (CI)"
 
       - uses: actions/cache@v4
         with:
@@ -213,9 +218,9 @@ jobs:
           echo "=== API LOG ===" && cat /tmp/api.log || true
           echo "=== WEB LOG ===" && cat /tmp/web.log || true
 
-      - name: Stop MinIO
+      - name: Stop S3 stand
         if: always()
-        run: docker rm -f minio || true
+        run: docker rm -f s3-stand || true
 
   # Merge is handled by PM locally after E2E passes.
   # PM runs: gh pr merge <N> --squash --delete-branch

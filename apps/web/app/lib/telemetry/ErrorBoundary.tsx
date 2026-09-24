@@ -20,6 +20,7 @@
  * different one from the other two.
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Trans } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 import { reportClientError, sanitizeErrorForReport } from './errors'
 
@@ -54,11 +55,17 @@ export class TelemetryErrorBoundary extends Component<
     if (!this.state.hasError) return this.props.children
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
-        <p className="text-lg font-semibold text-foreground">Что-то пошло не так</p>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Произошла непредвиденная ошибка. Мы уже знаем о ней — попробуйте обновить страницу.
+        <p className="text-lg font-semibold text-foreground">
+          <Trans>Щось пішло не так</Trans>
         </p>
-        <Button onClick={this.handleReload}>Обновить страницу</Button>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          <Trans>
+            Сталася непередбачена помилка. Ми вже знаємо про неї — спробуйте оновити сторінку.
+          </Trans>
+        </p>
+        <Button onClick={this.handleReload}>
+          <Trans>Оновити сторінку</Trans>
+        </Button>
       </div>
     )
   }

@@ -69,7 +69,7 @@ docker compose \
 echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Dump complete: $(du -sh "${BACKUP_PATH}" | cut -f1)"
 
 # ── Upload to R2 / S3 ─────────────────────────────────────────────────────
-# Build aws CLI extra args: endpoint-url for R2/MinIO; omit for AWS S3.
+# Build aws CLI extra args: endpoint-url for R2/self-hosted S3; omit for AWS S3.
 AWS_EXTRA_ARGS=()
 if [ -n "${S3_ENDPOINT:-}" ]; then
   AWS_EXTRA_ARGS+=(--endpoint-url "${S3_ENDPOINT}")
