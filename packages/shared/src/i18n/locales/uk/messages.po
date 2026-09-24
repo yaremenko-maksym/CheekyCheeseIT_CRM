@@ -327,15 +327,6 @@ msgstr "Валюта зарплати з профілю"
 msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
 msgstr "Вам недоступне завантаження {category, select, RESUME {резюме} SCAN {сканів} RECEIPT {чеків} LOGO {логотипів} other {таких документів}}"
 
-#: apps/web/app/routes/login.tsx
-msgid "Ваш email не авторизовано. Зверніться до адміністратора."
-msgstr "Ваш email не авторизовано. Зверніться до адміністратора."
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
-msgid "api-error.ACCOUNT_DISABLED"
-msgstr "Ваш обліковий запис вимкнено. Зверніться до адміністратора"
-
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}%"
@@ -405,8 +396,8 @@ msgid "Ви працюватимете від імені цього корист
 msgstr "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
 
 #: apps/web/app/routes/login.tsx
-msgid "Ви увійшли в інший акаунт Google. Відкрийте посилання з листа ще раз і виберіть акаунт тієї адреси, на яку воно прийшло. Якщо акаунта Google на цій адресі немає — увійти по ньому не можна, напишіть адміністратору."
-msgstr "Ви увійшли в інший акаунт Google. Відкрийте посилання з листа ще раз і виберіть акаунт тієї адреси, на яку воно прийшло. Якщо акаунта Google на цій адресі немає — увійти по ньому не можна, напишіть адміністратору."
+msgid "Ви увійшли в інший обліковий запис Google. Відкрийте посилання з листа ще раз і виберіть адресу, на яку прийшов лист. Якщо ця адреса не має облікового запису Google, напишіть адміністратору."
+msgstr "Ви увійшли в інший обліковий запис Google. Відкрийте посилання з листа ще раз і виберіть адресу, на яку прийшов лист. Якщо ця адреса не має облікового запису Google, напишіть адміністратору."
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
@@ -653,6 +644,10 @@ msgstr "Всього зароблено · за весь час"
 msgid "Всього: {0}"
 msgstr "Всього: {0}"
 
+#: apps/web/app/routes/login.tsx
+msgid "Вхід не завершився. Натисніть «Увійти через Google» ще раз."
+msgstr "Вхід не завершився. Натисніть «Увійти через Google» ще раз."
+
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Входимо…"
 msgstr "Входимо…"
@@ -779,13 +774,14 @@ msgstr "Документи"
 msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Долучити до команди дропа можна лише сеньйора"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ACCOUNT_DISABLED"
+msgstr "Ваш обліковий запис вимкнено. Зверніться до адміністратора"
+
 #: apps/web/app/routes/login.tsx
 msgid "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору."
 msgstr "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору."
-
-#: apps/web/app/routes/login.tsx
-msgid "Доступ лише для авторизованих співробітників."
-msgstr "Доступ лише для авторизованих співробітників."
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Досягнуто ліміт {maxItems} тегів"
@@ -1037,8 +1033,8 @@ msgid "Контракти"
 msgstr "Контракти"
 
 #: apps/web/app/lib/axios-utils.ts
-msgid "Конфлікт даних. Оновіть сторінку і спробуйте знову."
-msgstr "Конфлікт даних. Оновіть сторінку і спробуйте знову."
+msgid "Конфлікт даних. Оновіть сторінку і спробуйте ще раз."
+msgstr "Конфлікт даних. Оновіть сторінку і спробуйте ще раз."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Користувач (сеньйор)"
@@ -1262,6 +1258,10 @@ msgstr "Не вдалося перевірити, чи чекає на вас р
 msgid "api-error.GOOGLE_CREDENTIAL_INVALID"
 msgstr "Не вдалося підтвердити вхід через Google. Спробуйте ще раз"
 
+#: apps/web/app/routes/login.tsx
+msgid "Не вдалося підтвердити вхід через Google. Спробуйте ще раз."
+msgstr "Не вдалося підтвердити вхід через Google. Спробуйте ще раз."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_ORIGIN_UNAVAILABLE"
@@ -1310,8 +1310,8 @@ msgid "api-error.CONTRACT_TEMPLATE_INVALID_ROLE"
 msgstr "Некоректна роль шаблону контракту"
 
 #: apps/web/app/lib/axios-utils.ts
-msgid "Некоректний запит. Перевірте введені дані і спробуйте знову."
-msgstr "Некоректний запит. Перевірте введені дані і спробуйте знову."
+msgid "Некоректний запит. Перевірте введені дані і спробуйте ще раз."
+msgstr "Некоректний запит. Перевірте введені дані і спробуйте ще раз."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Немає активних проєктів"
@@ -1346,13 +1346,17 @@ msgstr "Немає доступу до редагування легенди п�
 msgid "api-error.PROJECT_NOT_IN_YOUR_TEAMS"
 msgstr "Немає доступу: проєкт не належить вашим командам"
 
+#: apps/web/app/routes/login.tsx
+msgid "Немає доступу? Зверніться до адміністратора."
+msgstr "Немає доступу? Зверніться до адміністратора."
+
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Немає доходів, що очікують валідації"
 msgstr "Немає доходів, що очікують валідації"
 
 #: apps/web/app/lib/axios-utils.ts
-msgid "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову."
-msgstr "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову."
+msgid "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте ще раз."
+msgstr "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте ще раз."
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Немає зобов’язань"
@@ -1601,10 +1605,6 @@ msgstr "Повторити"
 msgid "Повторити спробу"
 msgstr "Повторити спробу"
 
-#: apps/web/app/routes/login.tsx
-msgid "Помилка Google OAuth. Спробуйте ще раз."
-msgstr "Помилка Google OAuth. Спробуйте ще раз."
-
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Помилка завантаження балансу"
 msgstr "Помилка завантаження балансу"
@@ -1672,8 +1672,8 @@ msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
 msgstr "Потрібен щонайменше один HR"
 
 #: apps/web/app/lib/axios-utils.ts
-msgid "Потрібно увійти в систему знову."
-msgstr "Потрібно увійти в систему знову."
+msgid "Потрібно увійти ще раз."
+msgstr "Потрібно увійти ще раз."
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію…"
@@ -1875,10 +1875,6 @@ msgstr "сеньйора"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Сеньйора не знайдено"
-
-#: apps/web/app/routes/login.tsx
-msgid "Сесія закінчилася. Спробуйте ще раз, будь ласка."
-msgstr "Сесія закінчилася. Спробуйте ще раз, будь ласка."
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
@@ -2098,8 +2094,8 @@ msgid "Увійти"
 msgstr "Увійти"
 
 #: apps/web/app/routes/login.tsx
-msgid "Увійти з Google"
-msgstr "Увійти з Google"
+msgid "Увійти через Google"
+msgstr "Увійти через Google"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
@@ -2199,10 +2195,6 @@ msgstr "Хеш транзакції: 0x + 64 hex — або посилання �
 msgid "zod-error.TX_HASH_FORMAT_OR_EMPTY"
 msgstr "Хеш транзакції: 0x + 64 hex — або посилання на Etherscan"
 
-#: apps/web/app/routes/login.tsx
-msgid "Цей акаунт Google вже використовується для входу з іншої адреси. Зверніться до адміністратора."
-msgstr "Цей акаунт Google вже використовується для входу з іншої адреси. Зверніться до адміністратора."
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.AVATAR_DOCUMENT_WRONG_OWNER"
@@ -2237,19 +2229,23 @@ msgstr "Цей користувач не сеньйор і не адмініст
 msgid "Цей місяць"
 msgstr "Цей місяць"
 
+#: apps/web/app/routes/login.tsx
+msgid "Цей обліковий запис Google вже використовується для входу з іншої адреси. Зверніться до адміністратора."
+msgstr "Цей обліковий запис Google вже використовується для входу з іншої адреси. Зверніться до адміністратора."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS"
 msgstr "Цей сеньйор не входить до ваших команд"
 
-#: apps/web/app/routes/login.tsx
-msgid "Ця адреса вже прив’язана до іншого акаунта Google. Увійдіть тим акаунтом, яким входили раніше, або напишіть адміністратору."
-msgstr "Ця адреса вже прив’язана до іншого акаунта Google. Увійдіть тим акаунтом, яким входили раніше, або напишіть адміністратору."
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.GOOGLE_ACCOUNT_MISMATCH"
 msgstr "Ця адреса вже прив’язана до іншого облікового запису Google"
+
+#: apps/web/app/routes/login.tsx
+msgid "Ця адреса вже прив’язана до іншого облікового запису Google. Увійдіть через той обліковий запис, яким входили раніше, або напишіть адміністратору."
+msgstr "Ця адреса вже прив’язана до іншого облікового запису Google. Увійдіть через той обліковий запис, яким входили раніше, або напишіть адміністратору."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2280,6 +2276,10 @@ msgstr "Ця електронна адреса вже зайнята. Введі
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.EMAIL_NOT_AUTHORIZED"
 msgstr "Ця електронна адреса не має доступу. Зверніться до адміністратора"
+
+#: apps/web/app/routes/login.tsx
+msgid "Ця електронна адреса не має доступу. Зверніться до адміністратора."
+msgstr "Ця електронна адреса не має доступу. Зверніться до адміністратора."
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Частка"
@@ -2358,7 +2358,3 @@ msgstr "Юридична назва компанії-контрагента"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGAL_NAME_REQUIRED"
 msgstr "Юридичне ПІБ не заповнено. Зверніться до адміністратора"
-
-#: apps/web/app/routes/login.tsx
-msgid "Якщо у вас немає доступу — зверніться до адміністратора."
-msgstr "Якщо у вас немає доступу — зверніться до адміністратора."

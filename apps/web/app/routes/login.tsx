@@ -34,9 +34,24 @@ import { BrandMark } from '@/components/brand-mark'
 // these exact strings end-to-end — see
 // `.claude/rules/common/mutation-gate-integration-specs.md`.
 export const ERROR_MESSAGES = {
-  unauthorized: msg`Ваш email не авторизовано. Зверніться до адміністратора.`,
-  google_error: msg`Помилка Google OAuth. Спробуйте ще раз.`,
-  invalid_state: msg`Сесія закінчилася. Спробуйте ще раз, будь ласка.`,
+  // copy round 1 (COPY-M-2): aligned with `api-error.EMAIL_NOT_AUTHORIZED` —
+  // the ordinary-login and invite-accept paths throw for the SAME condition
+  // (no loginable row for this email), one text for both.
+  unauthorized: msg`Ця електронна адреса не має доступу. Зверніться до адміністратора.`,
+  // copy round 1 (COPY-M-3): "OAuth" is jargon a new hire has no reason to
+  // know, and the failure it names — Google credential exchange failed — is
+  // already worded once for `api-error.GOOGLE_CREDENTIAL_INVALID`; reusing
+  // that exact text keeps the two entry points (invite-accept vs. ordinary
+  // login redirect) saying the same thing for the same failure.
+  google_error: msg`Не вдалося підтвердити вхід через Google. Спробуйте ще раз.`,
+  // copy round 1 (COPY-M-4): the old text named a cause ("session expired")
+  // that is usually wrong — `AuthController.googleCallback` also emits this
+  // code when the state cookie is simply missing/mismatched OR when Google
+  // never sent a `code` at all, which is the ordinary shape of clicking
+  // Cancel on Google's account chooser. Names the fix (click the button
+  // again) instead of guessing a cause; quotes the button label verbatim
+  // (COPY-L-2 renamed it to "Увійти через Google" below).
+  invalid_state: msg`Вхід не завершився. Натисніть «Увійти через Google» ще раз.`,
   // task-user-emails-invite (spec §2, §3) + copy-review PR #623 round 4
   // (COPY-H-3): the invite-accept branch of GET /auth/google/callback
   // (AuthController) redirects here on failure — see `mapInviteAcceptError`
@@ -46,7 +61,13 @@ export const ERROR_MESSAGES = {
   // token on a mismatch) instead of only naming the diagnosis; the account
   // chooser this relies on is forced open by `prompt=select_account`
   // (`AuthService.buildGoogleAuthUrl`, invite round only).
-  invite_email_mismatch: msg`Ви увійшли в інший акаунт Google. Відкрийте посилання з листа ще раз і виберіть акаунт тієї адреси, на яку воно прийшло. Якщо акаунта Google на цій адресі немає — увійти по ньому не можна, напишіть адміністратору.`,
+  // copy round 1 (COPY-H-1): the uk original had a gender-agreement error
+  // ("по ньому" — masculine/neuter — referring back to "адресі", feminine)
+  // inherited from an earlier Russian draft; also shortened by ~25 chars,
+  // this was the longest banner on the screen (≈7 lines at 320px). The `en`
+  // "choose the account it was sent to" was also wrong — the email was sent
+  // to an ADDRESS, not an account. "обліковий запис" — see COPY-M-1 below.
+  invite_email_mismatch: msg`Ви увійшли в інший обліковий запис Google. Відкрийте посилання з листа ще раз і виберіть адресу, на яку прийшов лист. Якщо ця адреса не має облікового запису Google, напишіть адміністратору.`,
   invite_expired: msg`Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз.`,
   // COPY-M-2: `usedAt` and `canLogin=true` are set in the SAME transaction
   // (UsersService.acceptPersonalEmailInvite) — "already used" always means
@@ -61,12 +82,17 @@ export const ERROR_MESSAGES = {
   // LOW-1 (security-review PR #623 round 4): distinct from invite_used —
   // this Google account is already the login method for a DIFFERENT
   // address, not the one this link was for.
-  invite_account_taken: msg`Цей акаунт Google вже використовується для входу з іншої адреси. Зверніться до адміністратора.`,
+  // copy round 1 (COPY-M-1): "обліковий запис Google", not "акаунт Google"
+  // — the catalog already says "обліковий запис" in 5 other entries,
+  // including `api-error.GOOGLE_ACCOUNT_MISMATCH`, and it's the term
+  // Google's own uk interface uses.
+  invite_account_taken: msg`Цей обліковий запис Google вже використовується для входу з іншої адреси. Зверніться до адміністратора.`,
   // COPY-M-8: both codes below are emitted by the ORDINARY (non-invite)
   // login path (`AuthController.googleCallback`) and previously had no
   // text at all — an unrecognised `error` value crashed `validateSearch`
   // the same way `?invited=1` once did (see the module doc above).
-  account_mismatch: msg`Ця адреса вже прив’язана до іншого акаунта Google. Увійдіть тим акаунтом, яким входили раніше, або напишіть адміністратору.`,
+  // copy round 1 (COPY-M-1): "обліковий запис Google" — see comment above.
+  account_mismatch: msg`Ця адреса вже прив’язана до іншого облікового запису Google. Увійдіть через той обліковий запис, яким входили раніше, або напишіть адміністратору.`,
   // LOW-2 (security-review PR #623 round 4): also reachable from the
   // invite-accept branch when the target was archived AFTER the invite was
   // issued — same code, same text, same "nothing to retry" framing.
@@ -338,7 +364,11 @@ function LoginPage() {
         >
           <a href={`${API_URL}/auth/google`} data-testid="login-google-button">
             <GoogleIcon />
-            <Trans>Увійти з Google</Trans>
+            {/* copy round 1 (COPY-L-2): was "Увійти з Google" — a different
+                preposition from the subtitle above ("Увійдіть через Google")
+                and both banners that quote this label. Google's own uk
+                button copy says "через" too. */}
+            <Trans>Увійти через Google</Trans>
           </a>
         </Button>
 
@@ -349,10 +379,12 @@ function LoginPage() {
           <DevLoginSection devLoading={devLoading} setDevLoading={setDevLoading} />
         )}
 
+        {/* copy round 1 (COPY-L-3): was two lines — the first repeated the
+            "Тільки для співробітників" badge above (in different words:
+            "лише"/"тільки"), the second was the only one carrying an
+            action. One line, the actionable one. */}
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          <Trans>Доступ лише для авторизованих співробітників.</Trans>
-          <br />
-          <Trans>Якщо у вас немає доступу — зверніться до адміністратора.</Trans>
+          <Trans>Немає доступу? Зверніться до адміністратора.</Trans>
         </p>
       </motion.div>
     </div>

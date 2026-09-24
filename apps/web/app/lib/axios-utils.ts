@@ -479,22 +479,28 @@ export function getApiErrorMessage(
   return fallback
 }
 
+// copy round 1 (COPY-L-1): one formula for "try again" across this whole
+// toast channel — was a three-way split ("знову" here, "ще раз" on 429 and
+// the fallbacks below, "заново" on `api-error.IMPERSONATION_ORIGIN_UNAVAILABLE`).
+// "ще раз" everywhere; 401 also shortened to match.
 const STATUS_MESSAGES: Readonly<Record<number, MessageDescriptor>> = {
-  400: msg`Некоректний запит. Перевірте введені дані і спробуйте знову.`,
-  401: msg`Потрібно увійти в систему знову.`,
+  400: msg`Некоректний запит. Перевірте введені дані і спробуйте ще раз.`,
+  401: msg`Потрібно увійти ще раз.`,
   403: msg`Недостатньо прав для цієї дії.`,
   404: msg`Запитувані дані не знайдено.`,
-  409: msg`Конфлікт даних. Оновіть сторінку і спробуйте знову.`,
+  409: msg`Конфлікт даних. Оновіть сторінку і спробуйте ще раз.`,
   413: msg`Файл занадто великий.`,
   415: msg`Формат файлу не підтримується.`,
   // Канон 429 — тот же текст, что TosPdfPreview.tsx (Task 1, Step 5,
-  // COPY-M-core-16) — grep там сверяет, что тексты не разошлись.
+  // COPY-M-core-16) — grep там сверяет, что тексты не разошлись. Не трогать
+  // здесь (COPY-L-1 круга 1) — единое правило точки для тостов решается
+  // отдельной задачей.
   429: msg`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`,
 }
 
 const SERVER_ERROR_MESSAGE = msg`Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше.`
 const GENERIC_HTTP_FALLBACK = msg`Не вдалося виконати запит. Спробуйте ще раз.`
-const NETWORK_ERROR_MESSAGE = msg`Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову.`
+const NETWORK_ERROR_MESSAGE = msg`Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте ще раз.`
 // COPY-L-core-22: было ДВА разных текста последнего рубежа
 // (getApiErrorMessage's default param 'Произошла ошибка' vs
 // UNKNOWN_ERROR_FALLBACK 'Произошла ошибка. Попробуйте ещё раз.') —
@@ -543,7 +549,7 @@ function isAxiosErrorShape(err: unknown): boolean {
  *   getUserFacingErrorMessage({ response: { status: 415 } })
  *   // "Формат файлу не підтримується."
  *   getUserFacingErrorMessage({ isAxiosError: true, message: 'Network Error' })
- *   // "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову."
+ *   // "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте ще раз."
  */
 export function getUserFacingErrorMessage(err: unknown): string {
   // Priority 0 (task-i18n-stage2-task5): same envelope-by-code translation

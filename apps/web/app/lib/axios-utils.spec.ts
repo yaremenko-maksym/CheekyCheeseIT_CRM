@@ -461,7 +461,7 @@ describe('getUserFacingErrorMessage', () => {
   it('reports "no connection to the server" for a network error (no response at all)', () => {
     const networkErr = { isAxiosError: true, message: 'Network Error' }
     expect(getUserFacingErrorMessage(networkErr)).toBe(
-      'Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову.',
+      'Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте ще раз.',
     )
   })
 

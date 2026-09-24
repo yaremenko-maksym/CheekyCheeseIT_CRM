@@ -103,7 +103,7 @@ test.describe('Auth flow', () => {
       await expect(banner).toBeVisible()
       await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
       await expect(banner).toHaveText(
-        assertInCatalog(uk, 'Ваш email не авторизовано. Зверніться до адміністратора.'),
+        assertInCatalog(uk, 'Ця електронна адреса не має доступу. Зверніться до адміністратора.'),
       )
     })
 
@@ -114,7 +114,7 @@ test.describe('Auth flow', () => {
       await expect(banner).toBeVisible()
       await expect(banner).toHaveAttribute('data-error-code', 'google_error')
       await expect(banner).toHaveText(
-        assertInCatalog(uk, 'Помилка Google OAuth. Спробуйте ще раз.'),
+        assertInCatalog(uk, 'Не вдалося підтвердити вхід через Google. Спробуйте ще раз.'),
       )
     })
 
@@ -124,9 +124,9 @@ test.describe('Auth flow', () => {
       const banner = page.getByTestId('login-error-message')
       await expect(banner).toBeVisible()
       await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
-      // Message: "Сесія закінчилася. Спробуйте ще раз, будь ласка."
+      // Message: "Вхід не завершився. Натисніть «Увійти через Google» ще раз."
       await expect(banner).toHaveText(
-        assertInCatalog(uk, 'Сесія закінчилася. Спробуйте ще раз, будь ласка.'),
+        assertInCatalog(uk, 'Вхід не завершився. Натисніть «Увійти через Google» ще раз.'),
       )
     })
   })
