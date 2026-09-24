@@ -246,6 +246,23 @@
  *   MUTATION_BASE_REF          fallback ref for merge-base (default: origin/main)
  *   MUTATION_BUDGET_SECONDS    wall-clock budget for the whole gate (default:
  *                              900 for --changed, 14400 for --full)
+ *   MUTATION_DRY_RUN_TIMEOUT_MINUTES  Stryker's OWN dryRunTimeoutMinutes — an
+ *                              absolute timeout for the INITIAL (unmutated)
+ *                              test run only, separate from and nested inside
+ *                              MUTATION_BUDGET_SECONDS above (default: 20).
+ *                              Stryker's own default is 5 — task-mutation-
+ *                              gate-dryrun-timeout, 2026-09-24: the `@crm/web`
+ *                              leg's ~2900-test dry run under
+ *                              `coverageAnalysis: perTest` on a shared CI
+ *                              runner no longer reliably finishes inside 5
+ *                              minutes (PR #706, two consecutive CI failures
+ *                              on the same commit: "DryRunExecutor Initial
+ *                              test run timed out!" at exactly 5:00, report
+ *                              never written, gate exit 1 with zero mutants
+ *                              actually tried). Must be a positive integer;
+ *                              an invalid value falls back to the default
+ *                              with a loud warning rather than silently using
+ *                              Stryker's own (too-tight) built-in default.
  *   MUTATION_CONCURRENCY       Stryker workers (default: min(4, cpus-1))
  *   MUTATION_PACKAGES          comma list to restrict packages (default: all)
  *   MUTATION_ONLY_FILES        comma list of `path[:from-to]` NARROWING filters,
@@ -623,9 +640,15 @@ function planFull() {
 
 // ── running Stryker ───────────────────────────────────────────────────────────
 
-function writeConfig(pkg, patterns, reportPath, concurrency) {
+function writeConfig(pkg, patterns, reportPath, concurrency, dryRunTimeoutMinutes) {
   const cfg = {
     testRunner: 'vitest',
+    // Stryker's own default (5) times out the `@crm/web` leg's initial,
+    // unmutated dry run before it can finish — task-mutation-gate-dryrun-
+    // timeout, 2026-09-24 (PR #706). Configurable via
+    // MUTATION_DRY_RUN_TIMEOUT_MINUTES; see the ENV section in this file's
+    // header for the incident this default (20) is calibrated against.
+    dryRunTimeoutMinutes,
     // Absolute path rather than the bare name: Stryker resolves bare plugin
     // names from the CWD, and the CWD here is the package being mutated, which
     // (pnpm workspace, no hoisting) has no @stryker-mutator/* of its own.
@@ -977,6 +1000,34 @@ function splitUncoveredByIntegrationHint(uncovered, root = REPO_ROOT) {
   return { likely, real }
 }
 
+/**
+ * Parses MUTATION_DRY_RUN_TIMEOUT_MINUTES — task-mutation-gate-dryrun-timeout,
+ * 2026-09-24. A pure function (no env/console access) so
+ * scripts/devops/tests/test-mutation-gate-dry-run-timeout.sh can exercise the
+ * validation directly, the same discipline every other exported helper in this
+ * file already holds itself to. `raw` is `undefined`/empty/whitespace-only →
+ * the default, no warning (that is simply "not set"). Anything present but not
+ * a positive integer → the default WITH a warning, never a hard `fail()`: an
+ * operator typo in this one knob must not turn into "the whole gate could not
+ * run" when a safe, generous default is right there.
+ */
+const DRY_RUN_TIMEOUT_MINUTES_DEFAULT = 20
+
+function parseDryRunTimeoutMinutes(raw) {
+  const trimmed = raw?.trim()
+  if (!trimmed) return { value: DRY_RUN_TIMEOUT_MINUTES_DEFAULT, warning: null }
+  const parsed = Number(trimmed)
+  if (Number.isInteger(parsed) && parsed > 0) {
+    return { value: parsed, warning: null }
+  }
+  return {
+    value: DRY_RUN_TIMEOUT_MINUTES_DEFAULT,
+    warning:
+      `MUTATION_DRY_RUN_TIMEOUT_MINUTES='${trimmed}' is not a positive integer — ` +
+      `falling back to the default (${DRY_RUN_TIMEOUT_MINUTES_DEFAULT}).`,
+  }
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -997,6 +1048,10 @@ async function main() {
   const concurrency = Number(
     process.env.MUTATION_CONCURRENCY || Math.max(1, Math.min(4, cpus().length - 1)),
   )
+  const { value: dryRunTimeoutMinutes, warning: dryRunTimeoutWarning } = parseDryRunTimeoutMinutes(
+    process.env.MUTATION_DRY_RUN_TIMEOUT_MINUTES,
+  )
+  if (dryRunTimeoutWarning) console.warn(`::warning::mutation-gate: ${dryRunTimeoutWarning}`)
   const survivorBudget = Number(process.env.MUTATION_SURVIVOR_BUDGET || 0)
   const noCoverageIsRed = process.env.MUTATION_NO_COVERAGE_IS_RED === '1'
   const only = (process.env.MUTATION_PACKAGES || '')
@@ -1074,7 +1129,7 @@ async function main() {
     if (mode === 'changed') for (const p of patterns) console.log(`    mutate ${p}`)
 
     const reportPath = path.join(REPORT_DIR, `${pkg.name.replace(/[^a-z0-9]+/gi, '-')}.report.json`)
-    const configFile = writeConfig(pkg, patterns, reportPath, concurrency)
+    const configFile = writeConfig(pkg, patterns, reportPath, concurrency, dryRunTimeoutMinutes)
     const pkgStarted = Date.now()
     const res = await runStryker(pkg, configFile, remainingMs)
     const pkgSeconds = ((Date.now() - pkgStarted) / 1000).toFixed(1)
@@ -1146,7 +1201,10 @@ async function main() {
   lines.push(`### Mutation gate — \`${mode}\``)
   lines.push('')
   if (baseInfo) lines.push(`Base: \`${baseInfo.sha.slice(0, 12)}\` (${baseInfo.how})`)
-  lines.push(`Budget: ${budgetSeconds}s · used ${totalSeconds}s · ${mutantTotal} mutant(s)`)
+  lines.push(
+    `Budget: ${budgetSeconds}s · used ${totalSeconds}s · ${mutantTotal} mutant(s) · ` +
+      `dry-run timeout ${dryRunTimeoutMinutes}min`,
+  )
   lines.push('')
   // "survived" here is the REAL count (testsCompleted > 0) — a mutant the
   // runner never actually executed is in "tool" instead, never both, so this
@@ -1483,4 +1541,5 @@ export {
   readReport,
   formatKilled,
   parseInstrumentedMutantCount,
+  parseDryRunTimeoutMinutes,
 }
