@@ -85,6 +85,10 @@ msgstr "<0>{entityName}</0> and the team “<1>{0}</1>” are a linked pair; you
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
 msgstr "<0>{received}/{total}</0> receipts from companies this month"
 
+#: apps/web/app/routes/login.tsx
+msgid "Dev Login (лише для тестування)"
+msgstr "Dev Login (testing only)"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.EMAIL_TOO_LONG"
@@ -298,6 +302,10 @@ msgstr "Validated this month"
 msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
 msgstr "You can't upload {category, select, RESUME {resumes} SCAN {scans} RECEIPT {receipts} LOGO {logos} other {documents of this type}}"
 
+#: apps/web/app/routes/login.tsx
+msgid "Ваш email не авторизовано. Зверніться до адміністратора."
+msgstr "Your email is not authorized. Contact your administrator."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ACCOUNT_DISABLED"
@@ -365,6 +373,10 @@ msgstr "You're not signed in as another employee"
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
 msgstr "You will act on their behalf. A banner will remind you of the active session — click “Return to your profile” to exit."
+
+#: apps/web/app/routes/login.tsx
+msgid "Ви увійшли в інший акаунт Google. Відкрийте посилання з листа ще раз і виберіть акаунт тієї адреси, на яку воно прийшло. Якщо акаунта Google на цій адресі немає — увійти по ньому не можна, напишіть адміністратору."
+msgstr "You're signed in with a different Google account. Open the link from the email again and choose the account it was sent to. If that address has no Google account, you can't sign in with it — contact your administrator."
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
@@ -672,6 +684,14 @@ msgstr "Documents"
 msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can be added to a drop team"
 
+#: apps/web/app/routes/login.tsx
+msgid "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору."
+msgstr "Access to the CRM is closed. If this is a mistake, contact your administrator."
+
+#: apps/web/app/routes/login.tsx
+msgid "Доступ лише для авторизованих співробітників."
+msgstr "Access is limited to authorized employees."
+
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Досягнуто ліміт {maxItems} тегів"
 msgstr "Reached the limit of {maxItems} tags"
@@ -720,6 +740,7 @@ msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
 msgstr "Drops can't access interviews"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/lib/axios-utils.ts
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
 msgstr "Too many requests in a row. Wait a bit and try again"
 
@@ -746,10 +767,18 @@ msgstr "You can only upload your own documents"
 msgid "Закрити"
 msgstr "Close"
 
+#: apps/web/app/lib/axios-utils.ts
+msgid "Запитувані дані не знайдено."
+msgstr "The requested data wasn't found."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_ALREADY_USED"
 msgstr "The invite has already been used"
+
+#: apps/web/app/routes/login.tsx
+msgid "Запрошення вже використано — особисту адресу підтверджено. Увійдіть через Google кнопкою нижче."
+msgstr "The invitation was already used — your personal email is confirmed. Sign in with the Google button below."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -897,6 +926,10 @@ msgstr "The contract isn't ready to sign"
 msgid "Контракти"
 msgstr "Contracts"
 
+#: apps/web/app/lib/axios-utils.ts
+msgid "Конфлікт даних. Оновіть сторінку і спробуйте знову."
+msgstr "Data conflict. Refresh the page and try again."
+
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Користувач (сеньйор)"
 msgstr "User (senior)"
@@ -1018,6 +1051,10 @@ msgstr "No more than 6 decimals — otherwise the amount is rounded"
 msgid "api-error.GENERIC"
 msgstr "Something went wrong. Please try again"
 
+#: apps/web/app/lib/axios-utils.ts
+msgid "Не вдалося виконати запит. Спробуйте ще раз."
+msgstr "Couldn't complete the request. Please try again."
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Не вдалося завантажити PDF"
 msgstr "Could not load the PDF"
@@ -1103,6 +1140,10 @@ msgstr "You can't archive yourself"
 msgid "api-error.CANNOT_EDIT_ANOTHER_ADMIN"
 msgstr "You can't edit another admin's account"
 
+#: apps/web/app/lib/axios-utils.ts
+msgid "Недостатньо прав для цієї дії."
+msgstr "You don't have permission for this action."
+
 #. placeholder {0}: transactions.length
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
@@ -1112,6 +1153,10 @@ msgstr "Unsettled transactions awaiting payout ({0}) — they stay in the system
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_INVALID_ROLE"
 msgstr "Invalid contract template role"
+
+#: apps/web/app/lib/axios-utils.ts
+msgid "Некоректний запит. Перевірте введені дані і спробуйте знову."
+msgstr "Invalid request. Check the data you entered and try again."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Немає активних проєктів"
@@ -1149,6 +1194,10 @@ msgstr "No access: this project isn't in your teams"
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Немає доходів, що очікують валідації"
 msgstr "No income awaiting validation"
+
+#: apps/web/app/lib/axios-utils.ts
+msgid "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову."
+msgstr "No connection to the server. Check your internet connection and try again."
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Немає зобов’язань"
@@ -1188,6 +1237,10 @@ msgstr "Processing…"
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Оновити"
 msgstr "Refresh"
+
+#: apps/web/app/lib/telemetry/ErrorBoundary.tsx
+msgid "Оновити сторінку"
+msgstr "Reload page"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
@@ -1245,6 +1298,10 @@ msgstr "The personal email must differ from the work email"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PERSONAL_EMAIL_ALREADY_VERIFIED"
 msgstr "The personal email is already verified — there's no need to send another invite"
+
+#: apps/web/app/routes/login.tsx
+msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
+msgstr "Your personal email is confirmed. Sign in with Google — choose this address."
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Отримувачів"
@@ -1379,9 +1436,17 @@ msgstr "Retry"
 msgid "Повторити спробу"
 msgstr "Retry"
 
+#: apps/web/app/routes/login.tsx
+msgid "Помилка Google OAuth. Спробуйте ще раз."
+msgstr "Google OAuth error. Please try again."
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Помилка завантаження балансу"
 msgstr "Failed to load balance"
+
+#: apps/web/app/lib/axios-utils.ts
+msgid "Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше."
+msgstr "An error occurred on our end. We already know about it — try again in a bit."
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Помилка під час публікації версії умов використання"
@@ -1413,6 +1478,10 @@ msgstr "Link"
 msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
 msgstr "The link must point to etherscan.io, tronscan.org or another explorer"
 
+#: apps/web/app/routes/login.tsx
+msgid "Посилання не працює. Відкрийте посилання з останнього листа, а якщо його немає — попросіть адміністратора надіслати запрошення ще раз."
+msgstr "This link doesn't work. Open the link from the latest email, or ask your administrator to resend the invitation if you don't have one."
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 msgstr "The current Terms version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
@@ -1426,6 +1495,10 @@ msgstr "This action needs {expectedRole, select, ADMIN {an administrator} SENIOR
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
 msgstr "At least one HR is required"
+
+#: apps/web/app/lib/axios-utils.ts
+msgid "Потрібно увійти в систему знову."
+msgstr "You need to sign in again."
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію…"
@@ -1598,6 +1671,10 @@ msgstr "senior"
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Senior not found"
 
+#: apps/web/app/routes/login.tsx
+msgid "Сесія закінчилася. Спробуйте ще раз, будь ласка."
+msgstr "Your session expired. Please try again."
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
@@ -1650,6 +1727,14 @@ msgstr "Notification not found"
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Сповіщень немає"
 msgstr "No notifications"
+
+#: apps/web/app/lib/telemetry/ErrorBoundary.tsx
+msgid "Сталася непередбачена помилка. Ми вже знаємо про неї — спробуйте оновити сторінку."
+msgstr "An unexpected error occurred. We already know about it — try reloading the page."
+
+#: apps/web/app/lib/axios-utils.ts
+msgid "Сталася помилка. Спробуйте ще раз."
+msgstr "Something went wrong. Please try again."
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Статистика"
@@ -1705,6 +1790,10 @@ msgstr "This file type isn't supported. Allowed formats: PDF, JPEG, PNG, WEBP, H
 msgid "api-error.INVITE_EXPIRED"
 msgstr "The invite has expired"
 
+#: apps/web/app/routes/login.tsx
+msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
+msgstr "The invitation has expired. Ask your administrator to send it again."
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
 msgstr "Type {mimeType} is not supported. You can upload PNG, JPEG or WebP"
@@ -1713,6 +1802,10 @@ msgstr "Type {mimeType} is not supported. You can upload PNG, JPEG or WebP"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN"
 msgstr "Only an admin or an accountant can change the project's payment type"
+
+#: apps/web/app/routes/login.tsx
+msgid "Тільки для співробітників"
+msgstr "Employees only"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Транзакції в роботі"
@@ -1776,9 +1869,17 @@ msgstr "In progress"
 msgid "api-error.CONTRACT_UNKNOWN_CUSTOM_VARIABLE_KEYS"
 msgstr "The template has no such variables: {keys}"
 
+#: apps/web/app/routes/login.tsx
+msgid "Увійдіть через Google"
+msgstr "Sign in with Google"
+
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Увійти"
 msgstr "Log in"
+
+#: apps/web/app/routes/login.tsx
+msgid "Увійти з Google"
+msgstr "Sign in with Google"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
@@ -1837,6 +1938,10 @@ msgstr "File is larger than {MAX_MB} MB — choose another one"
 msgid "api-error.DOCUMENT_TOO_LARGE"
 msgstr "The file is larger than {maxMb} MB"
 
+#: apps/web/app/lib/axios-utils.ts
+msgid "Файл занадто великий."
+msgstr "The file is too large."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_MULTIPART_REQUIRED"
@@ -1855,6 +1960,10 @@ msgstr "Final look of the “Terms of Service” document — as a PDF."
 msgid "Фінанси"
 msgstr "Finance"
 
+#: apps/web/app/lib/axios-utils.ts
+msgid "Формат файлу не підтримується."
+msgstr "This file format isn't supported."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TX_HASH_MIN_LENGTH"
@@ -1869,6 +1978,10 @@ msgstr "Transaction hash: 0x + 64 hex — or an Etherscan link"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TX_HASH_FORMAT_OR_EMPTY"
 msgstr "Transaction hash: 0x + 64 hex — or an Etherscan link"
+
+#: apps/web/app/routes/login.tsx
+msgid "Цей акаунт Google вже використовується для входу з іншої адреси. Зверніться до адміністратора."
+msgstr "This Google account is already used to sign in with a different email address. Contact your administrator."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1908,6 +2021,10 @@ msgstr "This month"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS"
 msgstr "This senior isn't in your teams"
+
+#: apps/web/app/routes/login.tsx
+msgid "Ця адреса вже прив’язана до іншого акаунта Google. Увійдіть тим акаунтом, яким входили раніше, або напишіть адміністратору."
+msgstr "This email is already linked to a different Google account. Sign in with the account you used before, or contact your administrator."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1993,7 +2110,15 @@ msgstr "Awaiting decision"
 msgid "api-error.CONTRACT_TEMPLATE_NOT_FOUND"
 msgstr "Contract template not found"
 
+#: apps/web/app/lib/telemetry/ErrorBoundary.tsx
+msgid "Щось пішло не так"
+msgstr "Something went wrong"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGAL_NAME_REQUIRED"
 msgstr "Legal full name isn't filled in. Contact an administrator"
+
+#: apps/web/app/routes/login.tsx
+msgid "Якщо у вас немає доступу — зверніться до адміністратора."
+msgstr "If you don't have access, contact your administrator."
