@@ -29,7 +29,8 @@ describe('VariablesPanel — system variable descriptions (i18n)', () => {
     await loadCatalog('uk')
     const { unmount } = renderPanel()
     fireEvent.click(screen.getByTestId('system-vars-toggle'))
-    expect(screen.getByText('Повне ім’я співробітника')).toBeInTheDocument()
+    // fix-round 1 (COPY-M-7): text updated with the description text.
+    expect(screen.getByText('ПІБ співробітника для контракту (юридичне ім’я)')).toBeInTheDocument()
     unmount()
   })
 
@@ -37,7 +38,8 @@ describe('VariablesPanel — system variable descriptions (i18n)', () => {
     await loadCatalog('en')
     const { unmount } = renderPanel()
     fireEvent.click(screen.getByTestId('system-vars-toggle'))
-    expect(screen.getByText("Employee's full name")).toBeInTheDocument()
+    // fix-round 1 (COPY-M-7): text updated with the description text.
+    expect(screen.getByText("Employee's full legal name for the contract")).toBeInTheDocument()
     unmount()
   })
 })
