@@ -67,7 +67,7 @@ describe('axios.ts interceptor — HIGH-1: .stack never carries the backend-echo
       caught = err as { message?: string; stack?: string }
     }
 
-    expect(caught?.message).toBe('Формат файла не поддерживается.')
+    expect(caught?.message).toBe('Формат файлу не підтримується.')
     expect(caught?.stack?.split('\n')[0]).toBe('AxiosError: Request failed with status code 415')
   })
 })

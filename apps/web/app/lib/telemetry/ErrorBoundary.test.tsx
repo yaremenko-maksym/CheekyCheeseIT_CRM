@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { TelemetryErrorBoundary } from './ErrorBoundary'
 import { reportClientError } from './errors'
 
@@ -21,6 +22,10 @@ function ThrowOnRender({ error }: { error: unknown }): never {
 }
 
 describe('TelemetryErrorBoundary', () => {
+  beforeAll(async () => {
+    await loadCatalog('uk')
+  })
+
   afterEach(() => {
     vi.mocked(reportClientError).mockClear()
   })
@@ -32,13 +37,14 @@ describe('TelemetryErrorBoundary', () => {
       <TelemetryErrorBoundary>
         <ThrowOnRender error={new Error('render boom')} />
       </TelemetryErrorBoundary>,
+      { wrapper: I18nTestProvider },
     )
 
     expect(reportClientError).toHaveBeenCalledWith(
       'render boom',
       expect.objectContaining({ stack: expect.any(String) }),
     )
-    expect(screen.getByText('Что-то пошло не так')).toBeInTheDocument()
+    expect(screen.getByText('Щось пішло не так')).toBeInTheDocument()
     consoleErrorSpy.mockRestore()
   })
 
@@ -58,6 +64,7 @@ describe('TelemetryErrorBoundary', () => {
       <TelemetryErrorBoundary>
         <ThrowOnRender error={axiosLikeError} />
       </TelemetryErrorBoundary>,
+      { wrapper: I18nTestProvider },
     )
 
     expect(reportClientError).toHaveBeenCalledOnce()

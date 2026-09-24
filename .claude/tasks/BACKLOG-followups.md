@@ -2597,7 +2597,9 @@ Security r2 на #662 (вне диффа): `login-as.tsx` делает `queryCli
 
 (1) `TEAM_NEW_MEMBER` отдаёт синьору `displayName` дропа — `mapTeam` уже раскрывает его, `mapProject` — нет; (2) дроп в drop-команде может узнать имя джуна, которого `mapDropTeam` скрывает; (3) `ProjectsService.createDraft` пишет `proposedByUserId: currentUser.id`, тогда как фильтр автора использует `impersonatorId ?? id`. Все три — до #664; нужен один явный контур «кто кого видит» для команд, как `mapProject` для проектов. Проверка: тест «синьор не видит displayName дропа в уведомлении и в `GET /teams`», «дроп не видит имя джуна», «имперсонированный ADMIN — автор = impersonator».
 
-## 178. `docker-compose.prod.yml` (спящий профиль `selfhosted-s3`) тянет `minio/minio:latest` и `minio/mc:latest`, которых больше нет
+## 178. `docker-compose.prod.yml` (спящий профиль `selfhosted-s3`) тянет `minio/minio:latest` и `minio/mc:latest`, которых больше нет — ЗАКРЫТО 2026-09-24 (#709)
+
+**Закрыто:** образы MinIO стали недоступны и в quay.io (2026-09-24); по решению владельца MinIO удалён из проекта целиком, спящий профиль `selfhosted-s3` удалён из `docker-compose.prod.yml`, S3-стенд CI/dev — RustFS (#709). Текст ниже — исторический.
 
 Образов больше нет на Docker Hub (MinIO прекратил публиковать community-образы 2025-10; #668 запинил `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` и `quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z` в CI и dev-compose). Прод на R2, деплой тянет только `api nginx`, поэтому сейчас не инцидент; но включение профиля упадёт на pull. Поведение: тот же пин в прод-compose; проверка — `git grep -n 'minio.*latest' docker-compose.prod.yml` пуст.
 

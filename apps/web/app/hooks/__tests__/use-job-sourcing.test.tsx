@@ -75,7 +75,7 @@ describe('useCreateJobExclusion — error surfacing', () => {
     const shown = toastError.mock.calls[0]?.[0] as string
     expect(shown).not.toBe('Network Error')
     expect(shown).toMatch(/[а-яА-Я]/)
-    expect(shown).toContain('Нет связи с сервером')
+    expect(shown).toContain('Немає зв’язку із сервером')
   })
 
   it('maps a bare error to a Russian sentence too', async () => {

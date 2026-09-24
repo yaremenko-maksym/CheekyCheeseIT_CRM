@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { API_GLOB, mockAuthAs, USERS } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const PROTECTED_ROUTES = ['/', '/team', '/projects', '/interviews', '/profile', '/users']
 
@@ -80,32 +81,54 @@ test.describe('Auth flow', () => {
 
   // ---------------------------------------------------------------------------
   // Error state handling on login page
+  //
+  // task-i18n-stage3a (Task 3, Step 4): `/login` is UNAUTHENTICATED — there is
+  // no session `locale` yet, so `readPreLoginLocale()` (apps/web/app/lib/i18n.ts)
+  // falls through to `navigator.language` before defaulting to uk. Playwright's
+  // Chromium launches with an en-US locale by default, which — since 'en' IS a
+  // supported locale — resolves to 'en', NOT the uk default a first read of
+  // `resolveLocale` might suggest. `test.use({ locale: 'uk-UA' })` pins
+  // `navigator.language` for this describe block so the assertion is
+  // deterministic regardless of the runner's own default locale (verified live:
+  // without this, these three tests received the EN catalog text).
   // ---------------------------------------------------------------------------
 
-  test('?error=unauthorized shows error message', async ({ page }) => {
-    await page.goto('/login?error=unauthorized')
-    const banner = page.getByTestId('login-error-message')
-    await expect(banner).toBeVisible()
-    await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
-    // The Russian copy is the error contract — keep text assertion as a regex.
-    await expect(banner).toContainText(/авторизован|доступ/i)
-  })
+  test.describe('error state handling', () => {
+    test.use({ locale: 'uk-UA' })
 
-  test('?error=google_error shows error message', async ({ page }) => {
-    await page.goto('/login?error=google_error')
-    const banner = page.getByTestId('login-error-message')
-    await expect(banner).toBeVisible()
-    await expect(banner).toHaveAttribute('data-error-code', 'google_error')
-    await expect(banner).toContainText(/google|oauth/i)
-  })
+    test('?error=unauthorized shows error message', async ({ page }) => {
+      const uk = await loadMessages('uk')
+      await page.goto('/login?error=unauthorized')
+      const banner = page.getByTestId('login-error-message')
+      await expect(banner).toBeVisible()
+      await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
+      await expect(banner).toHaveText(
+        assertInCatalog(uk, 'Ця електронна адреса не має доступу. Зверніться до адміністратора.'),
+      )
+    })
 
-  test('?error=invalid_state shows error message', async ({ page }) => {
-    await page.goto('/login?error=invalid_state')
-    const banner = page.getByTestId('login-error-message')
-    await expect(banner).toBeVisible()
-    await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
-    // Message: "Сессия истекла. Пожалуйста, попробуйте снова."
-    await expect(banner).toContainText(/сессия|истекла|попробуйте/i)
+    test('?error=google_error shows error message', async ({ page }) => {
+      const uk = await loadMessages('uk')
+      await page.goto('/login?error=google_error')
+      const banner = page.getByTestId('login-error-message')
+      await expect(banner).toBeVisible()
+      await expect(banner).toHaveAttribute('data-error-code', 'google_error')
+      await expect(banner).toHaveText(
+        assertInCatalog(uk, 'Не вдалося підтвердити вхід через Google. Спробуйте ще раз.'),
+      )
+    })
+
+    test('?error=invalid_state shows error message', async ({ page }) => {
+      const uk = await loadMessages('uk')
+      await page.goto('/login?error=invalid_state')
+      const banner = page.getByTestId('login-error-message')
+      await expect(banner).toBeVisible()
+      await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
+      // Message: "Вхід не завершився. Натисніть «Увійти через Google» ще раз."
+      await expect(banner).toHaveText(
+        assertInCatalog(uk, 'Вхід не завершився. Натисніть «Увійти через Google» ще раз.'),
+      )
+    })
   })
 
   // ---------------------------------------------------------------------------
