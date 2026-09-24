@@ -87,12 +87,22 @@ describe('format', () => {
     // other assertion in this file compares against `Intl` of the same runtime,
     // not a hand-typed literal (uk-UA's grouping separator is U+00A0, not a
     // plain space, so a literal here would be an encoding trap, not a spec).
-    expect(formatMoney('1234.5', 'USDT', 'en')).toBe('1,234.50 USDT')
+    //
+    // fix-round 1 (COPY-L-3): the amount/currency join is ALSO U+00A0, not a
+    // regular space — asserted explicitly below so a regression back to a
+    // plain space is caught here, not only by a `\s` normalizer that would
+    // hide it.
+    expect(formatMoney('1234.5', 'USDT', 'en')).toBe('1,234.50 USDT')
     const ukBody = new Intl.NumberFormat('uk-UA', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(1234.5)
-    expect(formatMoney(1234.5, 'UAH', 'uk')).toBe(`${ukBody} UAH`)
+    expect(formatMoney(1234.5, 'UAH', 'uk')).toBe(`${ukBody} UAH`)
+  })
+
+  it('joins the amount and currency with a non-breaking space (COPY-L-3)', () => {
+    expect(formatMoney(1234.5, 'USDT', 'en')).toContain(' ')
+    expect(formatMoney(1234.5, 'USDT', 'en')).not.toMatch(/\d USDT/)
   })
   it('compareNames orders Ukrainian letters correctly', () => {
     const sorted = ['Яків', 'Ірина', 'Євген', 'Андрій'].sort(compareNames('uk'))

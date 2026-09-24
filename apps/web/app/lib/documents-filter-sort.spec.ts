@@ -263,10 +263,10 @@ describe('SORT_OPTION_MESSAGES', () => {
       return entry && i18n._(entry.label)
     }
     expect(resolve('date_asc')).toBe('Спочатку старі')
-    expect(resolve('name_asc')).toBe('За ім’ям: за зростанням')
-    expect(resolve('name_desc')).toBe('За ім’ям: за спаданням')
-    expect(resolve('size_desc')).toBe('Розмір: більше')
-    expect(resolve('size_asc')).toBe('Розмір: менше')
+    expect(resolve('name_asc')).toBe('Ім’я: А–Я')
+    expect(resolve('name_desc')).toBe('Ім’я: Я–А')
+    expect(resolve('size_desc')).toBe('Спочатку більші')
+    expect(resolve('size_asc')).toBe('Спочатку менші')
   })
 
   it('leaves the legacy SORT_OPTIONS export untouched (type: string, Russian text)', () => {

@@ -589,10 +589,6 @@ msgstr "Відновлено: проєкт, сеньйор, команда"
 msgid "zod-error.SENDER_RECEIVER_SAME"
 msgstr "Відправник і отримувач не можуть збігатися"
 
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "відхилено — діє попередній відсоток. Адміністратор побачить причину"
-msgstr "відхилено — діє попередній відсоток. Адміністратор побачить причину"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.USDT_WALLET_REQUIRED"
@@ -780,8 +776,8 @@ msgid "api-error.AVATAR_DOCUMENT_NOT_FOUND"
 msgstr "Документ аватара не знайдено"
 
 #: apps/web/app/hooks/use-documents.ts
-msgid "Документ видалено назавжди"
-msgstr "Документ видалено назавжди"
+msgid "Документ видалено остаточно"
+msgstr "Документ видалено остаточно"
 
 #: apps/web/app/hooks/use-documents.ts
 msgid "Документ відновлено"
@@ -831,6 +827,10 @@ msgstr "Дохід дропа (неоплачена частка)"
 msgid "Дохід за місяць"
 msgstr "Дохід за місяць"
 
+#: apps/web/app/lib/invoice-labels.ts
+msgid "Дохід сеньйора"
+msgstr "Дохід сеньйора"
+
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід сеньйора (неоплачена частка)"
 msgstr "Дохід сеньйора (неоплачена частка)"
@@ -865,14 +865,6 @@ msgstr "Дропа не знайдено"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
 msgstr "Дропам недоступні співбесіди"
-
-#: apps/web/app/lib/documents-filter-sort.ts
-msgid "За ім’ям: за зростанням"
-msgstr "За ім’ям: за зростанням"
-
-#: apps/web/app/lib/documents-filter-sort.ts
-msgid "За ім’ям: за спаданням"
-msgstr "За ім’ям: за спаданням"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
@@ -910,6 +902,16 @@ msgstr "Запис додано"
 msgid "api-error.INVITE_ALREADY_USED"
 msgstr "Запрошення вже використано"
 
+#: apps/web/app/hooks/use-user-profile.ts
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Запрошення надіслано на особисту адресу"
+msgstr "Запрошення надіслано на особисту адресу"
+
+#: apps/web/app/hooks/use-user-profile.ts
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Запрошення не надіслано — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин"
+msgstr "Запрошення не надіслано — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_INVALID"
@@ -920,6 +922,7 @@ msgid "Заробітку за останні місяці ще немає"
 msgstr "Заробітку за останні місяці ще немає"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+#: apps/web/app/lib/invoice-labels.ts
 msgid "Зарплата"
 msgstr "Зарплата"
 
@@ -981,6 +984,14 @@ msgstr "ім’я дропа"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім’я сеньйора"
 msgstr "ім’я сеньйора"
+
+#: apps/web/app/lib/documents-filter-sort.ts
+msgid "Ім’я: А–Я"
+msgstr "Ім’я: А–Я"
+
+#: apps/web/app/lib/documents-filter-sort.ts
+msgid "Ім’я: Я–А"
+msgstr "Ім’я: Я–А"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1108,12 +1119,9 @@ msgid "api-error.USER_ALREADY_ARCHIVED"
 msgstr "Користувача вже заархівовано"
 
 #: apps/web/app/hooks/use-archive.ts
+#: apps/web/app/hooks/use-user-profile.ts
 msgid "Користувача відновлено"
 msgstr "Користувача відновлено"
-
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Користувача відновлено з архіву"
-msgstr "Користувача відновлено з архіву"
 
 #: apps/web/app/hooks/use-archive.ts
 #: apps/web/app/hooks/use-user-profile.ts
@@ -1159,16 +1167,6 @@ msgstr "Легенда"
 #: apps/web/app/hooks/use-legend.ts
 msgid "Легенду збережено"
 msgstr "Легенду збережено"
-
-#: apps/web/app/hooks/use-user-profile.ts
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Лист надіслано на особисту адресу"
-msgstr "Лист надіслано на особисту адресу"
-
-#: apps/web/app/hooks/use-user-profile.ts
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Лист не пішов — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин."
-msgstr "Лист не пішов — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1267,64 +1265,58 @@ msgid "zod-error.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS"
 msgstr "Не більше 6 знаків після крапки — суму округлять"
 
 #: apps/web/app/hooks/use-vacancies.ts
-msgid "Не вдалося видалити вакансію"
-msgstr "Не вдалося видалити вакансію"
+msgid "Не вдалося видалити вакансію. Спробуйте ще раз"
+msgstr "Не вдалося видалити вакансію. Спробуйте ще раз"
 
 #: apps/web/app/hooks/use-vacancies.ts
-msgid "Не вдалося видалити відгук"
-msgstr "Не вдалося видалити відгук"
+msgid "Не вдалося видалити відгук. Спробуйте ще раз"
+msgstr "Не вдалося видалити відгук. Спробуйте ще раз"
 
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-documents.ts
 #: apps/web/app/hooks/use-documents.ts
-msgid "Не вдалося видалити документ: {0}"
-msgstr "Не вдалося видалити документ: {0}"
+msgid "Не вдалося видалити документ. Спробуйте ще раз"
+msgstr "Не вдалося видалити документ. Спробуйте ще раз"
 
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-credentials.ts
-msgid "Не вдалося видалити пароль: {0}"
-msgstr "Не вдалося видалити пароль: {0}"
+msgid "Не вдалося видалити пароль. Спробуйте ще раз"
+msgstr "Не вдалося видалити пароль. Спробуйте ще раз"
 
 #: apps/web/app/hooks/use-user-profile.ts
-msgid "Не вдалося виконати дію"
-msgstr "Не вдалося виконати дію"
+msgid "Не вдалося виконати дію. Спробуйте ще раз"
+msgstr "Не вдалося виконати дію. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/base.ts
 msgid "api-error.GENERIC"
 msgstr "Не вдалося виконати дію. Спробуйте ще раз"
 
-#: apps/web/app/hooks/use-archive.ts
-msgid "Не вдалося відновити"
-msgstr "Не вдалося відновити"
-
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-documents.ts
-msgid "Не вдалося відновити документ: {0}"
-msgstr "Не вдалося відновити документ: {0}"
-
-#. placeholder {0}: e.message
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Не вдалося відновити: {0}"
-msgstr "Не вдалося відновити: {0}"
+msgid "Не вдалося відновити документ. Спробуйте ще раз"
+msgstr "Не вдалося відновити документ. Спробуйте ще раз"
 
 #: apps/web/app/hooks/use-user-profile.ts
-msgid "Не вдалося відхилити"
-msgstr "Не вдалося відхилити"
-
-#. placeholder {0}: e.message
-#: apps/web/app/hooks/use-legend.ts
-msgid "Не вдалося додати запис: {0}"
-msgstr "Не вдалося додати запис: {0}"
-
-#. placeholder {0}: e.message
-#: apps/web/app/hooks/use-credentials.ts
-msgid "Не вдалося додати пароль: {0}"
-msgstr "Не вдалося додати пароль: {0}"
+msgid "Не вдалося відновити користувача. Спробуйте ще раз"
+msgstr "Не вдалося відновити користувача. Спробуйте ще раз"
 
 #: apps/web/app/hooks/use-archive.ts
-msgid "Не вдалося заархівувати"
-msgstr "Не вдалося заархівувати"
+msgid "Не вдалося відновити. Спробуйте ще раз"
+msgstr "Не вдалося відновити. Спробуйте ще раз"
+
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Не вдалося відхилити. Спробуйте ще раз"
+msgstr "Не вдалося відхилити. Спробуйте ще раз"
+
+#: apps/web/app/hooks/use-legend.ts
+msgid "Не вдалося додати запис. Спробуйте ще раз"
+msgstr "Не вдалося додати запис. Спробуйте ще раз"
+
+#: apps/web/app/hooks/use-credentials.ts
+msgid "Не вдалося додати пароль. Спробуйте ще раз"
+msgstr "Не вдалося додати пароль. Спробуйте ще раз"
+
+#: apps/web/app/hooks/use-archive.ts
+msgid "Не вдалося заархівувати. Спробуйте ще раз"
+msgstr "Не вдалося заархівувати. Спробуйте ще раз"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Не вдалося завантажити PDF"
@@ -1334,10 +1326,9 @@ msgstr "Не вдалося завантажити PDF"
 msgid "Не вдалося завантажити PDF попереднього перегляду"
 msgstr "Не вдалося завантажити PDF попереднього перегляду"
 
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-documents.ts
-msgid "Не вдалося завантажити документ: {0}"
-msgstr "Не вдалося завантажити документ: {0}"
+msgid "Не вдалося завантажити документ. Спробуйте ще раз"
+msgstr "Не вдалося завантажити документ. Спробуйте ще раз"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
@@ -1355,10 +1346,9 @@ msgstr "Не вдалося завантажити файл"
 msgid "Не вдалося завантажити фінансове зведення"
 msgstr "Не вдалося завантажити фінансове зведення"
 
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-legend.ts
-msgid "Не вдалося зберегти легенду: {0}"
-msgstr "Не вдалося зберегти легенду: {0}"
+msgid "Не вдалося зберегти легенду. Спробуйте ще раз"
+msgstr "Не вдалося зберегти легенду. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1375,35 +1365,35 @@ msgstr "Не вдалося зберегти налаштування — оно
 msgid "zod-error.PREFERENCE_TYPE_DUPLICATE"
 msgstr "Не вдалося зберегти налаштування — оновіть сторінку"
 
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-credentials.ts
 #: apps/web/app/hooks/use-credentials.ts
-msgid "Не вдалося зберегти пароль: {0}"
-msgstr "Не вдалося зберегти пароль: {0}"
+msgid "Не вдалося зберегти пароль. Спробуйте ще раз"
+msgstr "Не вдалося зберегти пароль. Спробуйте ще раз"
 
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-user-profile.ts
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Не вдалося зберегти: {0}"
-msgstr "Не вдалося зберегти: {0}"
+msgid "Не вдалося зберегти профіль. Спробуйте ще раз"
+msgstr "Не вдалося зберегти профіль. Спробуйте ще раз"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Не вдалося змінити особисту адресу. Спробуйте ще раз"
+msgstr "Не вдалося змінити особисту адресу. Спробуйте ще раз"
+
 #: apps/web/app/hooks/use-vacancies.ts
-msgid "Не вдалося змінити статус відгуку"
-msgstr "Не вдалося змінити статус відгуку"
+msgid "Не вдалося змінити статус відгуку. Спробуйте ще раз"
+msgstr "Не вдалося змінити статус відгуку. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SHARE_CHANGE_REQUESTER_REQUIRED"
 msgstr "Не вдалося змінити частку. Спробуйте ще раз"
 
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-user-profile.ts
-msgid "Не вдалося надіслати лист: {0}"
-msgstr "Не вдалося надіслати лист: {0}"
+msgid "Не вдалося надіслати запрошення. Спробуйте ще раз"
+msgstr "Не вдалося надіслати запрошення. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1411,31 +1401,29 @@ msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
 msgstr "Не вдалося обробити файл — можливо, він пошкоджений. Спробуйте інший"
 
 #: apps/web/app/hooks/use-vacancies.ts
-msgid "Не вдалося оновити вакансію"
-msgstr "Не вдалося оновити вакансію"
+msgid "Не вдалося оновити вакансію. Спробуйте ще раз"
+msgstr "Не вдалося оновити вакансію. Спробуйте ще раз"
 
-#. placeholder {0}: e.message
 #: apps/web/app/hooks/use-user-profile.ts
-msgid "Не вдалося оновити реквізити: {0}"
-msgstr "Не вдалося оновити реквізити: {0}"
+msgid "Не вдалося оновити реквізити. Спробуйте ще раз"
+msgstr "Не вдалося оновити реквізити. Спробуйте ще раз"
 
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
 msgstr "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
 
-#. placeholder {0}: err.message
 #: apps/web/app/hooks/use-invoices.ts
-msgid "Не вдалося підписати рахунок: {0}"
-msgstr "Не вдалося підписати рахунок: {0}"
-
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Не вдалося підтвердити"
-msgstr "Не вдалося підтвердити"
+msgid "Не вдалося підписати рахунок. Спробуйте ще раз"
+msgstr "Не вдалося підписати рахунок. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.GOOGLE_CREDENTIAL_INVALID"
 msgstr "Не вдалося підтвердити вхід через Google. Спробуйте ще раз"
+
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Не вдалося підтвердити. Спробуйте ще раз"
+msgstr "Не вдалося підтвердити. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1452,8 +1440,8 @@ msgid "api-error.INTERVIEW_SENIOR_ID_INVALID"
 msgstr "Не вдалося розпізнати вибраного сеньйора — виберіть зі списку"
 
 #: apps/web/app/hooks/use-vacancies.ts
-msgid "Не вдалося створити вакансію"
-msgstr "Не вдалося створити вакансію"
+msgid "Не вдалося створити вакансію. Спробуйте ще раз"
+msgstr "Не вдалося створити вакансію. Спробуйте ще раз"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Не вдалося увійти: {errMessage}"
@@ -1627,8 +1615,8 @@ msgid "api-error.PERSONAL_EMAIL_ALREADY_VERIFIED"
 msgstr "Особисту адресу вже підтверджено — повторне запрошення не потрібне"
 
 #: apps/web/app/hooks/use-user-profile.ts
-msgid "Особисту адресу видалено — вхід по ній більше не працює."
-msgstr "Особисту адресу видалено — вхід по ній більше не працює."
+msgid "Особисту адресу видалено — увійти через неї більше не можна"
+msgstr "Особисту адресу видалено — увійти через неї більше не можна"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Отримувачів"
@@ -1932,8 +1920,8 @@ msgid "Проєктів не оплачено цього місяця"
 msgstr "Проєктів не оплачено цього місяця"
 
 #: apps/web/app/hooks/use-user-profile.ts
-msgid "Пропозицію {tail}"
-msgstr "Пропозицію {tail}"
+msgid "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
+msgstr "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку."
@@ -1998,8 +1986,8 @@ msgid "Реквізити оновлено"
 msgstr "Реквізити оновлено"
 
 #: apps/web/app/hooks/use-user-profile.ts
-msgid "Рішення щодо цієї пропозиції вже прийнято. Оновіть сторінку."
-msgstr "Рішення щодо цієї пропозиції вже прийнято. Оновіть сторінку."
+msgid "Рішення щодо цієї пропозиції вже ухвалено. Оновіть сторінку."
+msgstr "Рішення щодо цієї пропозиції вже ухвалено. Оновіть сторінку."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2037,14 +2025,6 @@ msgstr "Розділ доступний лише для ролі «{roleLabel}»
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 msgid "Розділи адміністратора"
 msgstr "Розділи адміністратора"
-
-#: apps/web/app/lib/documents-filter-sort.ts
-msgid "Розмір: більше"
-msgstr "Розмір: більше"
-
-#: apps/web/app/lib/documents-filter-sort.ts
-msgid "Розмір: менше"
-msgstr "Розмір: менше"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Розширена інформація доступна в таблиці доходів нижче"
@@ -2148,6 +2128,14 @@ msgstr "Сповіщень немає"
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.preferredMethod"
 msgstr "Спосіб оплати з профілю: USDT (ERC-20) або ФОП (UAH)"
+
+#: apps/web/app/lib/documents-filter-sort.ts
+msgid "Спочатку більші"
+msgstr "Спочатку більші"
+
+#: apps/web/app/lib/documents-filter-sort.ts
+msgid "Спочатку менші"
+msgstr "Спочатку менші"
 
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Спочатку нові"
@@ -2472,6 +2460,18 @@ msgstr "Ця електронна адреса не має доступу. Зв�
 msgid "Частка"
 msgstr "Частка"
 
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Частка в проєкті «{projectName}» тепер {percent}%"
+msgstr "Частка в проєкті «{projectName}» тепер {percent}%"
+
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Частка в проєкті «{projectName}»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
+msgstr "Частка в проєкті «{projectName}»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
+
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Частка в проєкті тепер {percent}%"
+msgstr "Частка в проєкті тепер {percent}%"
+
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка дропа у відсотках"
 msgstr "Частка дропа у відсотках"
@@ -2481,20 +2481,8 @@ msgid "Частка за замовчуванням тепер {percent}%"
 msgstr "Частка за замовчуванням тепер {percent}%"
 
 #: apps/web/app/hooks/use-user-profile.ts
-msgid "Частка за замовчуванням: пропозицію {tail}"
-msgstr "Частка за замовчуванням: пропозицію {tail}"
-
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Частка за проєктом «{projectName}» тепер {percent}%"
-msgstr "Частка за проєктом «{projectName}» тепер {percent}%"
-
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Частка за проєктом «{projectName}»: пропозицію {tail}"
-msgstr "Частка за проєктом «{projectName}»: пропозицію {tail}"
-
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Частка за проєктом тепер {percent}%"
-msgstr "Частка за проєктом тепер {percent}%"
+msgid "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
+msgstr "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts

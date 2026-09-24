@@ -468,7 +468,9 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     await user.type(screen.getByTestId('pending-base-share-reject-reason'), 'нет')
     await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося відхилити'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося відхилити. Спробуйте ще раз'),
+    )
   })
 
   it("approve: an error with neither .response nor a string .message falls through to seniorShareErrorMessage's own fallback text", async () => {
@@ -482,7 +484,9 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
     // task-648-fix-round-2 (COPY-L-6): the fallback names the action again.
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося підтвердити'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося підтвердити. Спробуйте ще раз'),
+    )
   })
 
   it('approve: a 404 (stale/foreign proposal) shows the friendly "устарело" message, not the raw backend text', async () => {
@@ -651,7 +655,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
         // процент", is what got rejected.
         // COPY-M-9 (#667 fix-round 4): and the object leads the sentence,
         // as it does in the confirming half and in the row itself.
-        'Частка за замовчуванням: пропозицію відхилено — діє попередній відсоток. Адміністратор побачить причину',
+        'Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину',
       ),
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })
@@ -691,7 +695,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Рішення щодо цієї пропозиції вже прийнято. Оновіть сторінку.',
+        'Рішення щодо цієї пропозиції вже ухвалено. Оновіть сторінку.',
       ),
     )
     // QA-MED-5: same refetch-on-failure fix as the approve test above — a

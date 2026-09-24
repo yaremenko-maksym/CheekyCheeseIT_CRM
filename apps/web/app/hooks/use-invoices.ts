@@ -26,6 +26,7 @@ import type {
   InvoiceListItem,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 
 // ---------------------------------------------------------------------------
 // Caching constants — exported for tests / docs assertions
@@ -145,7 +146,7 @@ export function useSignInvoice(): UseMutationResult<InvoiceDto, Error, string> {
       toast.success(t`Рахунок підписано`)
     },
     onError: (err: Error) => {
-      toast.error(t`Не вдалося підписати рахунок: ${err.message}`)
+      toast.error(getApiErrorMessage(err, t`Не вдалося підписати рахунок. Спробуйте ще раз`))
     },
   })
 }

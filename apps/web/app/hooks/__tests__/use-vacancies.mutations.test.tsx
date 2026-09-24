@@ -76,7 +76,7 @@ describe('useCreateVacancy', () => {
     renderProbe(() => useCreateVacancy(), {} as never)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося створити вакансію'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося створити вакансію. Спробуйте ще раз'),
     )
   })
 })
@@ -93,7 +93,7 @@ describe('useUpdateVacancy', () => {
     ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useUpdateVacancy(), { id: 'v-1', dto: {} } as never)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося оновити вакансію'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося оновити вакансію. Спробуйте ще раз'))
   })
 })
 
@@ -110,7 +110,7 @@ describe('useDeleteVacancy', () => {
     renderProbe(() => useDeleteVacancy(), 'v-1')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити вакансію'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити вакансію. Спробуйте ще раз'),
     )
   })
 })
@@ -121,7 +121,7 @@ describe('useUpdateVacancyApplication', () => {
     renderProbe(() => useUpdateVacancyApplication('v-1'), { appId: 'a-1', status: 'VIEWED' })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося змінити статус відгуку'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося змінити статус відгуку. Спробуйте ще раз'),
     )
   })
 })
@@ -138,6 +138,6 @@ describe('useDeleteVacancyApplication', () => {
     ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useDeleteVacancyApplication('v-1'), 'a-1')
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити відгук'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити відгук. Спробуйте ще раз'))
   })
 })

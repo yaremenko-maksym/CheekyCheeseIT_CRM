@@ -197,7 +197,7 @@ describe('SeniorShareApprovalActions', () => {
     }
     render(<SeniorShareApprovalActions scope="user" id={ID} />)
     expect(
-      screen.getByText('Рішення щодо цієї пропозиції вже прийнято. Оновіть сторінку.'),
+      screen.getByText('Рішення щодо цієї пропозиції вже ухвалено. Оновіть сторінку.'),
     ).toBeInTheDocument()
   })
 

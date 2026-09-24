@@ -11,7 +11,7 @@ import {
   type UpsertLegendDto,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
-import { getAxiosStatus } from '@/lib/axios-utils'
+import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
 
 /**
  * Fetch the legend for a project.
@@ -59,7 +59,8 @@ export function useUpsertLegend(projectId: string) {
       void qc.invalidateQueries({ queryKey: ['legend', projectId] })
       toast.success(t`Легенду збережено`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося зберегти легенду: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося зберегти легенду. Спробуйте ще раз`)),
   })
 }
 
@@ -77,6 +78,7 @@ export function useAddLegendEntry(projectId: string) {
       void qc.invalidateQueries({ queryKey: ['legend', projectId] })
       toast.success(t`Запис додано`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося додати запис: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося додати запис. Спробуйте ще раз`)),
   })
 }

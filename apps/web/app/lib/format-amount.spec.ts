@@ -22,14 +22,16 @@ const ukUsdBody = new Intl.NumberFormat('uk-UA', {
 describe('formatAmount', () => {
   it('formats with the active locale grouping/decimal separator', async () => {
     await loadCatalog('uk')
-    expect(formatAmount(1500, 'USDT')).toBe(`${ukBody} USDT`)
+    // fix-round 1 (COPY-L-3): routes through `formatMoney`, which now joins
+    // the amount and currency code with U+00A0, not a plain space.
+    expect(formatAmount(1500, 'USDT')).toBe(`${ukBody} USDT`)
     await loadCatalog('en')
-    expect(formatAmount(1500, 'USDT')).toBe('1,500.00 USDT')
+    expect(formatAmount(1500, 'USDT')).toBe('1,500.00 USDT')
   })
 
   it('accepts a string amount (Postgres NUMERIC round-trip)', async () => {
     await loadCatalog('en')
-    expect(formatAmount('1500.000000', 'USDT')).toBe('1,500.00 USDT')
+    expect(formatAmount('1500.000000', 'USDT')).toBe('1,500.00 USDT')
   })
 
   it('falls back to a raw string for non-finite input', async () => {
@@ -42,9 +44,9 @@ describe('formatAmount', () => {
 describe('formatAmountUsd', () => {
   it('prepends $ and formats per the active locale', async () => {
     await loadCatalog('en')
-    expect(formatAmountUsd(3500, 'USDT')).toBe('$3,500.00 USDT')
+    expect(formatAmountUsd(3500, 'USDT')).toBe('$3,500.00 USDT')
     await loadCatalog('uk')
-    expect(formatAmountUsd(3500, 'USDT')).toBe(`$${ukUsdBody} USDT`)
+    expect(formatAmountUsd(3500, 'USDT')).toBe(`$${ukUsdBody} USDT`)
   })
 
   it('falls back to a raw string for non-finite input', async () => {

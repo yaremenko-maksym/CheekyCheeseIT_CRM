@@ -12,7 +12,7 @@ import {
 } from '@crm/shared'
 import { z } from 'zod'
 import { api } from '@/lib/axios'
-import { getAxiosStatus } from '@/lib/axios-utils'
+import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
 
 const credentialListSchema = z.array(projectCredentialSchema)
 
@@ -65,7 +65,8 @@ export function useCreateCredential(projectId: string) {
       void qc.invalidateQueries({ queryKey: credentialsKey(projectId) })
       toast.success(t`Пароль додано`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося додати пароль: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося додати пароль. Спробуйте ще раз`)),
   })
 }
 
@@ -83,7 +84,8 @@ export function useUpdateCredential(projectId: string) {
       void qc.invalidateQueries({ queryKey: credentialsKey(projectId) })
       toast.success(t`Зміни збережено`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося зберегти пароль: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося зберегти пароль. Спробуйте ще раз`)),
   })
 }
 
@@ -96,7 +98,8 @@ export function useDeleteCredential(projectId: string) {
       void qc.invalidateQueries({ queryKey: credentialsKey(projectId) })
       toast.success(t`Пароль видалено`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося видалити пароль: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося видалити пароль. Спробуйте ще раз`)),
   })
 }
 
@@ -162,7 +165,8 @@ export function useUpdateUserCredential(userId: string) {
       void qc.invalidateQueries({ queryKey: userCredentialsKey(userId) })
       toast.success(t`Зміни збережено`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося зберегти пароль: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося зберегти пароль. Спробуйте ще раз`)),
   })
 }
 

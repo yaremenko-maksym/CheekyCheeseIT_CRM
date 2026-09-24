@@ -69,7 +69,7 @@ describe('seniorShareErrorMessage — own default fallback (no `fallback` argume
     // falls back to when NEITHER a 404/409 mapping NOR a caller-supplied
     // fallback applies — every caller in this codebase always passes its
     // own fallback, so this is the only place that specific string is read.
-    expect(seniorShareErrorMessage({})).toBe('Не вдалося виконати дію')
+    expect(seniorShareErrorMessage({})).toBe('Не вдалося виконати дію. Спробуйте ще раз')
   })
 })
 
@@ -82,10 +82,12 @@ describe('useUpdateMe', () => {
   })
 
   it('error toast', async () => {
-    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useUpdateMe(), { displayName: 'New Name' })
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти: boom'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти профіль. Спробуйте ще раз'),
+    )
   })
 })
 
@@ -98,11 +100,11 @@ describe('useUpdateMeRequisites', () => {
   })
 
   it('error toast', async () => {
-    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useUpdateMeRequisites(), { paymentMethod: 'USDT_ERC20', walletUsdtErc20: '0x0000000000000000000000000000000000dEaD' })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося оновити реквізити: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося оновити реквізити. Спробуйте ще раз'),
     )
   })
 })
@@ -131,14 +133,16 @@ describe('useUnarchiveUser', () => {
     renderProbe(() => useUnarchiveUser('user-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Користувача відновлено з архіву'),
+      expect(toast.success).toHaveBeenCalledWith('Користувача відновлено'),
     )
   })
 
   it('error toast', async () => {
-    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useUnarchiveUser('user-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося відновити: boom'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося відновити користувача. Спробуйте ще раз'),
+    )
   })
 })

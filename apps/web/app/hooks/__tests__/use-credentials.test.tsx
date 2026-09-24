@@ -84,8 +84,8 @@ describe('useCreateCredential', () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Пароль додано'))
   })
 
-  it('error toast names the failed action and includes the error message', async () => {
-    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+  it('error toast names the failed action with a single sentence, no doubled backend text', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useCreateCredential('proj-1'), {
       label: 'GitHub',
       login: 'a',
@@ -93,7 +93,7 @@ describe('useCreateCredential', () => {
     })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося додати пароль: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося додати пароль. Спробуйте ще раз'),
     )
   })
 })
@@ -119,14 +119,14 @@ describe('useUpdateCredential', () => {
   })
 
   it('error toast', async () => {
-    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useUpdateCredential('proj-1'), {
       id: 'cred-1',
       data: { login: 'a', password: 'b' },
     })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти пароль: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти пароль. Спробуйте ще раз'),
     )
   })
 })
@@ -140,11 +140,11 @@ describe('useDeleteCredential', () => {
   })
 
   it('error toast', async () => {
-    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useDeleteCredential('proj-1'), 'cred-1')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити пароль: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити пароль. Спробуйте ще раз'),
     )
   })
 })
@@ -170,14 +170,14 @@ describe('useUpdateUserCredential', () => {
   })
 
   it('error toast', async () => {
-    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useUpdateUserCredential('user-1'), {
       id: 'cred-1',
       data: { login: 'a', password: 'b' },
     })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти пароль: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти пароль. Спробуйте ще раз'),
     )
   })
 })

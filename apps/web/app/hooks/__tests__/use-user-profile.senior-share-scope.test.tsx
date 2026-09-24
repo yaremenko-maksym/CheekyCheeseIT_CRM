@@ -97,7 +97,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер 41%'),
+      expect(toast.success).toHaveBeenCalledWith('Частка в проєкті тепер 41%'),
     )
   })
 
@@ -111,7 +111,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Частка за проєктом «TechFlow» тепер 41%'),
+      expect(toast.success).toHaveBeenCalledWith('Частка в проєкті «TechFlow» тепер 41%'),
     )
   })
 
@@ -121,7 +121,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер 41%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка в проєкті тепер 41%'))
   })
 
   it('invalidates the PROJECT + pending queries, never the user-profile ones', async () => {
@@ -147,7 +147,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер %'),
+      expect(toast.success).toHaveBeenCalledWith('Частка в проєкті тепер %'),
     )
   })
 })
@@ -255,7 +255,7 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     // проекту «X» теперь 30%») already names it that way.
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Частка за проєктом «TechFlow»: пропозицію відхилено — діє попередній відсоток. Адміністратор побачить причину',
+        'Частка в проєкті «TechFlow»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину',
       ),
     )
   })
@@ -266,7 +266,7 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Пропозицію відхилено — діє попередній відсоток. Адміністратор побачить причину',
+        'Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину',
       ),
     )
   })
@@ -275,14 +275,14 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, companyName: 123 } })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер 41%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка в проєкті тепер 41%'))
   })
 
   it('an EMPTY project name is ignored as well — «Доля по проекту «» теперь 41%» is worse than saying nothing', async () => {
     mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, companyName: '' } })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер 41%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка в проєкті тепер 41%'))
   })
 
   it('a user-scope response carrying a stray `companyName` never leaks it into the base-share sentence', async () => {
@@ -300,7 +300,7 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Частка за замовчуванням: пропозицію відхилено — діє попередній відсоток. Адміністратор побачить причину',
+        'Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину',
       ),
     )
   })

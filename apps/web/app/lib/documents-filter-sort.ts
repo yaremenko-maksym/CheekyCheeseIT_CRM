@@ -44,14 +44,21 @@ export const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
  * `MessageDescriptor`; resolve with `i18n._(label)` via `useLingui()` at
  * the point of render — never call `t`/`plural` at module level (Global
  * Constraints).
+ *
+ * fix-round 1 (COPY-M-6): one syntax per pair — date/size options both read
+ * "<order> first", name options both read "<field>: <direction>". The
+ * earlier draft mixed three different schemes across six items and, in uk,
+ * "За ім’ям: за зростанням" stacked two "за"s and "Розмір: більше" left
+ * "more/less THAN WHAT" unanswered where en's "largest first" already
+ * settled it.
  */
 export const SORT_OPTION_MESSAGES: Array<{ value: SortKey; label: MessageDescriptor }> = [
   { value: 'date_desc', label: msg`Спочатку нові` },
   { value: 'date_asc', label: msg`Спочатку старі` },
-  { value: 'name_asc', label: msg`За ім’ям: за зростанням` },
-  { value: 'name_desc', label: msg`За ім’ям: за спаданням` },
-  { value: 'size_desc', label: msg`Розмір: більше` },
-  { value: 'size_asc', label: msg`Розмір: менше` },
+  { value: 'name_asc', label: msg`Ім’я: А–Я` },
+  { value: 'name_desc', label: msg`Ім’я: Я–А` },
+  { value: 'size_desc', label: msg`Спочатку більші` },
+  { value: 'size_asc', label: msg`Спочатку менші` },
 ]
 
 export const DEFAULT_SORT: SortKey = 'date_desc'

@@ -52,7 +52,7 @@ export function useArchiveEntity(entityType: EntityType, entityId: string) {
       toast.success(labels[entityType])
     },
     onError: (err: AxiosError<{ message?: string }>) => {
-      toast.error(err?.response?.data?.message ?? t`Не вдалося заархівувати`)
+      toast.error(err?.response?.data?.message ?? t`Не вдалося заархівувати. Спробуйте ще раз`)
     },
   })
 }
@@ -103,7 +103,7 @@ export function useUnarchiveEntity(entityType: EntityType, entityId: string) {
       const status = err.response?.status
       if (status === 409) return
       const errMessage = (err.response?.data as { message?: string } | undefined)?.message
-      toast.error(errMessage ?? t`Не вдалося відновити`)
+      toast.error(errMessage ?? t`Не вдалося відновити. Спробуйте ще раз`)
     },
   })
 }

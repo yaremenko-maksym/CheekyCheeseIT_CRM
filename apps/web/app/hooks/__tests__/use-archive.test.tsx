@@ -87,7 +87,7 @@ describe('useArchiveEntity — error toast', () => {
     ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
     renderProbe(() => useArchiveEntity('project', 'e-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати. Спробуйте ще раз'))
   })
 
   // Mutation-gate gap-fill: the optional-chaining CHAIN itself
@@ -101,7 +101,7 @@ describe('useArchiveEntity — error toast', () => {
     ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue({ response: { data: {} } })
     renderProbe(() => useArchiveEntity('project', 'e-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати. Спробуйте ще раз'))
   })
 
   it('a response with NO data at all does not throw reading .message off it — falls back cleanly', async () => {
@@ -112,14 +112,14 @@ describe('useArchiveEntity — error toast', () => {
     ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue({ response: {} })
     renderProbe(() => useArchiveEntity('project', 'e-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати. Спробуйте ще раз'))
   })
 
   it('a rejection value that is not an object at all does not throw — falls back cleanly', async () => {
     ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue(null)
     renderProbe(() => useArchiveEntity('project', 'e-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати. Спробуйте ще раз'))
   })
 })
 
@@ -182,6 +182,6 @@ describe('useUnarchiveEntity — error toast', () => {
     ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({ response: { status: 400 } })
     renderProbe(() => useUnarchiveEntity('project', 'e-1'), {})
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося відновити'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося відновити. Спробуйте ще раз'))
   })
 })

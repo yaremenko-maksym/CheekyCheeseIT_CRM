@@ -73,11 +73,11 @@ describe('useUploadDocument', () => {
   })
 
   it('error toast', async () => {
-    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useUploadDocument(), input)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося завантажити документ: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося завантажити документ. Спробуйте ще раз'),
     )
   })
 })
@@ -93,11 +93,11 @@ describe('useDeleteDocument', () => {
   })
 
   it('error toast', async () => {
-    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useDeleteDocument(), 'doc-1')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити документ: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити документ. Спробуйте ще раз'),
     )
   })
 })
@@ -111,11 +111,11 @@ describe('useRestoreDocument', () => {
   })
 
   it('error toast', async () => {
-    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useRestoreDocument(), 'doc-1')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося відновити документ: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося відновити документ. Спробуйте ще раз'),
     )
   })
 })
@@ -126,16 +126,16 @@ describe('useHardDeleteDocument', () => {
     renderProbe(() => useHardDeleteDocument(), 'doc-1')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Документ видалено назавжди'),
+      expect(toast.success).toHaveBeenCalledWith('Документ видалено остаточно'),
     )
   })
 
   it('error toast', async () => {
-    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useHardDeleteDocument(), 'doc-1')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити документ: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося видалити документ. Спробуйте ще раз'),
     )
   })
 })

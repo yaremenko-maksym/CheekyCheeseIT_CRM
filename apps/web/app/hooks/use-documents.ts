@@ -37,6 +37,7 @@ import type {
   PresignedDownload,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 
 // ---------------------------------------------------------------------------
 // Caching constants — exported for tests / docs assertions
@@ -252,7 +253,7 @@ export function useUploadDocument(): UseMutationResult<
       toast.success(t`Документ завантажено`)
     },
     onError: (e: Error) => {
-      toast.error(t`Не вдалося завантажити документ: ${e.message}`)
+      toast.error(getApiErrorMessage(e, t`Не вдалося завантажити документ. Спробуйте ще раз`))
     },
   })
 }
@@ -272,7 +273,8 @@ export function useDeleteDocument(): UseMutationResult<void, Error, string> {
       void qc.invalidateQueries({ queryKey: ['documents'] })
       toast.success(t`Документ переміщено в кошик`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося видалити документ: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося видалити документ. Спробуйте ще раз`)),
   })
 }
 
@@ -292,7 +294,8 @@ export function useRestoreDocument(): UseMutationResult<Document, Error, string>
       void qc.invalidateQueries({ queryKey: ['documents'] })
       toast.success(t`Документ відновлено`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося відновити документ: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося відновити документ. Спробуйте ще раз`)),
   })
 }
 
@@ -314,8 +317,9 @@ export function useHardDeleteDocument(): UseMutationResult<void, Error, string> 
       // of invalidating (no need to refetch a 404).
       qc.removeQueries({ queryKey: documentUrlQueryKey(id) })
       qc.removeQueries({ queryKey: documentThumbnailUrlQueryKey(id) })
-      toast.success(t`Документ видалено назавжди`)
+      toast.success(t`Документ видалено остаточно`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося видалити документ: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося видалити документ. Спробуйте ще раз`)),
   })
 }

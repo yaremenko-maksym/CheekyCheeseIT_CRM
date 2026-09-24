@@ -68,14 +68,17 @@ export function seniorShareErrorMessage(err: unknown, fallback?: string): string
     return i18n._(msg`Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку.`)
   }
   if (status === 409) {
-    return i18n._(msg`Рішення щодо цієї пропозиції вже прийнято. Оновіть сторінку.`)
+    return i18n._(msg`Рішення щодо цієї пропозиції вже ухвалено. Оновіть сторінку.`)
   }
   // task-648-fix-round-2 (COPY-L-6): merging four call sites onto one helper
   // in round 1 also merged their four named fallbacks into one anonymous
   // fallback. The 404/409 mapping is genuinely shared; the last-resort
   // wording is not — each caller knows which action it was attempting and
   // now says so.
-  return getApiErrorMessage(err, fallback ?? i18n._(msg`Не вдалося виконати дію`))
+  // fix-round 1 (COPY-M-2): identical to `api-error.GENERIC` in both
+  // languages — this branch fires exactly when the server explained
+  // nothing (no code, no message), the same situation GENERIC covers.
+  return getApiErrorMessage(err, fallback ?? i18n._(msg`Не вдалося виконати дію. Спробуйте ще раз`))
 }
 
 export function useUser(userId: string | undefined, enabled = true) {
@@ -111,7 +114,8 @@ export function useUpdateMe() {
       qc.invalidateQueries({ queryKey: ['auth', 'me'] })
       toast.success(t`Збережено`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося зберегти: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося зберегти профіль. Спробуйте ще раз`)),
   })
 }
 
@@ -126,7 +130,8 @@ export function useUpdateMeRequisites() {
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
       toast.success(t`Реквізити оновлено`)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося оновити реквізити: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося оновити реквізити. Спробуйте ще раз`)),
   })
 }
 
@@ -181,12 +186,13 @@ export function useResendPersonalEmailInvite(userId: string) {
       // return `{ ok: true }`, so this toast claimed the mail was resent
       // even when nothing was sent.
       if (data.delivered) {
-        toast.success(t`Лист надіслано на особисту адресу`)
+        toast.success(t`Запрошення надіслано на особисту адресу`)
       } else {
-        toast.error(t`Лист не пішов — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин.`)
+        toast.error(t`Запрошення не надіслано — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин`)
       }
     },
-    onError: (e: Error) => toast.error(t`Не вдалося надіслати лист: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося надіслати запрошення. Спробуйте ще раз`)),
   })
 }
 
@@ -216,14 +222,15 @@ export function useChangePersonalEmail(userId: string) {
         // practice this IS the removal branch, and a generic "saved" toast
         // (the same word an admin-note edit gets) said nothing about the
         // access that was just revoked.
-        toast.success(t`Особисту адресу видалено — вхід по ній більше не працює.`)
+        toast.success(t`Особисту адресу видалено — увійти через неї більше не можна`)
       } else if (data.delivered) {
-        toast.success(t`Лист надіслано на особисту адресу`)
+        toast.success(t`Запрошення надіслано на особисту адресу`)
       } else {
-        toast.error(t`Лист не пішов — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин.`)
+        toast.error(t`Запрошення не надіслано — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин`)
       }
     },
-    onError: (e: Error) => toast.error(t`Не вдалося зберегти: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося змінити особисту адресу. Спробуйте ще раз`)),
   })
 }
 
@@ -324,15 +331,15 @@ export function useApproveSeniorShareChange(scope: PendingShareScope, id: string
         scope === 'user'
           ? t`Частка за замовчуванням тепер ${percent}%`
           : projectName !== null
-            ? t`Частка за проєктом «${projectName}» тепер ${percent}%`
-            : t`Частка за проєктом тепер ${percent}%`,
+            ? t`Частка в проєкті «${projectName}» тепер ${percent}%`
+            : t`Частка в проєкті тепер ${percent}%`,
       )
     },
     // task-648-fix-round-1 (QA-MED-5): refetch on failure too — a stale
     // banner/row from a proposal already resolved elsewhere (409/404) must
     // not stay clickable, showing a number that no longer means anything.
     onError: (e: unknown) => {
-      toast.error(seniorShareErrorMessage(e, t`Не вдалося підтвердити`))
+      toast.error(seniorShareErrorMessage(e, t`Не вдалося підтвердити. Спробуйте ще раз`))
       invalidate()
     },
   })
@@ -370,26 +377,21 @@ export function useRejectSeniorShareChange(scope: PendingShareScope, id: string)
       // so the project can be named from the same response. The tail
       // ("previous percentage applies, admin will see the reason") is
       // unchanged in meaning (task-i18n-stage3a, Task 2 — translated to uk).
+      // fix-round 1 (COPY-M-5): three WHOLE messages, not a shared `{tail}`
+      // fragment spliced into three prefixes — a spliced fragment starts
+      // lowercase and the en translator never sees the full sentence, so the
+      // two languages agreeing on grammar was accidental.
       const projectName = projectNameOf(data)
-      const tail = t`відхилено — діє попередній відсоток. Адміністратор побачить причину`
-      // COPY-M-9 (fix-round 4): the OBJECT leads, and the object is the
-      // share — a project-level "proposal rejected" phrasing announced a
-      // rejected PROJECT, which is a different decision living one section
-      // above on the same screen with a toast of its own. The confirming
-      // half of this pair already names the object first
-      // («Частка за проєктом «X» тепер 30%»), so the pair was asymmetric on
-      // top of being wrong. The unnamed fallback is untouched — that
-      // sentence is #648's and still true.
       toast.success(
         scope === 'user'
-          ? t`Частка за замовчуванням: пропозицію ${tail}`
+          ? t`Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину`
           : projectName !== null
-            ? t`Частка за проєктом «${projectName}»: пропозицію ${tail}`
-            : t`Пропозицію ${tail}`,
+            ? t`Частка в проєкті «${projectName}»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину`
+            : t`Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину`,
       )
     },
     onError: (e: unknown) => {
-      toast.error(seniorShareErrorMessage(e, t`Не вдалося відхилити`))
+      toast.error(seniorShareErrorMessage(e, t`Не вдалося відхилити. Спробуйте ще раз`))
       invalidate()
     },
   })
@@ -412,9 +414,10 @@ export function useUnarchiveUser(userId: string, opts?: { isSenior?: boolean }) 
       }
       const toastMessage = opts?.isSenior
         ? t`Сеньйора та команду відновлено`
-        : t`Користувача відновлено з архіву`
+        : t`Користувача відновлено`
       toast.success(toastMessage)
     },
-    onError: (e: Error) => toast.error(t`Не вдалося відновити: ${e.message}`),
+    onError: (e: Error) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося відновити користувача. Спробуйте ще раз`)),
   })
 }

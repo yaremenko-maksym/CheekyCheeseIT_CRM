@@ -54,12 +54,12 @@ describe('useSignInvoice', () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Рахунок підписано'))
   })
 
-  it('error toast includes the failure message', async () => {
-    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+  it('error toast is a single sentence with a fallback, no doubled backend text', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe()
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося підписати рахунок: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося підписати рахунок. Спробуйте ще раз'),
     )
   })
 })

@@ -83,13 +83,13 @@ describe('useUpsertLegend', () => {
   })
 
   it('error toast', async () => {
-    ;(api.put as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.put as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useUpsertLegend('22222222-2222-4222-8222-222222222222'), {
       fullName: 'Іван Петренко',
     })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти легенду: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти легенду. Спробуйте ще раз'),
     )
   })
 })
@@ -105,13 +105,13 @@ describe('useAddLegendEntry', () => {
   })
 
   it('error toast', async () => {
-    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
     renderProbe(() => useAddLegendEntry('22222222-2222-4222-8222-222222222222'), {
       text: 'Зустріч з клієнтом',
     })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося додати запис: boom'),
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося додати запис. Спробуйте ще раз'),
     )
   })
 })

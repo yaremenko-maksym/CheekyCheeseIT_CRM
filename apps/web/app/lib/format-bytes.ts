@@ -9,15 +9,23 @@ import { formatNumber, type Locale } from '@crm/shared'
  * the number through `formatNumber` (`@crm/shared`) so the decimal separator
  * follows the active locale like every other formatted number in the app.
  *
- *   formatBytes(0, 'uk')          // "0 Б"
- *   formatBytes(1023, 'uk')       // "1023 Б"
- *   formatBytes(1024, 'uk')       // "1,0 КБ"
- *   formatBytes(2_345_678, 'en')  // "2.2 MB"
- *   formatBytes(10 * 1024 * 1024, 'en') // "10.0 MB"
+ *   formatBytes(0, 'uk')          // "0 Б"
+ *   formatBytes(1023, 'uk')       // "1023 Б"
+ *   formatBytes(1024, 'uk')       // "1,0 КБ"
+ *   formatBytes(2_345_678, 'en')  // "2.2 MB"
+ *   formatBytes(10 * 1024 * 1024, 'en') // "10.0 MB"
  *
  * Uses binary (1024) units to match how OS file managers and the API
  * `DOCUMENT_MAX_BYTES` (10 * 1024 * 1024) report sizes.
+ *
+ * fix-round 1 (COPY-L-3): the number and unit are joined by U+00A0
+ * (non-breaking space), not a regular space — at 320px a regular space is a
+ * legal line-break point, and "10,0" / "МБ" splitting across two lines is
+ * exactly the kind of orphan a byte size (or currency amount, see
+ * `formatMoney`) must never show.
  */
+const NBSP = ' '
+
 const UNITS: Record<Locale, readonly string[]> = {
   uk: ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'],
   en: ['B', 'KB', 'MB', 'GB', 'TB'],
@@ -28,8 +36,8 @@ export function formatBytes(bytes: number, locale: Locale): string {
   // Stryker disable next-line EqualityOperator: bytes===0 is equivalent under
   // < and <=, both fall through to the next branch and return "0 <unit>" —
   // no assertion can distinguish `bytes < 0` from `bytes <= 0` here.
-  if (!Number.isFinite(bytes) || bytes < 0) return `0 ${units[0]}`
-  if (bytes < 1024) return `${bytes} ${units[0]}`
+  if (!Number.isFinite(bytes) || bytes < 0) return `0${NBSP}${units[0]}`
+  if (bytes < 1024) return `${bytes}${NBSP}${units[0]}`
 
   let value = bytes / 1024
   let unitIndex = 1
@@ -40,5 +48,5 @@ export function formatBytes(bytes: number, locale: Locale): string {
   }
 
   const rounded = Math.round(value * 10) / 10
-  return `${formatNumber(rounded, locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${units[unitIndex]}`
+  return `${formatNumber(rounded, locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${NBSP}${units[unitIndex]}`
 }

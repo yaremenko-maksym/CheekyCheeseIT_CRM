@@ -80,7 +80,8 @@ export function useCreateVacancy(): UseMutationResult<Vacancy, Error, CreateVaca
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
       toast.success(t`Вакансію створено`)
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, t`Не вдалося створити вакансію`)),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося створити вакансію. Спробуйте ще раз`)),
   })
 }
 
@@ -100,7 +101,8 @@ export function useUpdateVacancy(): UseMutationResult<
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
       toast.success(t`Вакансію оновлено`)
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, t`Не вдалося оновити вакансію`)),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося оновити вакансію. Спробуйте ще раз`)),
   })
 }
 
@@ -117,7 +119,8 @@ export function useDeleteVacancy(): UseMutationResult<void, Error, string> {
     },
     // §7: backend ConflictException already carries a ready message — just
     // forward it (defensive fallback for a race the UI guard missed).
-    onError: (e) => toast.error(getApiErrorMessage(e, t`Не вдалося видалити вакансію`)),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося видалити вакансію. Спробуйте ще раз`)),
   })
 }
 
@@ -168,7 +171,8 @@ export function useUpdateVacancyApplication(
       // Vacancy list carries `applicationsCount`/new-count badges — keep in sync.
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, t`Не вдалося змінити статус відгуку`)),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося змінити статус відгуку. Спробуйте ще раз`)),
   })
 }
 
@@ -186,7 +190,8 @@ export function useDeleteVacancyApplication(
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
       toast.success(t`Відгук видалено`)
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, t`Не вдалося видалити відгук`)),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося видалити відгук. Спробуйте ще раз`)),
   })
 }
 

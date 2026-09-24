@@ -51,7 +51,17 @@ export function formatNumber(
   return new Intl.NumberFormat(INTL_TAG[locale], options).format(n)
 }
 
-/** Money is always `<amount> <CODE>` — USDT has no Intl currency, so the code is appended uniformly. */
+/**
+ * Money is always `<amount> <CODE>` — USDT has no Intl currency, so the code
+ * is appended uniformly.
+ *
+ * fix-round 1 (COPY-L-3, task-i18n-stage3a Task 2): the amount and the
+ * currency code are joined by U+00A0 (non-breaking space), not a regular
+ * space — a regular space is a legal line-break point, and "1 500,00" /
+ * "USDT" splitting across two lines at 320px is exactly the orphan this
+ * exists to prevent (same reasoning as `format-bytes.ts`'s number/unit
+ * join, apps/web's own copy of the amount side of this problem).
+ */
 export function formatMoney(
   amount: number | string,
   currency: 'USDT' | 'USD' | 'EUR' | 'UAH',
@@ -65,7 +75,7 @@ export function formatMoney(
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n)
-  return `${body} ${currency}`
+  return `${body} ${currency}`
 }
 
 export function compareNames(locale: Locale): (a: string, b: string) => number {
