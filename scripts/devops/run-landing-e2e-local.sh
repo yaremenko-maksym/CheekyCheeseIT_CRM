@@ -207,8 +207,8 @@ DATABASE_URL="$DATABASE_URL" \
   S3_REGION="${S3_REGION:-us-east-1}" \
   S3_BUCKET="${S3_BUCKET:-crm-documents}" \
   S3_USE_SSE="${S3_USE_SSE:-false}" \
-  AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-minioadmin}" \
-  AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-minioadmin}" \
+  AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-crmdevaccesskey}" \
+  AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-crmdevsecretkey}" \
   node --enable-source-maps apps/api/dist/main >/tmp/run-landing-e2e-local-api.log 2>&1 &
 API_PID=$!
 PIDS+=("$API_PID")
