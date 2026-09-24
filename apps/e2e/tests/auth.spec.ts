@@ -81,38 +81,54 @@ test.describe('Auth flow', () => {
 
   // ---------------------------------------------------------------------------
   // Error state handling on login page
+  //
+  // task-i18n-stage3a (Task 3, Step 4): `/login` is UNAUTHENTICATED — there is
+  // no session `locale` yet, so `readPreLoginLocale()` (apps/web/app/lib/i18n.ts)
+  // falls through to `navigator.language` before defaulting to uk. Playwright's
+  // Chromium launches with an en-US locale by default, which — since 'en' IS a
+  // supported locale — resolves to 'en', NOT the uk default a first read of
+  // `resolveLocale` might suggest. `test.use({ locale: 'uk-UA' })` pins
+  // `navigator.language` for this describe block so the assertion is
+  // deterministic regardless of the runner's own default locale (verified live:
+  // without this, these three tests received the EN catalog text).
   // ---------------------------------------------------------------------------
 
-  test('?error=unauthorized shows error message', async ({ page }) => {
-    const uk = await loadMessages('uk')
-    await page.goto('/login?error=unauthorized')
-    const banner = page.getByTestId('login-error-message')
-    await expect(banner).toBeVisible()
-    await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
-    await expect(banner).toHaveText(
-      assertInCatalog(uk, 'Ваш email не авторизовано. Зверніться до адміністратора.'),
-    )
-  })
+  test.describe('error state handling', () => {
+    test.use({ locale: 'uk-UA' })
 
-  test('?error=google_error shows error message', async ({ page }) => {
-    const uk = await loadMessages('uk')
-    await page.goto('/login?error=google_error')
-    const banner = page.getByTestId('login-error-message')
-    await expect(banner).toBeVisible()
-    await expect(banner).toHaveAttribute('data-error-code', 'google_error')
-    await expect(banner).toHaveText(assertInCatalog(uk, 'Помилка Google OAuth. Спробуйте ще раз.'))
-  })
+    test('?error=unauthorized shows error message', async ({ page }) => {
+      const uk = await loadMessages('uk')
+      await page.goto('/login?error=unauthorized')
+      const banner = page.getByTestId('login-error-message')
+      await expect(banner).toBeVisible()
+      await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
+      await expect(banner).toHaveText(
+        assertInCatalog(uk, 'Ваш email не авторизовано. Зверніться до адміністратора.'),
+      )
+    })
 
-  test('?error=invalid_state shows error message', async ({ page }) => {
-    const uk = await loadMessages('uk')
-    await page.goto('/login?error=invalid_state')
-    const banner = page.getByTestId('login-error-message')
-    await expect(banner).toBeVisible()
-    await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
-    // Message: "Сесія закінчилася. Спробуйте ще раз, будь ласка."
-    await expect(banner).toHaveText(
-      assertInCatalog(uk, 'Сесія закінчилася. Спробуйте ще раз, будь ласка.'),
-    )
+    test('?error=google_error shows error message', async ({ page }) => {
+      const uk = await loadMessages('uk')
+      await page.goto('/login?error=google_error')
+      const banner = page.getByTestId('login-error-message')
+      await expect(banner).toBeVisible()
+      await expect(banner).toHaveAttribute('data-error-code', 'google_error')
+      await expect(banner).toHaveText(
+        assertInCatalog(uk, 'Помилка Google OAuth. Спробуйте ще раз.'),
+      )
+    })
+
+    test('?error=invalid_state shows error message', async ({ page }) => {
+      const uk = await loadMessages('uk')
+      await page.goto('/login?error=invalid_state')
+      const banner = page.getByTestId('login-error-message')
+      await expect(banner).toBeVisible()
+      await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
+      // Message: "Сесія закінчилася. Спробуйте ще раз, будь ласка."
+      await expect(banner).toHaveText(
+        assertInCatalog(uk, 'Сесія закінчилася. Спробуйте ще раз, будь ласка.'),
+      )
+    })
   })
 
   // ---------------------------------------------------------------------------
