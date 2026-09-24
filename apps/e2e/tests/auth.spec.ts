@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { API_GLOB, mockAuthAs, USERS } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const PROTECTED_ROUTES = ['/', '/team', '/projects', '/interviews', '/profile', '/users']
 
@@ -83,29 +84,35 @@ test.describe('Auth flow', () => {
   // ---------------------------------------------------------------------------
 
   test('?error=unauthorized shows error message', async ({ page }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/login?error=unauthorized')
     const banner = page.getByTestId('login-error-message')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
-    // The Russian copy is the error contract — keep text assertion as a regex.
-    await expect(banner).toContainText(/авторизован|доступ/i)
+    await expect(banner).toHaveText(
+      assertInCatalog(uk, 'Ваш email не авторизовано. Зверніться до адміністратора.'),
+    )
   })
 
   test('?error=google_error shows error message', async ({ page }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/login?error=google_error')
     const banner = page.getByTestId('login-error-message')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveAttribute('data-error-code', 'google_error')
-    await expect(banner).toContainText(/google|oauth/i)
+    await expect(banner).toHaveText(assertInCatalog(uk, 'Помилка Google OAuth. Спробуйте ще раз.'))
   })
 
   test('?error=invalid_state shows error message', async ({ page }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/login?error=invalid_state')
     const banner = page.getByTestId('login-error-message')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
-    // Message: "Сессия истекла. Пожалуйста, попробуйте снова."
-    await expect(banner).toContainText(/сессия|истекла|попробуйте/i)
+    // Message: "Сесія закінчилася. Спробуйте ще раз, будь ласка."
+    await expect(banner).toHaveText(
+      assertInCatalog(uk, 'Сесія закінчилася. Спробуйте ще раз, будь ласка.'),
+    )
   })
 
   // ---------------------------------------------------------------------------

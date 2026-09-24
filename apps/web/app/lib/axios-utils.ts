@@ -1,4 +1,6 @@
+import { msg } from '@lingui/core/macro'
 import { i18n } from '@lingui/core'
+import type { MessageDescriptor } from '@lingui/core'
 import {
   API_ERROR_MESSAGES,
   apiErrorEnvelopeSchema,
@@ -443,7 +445,7 @@ export function extractBackendMessage(err: unknown): string | undefined {
  *   // "Зарплата для этого сотрудника за выбранный месяц уже создана"
  *   // "salaryMonth: Format YYYY-MM"
  */
-export function getApiErrorMessage(err: unknown, fallback = 'Произошла ошибка'): string {
+export function getApiErrorMessage(err: unknown, fallback = i18n._(UNKNOWN_ERROR_FALLBACK)): string {
   if (err === null || err === undefined) return fallback
   if (typeof err !== 'object') return fallback
 
@@ -474,29 +476,33 @@ export function getApiErrorMessage(err: unknown, fallback = 'Произошла 
   return fallback
 }
 
-const STATUS_MESSAGES: Readonly<Record<number, string>> = {
-  400: 'Некорректный запрос. Проверьте введённые данные и попробуйте снова.',
-  401: 'Нужно войти в систему заново.',
-  403: 'Недостаточно прав для этого действия.',
-  404: 'Запрашиваемые данные не найдены.',
-  409: 'Конфликт данных. Обновите страницу и попробуйте снова.',
-  413: 'Файл слишком большой.',
-  415: 'Формат файла не поддерживается.',
-  429: 'Слишком много запросов подряд. Подождите немного и повторите попытку.',
+const STATUS_MESSAGES: Readonly<Record<number, MessageDescriptor>> = {
+  400: msg`Некоректний запит. Перевірте введені дані і спробуйте знову.`,
+  401: msg`Потрібно увійти в систему знову.`,
+  403: msg`Недостатньо прав для цієї дії.`,
+  404: msg`Запитувані дані не знайдено.`,
+  409: msg`Конфлікт даних. Оновіть сторінку і спробуйте знову.`,
+  413: msg`Файл занадто великий.`,
+  415: msg`Формат файлу не підтримується.`,
+  // Канон 429 — тот же текст, что TosPdfPreview.tsx (Task 1, Step 5,
+  // COPY-M-core-16) — grep там сверяет, что тексты не разошлись.
+  429: msg`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`,
 }
 
-const SERVER_ERROR_MESSAGE =
-  'Ошибка на нашей стороне. Мы уже знаем о проблеме — попробуйте немного позже.'
-const GENERIC_HTTP_FALLBACK = 'Не удалось выполнить запрос. Попробуйте ещё раз.'
-const NETWORK_ERROR_MESSAGE =
-  'Нет связи с сервером. Проверьте подключение к интернету и попробуйте снова.'
-const UNKNOWN_ERROR_FALLBACK = 'Произошла ошибка. Попробуйте ещё раз.'
+const SERVER_ERROR_MESSAGE = msg`Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше.`
+const GENERIC_HTTP_FALLBACK = msg`Не вдалося виконати запит. Спробуйте ще раз.`
+const NETWORK_ERROR_MESSAGE = msg`Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову.`
+// COPY-L-core-22: было ДВА разных текста последнего рубежа
+// (getApiErrorMessage's default param 'Произошла ошибка' vs
+// UNKNOWN_ERROR_FALLBACK 'Произошла ошибка. Попробуйте ещё раз.') —
+// один и тот же текст в обоих местах теперь.
+const UNKNOWN_ERROR_FALLBACK = msg`Сталася помилка. Спробуйте ще раз.`
 
 function messageForStatus(status: number): string {
   const known = STATUS_MESSAGES[status]
-  if (known !== undefined) return known
-  if (status >= 500) return SERVER_ERROR_MESSAGE
-  return GENERIC_HTTP_FALLBACK
+  if (known !== undefined) return i18n._(known)
+  if (status >= 500) return i18n._(SERVER_ERROR_MESSAGE)
+  return i18n._(GENERIC_HTTP_FALLBACK)
 }
 
 /** True for anything axios itself threw (HTTP error OR network/timeout/cancel). */
@@ -512,17 +518,18 @@ function isAxiosErrorShape(err: unknown): boolean {
  * Resolves the message to SHOW THE USER for an API/network failure.
  *
  * Priority: backend-supplied message (validation details, business rules —
- * `extractBackendMessage`) → our own Russian text for the HTTP status code
+ * `extractBackendMessage`) → our own translated text for the HTTP status code
  * → "no connection to the server" when the request never got a response at
  * all (offline, DNS, CORS, timeout) → a generic fallback for anything else.
  *
  * Deliberately NEVER returns axios's own generated `.message` (e.g.
  * "Request failed with status code 415", "Network Error") — that string is
  * English, technical, and meaningless to a non-technical user (see
- * `russian-language.md`). We don't invent a specific reason we don't
- * actually know (task fix/api-error-messages §3) — codes without a known
- * canned message get the honest, generic `GENERIC_HTTP_FALLBACK` /
- * `SERVER_ERROR_MESSAGE`, never a guessed cause.
+ * `russian-language.md`'s successor rule — CRM product language is uk/en).
+ * We don't invent a specific reason we don't actually know (task
+ * fix/api-error-messages §3) — codes without a known canned message get the
+ * honest, generic `GENERIC_HTTP_FALLBACK` / `SERVER_ERROR_MESSAGE`, never a
+ * guessed cause.
  *
  * This is the single place that computes the user-facing text — called from
  * `axios.ts`'s response interceptor so every consumer that reads `err.message`
@@ -531,9 +538,9 @@ function isAxiosErrorShape(err: unknown): boolean {
  *
  * @example
  *   getUserFacingErrorMessage({ response: { status: 415 } })
- *   // "Формат файла не поддерживается."
+ *   // "Формат файлу не підтримується."
  *   getUserFacingErrorMessage({ isAxiosError: true, message: 'Network Error' })
- *   // "Нет связи с сервером. Проверьте подключение к интернету и попробуйте снова."
+ *   // "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову."
  */
 export function getUserFacingErrorMessage(err: unknown): string {
   // Priority 0 (task-i18n-stage2-task5): same envelope-by-code translation
@@ -556,7 +563,7 @@ export function getUserFacingErrorMessage(err: unknown): string {
   const status = getAxiosStatus(err)
   if (status !== undefined) return messageForStatus(status)
 
-  if (isAxiosErrorShape(err)) return NETWORK_ERROR_MESSAGE
+  if (isAxiosErrorShape(err)) return i18n._(NETWORK_ERROR_MESSAGE)
 
-  return UNKNOWN_ERROR_FALLBACK
+  return i18n._(UNKNOWN_ERROR_FALLBACK)
 }

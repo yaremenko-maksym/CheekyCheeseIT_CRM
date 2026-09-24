@@ -76,11 +76,11 @@ describe('getApiErrorMessage', () => {
   })
 
   it('falls back to default string when error is unknown shape', () => {
-    expect(getApiErrorMessage(null)).toBe('Произошла ошибка')
+    expect(getApiErrorMessage(null)).toBe('Сталася помилка. Спробуйте ще раз.')
   })
 
   it('falls back to default string for plain string error', () => {
-    expect(getApiErrorMessage('oops')).toBe('Произошла ошибка')
+    expect(getApiErrorMessage('oops')).toBe('Сталася помилка. Спробуйте ще раз.')
   })
 
   // ZodExceptionFilter shape: { statusCode, message: "Validation failed", errors: [{path, message}] }
@@ -427,13 +427,13 @@ describe('getUserFacingErrorMessage', () => {
   // too large, 401/403 no access, 5xx our side.
   it.each([
     [415, 'формат'],
-    [413, 'больш'],
-    [401, 'войти'],
+    [413, 'великий'],
+    [401, 'увійти'],
     [403, 'прав'],
-    [500, 'нашей стороне'],
-    [503, 'нашей стороне'],
+    [500, 'нашій стороні'],
+    [503, 'нашій стороні'],
   ])(
-    'falls back to an honest Russian message for status %i with no backend message',
+    'falls back to an honest uk message for status %i with no backend message',
     (status, expectedFragment) => {
       const err = {
         response: { status, data: {} },
@@ -448,21 +448,21 @@ describe('getUserFacingErrorMessage', () => {
   it('never invents a specific cause for an unmapped 4xx status — generic honest fallback', () => {
     const err = { response: { status: 418, data: {} }, message: "I'm a teapot" }
     const result = getUserFacingErrorMessage(err)
-    expect(result).toBe('Не удалось выполнить запрос. Попробуйте ещё раз.')
+    expect(result).toBe('Не вдалося виконати запит. Спробуйте ще раз.')
   })
 
   it('reports "no connection to the server" for a network error (no response at all)', () => {
     const networkErr = { isAxiosError: true, message: 'Network Error' }
     expect(getUserFacingErrorMessage(networkErr)).toBe(
-      'Нет связи с сервером. Проверьте подключение к интернету и попробуйте снова.',
+      'Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте знову.',
     )
   })
 
-  it('falls back to a generic Russian message for a non-axios, non-HTTP unknown error', () => {
+  it('falls back to a generic uk message for a non-axios, non-HTTP unknown error', () => {
     expect(getUserFacingErrorMessage(new Error('some internal JS error'))).toBe(
-      'Произошла ошибка. Попробуйте ещё раз.',
+      'Сталася помилка. Спробуйте ще раз.',
     )
-    expect(getUserFacingErrorMessage(null)).toBe('Произошла ошибка. Попробуйте ещё раз.')
+    expect(getUserFacingErrorMessage(null)).toBe('Сталася помилка. Спробуйте ще раз.')
   })
 
   it('never returns axios raw technical text for any of the above cases', () => {
@@ -490,11 +490,11 @@ describe('getUserFacingErrorMessage', () => {
   // backend had explained something — it had not — and the raw English
   // reached a money screen (found live in the cascade-preview panel).
   it.each([
-    [500, 'Internal server error', 'нашей стороне'],
-    [500, 'Internal Server Error', 'нашей стороне'], // InternalServerErrorException()'s own casing
+    [500, 'Internal server error', 'нашій стороні'],
+    [500, 'Internal Server Error', 'нашій стороні'], // InternalServerErrorException()'s own casing
     [403, 'Forbidden', 'прав'],
-    [404, 'Not Found', 'не найдены'],
-    [400, 'Bad Request', 'некорректный'],
+    [404, 'Not Found', 'не знайдено'],
+    [400, 'Bad Request', 'некоректний'],
     // task-mutation-gate follow-up (PR #613, backlog 121): whitespace
     // padding around an otherwise-generic phrase must still be recognised —
     // `isGenericHttpReasonPhrase` trims before comparing, and this is the
@@ -502,7 +502,7 @@ describe('getUserFacingErrorMessage', () => {
     // phrase with no padding passes either way).
     [403, '  Forbidden  ', 'прав'],
   ])(
-    'status %i with Nest\'s own default body ("%s") falls through to the honest Russian text',
+    'status %i with Nest\'s own default body ("%s") falls through to the honest uk text',
     (status, backendMessage, expectedFragment) => {
       const err = {
         response: { status, data: { message: backendMessage } },
@@ -624,18 +624,18 @@ describe("getApiErrorMessage — Nest's own generic reason phrase is not a real 
       response: { status: 500, data: { message: 'Internal server error' } },
       // Simulates the shape a component actually receives: the axios
       // response interceptor (axios.ts) has ALREADY run and overwritten
-      // `.message` with the honest Russian text before any consumer sees it.
-      message: 'Ошибка на нашей стороне. Мы уже знаем о проблеме — попробуйте немного позже.',
+      // `.message` with the honest uk text before any consumer sees it.
+      message: 'Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше.',
     }
     const result = getApiErrorMessage(err)
     expect(result).not.toBe('Internal server error')
-    expect(result.toLowerCase()).toContain('нашей стороне')
+    expect(result.toLowerCase()).toContain('нашій стороні')
   })
 
   it('a raw 403 with Nest\'s default body does not leak "Forbidden"', () => {
     const err = {
       response: { status: 403, data: { message: 'Forbidden' } },
-      message: 'Недостаточно прав для этого действия.',
+      message: 'Недостатньо прав для цієї дії.',
     }
     expect(getApiErrorMessage(err)).not.toBe('Forbidden')
   })

@@ -19,6 +19,8 @@
  * production, so a test that fed it `'1'` would not have caught this.
  */
 import { describe, expect, it } from 'vitest'
+import { i18n } from '@lingui/core'
+import { loadCatalog } from '@/test/i18n'
 import { ERROR_MESSAGES, searchSchema } from '../login'
 
 describe("login route searchSchema — invited param survives the router's JSON-superset parsing", () => {
@@ -67,48 +69,50 @@ describe("login route searchSchema — invited param survives the router's JSON-
   })
 })
 
-describe('login route ERROR_MESSAGES — exact Russian copy per error code', () => {
-  // Independent literals, not derived from the source file — a mutant that
-  // empties one of these strings fails here even though rendering still
-  // "works" (an empty banner is not a passing UI).
-  const EXPECTED: Record<string, string> = {
-    unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
-    google_error: 'Ошибка Google OAuth. Попробуйте снова.',
-    invalid_state: 'Сессия истекла. Пожалуйста, попробуйте снова.',
-    // copy-review PR #623 round 4 (COPY-H-3): names the actionable next step
-    // (open the link again, pick a different account) instead of only the
-    // diagnosis — the token is not consumed on a mismatch, so retrying works.
-    invite_email_mismatch:
-      'Вы вошли в другой аккаунт Google. Откройте ссылку из письма ещё раз и выберите аккаунт того адреса, на который оно пришло. Если аккаунта Google на этом адресе нет — войти по нему нельзя, напишите администратору.',
-    invite_expired:
-      'Срок действия приглашения истёк. Попросите администратора отправить его заново.',
-    // COPY-M-2: "already used" always means "already works as a login
-    // method" (usedAt and canLogin flip in the SAME transaction) — the next
-    // action is the ordinary Google button, not a dead end.
-    invite_used:
-      'Приглашение уже использовано — личный адрес подтверждён. Войдите через Google кнопкой ниже.',
-    // COPY-M-3: the common real cause is a resend overwriting the old token.
-    invite_invalid:
-      'Ссылка не работает. Откройте ссылку из последнего письма, а если его нет — попросите администратора прислать приглашение заново.',
-    // LOW-1 (security-review PR #623 round 4): distinct from invite_used.
-    invite_account_taken:
-      'Этот аккаунт Google уже используется для входа с другого адреса. Обратитесь к администратору.',
-    // COPY-M-8: emitted by the ORDINARY (non-invite) login path — previously
-    // had NO text at all, crashing validateSearch on a real redirect.
-    account_mismatch:
-      'Этот адрес уже привязан к другому аккаунту Google. Войдите тем аккаунтом, которым входили раньше, или напишите администратору.',
-    account_disabled: 'Доступ к CRM закрыт. Если это ошибка, напишите администратору.',
-  }
+// task-i18n-stage3a (Task 3), Step 1: `ERROR_MESSAGES` values are now
+// `MessageDescriptor`s (msg-macro), not plain strings — a per-code
+// StringLiteral mutation pin on the TEXT no longer applies (the text lives
+// in the .po catalog, not in this module). The mutation gate's original
+// target — Stryker turning e.g. 'unauthorized' → '' with every unit test
+// still green — is still closed by two orthogonal checks below: the KEY
+// list (which this file, independent of `login.tsx`, still hardcodes) and
+// a resolution check that every code renders non-empty text on both
+// shipped locales.
+describe('login route ERROR_MESSAGES — every code resolves to real copy on uk and en', () => {
+  // Independent from `ERROR_CODES` above (that one is compared against
+  // `ERROR_MESSAGES`'s OWN keys — see "every ERROR_CODE above has a
+  // matching entry" — so a corruption of `ERROR_MESSAGES`'s key set would
+  // not be caught by a comparison against itself). This literal list is a
+  // second, hand-typed source — a mutant that adds/drops/renames a key in
+  // `login.tsx` shows up here as a set mismatch.
+  const EXPECTED_CODES = [
+    'unauthorized',
+    'google_error',
+    'invalid_state',
+    'invite_email_mismatch',
+    'invite_expired',
+    'invite_used',
+    'invite_invalid',
+    'invite_account_taken',
+    'account_mismatch',
+    'account_disabled',
+  ] as const
 
-  it.each(Object.entries(EXPECTED))(
-    'ERROR_MESSAGES.%s is the exact approved copy',
-    (code, expected) => {
-      // ERROR_MESSAGES is now `as const satisfies Record<string, string>`
-      // (single source of truth for searchSchema's enum too — see the
-      // module doc) — no index signature, so a plain `string` key needs
-      // this cast. The runtime lookup itself is exactly what the module
-      // does at `ERROR_MESSAGES[error]` in the render path.
-      expect(ERROR_MESSAGES[code as keyof typeof ERROR_MESSAGES]).toBe(expected)
-    },
-  )
+  it('ERROR_MESSAGES has exactly the expected set of keys', () => {
+    expect(Object.keys(ERROR_MESSAGES).sort()).toEqual([...EXPECTED_CODES].sort())
+  })
+
+  it.each(EXPECTED_CODES)('ERROR_MESSAGES.%s resolves to non-empty text on uk and en', async (code) => {
+    await loadCatalog('uk')
+    const uk = i18n._(ERROR_MESSAGES[code])
+    expect(uk.length).toBeGreaterThan(0)
+
+    await loadCatalog('en')
+    const en = i18n._(ERROR_MESSAGES[code])
+    expect(en.length).toBeGreaterThan(0)
+    // The two locales must actually differ — catches a mutant (or a missed
+    // translation) that leaves the en catalog falling back to the uk source
+    // text for this specific code.
+    expect(en).not.toBe(uk)
+  })
 })
