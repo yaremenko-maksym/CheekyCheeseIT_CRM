@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { createI18n } from '../i18n'
 import {
   ACTION_LABELS,
   ACTION_REQUIRED_NOTIFICATION_TYPES,
@@ -22,7 +23,12 @@ import { notificationTypeSchema } from './notifications'
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000'
 const datetime = '2026-09-07T10:00:00.000Z'
-const UK = 'uk' as const
+// SR-H-1 (fix-раунд 1, PR #714): `describeNotification`/`notificationActions`/
+// `renderNotification` теперь принимают построенный `I18n`, а не `Locale` —
+// `UK`/`EN` ниже построены ОДИН раз здесь и передаются везде, где раньше
+// стояла строка локали (см. doc-комментарий на `renderNotification`).
+const UK = createI18n('uk')
+const EN = createI18n('en')
 
 const base = {
   id: uuid,
@@ -118,14 +124,18 @@ describe('тринадцать типов — реестр', () => {
  */
 describe('три замороженных типа — реестр, не замороженная строка БД (task-i18n-stage4-task6)', () => {
   it('INVOICE_SIGNED рендерится из реестра, заголовок не называет контрагента', () => {
+    // COPY-M-4 (copy-review круг 1, #714): деталь несёт СУМУ вдобавок к имени —
+    // контрагент з кількома рахунками інакше нерозрізнимий.
     const data = notificationDataSchemaFor('INVOICE_SIGNED').parse({
       counterpartyName: 'ТОВ Ромашка',
+      amount: '1500.000000',
+      currency: 'USDT',
     })
     const rendered = renderNotification({ ...base, type: 'INVOICE_SIGNED', data }, UK)
     expect(rendered.title).toBe('Рахунок підписано')
     expect(rendered.title).not.toContain('ТОВ Ромашка')
     // §10: контрагент назван РОВНО один раз — в деталях, не в заголовке.
-    expect(rendered.detail).toBe('ТОВ Ромашка')
+    expect(rendered.detail).toBe('ТОВ Ромашка · 1 500,00 USDT')
   })
 
   it('INVOICE_SIGN_REQUIRED рендерится из реестра, деталь — сума', () => {
@@ -134,7 +144,9 @@ describe('три замороженных типа — реестр, не зам
       currency: 'USDT',
     })
     expect(describeNotification('INVOICE_SIGN_REQUIRED', data, UK)).toBe('1 500,00 USDT')
-    expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGN_REQUIRED.message).toBe('Рахунок очікує підпису')
+    // COPY-M-1 (copy-review круг 1, #714): «Рахунок на підпис» — коротше,
+    // називає, ЧИЮ підпис чекають, тим самим прийомом, що DOCUMENT_SIGN_REQUIRED.
+    expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGN_REQUIRED.message).toBe('Рахунок на підпис')
   })
 
   it('VACANCY_APPLICATION рендерится из реестра, деталь — назва вакансії', () => {
@@ -184,13 +196,16 @@ describe('реестр сообщений — источник для i18n:extra
       TEAM_MEMBER_ADDED: 'Вас додали до команди',
       PROJECT_MEMBER_ADDED: 'Вас додали до проєкту',
       TEAM_NEW_MEMBER: 'У команді новий учасник',
-      PROJECT_CONFIRM_REQUIRED: 'Проєкт очікує рішення',
+      // COPY-L-2 (copy-review круг 1, #714): «чекає», не «очікує» — совпадает
+      // с навигацией DRAFT-статуса.
+      PROJECT_CONFIRM_REQUIRED: 'Проєкт чекає рішення',
       SHARE_CONFIRM_REQUIRED: 'Пропозиція щодо частки',
       DOCUMENT_SIGN_REQUIRED: 'Контракт на підпис',
       APPROVAL_CONFIRMED: 'Пропозицію прийнято',
       APPROVAL_REJECTED: 'Пропозицію відхилено',
       INVOICE_SIGNED: 'Рахунок підписано',
-      INVOICE_SIGN_REQUIRED: 'Рахунок очікує підпису',
+      // COPY-M-1 (copy-review круг 1, #714): «Рахунок на підпис».
+      INVOICE_SIGN_REQUIRED: 'Рахунок на підпис',
       VACANCY_APPLICATION: 'Новий відгук на вакансію',
     }
     for (const [type, message] of Object.entries(expected)) {
@@ -203,9 +218,11 @@ describe('реестр сообщений — источник для i18n:extra
 
   it('DETAIL_MESSAGES — все четырнадцать шаблонов деталей', () => {
     const expected: Record<string, { id: string; message: string }> = {
+      // SR-L-1 (security-review круг 1, #714): `hasProject` вместо ветвления
+      // по значению `projectName` — см. doc-комментарий в notification-registry.ts.
       TRANSACTION_ADDED: {
         id: 'notification.TRANSACTION_ADDED.detail',
-        message: '{projectName, select, null {{money}} other {{money} · проєкт {projectName}}}',
+        message: '{hasProject, select, no {{money}} other {{money} · проєкт {projectName}}}',
       },
       TRANSACTION_STATUS_CHANGED_VALIDATED: {
         id: 'notification.TRANSACTION_STATUS_CHANGED.validated',
@@ -241,7 +258,7 @@ describe('реестр сообщений — источник для i18n:extra
       },
       SHARE_CONFIRM_REQUIRED_PROJECT: {
         id: 'notification.SHARE_CONFIRM_REQUIRED.project',
-        message: '{change} · проєкт {projectName, select, null {без назви} other {{projectName}}}',
+        message: '{change} · проєкт {hasProject, select, no {без назви} other {{projectName}}}',
       },
       APPROVAL_CONFIRMED: {
         id: 'notification.APPROVAL_CONFIRMED.detail',
@@ -258,6 +275,11 @@ describe('реестр сообщений — источник для i18n:extra
       VACANCY_APPLICATION: {
         id: 'notification.VACANCY_APPLICATION.detail',
         message: 'Вакансія «{vacancyTitle}»',
+      },
+      // COPY-M-4 (copy-review круг 1, #714): новая деталь для INVOICE_SIGNED.
+      INVOICE_SIGNED: {
+        id: 'notification.INVOICE_SIGNED.detail',
+        message: '{counterpartyName} · {money}',
       },
     }
     expect(Object.keys(DETAIL_MESSAGES).sort()).toEqual(Object.keys(expected).sort())
@@ -296,10 +318,12 @@ describe('реестр сообщений — источник для i18n:extra
         id: 'notification.percentText',
         message: '{value, select, null {не задана} other {{value}%}}',
       },
+      // SR-L-1 (security-review круг 1, #714): `hasName` вместо ветвления по
+      // значению `name` — см. doc-комментарий в notification-registry.ts.
       subjectPhrase: {
         id: 'notification.subjectPhrase',
         message:
-          '{kind, select, PROJECT {проєкт {name, select, null {без назви} other {{name}}}} PROJECT_SHARE {частка за проєктом {name, select, null {без назви} other {{name}}}} other {частка за замовчуванням}}',
+          '{kind, select, PROJECT {проєкт {hasName, select, no {без назви} other {{name}}}} PROJECT_SHARE {частка за проєктом {hasName, select, no {без назви} other {{name}}}} other {частка за замовчуванням}}',
       },
       actionApprovalProject: {
         id: 'notification.action.approval.project',
@@ -313,9 +337,11 @@ describe('реестр сообщений — источник для i18n:extra
         id: 'notification.subjectMissing.fallback',
         message: 'Цього більше немає в CRM',
       },
+      // COPY-L-3 (copy-review круг 1, #714): «В архіві» — та ж конструкція
+      // «стан», що і в п'яти типізованих записах (`SUBJECT_ARCHIVED_LABELS`).
       subjectArchivedFallback: {
         id: 'notification.subjectArchived.fallback',
-        message: 'Це прибрано в архів',
+        message: 'В архіві',
       },
       approvalSuperseded: {
         id: 'notification.approvalSuperseded',
@@ -430,7 +456,8 @@ describe('renderNotification — клиент выводит подписи и �
       },
       UK,
     )
-    expect(rendered.title).toBe('Проєкт очікує рішення')
+    // COPY-L-2 (copy-review круг 1, #714): «чекає», не «очікує».
+    expect(rendered.title).toBe('Проєкт чекає рішення')
     expect(rendered.detail).toBe('Проєкт Acme')
     expect(rendered.actions).toEqual([
       { label: 'Відкрити проєкт', href: `/projects/${uuid}`, disabled: false },
@@ -703,6 +730,9 @@ describe('subjectKind — обе формы согласования знают 
 describe('notificationActions — крайние случаи', () => {
   // Три условия в одном `if` — три отдельных случая. Гейт мутаций показал, что
   // без них любое из трёх можно заменить на `true` незаметно.
+  // COPY-M-3 (copy-review круг 1, #714): зарегистрированный тип на ветке «по
+  // ссылке» получает СВОЮ подпись из `ACTION_LABELS`, не общее «Відкрити» —
+  // см. doc-комментарий на `actionLabelForLink`.
   it('известный тип БЕЗ вида объекта, но с идентификатором — общий путь', () => {
     expect(
       notificationActions(
@@ -716,7 +746,7 @@ describe('notificationActions — крайние случаи', () => {
         },
         UK,
       ),
-    ).toEqual([{ label: 'Відкрити', href: '/projects', disabled: false }])
+    ).toEqual([{ label: 'Відкрити проєкт', href: '/projects', disabled: false }])
   })
 
   it('известный тип С видом объекта, но БЕЗ идентификатора — общий путь', () => {
@@ -732,7 +762,7 @@ describe('notificationActions — крайние случаи', () => {
         },
         UK,
       ),
-    ).toEqual([{ label: 'Відкрити', href: '/projects', disabled: false }])
+    ).toEqual([{ label: 'Відкрити проєкт', href: '/projects', disabled: false }])
   })
 
   it('НЕизвестный тип с полным адресом объекта всё равно идёт общим путём', () => {
@@ -756,9 +786,10 @@ describe('notificationActions — крайние случаи', () => {
   })
 
   it('известный тип без идентификатора объекта падает на сохранённую ссылку', () => {
+    // COPY-M-3: `TEAM_MEMBER_ADDED` зарегистрирован — подпись из `ACTION_LABELS`.
     expect(
       notificationActions({ ...base, type: 'TEAM_MEMBER_ADDED', data: null, link: '/team' }, UK),
-    ).toEqual([{ label: 'Відкрити', href: '/team', disabled: false }])
+    ).toEqual([{ label: 'Відкрити команду', href: '/team', disabled: false }])
   })
 
   it('исчезнувший объект гасит кнопку даже у типа со ссылкой', () => {
@@ -1125,7 +1156,7 @@ describe('кавычки причины на локали en — типогра�
         subjectTitle: 'Acme',
         reasonPreview: 'Wrong client',
       },
-      'en',
+      EN,
     )
     expect(detail).toBe('“Wrong client”\nIvan Petrov — project Acme')
     expect(detail).not.toContain('"Wrong client"')
@@ -1141,7 +1172,7 @@ describe('кавычки причины на локали en — типогра�
         reasonPreview:
           'duplicates an existing project for the same client, I have been running one since March',
       },
-      'en',
+      EN,
     )
     const quoteLine = detail!.split('\n')[0]!
     expect(quoteLine.startsWith('“')).toBe(true)
@@ -1338,7 +1369,9 @@ describe('архивный объект — своя подпись, кнопк�
         },
         UK,
       ),
-    ).toEqual([{ label: 'Це прибрано в архів', href: null, disabled: true }])
+      // COPY-L-3 (copy-review круг 1, #714): «В архіві» — та ж конструкція, що
+      // й у п'яти типізованих записах.
+    ).toEqual([{ label: 'В архіві', href: null, disabled: true }])
   })
 
   it('живой объект архивной подписи не получает — кнопка ведёт куда обещает', () => {
@@ -1571,5 +1604,64 @@ describe('гейт мутаций круга 5 — то, что проходил
         UK,
       ),
     ).toEqual([{ label, href: null, disabled: true }])
+  })
+})
+
+/**
+ * SR-L-1 (security-review круг 1, PR #714). Проект/об'єкт, названий буквально
+ * рядком `"null"` (легальний користувацький ввід — `objectName` це не
+ * забороняє), раніше збігався з ICU-гілкою `null` у `{name, select, null
+ * {…}…}` / `{projectName, select, null {…}…}` і показувався як «без назви»
+ * замість справжнього імені. Ветвлення тепер іде по ОКРЕМОМУ прапорцю
+ * (`hasProject`/`hasName`), ім'я — лише підстановкою (див. doc-комментар на
+ * `MISC_MESSAGES.subjectPhrase` в `notification-registry.ts`).
+ */
+describe('SR-L-1 — проєкт/об’єкт, названий рядком "null", не ховається за "без назви"', () => {
+  it('TRANSACTION_ADDED: назва проєкту "null" виводиться дослівно', () => {
+    const data = notificationDataSchemaFor('TRANSACTION_ADDED').parse({
+      amount: '10.00',
+      currency: 'USD',
+      projectName: 'null',
+    })
+    expect(describeNotification('TRANSACTION_ADDED', data, UK)).toBe('10,00 USD · проєкт null')
+  })
+
+  it('SHARE_CONFIRM_REQUIRED (PROJECT scope): назва проєкту "null" виводиться дослівно', () => {
+    const data = notificationDataSchemaFor('SHARE_CONFIRM_REQUIRED').parse({
+      scope: 'PROJECT',
+      projectName: 'null',
+      previousPercent: 20,
+      proposedPercent: 25,
+      approvalId: uuid,
+    })
+    expect(describeNotification('SHARE_CONFIRM_REQUIRED', data, UK)).toBe('20% → 25% · проєкт null')
+  })
+
+  it('APPROVAL_CONFIRMED (PROJECT_SHARE): назва об’єкта "null" виводиться дослівно', () => {
+    const data = notificationDataSchemaFor('APPROVAL_CONFIRMED').parse({
+      approverName: 'Іван',
+      subjectKind: 'PROJECT_SHARE',
+      subjectTitle: 'null',
+    })
+    expect(describeNotification('APPROVAL_CONFIRMED', data, UK)).toBe(
+      'Іван — частка за проєктом null',
+    )
+  })
+
+  it('справжня відсутність назви (JS null) досі даёт "без назви"/"без назви"', () => {
+    const withProject = notificationDataSchemaFor('TRANSACTION_ADDED').parse({
+      amount: '10.00',
+      currency: 'USD',
+      projectName: null,
+    })
+    expect(describeNotification('TRANSACTION_ADDED', withProject, UK)).toBe('10,00 USD')
+    const withoutTitle = notificationDataSchemaFor('APPROVAL_CONFIRMED').parse({
+      approverName: 'Іван',
+      subjectKind: 'PROJECT',
+      subjectTitle: null,
+    })
+    expect(describeNotification('APPROVAL_CONFIRMED', withoutTitle, UK)).toBe(
+      'Іван — проєкт без назви',
+    )
   })
 })

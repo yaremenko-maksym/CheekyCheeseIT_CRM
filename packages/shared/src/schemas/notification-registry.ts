@@ -1,6 +1,6 @@
 import type { I18n, MessageDescriptor } from '@lingui/core'
 import { z } from 'zod'
-import { createI18n, formatMoney, type Locale } from '../i18n'
+import { formatMoney, type Locale } from '../i18n'
 
 /**
  * Реестр тринадцати типов уведомлений — позиция 6 плана
@@ -16,8 +16,17 @@ import { createI18n, formatMoney, type Locale } from '../i18n'
  * текстовый гейт.
  *
  * Поэтому ВЕСЬ текст живёт здесь, в одном файле, и рендерится на ЛОКАЛИ
- * читателя/получателя через `createI18n(locale)` — не хранится готовой
- * строкой ни в одном языке.
+ * читателя/получателя через уже построенный `I18n` (`createI18n(locale)` на
+ * сервере, активированный синглтон `apps/web/app/lib/i18n.ts` в браузере) —
+ * не хранится готовой строкой ни в одном языке.
+ *
+ * SR-H-1 (fix-раунд 1, PR #714): `describeNotification`/`notificationActions`/
+ * `renderNotification` принимают экземпляр `I18n`, а НЕ `locale` и НЕ зовут
+ * `createI18n()` сами. `createI18n()` требует `require()` (см. `catalog.ts`),
+ * и вызов ЭТОГО файла из браузера (`notifications-bell.tsx`) тянул `require`
+ * в веб-бандл — в браузере такого символа нет, попап падал у любого
+ * пользователя с уведомлением. Раз этот файл больше НЕ зовёт `createI18n`
+ * нигде, символ вытесняется tree-shaking'ом из веб-сборки целиком.
  *
  * Разделение труда с `notifications.ts`:
  *   - `notifications.ts` — DTO (что лежит в строке и что отдаёт API);
@@ -69,16 +78,22 @@ export const INFORMING_NOTIFICATION_TYPES = [
   'TEAM_NEW_MEMBER',
   // task-i18n-stage4-task6 (Step 3 плана): два из трёх замороженных типов
   // (инвойсы, вакансии) — сюда, а не в `ACTION_REQUIRED_NOTIFICATION_TYPES`.
-  // `INVOICE_SIGN_REQUIRED` семантически «требует действия» (контрагент
-  // обязан подписать), но его uk-заголовок («Рахунок очікує підпису», 22
-  // знака) не помещается в 19-знаковый бюджет попапа (COPY-H-1), которым
-  // проверен именно состав `ACTION_REQUIRED_NOTIFICATION_TYPES` (см. тест
-  // «три типа, требующие действия, помещаются в бюджет попапа целиком»).
-  // Плюс: для этих трёх типов `subjectType`/`subjectId` производитель не
-  // задаёт (остаются `null`) — оставить их «информирующими» не потеряло бы
-  // ничего в текущей проводке (`isEmailChannelLocked` на них не завязана).
-  // Допущение записано в PR body — блокировку почты для `INVOICE_SIGN_REQUIRED`
-  // разнести отдельной бизнес-задачей.
+  //
+  // COPY-M-2 (copy-review круг 1, #714): здесь стояло обоснование «19-знаковый
+  // бюджет попапа», и оно было неверным — измерено пикселями, а не знаками:
+  // `INVOICE_SIGN_REQUIRED` помещается в тот же бюджет попапа, что и заголовки
+  // `ACTION_REQUIRED_NOTIFICATION_TYPES` (см. COPY-M-1, заголовок сокращён до
+  // «Рахунок на підпис»). `INVOICE_SIGN_REQUIRED` семантически «требует
+  // действия» (контрагент обязан подписать), но кнопка письма у
+  // `ACTION_REQUIRED_NOTIFICATION_TYPES` ведёт на `/pending` — экран, где
+  // рахунків нет вовсе (там показываются только согласования). Переносить тип
+  // в эту группу значило бы либо заводить для рахунків отдельный маршрут на
+  // `/pending`, либо давать письму кнопку, ведущую в никуда — обе развилки
+  // архитектурные, не текстовые. Запирать ли канал почты для
+  // `INVOICE_SIGN_REQUIRED` (§3, `isEmailChannelLocked`) — тоже вопрос
+  // владельцу, не copy-review. В ЭТОМ PR почта для всех трёх замороженных
+  // типов исключена целиком (CR-M-1/SR-M-1) — вопрос маршрута/запирания
+  // остаётся открытым до отдельной бизнес-задачи.
   'VACANCY_APPLICATION',
   'INVOICE_SIGN_REQUIRED',
 ] as const
@@ -93,8 +108,8 @@ export const INFORMING_NOTIFICATION_TYPES = [
  * стоит первым словом заголовка, а «от вас ждут решения» говорит значок.
  *
  * task-i18n-stage4-task6: состав НЕ расширен тремя замороженными типами — см.
- * doc-комментарий на `INFORMING_NOTIFICATION_TYPES` выше (COPY-H-1's 19-знаковый
- * бюджет).
+ * doc-комментарий на `INFORMING_NOTIFICATION_TYPES` выше (COPY-M-2, #714:
+ * маршрут кнопки письма на `/pending`, не бюджет попапа — бюджет позволял бы).
  */
 export const ACTION_REQUIRED_NOTIFICATION_TYPES = [
   'PROJECT_CONFIRM_REQUIRED',
@@ -195,9 +210,11 @@ export const NOTIFICATION_TITLES: Record<NewNotificationType, string> = {
   APPROVAL_CONFIRMED: 'Предложение принято',
   APPROVAL_REJECTED: 'Предложение отклонено',
   // task-i18n-stage4-task6, Step 3: три замороженных типа — уже украинский
-  // текст, идентичный `NOTIFICATION_TITLE_MESSAGES` ниже.
+  // текст, идентичный `NOTIFICATION_TITLE_MESSAGES` ниже (COPY-M-1, #714:
+  // «Рахунок на підпис» — легаси-запись обновлена вместе с каноном, это тот
+  // же литерал, что producer кладёт напрямую в колонку `title`).
   INVOICE_SIGNED: 'Рахунок підписано',
-  INVOICE_SIGN_REQUIRED: 'Рахунок очікує підпису',
+  INVOICE_SIGN_REQUIRED: 'Рахунок на підпис',
   VACANCY_APPLICATION: 'Новий відгук на вакансію',
 }
 
@@ -232,9 +249,12 @@ export const NOTIFICATION_TITLE_MESSAGES: Record<NewNotificationType, MessageDes
     id: 'notification.TEAM_NEW_MEMBER.title',
     message: 'У команді новий учасник',
   },
+  // COPY-L-2 (copy-review круг 1, #714): «чекає», не «очікує» — навигация
+  // (`DRAFT`-статус проекта) уже говорит «Чекають рішення», второй глагол для
+  // того же состояния не заводим.
   PROJECT_CONFIRM_REQUIRED: /* i18n */ {
     id: 'notification.PROJECT_CONFIRM_REQUIRED.title',
-    message: 'Проєкт очікує рішення',
+    message: 'Проєкт чекає рішення',
   },
   SHARE_CONFIRM_REQUIRED: /* i18n */ {
     id: 'notification.SHARE_CONFIRM_REQUIRED.title',
@@ -256,9 +276,14 @@ export const NOTIFICATION_TITLE_MESSAGES: Record<NewNotificationType, MessageDes
     id: 'notification.INVOICE_SIGNED.title',
     message: 'Рахунок підписано',
   },
+  // COPY-M-1 (copy-review круг 1, #714): «Рахунок очікує підпису» не називала,
+  // ЧИЮ саме підпис чекають (легасі мало «ожидает вашей подписи»), а
+  // «Рахунок очікує вашого підпису» не поміщається в бюджет попапа (216px >
+  // 202). «Рахунок на підпис» — та сама конструкція, що вже є в
+  // `DOCUMENT_SIGN_REQUIRED` («Контракт на підпис»), коротше і не втрачає сенсу.
   INVOICE_SIGN_REQUIRED: /* i18n */ {
     id: 'notification.INVOICE_SIGN_REQUIRED.title',
-    message: 'Рахунок очікує підпису',
+    message: 'Рахунок на підпис',
   },
   VACANCY_APPLICATION: /* i18n */ {
     id: 'notification.VACANCY_APPLICATION.title',
@@ -408,7 +433,10 @@ const dataSchemas = {
   }),
   // task-i18n-stage4-task6, Step 4: три замороженных типа — те же потолки
   // защиты (SR-H-1), что у остальных десяти.
-  INVOICE_SIGNED: z.object({ counterpartyName: objectName }),
+  //
+  // COPY-M-4 (copy-review круг 1, #714): `...moneyFields` — сумма підписаного
+  // рахунку, деталь без неї не розрізняла кілька рахунків одного контрагента.
+  INVOICE_SIGNED: z.object({ counterpartyName: objectName, ...moneyFields }),
   INVOICE_SIGN_REQUIRED: z.object({ ...moneyFields }),
   VACANCY_APPLICATION: z.object({ vacancyTitle: objectName }),
 } satisfies Record<NewNotificationType, z.ZodType>
@@ -547,12 +575,18 @@ export const MISC_MESSAGES = {
   // COPY-H-3: «базова частка» — тот же принятый термин, что и `CONTEXT.md`
   // («Доля синьора» → «базова частка за замовчуванням»), «базов*» вычищено з
   // `apps/web` на #648, цей реєстр не повинен повернути його знову.
+  //
+  // SR-L-1 (security-review круг 1, #714): ветвление по ОТДЕЛЬНОМУ признаку
+  // `hasName` ('yes'|'no'), а не по значению самого `name` — проект/сущность,
+  // названные буквально строкой `"null"` (пользовательский ввод, `objectName`
+  // не запрещает это имя), раньше совпадали с ICU-веткой `null` и показывали
+  // «без назви» вместо настоящего имени.
   subjectPhrase: /* i18n */ {
     id: 'notification.subjectPhrase',
     message:
       '{kind, select, ' +
-      'PROJECT {проєкт {name, select, null {без назви} other {{name}}}} ' +
-      'PROJECT_SHARE {частка за проєктом {name, select, null {без назви} other {{name}}}} ' +
+      'PROJECT {проєкт {hasName, select, no {без назви} other {{name}}}} ' +
+      'PROJECT_SHARE {частка за проєктом {hasName, select, no {без назви} other {{name}}}} ' +
       'other {частка за замовчуванням}}',
   },
   // COPY-M-1: подпись кнопки для «админу» — зависит от вида объекта решения.
@@ -568,9 +602,13 @@ export const MISC_MESSAGES = {
     id: 'notification.subjectMissing.fallback',
     message: 'Цього більше немає в CRM',
   },
+  // COPY-L-3 (copy-review круг 1, #714): пять типизированных записей
+  // (`SUBJECT_ARCHIVED_LABELS` ниже) — конструкция «стан» («Проєкт в архіві»),
+  // а заглушка была «дія» («Це прибрано в архів») с вказівним «це» без
+  // референта. Приведено до тієї самої конструкції.
   subjectArchivedFallback: /* i18n */ {
     id: 'notification.subjectArchived.fallback',
-    message: 'Це прибрано в архів',
+    message: 'В архіві',
   },
   // ORCH-2 (fix-раунд 6, #664). COPY-M-9 (круг 3): «Решение больше не
   // требуется» / «Решение уже принято» — не «отозвано»: состояние выводится
@@ -603,13 +641,18 @@ function subjectPhrase(
   name: string | null,
   i18n: I18n,
 ): string {
-  return t(i18n, MISC_MESSAGES.subjectPhrase, { kind, name })
+  // SR-L-1: `hasName` selects the branch, `name` is substitution-only — see
+  // the doc comment on `MISC_MESSAGES.subjectPhrase`.
+  return t(i18n, MISC_MESSAGES.subjectPhrase, { kind, hasName: name === null ? 'no' : 'yes', name })
 }
 
 export const DETAIL_MESSAGES = {
+  // SR-L-1: `hasProject` selects the branch — see doc comment on
+  // `MISC_MESSAGES.subjectPhrase` for why (a project literally named `"null"`
+  // must not collapse into the no-project branch).
   TRANSACTION_ADDED: /* i18n */ {
     id: 'notification.TRANSACTION_ADDED.detail',
-    message: '{projectName, select, null {{money}} other {{money} · проєкт {projectName}}}',
+    message: '{hasProject, select, no {{money}} other {{money} · проєкт {projectName}}}',
   },
   TRANSACTION_STATUS_CHANGED_VALIDATED: /* i18n */ {
     id: 'notification.TRANSACTION_STATUS_CHANGED.validated',
@@ -643,9 +686,10 @@ export const DETAIL_MESSAGES = {
     id: 'notification.SHARE_CONFIRM_REQUIRED.base',
     message: 'Частка за замовчуванням: {change}',
   },
+  // SR-L-1: same `hasProject` fix as `TRANSACTION_ADDED` above.
   SHARE_CONFIRM_REQUIRED_PROJECT: /* i18n */ {
     id: 'notification.SHARE_CONFIRM_REQUIRED.project',
-    message: '{change} · проєкт {projectName, select, null {без назви} other {{projectName}}}',
+    message: '{change} · проєкт {hasProject, select, no {без назви} other {{projectName}}}',
   },
   APPROVAL_CONFIRMED: /* i18n */ {
     id: 'notification.APPROVAL_CONFIRMED.detail',
@@ -663,6 +707,13 @@ export const DETAIL_MESSAGES = {
     id: 'notification.VACANCY_APPLICATION.detail',
     message: 'Вакансія «{vacancyTitle}»',
   },
+  // COPY-M-4 (copy-review круг 1, #714): контрагент назван — а деталь не
+  // говорила, ЯКИЙ саме рахунок підписано. У контрагента з кількома
+  // рахунками це не розрізнити. §10 дозволяє цифри в попапі (не в письмі).
+  INVOICE_SIGNED: /* i18n */ {
+    id: 'notification.INVOICE_SIGNED.detail',
+    message: '{counterpartyName} · {money}',
+  },
 } satisfies Record<string, MessageDescriptor>
 
 /**
@@ -672,17 +723,17 @@ export const DETAIL_MESSAGES = {
  * признак ошибки. Попап пустую деталь не рисует (`notifications-bell.tsx`
  * проверяет `view.detail`), поэтому пустого `<p>` не появится.
  *
- * task-i18n-stage4-task6: сигнатура несёт `locale` — все ветки рендерятся
- * через ОДИН `createI18n(locale)`, созданный здесь же (не на каждое поле —
- * тот же приём, что `i18n` параметром в `notification-email-copy.ts`'s
- * `BODIES`, Task 7).
+ * task-i18n-stage4-task6: сигнатура несёт `i18n` (SR-H-1, fix-раунд 1 — НЕ
+ * `locale`, вызывающий строит `I18n` сам: сервер через `createI18n(locale)`,
+ * веб — свой активированный синглтон). `locale` для `money()`/цитат
+ * выводится из `i18n.locale`.
  */
 export function describeNotification<T extends NewNotificationType>(
   type: T,
   data: NotificationDataByType[T],
-  locale: Locale,
+  i18n: I18n,
 ): string | null {
-  const i18n = createI18n(locale)
+  const locale = i18n.locale as Locale
   switch (type) {
     case 'TRANSACTION_ADDED': {
       // COPY-H-6: полезное (сумма) вперёд, имя объекта — в хвост, где его не
@@ -690,6 +741,7 @@ export function describeNotification<T extends NewNotificationType>(
       const d = data as NotificationDataByType['TRANSACTION_ADDED']
       return t(i18n, DETAIL_MESSAGES.TRANSACTION_ADDED, {
         money: money(d, locale),
+        hasProject: d.projectName === null ? 'no' : 'yes',
         projectName: d.projectName,
       })
     }
@@ -746,6 +798,7 @@ export function describeNotification<T extends NewNotificationType>(
         ? t(i18n, DETAIL_MESSAGES.SHARE_CONFIRM_REQUIRED_BASE, { change })
         : t(i18n, DETAIL_MESSAGES.SHARE_CONFIRM_REQUIRED_PROJECT, {
             change,
+            hasProject: d.projectName === null ? 'no' : 'yes',
             projectName: d.projectName,
           })
     }
@@ -779,8 +832,14 @@ export function describeNotification<T extends NewNotificationType>(
     case 'INVOICE_SIGNED': {
       // §10: контрагент назван РОВНО один раз (не дублируется заголовком —
       // «Рахунок підписано» его не называет) — имя чистое, без обёртки.
+      //
+      // COPY-M-4 (copy-review круг 1, #714): сума додана — у контрагента з
+      // кількома рахунками деталь раніше не розрізняла, ЯКИЙ саме підписано.
       const d = data as NotificationDataByType['INVOICE_SIGNED']
-      return d.counterpartyName
+      return t(i18n, DETAIL_MESSAGES.INVOICE_SIGNED, {
+        counterpartyName: d.counterpartyName,
+        money: money(d, locale),
+      })
     }
     case 'INVOICE_SIGN_REQUIRED': {
       const d = data as NotificationDataByType['INVOICE_SIGN_REQUIRED']
@@ -892,6 +951,28 @@ function actionLabelFor(
 }
 
 /**
+ * Подпись кнопки для ветки «по сохранённой ссылке» (COPY-M-3, copy-review
+ * круг 1, #714). Зарегистрированный тип (кроме `APPROVAL_*` — у них своя
+ * подпись через `actionLabelFor`, эта ветка их не достигает по построению:
+ * `notificationActions` проверяет `subjectType`/`subjectId` раньше, а у
+ * `APPROVAL_CONFIRMED`/`APPROVAL_REJECTED` они всегда заданы) получает СВОЮ
+ * подпись из `ACTION_LABELS`, а не общее «Відкрити»/«Open» — иначе, например,
+ * «Рахунок очікує підпису» показывал кнопку без глагола ровно там, где от
+ * человека ждут действия. Незнакомый тип (легаси-десятка до реестра, тип из
+ * будущего) по-прежнему получает общее `MISC_MESSAGES.open`.
+ */
+function actionLabelForLink(type: string, i18n: I18n): string {
+  if (
+    isNewNotificationType(type) &&
+    type !== 'APPROVAL_CONFIRMED' &&
+    type !== 'APPROVAL_REJECTED'
+  ) {
+    return t(i18n, ACTION_LABELS[type])
+  }
+  return t(i18n, MISC_MESSAGES.open)
+}
+
+/**
  * COPY-M-4 (copy-review круг 1, #664): «Объекта больше нет» — слово из спеки,
  * которого нет в интерфейсе CRM. Вид объекта в момент показа уже известен
  * (`n.subjectType`), поэтому честность ничего не теряет от того, чтобы
@@ -984,11 +1065,7 @@ export type RenderableNotification = {
  * подтверждающего больше нет», а туда ведут четыре пути, и два из них — не
  * отзыв.
  */
-export function notificationActions(
-  n: RenderableNotification,
-  locale: Locale,
-): NotificationAction[] {
-  const i18n = createI18n(locale)
+export function notificationActions(n: RenderableNotification, i18n: I18n): NotificationAction[] {
   // §7.4: уведомление живёт дольше объекта. Честное «объекта больше нет»
   // вместо кнопки в белый экран.
   if (n.subjectMissing === true) {
@@ -1023,8 +1100,17 @@ export function notificationActions(
     ]
   }
   // Старые типы (и любой тип из будущего) ведут по сохранённой ссылке.
+  //
+  // COPY-M-3 (copy-review круг 1, #714): три замороженных типа (инвойсы,
+  // вакансии) не несут `subjectType`/`subjectId` (производитель их не
+  // задаёт — см. doc-комментарий на `INFORMING_NOTIFICATION_TYPES`), поэтому
+  // раньше ЛЮБОЙ зарегистрированный тип с одной лишь ссылкой попадал в общий
+  // «Відкрити»/«Open» — хотя `ACTION_LABELS` уже несёт для них подпись по
+  // делу («Підписати рахунок», «Відкрити рахунок», «Відкрити вакансію»).
+  // Незнакомый тип (легаси-десятка ДО реестра, или тип из будущего) по-прежнему
+  // получает общее «Відкрити»: `ACTION_LABELS` для него нет записи вовсе.
   if (n.link !== null) {
-    return [{ label: t(i18n, MISC_MESSAGES.open), href: n.link, disabled: false }]
+    return [{ label: actionLabelForLink(n.type, i18n), href: n.link, disabled: false }]
   }
   return []
 }
@@ -1040,24 +1126,22 @@ export type RenderedNotification = {
  * рендерится как ОБЫЧНОЕ уведомление по сохранённым заголовку и телу — попап
  * не падает.
  *
- * task-i18n-stage4-task6: `locale` — зрителя (`apps/web`) или получателя
- * (письмо, Task 7); никогда глобальный синглтон в модульной константе.
- * `createI18n(locale)` создаётся здесь ОДИН раз для заголовка;
- * `describeNotification`/`notificationActions` создают СВОИ (каждая функция —
- * самостоятельный публичный вызывающий сайт со своим локальным `i18n`).
+ * task-i18n-stage4-task6: `i18n` (SR-H-1, fix-раунд 1) — зрителя (`apps/web`,
+ * свой активированный синглтон) или получателя (письмо, Task 7,
+ * `createI18n(recipientLocale)`); никогда глобальный синглтон в модульной
+ * константе шаблонов, и никогда `createI18n()` внутри ЭТОГО файла —
+ * см. doc-комментарий вверху файла (SR-H-1). Один и тот же `i18n` передаётся
+ * во все три читающих сайта (`notificationActions`, `describeNotification`,
+ * заголовок здесь) — им незачем каждому строить свой.
  */
-export function renderNotification(
-  n: RenderableNotification,
-  locale: Locale,
-): RenderedNotification {
-  const actions = notificationActions(n, locale)
+export function renderNotification(n: RenderableNotification, i18n: I18n): RenderedNotification {
+  const actions = notificationActions(n, i18n)
   if (isNewNotificationType(n.type)) {
     const parsed = dataSchemas[n.type].safeParse(n.data)
     if (parsed.success) {
-      const i18n = createI18n(locale)
       return {
         title: t(i18n, NOTIFICATION_TITLE_MESSAGES[n.type]),
-        detail: describeNotification(n.type, parsed.data as never, locale),
+        detail: describeNotification(n.type, parsed.data as never, i18n),
         actions,
       }
     }

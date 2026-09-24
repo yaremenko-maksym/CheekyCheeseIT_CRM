@@ -37,12 +37,22 @@ msgstr "{approverName} — {subjectPhrase}"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.SHARE_CONFIRM_REQUIRED.project"
-msgstr "{change} · project {projectName, select, null {untitled} other {{projectName}}}"
+msgstr "{change} · project {hasProject, select, no {untitled} other {{projectName}}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.detail"
+msgstr "{counterpartyName} · {money}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.detail"
+msgstr "{hasProject, select, no {{money}} other {{money} · project {projectName}}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.subjectPhrase"
-msgstr "{kind, select, PROJECT {project {name, select, null {untitled} other {{name}}}} PROJECT_SHARE {share on project {name, select, null {untitled} other {{name}}}} other {default share}}"
+msgstr "{kind, select, PROJECT {project {hasName, select, no {untitled} other {{name}}}} PROJECT_SHARE {share on project {hasName, select, no {untitled} other {{name}}}} other {default share}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -53,11 +63,6 @@ msgstr "{memberName} · team {teamName}"
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
 msgstr "{pendingObligationCount, plural, one {# obligation} other {# obligations}}"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.TRANSACTION_ADDED.detail"
-msgstr "{projectName, select, null {{money}} other {{money} · project {projectName}}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -400,6 +405,11 @@ msgid "В активних стадіях"
 msgstr "In active stages"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.fallback"
+msgstr "Archived"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT"
 msgstr "One of the shares has no saved percentage — it can only be recalculated manually"
@@ -444,7 +454,7 @@ msgstr "{currency} can't be converted to USDT"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TRANSACTION_ADDED.title"
-msgstr "A transaction was added for you"
+msgstr "Transaction added for you"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -768,12 +778,12 @@ msgstr "Open invoice"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.TRANSACTION_ADDED"
-msgstr "Open finances"
+msgstr "Open Finance"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.TRANSACTION_STATUS_CHANGED"
-msgstr "Open finances"
+msgstr "Open Finance"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Відкриті співбесіди"
@@ -2436,14 +2446,14 @@ msgid "api-error.PROJECT_NOT_FOUND"
 msgstr "Project not found"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.PROJECT_CONFIRM_REQUIRED.title"
-msgstr "Project awaiting decision"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_ALREADY_ARCHIVED"
 msgstr "The project is already archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_CONFIRM_REQUIRED.title"
+msgstr "Project awaiting decision"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Проєкти"
@@ -2533,6 +2543,11 @@ msgid "api-error.FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN"
 msgstr "Only an admin or an accountant can see the company account"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGN_REQUIRED.title"
+msgstr "Invoice to sign"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_FOUND"
 msgstr "Invoice not found"
@@ -2541,11 +2556,6 @@ msgstr "Invoice not found"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_APPLICABLE_FOR_TX_TYPE"
 msgstr "An invoice isn't issued for this transaction type"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.INVOICE_SIGN_REQUIRED.title"
-msgstr "Invoice awaiting signature"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -3138,11 +3148,6 @@ msgstr "Transaction hash: 0x + 64 hex — or an Etherscan link"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE"
 msgstr "This isn't a company obligation"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.subjectArchived.fallback"
-msgstr "Moved to archive"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts

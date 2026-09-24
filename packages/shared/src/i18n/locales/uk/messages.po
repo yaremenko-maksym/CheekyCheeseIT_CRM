@@ -37,12 +37,22 @@ msgstr "{approverName} — {subjectPhrase}"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.SHARE_CONFIRM_REQUIRED.project"
-msgstr "{change} · проєкт {projectName, select, null {без назви} other {{projectName}}}"
+msgstr "{change} · проєкт {hasProject, select, no {без назви} other {{projectName}}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.detail"
+msgstr "{counterpartyName} · {money}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.detail"
+msgstr "{hasProject, select, no {{money}} other {{money} · проєкт {projectName}}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.subjectPhrase"
-msgstr "{kind, select, PROJECT {проєкт {name, select, null {без назви} other {{name}}}} PROJECT_SHARE {частка за проєктом {name, select, null {без назви} other {{name}}}} other {частка за замовчуванням}}"
+msgstr "{kind, select, PROJECT {проєкт {hasName, select, no {без назви} other {{name}}}} PROJECT_SHARE {частка за проєктом {hasName, select, no {без назви} other {{name}}}} other {частка за замовчуванням}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -53,11 +63,6 @@ msgstr "{memberName} · команда {teamName}"
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
 msgstr "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.TRANSACTION_ADDED.detail"
-msgstr "{projectName, select, null {{money}} other {{money} · проєкт {projectName}}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -398,6 +403,11 @@ msgstr "Бухгалтер не обирає, хто отримує дохід �
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "В активних стадіях"
 msgstr "В активних стадіях"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.fallback"
+msgstr "В архіві"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2436,14 +2446,14 @@ msgid "api-error.PROJECT_NOT_FOUND"
 msgstr "Проєкт не знайдено"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.PROJECT_CONFIRM_REQUIRED.title"
-msgstr "Проєкт очікує рішення"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_ALREADY_ARCHIVED"
 msgstr "Проєкт уже заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_CONFIRM_REQUIRED.title"
+msgstr "Проєкт чекає рішення"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Проєкти"
@@ -2533,6 +2543,11 @@ msgid "api-error.FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN"
 msgstr "Рахунок компанії бачать лише адміністратор і бухгалтер"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGN_REQUIRED.title"
+msgstr "Рахунок на підпис"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_FOUND"
 msgstr "Рахунок не знайдено"
@@ -2541,11 +2556,6 @@ msgstr "Рахунок не знайдено"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_APPLICABLE_FOR_TX_TYPE"
 msgstr "Рахунок не передбачений для цього типу транзакції"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.INVOICE_SIGN_REQUIRED.title"
-msgstr "Рахунок очікує підпису"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -3138,11 +3148,6 @@ msgstr "Хеш транзакції: 0x + 64 hex — або посилання �
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE"
 msgstr "Це не зобов’язання компанії"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.subjectArchived.fallback"
-msgstr "Це прибрано в архів"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
