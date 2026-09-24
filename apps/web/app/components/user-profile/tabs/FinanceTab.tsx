@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Search, Wallet, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { Role, TransactionDto, TotalEarnedDto } from '@crm/shared'
 import { totalEarnedSchema } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -26,9 +27,6 @@ import {
 import { TransactionRow } from '@/routes/_authenticated/finance/components/TransactionRow'
 import { TransactionDetailDialog } from '@/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog'
 
-const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }))
-const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))
-
 /**
  * Finance tab inside the user profile.
  *
@@ -45,6 +43,7 @@ const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ 
 const EARNED_TARGET_ROLES: ReadonlyArray<Role> = ['SENIOR', 'DROP', 'JUNIOR', 'HR']
 
 export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?: Role }) {
+  const { t } = useLingui()
   const { user: viewer } = useAuth()
   const role = viewer?.role ?? ''
   const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
@@ -91,6 +90,21 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   const [typeFilter, setTypeFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
+
+  // task-i18n-stage3b (Task 1), Step 7 — moved off the module level: `wave (d)`
+  // still owns `finance/constants.ts` and its two legacy Russian maps
+  // (`TYPE_LABELS`/`STATUS_LABELS`) — this wave reads them as-is (see plan's
+  // "Опасность: карты финансов"), only the derived array now lives inside the
+  // component so a future locale-aware `TYPE_LABELS` doesn't need a module-
+  // level freeze here.
+  const TYPE_OPTIONS = useMemo(
+    () => Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label })),
+    [],
+  )
+  const STATUS_OPTIONS = useMemo(
+    () => Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
+    [],
+  )
 
   // Pre-parse timestamps once per transactions change — avoids constructing new
   // Date objects on every comparison in sort (O(N log N) × 2 Date() → O(N) once).
@@ -146,10 +160,10 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             </span>
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Всего заработано с нами
+                <Trans>Усього виплачено цій людині</Trans>
               </p>
               <p className="text-xs text-muted-foreground/70">
-                Накопленные выплаты компании за всё время
+                <Trans>Сума всіх розрахунків з нею за весь час</Trans>
               </p>
             </div>
           </div>
@@ -176,7 +190,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
                 type="search"
                 enterKeyHint="search"
                 className="h-8 pl-8 text-sm"
-                placeholder="Поиск…"
+                placeholder={t`Пошук…`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 disabled={isLoading}
@@ -184,10 +198,12 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter} disabled={isLoading}>
               <SelectTrigger className="h-8 text-xs w-auto min-w-32 max-w-44">
-                <SelectValue placeholder="Все типы" />
+                <SelectValue placeholder={t`Усі типи`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все типы</SelectItem>
+                <SelectItem value="all">
+                  <Trans>Усі типи</Trans>
+                </SelectItem>
                 {TYPE_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>
                     {o.label}
@@ -197,10 +213,12 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter} disabled={isLoading}>
               <SelectTrigger className="h-8 text-xs w-auto min-w-32 max-w-44">
-                <SelectValue placeholder="Все статусы" />
+                <SelectValue placeholder={t`Усі статуси`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
+                <SelectItem value="all">
+                  <Trans>Усі статуси</Trans>
+                </SelectItem>
                 {STATUS_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>
                     {o.label}
@@ -219,7 +237,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
                   setStatusFilter('all')
                 }}
               >
-                <X className="h-3.5 w-3.5" /> Сбросить
+                <X className="h-3.5 w-3.5" /> <Trans>Скинути</Trans>
               </Button>
             )}
           </div>
@@ -229,12 +247,24 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
-                    <th className="py-3 px-4 text-left font-medium">Тип</th>
-                    <th className="py-3 px-4 text-left font-medium">Участник / Проект</th>
-                    <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                    <th className="py-3 px-4 text-left font-medium">Дата</th>
-                    <th className="py-3 px-4 text-left font-medium">Статус</th>
-                    <th className="py-3 px-4 text-left font-medium">Действия</th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Тип</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Учасник / Проєкт</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Сума</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Дата</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Статус</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Дії</Trans>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -250,23 +280,41 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             </div>
           ) : !isLoading && transactions.length === 0 ? (
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Транзакций пока нет
+              <Trans>Транзакцій поки немає</Trans>
             </CardContent>
           ) : filtered.length === 0 ? (
+            // M-5 (task-i18n-stage3b, Step 7): `hasActive ? … : 'Нет данных'`
+            // removed — the `!hasActive` branch is unreachable here: when no
+            // filter is active `filtered === transactions` (see `filtered`'s
+            // own `useMemo`), so an EMPTY `filtered` with `!hasActive` implies
+            // `transactions.length === 0`, which the branch above already
+            // caught. One canon text for the one reachable case.
             <div className="py-14 text-center text-sm text-muted-foreground">
-              {hasActive ? 'Ничего не найдено' : 'Нет данных'}
+              <Trans>Нічого не знайдено — скиньте фільтри</Trans>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
-                    <th className="py-3 px-4 text-left font-medium">Тип</th>
-                    <th className="py-3 px-4 text-left font-medium">Участник / Проект</th>
-                    <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                    <th className="py-3 px-4 text-left font-medium">Дата</th>
-                    <th className="py-3 px-4 text-left font-medium">Статус</th>
-                    <th className="py-3 px-4 text-left font-medium">Действия</th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Тип</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Учасник / Проєкт</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Сума</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Дата</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Статус</Trans>
+                    </th>
+                    <th className="py-3 px-4 text-left font-medium">
+                      <Trans>Дії</Trans>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>

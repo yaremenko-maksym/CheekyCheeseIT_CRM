@@ -16,8 +16,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { Role, TotalEarnedDto } from '@crm/shared'
+import type { Role, TotalEarnedDto, TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const TARGET_ID = 'fe000000-0000-4000-8000-000000000001'
 
@@ -60,6 +62,13 @@ vi.mock('@crm/shared', () => ({
     }).format(n)
     return `${body} ${currency}`
   },
+  // task-i18n-stage3b (Task 1): `@/lib/i18n.ts`'s `activateLocale()` (used by
+  // `loadCatalog()` below, so the component's own `useLingui()`/`<Trans>`
+  // resolve instead of throwing without an `I18nProvider`) reads these two
+  // directly — vitest's mock is exact-shape, not permissive-undefined, so an
+  // omitted export throws at the call site, not silently.
+  LOCALE_COOKIE_NAME: 'pref_locale',
+  DEFAULT_LOCALE: 'uk' as const,
 }))
 
 // financeApi.getTransactions is only used on the non-privileged branch; stub it
@@ -97,13 +106,15 @@ function renderTab(targetRole: Role) {
     <QueryClientProvider client={qc}>
       <FinanceTab userId={TARGET_ID} targetRole={targetRole} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 
 describe('FinanceTab — «Всего заработано» card', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     viewerRole = 'ADMIN'
     getMock.mockReset()
+    await loadCatalog('uk')
     // Default: total-earned returns the figure; transactions endpoint returns [].
     getMock.mockImplementation((url: string) => {
       if (url.includes('/balances/total-earned/')) return Promise.resolve({ data: EARNED })
@@ -126,7 +137,7 @@ describe('FinanceTab — «Всего заработано» card', () => {
       expect(screen.getByTestId('total-earned-card')).toBeInTheDocument()
     })
     expect(screen.getByTestId('total-earned-amount')).toHaveTextContent('12')
-    expect(screen.getByText('Всего заработано с нами')).toBeInTheDocument()
+    expect(screen.getByText('Усього виплачено цій людині')).toBeInTheDocument()
   })
 
   it('ACCOUNTANT viewer on JUNIOR profile sees the card', async () => {
@@ -173,5 +184,54 @@ describe('FinanceTab — «Всего заработано» card', () => {
       String(c[0]).includes('/balances/total-earned/'),
     )
     expect(earnedCalls).toHaveLength(0)
+  })
+})
+
+// task-i18n-stage3b (Task 1), Step 7 (M-5): `hasActive ? 'Ничего не найдено' :
+// 'Нет данных'` collapsed to one canon text — the `!hasActive` branch was
+// unreachable (see the comment on the ternary's removal in FinanceTab.tsx).
+// This is the one REACHABLE case the mutation gate needs a live assertion
+// for: transactions exist, but the active filter matches none of them.
+describe('FinanceTab — filtered-empty state (M-5)', () => {
+  it('a search that matches nothing shows the canon "no matches" text, with transactions present', async () => {
+    viewerRole = 'ADMIN'
+    getMock.mockImplementation((url: string) => {
+      if (url.includes('/balances/total-earned/')) return Promise.resolve({ data: EARNED })
+      if (url.includes('/users/') && url.endsWith('/transactions')) {
+        const tx: Partial<TransactionDto> = {
+          id: 'tx-1',
+          type: 'PAYOUT',
+          status: 'PAID',
+          senderId: 'admin-1',
+          receiverId: TARGET_ID,
+          senderName: 'Admin One',
+          receiverName: 'Target Senior',
+          senderLabel: null,
+          receiverLabel: null,
+          projectName: null,
+          notes: null,
+          txDate: '2026-01-10T00:00:00.000Z',
+          createdAt: '2026-01-10T00:00:00.000Z',
+        }
+        return Promise.resolve({ data: [tx] })
+      }
+      if (url.includes('/finance/exchange-rate'))
+        return Promise.resolve({ data: { usdUah: '41.5', eurUah: '44.8' } })
+      return Promise.resolve({ data: [] })
+    })
+
+    renderTab('SENIOR')
+    const user = userEvent.setup()
+    // The search input is `disabled={isLoading}` — wait for it to become
+    // enabled before typing, or the keystrokes land on a disabled input and
+    // `value` silently stays empty (TransactionRow is stubbed to `null`
+    // above, so there is no row text to wait on instead).
+    const search = await screen.findByPlaceholderText('Пошук…')
+    await waitFor(() => expect(search).not.toBeDisabled())
+    await user.type(search, 'zzz-no-such-transaction')
+
+    await waitFor(() => {
+      expect(screen.getByText('Нічого не знайдено — скиньте фільтри')).toBeInTheDocument()
+    })
   })
 })
