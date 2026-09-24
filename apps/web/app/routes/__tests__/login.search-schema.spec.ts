@@ -102,17 +102,20 @@ describe('login route ERROR_MESSAGES — every code resolves to real copy on uk 
     expect(Object.keys(ERROR_MESSAGES).sort()).toEqual([...EXPECTED_CODES].sort())
   })
 
-  it.each(EXPECTED_CODES)('ERROR_MESSAGES.%s resolves to non-empty text on uk and en', async (code) => {
-    await loadCatalog('uk')
-    const uk = i18n._(ERROR_MESSAGES[code])
-    expect(uk.length).toBeGreaterThan(0)
+  it.each(EXPECTED_CODES)(
+    'ERROR_MESSAGES.%s resolves to non-empty text on uk and en',
+    async (code) => {
+      await loadCatalog('uk')
+      const uk = i18n._(ERROR_MESSAGES[code])
+      expect(uk.length).toBeGreaterThan(0)
 
-    await loadCatalog('en')
-    const en = i18n._(ERROR_MESSAGES[code])
-    expect(en.length).toBeGreaterThan(0)
-    // The two locales must actually differ — catches a mutant (or a missed
-    // translation) that leaves the en catalog falling back to the uk source
-    // text for this specific code.
-    expect(en).not.toBe(uk)
-  })
+      await loadCatalog('en')
+      const en = i18n._(ERROR_MESSAGES[code])
+      expect(en.length).toBeGreaterThan(0)
+      // The two locales must actually differ — catches a mutant (or a missed
+      // translation) that leaves the en catalog falling back to the uk source
+      // text for this specific code.
+      expect(en).not.toBe(uk)
+    },
+  )
 })

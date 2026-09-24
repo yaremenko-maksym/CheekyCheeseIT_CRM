@@ -59,7 +59,9 @@ export class TelemetryErrorBoundary extends Component<
           <Trans>Щось пішло не так</Trans>
         </p>
         <p className="max-w-sm text-sm text-muted-foreground">
-          <Trans>Сталася непередбачена помилка. Ми вже знаємо про неї — спробуйте оновити сторінку.</Trans>
+          <Trans>
+            Сталася непередбачена помилка. Ми вже знаємо про неї — спробуйте оновити сторінку.
+          </Trans>
         </p>
         <Button onClick={this.handleReload}>
           <Trans>Оновити сторінку</Trans>

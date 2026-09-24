@@ -445,7 +445,10 @@ export function extractBackendMessage(err: unknown): string | undefined {
  *   // "Зарплата для этого сотрудника за выбранный месяц уже создана"
  *   // "salaryMonth: Format YYYY-MM"
  */
-export function getApiErrorMessage(err: unknown, fallback = i18n._(UNKNOWN_ERROR_FALLBACK)): string {
+export function getApiErrorMessage(
+  err: unknown,
+  fallback = i18n._(UNKNOWN_ERROR_FALLBACK),
+): string {
   if (err === null || err === undefined) return fallback
   if (typeof err !== 'object') return fallback
 
