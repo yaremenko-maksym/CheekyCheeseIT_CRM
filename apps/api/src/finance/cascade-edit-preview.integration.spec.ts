@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common'
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray, sql } from 'drizzle-orm'

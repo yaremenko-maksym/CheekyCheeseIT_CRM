@@ -13,7 +13,7 @@
  *   - settleByDrop / listDropObligations removed — no tests for them.
  *   - Edge: already-settled obligation → 400; non-existent obligation → 404.
  */
-import { BadRequestException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
