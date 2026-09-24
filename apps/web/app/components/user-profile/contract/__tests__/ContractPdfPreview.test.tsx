@@ -10,6 +10,7 @@ import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ContractPdfPreview } from '../ContractPdfPreview'
 
 // Note: this component mounts a real `<iframe src={blobUrl}>`. happy-dom would
@@ -48,12 +49,13 @@ const mockToastError = toast.error as ReturnType<typeof vi.fn>
 const originalCreateObjectURL = URL.createObjectURL
 const originalRevokeObjectURL = URL.revokeObjectURL
 
-beforeEach(() => {
+beforeEach(async () => {
   URL.createObjectURL = vi.fn().mockReturnValue(FAKE_BLOB_URL)
   URL.revokeObjectURL = vi.fn()
   mockRevoke.mockReset()
   mockToastError.mockReset()
   mockFetch.mockReset()
+  await loadCatalog('uk')
 })
 
 afterEach(() => {
@@ -65,9 +67,11 @@ afterEach(() => {
 
 function renderPreview(isDirty = false, userId = 'user-uuid') {
   return render(
-    <TooltipProvider>
-      <ContractPdfPreview userId={userId} isDirty={isDirty} />
-    </TooltipProvider>,
+    <I18nTestProvider>
+      <TooltipProvider>
+        <ContractPdfPreview userId={userId} isDirty={isDirty} />
+      </TooltipProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -88,7 +92,7 @@ describe('ContractPdfPreview', () => {
     await waitFor(() => {
       // Found by its accessible title (ContractPdfPreview.tsx sets one) instead
       // of document.querySelector — task-lint-teeth.
-      const iframe = screen.getByTitle('Предварительный просмотр контракта')
+      const iframe = screen.getByTitle('Попередній перегляд контракту')
       expect(iframe).toBeInTheDocument()
       expect(iframe).toHaveAttribute('src', expect.stringContaining('blob:'))
     })
@@ -105,7 +109,7 @@ describe('ContractPdfPreview', () => {
       expect(screen.getByTestId('contract-pdf-error')).toBeInTheDocument()
     })
 
-    expect(mockToastError).toHaveBeenCalledWith('Не удалось загрузить PDF предпросмотра.')
+    expect(mockToastError).toHaveBeenCalledWith('Не вдалося завантажити попередній перегляд PDF')
   })
 
   it('shows 429 throttle toast when fetch returns 429 response error', async () => {
@@ -117,7 +121,7 @@ describe('ContractPdfPreview', () => {
     renderPreview()
 
     await waitFor(() => {
-      expect(mockToastError).toHaveBeenCalledWith('Слишком часто. Подождите минуту.')
+      expect(mockToastError).toHaveBeenCalledWith('Забагато спроб — зачекайте хвилину')
     })
     expect(screen.getByTestId('contract-pdf-error')).toBeInTheDocument()
   })
@@ -201,9 +205,11 @@ describe('ContractPdfPreview', () => {
     })
 
     const { rerender } = render(
-      <TooltipProvider>
-        <ContractPdfPreview userId="user-1" isDirty={false} />
-      </TooltipProvider>,
+      <I18nTestProvider>
+        <TooltipProvider>
+          <ContractPdfPreview userId="user-1" isDirty={false} />
+        </TooltipProvider>
+      </I18nTestProvider>,
     )
 
     await act(async () => {
@@ -214,9 +220,11 @@ describe('ContractPdfPreview', () => {
 
     // Change userId — triggers new fetch, old controller should be aborted
     rerender(
-      <TooltipProvider>
-        <ContractPdfPreview userId="user-2" isDirty={false} />
-      </TooltipProvider>,
+      <I18nTestProvider>
+        <TooltipProvider>
+          <ContractPdfPreview userId="user-2" isDirty={false} />
+        </TooltipProvider>
+      </I18nTestProvider>,
     )
 
     await act(async () => {
@@ -287,7 +295,7 @@ describe('ContractPdfPreview', () => {
     await user.click(downloadBtn)
 
     await waitFor(() => {
-      expect(mockToastError).toHaveBeenCalledWith('Не удалось скачать PDF.')
+      expect(mockToastError).toHaveBeenCalledWith('Не вдалося завантажити PDF')
     })
   })
 
@@ -309,7 +317,7 @@ describe('ContractPdfPreview', () => {
     await user.click(downloadBtn)
 
     await waitFor(() => {
-      expect(mockToastError).toHaveBeenCalledWith('Слишком часто. Подождите минуту.')
+      expect(mockToastError).toHaveBeenCalledWith('Забагато спроб — зачекайте хвилину')
     })
   })
 })

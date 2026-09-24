@@ -2,6 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import {
   contractActionState,
   useSaveContractBody,
@@ -61,7 +62,11 @@ const MOCK_CONTRACT = {
 
 function makeWrapper(qc: QueryClient) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    return React.createElement(QueryClientProvider, { client: qc }, children)
+    return React.createElement(
+      I18nTestProvider,
+      null,
+      React.createElement(QueryClientProvider, { client: qc }, children),
+    )
   }
 }
 
@@ -70,6 +75,8 @@ function makeQC() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
 }
+
+beforeEach(() => loadCatalog('uk'))
 
 describe('contractActionState', () => {
   it('DRAFT: editable, Save + MarkReady + Reset visible, Revert hidden', () => {

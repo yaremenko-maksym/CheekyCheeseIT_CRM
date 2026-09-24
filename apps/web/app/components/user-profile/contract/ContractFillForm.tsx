@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Loader2, User, Building2, Zap, Sliders } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import type { ContractVariableInfo, ContractVariablesResponse } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,17 +27,18 @@ const SOURCE_ICON: Record<ContractVariableInfo['source'], React.ReactNode> = {
   unknown: <Sliders className="h-3 w-3 text-muted-foreground" />,
 }
 
-const SOURCE_LABEL: Record<ContractVariableInfo['source'], string> = {
-  user: 'Карточка сотрудника',
-  company: 'Константы компании',
-  auto: 'Авто',
-  custom: 'Кастомная',
-  unknown: 'Неизвестно',
-}
+const SOURCE_LABEL: Record<ContractVariableInfo['source'], MessageDescriptor> = {
+  user: msg`Картка співробітника`,
+  company: msg`Константи компанії`,
+  auto: msg`Авто`,
+  custom: msg`Кастомна`,
+  unknown: msg`Невідомо`,
+} satisfies Record<ContractVariableInfo['source'], MessageDescriptor>
 
 // ─── AutoFilledRow ─────────────────────────────────────────────────────────────
 
 function AutoFilledRow({ variable }: { variable: ContractVariableInfo }) {
+  const { i18n } = useLingui()
   return (
     <div
       className="rounded-md px-2.5 py-2 hover:bg-muted/30 transition-colors"
@@ -48,7 +52,7 @@ function AutoFilledRow({ variable }: { variable: ContractVariableInfo }) {
           </code>
           <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
             {SOURCE_ICON[variable.source]}
-            {SOURCE_LABEL[variable.source]}
+            {i18n._(SOURCE_LABEL[variable.source])}
           </span>
         </div>
 
@@ -58,7 +62,7 @@ function AutoFilledRow({ variable }: { variable: ContractVariableInfo }) {
             className="shrink-0 border-amber-500/50 text-amber-600 dark:text-amber-400 text-[10px] h-5 px-1.5"
             data-testid={`auto-var-empty-${variable.key}`}
           >
-            Не заполнено
+            <Trans>Не заповнено</Trans>
           </Badge>
         ) : (
           <div
@@ -66,7 +70,7 @@ function AutoFilledRow({ variable }: { variable: ContractVariableInfo }) {
             data-testid={`auto-var-filled-${variable.key}`}
           >
             <CheckCircle2 className="h-3 w-3" />
-            Заполнено
+            <Trans>Заповнено</Trans>
           </div>
         )}
       </div>
@@ -107,6 +111,7 @@ export interface ContractFillFormProps {
 // ─── ContractFillForm ──────────────────────────────────────────────────────────
 
 export function ContractFillForm({ userId, savedCustomValues, onReady }: ContractFillFormProps) {
+  const { t } = useLingui()
   const variablesQuery = useContractVariables(userId)
   const saveCustomMutation = useSaveContractCustomValues(userId)
   const markReadyMutation = useMarkContractReady(userId)
@@ -203,7 +208,7 @@ export function ContractFillForm({ userId, savedCustomValues, onReady }: Contrac
   if (variablesQuery.error || !data) {
     return (
       <p className="text-sm text-destructive" data-testid="contract-fill-form-error">
-        Не удалось загрузить переменные контракта.
+        <Trans>Не вдалося завантажити змінні контракту</Trans>
       </p>
     )
   }
@@ -219,7 +224,7 @@ export function ContractFillForm({ userId, savedCustomValues, onReady }: Contrac
       {autoVariables.length > 0 && (
         <div>
           <p className="mb-1.5 px-1 text-xs font-semibold text-foreground">
-            Автоматически заполнено
+            <Trans>Заповнено автоматично</Trans>
           </p>
           <div className="space-y-0.5 rounded-md border border-border/50 bg-muted/20 p-1">
             {autoVariables.map((v) => (
@@ -232,7 +237,9 @@ export function ContractFillForm({ userId, savedCustomValues, onReady }: Contrac
       {/* Section: custom variables that require manual input */}
       {customVariables.length > 0 && (
         <div>
-          <p className="mb-1.5 px-1 text-xs font-semibold text-foreground">Требует заполнения</p>
+          <p className="mb-1.5 px-1 text-xs font-semibold text-foreground">
+            <Trans>Потребує заповнення</Trans>
+          </p>
           <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
             {customVariables.map((v) => {
               const val = resolveCustomValue(v.key)
@@ -246,7 +253,7 @@ export function ContractFillForm({ userId, savedCustomValues, onReady }: Contrac
                     {v.label}
                     {isEmpty && (
                       <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400">
-                        обязательно
+                        <Trans>обов’язково</Trans>
                       </span>
                     )}
                   </Label>
@@ -258,7 +265,7 @@ export function ContractFillForm({ userId, savedCustomValues, onReady }: Contrac
                     }
                     placeholder={
                       data.customVariables.find((cv) => cv.key === v.key)?.defaultValue ??
-                      `Введите ${v.label.toLowerCase()}`
+                      t`Введіть ${v.label.toLowerCase()}`
                     }
                     className={
                       isEmpty
@@ -295,13 +302,13 @@ export function ContractFillForm({ userId, savedCustomValues, onReady }: Contrac
                   ) : (
                     <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                   )}
-                  Готов к подписанию
+                  <Trans>Готовий до підписання</Trans>
                 </Button>
               </span>
             </TooltipTrigger>
             {isBlocked && (
               <TooltipContent side="top" className="max-w-xs text-xs">
-                Заполните все обязательные поля
+                <Trans>Заповніть усі обов’язкові поля</Trans>
               </TooltipContent>
             )}
           </Tooltip>
@@ -313,7 +320,7 @@ export function ContractFillForm({ userId, savedCustomValues, onReady }: Contrac
             data-testid="all-fields-ready-indicator"
           >
             <CheckCircle2 className="h-3.5 w-3.5" />
-            Все поля заполнены
+            <Trans>Усі поля заповнено</Trans>
           </span>
         )}
       </div>

@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import type { EmployeeContractDto, EmployeeContractStatus } from '@crm/shared'
 import { contractVariablesResponseSchema, employeeContractSchema } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 
 // ─── Action state ─────────────────────────────────────────────────────────────
 
@@ -96,6 +98,7 @@ export function useEmployeeContract(userId: string | undefined) {
 
 /** PATCH /api/users/:id/contract — save body markdown. DRAFT only. */
 export function useSaveContractBody(userId: string) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (bodyMarkdown: string) => {
@@ -106,14 +109,14 @@ export function useSaveContractBody(userId: string) {
       await qc.invalidateQueries({ queryKey: contractKeys.detail(userId) })
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Не удалось сохранить контракт: ${msg}`)
+      toast.error(getApiErrorMessage(err, t`Не вдалося зберегти контракт`))
     },
   })
 }
 
 /** POST /api/users/:id/contract/ready — DRAFT → READY_TO_SIGN. */
 export function useMarkContractReady(userId: string) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => {
@@ -124,14 +127,14 @@ export function useMarkContractReady(userId: string) {
       await qc.invalidateQueries({ queryKey: contractKeys.detail(userId) })
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Не удалось отметить готовым: ${msg}`)
+      toast.error(getApiErrorMessage(err, t`Не вдалося позначити готовим`))
     },
   })
 }
 
 /** POST /api/users/:id/contract/revert — READY_TO_SIGN | SIGNED → DRAFT. */
 export function useRevertContract(userId: string) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => {
@@ -145,14 +148,14 @@ export function useRevertContract(userId: string) {
       ])
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Не удалось вернуть в черновик: ${msg}`)
+      toast.error(getApiErrorMessage(err, t`Не вдалося повернути в чернетку`))
     },
   })
 }
 
 /** POST /api/users/:id/contract/reset — re-derive body from active template. DRAFT only. */
 export function useResetContractToTemplate(userId: string) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => {
@@ -166,8 +169,7 @@ export function useResetContractToTemplate(userId: string) {
       ])
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Не удалось сбросить к шаблону: ${msg}`)
+      toast.error(getApiErrorMessage(err, t`Не вдалося скинути до шаблону`))
     },
   })
 }
@@ -221,6 +223,7 @@ export function useContractVariables(userId: string) {
  * On success: invalidates both the contract query and variables query.
  */
 export function useSaveContractCustomValues(userId: string) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (customValues: Record<string, string>) => {
@@ -236,8 +239,7 @@ export function useSaveContractCustomValues(userId: string) {
       ])
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Не удалось сохранить значения переменных: ${msg}`)
+      toast.error(getApiErrorMessage(err, t`Не вдалося зберегти значення змінних`))
     },
   })
 }

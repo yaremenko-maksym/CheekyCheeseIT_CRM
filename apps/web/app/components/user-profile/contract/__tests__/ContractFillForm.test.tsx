@@ -14,6 +14,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import type { ContractVariablesResponse } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,9 @@ const mockUseContractVariables = useContractVariables as ReturnType<typeof vi.fn
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const Wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
   )
   return Wrapper
 }
@@ -76,8 +79,9 @@ function makeVariablesResponse(
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('ContractFillForm — AutoFilledRow displays resolved values', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
+    await loadCatalog('uk')
   })
 
   it('renders the real resolved value for a filled company variable', async () => {

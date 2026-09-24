@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
+import { Trans } from '@lingui/react/macro'
 import type { ContractVariableInfo } from '@crm/shared'
 
 interface MissingFieldsBannerProps {
@@ -24,13 +25,13 @@ export function MissingFieldsBanner({ missingVariables, userId }: MissingFieldsB
     >
       <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-        Необходимо заполнить перед генерацией
+        <Trans>Потрібно заповнити перед генерацією</Trans>
       </div>
 
       {profileVars.length > 0 && (
         <div className="space-y-1">
           <p className="text-[11px] text-amber-700/80 dark:text-amber-400/70">
-            Из карточки сотрудника (заполните в профиле):
+            <Trans>З картки співробітника (заповніть у профілі):</Trans>
           </p>
           <ul className="space-y-0.5 pl-2">
             {profileVars.map((v) => (
@@ -50,7 +51,7 @@ export function MissingFieldsBanner({ missingVariables, userId }: MissingFieldsB
             className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:no-underline"
             data-testid="fill-in-profile-link"
           >
-            Заполнить в профиле →
+            <Trans>Заповнити в профілі →</Trans>
           </a>
         </div>
       )}
@@ -58,7 +59,7 @@ export function MissingFieldsBanner({ missingVariables, userId }: MissingFieldsB
       {customVars.length > 0 && (
         <div className="space-y-1">
           <p className="text-[11px] text-amber-700/80 dark:text-amber-400/70">
-            Кастомные переменные (заполните ниже):
+            <Trans>Кастомні змінні (заповніть нижче):</Trans>
           </p>
           <ul className="space-y-0.5 pl-2">
             {customVars.map((v) => (
