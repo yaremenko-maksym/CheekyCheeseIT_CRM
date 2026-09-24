@@ -104,172 +104,50 @@ describe('ArchiveConfirmDialog — fetch + loading', () => {
   })
 })
 
-describe('ArchiveConfirmDialog — renderImpactText: user/SENIOR+DROP cascade pair', () => {
-  it.each(['SENIOR', 'DROP'] as const)(
-    'role=%s renders the pair-cascade copy with its OWN role word (not borrowed)',
-    async (role) => {
-      mockGet({
-        type: 'user',
-        role,
-        teamName: 'Alpha Team',
-        projectsCount: 2,
-        projectNames: ['Project A', 'Project B'],
-        hrAccountantsOnTeam: 3,
-        juniorsAffected: 4,
-      })
-      renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy Kovalenko' })
-
-      const dialog = await screen.findByRole('dialog')
-      await screen.findByText(/пов’язана пара/)
-      const text = dialog.textContent ?? ''
-      expect(text).toContain('Oleksiy Kovalenko')
-      expect(text).toContain('Alpha Team')
-      // few-form (2): "2 проєкти", not "2 проєкт"/"2 проєктів"
-      expect(text).toContain('2 проєкти')
-      expect(text).toContain('Project A, Project B')
-      // few-form (3): "3 HR/бухгалтери"
-      expect(text).toContain('3 HR/бухгалтери')
-      // few-form (4): "4 джуніори" (uk: n%10 in 2..4 and n%100 not in
-      // 12..14) — not the raw JUNIOR enum, not "джун"
-      expect(text).toContain('4 джуніори')
-      expect(text).not.toContain('JUNIOR')
-      expect(text).toContain(role === 'SENIOR' ? 'сеньйора' : 'дропа')
-      expect(text).toContain(role === 'SENIOR' ? 'сеньйор+команда' : 'дроп+команда')
-      // Pins the `{' '}` JSX whitespace nodes between adjacent <Trans>
-      // blocks / around the conditional teamName clause — a Stryker
-      // StringLiteral mutant turning `{' '}` into `{""}` joins two words
-      // with no space, invisible to a plain `.toContain(word)` check.
-      expect(text).toContain('Kovalenko та команда')
-      expect(text).toContain('» — пов’язана пара')
-      expect(text).toContain('стосується. Відновлення')
-      // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary between
-      // the two sibling blocks themselves (block1's closing ").", block2's
-      // opening "HR/бухгалтери") — a Stryker StringLiteral mutant on this
-      // specific `{' '}` joins them with no space at all, distinct from
-      // the whitespace nodes pinned above (those are all INSIDE block1).
-      expect(text).toContain('). HR/бухгалтери')
-    },
-  )
-
-  // task-i18n-stage3a fix-round 3 (COPY-M-13): a SENIOR/DROP with no team
-  // attached is NOT "a linked pair" — the old single-message version
-  // substituted an empty ternary into a sentence that claimed a pair/team
-  // regardless, which was false when `teamName` was absent. The component
-  // now renders a plain single-entity message instead; these three tests
-  // cover that branch.
-  it('SENIOR without a teamName renders the plain single-entity message, not the pair/team wording', async () => {
-    mockGet({ type: 'user', role: 'SENIOR', teamName: null, projectsCount: 1 })
-    renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy' })
-
-    const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/буде архівований разом із усіма своїми проєктами/)
-    const text = dialog.textContent ?? ''
-    expect(text).not.toContain('пов’язана пара')
-    expect(text).not.toContain('та команда')
-    expect(text).toContain('Oleksiy буде архівований')
-    expect(text).toContain('1 проєкт)')
-  })
-
-  it('no-team branch: projectsCount defaults to 0 (many-form "0 проєктів") when the field is absent', async () => {
-    mockGet({ type: 'user', role: 'SENIOR', teamName: null })
-    renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy' })
-
-    const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/буде архівований разом із усіма своїми проєктами/)
-    expect(dialog.textContent ?? '').toContain('0 проєктів')
-  })
-
-  it('no-team branch: projectNames render the same "): X, Y" suffix as the has-team branch', async () => {
+// task-i18n-stage3b (Task 2 / PR2), Step 2: the seven user-role branches
+// this dialog used to own (SENIOR+DROP pair-cascade, HR, ACCOUNTANT, JUNIOR,
+// ADMIN, both no-team sub-cases) moved verbatim into
+// `components/archive/UserArchiveImpact.tsx` — that file's own test suite
+// (`archive/__tests__/UserArchiveImpact.test.tsx`) now owns per-role/locale
+// text coverage. What THIS dialog still needs its own test for is only the
+// delegation itself: entityType='user' renders `<UserArchiveImpact>` with
+// the right `entityName`/`impact` props, picked out by its stable testids.
+describe('ArchiveConfirmDialog — renderImpactText: user delegates to UserArchiveImpact', () => {
+  it('user/SENIOR (with team) renders via UserArchiveImpact — testid + name + team text present', async () => {
     mockGet({
       type: 'user',
-      role: 'DROP',
-      teamName: null,
+      role: 'SENIOR',
+      teamName: 'Alpha Team',
       projectsCount: 2,
       projectNames: ['Project A', 'Project B'],
+      hrAccountantsOnTeam: 3,
+      juniorsAffected: 4,
     })
-    renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Ihor' })
+    renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy Kovalenko' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/буде архівований разом із усіма своїми проєктами/)
-    expect(dialog.textContent ?? '').toContain('Project A, Project B')
+    const block = await within(dialog).findByTestId('archive-warning-senior')
+    expect(within(block).getByTestId('archive-confirm-user-name')).toHaveTextContent(
+      'Oleksiy Kovalenko',
+    )
+    expect(block.textContent).toContain('Alpha Team')
   })
 
-  it('has-team branch: teamName is always shown (no more conditional clause) and one-form (1) renders singular "1 проєкт" / "1 HR/бухгалтер" / "1 джуніор"', async () => {
-    mockGet({
-      type: 'user',
-      role: 'DROP',
-      teamName: 'Team X',
-      projectsCount: 1,
-      hrAccountantsOnTeam: 1,
-      juniorsAffected: 1,
-    })
-    renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Ihor' })
-
-    const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/пов’язана пара/)
-    const text = dialog.textContent ?? ''
-    expect(text).toContain('Ihor та команда «Team X»')
-    expect(text).toContain('1 проєкт)')
-    expect(text).toContain('1 HR/бухгалтер)')
-    expect(text).toContain('1 джуніор)')
-  })
-})
-
-describe('ArchiveConfirmDialog — renderImpactText: user/HR and user/ACCOUNTANT', () => {
-  it('HR: teamsCount pluralizes and copy mentions the HR role, not ACCOUNTANT', async () => {
+  it('user/HR renders via UserArchiveImpact — testid archive-warning-hr', async () => {
     mockGet({ type: 'user', role: 'HR', teamsCount: 5 })
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Nina' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/буде архівований і прибраний/)
-    const text = dialog.textContent ?? ''
-    // many-form (5): "5 команд"
-    expect(text).toContain('5 команд')
-    expect(text).toContain('роль HR')
-    expect(text).not.toContain('бухгалтерська роль')
-    // `{' '}` boundaries: "з" -> plural count, and count -> "(роль HR)".
-    expect(text).toContain('Nina буде архівований і прибраний з 5 команд')
-    expect(text).toContain('5 команд (роль HR)')
+    expect(await within(dialog).findByTestId('archive-warning-hr')).toBeInTheDocument()
   })
 
-  it('ACCOUNTANT: same teamsCount field, DIFFERENT wording ("бухгалтерська роль")', async () => {
-    mockGet({ type: 'user', role: 'ACCOUNTANT', teamsCount: 2 })
-    renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Olena' })
-
-    const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/буде архівований і прибраний/)
-    const text = dialog.textContent ?? ''
-    // few-form (2): "2 команди"
-    expect(text).toContain('2 команди')
-    expect(text).toContain('бухгалтерська роль')
-    expect(text).not.toContain('роль HR')
-    expect(text).toContain('Olena буде архівований і прибраний з 2 команди')
-    expect(text).toContain('2 команди (бухгалтерська роль)')
-  })
-})
-
-describe('ArchiveConfirmDialog — renderImpactText: user/JUNIOR and user/ADMIN', () => {
-  it('JUNIOR: projectsCount pluralizes as "активні проєкти", no cascade wording', async () => {
-    mockGet({ type: 'user', role: 'JUNIOR', projectsCount: 3 })
-    renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Petro' })
-
-    const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/буде архівований і прибраний/)
-    const text = dialog.textContent ?? ''
-    // few-form (3): "3 активні проєкти"
-    expect(text).toContain('3 активні проєкти')
-    expect(text).not.toContain('пов’язана пара')
-    // `{' '}` boundary: "з" -> plural count.
-    expect(text).toContain('Petro буде архівований і прибраний з 3 активні проєкти')
-  })
-
-  it('ADMIN: static no-dependencies copy, ignores impact numeric fields entirely', async () => {
+  it('user/ADMIN renders via UserArchiveImpact — testid archive-warning-admin', async () => {
     mockGet({ type: 'user', role: 'ADMIN' })
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Root Admin' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/Нічого\s*пов’язаного архівувати не треба/)
-    expect(dialog.textContent ?? '').toContain('Root Admin')
+    const block = await within(dialog).findByTestId('archive-warning-admin')
+    expect(block.textContent).toContain('Root Admin')
   })
 })
 

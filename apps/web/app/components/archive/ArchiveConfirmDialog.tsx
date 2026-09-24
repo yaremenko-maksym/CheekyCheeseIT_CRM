@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { msg, select } from '@lingui/core/macro'
+import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import {
@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useArchiveImpact, useArchiveEntity, type EntityType } from '@/hooks/use-archive'
 import type { ArchiveImpact } from '@crm/shared'
 import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePendingTransactionsList'
+import { UserArchiveImpact } from '@/components/archive/UserArchiveImpact'
 
 /**
  * Per-entity dialog titles. The team variant has a drop-team sibling that
@@ -27,14 +28,6 @@ const TITLE_MESSAGES: Record<EntityType, MessageDescriptor> = {
   team: msg`Архівувати команду`,
   project: msg`Архівувати проєкт`,
 }
-
-// task-i18n-stage3a (Task 1), Step 6, fix-round 1 (SPEC-H-2): the old
-// `ROLE_RU: Record<string, string>` had no `DROP` entry — a call site
-// keying it by a live `role` value would silently fall through to
-// `undefined` for DROP, or (worse) another call site could copy-paste
-// `.SENIOR` and read the SENIOR word for a DROP entity. Removed; each
-// call site below picks its own word directly via `select()`, so DROP
-// gets its OWN form rather than borrowing SENIOR's.
 
 /**
  * Builds the role-aware warning text shown above the confirmation input.
@@ -53,160 +46,7 @@ function renderImpactText(
     )
 
   if (entityType === 'user' && impact.type === 'user') {
-    const role = impact.role
-    // task-archive-pending-modal (AC7/AC9, owner decision 2026-08-19): SENIOR
-    // and DROP cascade команда+проекты as one operation; HR/ACCOUNTANT on the
-    // team and JUNIOR on the projects keep their membership and keep earning
-    // off their own `archivedAt` — the cascade never touches it.
-    if (role === 'SENIOR' || role === 'DROP') {
-      const projectNames = impact.projectNames ?? []
-
-      // task-i18n-stage3a fix-round 3 (COPY-M-13): `teamName` is nullable
-      // in `archiveImpactSchema` — a SENIOR/DROP with no team attached is
-      // NOT "a linked pair" and has no team-mates to warn about. The old
-      // single-message version substituted an empty ternary into a
-      // sentence that claimed a pair/team either way, which was false
-      // whenever `teamName` was absent. Branch explicitly instead.
-      if (!impact.teamName) {
-        return (
-          <Trans>
-            <strong className="text-foreground">{entityName}</strong> буде архівований разом із
-            усіма своїми проєктами (
-            <Plural
-              value={impact.projectsCount ?? 0}
-              one="# проєкт"
-              few="# проєкти"
-              many="# проєктів"
-              other="# проєктів"
-            />
-            {projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''}
-            ).
-          </Trans>
-        )
-      }
-
-      // Template E (select, 2 variants used inline — no `other` reachable
-      // through this guard, but the macro's signature still requires one).
-      // Stryker disable next-line ObjectLiteral: Lingui's babel macro needs
-      // this options object to stay a literal it can statically read at
-      // compile time — replacing it with `{}` (the ObjectLiteral mutator)
-      // makes the macro transform itself throw ("props is not iterable"),
-      // failing BEFORE any test runs. Not a coverage gap — the mutation is
-      // unrepresentable for this macro's call shape (same reasoning as
-      // DropDashboard.tsx's plural() call).
-      const roleGenitive = select(role, {
-        SENIOR: 'сеньйора',
-        DROP: 'дропа',
-        // Stryker disable next-line StringLiteral: unreachable inside this
-        // `role === 'SENIOR' || role === 'DROP'` guard (see the
-        // ObjectLiteral note above) — this branch's own string content is
-        // never rendered by any real call site or test.
-        other: 'співробітника',
-      })
-      // Stryker disable next-line ObjectLiteral,StringLiteral: same ObjectLiteral reasoning as the roleGenitive select() above (macro needs a literal object), and `other` here is the same structurally-unreachable branch as roleGenitive's own `other` a few lines up.
-      const pairWord = select(role, { SENIOR: 'сеньйор', DROP: 'дроп', other: 'співробітник' })
-      return (
-        <>
-          <Trans>
-            <strong className="text-foreground">{entityName}</strong> та команда «
-            <strong>{impact.teamName}</strong>» — пов’язана пара, прибрати по одному не можна. В
-            архів підуть: профіль {roleGenitive}, команда і всі її проєкти (
-            <Plural
-              value={impact.projectsCount ?? 0}
-              one="# проєкт"
-              few="# проєкти"
-              many="# проєктів"
-              other="# проєктів"
-            />
-            {projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''}
-            ).
-          </Trans>{' '}
-          <Trans>
-            HR/бухгалтери в команді (
-            <Plural
-              value={impact.hrAccountantsOnTeam ?? 0}
-              one="# HR/бухгалтер"
-              few="# HR/бухгалтери"
-              many="# HR/бухгалтерів"
-              other="# HR/бухгалтерів"
-            />
-            ) і джуніори на цих проєктах (
-            <Plural
-              value={impact.juniorsAffected ?? 0}
-              one="# джуніор"
-              few="# джуніори"
-              many="# джуніорів"
-              other="# джуніорів"
-            />
-            ) залишаються активними учасниками і продовжують отримувати оплату — архівація
-            команди/проєктів їх не стосується.
-          </Trans>{' '}
-          <Trans>
-            Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати
-            окремо.
-          </Trans>
-        </>
-      )
-    }
-    if (role === 'HR') {
-      return (
-        <Trans>
-          <strong className="text-foreground">{entityName}</strong> буде архівований і прибраний з{' '}
-          <strong>
-            <Plural
-              value={impact.teamsCount ?? 0}
-              one="# команда"
-              few="# команди"
-              many="# команд"
-              other="# команд"
-            />
-          </strong>{' '}
-          (роль HR). Самі команди залишаться активними.
-        </Trans>
-      )
-    }
-    if (role === 'ACCOUNTANT') {
-      return (
-        <Trans>
-          <strong className="text-foreground">{entityName}</strong> буде архівований і прибраний з{' '}
-          <strong>
-            <Plural
-              value={impact.teamsCount ?? 0}
-              one="# команда"
-              few="# команди"
-              many="# команд"
-              other="# команд"
-            />
-          </strong>{' '}
-          (бухгалтерська роль). Самі команди залишаться активними.
-        </Trans>
-      )
-    }
-    if (role === 'JUNIOR') {
-      return (
-        <Trans>
-          <strong className="text-foreground">{entityName}</strong> буде архівований і прибраний з{' '}
-          <strong>
-            <Plural
-              value={impact.projectsCount ?? 0}
-              one="# активний проєкт"
-              few="# активні проєкти"
-              many="# активних проєктів"
-              other="# активних проєктів"
-            />
-          </strong>
-          . Самі проєкти залишаться активними.
-        </Trans>
-      )
-    }
-    if (role === 'ADMIN') {
-      return (
-        <Trans>
-          <strong className="text-foreground">{entityName}</strong> буде архівований. Нічого
-          пов’язаного архівувати не треба.
-        </Trans>
-      )
-    }
+    return <UserArchiveImpact entityName={entityName} impact={impact} />
   }
 
   // task-archive-pending-modal (AC9): archiving a team means archiving the
@@ -306,7 +146,7 @@ function renderImpactText(
           />
         </strong>{' '}
         будуть відв’язані. Сеньйор і команда <strong>не</strong> будуть архівовані. Фінансова
-        історія (транзакції, інвойси) залишається доступною.
+        історія (транзакції, рахунки) залишається доступною.
       </Trans>
     )
   }
