@@ -253,6 +253,22 @@ describe('SORT_OPTION_MESSAGES', () => {
     expect(dateDesc && i18n._(dateDesc.label)).toBe('Newest first')
   })
 
+  // Mutation-gate gap-fill: the assertion above only ever resolves
+  // 'date_desc' — every OTHER entry's `msg` template was a StringLiteral
+  // mutant with zero test reaching it (Stryker: "Survived").
+  it('resolves every remaining entry to its own uk text', async () => {
+    await loadCatalog('uk')
+    const resolve = (value: (typeof SORT_OPTION_MESSAGES)[number]['value']) => {
+      const entry = SORT_OPTION_MESSAGES.find((o) => o.value === value)
+      return entry && i18n._(entry.label)
+    }
+    expect(resolve('date_asc')).toBe('Спочатку старі')
+    expect(resolve('name_asc')).toBe('За ім’ям: за зростанням')
+    expect(resolve('name_desc')).toBe('За ім’ям: за спаданням')
+    expect(resolve('size_desc')).toBe('Розмір: більше')
+    expect(resolve('size_asc')).toBe('Розмір: менше')
+  })
+
   it('leaves the legacy SORT_OPTIONS export untouched (type: string, Russian text)', () => {
     expect(SORT_OPTIONS.find((o) => o.value === DEFAULT_SORT)?.label).toBe('Сначала новые')
     for (const opt of SORT_OPTIONS) expect(typeof opt.label).toBe('string')

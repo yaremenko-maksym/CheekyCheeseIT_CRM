@@ -25,6 +25,9 @@ const UNITS: Record<Locale, readonly string[]> = {
 
 export function formatBytes(bytes: number, locale: Locale): string {
   const units = UNITS[locale]
+  // Stryker disable next-line EqualityOperator: bytes===0 is equivalent under
+  // < and <=, both fall through to the next branch and return "0 <unit>" —
+  // no assertion can distinguish `bytes < 0` from `bytes <= 0` here.
   if (!Number.isFinite(bytes) || bytes < 0) return `0 ${units[0]}`
   if (bytes < 1024) return `${bytes} ${units[0]}`
 

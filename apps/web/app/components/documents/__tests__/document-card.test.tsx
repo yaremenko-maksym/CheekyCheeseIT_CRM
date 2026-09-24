@@ -129,3 +129,20 @@ describe('DocumentCard — pending signature badge', () => {
     expect(screen.queryByTestId('document-card-pending-signature')).toBeNull()
   })
 })
+
+// task-i18n-stage3a (Task 2) — mutation-gate gap-fill: `sizeBytes > 0 ?
+// formatBytes(...) : '—'` had no test on either branch.
+describe('DocumentCard — size cell', () => {
+  it('sizeBytes > 0 renders the locale-formatted size', async () => {
+    renderCard(makeInvoiceDoc({ sizeBytes: 1024 }))
+    const card = await screen.findByTestId('document-card')
+    expect(card).toHaveTextContent('1,0 КБ')
+  })
+
+  it('sizeBytes === 0 renders the placeholder dash, not "0 Б"', async () => {
+    renderCard(makeInvoiceDoc({ sizeBytes: 0 }))
+    const card = await screen.findByTestId('document-card')
+    expect(card).toHaveTextContent('—')
+    expect(card).not.toHaveTextContent('Б')
+  })
+})

@@ -165,6 +165,23 @@ describe('DocumentRow — statusBadge (PR-2)', () => {
   })
 })
 
+// task-i18n-stage3a (Task 2) — mutation-gate gap-fill: `sizeBytes > 0 ?
+// formatBytes(...) : '—'` had no test on either branch.
+describe('DocumentRow — size cell', () => {
+  it('sizeBytes > 0 renders the locale-formatted size', async () => {
+    renderRow(baseDoc({ sizeBytes: 1024 }))
+    const row = await screen.findByTestId('document-row')
+    expect(row).toHaveTextContent('1,0 КБ')
+  })
+
+  it('sizeBytes === 0 renders the placeholder dash, not "0 Б"', async () => {
+    renderRow(baseDoc({ sizeBytes: 0 }))
+    const row = await screen.findByTestId('document-row')
+    expect(row).toHaveTextContent('—')
+    expect(row).not.toHaveTextContent('Б')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Uploader link — DROP viewer gating (task-drop-profile-lockdown)
 // ---------------------------------------------------------------------------
