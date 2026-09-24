@@ -424,12 +424,19 @@ describe('getUserFacingErrorMessage', () => {
   })
 
   // Every status this task explicitly names: 415 unsupported format, 413
-  // too large, 401/403 no access, 5xx our side.
+  // too large, 401/403 no access, 409 stale conflict, 429 rate limit, 5xx
+  // our side. 409/429 (task-i18n-stage3a Task 3, Step 4 — mutation gate
+  // found both StringLiteral mutants surviving: the ONLY other place `409`
+  // appears in this file feeds a real `data.message`, so it never reaches
+  // `STATUS_MESSAGES[409]` at all) — this row is the only coverage either
+  // status entry has.
   it.each([
     [415, 'формат'],
     [413, 'великий'],
     [401, 'увійти'],
     [403, 'прав'],
+    [409, 'конфлікт'],
+    [429, 'забагато'],
     [500, 'нашій стороні'],
     [503, 'нашій стороні'],
   ])(
