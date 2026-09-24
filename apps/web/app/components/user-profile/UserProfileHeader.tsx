@@ -1,12 +1,15 @@
 import { CalendarDays, Camera, KanbanSquare, Mail, MailPlus, Phone, Send } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { UserProfileDto } from '@crm/shared'
+import { formatDate } from '@crm/shared'
 import { UserAvatar } from '@/components/users/UserAvatar'
-import { ROLE_LABELS } from '@/components/ui/role-select'
+import { useRoleLabel } from '@/components/ui/role-select'
 import { hasRealPhone } from '@/lib/format-phone'
 import { safeTelegramHref } from '@/lib/tg-url'
+import { useLocale } from '@/lib/i18n'
 
 const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
   ADMIN: 'admin',
@@ -34,6 +37,9 @@ export function UserProfileHeader({
   showCreatedAt = true,
   showInterviewsLink = false,
 }: UserProfileHeaderProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
+  const roleLabel = useRoleLabel(user.role)
   const avatarBody = (
     <UserAvatar
       avatarDocumentId={user.avatarDocumentId}
@@ -62,12 +68,12 @@ export function UserProfileHeader({
           type="button"
           onClick={onAvatarClick}
           className="group relative shrink-0 rounded-full ring-offset-background transition-shadow hover:ring-2 hover:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          aria-label="Изменить аватар"
+          aria-label={t`Змінити аватар`}
         >
           {avatarBody}
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
             <Camera className="h-12 w-12 text-white" strokeWidth={1.5} aria-hidden />
-            <span className="sr-only">Изменить аватар</span>
+            <span className="sr-only">{t`Змінити аватар`}</span>
           </span>
         </button>
       ) : (
@@ -77,7 +83,7 @@ export function UserProfileHeader({
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="truncate text-2xl font-bold">{user.displayName}</h1>
-          <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>{ROLE_LABELS[user.role]}</Badge>
+          <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>{roleLabel}</Badge>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -130,7 +136,7 @@ export function UserProfileHeader({
               <a
                 href={`mailto:${user.personalEmail}`}
                 className="inline-flex min-w-0 items-start gap-1.5 wrap-anywhere underline-offset-4 hover:text-foreground hover:underline transition-colors"
-                title="Личный email"
+                title={t`особистий email`}
               >
                 <MailPlus className="h-4 w-4 shrink-0" />
                 {user.personalEmail}
@@ -147,7 +153,7 @@ export function UserProfileHeader({
                   className="shrink-0 text-xs"
                   data-testid="personal-email-not-confirmed-badge"
                 >
-                  не подтверждён
+                  <Trans>не підтверджено</Trans>
                 </Badge>
               )}
             </span>
@@ -192,12 +198,7 @@ export function UserProfileHeader({
           <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
             <CalendarDays className="h-3.5 w-3.5" />
             <span>
-              Зарегистрирован{' '}
-              {new Date(user.createdAt).toLocaleDateString('ru-RU', {
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric',
-              })}
+              <Trans>Дата реєстрації: {formatDate(user.createdAt, locale, 'long')}</Trans>
             </span>
           </div>
         )}
@@ -208,7 +209,7 @@ export function UserProfileHeader({
           <Link to="/interviews" search={{ seniorId: user.id }}>
             <Button variant="outline" size="sm" className="gap-2">
               <KanbanSquare className="h-4 w-4" />
-              Доска собеседований
+              <Trans>Дошка співбесід</Trans>
             </Button>
           </Link>
         )}

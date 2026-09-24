@@ -7,9 +7,10 @@
  * pin before/while changing an existing render path).
  */
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { UserProfileDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { UserProfileHeader } from '../UserProfileHeader'
 
 // Stub TanStack Router Link — no router context available in unit tests.
@@ -54,14 +55,38 @@ function makeUser(overrides: Partial<UserProfileDto> = {}): UserProfileDto {
   }
 }
 
+beforeEach(() => loadCatalog('uk'))
+
+// RAW_ROLE — task-i18n-stage3b (Task 1), Step 2: after the role badge moves
+// off the legacy `ROLE_LABELS` map onto `ROLE_LABEL_MESSAGES`, this asserts
+// no consumer of `UserProfileHeader` can leak the raw `Role` enum into the
+// rendered screen on either locale.
+const RAW_ROLE = /\b(ADMIN|SENIOR|JUNIOR|ACCOUNTANT|DROP)\b/
+
+describe('role badge comes from ROLE_LABEL_MESSAGES (task-i18n-stage3b)', () => {
+  it.each([
+    ['uk', 'SENIOR', 'Сеньйор'],
+    ['uk', 'DROP', 'Дроп'],
+    ['en', 'SENIOR', 'Senior'],
+    ['en', 'ADMIN', 'Admin'],
+  ] as const)('%s: %s badge reads %s and no raw enum leaks', async (locale, role, label) => {
+    await loadCatalog(locale)
+    const { container } = render(<UserProfileHeader user={makeUser({ role })} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(container.textContent ?? '').not.toMatch(RAW_ROLE)
+  })
+})
+
 // task-i18n-stage2-task8 (audit §2, COPY-H-ppl-4): the local ROLE_LABELS map
 // this component used to carry had no DROP entry, and the `?? user.role`
 // fallback silently printed the raw enum on a drop's own profile. Now
-// sourced from the canonical `ROLE_LABELS` (`@/components/ui/role-select`),
+// sourced from the canonical `ROLE_LABEL_MESSAGES` (`@/components/ui/role-select`),
 // which has all six roles.
 describe('UserProfileHeader — role label (audit COPY-H-ppl-4)', () => {
   it('shows the DROP role label from the shared map', () => {
-    render(<UserProfileHeader user={makeUser({ role: 'DROP' })} />)
+    render(<UserProfileHeader user={makeUser({ role: 'DROP' })} />, { wrapper: I18nTestProvider })
     expect(screen.getByText('Дроп')).toBeInTheDocument()
   })
 
@@ -72,7 +97,7 @@ describe('UserProfileHeader — role label (audit COPY-H-ppl-4)', () => {
   // variant's own class (badge.tsx), not shared with any other variant used
   // on this component.
   it("DROP badge falls back to the 'outline' variant (no dedicated color yet)", () => {
-    render(<UserProfileHeader user={makeUser({ role: 'DROP' })} />)
+    render(<UserProfileHeader user={makeUser({ role: 'DROP' })} />, { wrapper: I18nTestProvider })
     expect(screen.getByText('Дроп')).toHaveClass('border-border')
   })
 })
@@ -82,20 +107,24 @@ describe('UserProfileHeader — telegram link (code-review round 2)', () => {
   // (task-lint-teeth) — same guarantees, asserted the way the link is actually
   // perceived rather than through DOM ancestry.
   it('valid handle renders as a clickable https://t.me/ link', () => {
-    render(<UserProfileHeader user={makeUser({ telegram: '@armghyan' })} />)
+    render(<UserProfileHeader user={makeUser({ telegram: '@armghyan' })} />, {
+      wrapper: I18nTestProvider,
+    })
     const link = screen.getByRole('link', { name: '@armghyan' })
     expect(link).toHaveAttribute('href', 'https://t.me/armghyan')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
   it('invalid telegram value stays plain, non-clickable text', () => {
-    render(<UserProfileHeader user={makeUser({ telegram: 'not a real handle!!' })} />)
+    render(<UserProfileHeader user={makeUser({ telegram: 'not a real handle!!' })} />, {
+      wrapper: I18nTestProvider,
+    })
     expect(screen.getByText('not a real handle!!')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'not a real handle!!' })).toBeNull()
   })
 
   it('renders no t.me link when telegram is null', () => {
-    render(<UserProfileHeader user={makeUser({ telegram: null })} />)
+    render(<UserProfileHeader user={makeUser({ telegram: null })} />, { wrapper: I18nTestProvider })
     expect(screen.queryByRole('link', { name: /t\.me/i })).not.toBeInTheDocument()
     expect(
       screen
@@ -109,13 +138,17 @@ describe('UserProfileHeader — telegram link (code-review round 2)', () => {
 // to the work email — zero prior coverage for this render path.
 describe('UserProfileHeader — personalEmail (§4.4)', () => {
   it('renders a mailto: link for the personal address when set', () => {
-    render(<UserProfileHeader user={makeUser({ personalEmail: 'ivan.personal@gmail.com' })} />)
+    render(<UserProfileHeader user={makeUser({ personalEmail: 'ivan.personal@gmail.com' })} />, {
+      wrapper: I18nTestProvider,
+    })
     const link = screen.getByRole('link', { name: 'ivan.personal@gmail.com' })
     expect(link).toHaveAttribute('href', 'mailto:ivan.personal@gmail.com')
   })
 
   it('renders nothing for the personal address when null (the common case)', () => {
-    render(<UserProfileHeader user={makeUser({ personalEmail: null })} />)
+    render(<UserProfileHeader user={makeUser({ personalEmail: null })} />, {
+      wrapper: I18nTestProvider,
+    })
     expect(screen.queryByRole('link', { name: 'ivan.personal@gmail.com' })).not.toBeInTheDocument()
   })
 
@@ -124,16 +157,17 @@ describe('UserProfileHeader — personalEmail (§4.4)', () => {
       <UserProfileHeader
         user={makeUser({ email: 'ivan@work.com', personalEmail: 'ivan.personal@gmail.com' })}
       />,
+      { wrapper: I18nTestProvider },
     )
     const workLink = screen.getByRole('link', { name: 'ivan@work.com' })
     expect(workLink).toHaveAttribute('href', 'mailto:ivan@work.com')
   })
 })
 
-// task-user-emails-invite (spec §5): the "не подтверждён" status badge next
+// task-user-emails-invite (spec §5): the "не підтверджено" status badge next
 // to the personal address — zero prior coverage for this render path.
 describe('UserProfileHeader — personal-email invite status badge', () => {
-  it('shows "не подтверждён" when personalEmailCanLogin is false', () => {
+  it('shows "не підтверджено" when personalEmailCanLogin is false', () => {
     render(
       <UserProfileHeader
         user={makeUser({
@@ -142,9 +176,10 @@ describe('UserProfileHeader — personal-email invite status badge', () => {
           personalEmailCanLogin: false,
         })}
       />,
+      { wrapper: I18nTestProvider },
     )
     expect(screen.getByTestId('personal-email-not-confirmed-badge')).toHaveTextContent(
-      'не подтверждён',
+      'не підтверджено',
     )
   })
 
@@ -157,12 +192,15 @@ describe('UserProfileHeader — personal-email invite status badge', () => {
           personalEmailCanLogin: true,
         })}
       />,
+      { wrapper: I18nTestProvider },
     )
     expect(screen.queryByTestId('personal-email-not-confirmed-badge')).not.toBeInTheDocument()
   })
 
   it('hides the badge when there is no personal address at all', () => {
-    render(<UserProfileHeader user={makeUser({ personalEmail: null })} />)
+    render(<UserProfileHeader user={makeUser({ personalEmail: null })} />, {
+      wrapper: I18nTestProvider,
+    })
     expect(screen.queryByTestId('personal-email-not-confirmed-badge')).not.toBeInTheDocument()
   })
 })
