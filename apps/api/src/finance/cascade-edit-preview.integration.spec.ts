@@ -657,7 +657,15 @@ describe.skipIf(!hasDatabaseUrl())(
     it('nonexistent id → NotFoundException', async () => {
       await expect(
         svc.getEditCascadePreview(randomUUID(), 2000, ADMIN_MAKSYM),
-      ).rejects.toBeInstanceOf(NotFoundException)
+        // i18n stage 4 Task 2: fetchWritableTransactionOrThrow now throws
+        // apiError('FINANCE_TRANSACTION_NOT_FOUND', ...) — a plain
+        // HttpException, not a NotFoundException instance (lesson 14).
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_TRANSACTION_NOT_FOUND',
+          statusCode: 404,
+        }),
+      })
     })
 
     // ── AC8 — guard 1 (PAYOUT family) — blocked in the PLAN, not a throw ─────

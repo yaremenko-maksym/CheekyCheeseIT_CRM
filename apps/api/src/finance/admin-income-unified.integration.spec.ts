@@ -340,7 +340,12 @@ describe.skipIf(!hasDatabaseUrl())(
           },
           ADMIN_MAKSYM,
         ),
-      ).rejects.toThrow(/declareUsdtProjectIncome/)
+        // i18n stage 4 Task 2: refusal text no longer names the alternate
+        // route directly — asserting on the api-error code instead of the
+        // old dev-facing regex (lesson 14, task-i18n-stage4-lessons-701.md).
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE' }),
+      })
 
       // ACCOUNTANT hits the exact same guard (defense-in-depth for BOTH callers
       // of createAdminIncome — the accountant is also an admin-owned-project
@@ -355,7 +360,9 @@ describe.skipIf(!hasDatabaseUrl())(
           },
           ACCOUNTANT,
         ),
-      ).rejects.toThrow(/declareUsdtProjectIncome/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE' }),
+      })
 
       // No transaction, no obligation — the rejected calls left no trace.
       const rows = await dbSvc.db.query.transactions.findMany({

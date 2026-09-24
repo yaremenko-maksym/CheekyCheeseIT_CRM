@@ -770,7 +770,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 5000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/settled_amount/)
+      // i18n stage 4 Task 2: the technical "settled_amount" detail moved to a
+      // logger.warn call (plan Step 1 pattern) — the user-facing text no
+      // longer names the DB column. Assert on the api-error code instead.
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FINANCE_ROW_AMOUNT_MISMATCH' }),
+    })
 
     const after = await derivativeFor(SENIOR.id)
     expect(after.row.amount).toBe('999.000000')
@@ -1181,9 +1186,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     // Edit DOWNWARD — the dangerous direction. Term 7 debits `amount`; 260
     // really left the company account. Storing 100 would understate the debit
     // by 160, i.e. inflate the balance by money already gone.
-    await expect(svc.adminUpdateTransaction(iou.id, { amount: 100 }, ADMIN)).rejects.toThrow(
-      /Состояние строки изменилось/,
-    )
+    await expect(svc.adminUpdateTransaction(iou.id, { amount: 100 }, ADMIN)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' }),
+    })
     spy.mockRestore()
 
     const after = await derivativeFor(SENIOR.id)
@@ -1253,9 +1258,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         return realTransaction(cb)
       })
 
-    await expect(svc.adminUpdateTransaction(iou.id, { amount: 900 }, ADMIN)).rejects.toThrow(
-      /Состояние строки изменилось/,
-    )
+    await expect(svc.adminUpdateTransaction(iou.id, { amount: 900 }, ADMIN)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' }),
+    })
     spy.mockRestore()
 
     // The stale read said "no accumulator"; the row says otherwise, and
@@ -1463,9 +1468,11 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
   it('AC2: saving a PAID amount edit without a preview token is refused outright', async () => {
     await declare(PROJECT_SENIOR, 1000)
     const source = await sourceIncome(PROJECT_SENIOR)
-    await expect(svc.adminUpdateTransaction(source.id, { amount: 2500 }, ADMIN)).rejects.toThrow(
-      /не сохранена/,
-    )
+    await expect(
+      svc.adminUpdateTransaction(source.id, { amount: 2500 }, ADMIN),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW' }),
+    })
     expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)
   })
 })
