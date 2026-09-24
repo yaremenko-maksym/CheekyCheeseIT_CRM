@@ -241,7 +241,7 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
     const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
     const svc = makeTransactionsService({ db: throwingDb as never })
     await expect(svc.getSalaryMonthGapReport(user('SENIOR'), MONTH)).rejects.toThrow(
-      'The salary month gap report is available to an administrator and an accountant only',
+      'Only an admin or an accountant can see the missed salary months report',
     )
   })
 
@@ -283,7 +283,7 @@ describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the repo
     const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
     const svc = makeTransactionsService({ db: throwingDb as never })
     await expect(svc.backfillSalaryMonth(user('ACCOUNTANT'), MONTH)).rejects.toThrow(
-      'Backfilling salary month gaps is available to an administrator only',
+      'Only an admin can fill in missed salary months',
     )
   })
 

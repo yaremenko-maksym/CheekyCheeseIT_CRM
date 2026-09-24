@@ -931,7 +931,6 @@ export class PendingSettlementService {
     if (sourceSettledCurrency && sourceSettledCurrency !== currency) {
       throw apiError('FINANCE_SETTLEMENT_ALREADY_IN_OTHER_CURRENCY', HttpStatus.BAD_REQUEST, {
         sourceSettledCurrency,
-        currency,
       })
     }
 

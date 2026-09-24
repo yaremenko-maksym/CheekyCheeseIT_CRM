@@ -980,7 +980,7 @@ export class InvoicesService {
       throw apiError('INVOICE_NOT_APPLICABLE_FOR_TX_TYPE', HttpStatus.NOT_FOUND)
     }
     if (!tx.invoiceDocumentId) {
-      throw apiError('INVOICE_NOT_GENERATED_RETRY', HttpStatus.CONFLICT)
+      throw apiError('INVOICE_NOT_GENERATED_YET', HttpStatus.CONFLICT)
     }
 
     // ---- RBAC: viewer must be the counterparty ----

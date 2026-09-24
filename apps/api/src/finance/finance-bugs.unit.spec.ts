@@ -257,7 +257,7 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
         // No `currency` field — the bug this guards would default `currency`
         // straight to the corrupted `obligation.currency` (EUR) unvalidated.
       }),
-    ).rejects.toThrow(/without converting the amount is not supported/)
+    ).rejects.toThrow(/can't be closed in EUR/)
   })
 })
 

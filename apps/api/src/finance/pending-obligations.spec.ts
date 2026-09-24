@@ -150,12 +150,12 @@ describe('assertCanReadAdminBalance', () => {
   // share on that page (ACCOUNTANT unrestricted and sees both partners).
   it("ADMIN cannot read another admin's balance → ForbiddenException", () => {
     expect(() => svc.assertCanReadAdminBalance(adminUser, 'other-admin')).toThrow(
-      'Only the administrator themself or an accountant can see this admin balance',
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
   it.each([seniorA, juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
     expect(() => svc.assertCanReadAdminBalance(user, 'any-admin')).toThrow(
-      'Only the administrator themself or an accountant can see this admin balance',
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 })
@@ -175,12 +175,12 @@ describe('assertCanReadSeniorBalance', () => {
   })
   it("SENIOR can NOT read another senior's balance", () => {
     expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorB.id)).toThrow(
-      "can see the senior's balance",
+      "can see a senior's balance",
     )
   })
   it.each([juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
     expect(() => svc.assertCanReadSeniorBalance(user, seniorA.id)).toThrow(
-      "can see the senior's balance",
+      "can see a senior's balance",
     )
   })
 })

@@ -327,7 +327,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     const svc = makeSalaryService(ARCHIVED_HR)
 
     await expect(svc.createSalary(payload, ADMIN_USER)).rejects.toThrow(
-      "The recipient is archived — salary isn't accrued",
+      "The recipient is archived — a salary can't be created",
     )
     await expect(svc.createSalary(payload, ADMIN_USER)).rejects.toMatchObject({
       response: { code: 'FINANCE_SALARY_RECEIVER_ARCHIVED', statusCode: 400 },
@@ -398,7 +398,7 @@ describe('paySalary — AC2: a salary of an archived receiver cannot be paid', (
     const { svc } = makePayService(SALARY_ROW, ARCHIVED_HR)
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
-      "The salary recipient is archived — payout isn't possible",
+      "The recipient is archived — the salary can't be paid",
     )
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toMatchObject({
       response: { code: 'FINANCE_SALARY_PAYOUT_RECEIVER_ARCHIVED', statusCode: 400 },
@@ -578,7 +578,7 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
     const { svc } = makePayService([ACTIVE_HR, ARCHIVED_HR], [])
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
-      "The salary recipient is archived — payout isn't possible",
+      "The recipient is archived — the salary can't be paid",
     )
   })
 

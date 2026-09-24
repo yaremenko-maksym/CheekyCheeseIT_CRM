@@ -15,14 +15,22 @@
  * real file; only `tsc`'s classic type resolution cannot), so this shim
  * supplies the type half.
  *
- * Mirrors `dist/compileMessage.d.cts`'s `compileMessage` signature exactly,
- * and `@lingui/core`'s own `MessageCompiler = (message: string) =>
- * CompiledMessage` (`i18n.setMessagesCompiler`'s parameter type) — kept
- * structurally compatible with a plain `unknown[]` return instead of
- * re-declaring `@lingui/core`'s private `CompiledMessage` shape, since
- * nothing in this codebase inspects the compiled token array itself; it
- * only ever gets handed straight back into `@lingui/core`.
+ * Mirrors `dist/compileMessage.d.cts`'s `compileMessage` signature exactly.
+ * `@lingui/core`'s own `MessageCompiler = (message: string) =>
+ * CompiledMessage` (`i18n.setMessagesCompiler`'s parameter type) declares
+ * that same `CompiledMessage` in ITS OWN `.d.ts`, which this package's
+ * classic `moduleResolution: "Node"` cannot resolve any better than it can
+ * resolve `@lingui/message-utils`'s — so re-exporting or referencing
+ * `@lingui/core`'s `CompiledMessage` from here would silently collapse to
+ * `any` (masked by `skipLibCheck`), not the checked structural match the
+ * previous revision of this comment claimed. `CompiledMessage` is declared
+ * fresh below, local to this shim, so the return type is a real `unknown[]`
+ * TypeScript actually checks — not a re-export that resolves to `any`.
  */
 declare module '@lingui/message-utils/compileMessage' {
-  export function compileMessage(message: string, mapText?: (value: string) => string): unknown[]
+  export type CompiledMessage = unknown[]
+  export function compileMessage(
+    message: string,
+    mapText?: (value: string) => string,
+  ): CompiledMessage
 }

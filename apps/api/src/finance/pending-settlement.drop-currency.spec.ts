@@ -1478,9 +1478,13 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // task-i18n-stage4-task2 (money discipline, task file "Уточнения
     // оркестратора" §4): the server text no longer embeds the computed
     // amount ("уже выплачено 100 USDT") — only the currency the top-up CAN
-    // go in, and the instruction to reconcile manually.
+    // go in. COPY-M-2 (fix-round 2): the reconciliation clause was dropped —
+    // the review flagged the old wording as self-contradictory ("only
+    // possible in X" and "the remainder closes by a separate manual
+    // reconciliation" in the same sentence); the invariant alone, without the
+    // contradiction, is what the text names now.
     expect(message).toContain('USDT')
-    expect(message).toContain('manual reconciliation')
+    expect(message).toContain('can only be paid in')
     // A boundary of what the system can express, not a fault report.
     expect(message).not.toMatch(/error/i)
     expect(message).not.toMatch(/corrupt/i)

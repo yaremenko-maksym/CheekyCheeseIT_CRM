@@ -73,7 +73,7 @@ describe('computeDropDistribution (spec §8.1 — no partner split)', () => {
         { ...drop, dropSharePercent: 50 },
         { ...senior, seniorSharePercent: 60 },
       ),
-    ).toThrow("The senior and drop shares' sum exceeds 100%")
+    ).toThrow("The senior's and drop's shares add up to more than 100%")
   })
 
   it('uses defaults when share percents are null', () => {

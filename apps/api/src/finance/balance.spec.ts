@@ -370,7 +370,7 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadAdminBalance', () => 
     const svc = makeService()
     const viewer = makeViewer('ADMIN', 'other-admin-id')
     expect(() => svc.assertCanReadAdminBalance(viewer, TARGET_ADMIN_ID)).toThrow(
-      'Only the administrator themself or an accountant can see this admin balance',
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 
@@ -384,28 +384,28 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadAdminBalance', () => 
   it('SENIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('SENIOR'), TARGET_ADMIN_ID)).toThrow(
-      'Only the administrator themself or an accountant can see this admin balance',
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 
   it('JUNIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('JUNIOR'), TARGET_ADMIN_ID)).toThrow(
-      'Only the administrator themself or an accountant can see this admin balance',
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 
   it('HR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('HR'), TARGET_ADMIN_ID)).toThrow(
-      'Only the administrator themself or an accountant can see this admin balance',
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 
   it('DROP cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('DROP'), TARGET_ADMIN_ID)).toThrow(
-      'Only the administrator themself or an accountant can see this admin balance',
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 })
@@ -436,28 +436,28 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadSeniorBalance', () =>
     const svc = makeService()
     const viewer = makeViewer('SENIOR', SENIOR_B_ID)
     expect(() => svc.assertCanReadSeniorBalance(viewer, SENIOR_A_ID)).toThrow(
-      "can see the senior's balance",
+      "can see a senior's balance",
     )
   })
 
   it('JUNIOR cannot read senior balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadSeniorBalance(makeViewer('JUNIOR'), SENIOR_A_ID)).toThrow(
-      "can see the senior's balance",
+      "can see a senior's balance",
     )
   })
 
   it('HR cannot read senior balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadSeniorBalance(makeViewer('HR'), SENIOR_A_ID)).toThrow(
-      "can see the senior's balance",
+      "can see a senior's balance",
     )
   })
 
   it('DROP cannot read senior balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadSeniorBalance(makeViewer('DROP'), SENIOR_A_ID)).toThrow(
-      "can see the senior's balance",
+      "can see a senior's balance",
     )
   })
 })

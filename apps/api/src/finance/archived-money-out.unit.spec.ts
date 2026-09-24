@@ -113,7 +113,7 @@ describe('AC3 — partner transfers to an archived ADMIN', () => {
         { receiverId: RECEIVER_ID, amount: 50, receiptExternalUrl: RECEIPT },
         ADMIN,
       ),
-    ).rejects.toThrow(/transfer isn't possible/)
+    ).rejects.toThrow(/transfer can't be made/)
   })
 
   it('CONTROL: an active ADMIN receiver gets past the archival guard', async () => {

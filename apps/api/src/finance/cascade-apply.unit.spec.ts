@@ -543,7 +543,7 @@ describe('AC2: mandatory preview + optimistic lock', () => {
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN)).rejects.toThrow(
-      "The edit wasn't saved — a paid transaction's amount cascades into shares and obligations: open the preview and try again",
+      "Changing a paid transaction's amount recalculates shares and obligations — open the preview first",
     )
   })
 
@@ -1312,7 +1312,7 @@ describe('CR-M-2: "is this a cascade amount edit" is asked in one place', () => 
       try {
         await writeSvc.adminUpdateTransaction(SOURCE_ID, { amount: c.amount }, ADMIN)
       } catch (e) {
-        needsToken = /wasn't saved/.test((e as Error).message)
+        needsToken = /open the preview first/.test((e as Error).message)
       }
       // The preview offers a version token for exactly the edits that need one.
       // Oracle computed from the FIXTURE, not read back out of the plan —
@@ -1432,7 +1432,7 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
     stubFindOne(svc)
 
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 300 }, ADMIN)).rejects.toThrow(
-      /row changed while you were editing|is deleted/,
+      /paid or deleted while you were editing/,
     )
   })
 
@@ -1440,7 +1440,10 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
     // Before the status predicate, zero rows could only mean "deleted", and
     // the message said exactly that. Now it can also mean "someone settled it
     // while you were typing" — a message that names only the first sends the
-    // operator to look for a deletion that never happened.
+    // operator to look for a deletion that never happened. task-i18n-stage4-
+    // task2 (COPY-M-1, fix-round 2): the refusal text dropped the generic
+    // "changed" wording in favour of naming the two concrete ways — paid, or
+    // deleted — so this test now pins on those two words instead.
     const source = sourceRow({ type: 'SENIOR_PENDING_PAYOUT', status: 'PENDING_PAYMENT' })
     const { db } = makeDouble({ source, mainUpdateRows: [] })
     const svc = makeTransactionsService({ db })
@@ -1452,7 +1455,7 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
       caught = e
     }
     const message = (caught as Error).message
-    expect(message).toMatch(/changed/)
+    expect(message).toMatch(/paid/)
     expect(message).toMatch(/deleted/)
   })
 })
@@ -1964,7 +1967,7 @@ describe('AC5: still-open obligation — both copies of the amount move together
       const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
       await expect(
         svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-      ).rejects.toThrow(/cancelled entirely/)
+      ).rejects.toThrow(/nothing was saved/)
     })
   })
 
@@ -2511,9 +2514,7 @@ describe('refusal messages', () => {
         { amount: 2000, cascadeVersion: 'src:stale:2020-01-01T00:00:00.000Z' },
         ADMIN,
       ),
-    ).rejects.toThrow(
-      'The data changed since the preview — the earlier calculation no longer applies, refresh the preview and save again',
-    )
+    ).rejects.toThrow('The data changed after the preview — refresh it and save again')
   })
 
   it('the invariant refusal names the reason, and the log carries both figures (task-i18n-stage4-task2 Step 1)', async () => {

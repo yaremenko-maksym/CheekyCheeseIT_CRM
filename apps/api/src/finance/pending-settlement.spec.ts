@@ -1082,7 +1082,7 @@ describe('PendingSettlementService.settleByCompany', () => {
           currency: 'USD',
           receiptExternalUrl: 'https://drive.google.com/file/receipt',
         }),
-      ).rejects.toThrow(/already recorded in USDT/)
+      ).rejects.toThrow(/can only be paid in USDT/)
 
       // Nothing was written by the refused second settle — the accumulator
       // stays exactly where the first settle left it.
@@ -1213,7 +1213,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         // (AC5) were bypassed; kept as a fail-loud tripwire, not as a path.
         reopen(state, '400', '560.000000')
         await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
-          /already been paid more than it is worth/,
+          /More has been paid on this obligation than was owed/,
         )
       })
 
@@ -1323,7 +1323,7 @@ describe('PendingSettlementService.settleByCompany', () => {
             currency: 'USDT',
             receiptExternalUrl: 'https://etherscan.io/tx/0xtopup',
           }),
-        ).rejects.toThrow(/must come from the same source/)
+        ).rejects.toThrow(/from the same source/)
         expect(getFlips()).toHaveLength(0)
         expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PENDING')
       })
@@ -1335,7 +1335,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, null)
 
         await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
-          /must come from the same source/,
+          /from the same source/,
         )
         expect(getFlips()).toHaveLength(0)
       })
@@ -1391,7 +1391,7 @@ describe('PendingSettlementService.settleByCompany', () => {
             currency: 'USDT',
             receiptExternalUrl: 'https://etherscan.io/tx/0xotheradmin',
           }),
-        ).rejects.toThrow(/must come from the same source/)
+        ).rejects.toThrow(/from the same source/)
         expect(getFlips()).toHaveLength(0)
         expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PENDING')
       })
@@ -1453,7 +1453,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         } catch (e) {
           caught = e
         }
-        expect((caught as Error).message).toMatch(/must come from the same source/)
+        expect((caught as Error).message).toMatch(/from the same source/)
       })
 
       it('falls back to a generic word when the payer id has no label beside it', async () => {
@@ -1474,7 +1474,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         } catch (e) {
           caught = e
         }
-        expect((caught as Error).message).toMatch(/must come from the same source/)
+        expect((caught as Error).message).toMatch(/from the same source/)
       })
 
       it('says nothing about a payer when there was none — a company settle has no person', async () => {
@@ -1497,7 +1497,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         // straight into the comma with nothing between. A bare
         // `not.toContain('(плательщик —')` would also accept any other stray
         // text landing there, which is exactly the mutation the gate injects.
-        expect((caught as Error).message).toMatch(/must come from the same source/)
+        expect((caught as Error).message).toMatch(/from the same source/)
       })
 
       it('a COMPANY top-up carries no personal payer, so the pair still matches itself', async () => {
