@@ -73,7 +73,12 @@ const DATA: Record<NewNotificationType, unknown> = {
   // TYPES — BODIES для них (notification-email-copy.ts) пока минимальные
   // Ukrainian-заглушки (Track D / Task 7 пишет их по-настоящему); здесь
   // проверяется только то, что §11's инварианты не нарушены на них тоже.
-  INVOICE_SIGNED: { counterpartyName: PERSON },
+  // COPY-M-4 (copy-review круг 1, PR #714): `dataSchemas.INVOICE_SIGNED` now
+  // also requires `...moneyFields` — without them `notificationDataSchemaFor(
+  // 'INVOICE_SIGNED').safeParse(...)` fails in `composeBody`, and this
+  // fixture would exercise the "data didn't parse" fallback branch instead
+  // of `BODIES.INVOICE_SIGNED`.
+  INVOICE_SIGNED: { counterpartyName: PERSON, amount: '1500.000000', currency: 'USDT' },
   INVOICE_SIGN_REQUIRED: { amount: '1500.000000', currency: 'USDT' },
   VACANCY_APPLICATION: { vacancyTitle: 'Senior Frontend Engineer' },
 }
@@ -207,38 +212,40 @@ describe('десять писем — страж §11', () => {
  * Правка формулировки обязана падать здесь — это не хрупкость, а гейт на
  * текст, который читает `copy-reviewer`.
  *
- * task-i18n-stage4-task6 (Уточнения оркестратора п.2): кнопка для НЕ-action-
- * required типов идёт через `notificationActions(..., DEFAULT_LOCALE)` —
- * временный якорь на `uk` (Task 7 передаёт локаль получателя), поэтому её
- * подпись здесь уже украинская («Відкрити …»), тогда как тема/тело остаются
- * русскими (сам этот файл ещё не мигрирован — Track D / Task 7).
+ * CR-M-1 (code-review круг 1, PR #714): кнопка для НЕ-action-required типов
+ * идёт через `emailAction()`/`EMAIL_ACTION_LABELS` — ЗАМОРОЖЕННЫЙ русский
+ * текст `origin/main`, не украинский канон попапа. Круг 1 звал
+ * `notificationActions(..., DEFAULT_LOCALE)` и получал украинскую подпись
+ * («Відкрити …») при русских теме/теле — этот PR возвращает поведение писем
+ * к `origin/main` целиком (тема/тело/кнопка — все три русские), до Task 7
+ * (локаль получателя).
  */
 const GOLDEN: Record<NewNotificationType, { subject: string; text: string; button: string }> = {
   TRANSACTION_ADDED: {
     subject: 'Транзакция по проекту «Мобильный банк»',
     text: 'В ваших финансах новая транзакция. Сумма и детали — в CRM.',
-    button: 'Відкрити фінанси',
+    button: 'Открыть финансы',
   },
   TRANSACTION_STATUS_CHANGED: {
     subject: 'Доход отклонён',
     // Актора нет: его нет и в данных, а решает бухгалтер ИЛИ админ (COPY-H-2).
     text: 'Причина отказа — в CRM.',
-    button: 'Відкрити фінанси',
+    button: 'Открыть финансы',
   },
   TEAM_MEMBER_ADDED: {
     subject: 'Вас добавили в команду «Ядро платформы»',
     text: 'Состав команды — в CRM.',
-    button: 'Відкрити команду',
+    button: 'Открыть команду',
   },
   PROJECT_MEMBER_ADDED: {
     subject: 'Вас добавили в проект «Мобильный банк»',
     text: 'Детали проекта и его состав — в CRM.',
-    button: 'Відкрити проєкт',
+    button: 'Открыть проект',
   },
   TEAM_NEW_MEMBER: {
     subject: 'В команде «Ядро платформы» новый участник',
     text: 'Кто именно — в CRM.',
-    button: 'Відкрити команду',
+    button: 'Открыть команду',
   },
   PROJECT_CONFIRM_REQUIRED: {
     subject: 'Запрос на добавление проекта «Мобильный банк»',
@@ -260,32 +267,39 @@ const GOLDEN: Record<NewNotificationType, { subject: string; text: string; butto
   APPROVAL_CONFIRMED: {
     subject: 'Ваше предложение принято',
     text: 'Сотрудник согласился участвовать в проекте «Мобильный банк».',
-    button: 'Відкрити проєкт',
+    button: 'Открыть проект',
   },
   APPROVAL_REJECTED: {
     subject: 'Ваше предложение отклонено',
     text: 'Сотрудник отказался от смены доли по проекту «Мобильный банк».\nПричина — в CRM.',
-    button: 'Відкрити проєкт',
+    button: 'Открыть проект',
   },
   // task-i18n-stage4-task6: минимальные BODIES-заглушки (Task 7 пишет их
   // по-настоящему) — subjectType/subjectId не заданы (реальные производители
-  // их тоже не задают), кнопка идёт по сохранённой `link`, подпись — из
-  // общего `notificationActions` (DEFAULT_LOCALE, временно, см. `notification-
-  // email-copy.ts` doc-комментарий) — «Відкрити», не «Ответить на запрос».
+  // их тоже не задают), кнопка идёт по сохранённой `link`, подпись — общее
+  // замороженное «Открыть» (CR-M-1, `emailAction()`'s fallback для типа без
+  // записи в `EMAIL_ACTION_LABELS`, то же поведение, что `origin/main` давал
+  // ЛЮБОМУ незарегистрированному типу). SR-M-1/CR-M-1: почта для этих трёх
+  // типов вообще не уходит (`notification-email-outbox.spec.ts`) — этот
+  // прогон существует только чтобы `renderNotificationEmail()` не падал,
+  // если её всё же позвать напрямую.
   INVOICE_SIGNED: {
     subject: 'Рахунок підписано',
     text: 'Деталі — в CRM.',
-    button: 'Відкрити',
+    button: 'Открыть',
   },
   INVOICE_SIGN_REQUIRED: {
+    // BODIES's own subject stub — NOT the same string as the popup's canon
+    // title (COPY-M-1 changed that one to «Рахунок на підпис»; this file's
+    // text migrates separately in Task 7, see the module doc comment).
     subject: 'Рахунок очікує підпису',
     text: 'Сума та деталі — в CRM.',
-    button: 'Відкрити',
+    button: 'Открыть',
   },
   VACANCY_APPLICATION: {
     subject: 'Новий відгук на вакансію «Senior Frontend Engineer»',
     text: 'Деталі — в CRM.',
-    button: 'Відкрити',
+    button: 'Открыть',
   },
 }
 
@@ -342,7 +356,7 @@ describe('эталон: ветки, которых в таблице выше б
       { frontendUrl: FRONTEND },
     )
     expect(mail.subject).toBe('Доход валидирован')
-    expect(mail.text).toBe(`Сумма и детали — в CRM.\n\nВідкрити фінанси: ${mail.buttonHref}`)
+    expect(mail.text).toBe(`Сумма и детали — в CRM.\n\nОткрыть финансы: ${mail.buttonHref}`)
   })
 
   it('БАЗОВЫЙ процент с уцелевшим именем проекта — всё равно базовый', () => {
@@ -412,9 +426,9 @@ describe('эталон: ветки, которых в таблице выше б
       { frontendUrl: FRONTEND },
     )
     expect(mail.text).toBe(
-      `Сотрудник согласился на смену доли по умолчанию.\n\nВідкрити профіль: ${mail.buttonHref}`,
+      `Сотрудник согласился на смену доли по умолчанию.\n\nОткрыть профиль: ${mail.buttonHref}`,
     )
-    expect(mail.buttonLabel).toBe('Відкрити профіль')
+    expect(mail.buttonLabel).toBe('Открыть профиль')
   })
 
   it('решение по проекту без названия — «проект» без кавычек', () => {
@@ -620,7 +634,7 @@ describe('деградация', () => {
       },
       { frontendUrl: FRONTEND },
     )
-    expect(mail.text).toBe(`Подробности — в CRM.\n\nВідкрити: ${mail.buttonHref}`)
+    expect(mail.text).toBe(`Подробности — в CRM.\n\nОткрыть: ${mail.buttonHref}`)
   })
 
   it('старый тип с сохранённым телом печатает ЕГО, а не заглушку', () => {
@@ -637,7 +651,7 @@ describe('деградация', () => {
       { frontendUrl: FRONTEND },
     )
     expect(mail.text).toBe(
-      `Пришёл отклик на вакансию React-разработчика\n\nВідкрити: ${mail.buttonHref}`,
+      `Пришёл отклик на вакансию React-разработчика\n\nОткрыть: ${mail.buttonHref}`,
     )
   })
 

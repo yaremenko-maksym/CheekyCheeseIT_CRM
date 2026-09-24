@@ -73,7 +73,7 @@ interface NotificationsBellProps {
 export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
   const locale = useLocale()
   const { data, isLoading } = useNotificationsList({ limit: 10, enabled })
   const markRead = useMarkNotificationRead()
@@ -188,10 +188,13 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
               // по типу — не читаются из базы. Неизвестный тип и битые данные
               // дают общий вид по сохранённым `title`/`body`/`link`, а не
               // роняют попап (AC2).
-              // task-i18n-stage4-task6 (Уточнения оркестратора п.2):
-              // `renderNotification` now takes the VIEWER's locale — never a
-              // module-level singleton.
-              const view = renderNotification(n, locale)
+              // SR-H-1 (fix-раунд 1, PR #714): `renderNotification` now takes
+              // the caller's own `I18n` INSTANCE (`useLingui()`'s activated
+              // singleton), not a `locale` string — the registry itself never
+              // calls `createI18n()` (that requires `require()`, unavailable
+              // in the browser; see the doc comment on
+              // `notification-registry.ts`).
+              const view = renderNotification(n, i18n)
               const action = view.actions[0] ?? null
               return (
                 <li key={n.id}>

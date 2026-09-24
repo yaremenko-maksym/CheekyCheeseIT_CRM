@@ -1301,11 +1301,20 @@ export class InvoicesService {
     // task-i18n-stage4-task6, Step 5: counterparty name moves into `data`
     // (§10 — the popup shows it once, via `describeNotification`; the
     // neutral title no longer interpolates it).
+    //
+    // COPY-M-4 (copy-review круг 1, PR #714): `...moneyFields` from `txInfo`
+    // (the SAME amount/currency the re-rendered PDF and signature snapshot
+    // use, just above) — without it the admin could not tell which invoice
+    // of a multi-invoice counterparty had just been signed.
     await this.notificationsService.create({
       userId: adminId,
       type: 'INVOICE_SIGNED',
       title: NOTIFICATION_TITLES.INVOICE_SIGNED,
-      data: { counterpartyName: counterpartyRow.displayName },
+      data: {
+        counterpartyName: counterpartyRow.displayName,
+        amount: txInfo.amount,
+        currency: txInfo.currency,
+      },
       link: `/documents?category=INVOICE&openTx=${tx.id}`,
     })
 

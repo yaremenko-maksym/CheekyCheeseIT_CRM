@@ -189,7 +189,12 @@ const IMPERSONATION_EXPLANATION_ID = 'notification-pref-explain-impersonating'
 export function rowTitle(row: PreferenceRow, i18n: I18n): string {
   if (!KNOWN_TYPES.has(row.type)) return 'Новый тип'
   const descriptor = NOTIFICATION_TITLE_MESSAGES[row.type as NewNotificationType]
-  return i18n._(descriptor.id, undefined, { message: descriptor.message })
+  // `exactOptionalPropertyTypes`: `descriptor.message` is typed `string |
+  // undefined` on the general `MessageDescriptor` shape even though every
+  // entry in `NOTIFICATION_TITLE_MESSAGES` is a literal `{ id, message }` —
+  // same narrowing as the registry's own internal `t()` helper.
+  const { message } = descriptor
+  return i18n._(descriptor.id, undefined, message === undefined ? undefined : { message })
 }
 
 export function rowExplanation(row: PreferenceRow): string | null {

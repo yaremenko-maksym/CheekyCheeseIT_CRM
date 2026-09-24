@@ -11,6 +11,7 @@
  * invisible").
  */
 import { describe, expect, it } from 'vitest'
+import { createI18n } from '@crm/shared'
 import {
   groupPreferences,
   isMoneyType,
@@ -25,6 +26,12 @@ import {
 function row(type: string, over: Partial<PreferenceRow> = {}): PreferenceRow {
   return { type, emailEnabled: true, locked: false, ...over }
 }
+
+// COPY-H-1 (copy-review круг 1, PR #714): `rowTitle` now renders the CANON
+// `NOTIFICATION_TITLE_MESSAGES` on the caller's `I18n` instance — built once
+// here per locale, same pattern as `notification-registry.spec.ts`'s `UK`/`EN`.
+const UK = createI18n('uk')
+const EN = createI18n('en')
 
 describe('isMoneyType', () => {
   it('true for TRANSACTION_* types', () => {
@@ -105,8 +112,21 @@ describe('groupPreferences', () => {
 })
 
 describe('rowTitle', () => {
-  it('known type → the shared NOTIFICATION_TITLES label', () => {
-    expect(rowTitle(row('TRANSACTION_ADDED'))).toBe('Вам добавили транзакцию')
+  // COPY-H-1 (copy-review круг 1, PR #714): known type renders the CANON
+  // `NOTIFICATION_TITLE_MESSAGES` on the VIEWER's locale — the same source
+  // the bell popup renders from — not the legacy `NOTIFICATION_TITLES`
+  // record (ten Russian strings + three Ukrainian, unmigrated).
+  it('known type on uk → the canon uk title, not the legacy Russian label', () => {
+    expect(rowTitle(row('TRANSACTION_ADDED'), UK)).toBe('Вам додали транзакцію')
+  })
+
+  it('known type on en → an English title, not Russian or Ukrainian', () => {
+    expect(rowTitle(row('TRANSACTION_ADDED'), EN)).toBe('Transaction added for you')
+  })
+
+  it('a frozen type (registered before this PR, unaffected) renders on both locales', () => {
+    expect(rowTitle(row('INVOICE_SIGN_REQUIRED'), UK)).toBe('Рахунок на підпис')
+    expect(rowTitle(row('INVOICE_SIGN_REQUIRED'), EN)).toBe('Invoice to sign')
   })
 
   // COPY-H-1 (copy-review, fix-round 2, PR #675): the raw enum value must
@@ -116,7 +136,7 @@ describe('rowTitle', () => {
   // table column headed "Тип уведомления"; the one thing this label needs
   // to add is that the type is new.
   it('unknown type → the "Новый тип" label, not the raw type string', () => {
-    expect(rowTitle(row('FUTURE_TYPE_XYZ'))).toBe('Новый тип')
+    expect(rowTitle(row('FUTURE_TYPE_XYZ'), UK)).toBe('Новый тип')
   })
 })
 

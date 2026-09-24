@@ -41,11 +41,10 @@
  * §11 задаёт дословно и она утверждена владельцем (COPY-H-1 / COPY-L-3).
  */
 import {
-  DEFAULT_LOCALE,
   isActionRequiredNotificationType,
   isNewNotificationType,
-  notificationActions,
   notificationDataSchemaFor,
+  notificationHref,
   NOTIFICATION_TITLES,
   type NewNotificationType,
   type NotificationDataByType,
@@ -278,6 +277,69 @@ function sharePhrase(
 }
 
 /**
+ * CR-M-1 (code-review круг 1, PR #714): подпись кнопки письма для пяти
+ * информирующих типов, что НЕ идут через `/pending` (три action-required типа
+ * уже несут свою фиксированную подпись «Ответить на запрос» выше —
+ * `PENDING_PATH`). Заморожено на ТЕКСТ `origin/main` ДО task-i18n-stage4-task6
+ * (та же карта, что была в `notification-registry.ts`'s `ACTION_LABELS`, ПЕРЕД
+ * тем, как реестр перевёл её на украинский канон для попапа) — этот модуль
+ * целиком мигрирует на локаль ПОЛУЧАТЕЛЯ в Task 7, и до этого письмо обязано
+ * оставаться ровно таким, каким было на `origin/main`, а не подхватывать
+ * украинский текст попапа молча.
+ */
+const EMAIL_ACTION_LABELS: Record<
+  | 'TRANSACTION_ADDED'
+  | 'TRANSACTION_STATUS_CHANGED'
+  | 'TEAM_MEMBER_ADDED'
+  | 'PROJECT_MEMBER_ADDED'
+  | 'TEAM_NEW_MEMBER',
+  string
+> = {
+  TRANSACTION_ADDED: 'Открыть финансы',
+  TRANSACTION_STATUS_CHANGED: 'Открыть финансы',
+  TEAM_MEMBER_ADDED: 'Открыть команду',
+  PROJECT_MEMBER_ADDED: 'Открыть проект',
+  TEAM_NEW_MEMBER: 'Открыть команду',
+}
+
+/**
+ * Подпись кнопки для «админу» (`APPROVAL_CONFIRMED`/`APPROVAL_REJECTED`) —
+ * та же развилка по виду объекта, что была в `origin/main`'s `actionLabelFor`:
+ * USER — решение по базовой доле сотрудника (профиль), иначе — проект.
+ */
+function emailActionLabelFor(type: string, subjectType: NotificationSubjectType): string {
+  if (type === 'APPROVAL_CONFIRMED' || type === 'APPROVAL_REJECTED') {
+    return subjectType === 'USER' ? 'Открыть профиль' : 'Открыть проект'
+  }
+  if (type in EMAIL_ACTION_LABELS) {
+    return EMAIL_ACTION_LABELS[type as keyof typeof EMAIL_ACTION_LABELS]
+  }
+  // Незарегистрированный (легаси) тип с одной лишь ссылкой — то же общее
+  // «Открыть», что и на `origin/main`.
+  return 'Открыть'
+}
+
+/**
+ * Кнопка письма — маршрут через `notificationHref` (чистая функция, локали не
+ * знает), подпись — через `emailActionLabelFor` (замороженный текст, см. выше).
+ * Разбита из бывшего вызова `notificationActions()` именно этим PR (SR-H-1 +
+ * CR-M-1): `notificationActions()` теперь требует `I18n`-инстанс И отдаёт
+ * украинский канон попапа — ни то, ни другое сюда не годится ДО Task 7.
+ */
+function emailAction(source: NotificationEmailSource): { href: string; label: string } | null {
+  if (source.subjectType !== null && source.subjectId !== null) {
+    return {
+      href: notificationHref(source.subjectType, source.subjectId),
+      label: emailActionLabelFor(source.type, source.subjectType),
+    }
+  }
+  if (source.link !== null) {
+    return { href: source.link, label: 'Открыть' }
+  }
+  return null
+}
+
+/**
  * Собрать письмо из строки уведомления.
  *
  * Никогда не возвращает `null`: тип, которого шаблон не знает, и данные не
@@ -300,26 +362,14 @@ export function renderNotificationEmail(
   //
   // Подпись — «Ответить на запрос» (COPY-L-5): «Открыть проект» на кнопке,
   // ведущей на список запросов, называла бы не то, что откроется.
-  // task-i18n-stage4-task6 (Уточнения оркестратора п.2): `notificationActions`
-  // now requires a `locale` — this whole file (subject/lines, and `action`'s
-  // OWN OUTPUT — none of it is used, see `buttonLabel` below) stays
-  // Russian-only until Task 7 threads the RECIPIENT's locale into
-  // `renderNotificationEmail`. `DEFAULT_LOCALE` is a temporary placeholder
-  // for this one call, not a design choice — Task 7 replaces it.
+  // CR-M-1 (code-review круг 1, PR #714): `emailAction` — замороженный,
+  // русскоязычный расчёт кнопки (см. doc-комментарий выше), НЕ
+  // `notificationActions()` реестра: тот теперь и требует `I18n`-инстанс
+  // (SR-H-1), и отдаёт украинский канон попапа — оба свойства этому письму
+  // не подходят до Task 7 (локаль получателя).
   const action = isActionRequiredNotificationType(source.type)
     ? { href: PENDING_PATH, label: 'Ответить на запрос' }
-    : notificationActions(
-        {
-          type: source.type,
-          title: source.title,
-          body: source.body,
-          link: source.link,
-          subjectType: source.subjectType,
-          subjectId: source.subjectId,
-          data: source.data,
-        },
-        DEFAULT_LOCALE,
-      )[0]
+    : emailAction(source)
   // Кнопка одна, и вести ей есть куда всегда: объекту 15 секунд от роду, а
   // состояния «объекта больше нет» письмо по построению не застаёт. Корень
   // CRM — запасной путь для старого типа без сохранённой ссылки.
