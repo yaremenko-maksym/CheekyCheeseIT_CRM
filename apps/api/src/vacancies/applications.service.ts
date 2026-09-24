@@ -34,6 +34,7 @@ import {
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import {
   applyVacancyFieldsSchema,
+  NOTIFICATION_TITLES,
   sanitizeDownloadFilename,
   type ApplyVacancyFields,
   type SessionUser,
@@ -351,7 +352,7 @@ export class ApplicationsService {
     }
 
     // ---- 9. Notify every ADMIN/HR user ----
-    await this.notifyAdminsAndHr(vacancy.id, vacancy.title, row.fullName)
+    await this.notifyAdminsAndHr(vacancy.id, vacancy.title)
 
     // Same shared deadline as the other 2 branches (security-review round
     // 3, MED-2) — usually a no-op here since the genuine path's real work
@@ -660,11 +661,7 @@ export class ApplicationsService {
     return row
   }
 
-  private async notifyAdminsAndHr(
-    vacancyId: string,
-    vacancyTitle: string,
-    candidateFullName: string,
-  ): Promise<void> {
+  private async notifyAdminsAndHr(vacancyId: string, vacancyTitle: string): Promise<void> {
     const recipients = await this.db.db
       .select({ id: users.id })
       .from(users)
@@ -675,12 +672,18 @@ export class ApplicationsService {
     // fires every notification concurrently and never rejects itself, so one
     // recipient's failure (e.g. a transient DB hiccup) cannot roll back
     // `apply()` — the candidate's submission already succeeded.
+    // task-i18n-stage4-task6, Step 5: neutral legacy title (still required)
+    // instead of interpolated candidate name + vacancy title; the vacancy
+    // title moves into structured `data` (§10 — the candidate's name isn't
+    // carried at all past this producer: the popup/`describeNotification`
+    // shows only the vacancy, the admin opens the application to see who).
     const results = await Promise.allSettled(
       recipients.map((recipient) =>
         this.notifications.create({
           userId: recipient.id,
           type: 'VACANCY_APPLICATION',
-          title: `Новый отклик: ${candidateFullName} — ${vacancyTitle}`,
+          title: NOTIFICATION_TITLES.VACANCY_APPLICATION,
+          data: { vacancyTitle },
           link: `/vacancies/${vacancyId}`,
         }),
       ),

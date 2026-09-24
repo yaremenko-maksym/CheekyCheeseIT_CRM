@@ -41,6 +41,7 @@
  * §11 задаёт дословно и она утверждена владельцем (COPY-H-1 / COPY-L-3).
  */
 import {
+  DEFAULT_LOCALE,
   isActionRequiredNotificationType,
   isNewNotificationType,
   notificationActions,
@@ -202,6 +203,32 @@ const BODIES: {
     // и уходить на личную почту им незачем (§10).
     lines: [rejectedLine(d.subjectKind, d.subjectTitle), 'Причина — в CRM.'],
   }),
+
+  // task-i18n-stage4-task6 (Track C): `notification-registry.ts` adding these
+  // three types to `NewNotificationType` forces `BODIES`'s mapped type to
+  // carry entries for them too (otherwise this file fails to typecheck) —
+  // Track D / Task 7 is the one that migrates this file's copy to
+  // `MessageDescriptor` + `i18n._()` on the recipient's locale (all ten
+  // ORIGINAL entries above stay plain Russian strings until then, unchanged
+  // by this PR). These three are new text, written straight in Ukrainian
+  // (Global Constraints — new text is never Russian), plain strings matching
+  // this file's CURRENT (pre-Task-7) shape. §10/§11: no PII, no numbers — the
+  // vacancy/invoice TITLE is an object name (§11 allows naming the object),
+  // not a person or an amount.
+  INVOICE_SIGNED: () => ({
+    subject: 'Рахунок підписано',
+    lines: ['Деталі — в CRM.'],
+  }),
+
+  INVOICE_SIGN_REQUIRED: () => ({
+    subject: 'Рахунок очікує підпису',
+    lines: ['Сума та деталі — в CRM.'],
+  }),
+
+  VACANCY_APPLICATION: (d) => ({
+    subject: `Новий відгук на вакансію «${d.vacancyTitle}»`,
+    lines: ['Деталі — в CRM.'],
+  }),
 }
 
 type ApprovalSubjectKind = 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE'
@@ -273,17 +300,26 @@ export function renderNotificationEmail(
   //
   // Подпись — «Ответить на запрос» (COPY-L-5): «Открыть проект» на кнопке,
   // ведущей на список запросов, называла бы не то, что откроется.
+  // task-i18n-stage4-task6 (Уточнения оркестратора п.2): `notificationActions`
+  // now requires a `locale` — this whole file (subject/lines, and `action`'s
+  // OWN OUTPUT — none of it is used, see `buttonLabel` below) stays
+  // Russian-only until Task 7 threads the RECIPIENT's locale into
+  // `renderNotificationEmail`. `DEFAULT_LOCALE` is a temporary placeholder
+  // for this one call, not a design choice — Task 7 replaces it.
   const action = isActionRequiredNotificationType(source.type)
     ? { href: PENDING_PATH, label: 'Ответить на запрос' }
-    : notificationActions({
-        type: source.type,
-        title: source.title,
-        body: source.body,
-        link: source.link,
-        subjectType: source.subjectType,
-        subjectId: source.subjectId,
-        data: source.data,
-      })[0]
+    : notificationActions(
+        {
+          type: source.type,
+          title: source.title,
+          body: source.body,
+          link: source.link,
+          subjectType: source.subjectType,
+          subjectId: source.subjectId,
+          data: source.data,
+        },
+        DEFAULT_LOCALE,
+      )[0]
   // Кнопка одна, и вести ей есть куда всегда: объекту 15 секунд от роду, а
   // состояния «объекта больше нет» письмо по построению не застаёт. Корень
   // CRM — запасной путь для старого типа без сохранённой ссылки.
@@ -331,6 +367,8 @@ function composeBody(source: NotificationEmailSource): Body {
       lines: ['Подробности — в CRM.'],
     }
   }
-  // Три старых типа (инвойсы, вакансии) и всё, чего шаблон ещё не знает.
+  // task-i18n-stage4-task6: инвойсы/вакансии больше не «старые типы» без
+  // шаблона (см. три записи `BODIES` выше) — эта ветка теперь только для
+  // типа, которого будущий бандл ещё не знает.
   return { subject: source.title, lines: [source.body ?? 'Подробности — в CRM.'] }
 }

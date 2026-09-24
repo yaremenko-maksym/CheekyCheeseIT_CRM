@@ -506,7 +506,14 @@ function quoteWithinBudget(text: string, budget: number, locale: Locale): string
  * `apps/api/src/common/api-error.ts`.
  */
 function t(i18n: I18n, descriptor: MessageDescriptor, params?: Record<string, unknown>): string {
-  return i18n._(descriptor.id, params, { message: descriptor.message })
+  // `exactOptionalPropertyTypes`: `MessageDescriptor['message']` is
+  // `string | undefined` in the general (annotated-as-`MessageDescriptor`)
+  // case, but `MessageOptions['message']` wants `string`, never `undefined`
+  // — narrowing through a branch (instead of `{ message: descriptor.message }`
+  // unconditionally) keeps this helper correct for every descriptor shape,
+  // not just literal-typed ones.
+  const message = descriptor.message
+  return i18n._(descriptor.id, params, message === undefined ? undefined : { message })
 }
 
 /**

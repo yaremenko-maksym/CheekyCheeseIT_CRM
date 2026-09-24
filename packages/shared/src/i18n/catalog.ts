@@ -1,4 +1,4 @@
-import { setupI18n, type I18n } from '@lingui/core'
+import { setupI18n, type I18n, type Messages } from '@lingui/core'
 import { compileMessage } from '@lingui/message-utils/compileMessage'
 import type { Locale } from './locales'
 
@@ -20,11 +20,19 @@ import type { Locale } from './locales'
  *    explicit `.ts` path (re-throwing anything else, e.g. a real syntax error in
  *    the generated catalog, unchanged).
  */
-function loadMessages(locale: Locale): Record<string, unknown> {
+// task-i18n-stage4-task6: return type tightened from `Record<string, unknown>`
+// to `@lingui/core`'s own `Messages` (a genuine pre-existing type gap, proven
+// present on a pristine `origin/main` checkout of this file, independent of
+// this task's own changes — `setupI18n({ messages: { [locale]:
+// loadMessages(locale) } })` below needs its value to satisfy `AllMessages`,
+// and `unknown` never did; masked until now because nothing else in this
+// file forced `tsc` to type-check past the (also pre-existing, also fixed by
+// this task) `@lingui/message-utils/compileMessage` import failure first).
+function loadMessages(locale: Locale): Messages {
   const path = `./locales/${locale}/messages`
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS build; catalogs are generated files
-    return (require(path) as { messages: Record<string, unknown> }).messages
+    return (require(path) as { messages: Messages }).messages
   } catch (err) {
     // Both real locales ('uk', 'en') always resolve on one of the two require
     // paths, so every reachable error through the public
@@ -44,7 +52,7 @@ function loadMessages(locale: Locale): Record<string, unknown> {
     // Stryker disable next-line ConditionalExpression: forcing `if (false)` never re-throws, indistinguishable from correct behavior since only a genuine MODULE_NOT_FOUND is reachable here (see isModuleNotFound above).
     if (!isModuleNotFound) throw err
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- see loadMessages doc comment above
-    return (require(`${path}.ts`) as { messages: Record<string, unknown> }).messages
+    return (require(`${path}.ts`) as { messages: Messages }).messages
   }
 }
 

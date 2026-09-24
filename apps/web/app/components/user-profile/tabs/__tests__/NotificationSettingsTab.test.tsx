@@ -17,7 +17,11 @@
  */
 import { render, screen, within, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE, NOTIFICATION_TITLES } from '@crm/shared'
+import {
+  NEW_NOTIFICATION_TYPES,
+  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
+  NOTIFICATION_TITLES,
+} from '@crm/shared'
 import { NotificationSettingsTab } from '../NotificationSettingsTab'
 
 let viewerRole: string | null = 'SENIOR'
@@ -73,16 +77,21 @@ beforeEach(() => {
 })
 
 describe('NotificationSettingsTab — loading/error states', () => {
-  it('renders exactly ten skeleton rows on both layouts while loading', () => {
+  it('renders one skeleton row per NEW_NOTIFICATION_TYPES entry on both layouts while loading', () => {
     queryState = { data: undefined, isLoading: true, isError: false, refetch: refetchMock }
     render(<NotificationSettingsTab />)
     const desktopSkeletons = within(
       screen.getByTestId('notification-settings-loading-desktop'),
     ).getAllByRole('row')
     // header-less skeleton table — every row is a skeleton row (design spec
-    // §6.1: ten identical bars, no fake group headers while loading).
-    expect(desktopSkeletons).toHaveLength(10)
-    expect(screen.getAllByTestId('notification-settings-loading-mobile-row')).toHaveLength(10)
+    // §6.1: identical bars, no fake group headers while loading).
+    // task-i18n-stage4-task6: count is derived, not literal — `SKELETON_ROW_
+    // COUNT` in the component reads `NEW_NOTIFICATION_TYPES.length`, which
+    // grew from 10 to 13 (three frozen types registered).
+    expect(desktopSkeletons).toHaveLength(NEW_NOTIFICATION_TYPES.length)
+    expect(screen.getAllByTestId('notification-settings-loading-mobile-row')).toHaveLength(
+      NEW_NOTIFICATION_TYPES.length,
+    )
   })
 
   it('shows the error message + Повторить, which calls refetch', () => {

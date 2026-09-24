@@ -166,11 +166,15 @@ describe.skipIf(!hasDatabaseUrl())('настройки каналов под ш�
     })
 
     for (const persona of PERSONAS) {
-      it(`${persona.role} читает свои настройки — 200 и все десять типов`, async () => {
+      it(`${persona.role} читает свои настройки — 200 и все тринадцать типов`, async () => {
         const res = await get(persona)
         expect(res.statusCode).toBe(200)
         const body = res.json<{ items: { type: string; locked: boolean }[] }>()
-        expect(body.items).toHaveLength(10)
+        // task-i18n-stage4-task6: 10 исходных + 3 замороженных типа
+        // (инвойсы, вакансии), зарегистрированных в `NEW_NOTIFICATION_TYPES`.
+        // Locked (email нельзя отключить) остаётся ровно у трёх
+        // action-required типов — замороженные в это множество не входят.
+        expect(body.items).toHaveLength(13)
         expect(body.items.filter((i) => i.locked)).toHaveLength(3)
       })
     }

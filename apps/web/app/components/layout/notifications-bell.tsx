@@ -188,7 +188,10 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
               // по типу — не читаются из базы. Неизвестный тип и битые данные
               // дают общий вид по сохранённым `title`/`body`/`link`, а не
               // роняют попап (AC2).
-              const view = renderNotification(n)
+              // task-i18n-stage4-task6 (Уточнения оркестратора п.2):
+              // `renderNotification` now takes the VIEWER's locale — never a
+              // module-level singleton.
+              const view = renderNotification(n, locale)
               const action = view.actions[0] ?? null
               return (
                 <li key={n.id}>

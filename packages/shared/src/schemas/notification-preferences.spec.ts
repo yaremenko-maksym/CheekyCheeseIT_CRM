@@ -82,12 +82,15 @@ describe('updateNotificationPreferencesSchema', () => {
   })
 
   it('отвергает неизвестный тип', () => {
+    // task-i18n-stage4-task6: `INVOICE_SIGN_REQUIRED`/`INVOICE_SIGNED`/
+    // `VACANCY_APPLICATION` — больше НЕ «три старых типа без письма»: они
+    // зарегистрированы в `NEW_NOTIFICATION_TYPES` (см. notification-registry.ts)
+    // и ТЕПЕРЬ настраиваются как любой другой тип. Тест проверяет ровно то,
+    // что было раньше — отказ на типе вне `NEW_NOTIFICATION_TYPES` вовсе, —
+    // просто уже не этим представителем.
     const result = updateNotificationPreferencesSchema.safeParse({
-      items: [{ type: 'INVOICE_SIGN_REQUIRED', emailEnabled: false }],
+      items: [{ type: 'SOMETHING_FROM_THE_FUTURE', emailEnabled: false }],
     })
-    // Три старых типа (инвойсы, вакансии) настройками не управляются: у них
-    // нет письма вовсе, и молча принять для них запись значило бы завести
-    // настройку, которая ни на что не влияет.
     expect(result.success).toBe(false)
   })
 
@@ -209,7 +212,7 @@ describe('updateNotificationPreferencesSchema', () => {
 })
 
 describe('notificationPreferencesResponseSchema', () => {
-  it('несёт все десять типов с признаком locked', () => {
+  it('несёт все типы (NEW_NOTIFICATION_TYPES) с признаком locked', () => {
     const payload = {
       items: NEW_NOTIFICATION_TYPES.map((type) => ({
         type,
@@ -218,7 +221,7 @@ describe('notificationPreferencesResponseSchema', () => {
       })),
     }
     const parsed = notificationPreferencesResponseSchema.parse(payload)
-    expect(parsed.items).toHaveLength(10)
+    expect(parsed.items).toHaveLength(NEW_NOTIFICATION_TYPES.length)
   })
 
   it('отвергает ответ, где у запертого типа письмо выключено', () => {
@@ -263,7 +266,7 @@ describe('notificationPreferencesResponseSchema', () => {
  * than throwing the whole tab into its error state.
  */
 describe('notificationPreferencesResponseClientSchema', () => {
-  it('accepts all ten known types, same as the strict schema', () => {
+  it('accepts all known types, same as the strict schema', () => {
     const payload = {
       items: NEW_NOTIFICATION_TYPES.map((type) => ({
         type,
@@ -272,7 +275,7 @@ describe('notificationPreferencesResponseClientSchema', () => {
       })),
     }
     const parsed = notificationPreferencesResponseClientSchema.parse(payload)
-    expect(parsed.items).toHaveLength(10)
+    expect(parsed.items).toHaveLength(NEW_NOTIFICATION_TYPES.length)
   })
 
   it('accepts a well-formed item whose type is genuinely unknown', () => {

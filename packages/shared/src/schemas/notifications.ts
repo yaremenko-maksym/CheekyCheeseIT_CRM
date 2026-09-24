@@ -15,13 +15,20 @@ import { NEW_NOTIFICATION_TYPES, notificationSubjectTypeSchema } from './notific
  * values here without touching the DB schema.
  */
 export const notificationTypeSchema = z.enum([
-  'INVOICE_SIGN_REQUIRED', // counterparty must click "Подписать"
-  'INVOICE_SIGNED', // ADMIN tracking — counterparty completed the sign
-  'VACANCY_APPLICATION', // task-vacancies-api — ADMIN/HR: new public vacancy application
-  // ── The ten types of the notifications-and-confirmations spec §7.2 ────────
-  // (position 6). Their human-visible text lives in `notification-registry.ts`
-  // — this enum only names the events. Order matches the spec's own grouping:
-  // informing, action-required, admin-facing.
+  // task-i18n-stage4-task6: `INVOICE_SIGN_REQUIRED` / `INVOICE_SIGNED` /
+  // `VACANCY_APPLICATION` used to be hardcoded literals here (three types the
+  // structured registry didn't know about — raw `title`/`body`, no email).
+  // They are now registered types — see `INFORMING_NOTIFICATION_TYPES` /
+  // `ADMIN_NOTIFICATION_TYPES` in `notification-registry.ts` — so they arrive
+  // through the spread below. Duplicating them here too would give `z.enum`
+  // repeated literal values and break `notificationTypeSchema.options`'s
+  // array-equality tests.
+  //
+  // ── The thirteen types of the notifications-and-confirmations spec §7.2 ──
+  // (position 6, extended by task-i18n-stage4-task6). Their human-visible
+  // text lives in `notification-registry.ts` — this enum only names the
+  // events. Order matches the spec's own grouping: informing, action-
+  // required, admin-facing.
   ...NEW_NOTIFICATION_TYPES,
 ])
 export type NotificationType = z.infer<typeof notificationTypeSchema>
