@@ -588,9 +588,19 @@ Everything lives in `scripts/devops/mutation-gate.mjs`:
 - **`timeoutMS` / `timeoutFactor`** — generous on purpose. Stryker counts a
   timeout as _killed_, so a tight timeout converts survivors into false greens.
   Err long.
-- Env knobs (`MUTATION_BUDGET_SECONDS`, `MUTATION_CONCURRENCY`,
-  `MUTATION_PACKAGES`, `MUTATION_SURVIVOR_BUDGET`, …) are documented in the
-  script's header.
+- **`dryRunTimeoutMinutes`** — Stryker's OWN absolute timeout for the initial
+  (unmutated) test run, separate from and nested inside `MUTATION_BUDGET_SECONDS`
+  (which bounds the WHOLE per-package Stryker run — dry run and mutation testing
+  together — from outside, by killing the child process). Default 20, overridable
+  via `MUTATION_DRY_RUN_TIMEOUT_MINUTES` (positive integer; anything else falls
+  back to the default with a warning). Task-mutation-gate-dryrun-timeout,
+  2026-09-24: Stryker's own built-in default (5) stopped covering the `@crm/web`
+  leg's ~2900-test dry run under `coverageAnalysis: perTest` on a shared CI
+  runner — PR #706 went red twice on the same commit with `DryRunExecutor
+Initial test run timed out!` at exactly 5:00 and zero mutants actually tried.
+- Env knobs (`MUTATION_BUDGET_SECONDS`, `MUTATION_DRY_RUN_TIMEOUT_MINUTES`,
+  `MUTATION_CONCURRENCY`, `MUTATION_PACKAGES`, `MUTATION_SURVIVOR_BUDGET`, …) are
+  documented in the script's header.
 
 ## Known limits (stated, not hidden)
 
