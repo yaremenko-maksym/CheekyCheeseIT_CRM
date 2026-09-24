@@ -29,6 +29,16 @@ import {
   API_GLOB,
   API_RE,
 } from '../fixtures'
+import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
+
+// task-i18n-stage3b (Task 1) — this file is otherwise PR3's (resume feature,
+// still Russian on purpose). The 3 lines below click/assert UserProfileShell's
+// own "Огляд"/"Залишитися" chrome (already migrated in THIS PR), so they must
+// stay in sync — every other Резюме/Черновик string here is untouched.
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 const SENIOR_ID = USERS.senior.id
 
 const EMPTY_CONTENT = {
@@ -248,7 +258,9 @@ test.describe('Резюме — вкладка на карточке синьо�
       r.fulfill(json(buildAdminViewingUser(USERS.junior))),
     )
     await page.goto(`/profile/${USERS.junior.id}`)
-    await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(uk, 'Огляд'), exact: true }),
+    ).toBeVisible()
     await expect(page.getByRole('button', { name: 'Резюме', exact: true })).toHaveCount(0)
   })
 })
@@ -398,13 +410,13 @@ test.describe('Резюме — правка по секциям', () => {
 
     await page.getByTestId('resume-edit-summary').click()
     await page.getByTestId('resume-summary-input').fill('Черновик, который легко потерять')
-    await page.getByRole('button', { name: 'Обзор', exact: true }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Огляд'), exact: true }).click()
 
     const guard = page.getByTestId('contract-dirty-guard-dialog')
     await expect(guard).toBeVisible()
     await expect(guard).toContainText('Резюме')
     // Staying keeps the draft.
-    await page.getByRole('button', { name: 'Остаться' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Залишитися') }).click()
     await expect(page.getByTestId('resume-summary-input')).toHaveValue(
       'Черновик, который легко потерять',
     )

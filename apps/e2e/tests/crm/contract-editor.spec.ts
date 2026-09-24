@@ -13,6 +13,16 @@
 
 import { test, expect } from '@playwright/test'
 import { USERS, mockAuthAs, buildAdminViewingUser, buildSelfView, API_RE } from '../fixtures'
+import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
+
+// task-i18n-stage3b (Task 1) — ContractTab/ContractActionBar/UserProfileShell
+// strings (status badge, dirty-guard dialog, revert/reset buttons, no-template
+// message, "Огляд" tab label) now come from the uk catalog. `assertInCatalog`
+// so a future copy change fails loudly instead of silently drifting.
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 // ─── Contract fixtures ────────────────────────────────────────────────────────
 
@@ -157,7 +167,9 @@ test.describe('A3-2: Contract editor tab', () => {
     await expect(page.getByRole('button', { name: 'Контракт' })).toBeVisible()
     // Contract tab content renders (status badge present)
     await expect(page.getByTestId('contract-tab')).toBeVisible()
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик')
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Чернетка'),
+    )
   })
 
   test('AC1: SENIOR (non-ADMIN) does NOT see "Контракт" tab on another profile', async ({
@@ -185,7 +197,7 @@ test.describe('A3-2: Contract editor tab', () => {
 
     await page.goto(`/profile/${USERS.junior.id}`)
     // Wait for profile to load
-    await expect(page.getByRole('button', { name: 'Обзор' })).toBeVisible()
+    await expect(page.getByRole('button', { name: assertInCatalog(uk, 'Огляд') })).toBeVisible()
     // No contract tab
     await expect(page.getByRole('button', { name: 'Контракт' })).not.toBeVisible()
   })
@@ -197,7 +209,9 @@ test.describe('A3-2: Contract editor tab', () => {
     await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик')
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Чернетка'),
+    )
 
     // Save button starts disabled (no unsaved changes)
     await expect(page.getByTestId('contract-save-btn')).toBeDisabled()
@@ -212,7 +226,7 @@ test.describe('A3-2: Contract editor tab', () => {
     // Save button becomes enabled
     await expect(page.getByTestId('contract-save-btn')).toBeEnabled()
     // Dirty indicator appears
-    await expect(page.getByText('Есть несохранённые изменения')).toBeVisible()
+    await expect(page.getByText(assertInCatalog(uk, 'Є незбережені зміни'))).toBeVisible()
   })
 
   test('AC3: Mark Ready transitions status badge to "Готов к подписанию"', async ({ page }) => {
@@ -238,9 +252,10 @@ test.describe('A3-2: Contract editor tab', () => {
     await page.getByTestId('contract-mark-ready-btn').click()
 
     // After mutation + refetch: badge shows READY_TO_SIGN
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Готов к подписанию', {
-      timeout: 5000,
-    })
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Готовий до підписання'),
+      { timeout: 5000 },
+    )
   })
 
   test('AC4: READY_TO_SIGN editor is frozen (frozen banner visible)', async ({ page }) => {
@@ -248,7 +263,9 @@ test.describe('A3-2: Contract editor tab', () => {
     await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Готов к подписанию')
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Готовий до підписання'),
+    )
     // Frozen banner appears
     await expect(page.getByTestId('contract-editor-frozen-banner')).toBeVisible()
     // No Save / MarkReady / Reset buttons in READY_TO_SIGN
@@ -277,7 +294,9 @@ test.describe('A3-2: Contract editor tab', () => {
 
     await expect(page.getByTestId('contract-tab-no-template')).toBeVisible()
     await expect(page.getByTestId('contract-tab-template-link')).toBeVisible()
-    await expect(page.getByText('Нет шаблона контракта для роли Синьор')).toBeVisible()
+    await expect(
+      page.getByText(assertInCatalog(uk, 'Немає шаблону контракту для ролі «Сеньйор»')),
+    ).toBeVisible()
   })
 
   test('AC5: Revert from READY_TO_SIGN returns contract to DRAFT', async ({ page }) => {
@@ -285,7 +304,9 @@ test.describe('A3-2: Contract editor tab', () => {
     await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Готов к подписанию')
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Готовий до підписання'),
+    )
 
     // Revert button is visible in READY_TO_SIGN
     await expect(page.getByTestId('contract-revert-btn')).toBeVisible()
@@ -307,11 +328,12 @@ test.describe('A3-2: Contract editor tab', () => {
       }
     })
 
-    await page.getByRole('button', { name: 'Вернуть в черновик' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Повернути в чернетку') }).click()
 
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик', {
-      timeout: 5000,
-    })
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Чернетка'),
+      { timeout: 5000 },
+    )
   })
 
   test('AC5: Reset to template restores body in DRAFT state', async ({ page }) => {
@@ -319,7 +341,9 @@ test.describe('A3-2: Contract editor tab', () => {
     await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик')
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Чернетка'),
+    )
 
     // Reset button visible in DRAFT
     await expect(page.getByTestId('contract-reset-btn')).toBeVisible()
@@ -347,12 +371,13 @@ test.describe('A3-2: Contract editor tab', () => {
       }
     })
 
-    await page.getByRole('button', { name: 'Сбросить' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Скинути') }).click()
 
     // Contract remains DRAFT, editor shows reset body
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик', {
-      timeout: 5000,
-    })
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Чернетка'),
+      { timeout: 5000 },
+    )
   })
 
   test('AC5: Revert from SIGNED shows destructive confirm dialog', async ({ page }) => {
@@ -366,7 +391,9 @@ test.describe('A3-2: Contract editor tab', () => {
     await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Подписан')
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Підписаний'),
+    )
 
     // Revert button is visible in SIGNED
     await expect(page.getByTestId('contract-revert-btn')).toBeVisible()
@@ -375,7 +402,9 @@ test.describe('A3-2: Contract editor tab', () => {
     // Destructive confirm dialog appears
     await expect(page.getByTestId('contract-revert-confirm-dialog')).toBeVisible()
     // Destructive text mentions signature reset
-    await expect(page.getByText('Вернуть подписанный контракт в черновик?')).toBeVisible()
+    await expect(
+      page.getByText(assertInCatalog(uk, 'Повернути підписаний контракт у чернетку?')),
+    ).toBeVisible()
 
     // After confirm: mock refetch returns DRAFT contract
     await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract$`), async (r) => {
@@ -392,9 +421,10 @@ test.describe('A3-2: Contract editor tab', () => {
 
     await page.getByTestId('contract-revert-confirm-ok').click()
 
-    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик', {
-      timeout: 5000,
-    })
+    await expect(page.getByTestId('contract-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Чернетка'),
+      { timeout: 5000 },
+    )
   })
 
   test('GAP3: dirty-guard dialog appears on tab switch with unsaved changes', async ({ page }) => {
@@ -414,18 +444,18 @@ test.describe('A3-2: Contract editor tab', () => {
     await expect(page.getByTestId('contract-save-btn')).toBeEnabled()
 
     // Click a different tab (e.g. Overview) — dirty guard should intercept
-    await page.getByRole('button', { name: 'Обзор' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Огляд') }).click()
 
     // Dirty guard dialog should appear
     await expect(page.getByTestId('contract-dirty-guard-dialog')).toBeVisible()
 
     // "Остаться" cancels — remains on contract tab
-    await page.getByRole('button', { name: 'Остаться' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Залишитися') }).click()
     await expect(page.getByTestId('contract-dirty-guard-dialog')).not.toBeVisible()
     await expect(page.getByTestId('contract-tab')).toBeVisible()
 
     // Try switching again — this time confirm "Покинуть"
-    await page.getByRole('button', { name: 'Обзор' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Огляд') }).click()
     await expect(page.getByTestId('contract-dirty-guard-dialog')).toBeVisible()
     await page.getByTestId('contract-dirty-guard-confirm').click()
 
