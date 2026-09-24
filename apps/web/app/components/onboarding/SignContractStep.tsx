@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { AlertTriangle, FileText, Loader2 } from 'lucide-react'
-import { CONTRACT_SIGN_IMPERSONATION_MESSAGE, type SignedContractDto } from '@crm/shared'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { API_ERROR_MESSAGES, type SignedContractDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/axios-utils'
@@ -21,13 +22,11 @@ function getInitials(name: string | null | undefined): string {
 }
 
 /**
- * Бэклог 212. Тот же литерал, что отдаёт сервер в 403 на `POST
- * /contracts/sign` (`CONTRACT_SIGN_IMPERSONATION_MESSAGE`,
- * `packages/shared/src/schemas/contracts.ts`) — точка на конце добавлена
- * так же, как `IMPERSONATION_EXPLANATION` в `NotificationSettingsTab.tsx`
- * добавляет её к `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE`.
+ * Бэклог 212. Тот же текст, что отдаёт сервер в 403 на `POST
+ * /contracts/sign` (`API_ERROR_MESSAGES.CONTRACT_SIGN_IMPERSONATION`,
+ * шаблон G task-i18n-stage3b) — резолвится через `i18n._()` внутри
+ * компонента, каталожный текст уже без завершающей точки.
  */
-const IMPERSONATION_EXPLANATION = `${CONTRACT_SIGN_IMPERSONATION_MESSAGE}.`
 const IMPERSONATION_EXPLANATION_ID = 'sign-contract-explain-impersonating'
 
 interface SignContractStepProps {
@@ -35,6 +34,7 @@ interface SignContractStepProps {
 }
 
 export function SignContractStep({ onSuccess }: SignContractStepProps) {
+  const { t, i18n } = useLingui()
   const { user } = useAuth()
   const [confirmed, setConfirmed] = useState(false)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
@@ -84,7 +84,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       return res.data
     },
     onSuccess: async (data) => {
-      toast.success(`Контракт подписан. Номер: ${data.contractNumber}`)
+      toast.success(t`Контракт підписано, номер ${data.contractNumber}`)
       await queryClient.invalidateQueries({ queryKey: ['onboarding-status'] })
       onSuccess()
     },
@@ -105,7 +105,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
         toast.info(getApiErrorMessage(err))
         return
       }
-      toast.error('Не удалось подписать контракт')
+      toast.error(t`Не вдалося підписати контракт`)
     },
   })
 
@@ -128,15 +128,17 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Ваш контракт</span>
+          <span className="text-sm font-medium">
+            <Trans>Ваш контракт</Trans>
+          </span>
         </div>
         <Badge variant="outline" className="text-[10px] text-muted-foreground">
-          PREVIEW
+          <Trans>Попередній перегляд</Trans>
         </Badge>
       </div>
 
       {/* PDF viewer region */}
-      <div role="region" aria-label="Контракт для подписания">
+      <div role="region" aria-label={t`Контракт для підписання`}>
         <div
           className="relative w-full rounded-md border border-border bg-muted/20"
           style={{ height: '480px' }}
@@ -145,7 +147,9 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           {isLoadingPdf && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-md bg-muted/30">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Загрузка контракта…</p>
+              <p className="text-sm text-muted-foreground">
+                <Trans>Завантаження контракту…</Trans>
+              </p>
             </div>
           )}
 
@@ -153,8 +157,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           {blobUrl && !pdfError && (
             <iframe
               src={blobUrl}
-              title="Предварительный просмотр персонального контракта"
-              aria-label="Предварительный просмотр персонального контракта"
+              title={t`Попередній перегляд персонального контракту`}
+              aria-label={t`Попередній перегляд персонального контракту`}
               aria-describedby="pdf-sr-note"
               tabIndex={0}
               className={cn('w-full h-full rounded-md border-0', isLoadingPdf && 'invisible')}
@@ -167,14 +171,16 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
               {/* Progressive enhancement fallback for iOS Safari */}
               <object data={blobUrl} type="application/pdf" className="w-full h-full">
                 <p className="p-4 text-sm text-muted-foreground">
-                  Встроенный просмотр PDF недоступен.{' '}
-                  <a
-                    href={blobUrl}
-                    download="contract-preview.pdf"
-                    className="underline hover:text-foreground"
-                  >
-                    Скачать контракт
-                  </a>
+                  <Trans>
+                    Вбудований перегляд PDF недоступний.{' '}
+                    <a
+                      href={blobUrl}
+                      download={t`Контракт — попередній перегляд.pdf`}
+                      className="underline hover:text-foreground"
+                    >
+                      Завантажити контракт
+                    </a>
+                  </Trans>
                 </p>
               </object>
             </iframe>
@@ -190,8 +196,10 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
 
         {/* SR-only fallback note for screen-readers */}
         <p id="pdf-sr-note" className="sr-only">
-          PDF-документ. При необходимости используйте кнопку «Скачать для просмотра» ниже для
-          просмотра контракта во внешней программе.
+          <Trans>
+            PDF-документ. За потреби скористайтеся кнопкою «Завантажити для перегляду» нижче, щоб
+            переглянути контракт у зовнішній програмі
+          </Trans>
         </p>
 
         {/* Download link for a11y + edge-cases */}
@@ -199,10 +207,10 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           <div className="mt-1 flex justify-end">
             <a
               href={blobUrl}
-              download="contract-preview.pdf"
+              download={t`Контракт — попередній перегляд.pdf`}
               className="text-xs text-muted-foreground underline hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
             >
-              Скачать для просмотра
+              <Trans>Завантажити для перегляду</Trans>
             </a>
           </div>
         )}
@@ -215,14 +223,18 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           data-testid="pdf-error"
         >
           <AlertTriangle className="inline h-4 w-4 mr-2" />
-          Не удалось загрузить предварительный просмотр контракта. Обратитесь к администратору.
+          <Trans>
+            Не вдалося завантажити попередній перегляд контракту — зверніться до адміністратора
+          </Trans>
         </div>
       )}
 
       {/* Info alert */}
       <p className="rounded-md border border-border bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
-        Данные в контракте: имя, email, реквизиты — задаёт администратор. При ошибке обратитесь к
-        нему.
+        <Trans>
+          Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так,
+          напишіть йому
+        </Trans>
       </p>
 
       {/* Checkbox — h-6 w-6 per WCAG SC 2.5.8 (24×24px target) */}
@@ -239,7 +251,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           aria-describedby="contract-checkbox-hint"
         />
         <span id="contract-checkbox-hint" className="text-sm leading-snug">
-          Я ознакомился и подтверждаю условия персонального контракта
+          <Trans>Умови персонального контракту прочитано — підтверджую</Trans>
         </span>
       </label>
 
@@ -252,12 +264,14 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           data-testid="legal-name-missing-alert"
         >
           <AlertTriangle className="inline h-4 w-4 mr-2" />
-          Юридическое ФИО не заполнено. Подписание недоступно — обратитесь к администратору.
+          <Trans>
+            Юридичне ПІБ не заповнено — підписання відкриється, щойно його заповнить адміністратор
+          </Trans>
         </div>
       )}
 
-      {/* Бэклог 212 — под «войти как» подпись недоступна; тот же литерал,
-          что отдаёт сервер в 403 на POST /contracts/sign. */}
+      {/* Бэклог 212 — под «войти как» подпись недоступна; тот же текст,
+          что отдаёт сервер в 403 на POST /contracts/sign (шаблон G). */}
       {impersonating && (
         <div
           id={IMPERSONATION_EXPLANATION_ID}
@@ -267,7 +281,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           className="rounded-md border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-300"
         >
           <AlertTriangle className="inline h-4 w-4 mr-2" />
-          {IMPERSONATION_EXPLANATION}
+          {i18n._(API_ERROR_MESSAGES.CONTRACT_SIGN_IMPERSONATION)}
         </div>
       )}
 
@@ -275,7 +289,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       <div
         className="flex items-center gap-3 rounded-md border border-border bg-muted/20 px-4 py-3"
         role="group"
-        aria-label="Подписант"
+        aria-label={t`Підписант`}
         data-testid="signature-block"
       >
         <Avatar className="h-8 w-8 shrink-0">
@@ -283,7 +297,9 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium leading-none">{displayName || '—'}</p>
-          <p className="mt-1 text-xs text-muted-foreground">Подпись — юридическое ФИО из профиля</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            <Trans>Підпис — юридичне ПІБ з профілю</Trans>
+          </p>
         </div>
       </div>
 
@@ -303,17 +319,20 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
               {signMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Подписание…
+                  <Trans>Підписання…</Trans>
                 </>
               ) : (
-                'Подписать контракт'
+                <Trans>Підписати контракт</Trans>
               )}
             </Button>
           </span>
         </TooltipTrigger>
         {legalNameMissing && (
           <TooltipContent>
-            Заполните юридическое ФИО в профиле (обратитесь к администратору)
+            <Trans>
+              Юридичне ПІБ заповнює адміністратор — напишіть йому, і підписання відкриється одразу
+              після цього
+            </Trans>
           </TooltipContent>
         )}
       </Tooltip>

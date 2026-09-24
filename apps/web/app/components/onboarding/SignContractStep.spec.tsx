@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { i18n } from '@lingui/core'
+import { I18nProvider } from '@lingui/react'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -88,7 +89,7 @@ vi.mock('@/context/auth', () => ({
 }))
 
 // Import AFTER vi.mock declarations so hoisting resolves correctly.
-import { API_ERROR_MESSAGES, CONTRACT_SIGN_IMPERSONATION_MESSAGE } from '@crm/shared'
+import { API_ERROR_MESSAGES } from '@crm/shared'
 import { toast } from 'sonner'
 import { api } from '@/lib/axios'
 import { SignContractStep } from './SignContractStep'
@@ -112,9 +113,11 @@ function wrapper({ children }: { children: React.ReactNode }) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>{children}</TooltipProvider>
-    </QueryClientProvider>
+    <I18nProvider i18n={i18n}>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>{children}</TooltipProvider>
+      </QueryClientProvider>
+    </I18nProvider>
   )
 }
 
@@ -155,7 +158,7 @@ describe('SignContractStep', () => {
     render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
 
     const label = screen.getByTestId('confirm-checkbox-label')
-    expect(label.textContent).toContain('персонального контракта')
+    expect(label.textContent).toContain('персонального контракту')
     expect(label.textContent).not.toContain('MSA')
   })
 
@@ -202,7 +205,7 @@ describe('SignContractStep', () => {
       expect(button).toHaveAttribute('aria-describedby', 'sign-contract-explain-impersonating')
 
       const banner = screen.getByTestId('sign-contract-impersonating-banner')
-      expect(banner).toHaveTextContent(`${CONTRACT_SIGN_IMPERSONATION_MESSAGE}.`)
+      expect(banner).toHaveTextContent(i18n._(API_ERROR_MESSAGES.CONTRACT_SIGN_IMPERSONATION))
       expect(banner).toHaveAttribute('id', 'sign-contract-explain-impersonating')
 
       // Even checking the confirm box (the only other gate) must not
@@ -334,7 +337,7 @@ describe('SignContractStep', () => {
       render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
 
       const alert = await screen.findByTestId('legal-name-missing-alert')
-      expect(alert).toHaveTextContent('обратитесь к администратору')
+      expect(alert).toHaveTextContent('заповнить адміністратор')
       expect(alert.textContent).not.toMatch(/\bADMIN\b/)
     })
   })
@@ -402,7 +405,7 @@ describe('SignContractStep', () => {
 
       await clickSign()
 
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось подписать контракт'))
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося підписати контракт'))
     })
   })
 })
