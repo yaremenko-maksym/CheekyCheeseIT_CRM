@@ -89,6 +89,27 @@ describe('useArchiveEntity — error toast', () => {
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
   })
+
+  // Mutation-gate gap-fill: the optional-chaining CHAIN itself
+  // (`err?.response?.data?.message`) needs a case per link where the
+  // PREVIOUS link is present but THIS one is absent — a rejection with a
+  // full `response.data.message` (above) or none at all (above) cannot
+  // distinguish `err?.response` from `err.response`, or `data?.message`
+  // from `data.message`: both forms evaluate identically when every link
+  // up to the missing one is populated.
+  it('a response WITH data but no message key does not throw — falls back cleanly', async () => {
+    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue({ response: { data: {} } })
+    renderProbe(() => useArchiveEntity('project', 'e-1'), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
+  })
+
+  it('a rejection value that is not an object at all does not throw — falls back cleanly', async () => {
+    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue(null)
+    renderProbe(() => useArchiveEntity('project', 'e-1'), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
+  })
 })
 
 describe('useUnarchiveEntity — success toast per entity type', () => {
