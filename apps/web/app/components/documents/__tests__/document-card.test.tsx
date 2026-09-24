@@ -13,7 +13,7 @@
  */
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   RouterProvider,
   createMemoryHistory,
@@ -22,6 +22,14 @@ import {
 } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Document, SessionUser } from '@crm/shared'
+// task-i18n-stage3a (Task 2) — `DocumentCard` now calls `useLocale()`
+// (`formatBytes(bytes, locale)`), which needs an `I18nProvider` in the tree
+// or `useLingui()` throws before render even reaches this test's assertions.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 // Mock the documents hook — DocumentCard otherwise triggers a presigned URL
 // query on mount + provides mutate handles we don't want to fire here.
@@ -89,9 +97,11 @@ function renderCard(doc: Document) {
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
   return render(
-    <QueryClientProvider client={qc}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -117,5 +127,22 @@ describe('DocumentCard — pending signature badge', () => {
     renderCard(doc)
     await screen.findByTestId('document-card')
     expect(screen.queryByTestId('document-card-pending-signature')).toBeNull()
+  })
+})
+
+// task-i18n-stage3a (Task 2) — mutation-gate gap-fill: `sizeBytes > 0 ?
+// formatBytes(...) : '—'` had no test on either branch.
+describe('DocumentCard — size cell', () => {
+  it('sizeBytes > 0 renders the locale-formatted size', async () => {
+    renderCard(makeInvoiceDoc({ sizeBytes: 1024 }))
+    const card = await screen.findByTestId('document-card')
+    expect(card).toHaveTextContent('1,0 КБ')
+  })
+
+  it('sizeBytes === 0 renders the placeholder dash, not "0 Б"', async () => {
+    renderCard(makeInvoiceDoc({ sizeBytes: 0 }))
+    const card = await screen.findByTestId('document-card')
+    expect(card).toHaveTextContent('—')
+    expect(card).not.toHaveTextContent('Б')
   })
 })

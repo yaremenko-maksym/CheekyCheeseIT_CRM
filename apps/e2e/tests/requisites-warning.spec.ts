@@ -7,7 +7,7 @@
  * - JUNIOR/HR can choose between USDT ERC-20 and Банк UAH (ФОП)
  * - SENIOR/ADMIN are forced to USDT ERC-20 (Bank segment disabled with tooltip)
  * - Submitting valid data opens a confirmation AlertDialog
- * - Confirming fires PATCH /users/me/requisites → "Реквизиты обновлены" toast
+ * - Confirming fires PATCH /users/me/requisites → "Реквізити оновлено" toast
  * - Cancelling the AlertDialog sends no PATCH
  *
  * RequisitesTab wraps RequisitesEditForm in self-mode; the form is only
@@ -139,7 +139,9 @@ test.describe('Requisites edit form', () => {
     expect(body.bankUahIban).toBe(TARGET_IBAN)
     expect(body.bankUahRnokpp).toBe(TARGET_RNOKPP)
 
-    await expect(page.getByText('Реквизиты обновлены')).toBeVisible()
+    // task-i18n-stage3a (Task 2) — use-user-profile.ts's toast is now uk
+    // (source locale) via useLingui(), not the pre-i18n Russian literal.
+    await expect(page.getByText('Реквізити оновлено')).toBeVisible()
   })
 
   test('cancelling AlertDialog sends no PATCH', async ({ page }) => {

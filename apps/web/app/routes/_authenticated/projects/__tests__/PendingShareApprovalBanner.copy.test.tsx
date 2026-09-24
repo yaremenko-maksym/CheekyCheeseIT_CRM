@@ -174,7 +174,7 @@ describe('PendingShareApprovalBanner — approving', () => {
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+        'Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку.',
       ),
     )
     // QA-MED-5's lesson, stated as an assertion rather than as a comment:

@@ -2,6 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+// task-i18n-stage3a (Task 2) — `useCreateJobExclusion` now calls
+// `useLingui()` for its own success toast, which needs an `I18nProvider` in
+// the tree or `useLingui()` throws before the mutation even runs.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const post = vi.fn()
 const toastError = vi.fn()
@@ -16,20 +20,24 @@ const { useCreateJobExclusion } = await import('../use-job-sourcing')
  * Code review round 4: the error handler was written but never exercised.
  *
  * It exists because of a design-review finding — an ADMIN/HR with no senior
- * selected must SEE why the exclusion was refused. A generic "Не удалось
- * добавить исключение" would have left the same dead end the silent no-op did,
- * so the value under test is specifically that the SERVER's sentence reaches
- * the user.
+ * selected must SEE why the exclusion was refused. A generic fallback
+ * would have left the same dead end the silent no-op did, so the value
+ * under test is specifically that the SERVER's sentence reaches the user.
  */
 function wrapper({ children }: { children: ReactNode }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  return (
+    <I18nTestProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </I18nTestProvider>
+  )
 }
 
 describe('useCreateJobExclusion — error surfacing', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
     post.mockReset()
     toastError.mockReset()
     toastSuccess.mockReset()
@@ -100,7 +108,7 @@ describe('useCreateJobExclusion — error surfacing', () => {
     const { result } = renderHook(() => useCreateJobExclusion(undefined), { wrapper })
     result.current.mutate({ scope: 'SENIOR', kind: 'COMPANY', value: 'EPAM' })
 
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Исключение добавлено'))
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Виняток додано'))
     expect(toastError).not.toHaveBeenCalled()
   })
 })

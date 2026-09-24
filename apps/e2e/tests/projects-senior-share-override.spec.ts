@@ -1500,6 +1500,13 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await page.getByTestId('pending-share-reject-reason').fill('договаривались на 30%')
     await page.getByTestId('pending-share-reject-confirm').click()
 
+    // NOT task-i18n-stage3a territory: this success toast is
+    // $projectId.tsx's OWN inline `rejectMutation` (a duplicate of, not a
+    // call into, `useRejectSeniorShareChange` in use-user-profile.ts) —
+    // `routes/_authenticated/projects/$projectId.tsx` is outside this
+    // wave's perimeter (lib/hooks only) and stays Russian. Reverted from an
+    // earlier (incorrect) uk assertion once a live run showed the real
+    // rendered text.
     await expect(page.getByText('Предложение отклонено', { exact: false })).toBeVisible()
   })
 })

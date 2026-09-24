@@ -22,6 +22,7 @@ vi.mock('@/lib/axios', () => ({ api: { post: postMock } }))
 
 import { useLogout } from './use-logout'
 import { PERSIST_KEY } from './persister'
+import { isLocaleConfirmedByUser, markLocaleConfirmedByUser } from './i18n'
 
 function makeWrapper(qc: QueryClient) {
   return ({ children }: { children: ReactNode }) =>
@@ -67,6 +68,29 @@ describe('useLogout', () => {
     await vi.waitFor(() => {
       expect(clearSpy).toHaveBeenCalledTimes(1)
       expect(delMock).toHaveBeenCalledWith(PERSIST_KEY)
+    })
+  })
+
+  // CR-M-3 (fix-round 3, PR #706) — `lib/i18n.ts`'s `confirmedUserLocale`
+  // marker is safe TODAY only because logout is a hard navigation, which
+  // resets every module-level binding for free. This pins the belt-and-
+  // suspenders fix instead: if a future refactor ever swapped the hard
+  // `window.location.href` redirect for an in-SPA `navigate()`, a marker
+  // left over from a switch made by the PREVIOUS user in this tab would
+  // otherwise survive and silently block the NEXT user's own session-locale
+  // sync (`AuthProvider`'s effect in `context/auth.tsx`). Deleting the
+  // `resetLocaleConfirmation()` call in `use-logout.ts` — the one thing this
+  // test actually exercises — makes this fail red.
+  it('resets the lib/i18n.ts locale-confirmation marker (CR-M-3 — safe even if logout ever stops hard-navigating)', async () => {
+    markLocaleConfirmedByUser('en')
+    expect(isLocaleConfirmedByUser('en')).toBe(true)
+
+    const qc = new QueryClient()
+    const { result } = renderHook(() => useLogout(), { wrapper: makeWrapper(qc) })
+    result.current()
+
+    await vi.waitFor(() => {
+      expect(isLocaleConfirmedByUser('en')).toBe(false)
     })
   })
 })

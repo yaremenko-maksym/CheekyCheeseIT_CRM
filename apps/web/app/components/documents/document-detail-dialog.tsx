@@ -58,6 +58,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { useLocale } from '@/lib/i18n'
 import { formatBytes } from '@/lib/format-bytes'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import {
@@ -182,6 +183,9 @@ export function DocumentDetailDialog({
   doc,
   viewer,
 }: DocumentDetailDialogProps) {
+  // task-i18n-stage3a (Task 2) — `formatBytes` now takes a required
+  // `locale`; this file otherwise stays Russian (wave e migrates it).
+  const locale = useLocale()
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
@@ -363,7 +367,11 @@ export function DocumentDetailDialog({
                   title={doc.createdAt}
                 />
                 {doc.sizeBytes > 0 ? (
-                  <DetailRow icon={HardDrive} label="Размер" value={formatBytes(doc.sizeBytes)} />
+                  <DetailRow
+                    icon={HardDrive}
+                    label="Размер"
+                    value={formatBytes(doc.sizeBytes, locale)}
+                  />
                 ) : null}
                 <DetailRow icon={FileType} label="Формат" value={doc.mimeType} />
                 {/* AC5: «Имя файла» row deliberately removed — the title

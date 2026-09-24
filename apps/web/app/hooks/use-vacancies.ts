@@ -20,6 +20,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import type {
   CreateVacancy,
   UpdateVacancy,
@@ -69,6 +70,7 @@ export function useVacancy(vacancyId: string): UseQueryResult<Vacancy | null, Er
 
 export function useCreateVacancy(): UseMutationResult<Vacancy, Error, CreateVacancy> {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<Vacancy, Error, CreateVacancy>({
     mutationFn: async (dto) => {
       const res = await api.post<Vacancy>('/vacancies', dto)
@@ -76,9 +78,10 @@ export function useCreateVacancy(): UseMutationResult<Vacancy, Error, CreateVaca
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
-      toast.success('Вакансия создана')
+      toast.success(t`Вакансію створено`)
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, 'Не удалось создать вакансию')),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося створити вакансію. Спробуйте ще раз`)),
   })
 }
 
@@ -88,6 +91,7 @@ export function useUpdateVacancy(): UseMutationResult<
   { id: string; dto: UpdateVacancy }
 > {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<Vacancy, Error, { id: string; dto: UpdateVacancy }>({
     mutationFn: async ({ id, dto }) => {
       const res = await api.patch<Vacancy>(`/vacancies/${id}`, dto)
@@ -95,25 +99,28 @@ export function useUpdateVacancy(): UseMutationResult<
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
-      toast.success('Вакансия обновлена')
+      toast.success(t`Вакансію оновлено`)
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, 'Не удалось обновить вакансию')),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося оновити вакансію. Спробуйте ще раз`)),
   })
 }
 
 export function useDeleteVacancy(): UseMutationResult<void, Error, string> {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<void, Error, string>({
     mutationFn: async (id) => {
       await api.delete(`/vacancies/${id}`)
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
-      toast.success('Вакансия удалена')
+      toast.success(t`Вакансію видалено`)
     },
-    // §7: backend ConflictException already carries a ready Russian message —
-    // just forward it (defensive fallback for a race the UI guard missed).
-    onError: (e) => toast.error(getApiErrorMessage(e, 'Не удалось удалить вакансию')),
+    // §7: backend ConflictException already carries a ready message — just
+    // forward it (defensive fallback for a race the UI guard missed).
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося видалити вакансію. Спробуйте ще раз`)),
   })
 }
 
@@ -146,6 +153,7 @@ export function useUpdateVacancyApplication(
   vacancyId: string,
 ): UseMutationResult<VacancyApplication, Error, { appId: string; status: UpdateVacancyApplication['status'] }> {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<
     VacancyApplication,
     Error,
@@ -163,7 +171,8 @@ export function useUpdateVacancyApplication(
       // Vacancy list carries `applicationsCount`/new-count badges — keep in sync.
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, 'Не удалось изменить статус отклика')),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося змінити статус відгуку. Спробуйте ще раз`)),
   })
 }
 
@@ -171,6 +180,7 @@ export function useDeleteVacancyApplication(
   vacancyId: string,
 ): UseMutationResult<void, Error, string> {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<void, Error, string>({
     mutationFn: async (appId) => {
       await api.delete(`/vacancies/${vacancyId}/applications/${appId}`)
@@ -178,9 +188,10 @@ export function useDeleteVacancyApplication(
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: applicationsQueryKey(vacancyId) })
       void qc.invalidateQueries({ queryKey: VACANCIES_QUERY_KEY })
-      toast.success('Отклик удалён')
+      toast.success(t`Відгук видалено`)
     },
-    onError: (e) => toast.error(getApiErrorMessage(e, 'Не удалось удалить отклик')),
+    onError: (e) =>
+      toast.error(getApiErrorMessage(e, t`Не вдалося видалити відгук. Спробуйте ще раз`)),
   })
 }
 

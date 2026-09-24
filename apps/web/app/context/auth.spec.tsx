@@ -54,7 +54,13 @@ vi.mock('../lib/i18n', async (importOriginal) => {
 
 // Import after mocks
 import { AuthProvider, useAuth } from './auth'
-import { i18n, activateLocale } from '../lib/i18n'
+import {
+  i18n,
+  activateLocale,
+  isLocaleConfirmedByUser,
+  markLocaleConfirmedByUser,
+  resetLocaleConfirmation,
+} from '../lib/i18n'
 
 // ---------------------------------------------------------------------------
 // Wrapper factory
@@ -153,6 +159,22 @@ describe('AuthProvider — locale activation from /auth/me', () => {
     // pattern as `i18n-smoke.test.tsx`).
     i18n.load('uk', {})
     i18n.activate('uk')
+    // `confirmedUserLocale` (`lib/i18n.ts`) is a module-level singleton, not
+    // component state — drain any marker a previous test left set.
+    resetLocaleConfirmation()
+  })
+
+  it('does not call activateLocale (and does not throw) while /auth/me has not resolved yet', () => {
+    // `data` stays `undefined` (beforeEach's default) — the pre-fetch window
+    // every render passes through before `/auth/me` resolves. Kills a
+    // ConditionalExpression mutant on `if (!data?.locale) return` that
+    // flips it to `if (false) return`: without the guard, `data.locale`
+    // (on `undefined`) would throw instead of the optional-chained access
+    // short-circuiting, and every OTHER test in this describe block only
+    // ever renders with `data` already set, so none of them would notice.
+    renderHook(() => useAuth(), { wrapper })
+
+    expect(activateLocale).not.toHaveBeenCalled()
   })
 
   it('calls activateLocale when the session locale differs from the active one', () => {
@@ -186,5 +208,39 @@ describe('AuthProvider — locale activation from /auth/me', () => {
 
     expect(activateLocale).toHaveBeenCalledWith('en')
     expect(activateLocale).toHaveBeenCalledTimes(1)
+  })
+
+  // fix-round 2 (CI-2) / fix-round 3 (CR-H-1, PR #706) — the guard this
+  // describe block's file-level comment documents: without it, this exact
+  // scenario is the CI-2 regression (`LanguageSection.choose()` just
+  // activated 'en' locally; the cached `['auth','me']` response is still
+  // the stale pre-PATCH 'uk').
+  it('does not call activateLocale when the active locale was just confirmed by the user on this device', () => {
+    markLocaleConfirmedByUser('en')
+    i18n.load('en', {})
+    i18n.activate('en')
+    queryResult = { data: { ...mockUser, locale: 'uk' }, isPending: false, isFetching: false }
+
+    renderHook(() => useAuth(), { wrapper })
+
+    expect(activateLocale).not.toHaveBeenCalled()
+  })
+
+  it('clears the marker once data.locale catches up to i18n.locale, so a LATER genuine drift is corrected', () => {
+    markLocaleConfirmedByUser('en')
+    i18n.load('en', {})
+    i18n.activate('en')
+    // The `invalidate()` refetch `choose()` triggers finally comes back —
+    // data.locale now matches i18n.locale.
+    queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+    const { rerender } = renderHook(() => useAuth(), { wrapper })
+    expect(isLocaleConfirmedByUser('en')).toBe(false)
+
+    // A genuine cross-device drift arrives afterwards — with the marker
+    // gone, this must reactivate rather than being silently swallowed.
+    queryResult = { data: { ...mockUser, locale: 'uk' }, isPending: false, isFetching: false }
+    rerender()
+
+    expect(activateLocale).toHaveBeenCalledWith('uk')
   })
 })

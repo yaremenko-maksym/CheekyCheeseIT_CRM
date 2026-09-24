@@ -121,3 +121,136 @@ export function useLocale(): Locale {
   const { i18n: instance } = useLingui()
   return (instance.locale as Locale) ?? DEFAULT_LOCALE
 }
+
+/**
+ * fix-round 2 (CI-2, task-i18n-stage3a Task 7 — CR-M-1 regression): two
+ * module-level markers, NOT React state — they must survive the
+ * `<Fragment key={locale}>` remount `routes/__root.tsx`'s `LocaleScopedApp`
+ * performs on every `activateLocale()` call, which recreates every
+ * component below it (including `AuthProvider` and `LanguageSection`) with
+ * fresh `useState`/`useRef`. A plain module-level binding is the only thing
+ * that lives across that remount.
+ *
+ * The bug: `LanguageSection.choose()` (`components/user-profile/
+ * LanguageSection.tsx`) calls `activateLocale(locale)` mid-flight — that
+ * synchronously flips `i18n.locale`, which `LocaleScopedApp` reads via
+ * `useLocale()` and remounts the whole authenticated tree on, INCLUDING
+ * `AuthProvider` (`context/auth.tsx`). `AuthProvider`'s own session-locale-
+ * sync effect then runs fresh on THAT remount and reads the `['auth','me']`
+ * query's STILL-STALE cached `data.locale` — the `/users/me` PATCH that just
+ * persisted the new locale server-side has not been reflected by a refetch
+ * yet (that only happens once `choose()` calls `invalidate()`, AFTER
+ * `activateLocale()` — and even then only once the network round-trip
+ * resolves). The effect cannot tell that mismatch apart from a genuine
+ * cross-device drift, so it "corrects" `i18n.locale` right back to the stale
+ * value, undoing the switch and remounting again. `document.documentElement
+ * .lang` and every reactive `aria-checked` settle on the OLD locale.
+ *
+ * fix-round 3 (CR-M-2, PR #706): an optimistic `['auth','me']` cache write
+ * in `choose()` was tried as a replacement for this marker and reverted —
+ * `invalidate()`'s refetch does not just close the synchronous remount
+ * window above, it can ALSO come back with a value that still disagrees
+ * with what was just activated. This marker protects against that: it lets
+ * `AuthProvider`'s effect recognize a STALE `/auth/me` response and skip
+ * "correcting" `i18n.locale` back to it.
+ *
+ * fix-round 4 (CR-M-4, PR #706): what is proven directly is narrower than
+ * the earlier wording of this comment claimed. `locale-switcher.spec.ts`'s
+ * `/auth/me` mock (`mockAuthAs`, `apps/e2e/tests/fixtures.ts`) is a
+ * Playwright `page.route` handler — it always echoes the same session
+ * object it was given, independent of any PATCH the test sent, so THAT
+ * refetch is unconditionally stale by construction. That is a property of
+ * the E2E mock, not evidence about the real backend: the real `GET
+ * /auth/me` (`apps/api/src/auth/auth.controller.ts`) re-reads the user row
+ * from the DB on every call and does not go stale the way the mock does.
+ * In production the window this marker closes is narrower — an in-flight
+ * refetch that started before the locale PATCH committed can still resolve
+ * with the pre-PATCH value once it lands. A cache write only protects
+ * against the FIRST read; it cannot tell a later, still-stale refetch
+ * (mocked or real-but-racing) apart from a genuine cross-device correction
+ * the way this marker does. Kept. (The marker is unconditionally cleared on
+ * logout via `resetLocaleConfirmation` below, so this staleness window
+ * never crosses a session boundary.)
+ */
+let confirmedUserLocale: Locale | null = null
+
+/** Called by `LanguageSection.choose()` once the PATCH that persists `locale` server-side has succeeded. */
+export function markLocaleConfirmedByUser(locale: Locale): void {
+  confirmedUserLocale = locale
+}
+
+/**
+ * Read by `AuthProvider`'s session-locale-sync effect. Deliberately NOT
+ * consumed/cleared on a matching read (an earlier revision was — and broke
+ * under React `<StrictMode>`, which double-invokes every effect in
+ * development: the FIRST of the two invocations would consume the marker
+ * and correctly skip, leaving the SECOND to see it already gone and
+ * reactivate anyway — verified against a real dev-mode run, see fix-round 2
+ * PR discussion). `clearConfirmedUserLocaleIfSettled` below is the one
+ * legitimate place the marker goes away on a MATCHING read;
+ * `resetLocaleConfirmation` below is the other — an unconditional one, for
+ * session boundaries rather than a settled refetch.
+ */
+export function isLocaleConfirmedByUser(locale: Locale): boolean {
+  return confirmedUserLocale === locale
+}
+
+/**
+ * Called by `AuthProvider`'s effect once `data.locale` genuinely CATCHES UP
+ * to `i18n.locale` (the `invalidate()` refetch `choose()` triggers finally
+ * came back with the persisted value) — the marker has done its job and
+ * clearing it here (rather than never) is what lets a LATER, genuine drift
+ * (e.g. a real cross-device correction on a future login) be corrected
+ * instead of silently swallowed by a marker left over from an earlier
+ * switch. No-op if `locale` is not the currently marked one.
+ */
+export function clearConfirmedUserLocaleIfSettled(locale: Locale): void {
+  if (confirmedUserLocale === locale) confirmedUserLocale = null
+}
+
+/**
+ * CR-M-3 (fix-round 3, PR #706): unconditionally clears the marker,
+ * independent of what it is currently set to. `confirmedUserLocale`'s
+ * correctness relies on ONE invariant — logout/login is always a hard
+ * `window.location.href` navigation (`lib/use-logout.ts`, the Google OAuth
+ * `<a href>`, and every dev-login path all reload the page, which resets
+ * every module-level binding in this file for free). If a future refactor
+ * ever turns logout into an in-SPA `navigate()` to save the reload, THIS
+ * marker would otherwise survive across users in the SAME tab: user A
+ * switches to `en`, logs out before the settle-refetch above ever runs, and
+ * user B logs in — `isLocaleConfirmedByUser(i18n.locale)` would still see
+ * A's confirmation and silently block B's own session-locale sync. Wiring
+ * this into `useLogout()` removes the reliance on hard-navigation instead of
+ * merely documenting it; see `use-logout.spec.ts` for the pinning test.
+ */
+export function resetLocaleConfirmation(): void {
+  confirmedUserLocale = null
+}
+
+/**
+ * A `key`-driven remount unmounts the OLD button (the one that had DOM
+ * focus) and mounts a BRAND NEW one — the browser does not auto-focus a
+ * freshly created element, so without this, UX-M-3 (focus stays on the
+ * clicked language option) breaks the instant `LocaleScopedApp` remounts
+ * `LanguageSection`. `choose()` records which locale the user just picked
+ * BEFORE that remount can happen; `LanguageSection`'s own mount effect
+ * consumes the request once and, if it matches the locale it is now
+ * rendering, re-focuses that option's button.
+ *
+ * fix-round 3 (CR-M-3 follow-up, PR #706): if `activateLocale()` itself
+ * throws after a successful PATCH, `choose()`'s `catch` calls
+ * `consumeLocaleSwitchFocus()` to discard the request it just queued —
+ * otherwise it would sit here and steal focus on some LATER, unrelated
+ * mount of `LanguageSection` instead of the interrupted one.
+ */
+let pendingFocusLocale: Locale | null = null
+
+export function requestLocaleSwitchFocus(locale: Locale): void {
+  pendingFocusLocale = locale
+}
+
+export function consumeLocaleSwitchFocus(): Locale | null {
+  const locale = pendingFocusLocale
+  pendingFocusLocale = null
+  return locale
+}

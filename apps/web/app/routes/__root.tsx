@@ -1,10 +1,11 @@
+import { Fragment } from 'react'
 import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Query } from '@tanstack/react-query'
 import { I18nProvider } from '@lingui/react'
 import { createQueryClient } from '../lib/query-client'
 import { persister } from '../lib/persister'
-import { i18n } from '../lib/i18n'
+import { i18n, useLocale } from '../lib/i18n'
 import { TelemetryProvider } from '../lib/telemetry'
 import { Toaster } from '../components/ui/sonner'
 import '../styles/globals.css'
@@ -80,10 +81,55 @@ function RootDocument() {
             },
           }}
         >
-          <Outlet />
-          <Toaster />
+          <LocaleScopedApp />
         </PersistQueryClientProvider>
       </TelemetryProvider>
     </I18nProvider>
+  )
+}
+
+/**
+ * fix-round 1 (CR-M-1, task-i18n-stage3a Task 2): `formatAmount`/
+ * `formatAmountUsd` (and every other `i18n.locale`-reading helper called
+ * OUTSIDE `useLingui()`/`<Trans>`) read the singleton at call time — a
+ * component that never itself subscribes to `i18n` (no `useLingui()`, no
+ * `<Trans>` in its own render) does not re-render when
+ * `LanguageSection.choose` calls `activateLocale()` mid-session, so its
+ * already-formatted numbers/dates stay in the OLD locale's shape until
+ * something else forces a re-render. `<Fragment key={locale}>` below
+ * remounts the whole authenticated tree on a locale change — the same
+ * "reset by key" pattern React uses to reset component state — which is a
+ * blunt but total fix: every already-rendered screen, not just the ones an
+ * engineer remembered to wire up to `useLingui()`, picks up the new locale.
+ *
+ * `queryClient` (module-level singleton — created once, above this
+ * component and above `PersistQueryClientProvider`) and
+ * `PersistQueryClientProvider` itself stay OUTSIDE the keyed subtree on
+ * purpose: remounting `PersistQueryClientProvider` would re-run its
+ * IndexedDB restore effect on every language switch, which is both
+ * wasteful and a real risk of a hydrate/dehydrate race. Only what is
+ * BELOW it — the route tree (`Outlet`) and `Toaster` — remounts; the
+ * TanStack Router instance itself lives in `client.tsx`, above `__root.tsx`
+ * entirely, so it is never touched by this key either — reactivating a
+ * route by remounting `Outlet` does not recreate the router.
+ *
+ * A separate component (not inlined in `RootDocument`) because `useLocale()`
+ * needs `useLingui()`'s context, which only exists BELOW `<I18nProvider>` —
+ * `RootDocument` itself renders the provider, so it cannot call the hook
+ * for its own subtree in the same render.
+ *
+ * Exported (not just local to this file) so `__root.locale-remount.test.tsx`
+ * can render it directly under a REAL `I18nProvider` without needing a full
+ * TanStack Router instance (`RootDocument` itself pulls in
+ * `PersistQueryClientProvider` + IndexedDB persistence, unnecessary weight
+ * for a test that only needs to prove the remount-on-locale-change behavior).
+ */
+export function LocaleScopedApp() {
+  const locale = useLocale()
+  return (
+    <Fragment key={locale}>
+      <Outlet />
+      <Toaster />
+    </Fragment>
   )
 }

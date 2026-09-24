@@ -190,7 +190,9 @@ test.describe('ADMIN viewing senior profile — editable legend', () => {
     await page.getByTestId('legend-input-fullname').fill('Петренко Петро Петрович')
 
     await page.getByTestId('legend-save-button').click()
-    await expect(page.getByText('Легенда сохранена')).toBeVisible()
+    // task-i18n-stage3a (Task 2) — use-legend.ts's toast is now uk (source
+    // locale) via useLingui(), not the pre-i18n Russian literal.
+    await expect(page.getByText('Легенду збережено')).toBeVisible()
   })
 
   test('ADMIN can cancel editing without saving', async ({ asAdmin: page }) => {

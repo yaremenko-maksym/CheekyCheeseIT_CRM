@@ -5,8 +5,16 @@
  * AC6 (task-documents-search-sort).
  */
 import { describe, expect, it } from 'vitest'
+import { i18n } from '@lingui/core'
 import type { Document } from '@crm/shared'
-import { filterDocuments, sortDocuments } from './documents-filter-sort'
+import { loadCatalog } from '@/test/i18n'
+import {
+  DEFAULT_SORT,
+  SORT_OPTIONS,
+  SORT_OPTION_MESSAGES,
+  filterDocuments,
+  sortDocuments,
+} from './documents-filter-sort'
 
 // ---------------------------------------------------------------------------
 // Minimal Document fixture factory
@@ -221,6 +229,49 @@ describe('sortDocuments', () => {
     expect(sorted[0]?.id).toBe('first')
     expect(sorted[1]?.id).toBe('second')
     expect(sorted[2]?.id).toBe('third')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SORT_OPTION_MESSAGES (task-i18n-stage3a, Task 2, Step 3 — fix-round 1,
+// SPEC-H-3). `SORT_OPTIONS` (legacy, still Russian) is left UNCHANGED — its
+// only consumer, `documents.tsx`, belongs to wave (e); this pins that its
+// shape/values are untouched while `SORT_OPTION_MESSAGES` becomes the new
+// canon for consumers inside this wave's perimeter.
+// ---------------------------------------------------------------------------
+
+describe('SORT_OPTION_MESSAGES', () => {
+  it('has one entry per SortKey, in the same order as the legacy SORT_OPTIONS', () => {
+    expect(SORT_OPTION_MESSAGES.map((o) => o.value)).toEqual(SORT_OPTIONS.map((o) => o.value))
+  })
+
+  it('resolves to uk/en text per the active locale', async () => {
+    await loadCatalog('uk')
+    const dateDesc = SORT_OPTION_MESSAGES.find((o) => o.value === 'date_desc')
+    expect(dateDesc && i18n._(dateDesc.label)).toBe('Спочатку нові')
+    await loadCatalog('en')
+    expect(dateDesc && i18n._(dateDesc.label)).toBe('Newest first')
+  })
+
+  // Mutation-gate gap-fill: the assertion above only ever resolves
+  // 'date_desc' — every OTHER entry's `msg` template was a StringLiteral
+  // mutant with zero test reaching it (Stryker: "Survived").
+  it('resolves every remaining entry to its own uk text', async () => {
+    await loadCatalog('uk')
+    const resolve = (value: (typeof SORT_OPTION_MESSAGES)[number]['value']) => {
+      const entry = SORT_OPTION_MESSAGES.find((o) => o.value === value)
+      return entry && i18n._(entry.label)
+    }
+    expect(resolve('date_asc')).toBe('Спочатку старі')
+    expect(resolve('name_asc')).toBe('Ім’я: А–Я')
+    expect(resolve('name_desc')).toBe('Ім’я: Я–А')
+    expect(resolve('size_desc')).toBe('Спочатку більші')
+    expect(resolve('size_asc')).toBe('Спочатку менші')
+  })
+
+  it('leaves the legacy SORT_OPTIONS export untouched (type: string, Russian text)', () => {
+    expect(SORT_OPTIONS.find((o) => o.value === DEFAULT_SORT)?.label).toBe('Сначала новые')
+    for (const opt of SORT_OPTIONS) expect(typeof opt.label).toBe('string')
   })
 })
 

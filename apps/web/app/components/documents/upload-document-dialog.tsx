@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/select'
 import { UploadProgress } from '@/components/ui/upload-progress'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import { formatBytes } from '@/lib/format-bytes'
 import { useUploadDocument } from '@/hooks/use-documents'
 import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
@@ -101,6 +102,9 @@ export function UploadDocumentDialog({
   defaultProjectId,
   onUploaded,
 }: UploadDocumentDialogProps) {
+  // task-i18n-stage3a (Task 2) — `formatBytes` now takes a required
+  // `locale`; this file otherwise stays Russian (wave e migrates it).
+  const locale = useLocale()
   const [file, setFile] = useState<File | null>(null)
   const [category, setCategory] = useState<DocumentCategory>(defaultCategory)
   const [projectId, setProjectId] = useState<string | undefined>(defaultProjectId)
@@ -135,7 +139,7 @@ export function UploadDocumentDialog({
     }
     if (picked.size > DOCUMENT_MAX_BYTES) {
       toast.error(
-        `Файл больше ${formatBytes(DOCUMENT_MAX_BYTES)}. Ваш файл: ${formatBytes(picked.size)}`,
+        `Файл больше ${formatBytes(DOCUMENT_MAX_BYTES, locale)}. Ваш файл: ${formatBytes(picked.size, locale)}`,
       )
       setFile(null)
       return
@@ -178,8 +182,8 @@ export function UploadDocumentDialog({
         <CrmDialogHeader>
           <DialogTitle>Загрузить документ</DialogTitle>
           <DialogDescription className="mt-1 text-sm text-muted-foreground">
-            Максимальный размер: {formatBytes(DOCUMENT_MAX_BYTES)}. Допустимые форматы: PDF, JPG,
-            PNG, WebP, HEIC.
+            Максимальный размер: {formatBytes(DOCUMENT_MAX_BYTES, locale)}. Допустимые форматы: PDF,
+            JPG, PNG, WebP, HEIC.
           </DialogDescription>
         </CrmDialogHeader>
 
@@ -244,7 +248,7 @@ export function UploadDocumentDialog({
               </button>
             ) : (
               <p className="mt-1 text-xs text-muted-foreground">
-                До {formatBytes(DOCUMENT_MAX_BYTES)}, форматы: PDF, JPG, PNG, WebP, HEIC
+                До {formatBytes(DOCUMENT_MAX_BYTES, locale)}, форматы: PDF, JPG, PNG, WebP, HEIC
               </p>
             )}
           </div>
