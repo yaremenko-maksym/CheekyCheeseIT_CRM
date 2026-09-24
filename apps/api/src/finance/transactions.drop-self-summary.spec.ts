@@ -38,7 +38,6 @@
  * Pure stub for DatabaseService — no Postgres. The integration spec
  * (drop.rbac.integration.spec.ts) pins the same behaviour against a real DB.
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -184,7 +183,9 @@ describe('getDropSelfSummary — RBAC (self-only)', () => {
   for (const role of forbiddenRoles) {
     it(`throws ForbiddenException for role ${role}`, async () => {
       const svc = makeSvc(selfRow, [])
-      await expect(svc.getDropSelfSummary(user(role))).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(svc.getDropSelfSummary(user(role))).rejects.toMatchObject({
+        response: { code: 'FINANCE_DROP_SUMMARY_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 
@@ -203,9 +204,9 @@ describe('getDropSelfSummary — RBAC (self-only)', () => {
 
   it('throws NotFoundException when the drop user row is missing', async () => {
     const svc = makeSvc(undefined, [])
-    await expect(svc.getDropSelfSummary(user('DROP', DROP_ID))).rejects.toBeInstanceOf(
-      NotFoundException,
-    )
+    await expect(svc.getDropSelfSummary(user('DROP', DROP_ID))).rejects.toMatchObject({
+      response: { code: 'DROP_NOT_FOUND', statusCode: 404 },
+    })
   })
 })
 

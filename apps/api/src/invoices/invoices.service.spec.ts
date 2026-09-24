@@ -23,7 +23,7 @@
  *  - verifyInvoice: returns only public fields
  *  - verifyInvoice: 404 when invoice missing
  */
-import { ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common'
+import { Logger } from '@nestjs/common'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
@@ -743,7 +743,9 @@ describe('InvoicesService', () => {
       })
       h.ctrl.findTxId = 'tx-1'
       // SENIOR2 is not the counterparty (receiver is SENIOR.id)
-      await expect(h.svc.signInvoice(SENIOR2, 'tx-1', mkReq())).rejects.toThrow(ForbiddenException)
+      await expect(h.svc.signInvoice(SENIOR2, 'tx-1', mkReq())).rejects.toMatchObject({
+        response: { code: 'INVOICE_NOT_COUNTERPARTY', statusCode: 403 },
+      })
     })
 
     describe('impersonation guard (fix-round 3, task-680 SR-M-4)', () => {
@@ -805,7 +807,9 @@ describe('InvoicesService', () => {
       h.ctrl.findTxId = 'tx-1'
       // First sig query in signInvoice is the COUNTERPARTY existence check.
       h.ctrl.sigQueueRoles = ['COUNTERPARTY']
-      await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toThrow(ConflictException)
+      await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toMatchObject({
+        response: { code: 'INVOICE_ALREADY_SIGNED', statusCode: 409 },
+      })
     })
 
     it('throws ConflictException when current PDF hash does not match stored COMPANY hash', async () => {
@@ -844,8 +848,51 @@ describe('InvoicesService', () => {
       // Override getObject to a different buffer so SHA-256 mismatches.
       h.getObject.mockImplementation(async () => Buffer.from('TAMPERED'))
 
-      await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toThrow(ConflictException)
+      await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toMatchObject({
+        response: { code: 'INVOICE_PDF_MODIFIED_AFTER_SIGNATURE', statusCode: 409 },
+      })
       expect(h.state.sigs.filter((s) => s.signerRole === 'COUNTERPARTY').length).toBe(0)
+    })
+
+    // Mutation gate (i18n stage 4 Task 2): `findByIdInternal` is a shared
+    // module-level mock that every other test in this file lets resolve a
+    // real document row, so the `!doc` CONFLICT guard right after the
+    // COMPANY-signature check (same setup as the test above, minus the
+    // tampered PDF) never saw its FALSE branch.
+    it('throws ConflictException when the invoice document row itself is missing', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-company',
+            transactionId: 'tx-1',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'c'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date(),
+          },
+        ],
+        users: [],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-1'
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      h.findByIdInternal.mockResolvedValueOnce(undefined)
+
+      await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toMatchObject({
+        response: { code: 'INVOICE_DOCUMENT_NOT_FOUND', statusCode: 409 },
+      })
     })
 
     // security-review round 6 (PR #600, MED-H): these two PAYOUT-branch
@@ -910,8 +957,9 @@ describe('InvoicesService', () => {
       const err: unknown = await h.svc
         .signInvoice(SENIOR, 'tx-payout-sign-no-req', mkReq())
         .catch((e: unknown) => e)
-      expect(err).toBeInstanceOf(ConflictException)
-      expect((err as Error).message).toContain('Не удалось подтвердить сумму этого инвойса')
+      expect(err).toMatchObject({
+        response: { code: 'INVOICE_AMOUNT_VERIFICATION_FAILED', statusCode: 409 },
+      })
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('cannot resolve a signable amount'),
       )
@@ -964,8 +1012,9 @@ describe('InvoicesService', () => {
       const err: unknown = await h.svc
         .signInvoice(SENIOR, 'tx-payout-sign-empty', mkReq())
         .catch((e: unknown) => e)
-      expect(err).toBeInstanceOf(ConflictException)
-      expect((err as Error).message).toContain('Не удалось подтвердить сумму этого инвойса')
+      expect(err).toMatchObject({
+        response: { code: 'INVOICE_AMOUNT_VERIFICATION_FAILED', statusCode: 409 },
+      })
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('aggregate amount could not be resolved (no linked incomes)'),
       )
@@ -1207,8 +1256,9 @@ describe('InvoicesService', () => {
       const err: unknown = await h.svc
         .signInvoice(SENIOR, 'tx-senior-income-void-race', mkReq())
         .catch((e: unknown) => e)
-      expect(err).toBeInstanceOf(ConflictException)
-      expect((err as Error).message).toContain('Инвойс был аннулирован — обновите страницу')
+      expect(err).toMatchObject({
+        response: { code: 'INVOICE_VOIDED', statusCode: 409 },
+      })
       // Nothing inserted — the guard fires INSIDE the transaction, before
       // the COUNTERPARTY row.
       expect(
@@ -1260,8 +1310,9 @@ describe('InvoicesService', () => {
       const err: unknown = await h.svc
         .signInvoice(SENIOR, 'tx-senior-income-repoint-race', mkReq())
         .catch((e: unknown) => e)
-      expect(err).toBeInstanceOf(ConflictException)
-      expect((err as Error).message).toContain('Инвойс был аннулирован — обновите страницу')
+      expect(err).toMatchObject({
+        response: { code: 'INVOICE_VOIDED', statusCode: 409 },
+      })
       // Unlike the lock-race test above: the COUNTERPARTY row DOES land —
       // the file's own comment on this call site documents this as
       // intentional ("the void simply retires this fresh signature like
@@ -1593,10 +1644,9 @@ describe('InvoicesService', () => {
       h.ctrl.linkedPayoutRequestId = 'decoy-req'
       const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 
-      await expect(h.svc.verifyInvoice('tx-payout-no-req')).rejects.toThrow(ConflictException)
-      await expect(h.svc.verifyInvoice('tx-payout-no-req')).rejects.toThrow(
-        'Не удалось подтвердить сумму этого инвойса',
-      )
+      await expect(h.svc.verifyInvoice('tx-payout-no-req')).rejects.toMatchObject({
+        response: { code: 'INVOICE_AMOUNT_VERIFICATION_FAILED', statusCode: 409 },
+      })
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('the linked-income aggregate could not be resolved'),
       )
@@ -1660,10 +1710,9 @@ describe('InvoicesService', () => {
       // `ctrl.linkedPayoutRequestId` is unset, modelling zero linked
       // incomes for a payoutRequestId that IS truthy.
 
-      await expect(h.svc.verifyInvoice('tx-payout-empty')).rejects.toThrow(ConflictException)
-      await expect(h.svc.verifyInvoice('tx-payout-empty')).rejects.toThrow(
-        'Не удалось подтвердить сумму этого инвойса',
-      )
+      await expect(h.svc.verifyInvoice('tx-payout-empty')).rejects.toMatchObject({
+        response: { code: 'INVOICE_AMOUNT_VERIFICATION_FAILED', statusCode: 409 },
+      })
     })
 
     it('mutation-gate closure (round 5, HIGH-4): a NULL-snapshot PAYOUT row whose linked incomes span more than one currency confirms the blind sum and flags mixedCurrency, instead of refusing (unit-level twin of the integration AC2-bis test)', async () => {
@@ -1864,13 +1913,17 @@ describe('InvoicesService', () => {
         projects: [],
       })
       h.ctrl.findTxId = 'tx-1'
-      await expect(h.svc.verifyInvoice('tx-1')).rejects.toThrow(NotFoundException)
+      await expect(h.svc.verifyInvoice('tx-1')).rejects.toMatchObject({
+        response: { code: 'INVOICE_NOT_GENERATED_YET', statusCode: 404 },
+      })
     })
 
     it('returns 404 for non-existing transaction', async () => {
       const h = buildHarness({ txs: [], sigs: [], users: [], projects: [] })
       h.ctrl.findTxId = 'tx-missing'
-      await expect(h.svc.verifyInvoice('tx-missing')).rejects.toThrow(NotFoundException)
+      await expect(h.svc.verifyInvoice('tx-missing')).rejects.toMatchObject({
+        response: { code: 'INVOICE_NOT_FOUND', statusCode: 404 },
+      })
     })
 
     // ── SEC-05: COMPANY signature must not expose admin display name ───────────
@@ -1966,7 +2019,9 @@ describe('InvoicesService', () => {
 
       h.ctrl.findTxId = 'tx-pending'
       // Must return 404 — not amount/counterparty leak
-      await expect(h.svc.verifyInvoice('tx-pending')).rejects.toThrow(NotFoundException)
+      await expect(h.svc.verifyInvoice('tx-pending')).rejects.toMatchObject({
+        response: { code: 'INVOICE_NOT_FOUND', statusCode: 404 },
+      })
     })
 
     it('SEC-11: returns 404 for PENDING SALARY invoice (no COUNTERPARTY signature)', async () => {
@@ -1986,7 +2041,9 @@ describe('InvoicesService', () => {
       })
 
       h.ctrl.findTxId = 'tx-salary-pending'
-      await expect(h.svc.verifyInvoice('tx-salary-pending')).rejects.toThrow(NotFoundException)
+      await expect(h.svc.verifyInvoice('tx-salary-pending')).rejects.toMatchObject({
+        response: { code: 'INVOICE_NOT_FOUND', statusCode: 404 },
+      })
     })
 
     it('SEC-11: SIGNED invoice (COUNTERPARTY signature exists) is still accessible', async () => {
@@ -2415,7 +2472,9 @@ describe('InvoicesService', () => {
       h.ctrl.findTxId = 'tx-invoice-1'
 
       // SENIOR2 is not the counterparty (receiverId = SENIOR.id)
-      await expect(h.svc.getInvoice(SENIOR2, 'tx-invoice-1')).rejects.toThrow(ForbiddenException)
+      await expect(h.svc.getInvoice(SENIOR2, 'tx-invoice-1')).rejects.toMatchObject({
+        response: { code: 'INVOICE_ACCESS_DENIED', statusCode: 403 },
+      })
     })
 
     it('ADMIN sees invoice for any counterparty', async () => {

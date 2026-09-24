@@ -1,6 +1,7 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { HttpStatus } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { apiError } from '../common/api-error'
 import * as schema from '../database/schema'
 import { documents } from '../database/schema'
 
@@ -28,13 +29,13 @@ export async function assertReceiptDocumentBindable(
 ): Promise<void> {
   const doc = await db.query.documents.findFirst({ where: eq(documents.id, docId) })
 
-  if (!doc) throw new NotFoundException('Receipt document not found')
+  if (!doc) throw apiError('FINANCE_RECEIPT_DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
   if (doc.category !== 'RECEIPT') {
-    throw new BadRequestException('Document must be a RECEIPT to be attached to a transaction')
+    throw apiError('FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY', HttpStatus.BAD_REQUEST)
   }
 
   const expectedOwner = opts.expectedOwnerId ?? currentUser.id
   if (doc.ownerId !== expectedOwner) {
-    throw new ForbiddenException('You do not have permission to attach this receipt document')
+    throw apiError('FINANCE_RECEIPT_DOCUMENT_NOT_OWNED', HttpStatus.FORBIDDEN)
   }
 }

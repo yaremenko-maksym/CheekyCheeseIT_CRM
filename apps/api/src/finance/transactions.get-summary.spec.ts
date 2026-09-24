@@ -18,7 +18,6 @@
  * The service is instantiated with a minimal stub for DatabaseService that
  * returns controlled data — no real Postgres connection required.
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -173,7 +172,9 @@ describe('getSummary — HIGH#1: RBAC guard', () => {
   for (const role of roles) {
     it(`throws ForbiddenException for role ${role}`, async () => {
       const svc = makeStub([])
-      await expect(svc.getSummary(user(role))).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(svc.getSummary(user(role))).rejects.toMatchObject({
+        response: { code: 'FINANCE_SUMMARY_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 

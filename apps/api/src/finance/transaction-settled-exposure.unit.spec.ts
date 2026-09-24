@@ -143,6 +143,17 @@ describe('settled accumulator on the transaction wire (task 5)', () => {
     expect(dto).toMatchObject({ settledAmount: '5000.000000', settledCurrency: 'USDT' })
   })
 
+  // Mutation gate (i18n stage 4 Task 2): every other test in this file stubs
+  // `findFirst` to always resolve a row, so findOne's `!tx` NOT_FOUND guard
+  // never saw its FALSE branch.
+  it('SE-2b. findOne on a missing row → FINANCE_TRANSACTION_NOT_FOUND', async () => {
+    const svc = serviceReturning(undefined)
+
+    await expect(svc.findOne(ROW_ID, user('ADMIN', ADMIN_ID))).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
+  })
+
   it('SE-3. the wire schema keeps them — a response really does carry the field', async () => {
     const svc = serviceReturning(partlySettledRow())
 

@@ -12,7 +12,6 @@
  * The helper is pure (no DB writes, no side effects), so we instantiate the
  * service with stubs for the injected deps. Tests never reach those.
  */
-import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
@@ -74,7 +73,7 @@ describe('computeDropDistribution (spec §8.1 — no partner split)', () => {
         { ...drop, dropSharePercent: 50 },
         { ...senior, seniorSharePercent: 60 },
       ),
-    ).toThrow(BadRequestException)
+    ).toThrow("The senior's and drop's shares add up to more than 100%")
   })
 
   it('uses defaults when share percents are null', () => {

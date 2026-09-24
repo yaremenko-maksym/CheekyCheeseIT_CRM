@@ -13,14 +13,13 @@
  *   production code change is needed.
  *
  * What we test here:
- *   - Binding a RECEIPT document owned by another user → ForbiddenException (403).
- *   - Binding a non-RECEIPT category document → BadRequestException (400).
- *   - Binding a missing document → NotFoundException (404).
+ *   - Binding a RECEIPT document owned by another user → FINANCE_RECEIPT_DOCUMENT_NOT_OWNED (403).
+ *   - Binding a non-RECEIPT category document → FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY (400).
+ *   - Binding a missing document → FINANCE_RECEIPT_DOCUMENT_NOT_FOUND (404).
  *
  * DB-skip-guard: tests use a fully mocked db so they run in the CI unit job
  * without a Postgres service.
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -108,7 +107,9 @@ describe('createExpense — receipt-bind ownership guard (п.3 no-op by design)'
       receiptDocumentId: RECEIPT_DOC_ID,
     }
 
-    await expect(service.createExpense(payload, ADMIN)).rejects.toThrow(ForbiddenException)
+    await expect(service.createExpense(payload, ADMIN)).rejects.toMatchObject({
+      response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_OWNED', statusCode: 403 },
+    })
   })
 
   it('rejects binding a non-RECEIPT category document → BadRequestException', async () => {
@@ -123,7 +124,9 @@ describe('createExpense — receipt-bind ownership guard (п.3 no-op by design)'
       receiptDocumentId: RECEIPT_DOC_ID,
     }
 
-    await expect(service.createExpense(payload, ADMIN)).rejects.toThrow(BadRequestException)
+    await expect(service.createExpense(payload, ADMIN)).rejects.toMatchObject({
+      response: { code: 'FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY', statusCode: 400 },
+    })
   })
 
   it('rejects binding a missing document → NotFoundException', async () => {
@@ -137,7 +140,9 @@ describe('createExpense — receipt-bind ownership guard (п.3 no-op by design)'
       receiptDocumentId: 'non-existent-doc-id',
     }
 
-    await expect(service.createExpense(payload, ADMIN)).rejects.toThrow(NotFoundException)
+    await expect(service.createExpense(payload, ADMIN)).rejects.toMatchObject({
+      response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_FOUND', statusCode: 404 },
+    })
   })
 
   // fix-round 1 (mutation-gate closure): every test above supplies

@@ -44,16 +44,7 @@
  *   - Auto-create: never user-facing (called by TransactionsService trigger).
  *   - Verify: no auth at all.
  */
-import {
-  ConflictException,
-  ForbiddenException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  NotFoundException,
-  forwardRef,
-  Inject,
-} from '@nestjs/common'
+import { HttpStatus, Injectable, Logger, forwardRef, Inject } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
@@ -912,10 +903,10 @@ export class InvoicesService {
 
     // task-aggregate-invoice-per-payout: PAYOUT rows now carry invoices too.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
-      throw new NotFoundException('Инвойс не предусмотрен для этого типа транзакции')
+      throw apiError('INVOICE_NOT_APPLICABLE_FOR_TX_TYPE', HttpStatus.NOT_FOUND)
     }
     if (!tx.invoiceDocumentId) {
-      throw new NotFoundException('Инвойс ещё не сгенерирован')
+      throw apiError('INVOICE_NOT_GENERATED_YET', HttpStatus.NOT_FOUND)
     }
 
     // RBAC: ADMIN + ACCOUNTANT pass; others must be the counterparty.
@@ -986,15 +977,15 @@ export class InvoicesService {
     const tx = await fetchWritableTransactionOrThrow(this.db.db, transactionId, viewer)
     // task-aggregate-invoice-per-payout: PAYOUT rows now sign too.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
-      throw new NotFoundException('Инвойс не предусмотрен для этого типа транзакции')
+      throw apiError('INVOICE_NOT_APPLICABLE_FOR_TX_TYPE', HttpStatus.NOT_FOUND)
     }
     if (!tx.invoiceDocumentId) {
-      throw new ConflictException('Инвойс ещё не сгенерирован — повторите попытку позже')
+      throw apiError('INVOICE_NOT_GENERATED_YET', HttpStatus.CONFLICT)
     }
 
     // ---- RBAC: viewer must be the counterparty ----
     if (this.getCounterpartyId(tx) !== viewer.id) {
-      throw new ForbiddenException('Вы не контрагент этой транзакции')
+      throw apiError('INVOICE_NOT_COUNTERPARTY', HttpStatus.FORBIDDEN)
     }
 
     // ---- Conflict: already signed ----
@@ -1014,7 +1005,7 @@ export class InvoicesService {
       )
       .limit(1)
     if (existing.length > 0) {
-      throw new ConflictException('Инвойс уже подписан')
+      throw apiError('INVOICE_ALREADY_SIGNED', HttpStatus.CONFLICT)
     }
 
     // ---- Re-fetch the COMPANY signature to verify hash equality ----
@@ -1032,19 +1023,17 @@ export class InvoicesService {
       )
       .limit(1)
     if (companySig.length === 0) {
-      throw new ConflictException('Отсутствует подпись компании')
+      throw apiError('INVOICE_COMPANY_SIGNATURE_MISSING', HttpStatus.CONFLICT)
     }
 
     // ---- Download current PDF, compute fresh hash, compare ----
     const doc = await this.documentsService.findByIdInternal(tx.invoiceDocumentId)
-    if (!doc) throw new ConflictException('Документ инвойса не найден')
+    if (!doc) throw apiError('INVOICE_DOCUMENT_NOT_FOUND', HttpStatus.CONFLICT)
 
     const pdfBuffer = await this.s3.getObject(doc.s3Key)
     const currentHash = sha256Hex(pdfBuffer)
     if (companySig[0]!.pdfHash !== currentHash) {
-      throw new ConflictException(
-        'PDF был изменён после первой подписи — обратитесь к администратору',
-      )
+      throw apiError('INVOICE_PDF_MODIFIED_AFTER_SIGNATURE', HttpStatus.CONFLICT)
     }
 
     // ---- Fetch admin + counterparty rows ----
@@ -1067,7 +1056,7 @@ export class InvoicesService {
       where: eq(users.id, viewer.id),
     })
     if (!adminRow || !counterpartyRow) {
-      throw new ConflictException('Не удалось получить данные пользователей')
+      throw apiError('INVOICE_USER_DATA_FETCH_FAILED', HttpStatus.CONFLICT)
     }
     const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
 
@@ -1096,9 +1085,7 @@ export class InvoicesService {
         this.logger.error(
           `signInvoice: tx=${tx.id} type=PAYOUT has no payoutRequestId — cannot resolve a signable amount, refusing to sign`,
         )
-        throw new ConflictException(
-          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
-        )
+        throw apiError('INVOICE_AMOUNT_VERIFICATION_FAILED', HttpStatus.CONFLICT)
       }
       // security-review PR #456 round 2: sourced from `nonDeletedTransactions`
       // (VIEW) — defensive-only (see autoCreateForPayout's identical filter),
@@ -1145,9 +1132,7 @@ export class InvoicesService {
         this.logger.error(
           `signInvoice: tx=${tx.id} type=PAYOUT req=${tx.payoutRequestId} — aggregate amount could not be resolved (no linked incomes) — refusing to sign`,
         )
-        throw new ConflictException(
-          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
-        )
+        throw apiError('INVOICE_AMOUNT_VERIFICATION_FAILED', HttpStatus.CONFLICT)
       }
       payoutAmount = resolved
     } else if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
@@ -1224,7 +1209,7 @@ export class InvoicesService {
         .for(LOCK_MODE_UPDATE)
         .limit(1)
       if (!locked || locked.invoiceDocumentId !== doc.id) {
-        throw new ConflictException('Инвойс был аннулирован — обновите страницу')
+        throw apiError('INVOICE_VOIDED', HttpStatus.CONFLICT)
       }
       await dbtx.insert(invoiceSignatures).values({
         transactionId: tx.id,
@@ -1302,7 +1287,7 @@ export class InvoicesService {
       .where(and(eq(transactions.id, tx.id), eq(transactions.invoiceDocumentId, doc.id)))
       .returning(REPOINT_RETURNING)
     if (repointed.length === 0) {
-      throw new ConflictException('Инвойс был аннулирован — обновите страницу')
+      throw apiError('INVOICE_VOIDED', HttpStatus.CONFLICT)
     }
 
     // ---- Notify ADMIN ----
@@ -1335,14 +1320,14 @@ export class InvoicesService {
     try {
       tx = await fetchVisibleTransactionOrThrow(this.db.db, transactionId, null)
     } catch {
-      throw new NotFoundException('Инвойс не найден')
+      throw apiError('INVOICE_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     // task-aggregate-invoice-per-payout: PAYOUT rows are valid invoice anchors.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
-      throw new NotFoundException('Инвойс не найден')
+      throw apiError('INVOICE_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     if (!tx.invoiceDocumentId) {
-      throw new NotFoundException('Инвойс ещё не сгенерирован')
+      throw apiError('INVOICE_NOT_GENERATED_YET', HttpStatus.NOT_FOUND)
     }
 
     const sigs = await this.getSignaturesWithSignerNames(tx.id)
@@ -1353,7 +1338,7 @@ export class InvoicesService {
     // before the employee has consented to the payment record.
     const counterpartySig = sigs.find((s) => s.signerRole === 'COUNTERPARTY')
     if (!counterpartySig) {
-      throw new NotFoundException('Инвойс не найден')
+      throw apiError('INVOICE_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
     // AC3: source amount/currency from what the counterparty ACTUALLY
@@ -1436,9 +1421,7 @@ export class InvoicesService {
         this.logger.error(
           `verifyInvoice: tx=${tx.id} type=PAYOUT COUNTERPARTY signature ${counterpartySig.id} has NULL amount_snapshot and the linked-income aggregate could not be resolved — refusing to confirm an amount`,
         )
-        throw new ConflictException(
-          'Не удалось подтвердить сумму этого инвойса — обратитесь к администратору',
-        )
+        throw apiError('INVOICE_AMOUNT_VERIFICATION_FAILED', HttpStatus.CONFLICT)
       }
       // MED-D (round 4): this branch is now the ONLY standing source of
       // this warning — a legacy PAYOUT row signed before this migration
@@ -1768,7 +1751,7 @@ export class InvoicesService {
   private assertCanViewInvoice(viewer: SessionUser, tx: Transaction): void {
     if (viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT') return
     if (this.getCounterpartyId(tx) === viewer.id) return
-    throw new ForbiddenException('Нет доступа к этому инвойсу')
+    throw apiError('INVOICE_ACCESS_DENIED', HttpStatus.FORBIDDEN)
   }
 
   /**

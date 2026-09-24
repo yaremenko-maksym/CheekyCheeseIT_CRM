@@ -388,7 +388,7 @@ test('example', async ({ page }) => {
 
     test('test-data values inside a handler body are not the route pattern', () => {
       // Real shape: fixtures.ts / ui-invariants-pr56.spec.ts /
-      // invoices-signing-flow.spec.ts return a fake MinIO presigned-download
+      // invoices-signing-flow.spec.ts return a fake S3 presigned-download
       // URL as response BODY data — port 9000, looks exactly like a live
       // origin, and is never matched against anything. This is what the
       // prior scanner draft's four false positives actually were.

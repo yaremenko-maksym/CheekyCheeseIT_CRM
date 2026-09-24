@@ -35,7 +35,7 @@
  *
  * DB calls are stubbed with vitest vi.fn() — no real Postgres connection.
  */
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -400,7 +400,9 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
 
     await expect(
       svc.validateTransaction('tx-1', 'validate', null, ACCOUNTANT_USER),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_PENDING', statusCode: 400 },
+    })
   })
 
   it('rejects non-ADMIN/ACCOUNTANT actors with ForbiddenException', async () => {
@@ -539,7 +541,9 @@ describe('createPayoutRequest (#7)', () => {
 
     await expect(
       svc.createPayoutRequest(['tx-1', 'tx-already-linked'], SENIOR_USER),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE', statusCode: 400 },
+    })
   })
 
   it('creates single payout_request for multiple VALIDATED txs', async () => {
@@ -788,9 +792,9 @@ describe('createPayoutRequest (#7)', () => {
       etherscanService: makeEtherscanStub(),
     })
 
-    await expect(svc.createPayoutRequest(['tx-1'], SENIOR_USER)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(svc.createPayoutRequest(['tx-1'], SENIOR_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_COMPANY_WALLET_NOT_CONFIGURED', statusCode: 400 },
+    })
   })
 
   // ── MED — atomicity: all writes run inside a single db.transaction() ──
@@ -840,8 +844,10 @@ describe('createPayoutRequest — duplicate guard (belt-and-suspenders, #7)', ()
       etherscanService: makeEtherscanStub(),
     })
 
-    await expect(svc.createPayoutRequest(['tx-already-in-payout'], SENIOR_USER)).rejects.toThrow(
-      BadRequestException,
-    )
+    await expect(
+      svc.createPayoutRequest(['tx-already-in-payout'], SENIOR_USER),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE', statusCode: 400 },
+    })
   })
 })

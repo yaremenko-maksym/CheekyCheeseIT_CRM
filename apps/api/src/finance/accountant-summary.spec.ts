@@ -16,7 +16,6 @@
  *     - ACCOUNTANT / ADMIN → resolve (stub returns an empty aggregate row →
  *       the COALESCE-to-zero path, AC4).
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -104,7 +103,9 @@ describe('getAccountantSummary — RBAC guard (AC3)', () => {
         },
       }
       const svc = makeTransactionsService({ db: throwingDb as never })
-      await expect(svc.getAccountantSummary(user(role))).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(svc.getAccountantSummary(user(role))).rejects.toMatchObject({
+        response: { code: 'FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 

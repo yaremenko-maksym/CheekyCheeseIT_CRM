@@ -578,7 +578,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2500, cascadeVersion: stale.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/прежний расчёт больше не действует/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_CASCADE_PREVIEW_STALE',
+        statusCode: 409,
+      }),
+    })
 
     // Not one row moved — including the SOURCE, whose own edit is inside the
     // same transaction.
@@ -706,7 +711,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2500, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/валют/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH',
+        statusCode: 400,
+      }),
+    })
 
     const after = await derivativeFor(SENIOR.id)
     expect(after.row.amount).toBe((await derivativeFor(SENIOR.id)).row.amount)
@@ -770,7 +780,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 5000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/settled_amount/)
+      // i18n stage 4 Task 2: the technical "settled_amount" detail moved to a
+      // logger.warn call (plan Step 1 pattern) — the user-facing text no
+      // longer names the DB column. Assert on the api-error code instead.
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FINANCE_ROW_AMOUNT_MISMATCH' }),
+    })
 
     const after = await derivativeFor(SENIOR.id)
     expect(after.row.amount).toBe('999.000000')
@@ -958,7 +973,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         currency: 'USDT',
         receiptExternalUrl: 'https://etherscan.io/tx/0xcascadetopup',
       }),
-    ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH',
+        statusCode: 400,
+      }),
+    })
 
     // Nothing moved. Without the guard the row would have dropped out of term
     // 7 (funding_source no longer COMPANY_ACCOUNT) AND out of term 9 (status
@@ -996,9 +1016,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     await editWithPreview(source.id, 2000)
 
     const reopened = await derivativeFor(SENIOR.id)
-    await expect(settleSvc.settleByCompany(reopened.obligation.id, ADMIN)).rejects.toThrow(
-      /Доплата обязана идти из того же источника/,
-    )
+    await expect(settleSvc.settleByCompany(reopened.obligation.id, ADMIN)).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH',
+        statusCode: 400,
+      }),
+    })
   })
 
   it('risk 23 (SR-M-5): a top-up by a DIFFERENT admin partner is refused, same pot or not', async () => {
@@ -1034,7 +1057,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         currency: 'USDT',
         receiptExternalUrl: 'https://etherscan.io/tx/0xadmintwo',
       }),
-    ).rejects.toThrow(/Доплата обязана идти из того же источника/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH',
+        statusCode: 400,
+      }),
+    })
 
     expect((await derivativeFor(SENIOR.id)).row.senderId).toBe(ADMIN.id)
     expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PENDING')
@@ -1181,9 +1209,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     // Edit DOWNWARD — the dangerous direction. Term 7 debits `amount`; 260
     // really left the company account. Storing 100 would understate the debit
     // by 160, i.e. inflate the balance by money already gone.
-    await expect(svc.adminUpdateTransaction(iou.id, { amount: 100 }, ADMIN)).rejects.toThrow(
-      /Состояние строки изменилось/,
-    )
+    await expect(svc.adminUpdateTransaction(iou.id, { amount: 100 }, ADMIN)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' }),
+    })
     spy.mockRestore()
 
     const after = await derivativeFor(SENIOR.id)
@@ -1253,9 +1281,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         return realTransaction(cb)
       })
 
-    await expect(svc.adminUpdateTransaction(iou.id, { amount: 900 }, ADMIN)).rejects.toThrow(
-      /Состояние строки изменилось/,
-    )
+    await expect(svc.adminUpdateTransaction(iou.id, { amount: 900 }, ADMIN)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' }),
+    })
     spy.mockRestore()
 
     // The stale read said "no accumulator"; the row says otherwise, and
@@ -1297,7 +1325,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE',
+        statusCode: 400,
+      }),
+    })
 
     // Zero writes — including on the SENIOR derivative, which was perfectly
     // fine. The cascade is all-or-nothing.
@@ -1332,7 +1365,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE',
+        statusCode: 400,
+      }),
+    })
 
     expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PAID')
     expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)
@@ -1463,9 +1501,11 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
   it('AC2: saving a PAID amount edit without a preview token is refused outright', async () => {
     await declare(PROJECT_SENIOR, 1000)
     const source = await sourceIncome(PROJECT_SENIOR)
-    await expect(svc.adminUpdateTransaction(source.id, { amount: 2500 }, ADMIN)).rejects.toThrow(
-      /не сохранена/,
-    )
+    await expect(
+      svc.adminUpdateTransaction(source.id, { amount: 2500 }, ADMIN),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW' }),
+    })
     expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)
   })
 })

@@ -236,7 +236,11 @@ describe.skipIf(!hasDatabaseUrl())(
       const rejected = results.filter((r) => r.status === 'rejected')
       expect(fulfilled).toHaveLength(1)
       expect(rejected).toHaveLength(1)
-      expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already paid/)
+      const reason = (rejected[0] as PromiseRejectedResult).reason as {
+        response?: { code?: string; statusCode?: number }
+      }
+      expect(reason.response?.code).toBe('FINANCE_PAYOUT_REQUEST_ALREADY_PAID')
+      expect(reason.response?.statusCode).toBe(400)
 
       // The payout flipped to PAID exactly once.
       const pr = await dbSvc.db.query.payoutRequests.findFirst({
@@ -258,9 +262,12 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(prFirst?.status).toBe('PAID')
 
       // Second confirm with the SAME real hash on a COMPANY_ACCOUNT payout → rejected.
+      // i18n stage 4 Task 2: assert on the api-error code (lesson 14).
       await expect(
         svc.manualConfirmPayout(second, 'COMPANY_ACCOUNT', ADMIN, { txHash: realHash }),
-      ).rejects.toThrowError(/уже использован/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TX_HASH_USED_FOR_OTHER_PAYOUT' }),
+      })
 
       // The second payout stays PENDING (no double credit).
       const prSecond = await dbSvc.db.query.payoutRequests.findFirst({

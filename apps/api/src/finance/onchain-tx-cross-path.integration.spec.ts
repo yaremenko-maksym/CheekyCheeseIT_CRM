@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Global,
-  Module,
-  NotFoundException,
-} from '@nestjs/common'
+import { ForbiddenException, Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray, sql } from 'drizzle-orm'
@@ -336,9 +330,11 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(afterPayout).toBeCloseTo(before + payable, 6)
 
       // Same transfer, other path — this is what used to double-credit.
-      await expect(companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)).rejects.toBeInstanceOf(
-        BadRequestException,
-      )
+      // i18n stage 4 Task 2: assert on statusCode, not the exception class
+      // (apiError() throws a base HttpException, lesson 14).
+      await expect(companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)).rejects.toMatchObject({
+        response: expect.objectContaining({ statusCode: 400 }),
+      })
 
       expect(await balance()).toBeCloseTo(afterPayout, 6) // NOT doubled
       const deposits = await dbSvc.db
@@ -360,9 +356,9 @@ describe.skipIf(!hasDatabaseUrl())(
       const afterDeposit = await balance()
       expect(afterDeposit).toBeCloseTo(before + 500, 6)
 
-      await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toThrowError(
-        /уже использован/,
-      )
+      await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TX_HASH_ALREADY_CONSUMED' }),
+      })
 
       const pr = await dbSvc.db.query.payoutRequests.findFirst({
         where: eq(payoutRequests.id, requestId),
@@ -395,9 +391,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // ── The second half of the exploit — a DIFFERENT role, same transfer.
       // Asserted FIRST so a regression shows up as MONEY (a doubled balance),
       // not merely as a stored-format detail.
-      await expect(companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)).rejects.toBeInstanceOf(
-        BadRequestException,
-      )
+      await expect(companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)).rejects.toMatchObject({
+        response: expect.objectContaining({ statusCode: 400 }),
+      })
       expect(await balance()).toBeCloseTo(afterPayout, 6) // NOT doubled
 
       // The LINK must have been reduced to the bare, lowercase hash…
@@ -431,7 +427,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
       await expect(
         svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN, { txHash: HASH }),
-      ).rejects.toThrowError(/уже использован/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TX_HASH_ALREADY_CONSUMED' }),
+      })
       expect(await balance()).toBeCloseTo(afterDeposit, 6)
     })
 
@@ -448,7 +446,9 @@ describe.skipIf(!hasDatabaseUrl())(
         svc.manualConfirmPayout(second.requestId, 'COMPANY_ACCOUNT', ADMIN, {
           txHash: HASH.toUpperCase().replace('0X', '0x'),
         }),
-      ).rejects.toThrowError(/уже использован/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TX_HASH_USED_FOR_OTHER_PAYOUT' }),
+      })
       expect(await balance()).toBeCloseTo(afterPayout, 6)
     })
 
@@ -462,7 +462,9 @@ describe.skipIf(!hasDatabaseUrl())(
         svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN, {
           txHash: '0xabcdef0123456789',
         }),
-      ).rejects.toThrowError(/Некорректный hash/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TX_HASH_INVALID' }),
+      })
 
       const pr = await dbSvc.db.query.payoutRequests.findFirst({
         where: eq(payoutRequests.id, requestId),
@@ -528,7 +530,7 @@ describe.skipIf(!hasDatabaseUrl())(
         scriptValid(RECEIPT_HASH, 5000)
         await expect(
           companySvc.submitDeposit({ txHashOrLink: RECEIPT_HASH }, SENIOR),
-        ).rejects.toBeInstanceOf(BadRequestException)
+        ).rejects.toMatchObject({ response: expect.objectContaining({ statusCode: 400 }) })
         expect(await balance()).toBeCloseTo(afterIncome, 6) // NOT doubled
       })
 
@@ -594,7 +596,9 @@ describe.skipIf(!hasDatabaseUrl())(
             },
             ADMIN,
           ),
-        ).rejects.toThrowError(/уже использован/)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_TX_HASH_ALREADY_CONSUMED' }),
+        })
         expect(await balance()).toBeCloseTo(afterDeposit, 6)
       })
     })
@@ -631,7 +635,9 @@ describe.skipIf(!hasDatabaseUrl())(
             { receiptExternalUrl: `https://etherscan.io/tx/${DEPOSIT_HASH}` },
             ADMIN,
           ),
-        ).rejects.toThrowError(/уже использован/)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_TX_HASH_ALREADY_CONSUMED' }),
+        })
 
         const row = await dbSvc.db.query.transactions.findFirst({
           where: eq(transactions.id, income.id),
@@ -667,7 +673,9 @@ describe.skipIf(!hasDatabaseUrl())(
             { receiptExternalUrl: `https://etherscan.io/tx/${DEPOSIT_HASH}` },
             ADMIN,
           ),
-        ).rejects.toThrowError(/уже использован/)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_TX_HASH_ALREADY_CONSUMED' }),
+        })
 
         const row = await dbSvc.db.query.transactions.findFirst({
           where: eq(transactions.id, income.id),
@@ -892,7 +900,7 @@ describe.skipIf(!hasDatabaseUrl())(
         scriptValid(RIGHT_HASH, 400)
         await expect(
           companySvc.submitDeposit({ txHashOrLink: RIGHT_HASH }, SENIOR),
-        ).rejects.toBeInstanceOf(BadRequestException)
+        ).rejects.toMatchObject({ response: expect.objectContaining({ statusCode: 400 }) })
       })
     })
 
@@ -925,9 +933,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
         // Now the honest deposit can NEVER be credited — this is the lock-out.
         scriptValid(HASH, 500)
-        await expect(companySvc.getDepositStatus(dep.id, SENIOR2)).rejects.toBeInstanceOf(
-          BadRequestException,
-        )
+        await expect(companySvc.getDepositStatus(dep.id, SENIOR2)).rejects.toMatchObject({
+          response: expect.objectContaining({ statusCode: 400 }),
+        })
 
         // ADMIN releases the claim, with a reason.
         const released = await svc.releaseOnChainHash(
@@ -986,7 +994,9 @@ describe.skipIf(!hasDatabaseUrl())(
         await expect(svc.releaseOnChainHash(HASH, 'let me redo it', SENIOR)).rejects.toBeInstanceOf(
           ForbiddenException,
         )
-        await expect(svc.releaseOnChainHash(HASH, '   ', ADMIN)).rejects.toThrowError(/причину/)
+        await expect(svc.releaseOnChainHash(HASH, '   ', ADMIN)).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_TX_HASH_RELEASE_REASON_REQUIRED' }),
+        })
 
         // Still claimed after both refusals.
         const rows = await dbSvc.db
@@ -1181,7 +1191,12 @@ describe.skipIf(!hasDatabaseUrl())(
       it('404s on a hash nobody claimed', async () => {
         await expect(
           svc.releaseOnChainHash('0x' + 'f4'.repeat(32), 'nothing to release', ADMIN),
-        ).rejects.toBeInstanceOf(NotFoundException)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            code: 'FINANCE_TX_HASH_NOT_CONSUMED',
+            statusCode: 404,
+          }),
+        })
       })
     })
 
@@ -1325,9 +1340,9 @@ describe.skipIf(!hasDatabaseUrl())(
         // hash again, hits 23505, and rolls the whole flip back. Money on the
         // company wallet stays invisible in the balance, with no way out.
         scriptValid(HASH, 175)
-        await expect(companySvc.getDepositStatus(dep.id, SENIOR)).rejects.toBeInstanceOf(
-          BadRequestException,
-        )
+        await expect(companySvc.getDepositStatus(dep.id, SENIOR)).rejects.toMatchObject({
+          response: expect.objectContaining({ statusCode: 400 }),
+        })
         const stillPending = await dbSvc.db.query.transactions.findFirst({
           where: eq(transactions.id, dep.id),
         })
@@ -1518,9 +1533,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // And now that it IS spent, the front-runner's pending deposit can never be
       // credited by polling — the flip rolls back on the registry collision.
-      await expect(companySvc.getDepositStatus(dep.id, SENIOR2)).rejects.toBeInstanceOf(
-        BadRequestException,
-      )
+      await expect(companySvc.getDepositStatus(dep.id, SENIOR2)).rejects.toMatchObject({
+        response: expect.objectContaining({ statusCode: 400 }),
+      })
       const depRow = await dbSvc.db.query.transactions.findFirst({
         where: eq(transactions.id, dep.id),
       })
@@ -1553,7 +1568,9 @@ describe.skipIf(!hasDatabaseUrl())(
           // so the request is refused instead of minting a 0xSIM credit.
           await expect(
             svc.payPayoutRequest(requestId, undefined, SENIOR, 'success'),
-          ).rejects.toBeInstanceOf(BadRequestException)
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({ code: 'FINANCE_TX_HASH_REQUIRED' }),
+          })
 
           const pr = await dbSvc.db.query.payoutRequests.findFirst({
             where: eq(payoutRequests.id, requestId),
@@ -1602,9 +1619,9 @@ describe.skipIf(!hasDatabaseUrl())(
       const afterPayout = await balance()
 
       // Same transfer, different casing — normalisation must collapse them.
-      await expect(
-        companySvc.submitDeposit({ txHashOrLink: UPPER }, SENIOR),
-      ).rejects.toBeInstanceOf(BadRequestException)
+      await expect(companySvc.submitDeposit({ txHashOrLink: UPPER }, SENIOR)).rejects.toMatchObject(
+        { response: expect.objectContaining({ statusCode: 400 }) },
+      )
       expect(await balance()).toBeCloseTo(afterPayout, 6)
     })
 
@@ -1635,7 +1652,7 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(rejections.length).toBe(1)
       for (const r of rejections) {
         // The loser must be a clean 400, never a 500 / raw pg error.
-        expect(r.reason).toBeInstanceOf(BadRequestException)
+        expect(r.reason).toMatchObject({ response: expect.objectContaining({ statusCode: 400 }) })
       }
 
       const paidRequests = await dbSvc.db
@@ -1682,7 +1699,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // the money assertion on the line above is what makes this test fail.
       const rejections = [payoutResult, depositResult].filter((r) => r.status === 'rejected')
       for (const r of rejections) {
-        expect(r.reason).toBeInstanceOf(BadRequestException)
+        expect(r.reason).toMatchObject({ response: expect.objectContaining({ statusCode: 400 }) })
       }
 
       const registry = await dbSvc.db

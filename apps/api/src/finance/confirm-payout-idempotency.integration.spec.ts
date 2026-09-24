@@ -368,7 +368,12 @@ describe.skipIf(!hasDatabaseUrl())(
         // rejected — "already paid" guard in payPayoutRequest (req.status !== 'PENDING').
         await expect(
           svc.payPayoutRequest(requestId, '0xSIMdeadbeefdeadbeef', SENIOR, 'success'),
-        ).rejects.toThrow('already paid')
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            code: 'FINANCE_PAYOUT_REQUEST_ALREADY_PAID',
+            statusCode: 400,
+          }),
+        })
 
         // Step 4: no double-credit — exactly ONE PAYOUT_CONFIRMED row for this payout
         const confirmed = await dbSvc.db.query.transactions.findMany({

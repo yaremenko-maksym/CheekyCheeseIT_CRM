@@ -105,7 +105,7 @@ export const pwaRuntimeCaching: PwaRuntimeCachingRule[] = [
     //
     // Prod NOTE: AWS S3 bucket CORS должен разрешать GET с web-origin
     //   (AllowedOrigins: https://yourdomain.com, AllowedMethods: GET).
-    //   В dev MinIO уже сконфигурирован (OPTIONS → Access-Control-Allow-Origin).
+    //   В dev локальный S3-стенд уже сконфигурирован (OPTIONS → Access-Control-Allow-Origin).
     urlPattern: ({ url, request }: { url: URL; request: Request }) => {
       // Кросс-origin (не наш frontend)
       if (url.origin === self.location.origin) return false

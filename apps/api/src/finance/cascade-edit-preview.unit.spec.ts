@@ -25,7 +25,7 @@
  * query that fails loudly.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { resolveEditCascade, computeCascadeVersion, type CascadeSnapshot } from '@crm/shared'
 
@@ -124,9 +124,13 @@ describe('getEditCascadePreview — 404 paths', () => {
   it('nonexistent id → NotFoundException, loadCascadeSnapshot never runs', async () => {
     const findFirstImpl = vi.fn().mockResolvedValue(undefined)
     const svc = makeTransactionsService({ db: makeDb({ findFirstImpl }) })
-    await expect(svc.getEditCascadePreview(SOURCE_ID, 2000, ADMIN)).rejects.toBeInstanceOf(
-      NotFoundException,
-    )
+    // task-i18n-stage4-task2 (lesson #1/#2): `assertFoundAndVisible`
+    // (`transaction-visibility.util.ts`) now throws `apiError(...)` — a base
+    // `HttpException`, not a `NotFoundException` instance — so this asserts
+    // by `code` + `statusCode` instead of `instanceof`.
+    await expect(svc.getEditCascadePreview(SOURCE_ID, 2000, ADMIN)).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
   })
 
   it('race defense: tx exists at the visibility read but vanishes before loadCascadeSnapshot re-reads it', async () => {

@@ -89,7 +89,7 @@ const FAKE_PDF_CONTENT = '%PDF-1.4\n1 0 obj<</Type /Catalog /Pages 2 0 R>>endobj
 async function setupDocumentsMocks(
   page: import('@playwright/test').Page,
   documents: unknown[],
-  presignedUrlSuffix = 'blob:http://minio:9000/crm-documents/fake-pdf',
+  presignedUrlSuffix = 'blob:http://s3.local:9000/crm-documents/fake-pdf',
 ) {
   // Auth
   await mockAuthAs(page, USERS.admin)
@@ -129,7 +129,8 @@ async function setupDocumentsMocks(
 test.describe('AC1: PDF inline preview в диалоге документов', () => {
   test('открытие диалога PDF показывает document-pdf-preview testid', async ({ page }) => {
     const pdfDoc = makePdfDocument()
-    const S3_PDF_URL = 'http://minio-test:9000/crm-documents/resume-test.pdf?X-Amz-Signature=fake'
+    const S3_PDF_URL =
+      'http://s3-test.local:9000/crm-documents/resume-test.pdf?X-Amz-Signature=fake'
 
     await setupDocumentsMocks(page, [pdfDoc], S3_PDF_URL)
 
@@ -173,7 +174,8 @@ test.describe('AC2: кнопка «Скачать» использует blob �
     page,
   }) => {
     const pdfDoc = makePdfDocument()
-    const S3_PDF_URL = 'http://minio-test:9000/crm-documents/resume-test.pdf?X-Amz-Signature=fake2'
+    const S3_PDF_URL =
+      'http://s3-test.local:9000/crm-documents/resume-test.pdf?X-Amz-Signature=fake2'
 
     await setupDocumentsMocks(page, [pdfDoc], S3_PDF_URL)
 

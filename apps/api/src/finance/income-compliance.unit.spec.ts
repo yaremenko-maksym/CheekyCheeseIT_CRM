@@ -21,7 +21,6 @@
  *     seniorId-ADMIN, DROP_INCOME for dropId; one project can feed two receivers.
  *   - Laggards-first sort.
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -159,9 +158,9 @@ describe('getIncomeComplianceOverview — RBAC guard (AC4)', () => {
         },
       }
       const svc = makeTransactionsService({ db: throwingDb as never })
-      await expect(svc.getIncomeComplianceOverview(user(role))).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(svc.getIncomeComplianceOverview(user(role))).rejects.toMatchObject({
+        response: { code: 'FINANCE_INCOME_COMPLIANCE_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 

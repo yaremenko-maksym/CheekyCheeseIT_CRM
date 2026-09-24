@@ -428,7 +428,11 @@ describe.skipIf(!hasDatabaseUrl())(
         // all and would carry a different message shape.
         const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(ADMIN) } })
         expect(res.statusCode).toBe(404)
-        expect(JSON.parse(res.payload).message).toBe('Транзакция не найдена')
+        // task-i18n-stage4-task2: `message` is now the English fallback of
+        // the api-error code (`apiError()`, `apps/api/src/common/api-error.ts`)
+        // — the client re-translates by `code`, not by this string.
+        expect(JSON.parse(res.payload).code).toBe('FINANCE_TRANSACTION_NOT_FOUND')
+        expect(JSON.parse(res.payload).message).toBe('Transaction not found')
       })
     })
 
@@ -449,7 +453,8 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(res.statusCode).toBe(400)
         // Positive assert: this 400 comes from the duplicated-param guard
         // specifically, not from some other 400 source down the stack.
-        expect(JSON.parse(res.payload).message).toMatch(/ровно один параметр/)
+        // i18n stage 4 Task 2: assert on the api-error code (lesson 14).
+        expect(JSON.parse(res.payload).code).toBe('FINANCE_TX_HASH_PARAM_REQUIRED')
       })
 
       it('?txHash=a&txHash=b — ACCOUNTANT → 400 too (guard is role-independent)', async () => {

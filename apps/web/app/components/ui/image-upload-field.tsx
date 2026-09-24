@@ -5,7 +5,7 @@
  *
  * Unlike ReceiptField, the file mode goes through the Documents module:
  *   - file → `useUploadDocument({ category })` → server side stores the file
- *     in S3 / MinIO and returns a `documents` row; the field surfaces only
+ *     in S3 and returns a `documents` row; the field surfaces only
  *     the `documentId` upwards via `onChange`.
  *   - url  → keeps the value in the `externalUrl` slot (no upload).
  *

@@ -1,11 +1,10 @@
 import { randomBytes } from 'crypto'
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
+  HttpStatus,
   Injectable,
   Logger,
-  NotFoundException,
   forwardRef,
   Inject,
 } from '@nestjs/common'
@@ -55,6 +54,7 @@ import {
   NOTIFICATION_TITLES,
   notificationTextPreview,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -85,7 +85,6 @@ import {
   releaseConsumedTxHash,
   settlementConsumesTransfer,
   usdtToMinorUnits,
-  TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
 // HIGH-1: the SINGLE hash-extraction rule, shared with the Zod write boundary.
 import { extractOnChainTxHash } from '@crm/shared'
@@ -318,7 +317,7 @@ export class TransactionsService {
 
     const consumed = await findConsumedTxHash(this.db.db, nextHash)
     if (consumed && consumed.referenceId !== tx.id) {
-      throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+      throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
     }
 
     return {
@@ -370,19 +369,17 @@ export class TransactionsService {
 
     const normalized = normalizeOnChainTxHash(txHash)
     if (!normalized) {
-      throw new BadRequestException(
-        'Некорректный hash транзакции — ожидается 0x + 64 hex или ссылка на Etherscan',
-      )
+      throw apiError('FINANCE_TX_HASH_INVALID', HttpStatus.BAD_REQUEST)
     }
     const trimmedReason = reason.trim()
     if (trimmedReason.length === 0) {
-      throw new BadRequestException('Укажите причину освобождения хеша (она попадёт в журнал)')
+      throw apiError('FINANCE_TX_HASH_RELEASE_REASON_REQUIRED', HttpStatus.BAD_REQUEST)
     }
 
     const result = await this.db.db.transaction(async (dbtx) => {
       const released = await releaseConsumedTxHash(dbtx, normalized, currentUser.id, trimmedReason)
       if (!released) {
-        throw new NotFoundException('Этот хеш не числится использованным')
+        throw apiError('FINANCE_TX_HASH_NOT_CONSUMED', HttpStatus.NOT_FOUND)
       }
 
       // MED-K (round 5): report what the row that held the claim still is.
@@ -443,9 +440,7 @@ export class TransactionsService {
     }
     const normalized = normalizeOnChainTxHash(txHash)
     if (!normalized) {
-      throw new BadRequestException(
-        'Некорректный hash транзакции — ожидается 0x + 64 hex или ссылка на Etherscan',
-      )
+      throw apiError('FINANCE_TX_HASH_INVALID', HttpStatus.BAD_REQUEST)
     }
 
     const claim = await describeTxHashClaim(this.db.db, normalized)
@@ -1117,9 +1112,9 @@ export class TransactionsService {
       case 'UAH':
         return Math.round(amountMinor / rates.usdUah)
       default:
-        throw new BadRequestException(
-          `Неподдерживаемая валюта для конверсии в USDT: ${String(currency)}`,
-        )
+        throw apiError('FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED', HttpStatus.BAD_REQUEST, {
+          currency: String(currency),
+        })
     }
   }
 
@@ -1157,7 +1152,7 @@ export class TransactionsService {
     const dropPercent = drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
 
     if (seniorPercent + dropPercent > 100) {
-      throw new BadRequestException('Sum of senior+drop shares exceeds 100%')
+      throw apiError('FINANCE_SHARES_SUM_EXCEEDS_100', HttpStatus.BAD_REQUEST)
     }
 
     // Decimal-safe share math (see roundShareAmount) — scale to integer minor
@@ -1348,13 +1343,13 @@ export class TransactionsService {
     pendingObligationCount: number
   }> {
     if (currentUser.role !== 'DROP') {
-      throw new ForbiddenException('Access denied: drop summary is available to DROP role only')
+      throw apiError('FINANCE_DROP_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const self = await this.db.db.query.users.findFirst({
       where: eq(users.id, currentUser.id),
     })
-    if (!self) throw new NotFoundException('Drop user not found')
+    if (!self) throw apiError('DROP_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // task-soft-delete-and-money-audit (AC4): a deleted row must not move the
     // drop's own balance/debt figures.
@@ -1539,7 +1534,7 @@ export class TransactionsService {
     query: DropIncomesQuery,
   ): Promise<PaginatedDropIncomes> {
     if (currentUser.role !== 'DROP') {
-      throw new ForbiddenException('Access denied: drop incomes are available to DROP role only')
+      throw apiError('FINANCE_DROP_INCOMES_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // Self-scope at the DB level: only this drop's rows across BOTH income
@@ -1616,7 +1611,7 @@ export class TransactionsService {
    */
   async getDropSelfPayments(currentUser: SessionUser): Promise<DropPaymentDto[]> {
     if (currentUser.role !== 'DROP') {
-      throw new ForbiddenException('Access denied: drop payments are available to DROP role only')
+      throw apiError('FINANCE_DROP_PAYMENTS_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const rows = await this.db.db.query.transactions.findMany({
@@ -1742,7 +1737,7 @@ export class TransactionsService {
       },
     })) as TxWithRelations | undefined
 
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     // AC2: hidden from every non-ADMIN/ACCOUNTANT viewer, regardless of
     // ownership — MUST run before assertReadAccess (see that guard's doc).
     assertTransactionVisible(tx, currentUser)
@@ -1834,7 +1829,7 @@ export class TransactionsService {
     let projectOwnerId: string
     if (currentUser.role === 'ADMIN') {
       if (project.seniorId !== currentUser.id) {
-        throw new ForbiddenException('You can only add income for your own projects')
+        throw apiError('FINANCE_INCOME_OWN_PROJECTS_ONLY', HttpStatus.FORBIDDEN)
       }
       projectOwnerId = currentUser.id
     } else {
@@ -1844,9 +1839,7 @@ export class TransactionsService {
         where: eq(users.id, project.seniorId),
       })
       if (!owner || owner.role !== 'ADMIN') {
-        throw new ForbiddenException(
-          'ADMIN_INCOME can only be registered for an admin-owned project',
-        )
+        throw apiError('FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED', HttpStatus.FORBIDDEN)
       }
       projectOwnerId = owner.id
     }
@@ -1866,7 +1859,7 @@ export class TransactionsService {
       data.receiverId !== undefined &&
       data.receiverId !== COMPANY_ACCOUNT_RECEIVER
     ) {
-      throw new ForbiddenException('ACCOUNTANT cannot choose who receives ADMIN_INCOME')
+      throw apiError('FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT', HttpStatus.FORBIDDEN)
     }
 
     let receiverId: string
@@ -1888,7 +1881,7 @@ export class TransactionsService {
         where: eq(users.id, data.receiverId),
       })
       if (!receiver || receiver.role !== 'ADMIN' || receiver.archivedAt) {
-        throw new BadRequestException('Получатель должен быть активным администратором')
+        throw apiError('FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN', HttpStatus.BAD_REQUEST)
       }
       receiverId = receiver.id
       fundingSource = null
@@ -1912,9 +1905,7 @@ export class TransactionsService {
     // company-account pool (currency forced to USDT for THIS transaction) is
     // unaffected; only a project whose OWN payment type is USDT is rejected.
     if (project.paymentType === 'USDT') {
-      throw new BadRequestException(
-        'USDT-проекты не создают доход через этот маршрут — используйте объявление USDT-прихода (declareUsdtProjectIncome), которое бронирует доли синьора и дропа вместе с доходом',
-      )
+      throw apiError('FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE', HttpStatus.BAD_REQUEST)
     }
 
     // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
@@ -2019,7 +2010,7 @@ export class TransactionsService {
       // `uq_consumed_tx_hashes_tx_hash` — the receipt points at a transfer that
       // already settled something else. Clean 400, never a 500.
       if (isUniqueViolation(err)) {
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
       throw err
     }
@@ -2116,7 +2107,7 @@ export class TransactionsService {
     // Gate: this flow is ONLY for USDT-payment projects (D2). FOP/GIG income is
     // declared by the SENIOR/DROP themselves via createSeniorIncome/DropIncome.
     if (project.paymentType !== 'USDT') {
-      throw new BadRequestException('Приход в USDT можно декларировать только на USDT-проекте')
+      throw apiError('FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH', HttpStatus.BAD_REQUEST)
     }
 
     // Resolve the receiver: the COMPANY_ACCOUNT marker credits the shared USDT
@@ -2135,7 +2126,7 @@ export class TransactionsService {
         where: eq(users.id, data.receiverId),
       })
       if (!receiver || receiver.role !== 'ADMIN' || receiver.archivedAt) {
-        throw new BadRequestException('Получатель должен быть активным администратором')
+        throw apiError('FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN', HttpStatus.BAD_REQUEST)
       }
       receiverId = receiver.id
       fundingSource = null
@@ -2280,7 +2271,7 @@ export class TransactionsService {
         // index in this transaction — `uq_consumed_tx_hashes_tx_hash`, i.e. the
         // receipt link points at a transfer already settled elsewhere (a payout
         // or a deposit). Clean 400, never a 500.
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
       throw err
     }
@@ -2358,20 +2349,20 @@ export class TransactionsService {
       }),
     )
     if (project.seniorId !== currentUser.id) {
-      throw new ForbiddenException('You can only add income for your own projects')
+      throw apiError('FINANCE_INCOME_OWN_PROJECTS_ONLY', HttpStatus.FORBIDDEN)
     }
     // task-drop-share-override-and-receiver (D2). On a USDT-payment project the
     // SENIOR does NOT declare income — only an ADMIN does (via
     // declareUsdtProjectIncome), and the company books the senior share as an
     // obligation. FOP/GIG lifecycle is unchanged.
     if (project.paymentType === 'USDT') {
-      throw new ForbiddenException('На USDT-проекте приход декларирует администратор')
+      throw apiError('FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
 
     const senior = await this.db.db.query.users.findFirst({
       where: eq(users.id, currentUser.id),
     })
-    if (!senior) throw new NotFoundException('Senior not found')
+    if (!senior) throw apiError('SENIOR_NOT_FOUND', HttpStatus.NOT_FOUND)
     // task-archive-pending-modal (AC1): a NEW PENDING accrual must never be
     // minted for an archived person — `JwtAuthGuard` already rejects an
     // archived session, but its role/archived cache has a 60s TTL (see
@@ -2380,7 +2371,7 @@ export class TransactionsService {
     // entitlement → refuse" rule `createSalary` / `createMonthlySalaries`
     // apply, defense-in-depth over the auth layer's TOCTOU gap.
     if (senior.archivedAt) {
-      throw new ForbiddenException('Пользователь архивирован — доход не декларируется')
+      throw apiError('FINANCE_INCOME_RECEIVER_ARCHIVED', HttpStatus.FORBIDDEN)
     }
 
     // task-team-senior-share-override. Hierarchy resolution:
@@ -2522,7 +2513,7 @@ export class TransactionsService {
     )
     // The drop can only declare income on a drop-project routed through them.
     if (project.dropId !== currentUser.id) {
-      throw new ForbiddenException('Это не drop-проект под вами')
+      throw apiError('FINANCE_NOT_YOUR_DROP_PROJECT', HttpStatus.FORBIDDEN)
     }
 
     // task-drop-share-override-and-receiver (D2). On a USDT-payment project the
@@ -2530,7 +2521,7 @@ export class TransactionsService {
     // declareUsdtProjectIncome), and the company books the drop/senior share as
     // an obligation. FOP/GIG lifecycle is unchanged.
     if (project.paymentType === 'USDT') {
-      throw new ForbiddenException('На USDT-проекте приход декларирует администратор')
+      throw apiError('FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
 
     // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
@@ -2557,7 +2548,7 @@ export class TransactionsService {
     // — see its comment for the full TOCTOU rationale (JwtAuthGuard's 60s
     // role/archived cache).
     if (dropUser?.archivedAt) {
-      throw new ForbiddenException('Пользователь архивирован — доход не декларируется')
+      throw apiError('FINANCE_INCOME_RECEIVER_ARCHIVED', HttpStatus.FORBIDDEN)
     }
     const resolvedDrop = resolveDropShare(
       { dropSharePercentOverride: project.dropSharePercentOverride },
@@ -2666,7 +2657,7 @@ export class TransactionsService {
         .where(and(eq(transactions.id, txId), isNull(transactions.deletedAt)))
         .returning({ id: transactions.id })
       if (updated.length === 0) {
-        throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+        throw apiError('FINANCE_TRANSACTION_DELETED_RESTORE_FIRST', HttpStatus.BAD_REQUEST)
       }
       if (oldDocId && oldDocId !== nextDocId) {
         await dbtx.delete(documents).where(eq(documents.id, oldDocId))
@@ -2698,7 +2689,7 @@ export class TransactionsService {
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     // security-review PR #456 (HIGH-3): a deleted REJECTED income was
     // resubmittable — the resubmit reset status/validator AND hard-deleted the
     // old receipt document BEFORE the final `findOne` 404'd, i.e. the row
@@ -2706,9 +2697,9 @@ export class TransactionsService {
     // type/status/ownership checks below (same ordering rule as findOne).
     assertTransactionWritable(tx, currentUser)
     if (tx.type !== 'SENIOR_INCOME')
-      throw new BadRequestException('Can only edit SENIOR_INCOME transactions')
+      throw apiError('FINANCE_EDIT_SENIOR_INCOME_ONLY', HttpStatus.BAD_REQUEST)
     if (tx.status !== 'REJECTED')
-      throw new BadRequestException('Can only edit REJECTED transactions')
+      throw apiError('FINANCE_EDIT_REJECTED_ONLY', HttpStatus.BAD_REQUEST)
     if (tx.receiverId !== currentUser.id) throw new ForbiddenException()
 
     // task-archive-pending-modal (round 2, security MED-1): resubmitting a
@@ -2721,7 +2712,7 @@ export class TransactionsService {
       where: eq(users.id, currentUser.id),
     })
     if (receiver?.archivedAt) {
-      throw new ForbiddenException('Пользователь архивирован — доход не декларируется')
+      throw apiError('FINANCE_INCOME_RECEIVER_ARCHIVED', HttpStatus.FORBIDDEN)
     }
 
     // ── XOR receipt resolution ──────────────────────────────────────────────
@@ -2800,14 +2791,14 @@ export class TransactionsService {
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     // security-review PR #456 (HIGH-3): mirrors updateSeniorIncome — must run
     // before the type/status/ownership checks below.
     assertTransactionWritable(tx, currentUser)
     if (tx.type !== 'DROP_INCOME')
-      throw new BadRequestException('Can only edit DROP_INCOME transactions')
+      throw apiError('FINANCE_EDIT_DROP_INCOME_ONLY', HttpStatus.BAD_REQUEST)
     if (tx.status !== 'REJECTED')
-      throw new BadRequestException('Can only edit REJECTED transactions')
+      throw apiError('FINANCE_EDIT_REJECTED_ONLY', HttpStatus.BAD_REQUEST)
     if (tx.receiverId !== currentUser.id) throw new ForbiddenException()
 
     // task-archive-pending-modal (round 2, security MED-1): mirrors the guard
@@ -2817,7 +2808,7 @@ export class TransactionsService {
       where: eq(users.id, currentUser.id),
     })
     if (dropReceiver?.archivedAt) {
-      throw new ForbiddenException('Пользователь архивирован — доход не декларируется')
+      throw apiError('FINANCE_INCOME_RECEIVER_ARCHIVED', HttpStatus.FORBIDDEN)
     }
 
     // XOR receipt resolution — mirrors updateSeniorIncome
@@ -2890,7 +2881,7 @@ export class TransactionsService {
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     // security-review PR #456 (HIGH-3): an author or ADMIN/ACCOUNTANT could
     // attach/replace a receipt on a deleted row (and hard-delete the old
     // document in the process) — must run before the RBAC/status checks below.
@@ -2899,13 +2890,13 @@ export class TransactionsService {
     const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
     const isAuthor = tx.createdBy === currentUser.id
     if (!isPrivileged && !isAuthor) {
-      throw new ForbiddenException('Нет прав прикреплять чек к этой транзакции')
+      throw apiError('FINANCE_RECEIPT_ATTACH_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const hadReceipt = !!tx.receiptDocumentId || !!tx.receiptExternalUrl
     // Replace after PAID → only ADMIN / ACCOUNTANT (the author cannot).
     if (hadReceipt && tx.status === 'PAID' && !isPrivileged) {
-      throw new ForbiddenException('Заменить чек после оплаты может только ADMIN или ACCOUNTANT')
+      throw apiError('FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // XOR — exactly one of doc / url (attachReceiptSchema enforces this at the
@@ -3005,7 +2996,7 @@ export class TransactionsService {
       // unique violation rethrows rather than blaming a hash the user did not
       // touch.
       if (this.isRegistryConflict(err)) {
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
       throw err
     }
@@ -3035,17 +3026,17 @@ export class TransactionsService {
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     assertTransactionWritable(tx, currentUser)
     // Drop role - phase 3: PAYOUT_CONFIRMED rows are the audit trail of a
     // manual confirmation — editing them in-place would corrupt the link to
     // the originating PAYOUT. Group the prohibition with the existing PAYOUT
     // family so the contract is consistent.
     if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN' || tx.type === 'PAYOUT_CONFIRMED') {
-      throw new BadRequestException('Cannot edit PAYOUT transactions')
+      throw apiError('FINANCE_EDIT_PAYOUT_FORBIDDEN', HttpStatus.BAD_REQUEST)
     }
     if (tx.payoutRequestId) {
-      throw new BadRequestException('Cannot edit a transaction linked to a payout request')
+      throw apiError('FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN', HttpStatus.BAD_REQUEST)
     }
 
     // BIZ-18: once a transaction is PAID, its money-defining fields (amount /
@@ -3184,9 +3175,7 @@ export class TransactionsService {
       // refusal points at it. The head of the sentence is unchanged on
       // purpose: it is what the two callers' tests match on, and the shortest
       // honest statement of the reason.
-      throw new BadRequestException(
-        'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства: откройте предпросмотр и повторите',
-      )
+      throw apiError('FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW', HttpStatus.BAD_REQUEST)
     }
     // SR-M-6 (security-review round 3) — the SAME law AC5/AC7 state for the
     // cascade, stated once and applied on BOTH write paths:
@@ -3279,9 +3268,7 @@ export class TransactionsService {
         if (isCascadeEdit) {
           const snapshot = await this.loadCascadeSnapshot(dbtx, id, { forUpdate: true })
           if (!snapshot) {
-            throw new BadRequestException(
-              'Транзакция удалена — восстановите её перед этим действием',
-            )
+            throw apiError('FINANCE_TRANSACTION_DELETED_RESTORE_FIRST', HttpStatus.BAD_REQUEST)
           }
           // AC13 — before anything else about the cascade: may this row's
           // amount move at all? Asked FIRST because "this row is not editable"
@@ -3297,17 +3284,7 @@ export class TransactionsService {
           // preview-vs-fact divergence, just wearing a success response (ADR
           // AC4).
           if (computeCascadeVersion(snapshot) !== data.cascadeVersion) {
-            throw new ConflictException(
-              // COPY-M-1 (copy-review, self-corrected from #610): when this text
-              // was written its only reader was an API caller, for whom
-              // «запросите предпросмотр заново» was the right verb. Task 5 gave
-              // it a second reader — an operator with a button labelled
-              // «Обновить предпросмотр» directly underneath. Asking someone to
-              // «запросить» next to a button that says «обновить» makes them
-              // translate. «повторите сохранение» names the second step, which
-              // the API reader never had and the operator does.
-              'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, обновите предпросмотр и повторите сохранение',
-            )
+            throw apiError('FINANCE_CASCADE_PREVIEW_STALE', HttpStatus.CONFLICT)
           }
           // The server computes the cascade itself. The client's version is an
           // input for comparison, never a plan to execute (ADR AC5 §11).
@@ -3440,9 +3417,7 @@ export class TransactionsService {
           // Two ways to get here now, and the message names both: a message
           // that says only "удалена" sends the operator looking for a deletion
           // that never happened.
-          throw new BadRequestException(
-            'Состояние строки изменилось, пока вы её редактировали (её оплатили, или она была удалена) — обновите страницу и повторите',
-          )
+          throw apiError('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', HttpStatus.BAD_REQUEST)
         }
 
         // task-soft-delete-and-money-audit (AC5): "изменение суммы/получателя"
@@ -3521,7 +3496,7 @@ export class TransactionsService {
       // can trip `uq_transactions_salary_receiver_month`, which has nothing to
       // do with a tx hash.
       if (this.isRegistryConflict(err)) {
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
       throw err
     }
@@ -3994,14 +3969,20 @@ export class TransactionsService {
       const snap = snapshotById.get(derivativePlan.id)!
 
       if (derivativePlan.newAmount === null) {
-        throw new BadRequestException(
-          `Нет снимка процента доли по производной строке ${derivativePlan.id} — пересчитать её сумму невозможно, а угадывать нельзя. Требуется ручное решение.`,
-        )
+        // COPY-H-2 (PR #704 fix-round 1): the row id is a UUID the user
+        // cannot act on — it stays server-side, for whoever reads the log
+        // to find the row that failed.
+        this.logger.warn(`Derivative row ${derivativePlan.id}: no share-percent snapshot`)
+        throw apiError('FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT', HttpStatus.BAD_REQUEST)
       }
 
       if (derivativePlan.warnings.some((w) => w.code === 'OBLIGATION_CURRENCY_MISMATCH')) {
-        throw new BadRequestException(
-          `Обязательство по производной строке ${derivativePlan.id} учтено в другой валюте, чем сумма источника — записать в него пересчитанную долю нельзя.`,
+        this.logger.warn(
+          `Derivative row ${derivativePlan.id}: obligation currency mismatch with source`,
+        )
+        throw apiError(
+          'FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH',
+          HttpStatus.BAD_REQUEST,
         )
       }
 
@@ -4029,13 +4010,15 @@ export class TransactionsService {
         snap.fundingSource === COMPANY_ACCOUNT_FUNDING_SOURCE &&
         amountsDiffer(snap.amount, snap.settledAmount ?? 0)
       ) {
-        throw new BadRequestException(
-          `Строка ${derivativePlan.id}: расходятся сумма строки и сумма фактических выплат ` +
-            `(amount = ${snap.amount}, settled_amount = ${snap.settledAmount ?? 0}). ` +
-            `Равенство этих двух держат книжка обязательств и правка суммы (#598), а закрытие долга ` +
-            `его не проверяет — поэтому при возврате в ожидание выплаты леджер вернул бы не тот дебет. ` +
-            `Строка требует ручной сверки перед правкой дохода.`,
+        // task-i18n-stage4-task2 Step 1 (COPY-H-api-4): the full divergence
+        // detail (row id, both figures, the #598 pointer) stays server-side
+        // — the user-facing refusal is generic on purpose (lesson "разбор —
+        // в лог").
+        this.logger.warn(
+          `Row ${derivativePlan.id} needsReconfirm: amount=${snap.amount} ` +
+            `settled=${snap.settledAmount ?? 0} — see PR #598`,
         )
+        throw apiError('FINANCE_ROW_AMOUNT_MISMATCH', HttpStatus.BAD_REQUEST)
       }
 
       // AC9 / addendum 3b, "Отдельно: settled_amount IS NULL" — the same
@@ -4061,11 +4044,8 @@ export class TransactionsService {
       // than trusted (addendum §3.1): break any link and the system says so out
       // loud, on real data, instead of paying twice.
       if (derivativePlan.needsReconfirm && snap.settledAmount === null) {
-        throw new BadRequestException(
-          `Строка ${derivativePlan.id}: сколько по ней уже выплачено, не записано ` +
-            `(закрытие прошло до появления накопителя) — вернуть её в ожидание выплаты нельзя, ` +
-            `иначе остаток к доплате считался бы от нуля. Требуется ручная сверка.`,
-        )
+        this.logger.warn(`Derivative row ${derivativePlan.id}: settled amount unknown`)
+        throw apiError('FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN', HttpStatus.BAD_REQUEST)
       }
 
       // AC15 / addendum §1.14 (security-review SR-M-3, SR-M-4) — the cascade
@@ -4108,10 +4088,17 @@ export class TransactionsService {
         // top-up works"; for drop it does not, so the premise went and the
         // conclusion with it (addendum §1.14).
         if (derivativePlan.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')) {
-          throw new BadRequestException(
-            `Строка ${derivativePlan.id}: уже выплаченное учтено в ${derivativePlan.settledCurrency ?? 'неизвестной валюте'}, ` +
-              `а пересчитанная доля — в ${derivativePlan.currency}. Остаток к доплате в такой паре не вычисляется, ` +
-              `поэтому вернуть строку в ожидание выплаты нельзя: её нечем будет закрыть. Требуется ручная сверка.`,
+          this.logger.warn(
+            `Derivative row ${derivativePlan.id}: currency pair unresolvable ` +
+              `(settled=${derivativePlan.settledCurrency ?? 'UNKNOWN'}, new=${derivativePlan.currency})`,
+          )
+          throw apiError(
+            'FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE',
+            HttpStatus.BAD_REQUEST,
+            {
+              settledCurrency: derivativePlan.settledCurrency ?? 'UNKNOWN',
+              currency: derivativePlan.currency,
+            },
           )
         }
       }
@@ -4204,9 +4191,10 @@ export class TransactionsService {
               ? 'DROP_PENDING_PAYOUT'
               : null
         if (revertedType === null) {
-          throw new BadRequestException(
-            `Строка ${derivativePlan.id} закрывала обязательство, но её тип (${snap.type}) не соответствует ни одной форме закрытия — вернуть её в ожидание выплаты нельзя.`,
+          this.logger.warn(
+            `Derivative row ${derivativePlan.id}: closed by unusual type ${String(snap.type)}, can't reopen`,
           )
+          throw apiError('FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN', HttpStatus.BAD_REQUEST)
         }
 
         await dbtx
@@ -4447,9 +4435,7 @@ export class TransactionsService {
         )
         .returning({ id: transactions.id })
       if (derivativeUpdated.length === 0) {
-        throw new BadRequestException(
-          'Одна из долей ушла из ожидания выплаты, пока шло сохранение — правка отменена целиком, ничего не изменилось',
-        )
+        throw apiError('FINANCE_SHARE_LEFT_PENDING_DURING_SAVE', HttpStatus.BAD_REQUEST)
       }
 
       await dbtx.insert(transactionAuditLog).values({
@@ -4551,7 +4537,7 @@ export class TransactionsService {
       // genuine race (a concurrent hard-delete-equivalent between the two
       // reads) could land here. Real defense-in-depth, not a decorative
       // check: the two reads are NOT inside one transaction.
-      throw new NotFoundException('Transaction not found')
+      throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
     // CR-M-1 — AC13's refusals, reported BEFORE a plan is built, because a
@@ -4629,23 +4615,23 @@ export class TransactionsService {
     // already enforces `min(3)` at the controller boundary.
     const trimmedReason = reason.trim()
     if (trimmedReason.length === 0) {
-      throw new BadRequestException('Укажите причину удаления транзакции (она попадёт в журнал)')
+      throw apiError('FINANCE_TRANSACTION_DELETE_REASON_REQUIRED', HttpStatus.BAD_REQUEST)
     }
 
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (tx.deletedAt) {
-      throw new BadRequestException('Транзакция уже удалена')
+      throw apiError('FINANCE_TRANSACTION_ALREADY_DELETED', HttpStatus.BAD_REQUEST)
     }
     // Drop role - phase 3: PAYOUT_CONFIRMED is also non-deletable for the same
     // audit-trail reason as PAYOUT/PAYOUT_ADMIN.
     if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN' || tx.type === 'PAYOUT_CONFIRMED') {
-      throw new BadRequestException('Cannot delete PAYOUT transactions')
+      throw apiError('FINANCE_DELETE_PAYOUT_FORBIDDEN', HttpStatus.BAD_REQUEST)
     }
     if (tx.payoutRequestId) {
-      throw new BadRequestException('Cannot delete a transaction linked to a payout request')
+      throw apiError('FINANCE_DELETE_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN', HttpStatus.BAD_REQUEST)
     }
 
     // security-review pattern (mirrors releaseOnChainHash): under
@@ -4676,9 +4662,7 @@ export class TransactionsService {
         where: eq(pendingObligations.sourceTransactionId, id),
       })
       if (referencingObligation) {
-        throw new BadRequestException(
-          'Cannot delete a transaction that is the source of a company obligation',
-        )
+        throw apiError('FINANCE_DELETE_SOURCE_OF_OBLIGATION_FORBIDDEN', HttpStatus.BAD_REQUEST)
       }
 
       // security-review PR #456 (MED-1, delete↔delete TOCTOU): re-assert
@@ -4695,7 +4679,7 @@ export class TransactionsService {
         .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
         .returning({ id: transactions.id })
       if (updated.length === 0) {
-        throw new BadRequestException('Транзакция уже удалена')
+        throw apiError('FINANCE_TRANSACTION_ALREADY_DELETED', HttpStatus.BAD_REQUEST)
       }
 
       // Journal INSIDE the same transaction — a delete without its record
@@ -4728,17 +4712,15 @@ export class TransactionsService {
 
     const trimmedReason = reason.trim()
     if (trimmedReason.length === 0) {
-      throw new BadRequestException(
-        'Укажите причину восстановления транзакции (она попадёт в журнал)',
-      )
+      throw apiError('FINANCE_TRANSACTION_RESTORE_REASON_REQUIRED', HttpStatus.BAD_REQUEST)
     }
 
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (!tx.deletedAt) {
-      throw new BadRequestException('Транзакция не удалена')
+      throw apiError('FINANCE_TRANSACTION_NOT_DELETED', HttpStatus.BAD_REQUEST)
     }
 
     const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
@@ -4759,7 +4741,7 @@ export class TransactionsService {
         .where(and(eq(transactions.id, id), isNotNull(transactions.deletedAt)))
         .returning({ id: transactions.id })
       if (updated.length === 0) {
-        throw new BadRequestException('Транзакция не удалена')
+        throw apiError('FINANCE_TRANSACTION_NOT_DELETED', HttpStatus.BAD_REQUEST)
       }
 
       // Journal INSIDE the same transaction — a restore without its record
@@ -4799,7 +4781,7 @@ export class TransactionsService {
       where: eq(transactions.id, id),
       columns: { deletedAt: true },
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     // No-op for ADMIN today (always privileged) — kept for the same reason
     // every other read in this file routes through the shared guard: a
     // future role added to this endpoint must not accidentally see the
@@ -4847,7 +4829,7 @@ export class TransactionsService {
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     assertTransactionWritable(tx, currentUser)
     // Drop role - phase 2: validate also handles DROP_INCOME with the same
     // shape — flip to VALIDATED + create payout_request + insert placeholder
@@ -4856,14 +4838,14 @@ export class TransactionsService {
     // payable that represents what the wallet owner will transfer off-platform
     // (= income * (1 - share/100), using dropSharePercent for DROP_INCOME).
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'DROP_INCOME') {
-      throw new BadRequestException('Only SENIOR_INCOME or DROP_INCOME can be validated')
+      throw apiError('FINANCE_VALIDATE_WRONG_TYPE', HttpStatus.BAD_REQUEST)
     }
     // AC4: idempotency. The action is only valid on PENDING rows — a second
     // click after a successful validate would otherwise create a duplicate
     // PAYOUT row. We throw rather than silently no-op so the UI can show
     // a clear error to the ACCOUNTANT (vs. pretending it worked twice).
     if (tx.status !== 'PENDING')
-      throw new BadRequestException('Transaction is not in PENDING status')
+      throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
 
     // task-soft-delete-and-money-audit (AC5): "проверка и отклонение" —
     // written INSIDE the same transaction as the status flip so a
@@ -4898,7 +4880,7 @@ export class TransactionsService {
           .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+          throw apiError('FINANCE_TRANSACTION_DELETED_RESTORE_FIRST', HttpStatus.BAD_REQUEST)
         }
 
         await dbtx.insert(transactionAuditLog).values({
@@ -4916,7 +4898,8 @@ export class TransactionsService {
       // строка уже проверена, и уведомление не может опередить факт.
       await this.notifyTransactionStatusChanged(id, 'VALIDATED', null, currentUser)
     } else {
-      if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
+      if (!rejectionReason)
+        throw apiError('FINANCE_REJECTION_REASON_REQUIRED', HttpStatus.BAD_REQUEST)
       await this.db.db.transaction(async (dbtx) => {
         // security-review PR #456 (MED-1 / MED-2): same pair of fixes as the
         // validate branch above.
@@ -4932,7 +4915,7 @@ export class TransactionsService {
           .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+          throw apiError('FINANCE_TRANSACTION_DELETED_RESTORE_FIRST', HttpStatus.BAD_REQUEST)
         }
 
         await dbtx.insert(transactionAuditLog).values({
@@ -5007,33 +4990,33 @@ export class TransactionsService {
     const method = options.method ?? 'CRYPTO'
     const txHashRaw = options.txHash?.trim() ?? ''
     if (method === 'CRYPTO' && txHashRaw.length < 10) {
-      throw new BadRequestException('Для crypto-метода требуется txHash минимум 10 символов')
+      throw apiError('FINANCE_CRYPTO_TX_HASH_TOO_SHORT', HttpStatus.BAD_REQUEST)
     }
     const recordedTxHash = method === 'CRYPTO' ? txHashRaw : null
 
     const payoutTx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, payoutTxId),
     })
-    if (!payoutTx) throw new NotFoundException('Transaction not found')
+    if (!payoutTx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (payoutTx.type !== 'PAYOUT') {
-      throw new BadRequestException('Only PAYOUT transactions can be confirmed')
+      throw apiError('FINANCE_CONFIRM_PAYOUT_ONLY', HttpStatus.BAD_REQUEST)
     }
     // Idempotency guard. Once PAYOUT has flipped to PAID a second confirm
     // would either no-op or duplicate the PAYOUT_CONFIRMED row depending on
     // which side races; throw early so the UI can show «уже подтверждено».
     if (payoutTx.status !== 'PENDING_PAYMENT') {
-      throw new BadRequestException('Payout is not pending payment (already confirmed?)')
+      throw apiError('FINANCE_PAYOUT_NOT_PENDING_PAYMENT', HttpStatus.BAD_REQUEST)
     }
 
     const recipient = await this.db.db.query.users.findFirst({
       where: eq(users.id, recipientAdminId),
     })
-    if (!recipient) throw new BadRequestException('Recipient admin not found')
+    if (!recipient) throw apiError('FINANCE_RECIPIENT_ADMIN_NOT_FOUND', HttpStatus.BAD_REQUEST)
     if (recipient.role !== 'ADMIN') {
-      throw new BadRequestException('Recipient must be an ADMIN')
+      throw apiError('FINANCE_RECIPIENT_MUST_BE_ADMIN', HttpStatus.BAD_REQUEST)
     }
     if (recipient.archivedAt) {
-      throw new BadRequestException('Recipient admin is archived')
+      throw apiError('FINANCE_RECIPIENT_ADMIN_ARCHIVED', HttpStatus.BAD_REQUEST)
     }
     // task-sender-receiver-invariant (backlog A-2): defense-in-depth. Not
     // reachable today — `payoutTx.senderId` is the SENIOR/DROP who requested
@@ -5078,9 +5061,7 @@ export class TransactionsService {
       if (claimed.length === 0) {
         // The row was already confirmed by a concurrent call — bail out before
         // inserting a PAYOUT_CONFIRMED so no double credit occurs.
-        throw new BadRequestException(
-          'Payout is not pending payment (already confirmed by a concurrent request)',
-        )
+        throw apiError('FINANCE_PAYOUT_NOT_PENDING_PAYMENT', HttpStatus.BAD_REQUEST)
       }
 
       // BIZ-02 cross-path (HIGH): when this PAYOUT is linked to a payout_request,
@@ -5244,7 +5225,7 @@ export class TransactionsService {
         await lockCompanyAccount(dbtx)
         const companyBalance = await this.computeCompanyAccountBalance(dbtx)
         if (companyBalance < data.amount) {
-          throw new BadRequestException('Недостаточно средств на счёте компании')
+          throw apiError('FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', HttpStatus.BAD_REQUEST)
         }
         const [tx] = await dbtx.insert(transactions).values(values).returning()
         return tx!.id
@@ -5298,18 +5279,14 @@ export class TransactionsService {
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),
     })
-    if (!receiver) throw new NotFoundException('User not found')
+    if (!receiver) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     // Defense-in-depth: explicit ADMIN barrier first (security-MED #222).
     // SALARY_ELIGIBLE_ROLES allow-list check follows as the general gate.
     if (receiver.role === 'ADMIN') {
-      throw new BadRequestException(
-        'ADMIN не получает зарплату — доход распределяется через доли (ADMIN_INCOME)',
-      )
+      throw apiError('FINANCE_ADMIN_NO_SALARY', HttpStatus.BAD_REQUEST)
     }
     if (!(SALARY_ELIGIBLE_ROLES as ReadonlyArray<string>).includes(receiver.role)) {
-      throw new BadRequestException(
-        'Salary can only be created for JUNIOR, HR, ACCOUNTANT, SENIOR, or DROP',
-      )
+      throw apiError('FINANCE_SALARY_ROLE_NOT_ELIGIBLE', HttpStatus.BAD_REQUEST)
     }
     // task-finance-fix-wave1 (E-1). Why a salary refuses an archived receiver,
     // and how to decide whether the next money path should:
@@ -5357,7 +5334,7 @@ export class TransactionsService {
     // pattern-match against this list, and do not treat either sentence as a
     // predicate you can evaluate mechanically.
     if (receiver.archivedAt) {
-      throw new BadRequestException('Получатель архивирован — зарплата не начисляется')
+      throw apiError('FINANCE_SALARY_RECEIVER_ARCHIVED', HttpStatus.BAD_REQUEST)
     }
 
     // task-salary-pay-flow: a manually-created salary is a NEUTRAL PENDING
@@ -5400,9 +5377,7 @@ export class TransactionsService {
         .returning()
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new BadRequestException(
-          'Зарплата для этого сотрудника за выбранный месяц уже создана',
-        )
+        throw apiError('FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH', HttpStatus.BAD_REQUEST)
       }
       throw err
     }
@@ -5440,7 +5415,7 @@ export class TransactionsService {
     const isAdminCaller = currentUser.role === 'ADMIN'
 
     if (!isAdminCaller && !data.senderId) {
-      throw new BadRequestException('senderId is required (transfer is between two ADMINs)')
+      throw apiError('FINANCE_TRANSFER_SENDER_ID_REQUIRED', HttpStatus.BAD_REQUEST)
     }
 
     // BIZ-06: ADMIN callers ALWAYS send from themselves — they cannot debit a
@@ -5457,15 +5432,15 @@ export class TransactionsService {
         where: eq(users.id, effectiveSenderId),
       })
       if (!sender || sender.role !== 'ADMIN')
-        throw new BadRequestException('Sender must be an ADMIN')
+        throw apiError('FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN', HttpStatus.BAD_REQUEST)
     }
 
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),
     })
-    if (!receiver) throw new NotFoundException('User not found')
+    if (!receiver) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (receiver.role !== 'ADMIN')
-      throw new BadRequestException('Can only transfer to another ADMIN')
+      throw apiError('FINANCE_TRANSFER_RECIPIENT_MUST_BE_ADMIN', HttpStatus.BAD_REQUEST)
     // task-sender-receiver-invariant (backlog A-2): friendly 400 BEFORE the
     // DB CHECK (ck_transactions_sender_ne_receiver) would reject the insert
     // below with an opaque constraint-violation error. Shared with every
@@ -5500,7 +5475,7 @@ export class TransactionsService {
     // feature has to solve with a settlement path rather than by deleting
     // these lines.
     if (receiver.archivedAt) {
-      throw new BadRequestException('Получатель архивирован — перевод невозможен')
+      throw apiError('FINANCE_TRANSFER_RECEIVER_ARCHIVED', HttpStatus.BAD_REQUEST)
     }
 
     // task-receipts-backend (#8): mandatory receipt, currency-aware (default
@@ -5621,7 +5596,7 @@ export class TransactionsService {
       // makes the batch invalid. Also applied after the lock so the decision
       // is based on the locked, consistent view of the rows.
       if (lockedRows.length !== transactionIds.length) {
-        throw new BadRequestException('Часть транзакций уже включена в выплату или недоступна')
+        throw apiError('FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE', HttpStatus.BAD_REQUEST)
       }
 
       // Audit 2026-06-28 (#5): a DROP payout must bundle incomes from a SINGLE
@@ -5635,7 +5610,7 @@ export class TransactionsService {
       if (isDrop) {
         const distinctProjects = new Set(lockedRows.map((tx) => tx.projectId))
         if (distinctProjects.size > 1) {
-          throw new BadRequestException('Выплата должна охватывать только один проект')
+          throw apiError('FINANCE_PAYOUT_SINGLE_PROJECT_ONLY', HttpStatus.BAD_REQUEST)
         }
       }
 
@@ -5644,7 +5619,7 @@ export class TransactionsService {
       // configured the senior has nowhere to send funds → reject the batch.
       const account = await dbtx.query.companyAccount.findFirst()
       if (!account?.walletAddress) {
-        throw new BadRequestException('Кошелёк компании не настроен')
+        throw apiError('FINANCE_COMPANY_WALLET_NOT_CONFIGURED', HttpStatus.BAD_REQUEST)
       }
       const contractAddress = account.walletAddress
 
@@ -5696,9 +5671,7 @@ export class TransactionsService {
         (tx) => tx.currency !== 'USDT' && tx.currency !== 'USD',
       )
       if (needsRateConversion && rateResult.stale && rateResult.rateDate === undefined) {
-        throw new BadRequestException(
-          'Курс НБУ недоступен — сумма выплаты в USDT не может быть рассчитана. Повторите позже.',
-        )
+        throw apiError('FINANCE_NBU_RATE_UNAVAILABLE', HttpStatus.BAD_REQUEST)
       }
 
       const SCALE = 1_000_000
@@ -5830,9 +5803,10 @@ export class TransactionsService {
     const req = await this.db.db.query.payoutRequests.findFirst({
       where: eq(payoutRequests.id, requestId),
     })
-    if (!req) throw new NotFoundException('Payout request not found')
+    if (!req) throw apiError('FINANCE_PAYOUT_REQUEST_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (req.seniorId !== currentUser.id) throw new ForbiddenException()
-    if (req.status !== 'PENDING') throw new BadRequestException('Payout request is already paid')
+    if (req.status !== 'PENDING')
+      throw apiError('FINANCE_PAYOUT_REQUEST_ALREADY_PAID', HttpStatus.BAD_REQUEST)
 
     // DEV-only simulate toggle (see PayPayoutRequestDto.simulateResult).
     // The dev/staging UI surfaces a radio group that lets the SENIOR rehearse
@@ -5850,7 +5824,7 @@ export class TransactionsService {
     const isDevMode = nodeEnv === 'development' || nodeEnv === 'test'
     const isSimulating = isDevMode && simulateResult !== undefined
     if (isSimulating && simulateResult === 'error') {
-      throw new BadRequestException('Симуляция: транзакция не подтверждена')
+      throw apiError('FINANCE_SIMULATION_TX_NOT_CONFIRMED', HttpStatus.BAD_REQUEST)
     }
     // simulateResult === 'success' (dev only) bypasses Etherscan and runs the
     // success cascade below.
@@ -5867,16 +5841,14 @@ export class TransactionsService {
     const suppliedTxHash = txHash?.trim() ?? ''
     if (suppliedTxHash !== '' && extractedTxHash === null) {
       // Fail LOUD rather than settling with an unregistrable hash.
-      throw new BadRequestException(
-        'Некорректный hash транзакции — ожидается 0x + 64 hex или ссылка на Etherscan',
-      )
+      throw apiError('FINANCE_TX_HASH_INVALID', HttpStatus.BAD_REQUEST)
     }
     const effectiveTxHash =
       extractedTxHash ??
       (isSimulating
         ? `0xSIM${randomBytes(28).toString('hex')}`
         : (() => {
-            throw new BadRequestException('Хеш транзакции обязателен')
+            throw apiError('FINANCE_TX_HASH_REQUIRED', HttpStatus.BAD_REQUEST)
           })())
 
     // ── Phase 8 v2 — REAL on-chain validation (INVARIANT #1).
@@ -5895,7 +5867,7 @@ export class TransactionsService {
     if (!isSimulating) {
       const account = await this.db.db.query.companyAccount.findFirst()
       if (!account?.walletAddress) {
-        throw new BadRequestException('Кошелёк компании не настроен')
+        throw apiError('FINANCE_COMPANY_WALLET_NOT_CONFIGURED', HttpStatus.BAD_REQUEST)
       }
 
       // Idempotency (HOLE 2): a txHash already consumed by ANY on-chain
@@ -5908,7 +5880,7 @@ export class TransactionsService {
       // inside the cascade transaction (`consumeTxHash`).
       const consumed = await findConsumedTxHash(this.db.db, effectiveTxHash)
       if (consumed) {
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
       // Legacy guard kept as-is: rows settled BEFORE the registry existed are
       // backfilled by the migration, but this costs one indexed read and keeps
@@ -5917,7 +5889,7 @@ export class TransactionsService {
         where: and(eq(payoutRequests.txHash, effectiveTxHash), eq(payoutRequests.status, 'PAID')),
       })
       if (reused) {
-        throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
+        throw apiError('FINANCE_TX_HASH_USED_FOR_OTHER_PAYOUT', HttpStatus.BAD_REQUEST)
       }
 
       const verification = await this.etherscan.verifyDeposit(
@@ -5926,10 +5898,10 @@ export class TransactionsService {
         account.confirmationThreshold,
       )
       if (!verification.toMatches) {
-        throw new BadRequestException('Получатель транзакции не совпадает с кошельком компании')
+        throw apiError('FINANCE_TX_RECIPIENT_MISMATCH_COMPANY_WALLET', HttpStatus.BAD_REQUEST)
       }
       if (!verification.confirmed) {
-        throw new BadRequestException('Транзакция ещё не подтверждена в сети')
+        throw apiError('FINANCE_TX_NOT_CONFIRMED_ONCHAIN', HttpStatus.BAD_REQUEST)
       }
 
       // ── SECURITY (task-onchain-payment-integrity): EXACT AMOUNT ────────────
@@ -5957,9 +5929,7 @@ export class TransactionsService {
       const payableMinor = usdtToMinorUnits(req.payableAmount)
       const onChainMinor = minorUnitsFromString(verification.amountUsdtMinor)
       if (payableMinor === null || payableMinor <= 0n || onChainMinor !== payableMinor) {
-        throw new BadRequestException(
-          `Сумма on-chain транзакции должна точно совпадать с суммой выплаты (${req.payableAmount} USDT)`,
-        )
+        throw apiError('FINANCE_ONCHAIN_AMOUNT_MISMATCH', HttpStatus.BAD_REQUEST)
       }
 
       // Record WHO sent it (observable, non-blocking — exchange withdrawals
@@ -6009,11 +5979,11 @@ export class TransactionsService {
     const req = await this.db.db.query.payoutRequests.findFirst({
       where: eq(payoutRequests.id, requestId),
     })
-    if (!req) throw new NotFoundException('Payout request not found')
+    if (!req) throw apiError('FINANCE_PAYOUT_REQUEST_NOT_FOUND', HttpStatus.NOT_FOUND)
     // Idempotency: only a still-PENDING payout can be confirmed; a second
     // confirmation throws (the cascade already ran, balance already moved).
     if (req.status !== 'PENDING') {
-      throw new BadRequestException('Payout request is already paid')
+      throw apiError('FINANCE_PAYOUT_REQUEST_ALREADY_PAID', HttpStatus.BAD_REQUEST)
     }
 
     // Audit hash: use the provided on-chain hash when present, else a manual
@@ -6036,9 +6006,7 @@ export class TransactionsService {
     if (noteTxHash !== '' && extractedTxHash === null) {
       // Fail LOUD: a supplied-but-unparseable hash must never silently degrade
       // into an unregistered credit (it would also poison the audit column).
-      throw new BadRequestException(
-        'Некорректный hash транзакции — ожидается 0x + 64 hex или ссылка на Etherscan',
-      )
+      throw apiError('FINANCE_TX_HASH_INVALID', HttpStatus.BAD_REQUEST)
     }
     // A REAL on-chain hash was supplied (vs. a synthesized 0xMANUAL marker).
     // Only a real hash references an actual on-chain transfer that could be
@@ -6072,7 +6040,7 @@ export class TransactionsService {
         where: and(eq(payoutRequests.txHash, effectiveTxHash), eq(payoutRequests.status, 'PAID')),
       })
       if (reused) {
-        throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
+        throw apiError('FINANCE_TX_HASH_USED_FOR_OTHER_PAYOUT', HttpStatus.BAD_REQUEST)
       }
     }
     // HOLE 2 fast-fail: a real hash already spent by ANY path (incl. a company
@@ -6083,7 +6051,7 @@ export class TransactionsService {
     if (hasRealTxHash) {
       const consumed = await findConsumedTxHash(this.db.db, effectiveTxHash)
       if (consumed) {
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
     }
     const auditNote = `Manual payout confirmation by ${currentUser.id} at ${new Date().toISOString()} (method=${method})${
@@ -6330,7 +6298,7 @@ export class TransactionsService {
           .returning({ id: payoutRequests.id })
         if (claimed.length === 0) {
           // A concurrent / repeated confirm already flipped this payout.
-          throw new BadRequestException('Payout request is already paid')
+          throw apiError('FINANCE_PAYOUT_REQUEST_ALREADY_PAID', HttpStatus.BAD_REQUEST)
         }
 
         // ── SECURITY (LOW #6, defense-in-depth): in-transaction txHash-reuse guard.
@@ -6349,7 +6317,7 @@ export class TransactionsService {
             ),
           })
           if (reused) {
-            throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
+            throw apiError('FINANCE_TX_HASH_USED_FOR_OTHER_PAYOUT', HttpStatus.BAD_REQUEST)
           }
         }
 
@@ -6512,7 +6480,10 @@ export class TransactionsService {
             )
             .limit(1)
           if (existing.length === 0) {
-            throw new BadRequestException('PAYOUT transaction not found for this request')
+            throw apiError(
+              'FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST',
+              HttpStatus.BAD_REQUEST,
+            )
           }
           payoutRow = existing[0]!
         }
@@ -6580,7 +6551,8 @@ export class TransactionsService {
                 where: eq(users.id, primaryProject.seniorId),
               })
             : null
-          if (!senior) throw new NotFoundException('Senior not found on drop-project')
+          if (!senior)
+            throw apiError('FINANCE_SENIOR_NOT_FOUND_ON_DROP_PROJECT', HttpStatus.NOT_FOUND)
 
           // task-team-senior-share-override. Resolve the senior share WITH its
           // source (PROJECT / TEAM / USER_DEFAULT) so the SENIOR_PENDING_PAYOUT
@@ -6701,7 +6673,7 @@ export class TransactionsService {
           constraint === 'uq_consumed_tx_hashes_tx_hash' ||
           constraint === 'uq_payout_requests_txhash_paid'
         ) {
-          throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+          throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
         }
         // LOW (round 3): an UNATTRIBUTED violation (no constraint name) is NOT
         // assumed to be a hash reuse. Guessing produces a confident, wrong
@@ -6789,7 +6761,7 @@ export class TransactionsService {
         },
       },
     })
-    if (!req) throw new NotFoundException('Payout request not found')
+    if (!req) throw apiError('FINANCE_PAYOUT_REQUEST_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // RBAC gate (F2 fix, OWASP A01): only ADMIN / ACCOUNTANT have unrestricted
     // access; SENIOR and DROP may only see their own request (seniorId match);
@@ -6914,9 +6886,7 @@ export class TransactionsService {
     // Any other authenticated role (SENIOR / JUNIOR / HR / DROP) reaching
     // GET /api/finance/summary directly would leak payment-routing config.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Access denied: finance summary requires ADMIN or ACCOUNTANT role',
-      )
+      throw apiError('FINANCE_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // task-accountant-summary-balances-rbac (security LOW, review #215): the
@@ -7261,9 +7231,7 @@ export class TransactionsService {
     recipientCount: number
   }> {
     if (currentUser.role !== 'ACCOUNTANT' && currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException(
-        'Access denied: accountant summary requires ACCOUNTANT or ADMIN role',
-      )
+      throw apiError('FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // Current-month boundary, computed once. UTC-based to match how the rest of
@@ -7353,7 +7321,7 @@ export class TransactionsService {
    */
   async getSeniorSummary(currentUser: SessionUser): Promise<SeniorSummaryDto> {
     if (currentUser.role !== 'SENIOR' && currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException('Access denied: senior summary requires SENIOR or ADMIN role')
+      throw apiError('FINANCE_SENIOR_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const selfId = currentUser.id
@@ -7609,9 +7577,7 @@ export class TransactionsService {
     month?: string,
   ): Promise<IncomeComplianceOverviewDto> {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Access denied: income compliance overview requires ADMIN or ACCOUNTANT role',
-      )
+      throw apiError('FINANCE_INCOME_COMPLIANCE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // ── Resolve the target month window [monthStart, nextMonthStart) in UTC ────
@@ -7981,7 +7947,7 @@ export class TransactionsService {
         columns: { status: true },
       })
       if (!project || project.status !== 'ACTIVE') {
-        throw new NotFoundException('Project not found')
+        throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
       }
     }
 
@@ -8006,13 +7972,13 @@ export class TransactionsService {
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, projectId),
     })
-    if (!project) throw new NotFoundException('Project not found')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     // SR-M-3 — same ACCOUNTANT-only status gate as getProjectFinanceSettings
     // above (this method already fetches the full project row for the
     // existence check, so the extra query the read-only sibling needs is
     // not needed here).
     if (currentUser.role === 'ACCOUNTANT' && project.status !== 'ACTIVE') {
-      throw new NotFoundException('Project not found')
+      throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
     const fsValues = {
@@ -8095,7 +8061,7 @@ export class TransactionsService {
     if (!receiverId) return
     const receiver = await db.query.users.findFirst({ where: eq(users.id, receiverId) })
     if (receiver && receiver.archivedAt) {
-      throw new BadRequestException('Получатель зарплаты архивирован — выплата невозможна')
+      throw apiError('FINANCE_SALARY_PAYOUT_RECEIVER_ARCHIVED', HttpStatus.BAD_REQUEST)
     }
   }
 
@@ -8196,10 +8162,11 @@ export class TransactionsService {
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
-    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     assertTransactionWritable(tx, currentUser)
-    if (tx.type !== 'SALARY') throw new BadRequestException('Can only pay SALARY transactions')
-    if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
+    if (tx.type !== 'SALARY') throw apiError('FINANCE_PAY_SALARY_ONLY', HttpStatus.BAD_REQUEST)
+    if (tx.status !== 'PENDING')
+      throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
 
     // task-finance-fix-wave1 (E-1): refuse to PAY a salary whose receiver has
     // been dismissed. `assertTransactionWritable` above only knows about
@@ -8254,7 +8221,7 @@ export class TransactionsService {
         where: eq(users.id, payerAdminId),
       })
       if (!payer || payer.role !== 'ADMIN') {
-        throw new BadRequestException('Личный счёт-плательщик зарплаты должен принадлежать ADMIN')
+        throw apiError('FINANCE_PAYER_ACCOUNT_MUST_BE_ADMIN', HttpStatus.BAD_REQUEST)
       }
       senderId = payer.id
       senderLabel = payer.displayName
@@ -8430,11 +8397,11 @@ export class TransactionsService {
           .from(transactions)
           .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
         if (!fresh || fresh.status !== 'PENDING') {
-          throw new BadRequestException('Transaction is not PENDING')
+          throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
         }
         const companyBalance = await this.computeCompanyAccountBalance(dbtx)
         if (companyBalance < amount) {
-          throw new BadRequestException('Недостаточно средств на счёте компании')
+          throw apiError('FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', HttpStatus.BAD_REQUEST)
         }
         const updated = await dbtx
           .update(transactions)
@@ -8454,7 +8421,7 @@ export class TransactionsService {
           // `dbtx` — the transaction still owns a connection here, and going via
           // `this.db.db` would check out a second one (round 3, LOW).
           await this.assertSalaryReceiverNotArchived(dbtx, tx.receiverId)
-          throw new BadRequestException('Transaction is not PENDING')
+          throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
         }
       })
     } else {
@@ -8486,7 +8453,7 @@ export class TransactionsService {
         // archive of the receiver made the guard above reject it. This path runs
         // in no transaction, so the base connection is correct here.
         await this.assertSalaryReceiverNotArchived(this.db.db, tx.receiverId)
-        throw new BadRequestException('Transaction is not PENDING')
+        throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
       }
     }
 
@@ -8974,9 +8941,7 @@ export class TransactionsService {
     month?: string,
   ): Promise<SalaryMonthGapReportDto> {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Access denied: salary month gap report requires ADMIN or ACCOUNTANT role',
-      )
+      throw apiError('FINANCE_SALARY_MONTH_GAP_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     // security-review HIGH-2: default to the PREVIOUS calendar month — the
     // one `createMonthlySalaries` last targeted — NOT the current month
@@ -9001,7 +8966,7 @@ export class TransactionsService {
     month: string,
   ): Promise<SalaryMonthGapReportDto> {
     if (currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException('Access denied: salary month backfill requires ADMIN role')
+      throw apiError('FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     // security-review HIGH-1: pass the REAL actor — see createMonthlySalaries's
     // docblock for why this differs from the cron's unaudited "any admin" call.

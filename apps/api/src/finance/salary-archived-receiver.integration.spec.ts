@@ -236,7 +236,9 @@ describe.skipIf(!hasDatabaseUrl())('salary — archived receiver barrier (E-1, r
         { receiverId: ARCHIVED_HR_ID, amount: 1500, salaryMonth: MONTH },
         ADMIN_USER,
       ),
-    ).rejects.toThrow('Получатель архивирован — зарплата не начисляется')
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_SALARY_RECEIVER_ARCHIVED', statusCode: 400 },
+    })
 
     expect(await salaryRowsFor(ARCHIVED_HR_ID)).toHaveLength(0)
   }, 30_000)
@@ -270,7 +272,9 @@ describe.skipIf(!hasDatabaseUrl())('salary — archived receiver barrier (E-1, r
         },
         ADMIN_USER,
       ),
-    ).rejects.toThrow('Получатель зарплаты архивирован — выплата невозможна')
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_SALARY_PAYOUT_RECEIVER_ARCHIVED', statusCode: 400 },
+    })
 
     // Still PENDING — nothing was paid, no balance moved.
     const after = await salaryRowsFor(ARCHIVED_HR_ID)

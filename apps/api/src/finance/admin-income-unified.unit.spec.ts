@@ -21,7 +21,7 @@
  * outcomes (obligations booked, real persisted rows) stay proven on a real
  * DB in the integration specs; this file is deliberately narrow.
  */
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
@@ -152,9 +152,7 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ACCOUNTANT,
         ),
-      ).rejects.toThrow(
-        new ForbiddenException('ACCOUNTANT cannot choose who receives ADMIN_INCOME'),
-      )
+      ).rejects.toThrow("An accountant can't choose who receives admin income")
       expect(state.inserts).toHaveLength(0)
     })
 
@@ -242,7 +240,7 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow(new BadRequestException('Получатель должен быть активным администратором'))
+      ).rejects.toThrow('The recipient must be an active admin')
       expect(state.inserts).toHaveLength(0)
       // The mock's `findFirst` returns the next queued row regardless of
       // ARGS — without this, a mutant that drops the `where` clause entirely
@@ -266,7 +264,7 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow(new BadRequestException('Получатель должен быть активным администратором'))
+      ).rejects.toThrow('The recipient must be an active admin')
       expect(state.inserts).toHaveLength(0)
       expect(state.usersFindFirstArgs[0]).toHaveProperty('where')
     })
@@ -287,7 +285,7 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toThrow('The recipient must be an active admin')
       expect(state.inserts).toHaveLength(0)
     })
 
@@ -359,7 +357,9 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow(/declareUsdtProjectIncome/)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE', statusCode: 400 },
+      })
       expect(state.inserts).toHaveLength(0)
     })
   })

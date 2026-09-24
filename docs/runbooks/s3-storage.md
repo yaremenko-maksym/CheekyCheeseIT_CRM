@@ -1,39 +1,38 @@
 # S3-совместимое хранилище — Documents
 
-Хранилище документов для CRM. **Dev: MinIO** (docker-compose), **Prod: Cloudflare R2** (S3-совместимый API).
+Хранилище документов для CRM. **Dev/CI: RustFS** (docker-compose, S3-совместимый), **Prod: Cloudflare R2** (S3-совместимый API).
 Код работает через `@aws-sdk/client-s3` против обоих (отличие — только env: endpoint / creds / `S3_USE_SSE`).
 
 ## Обзор
 
-| Среда | Backend                           | Endpoint                                        | Region                      | Bucket               |
-| ----- | --------------------------------- | ----------------------------------------------- | --------------------------- | -------------------- |
-| Dev   | MinIO (Docker)                    | `http://localhost:9000`                         | `us-east-1` (MinIO default) | `crm-documents`      |
-| Prod  | **Cloudflare R2** (S3-совместимо) | `https://<account_id>.r2.cloudflarestorage.com` | `auto`                      | `crm-documents-prod` |
+| Среда | Backend                           | Endpoint                                        | Region                    | Bucket               |
+| ----- | --------------------------------- | ----------------------------------------------- | ------------------------- | -------------------- |
+| Dev   | RustFS (Docker)                   | `http://localhost:9000`                         | `us-east-1` (dev default) | `crm-documents`      |
+| Prod  | **Cloudflare R2** (S3-совместимо) | `https://<account_id>.r2.cloudflarestorage.com` | `auto`                    | `crm-documents-prod` |
 
-**Шифрование:** R2 шифрует все данные at-rest **по умолчанию** — заголовок SSE-S3 (`ServerSideEncryption: AES256`) НЕ нужен и R2 его **отвергает** (не реализует SSE-S3 протокол). Поэтому `S3_USE_SSE=false` и в dev (MinIO), и в prod (R2). Прод-значение **захардкожено** в `deploy.yml` (см. ниже) — менять на `true` только при миграции на настоящий AWS S3.
+**Шифрование:** R2 шифрует все данные at-rest **по умолчанию** — заголовок SSE-S3 (`ServerSideEncryption: AES256`) НЕ нужен и R2 его **отвергает** (не реализует SSE-S3 протокол). Поэтому `S3_USE_SSE=false` и в dev (RustFS), и в prod (R2). Прод-значение **захардкожено** в `deploy.yml` (см. ниже) — менять на `true` только при миграции на настоящий AWS S3.
 
 ## Локальная разработка
 
 ```bash
-# Поднять MinIO рядом с postgres/redis
-docker-compose up -d minio
+# Поднять RustFS рядом с postgres/redis
+docker-compose up -d s3
 
-# Bucket `crm-documents` создаётся автоматически one-shot init контейнером `minio-bootstrap`
-docker-compose logs minio-bootstrap
-# → "MinIO bucket crm-documents ready"
+# Bucket `crm-documents` создаётся автоматически one-shot init контейнером `s3-bootstrap`
+docker-compose logs s3-bootstrap
 
 # Web console
 open http://localhost:9001
-# Логин: minioadmin / minioadmin
+# Логин: crmdevaccesskey / crmdevsecretkey
 ```
 
 Чек, что всё работает:
 
 ```bash
-curl -f http://localhost:9000/minio/health/live   # → 200
+curl -f http://localhost:9000/health   # → 200
 ```
 
-API использует MinIO через стандартный AWS SDK с `S3_ENDPOINT=http://localhost:9000` и `S3_FORCE_PATH_STYLE=true` (MinIO не поддерживает virtual-hosted style).
+API использует RustFS через стандартный AWS SDK с `S3_ENDPOINT=http://localhost:9000` и `S3_FORCE_PATH_STYLE=true` (path-style URLs, не virtual-hosted).
 
 ## Production setup (Cloudflare R2)
 
@@ -96,22 +95,22 @@ aws s3api put-bucket-cors \
 | `AWS_ACCESS_KEY_ID`     | R2 API token **Access Key ID**                  |
 | `AWS_SECRET_ACCESS_KEY` | R2 API token **Secret Access Key**              |
 
-> `S3_USE_SSE` в секретах **не нужен** — `deploy.yml` хардкодит `S3_USE_SSE=false` (R2 не принимает SSE-S3 заголовок). **Dev secrets НЕ нужны** — в CI прописаны dummy creds (`minioadmin/minioadmin`) с MinIO service рядом с postgres/redis.
+> `S3_USE_SSE` в секретах **не нужен** — `deploy.yml` хардкодит `S3_USE_SSE=false` (R2 не принимает SSE-S3 заголовок). **Dev secrets НЕ нужны** — в CI прописаны dummy creds (`crmdevaccesskey`/`crmdevsecretkey`) с RustFS-сервисом рядом с postgres/redis.
 
 ## ⚠️ Production env vars (CRITICAL)
 
-Dev/MinIO defaults в `apps/api/src/config/env.ts`:
+Dev/CI defaults в `apps/api/src/config/env.ts`:
 
-- `AWS_ACCESS_KEY_ID=minioadmin`
-- `AWS_SECRET_ACCESS_KEY=minioadmin`
+- `AWS_ACCESS_KEY_ID=crmdevaccesskey`
+- `AWS_SECRET_ACCESS_KEY=crmdevsecretkey`
 
 Эти defaults удобны локально, но в production **ОБЯЗАТЕЛЬНО** переопределить настоящими R2-token creds (через GHA secrets выше). Иначе API падает при старте с явной ошибкой:
 
 ```
-AWS_ACCESS_KEY_ID must be overridden in production (minioadmin default is for dev/MinIO only)
+AWS_ACCESS_KEY_ID must be overridden in production (the crmdevaccesskey value is the dev/CI default)
 ```
 
-Защиту даёт `refine()` в `envSchema`: при `NODE_ENV=production` значения `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` не должны равняться `'minioadmin'` — иначе fail-fast.
+Защиту даёт `refine()` в `envSchema`: при `NODE_ENV=production` значения `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` не должны равняться текущему dev/CI-дефолту — иначе fail-fast. Тот же guard дополнительно ловит устаревшее значение `minioadmin` (осталось от эпохи до RustFS, до PR #709) — на случай, если где-то ещё жив старый `.env`.
 
 `deploy.yml` пишет в `/opt/crm/.env.production` (фрагмент):
 
@@ -148,7 +147,7 @@ Cloudflare → Billing → **Notifications** → создать budget-alert н�
 
 ### `NoSuchBucket: The specified bucket does not exist`
 
-**Dev:** `docker-compose logs minio-bootstrap` — bootstrap не отработал. Решение: `docker-compose down -v && docker-compose up -d` (rebuild volume).
+**Dev:** `docker-compose logs s3-bootstrap` — bootstrap не отработал. Решение: `docker-compose down -v && docker-compose up -d` (rebuild volume).
 **Prod:** проверить `S3_BUCKET` совпадает с реальным именем бакета в R2 (`npx wrangler r2 bucket list`); `S3_ENDPOINT` содержит правильный account_id.
 
 ### `AccessDenied` / `Access Denied`
@@ -158,7 +157,7 @@ Cloudflare → Billing → **Notifications** → создать budget-alert н�
 
 ### `CORS error` при download через presigned URL
 
-Браузер блокирует cross-origin GET. Проверить CORS-политику бакета (R2 dashboard → bucket → Settings → CORS, или `aws s3api get-bucket-cors --endpoint-url <r2-endpoint> --bucket crm-documents-prod`). `AllowedOrigins` должен содержать домен фронтенда (`https://app.cheekycheese.tech`). На dev MinIO CORS открыт (`*`) by default.
+Браузер блокирует cross-origin GET. Проверить CORS-политику бакета (R2 dashboard → bucket → Settings → CORS, или `aws s3api get-bucket-cors --endpoint-url <r2-endpoint> --bucket crm-documents-prod`). `AllowedOrigins` должен содержать домен фронтенда (`https://app.cheekycheese.tech`). На dev RustFS CORS открыт под `http://localhost:3000` (см. `RUSTFS_CORS_ALLOWED_ORIGINS` в `docker-compose.yml`).
 
 ### `NotImplemented` на PutObject (SSE)
 
@@ -168,6 +167,6 @@ R2 отвергает `ServerSideEncryption: AES256`. Убедиться, что
 
 Часы сервера разошлись > 15 мин. Dev (Docker): сверить `date` в контейнере vs хост. Prod (VPS): убедиться, что `chrony`/`systemd-timesyncd` работает (NTP-синхронизация).
 
-### MinIO console (http://localhost:9001) не открывается
+### Web console (http://localhost:9001) не открывается
 
-`docker-compose ps minio` → не `healthy`. Проверить `docker-compose logs minio` — обычно volume permissions issue на macOS (Docker Desktop ↔ APFS). Решение: `docker-compose down -v && docker-compose up -d minio`.
+`docker-compose ps s3` → не `healthy`. Проверить `docker-compose logs s3` — обычно volume permissions issue на macOS (Docker Desktop ↔ APFS). Решение: `docker-compose down -v && docker-compose up -d s3`.

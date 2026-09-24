@@ -49,7 +49,6 @@
  *   The real-DB behaviour ("an archived HR gets no row") is pinned separately in
  *   salary-archived-receiver.integration.spec.ts.
  */
-import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -328,9 +327,11 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     const svc = makeSalaryService(ARCHIVED_HR)
 
     await expect(svc.createSalary(payload, ADMIN_USER)).rejects.toThrow(
-      'Получатель архивирован — зарплата не начисляется',
+      "The recipient is archived — a salary can't be created",
     )
-    await expect(svc.createSalary(payload, ADMIN_USER)).rejects.toBeInstanceOf(BadRequestException)
+    await expect(svc.createSalary(payload, ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_SALARY_RECEIVER_ARCHIVED', statusCode: 400 },
+    })
   })
 
   it('lets an ACTIVE receiver through the gate (reaches the INSERT)', async () => {
@@ -341,6 +342,19 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     await expect(
       svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
     ).rejects.toThrow('INSERT REACHED')
+  })
+
+  // Mutation gate (i18n stage 4 Task 2): both tests above stub `users.findFirst`
+  // to always resolve a row, so the earlier `!receiver` NOT_FOUND guard's
+  // FALSE branch was never exercised.
+  it('receiver row not found → USER_NOT_FOUND', async () => {
+    const svc = makeSalaryService(undefined)
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: 'missing-user' }, ADMIN_USER),
+    ).rejects.toMatchObject({
+      response: { code: 'USER_NOT_FOUND', statusCode: 404 },
+    })
   })
 })
 
@@ -384,11 +398,11 @@ describe('paySalary — AC2: a salary of an archived receiver cannot be paid', (
     const { svc } = makePayService(SALARY_ROW, ARCHIVED_HR)
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
-      'Получатель зарплаты архивирован — выплата невозможна',
+      "The recipient is archived — the salary can't be paid",
     )
-    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_SALARY_PAYOUT_RECEIVER_ARCHIVED', statusCode: 400 },
+    })
   })
 
   it('looks up THIS row’s receiver — the lookup is bound to tx.receiverId', async () => {
@@ -399,7 +413,9 @@ describe('paySalary — AC2: a salary of an archived receiver cannot be paid', (
     // user. Compiling the predicate is what makes the binding observable.
     const { svc, usersFindFirst } = makePayService(SALARY_ROW, ARCHIVED_HR)
 
-    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(BadRequestException)
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_SALARY_PAYOUT_RECEIVER_ARCHIVED', statusCode: 400 },
+    })
 
     const whereArg: unknown = usersFindFirst.mock.calls[0]![0].where
     // Checked separately so an emptied `where` reads as "no predicate at all"
@@ -531,7 +547,9 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
     // stops before the invoice side-effects; what matters here is the SQL.
     const { svc, updateWhere } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
 
-    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(BadRequestException)
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_PENDING', statusCode: 400 },
+    })
 
     const whereArg: unknown = updateWhere.mock.calls[0]![0]
     expect(whereArg).toBeDefined()
@@ -560,7 +578,7 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
     const { svc } = makePayService([ACTIVE_HR, ARCHIVED_HR], [])
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
-      'Получатель зарплаты архивирован — выплата невозможна',
+      "The recipient is archived — the salary can't be paid",
     )
   })
 
@@ -571,7 +589,7 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
     const { svc } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
-      'Transaction is not PENDING',
+      "The transaction isn't pending",
     )
   })
 })

@@ -460,7 +460,12 @@ describe.skipIf(!hasDatabaseUrl())(
           payerAdminId: ADMIN.id,
           ...FILE_RECEIPT,
         }),
-      ).rejects.toThrow(/USDT/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_OBLIGATION_CORRUPTED_CURRENCY',
+          statusCode: 400,
+        }),
+      })
 
       // Nothing was written — the obligation is still open, the source IOU
       // untouched.
@@ -493,7 +498,12 @@ describe.skipIf(!hasDatabaseUrl())(
           currency: 'UAH',
           ...FILE_RECEIPT,
         }),
-      ).rejects.toThrow(/курс/i)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_NBU_RATE_UNAVAILABLE',
+          statusCode: 400,
+        }),
+      })
 
       const stillPendingPayment = await dbSvc.db.query.transactions.findFirst({
         where: eq(transactions.id, SOURCE_TX_ID),

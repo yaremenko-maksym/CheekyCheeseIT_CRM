@@ -30,7 +30,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 import { resolveEditCascade, computeCascadeVersion, type CascadeSnapshot } from '@crm/shared'
@@ -506,6 +506,19 @@ describe('AC1: BIZ-18 narrowed surgically', () => {
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, SENIOR_USER),
     ).rejects.toBeInstanceOf(ForbiddenException)
   })
+
+  // Mutation gate (i18n stage 4 Task 2): every other test in this describe
+  // has `transactions.findFirst` resolve a real row, so the `!tx` NOT_FOUND
+  // guard's FALSE branch was never exercised.
+  it('transaction row not found → FINANCE_TRANSACTION_NOT_FOUND', async () => {
+    const { db } = makeDouble({ sourceReads: [undefined] })
+    const svc = makeTransactionsService({ db })
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -519,7 +532,9 @@ describe('AC2: mandatory preview + optimistic lock', () => {
     stubFindOne(svc)
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW', statusCode: 400 },
+    })
     expect(ops).toEqual([])
   })
 
@@ -528,7 +543,7 @@ describe('AC2: mandatory preview + optimistic lock', () => {
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN)).rejects.toThrow(
-      'Правка не сохранена — сумма оплаченной транзакции тянет за собой доли и обязательства: откройте предпросмотр и повторите',
+      "Changing a paid transaction's amount recalculates shares and obligations — open the preview first",
     )
   })
 
@@ -545,7 +560,9 @@ describe('AC2: mandatory preview + optimistic lock', () => {
         { amount: 2000, cascadeVersion: 'src:stale:2020-01-01T00:00:00.000Z' },
         ADMIN,
       ),
-    ).rejects.toBeInstanceOf(ConflictException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_CASCADE_PREVIEW_STALE', statusCode: 409 },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -627,14 +644,29 @@ describe('AC4: blocking conditions', () => {
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     // The message must name THIS reason — otherwise the test would also pass
     // on the pre-change behaviour, where BIZ-18 refused every PAID amount edit
     // wholesale and the specific refusal did not exist yet.
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/процент/i)
+      // COPY-H-2 (PR #704 fix-round 1): the row id used to travel in
+      // `params.rowId` — it is now server-log-only (see `this.logger.warn`
+      // at the throw site), so the envelope carries no params for this code.
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT',
+        statusCode: 400,
+        params: undefined,
+      },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content —
+    // this is the ONLY remaining place the row id is diagnosable from.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Derivative row ${SENIOR_DERIV_ID}: no share-percent snapshot`),
+    )
   })
 
   it('OBLIGATION_CURRENCY_MISMATCH refuses the whole edit (backlog 95)', async () => {
@@ -643,11 +675,24 @@ describe('AC4: blocking conditions', () => {
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/валют/i)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH',
+        statusCode: 400,
+        params: undefined,
+      },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Derivative row ${SENIOR_DERIV_ID}: obligation currency mismatch with source`,
+      ),
+    )
   })
 
   it('ONE bad derivative blocks the OTHER, healthy one too — the cascade is all-or-nothing', async () => {
@@ -670,7 +715,7 @@ describe('AC4: blocking conditions', () => {
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/процент/i)
+    ).rejects.toThrow(/no saved percentage/i)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -693,11 +738,19 @@ describe('AC4: blocking conditions', () => {
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+    ).rejects.toThrow(/a manual reconciliation is needed/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content —
+    // both currencies, not just the code path.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Derivative row ${SENIOR_DERIV_ID}: currency pair unresolvable (settled=USD, new=USDT)`,
+      ),
+    )
   })
 
   /**
@@ -728,9 +781,8 @@ describe('AC4: blocking conditions', () => {
       caught = e
     }
     const message = (caught as Error).message
-    expect(message).toContain('уже выплаченное учтено в USD')
-    expect(message).toContain('а пересчитанная доля — в USDT')
-    expect(message).toContain('вернуть строку в ожидание выплаты нельзя: её нечем будет закрыть')
+    expect(message).toContain('USD')
+    expect(message).toContain('USDT')
   })
 
   it('AC15: an accumulator with NO currency label at all is described as unknown, not as null', async () => {
@@ -741,10 +793,15 @@ describe('AC4: blocking conditions', () => {
     const { db } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/учтено в неизвестной валюте/)
+    ).rejects.toThrow(/UNKNOWN/)
+    // Mutation gate (COPY-H-2, fix-round 1): the log line has its OWN
+    // `?? 'UNKNOWN'` fallback (independent of the one in `apiError`'s
+    // `params`) — pin it too, or a mutant there survives unnoticed.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('settled=UNKNOWN'))
   })
 
   it('AC15: the dead-end checks apply ONLY to a revert — an OPEN obligation with a foreign accumulator still updates', async () => {
@@ -1255,7 +1312,7 @@ describe('CR-M-2: "is this a cascade amount edit" is asked in one place', () => 
       try {
         await writeSvc.adminUpdateTransaction(SOURCE_ID, { amount: c.amount }, ADMIN)
       } catch (e) {
-        needsToken = /не сохранена/.test((e as Error).message)
+        needsToken = /open the preview first/.test((e as Error).message)
       }
       // The preview offers a version token for exactly the edits that need one.
       // Oracle computed from the FIXTURE, not read back out of the plan —
@@ -1375,7 +1432,7 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
     stubFindOne(svc)
 
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 300 }, ADMIN)).rejects.toThrow(
-      /состояние строки изменилось|удалена/,
+      /paid or deleted while you were editing/,
     )
   })
 
@@ -1383,7 +1440,10 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
     // Before the status predicate, zero rows could only mean "deleted", and
     // the message said exactly that. Now it can also mean "someone settled it
     // while you were typing" — a message that names only the first sends the
-    // operator to look for a deletion that never happened.
+    // operator to look for a deletion that never happened. task-i18n-stage4-
+    // task2 (COPY-M-1, fix-round 2): the refusal text dropped the generic
+    // "changed" wording in favour of naming the two concrete ways — paid, or
+    // deleted — so this test now pins on those two words instead.
     const source = sourceRow({ type: 'SENIOR_PENDING_PAYOUT', status: 'PENDING_PAYMENT' })
     const { db } = makeDouble({ source, mainUpdateRows: [] })
     const svc = makeTransactionsService({ db })
@@ -1395,8 +1455,8 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
       caught = e
     }
     const message = (caught as Error).message
-    expect(message).toMatch(/изменилось|изменена/)
-    expect(message).toMatch(/удален/)
+    expect(message).toMatch(/paid/)
+    expect(message).toMatch(/deleted/)
   })
 })
 
@@ -1907,7 +1967,7 @@ describe('AC5: still-open obligation — both copies of the amount move together
       const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
       await expect(
         svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-      ).rejects.toThrow(/отменена целиком/)
+      ).rejects.toThrow(/nothing was saved/)
     })
   })
 
@@ -2127,22 +2187,28 @@ describe('AC6: revert of a settled derivative', () => {
     )
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 5000, cascadeVersion: version }, ADMIN),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_ROW_AMOUNT_MISMATCH', statusCode: 400 },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
-  it('the refusal names the invariant so the operator knows what to reconcile', async () => {
+  it('the refusal names the invariant so the operator knows what to reconcile (in the server log, task-i18n-stage4-task2 Step 1)', async () => {
     const derivativeRows = [settledDerivativeRow({ amount: '2000.000000' })]
     const obligationRows = [obligationRow({ status: 'PAID', amount: '2000.000000' })]
     const { db } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(
       snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
     )
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 5000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/settled_amount/)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_ROW_AMOUNT_MISMATCH', statusCode: 400 },
+    })
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('needsReconfirm'))
   })
 
   it('EQUAL amount and settled_amount pass the invariant check (the mirror case)', async () => {
@@ -2448,17 +2514,16 @@ describe('refusal messages', () => {
         { amount: 2000, cascadeVersion: 'src:stale:2020-01-01T00:00:00.000Z' },
         ADMIN,
       ),
-    ).rejects.toThrow(
-      'Данные изменились с момента предпросмотра — прежний расчёт больше не действует, обновите предпросмотр и повторите сохранение',
-    )
+    ).rejects.toThrow('The data changed after the preview — refresh it and save again')
   })
 
-  it('the invariant refusal spells out both figures and who holds the equality', async () => {
+  it('the invariant refusal names the reason, and the log carries both figures (task-i18n-stage4-task2 Step 1)', async () => {
     const derivativeRows = [settledDerivativeRow({ amount: '2000.000000' })]
     const obligationRows = [obligationRow({ status: 'PAID', amount: '2000.000000' })]
     const { db } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(
       snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
     )
@@ -2469,33 +2534,37 @@ describe('refusal messages', () => {
       caught = e
     }
     const message = (caught as Error).message
-    // Each assertion pins one concatenated fragment, killing each separately.
-    expect(message).toContain(`Строка ${SENIOR_DERIV_ID}: расходятся сумма строки и сумма`)
-    expect(message).toContain('фактических выплат (amount = 2000, settled_amount = 260).')
-    expect(message).toContain(
-      'Равенство этих двух держат книжка обязательств и правка суммы (#598), а закрытие долга',
+    expect(message).toBe(
+      "One of the shares doesn't match what was already paid — the edit is blocked until a manual reconciliation",
     )
-    expect(message).toContain(
-      'его не проверяет — поэтому при возврате в ожидание выплаты леджер вернул бы не тот дебет.',
+    // task-i18n-stage4-task2 Step 1 (COPY-H-api-4): the divergence detail
+    // (row id, both figures, the #598 pointer) lives in the log now, not the
+    // user-facing text — see `FINANCE_ROW_AMOUNT_MISMATCH`'s throw site.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Row ${SENIOR_DERIV_ID} needsReconfirm: amount=2000`),
     )
-    expect(message).toContain('Строка требует ручной сверки перед правкой дохода.')
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('settled=260'))
   })
 
-  it('reports a MISSING accumulator as 0 rather than "null" in the same refusal', async () => {
+  it('reports a MISSING accumulator the same way as a mismatched one (task-i18n-stage4-task2 Step 1: detail moved to the log, "0" included)', async () => {
     // A company-funded row whose accumulator was never written is the same
     // class of disagreement (row says 260, payments say nothing) and must be
-    // refused with a figure a human can read.
+    // refused the same way — a human-readable code, with the figures in the log.
     const derivativeRows = [settledDerivativeRow({ settledAmount: null, settledCurrency: null })]
     const obligationRows = [obligationRow({ status: 'PAID' })]
     const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(
       snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
     )
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow('settled_amount = 0')
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_ROW_AMOUNT_MISMATCH', statusCode: 400 },
+    })
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('settled=0'))
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -2508,13 +2577,29 @@ describe('refusal messages', () => {
     const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(
       snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
     )
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/не соответствует ни одной форме закрытия/)
+      // COPY-H-2 (PR #704 fix-round 1): the row id used to travel in
+      // `params.rowId` — it is now server-log-only, so the envelope carries
+      // no params for this code.
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN',
+        statusCode: 400,
+        params: undefined,
+      },
+    })
     expect(derivativeWrites(ops)).toHaveLength(0)
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Derivative row ${SENIOR_DERIV_ID}: closed by unusual type SALARY, can't reopen`,
+      ),
+    )
   })
 
   it('refuses when the row disappears between the pre-read and the locked re-read', async () => {
@@ -2525,7 +2610,7 @@ describe('refusal messages', () => {
     stubFindOne(svc)
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: 'anything' }, ADMIN),
-    ).rejects.toThrow(/удалена/)
+    ).rejects.toThrow(/is deleted|not found/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 })
@@ -2936,7 +3021,7 @@ describe('task 3b: a paid DROP derivative is revertible', () => {
     )
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/Остаток к доплате в такой паре не вычисляется/)
+    ).rejects.toThrow(/a manual reconciliation is needed/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 })
@@ -2974,11 +3059,25 @@ describe('AC9: a derivative whose accumulator is unknown is never reverted', () 
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toBeInstanceOf(BadRequestException)
+      // COPY-H-2 (PR #704 fix-round 1): the row id used to travel in
+      // `params.rowId` — it is now server-log-only, so the envelope carries
+      // no params for this code.
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN',
+        statusCode: 400,
+        params: undefined,
+      },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Derivative row ${SENIOR_DERIV_ID}: settled amount unknown`),
+    )
   })
 
   it('says WHY — "not recorded", and that a human has to reconcile it', async () => {
@@ -2994,17 +3093,15 @@ describe('AC9: a derivative whose accumulator is unknown is never reverted', () 
       caught = e
     }
     const message = (caught as Error).message
-    expect(message).toContain('не записано')
-    // …and WHY it is not recorded, which is what tells the reader this is a
-    // legacy row rather than corruption — plus the consequence, which is what
-    // stops it reading as a bare prohibition.
-    expect(message).toContain('до появления накопителя')
-    expect(message).toContain('вернуть её в ожидание выплаты нельзя')
-    expect(message).toContain('остаток к доплате считался бы от нуля')
-    expect(message).toContain('ручная сверка')
+    // COPY-H-2 (PR #704 fix-round 1): `message` is the English fallback of
+    // `FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN` — one sentence, no
+    // cascade jargon ("returned to pending payout" dropped as internal
+    // language; the user-facing fact is "not recorded, needs a human").
+    expect(message).toContain("isn't recorded")
+    expect(message).toContain('a manual reconciliation is needed')
     // A gap in the record, not a fault — the wording must not accuse.
-    expect(message).not.toMatch(/ошибк/i)
-    expect(message).not.toMatch(/поврежд/i)
+    expect(message).not.toMatch(/error/i)
+    expect(message).not.toMatch(/corrupt/i)
   })
 
   it('the mirror case — a RECORDED accumulator of the same shape reverts normally', async () => {

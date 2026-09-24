@@ -35,7 +35,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { inArray } from 'drizzle-orm'
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -243,7 +243,11 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('AC2 — SENIOR (the OWNER): findOne on the deleted row throws 404, not 200', async () => {
-      await expect(svc.findOne(TX_DELETED_ID, SENIOR_OWNER)).rejects.toThrow(NotFoundException)
+      // i18n stage 4 Task 2: apiError() throws a base HttpException, not a
+      // NotFoundException instance — assert on the code (lesson 14).
+      await expect(svc.findOne(TX_DELETED_ID, SENIOR_OWNER)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }),
+      })
     })
 
     it('AC2 — JUNIOR (a stranger to the row): findAll excludes the deleted row', async () => {
@@ -252,13 +256,15 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('AC2 — JUNIOR (a stranger to the row): findOne on the deleted row throws 404, NOT 403 (existence oracle)', async () => {
-      // Without the deletion this would be ForbiddenException (not their row).
-      // The 404 gate must fire FIRST so a prober cannot distinguish
-      // "deleted" from "exists but isn't yours" from "never existed".
-      await expect(svc.findOne(TX_DELETED_ID, JUNIOR_STRANGER)).rejects.toThrow(NotFoundException)
-      await expect(svc.findOne(TX_DELETED_ID, JUNIOR_STRANGER)).rejects.not.toThrow(
-        ForbiddenException,
-      )
+      // Without the deletion this would be forbidden (not their row). The 404
+      // gate must fire FIRST so a prober cannot distinguish "deleted" from
+      // "exists but isn't yours" from "never existed" — asserting the
+      // SPECIFIC not-found code (not merely "not forbidden", which would be
+      // vacuously true against apiError()'s base HttpException, lesson 14)
+      // is what proves that.
+      await expect(svc.findOne(TX_DELETED_ID, JUNIOR_STRANGER)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }),
+      })
     })
 
     // MED-5 (security-review PR #456): DROP and HR were untested here — both
@@ -271,10 +277,9 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('AC2 — DROP (a stranger to the row): findOne on the deleted row throws 404, NOT 403 (existence oracle)', async () => {
-      await expect(svc.findOne(TX_DELETED_ID, DROP_STRANGER)).rejects.toThrow(NotFoundException)
-      await expect(svc.findOne(TX_DELETED_ID, DROP_STRANGER)).rejects.not.toThrow(
-        ForbiddenException,
-      )
+      await expect(svc.findOne(TX_DELETED_ID, DROP_STRANGER)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }),
+      })
     })
 
     it('AC2 — HR (a stranger to the row): findAll excludes the deleted row', async () => {
@@ -283,8 +288,9 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('AC2 — HR (a stranger to the row): findOne on the deleted row throws 404, NOT 403 (existence oracle)', async () => {
-      await expect(svc.findOne(TX_DELETED_ID, HR_STRANGER)).rejects.toThrow(NotFoundException)
-      await expect(svc.findOne(TX_DELETED_ID, HR_STRANGER)).rejects.not.toThrow(ForbiddenException)
+      await expect(svc.findOne(TX_DELETED_ID, HR_STRANGER)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }),
+      })
     })
 
     // ── AC3: ADMIN/ACCOUNTANT — hidden by default, shown via explicit toggle ──

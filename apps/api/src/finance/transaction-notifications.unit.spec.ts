@@ -390,7 +390,12 @@ describe('«статус транзакции изменился»', () => {
   it('отклонение без причины отклоняется до всякой записи', async () => {
     const tx = makeTxRow()
     const h = makeHarness(tx)
-    await expect(h.svc.validateTransaction('tx-1', 'reject', null, ADMIN)).rejects.toThrow()
+    // Mutation gate (i18n stage 4 Task 2): assert on the api-error code —
+    // a bare `.toThrow()` accepts ANY throw, so `apiError("", ...)` (the
+    // code literal emptied) would still pass unnoticed.
+    await expect(h.svc.validateTransaction('tx-1', 'reject', null, ADMIN)).rejects.toMatchObject({
+      response: { code: 'FINANCE_REJECTION_REASON_REQUIRED', statusCode: 400 },
+    })
     expect(h.created).toHaveLength(0)
   })
 
@@ -427,6 +432,23 @@ describe('«статус транзакции изменился»', () => {
 
     expect(h.created).toHaveLength(1)
     expect(h.created[0]).toMatchObject({ userId: 'senior-1' })
+  })
+
+  // Mutation gate (i18n stage 4 Task 2): `makeHarness` always resolves a real
+  // row for the FIRST (status-changing) read, so validateTransaction's own
+  // `!tx` NOT_FOUND guard never saw its FALSE branch (distinct from the
+  // race test below, which vanishes the row only on the SECOND read).
+  it('транзакция не найдена сразу → FINANCE_TRANSACTION_NOT_FOUND', async () => {
+    const h = makeHarness(makeTxRow())
+    const db = (h.svc as unknown as { db: { db: { query: { transactions: unknown } } } }).db
+    db.db.query.transactions = { findFirst: async () => undefined }
+
+    await expect(
+      h.svc.validateTransaction('missing-tx', 'validate', null, ADMIN),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
+    expect(h.created).toHaveLength(0)
   })
 
   it('строки уже нет — молча ничего, без жалобы в журнал', async () => {

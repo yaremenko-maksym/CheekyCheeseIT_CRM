@@ -26,7 +26,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { inArray } from 'drizzle-orm'
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -171,9 +171,9 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('a non-existent transaction id — 404', async () => {
-      await expect(svc.getTransactionAuditLog(NONEXISTENT_TX_ID, ADMIN_1)).rejects.toThrow(
-        NotFoundException,
-      )
+      await expect(svc.getTransactionAuditLog(NONEXISTENT_TX_ID, ADMIN_1)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }),
+      })
     })
   },
 )

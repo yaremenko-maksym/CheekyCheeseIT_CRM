@@ -938,13 +938,21 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccounthigh1001',
         }),
-      ).rejects.toThrow(/не проходила через счёт компании/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
+          statusCode: 400,
+        }),
+      })
 
       // Legacy no-funding call ALSO defaults to COMPANY_ACCOUNT for a COMPANY
       // debt (useCompanyAccount=isCompanyDebt) — the guard covers this branch too.
-      await expect(settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT)).rejects.toThrow(
-        /не проходила через счёт компании/,
-      )
+      await expect(settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
+          statusCode: 400,
+        }),
+      })
 
       // No money moved, obligation untouched — the rejected attempts are pure no-ops.
       expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
@@ -1017,7 +1025,12 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed1r3001',
         }),
-      ).rejects.toThrow(/не проходила через счёт компании/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
+          statusCode: 400,
+        }),
+      })
 
       // No money moved, obligation untouched.
       expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
@@ -1054,7 +1067,12 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed2r4001',
         }),
-      ).rejects.toThrow(/не проходила через счёт компании/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
+          statusCode: 400,
+        }),
+      })
 
       // No money moved, obligation untouched by the rejected attempt.
       expect(await displayBalance()).toBeCloseTo(before, 6)
@@ -1128,9 +1146,9 @@ describe.skipIf(!hasDatabaseUrl())(
       const incomeBId = await seedValidatedDropIncome(DROP_PROJECT_B, DROP_B, '500')
       // DROP A tries to bundle DROP B's income — the receiverId filter excludes it,
       // count-mismatch guard throws.
-      await expect(svc.createPayoutRequest([incomeBId], DROP_A)).rejects.toThrow(
-        'Часть транзакций уже включена в выплату или недоступна',
-      )
+      await expect(svc.createPayoutRequest([incomeBId], DROP_A)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE' }),
+      })
     })
 
     // ── RBAC: settleByCompany only ADMIN/ACCOUNTANT

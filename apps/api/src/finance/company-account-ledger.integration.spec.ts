@@ -370,7 +370,9 @@ describe.skipIf(!hasDatabaseUrl())(
             },
             ADMIN,
           ),
-        ).rejects.toThrowError(/Недостаточно средств/)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS' }),
+        })
       })
 
       it('legacy EXPENSE (no fundingSource) does NOT touch the company balance', async () => {
@@ -550,7 +552,9 @@ describe.skipIf(!hasDatabaseUrl())(
             { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT', ...RECEIPT },
             ADMIN,
           ),
-        ).rejects.toThrowError(/Недостаточно средств/)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS' }),
+        })
       })
 
       it('pays when funded: stamps txDate = pay date and debits the balance', async () => {
