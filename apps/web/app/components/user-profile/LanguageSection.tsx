@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
 import { LOCALES, type Locale } from '@crm/shared'
@@ -6,7 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
-import { activateLocale } from '@/lib/i18n'
+import {
+  activateLocale,
+  consumeLocaleSwitchFocus,
+  markLocaleConfirmedByUser,
+  requestLocaleSwitchFocus,
+} from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 /**
@@ -43,6 +48,40 @@ export function LanguageSection({ current }: { current: Locale }) {
   // relying on the JS-level guard below keeps the click landing ON the
   // button, so focus never has anywhere else to go.
   const [pending, setPending] = useState(false)
+  // fix-round 2 (CI-2, UX-M-3 regression) — see `lib/i18n.ts`'s doc comment
+  // on `consumeLocaleSwitchFocus`: `LocaleScopedApp` remounts this whole
+  // component on a locale change, recreating the button `choose` below just
+  // gave focus to. `wrapperRef` lets the mount effect below re-find that
+  // button by testid in the FRESH DOM once it exists.
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // Mount-only (not per-render): a remount IS a fresh mount, and this must
+  // fire exactly once per one — re-focusing on every re-render would steal
+  // focus back from wherever the user moved it to since. (Intentionally
+  // omits `current` from deps — react-hooks/exhaustive-deps is not
+  // configured in this project's eslint, same precedent as UserDialog.tsx.)
+  useEffect(
+    () => {
+      const wanted = consumeLocaleSwitchFocus()
+      // `current`'s type is `Locale` (never `null`), so `wanted !== current`
+      // alone already excludes `wanted === null` — that extra disjunct would
+      // be a genuinely equivalent mutant (unkillable by any correctly-typed
+      // test, fix-round 3 mutation-gate run) if it were still written out.
+      if (wanted !== current) return
+      // Stryker disable next-line OptionalChaining: wrapperRef.current is always attached by the time a mount effect runs, and once the guard above returns wanted===current, one of SegmentedToggle's two always-rendered buttons — both null checks are unreachable through this component's own render logic, not merely hard to reach through a test.
+      // (Longer version: `wrapperRef.current` is always attached by the time a
+      // mount effect runs — React sets refs before effects fire — and once the
+      // guard above returns, `wanted === current`, one of the two buttons
+      // `SegmentedToggle` always renders (`options={LOCALES.map(...)}` in the
+      // JSX below), so `.querySelector(...)` always finds it. Fix-round 3
+      // mutation-gate run.)
+      wrapperRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-testid="locale-option-${wanted}"]`)
+        ?.focus()
+    },
+    // Stryker disable next-line ArrayDeclaration: this dependency array is compared by VALUE not reference, so any constant-literal replacement behaves identically to [] — a primitive element is Object.is-equal to itself across every render, genuinely equivalent, not merely hard to reach.
+    [],
+  )
 
   async function choose(locale: Locale) {
     // `pending` half is back (PR #696 fix-round 2, UX-M-2) — fix-round 1
@@ -69,9 +108,21 @@ export function LanguageSection({ current }: { current: Locale }) {
     setPending(true)
     try {
       await api.patch('/users/me', { locale })
+      // Both markers below MUST be set before `activateLocale` — that call
+      // is what flips `i18n.locale` and triggers `LocaleScopedApp`'s remount
+      // (see `lib/i18n.ts` doc comments on both functions).
+      markLocaleConfirmedByUser(locale)
+      requestLocaleSwitchFocus(locale)
       await activateLocale(locale)
       invalidate()
     } catch {
+      // CR-M-3 follow-up ("точка 3", PR #706 fix-round 3 review): if
+      // `activateLocale` throws after a successful PATCH, the focus request
+      // queued above would otherwise sit unconsumed and steal focus on some
+      // LATER, unrelated mount of this component. Discard it here — a no-op
+      // when nothing was queued (e.g. the PATCH itself failed, before this
+      // line ever ran).
+      consumeLocaleSwitchFocus()
       // Fixed catalog string, NOT `getApiErrorMessage(err)` — that helper
       // can surface a Russian `STATUS_MESSAGES` string or backend message
       // (copy-review COPY-H-1, PR #696 fix-round 1). This toast has exactly
@@ -103,6 +154,7 @@ export function LanguageSection({ current }: { current: Locale }) {
             through a different mechanism. Clicks stay routed to the
             button; re-entry is guarded in `choose` above instead. */}
         <div
+          ref={wrapperRef}
           aria-busy={pending}
           data-testid="locale-switcher-wrapper"
           className={cn(pending && 'opacity-60')}

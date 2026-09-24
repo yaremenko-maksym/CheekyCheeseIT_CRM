@@ -135,7 +135,7 @@ describe('три замороженных типа — реестр, не зам
     expect(rendered.title).toBe('Рахунок підписано')
     expect(rendered.title).not.toContain('ТОВ Ромашка')
     // §10: контрагент назван РОВНО один раз — в деталях, не в заголовке.
-    expect(rendered.detail).toBe('ТОВ Ромашка · 1 500,00 USDT')
+    expect(rendered.detail).toBe('ТОВ Ромашка · 1 500,00 USDT')
   })
 
   it('INVOICE_SIGN_REQUIRED рендерится из реестра, деталь — сума', () => {
@@ -143,7 +143,7 @@ describe('три замороженных типа — реестр, не зам
       amount: '1500.000000',
       currency: 'USDT',
     })
-    expect(describeNotification('INVOICE_SIGN_REQUIRED', data, UK)).toBe('1 500,00 USDT')
+    expect(describeNotification('INVOICE_SIGN_REQUIRED', data, UK)).toBe('1 500,00 USDT')
     // COPY-M-1 (copy-review круг 1, #714): «Рахунок на підпис» — коротше,
     // називає, ЧИЮ підпис чекають, тим самим прийомом, що DOCUMENT_SIGN_REQUIRED.
     expect(NOTIFICATION_TITLE_MESSAGES.INVOICE_SIGN_REQUIRED.message).toBe('Рахунок на підпис')
@@ -542,24 +542,24 @@ describe('describeNotification — все ветки, чтобы гейт мут
       { amount: '1200.00', currency: 'USD', projectName: 'Acme' },
       // COPY-H-4 (money() через formatMoney — тисячі через NBSP, кома, два
       // знаки) + COPY-H-6 (сума вперед, ім'я проєкту в хвості).
-      '1 200,00 USD · проєкт Acme',
+      '1 200,00 USD · проєкт Acme',
     ],
     [
       'TRANSACTION_ADDED',
       { amount: '1200.00', currency: 'USD', projectName: null },
-      '1 200,00 USD',
+      '1 200,00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'VALIDATED', rejectionReasonPreview: null },
       // COPY-L-6 (copy-review круг 3): «Доход» из детали снят — заголовок
       // типа уже «Рішення щодо доходу», слово занимало бы бюджет строки дважды.
-      'Валідовано: 10,00 USD',
+      'Валідовано: 10,00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
       { amount: '10.00', currency: 'USD', status: 'REJECTED', rejectionReasonPreview: null },
-      'Відхилено: 10,00 USD',
+      'Відхилено: 10,00 USD',
     ],
     [
       'TRANSACTION_STATUS_CHANGED',
@@ -567,7 +567,7 @@ describe('describeNotification — все ветки, чтобы гейт мут
       // COPY-M-3: превью причины — в кавычках (слова человека, не системы).
       // COPY-L-6 (круг 3): факты первым рядом, цитата — вторым, как у
       // `APPROVAL_REJECTED`.
-      '«Нет чека»\nВідхилено: 10,00 USD',
+      '«Нет чека»\nВідхилено: 10,00 USD',
     ],
     ['TEAM_MEMBER_ADDED', { teamName: 'Alpha' }, 'Команда Alpha'],
     ['PROJECT_MEMBER_ADDED', { projectName: 'Acme' }, 'Проєкт Acme'],
@@ -643,7 +643,7 @@ describe('money() — тот же формат, что и остальное п�
       currency: 'USDT',
       projectName: null,
     })
-    expect(describeNotification('TRANSACTION_ADDED', data, UK)).toBe('1 500,00 USDT')
+    expect(describeNotification('TRANSACTION_ADDED', data, UK)).toBe('1 500,00 USDT')
   })
 
   it('тысячи — через NBSP, дробная часть — запятой, всегда два знака', () => {
@@ -652,7 +652,7 @@ describe('money() — тот же формат, что и остальное п�
       currency: 'USD',
       projectName: null,
     })
-    expect(describeNotification('TRANSACTION_ADDED', data, UK)).toBe('25,50 USD')
+    expect(describeNotification('TRANSACTION_ADDED', data, UK)).toBe('25,50 USD')
   })
 
   it('нечисловой amount не роняет строку — сырой fallback вместо NaN', () => {
@@ -1251,7 +1251,7 @@ describe('цитата причины доезжает до читателя ц�
     const visible = visibleInPopup(describeNotification('TRANSACTION_STATUS_CHANGED', data, UK)!)
     expect(visible).toContain('«')
     expect(visible).toContain('»')
-    expect(visible).toContain('600,00 USDT')
+    expect(visible).toContain('600,00 USDT')
   })
 
   it('короткая причина не усекается вовсе — многоточия там взяться неоткуда', () => {
@@ -1583,7 +1583,7 @@ describe('гейт мутаций круга 5 — то, что проходил
       rejectionReasonPreview: 'Не тот проект, я заявил по другому — переоформите на FinTrack',
     })
     expect(describeNotification('TRANSACTION_STATUS_CHANGED', data, UK)).toBe(
-      '«Не тот проект, я за…»\nВідхилено: 600,00 USDT',
+      '«Не тот проект, я за…»\nВідхилено: 600,00 USDT',
     )
   })
 
@@ -1642,7 +1642,7 @@ describe('SR-L-1 — проєкт/об’єкт, названий рядком "
       currency: 'USD',
       projectName: 'null',
     })
-    expect(describeNotification('TRANSACTION_ADDED', data, UK)).toBe('10,00 USD · проєкт null')
+    expect(describeNotification('TRANSACTION_ADDED', data, UK)).toBe('10,00 USD · проєкт null')
   })
 
   it('SHARE_CONFIRM_REQUIRED (PROJECT scope): назва проєкту "null" виводиться дослівно', () => {
@@ -1673,7 +1673,7 @@ describe('SR-L-1 — проєкт/об’єкт, названий рядком "
       currency: 'USD',
       projectName: null,
     })
-    expect(describeNotification('TRANSACTION_ADDED', withProject, UK)).toBe('10,00 USD')
+    expect(describeNotification('TRANSACTION_ADDED', withProject, UK)).toBe('10,00 USD')
     const withoutTitle = notificationDataSchemaFor('APPROVAL_CONFIRMED').parse({
       approverName: 'Іван',
       subjectKind: 'PROJECT',

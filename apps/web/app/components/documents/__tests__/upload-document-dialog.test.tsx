@@ -70,7 +70,7 @@ describe('UploadDocumentDialog', () => {
     expect(screen.getByTestId('upload-submit')).not.toBeDisabled()
   })
 
-  it('rejects an oversized file (> 10 MB) without enabling submit', async () => {
+  it('rejects an oversized file (> 10 MB) without enabling submit, and names both sizes in the toast', async () => {
     renderDialog()
     const input = screen.getByTestId('upload-file-input') as HTMLInputElement
     const big = new File([new Uint8Array(11 * 1024 * 1024)], 'huge.pdf', {
@@ -79,6 +79,14 @@ describe('UploadDocumentDialog', () => {
     await userEvent.upload(input, big)
     // Submit must remain disabled — the file was rejected at the client gate.
     expect(screen.getByTestId('upload-submit')).toBeDisabled()
+    // task-i18n-stage3a (Task 2) — mutation-gate gap-fill: the toast names
+    // BOTH the limit (10.0 MB) and the picked file's own size (11.0 MB),
+    // through `formatBytes(bytes, locale)` — nothing asserted on this text
+    // before. The dialog's own "Максимальный размер: 10,0 МБ…" helper text
+    // repeats the limit, so match on the toast's FULL sentence (unique).
+    await waitFor(() => {
+      expect(screen.getByText('Файл больше 10,0 МБ. Ваш файл: 11,0 МБ')).toBeInTheDocument()
+    })
   })
 
   it('rejects an unsupported MIME (e.g. text/plain)', async () => {

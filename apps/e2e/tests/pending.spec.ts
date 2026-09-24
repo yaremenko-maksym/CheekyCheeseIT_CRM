@@ -168,7 +168,11 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
 
       // Transient first (a toast outlives neither the wait above nor a long
       // poll), persistent second.
-      await expect(page.getByText(/Доля по умолчанию теперь 31%/)).toBeVisible()
+      // task-i18n-stage3a (Task 2): the CLIENT toast (useApproveSeniorShareChange)
+      // is now uk via useLingui() — «Частка за замовчуванням тепер 31%». The
+      // row's own title above stays Russian (server-side, pending.service.ts —
+      // out of this PR's perimeter, stage 4 territory).
+      await expect(page.getByText(/Частка за замовчуванням тепер 31%/)).toBeVisible()
       await expect(shareRow).toBeHidden()
     } finally {
       // Best-effort restore — leaves the seed account at a known percent for

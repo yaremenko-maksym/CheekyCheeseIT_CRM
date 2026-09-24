@@ -327,7 +327,7 @@ describe('ArchiveUserDialog (profile page) — confirm mutation', () => {
     await user.click(screen.getByTestId('archive-confirm-submit'))
 
     expect(api.delete).toHaveBeenCalledWith('/users/u-1')
-    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith('Пользователь архивирован'))
+    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith('Користувача заархівовано'))
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 })

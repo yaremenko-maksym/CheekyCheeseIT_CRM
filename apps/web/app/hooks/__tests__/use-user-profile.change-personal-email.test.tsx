@@ -8,6 +8,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+// task-i18n-stage3a (Task 2) — both hooks now call `useLingui()` for their
+// toasts, which needs an `I18nProvider` in the tree or `useLingui()` throws
+// before the mutation callbacks even run.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -57,19 +61,22 @@ function renderProbe<TVariables>(
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   render(
-    <QueryClientProvider client={qc}>
-      <MutationProbe hook={hook} arg={arg} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <MutationProbe hook={hook} arg={arg} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
   return { qc }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await loadCatalog('uk')
   vi.clearAllMocks()
 })
 
 describe('useChangePersonalEmail — onSuccess toast branches', () => {
-  it('delivered === null (removal / no-op) → names the removed access, not the generic "Сохранено"', async () => {
+  it('delivered === null (removal / no-op) → names the removed access, not a generic "saved"', async () => {
     ;(api.patch as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { ok: true, delivered: null },
     })
@@ -77,7 +84,7 @@ describe('useChangePersonalEmail — onSuccess toast branches', () => {
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Личный адрес удалён — вход по нему больше не работает.',
+        'Особисту адресу видалено — увійти через неї більше не можна',
       ),
     )
   })
@@ -89,7 +96,7 @@ describe('useChangePersonalEmail — onSuccess toast branches', () => {
     renderProbe(() => useChangePersonalEmail('u-1'), 'new@example.com')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Письмо отправлено на личный адрес'),
+      expect(toast.success).toHaveBeenCalledWith('Запрошення надіслано на особисту адресу'),
     )
   })
 
@@ -101,7 +108,7 @@ describe('useChangePersonalEmail — onSuccess toast branches', () => {
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Письмо не ушло — почтовый сервис не ответил. Попробуйте ещё раз через пару минут.',
+        'Запрошення не надіслано — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин',
       ),
     )
     expect(toast.success).not.toHaveBeenCalled()
@@ -114,9 +121,16 @@ describe('useChangePersonalEmail — onSuccess toast branches', () => {
     renderProbe(() => useChangePersonalEmail('u-1'), 'taken@example.com')
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(
-        'Ошибка: Этот адрес уже занят другим пользователем.',
-      ),
+      expect(toast.error).toHaveBeenCalledWith('Этот адрес уже занят другим пользователем.'),
+    )
+  })
+
+  it('a rejected request with no backend message falls back to the generic sentence', async () => {
+    ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue({})
+    renderProbe(() => useChangePersonalEmail('u-1'), 'taken@example.com')
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося змінити особисту адресу. Спробуйте ще раз'),
     )
   })
 
@@ -160,7 +174,7 @@ describe('useResendPersonalEmailInvite — onSuccess toast branches', () => {
     renderProbe(() => useResendPersonalEmailInvite('u-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Письмо отправлено на личный адрес'),
+      expect(toast.success).toHaveBeenCalledWith('Запрошення надіслано на особисту адресу'),
     )
   })
 
@@ -172,7 +186,7 @@ describe('useResendPersonalEmailInvite — onSuccess toast branches', () => {
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Письмо не ушло — почтовый сервис не ответил. Попробуйте ещё раз через пару минут.',
+        'Запрошення не надіслано — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин',
       ),
     )
     expect(toast.success).not.toHaveBeenCalled()
@@ -214,7 +228,16 @@ describe('useResendPersonalEmailInvite — onSuccess toast branches', () => {
     renderProbe(() => useResendPersonalEmailInvite('u-1'), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Ошибка: Приглашение недействительно'),
+      expect(toast.error).toHaveBeenCalledWith('Приглашение недействительно'),
+    )
+  })
+
+  it('a rejected request with no backend message falls back to the generic sentence', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockRejectedValue({})
+    renderProbe(() => useResendPersonalEmailInvite('u-1'), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Не вдалося надіслати запрошення. Спробуйте ще раз'),
     )
   })
 })

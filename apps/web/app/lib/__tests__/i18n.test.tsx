@@ -24,7 +24,17 @@
 //    that coincidence — a broken `readCookie` now falls through to
 //    `DEFAULT_LOCALE` ('uk'), which disagrees with the cookie's real value.
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import { activateLocale, i18n, readPreLoginLocale } from '../i18n'
+import {
+  activateLocale,
+  clearConfirmedUserLocaleIfSettled,
+  consumeLocaleSwitchFocus,
+  i18n,
+  isLocaleConfirmedByUser,
+  markLocaleConfirmedByUser,
+  readPreLoginLocale,
+  requestLocaleSwitchFocus,
+  resetLocaleConfirmation,
+} from '../i18n'
 import type { Locale } from '@crm/shared'
 
 describe('i18n runtime', () => {
@@ -173,5 +183,86 @@ describe('i18n runtime', () => {
     await expect(activateLocale('fr' as Locale)).rejects.toThrow(
       'activateLocale: no compiled catalog found for locale "fr"',
     )
+  })
+})
+
+// fix-round 3 (CR-H-1, PR #706): direct unit coverage for the confirmed-
+// locale marker — `markLocaleConfirmedByUser` / `isLocaleConfirmedByUser` /
+// `clearConfirmedUserLocaleIfSettled` / `resetLocaleConfirmation`. Same gap
+// as the focus helpers below: `auth.spec.tsx` and `LanguageSection.test.tsx`
+// only exercise this through a full render, which left every mutant on
+// these four functions themselves unkilled (review: 9 survived + 3
+// no-coverage across this file before this round).
+describe('locale confirmation marker', () => {
+  // Module-level state — reset before every test in THIS block, since it is
+  // a genuine singleton shared across tests (no other describe block in
+  // this file touches it, so scoping the reset here is enough).
+  beforeEach(() => {
+    resetLocaleConfirmation()
+  })
+
+  it('isLocaleConfirmedByUser is false for a locale nothing confirmed yet', () => {
+    expect(isLocaleConfirmedByUser('en')).toBe(false)
+    expect(isLocaleConfirmedByUser('uk')).toBe(false)
+  })
+
+  it('markLocaleConfirmedByUser makes isLocaleConfirmedByUser true for EXACTLY that locale', () => {
+    markLocaleConfirmedByUser('en')
+    expect(isLocaleConfirmedByUser('en')).toBe(true)
+    expect(isLocaleConfirmedByUser('uk')).toBe(false)
+  })
+
+  it('clearConfirmedUserLocaleIfSettled clears a MATCHING marker', () => {
+    markLocaleConfirmedByUser('en')
+    clearConfirmedUserLocaleIfSettled('en')
+    expect(isLocaleConfirmedByUser('en')).toBe(false)
+  })
+
+  it('clearConfirmedUserLocaleIfSettled is a no-op for a DIFFERENT locale than the one marked', () => {
+    // Kills the mutant that would swap `===` for `!==` in the guard —
+    // without this, clearing 'uk' would wipe an 'en' marker it was never
+    // asked to touch.
+    markLocaleConfirmedByUser('en')
+    clearConfirmedUserLocaleIfSettled('uk')
+    expect(isLocaleConfirmedByUser('en')).toBe(true)
+  })
+
+  it('resetLocaleConfirmation clears the marker unconditionally, independent of which locale it was set to', () => {
+    markLocaleConfirmedByUser('uk')
+    resetLocaleConfirmation()
+    expect(isLocaleConfirmedByUser('uk')).toBe(false)
+  })
+})
+
+// fix-round 3 (CR-H-1, PR #706): direct unit coverage for the two
+// `pendingFocusLocale` helpers — `LanguageSection.test.tsx` only exercises
+// them indirectly through a full component render, which the review found
+// left every mutant on these two functions unkilled (`survived` — a wrong
+// return value or a swapped assignment doesn't change what the COMPONENT
+// test observes, only what THESE functions themselves return).
+describe('locale switch focus request', () => {
+  it('consumeLocaleSwitchFocus returns null when nothing was requested', () => {
+    expect(consumeLocaleSwitchFocus()).toBeNull()
+  })
+
+  it('consumeLocaleSwitchFocus returns exactly the locale requestLocaleSwitchFocus queued', () => {
+    requestLocaleSwitchFocus('en')
+    expect(consumeLocaleSwitchFocus()).toBe('en')
+  })
+
+  it('consumeLocaleSwitchFocus clears the request — a second call returns null', () => {
+    requestLocaleSwitchFocus('uk')
+    consumeLocaleSwitchFocus()
+    expect(consumeLocaleSwitchFocus()).toBeNull()
+  })
+
+  it('a later requestLocaleSwitchFocus call overwrites an earlier unconsumed one', () => {
+    // Kills an AssignmentExpression mutant that would make the second call
+    // a no-op (e.g. mutating `pendingFocusLocale = locale` into a dead
+    // statement) — without this, only the FIRST request would ever be
+    // observable.
+    requestLocaleSwitchFocus('uk')
+    requestLocaleSwitchFocus('en')
+    expect(consumeLocaleSwitchFocus()).toBe('en')
   })
 })
