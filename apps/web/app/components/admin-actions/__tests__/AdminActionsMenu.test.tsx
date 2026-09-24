@@ -262,7 +262,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     expect(await screen.findByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
     const dialog = await screen.findByRole('dialog')
     const dialogText = dialog.textContent ?? ''
-    expect(dialogText).toContain('1 активний проєкт')
+    expect(dialogText).toContain('1 активного проєкту')
     expect(dialogText).not.toContain('пов’язана пара, прибрати по одному не можна')
   })
 

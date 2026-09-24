@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import { test, expect, USERS, mockAuthAs, API_RE } from '../../fixtures'
-import { loadMessages } from '../../../fixtures/catalog'
+import { loadMessages, assertInCatalog } from '../../../fixtures/catalog'
 
 /**
  * E2E for /users PR 2 refactor:
@@ -34,7 +34,8 @@ test.describe('Users page refactor (PR 2)', () => {
       // Email visible in row meta
       await expect(row.getByText('senior@cheekycheese.dev')).toBeVisible()
       // Role badge
-      await expect(row.getByText('Синьор')).toBeVisible()
+      const uk = await loadMessages('uk')
+      await expect(row.getByText(assertInCatalog(uk, 'Сеньйор'))).toBeVisible()
     })
 
     test('tech column renders array as individual pills (fix for stringified array bug)', async ({
@@ -116,10 +117,11 @@ test.describe('Users page refactor (PR 2)', () => {
 
     test('changing sort key in dropdown updates selection', async ({ asAdmin: page }) => {
       await page.goto('/users')
+      const uk = await loadMessages('uk')
       const sortKey = page.getByTestId('users-sort-key')
       await sortKey.click()
-      await page.getByRole('option', { name: 'По роли' }).click()
-      await expect(sortKey).toContainText('По роли')
+      await page.getByRole('option', { name: assertInCatalog(uk, 'За роллю') }).click()
+      await expect(sortKey).toContainText(assertInCatalog(uk, 'За роллю'))
     })
   })
 
@@ -248,7 +250,7 @@ test.describe('Users page refactor (PR 2)', () => {
       const warning = page.getByTestId('archive-warning-senior')
       await expect(warning).toBeVisible()
       await expect(warning).toContainText(/Alpha Team/i)
-      await expect(warning).toContainText(/связанная пара/i)
+      await expect(warning).toContainText(/пов.язана пара/i)
     })
 
     test('Archive HR warning mentions teams count', async ({ asAdmin: page }) => {
@@ -325,7 +327,8 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.goto('/users?archived=true')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
       await expect(row).toHaveAttribute('data-archived', 'true')
-      await expect(row.getByText('В архиве')).toBeVisible()
+      const uk = await loadMessages('uk')
+      await expect(row.getByText(assertInCatalog(uk, 'В архіві'))).toBeVisible()
       // Unarchive icon button rendered, edit/archive not
       await expect(page.getByTestId(`user-row-unarchive-${USERS.senior.id}`)).toBeVisible()
       await expect(page.getByTestId(`user-row-edit-${USERS.senior.id}`)).toHaveCount(0)
@@ -572,7 +575,10 @@ test.describe('Users page refactor (PR 2)', () => {
       test.skip(count === 0, 'Skipped: all HRs already selected — popover not rendered')
 
       await addTrigger.click()
-      await expect(page.getByPlaceholder('Поиск по имени или email…')).toBeVisible()
+      const uk = await loadMessages('uk')
+      await expect(
+        page.getByPlaceholder(assertInCatalog(uk, 'Пошук за ім’ям або email…')),
+      ).toBeVisible()
     })
 
     test('Sort direction button toggles via keyboard (ut-18)', async ({ asAdmin: page }) => {

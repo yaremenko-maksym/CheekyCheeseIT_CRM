@@ -859,7 +859,7 @@ msgstr "Restore linked items"
 
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
 msgid "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
-msgstr "Restoring is possible — the “{pairWord}+team” pair will come back, but projects must be restored separately."
+msgstr "Restoring is possible — the {pairWord} and their team will come back, but projects must be restored separately."
 
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
 msgid "Відновлення можливе — профіль повернеться, але проєкти відновлювати окремо."

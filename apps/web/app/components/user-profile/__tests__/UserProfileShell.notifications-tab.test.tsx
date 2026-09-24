@@ -18,6 +18,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ViewPermissions } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
@@ -83,11 +84,17 @@ function renderShell(mode: 'self' | 'view', tab: string, onTabChange = vi.fn()) 
     <QueryClientProvider client={qc}>
       <UserProfileShell mode={mode} userId="target-1" tab={tab} onTabChange={onTabChange} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   queryData = undefined
+  // task-i18n-stage3b (PR2) blast-radius: `RejoinTeamDialog` (rendered
+  // unconditionally on a self profile, see docblock above) now calls
+  // `useLingui()` — this shell mount requires an active catalog even though
+  // this test file's own AC doesn't touch i18n text.
+  await loadCatalog('uk')
 })
 
 describe('UserProfileShell — "Уведомления" tab (AC1)', () => {

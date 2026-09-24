@@ -17,7 +17,7 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
     (req) => req.url().includes('/api/users') && req.method() === 'POST',
   )
 
-  await page.getByRole('button', { name: /добавить/i }).click()
+  await page.getByRole('button', { name: /додати/i }).click()
   await page.getByPlaceholder('user@cheekycheese.dev').fill('newsenior@cheekycheese.dev')
   await page.getByTestId('user-dialog-name').fill('New Senior Dev')
 
@@ -114,9 +114,9 @@ test.describe('Users management page', () => {
     test('shows role badge in row', async ({ asAdmin: page }) => {
       await page.goto('/users')
       const adminRow = page.getByTestId(`user-row-${USERS.admin.id}`)
-      await expect(adminRow.getByText('Администратор')).toBeVisible()
+      await expect(adminRow.getByText('Адміністратор')).toBeVisible()
       const seniorRow = page.getByTestId(`user-row-${USERS.senior.id}`)
-      await expect(seniorRow.getByText('Синьор')).toBeVisible()
+      await expect(seniorRow.getByText('Сеньйор')).toBeVisible()
     })
 
     test('shows telegram handle inside row meta', async ({ asAdmin: page }) => {
@@ -151,36 +151,36 @@ test.describe('Users management page', () => {
   test.describe('Search and filter', () => {
     test('search by name filters list', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await page.getByPlaceholder(/поиск по имени/i).fill('Senior')
+      await page.getByPlaceholder(/пошук за ім.ям/i).fill('Senior')
       await expect(page.getByTestId(`user-row-${USERS.senior.id}`)).toBeVisible()
       await expect(page.getByTestId(`user-row-${USERS.junior.id}`)).toHaveCount(0)
     })
 
     test('search by email filters list', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await page.getByPlaceholder(/поиск по имени/i).fill('junior@')
+      await page.getByPlaceholder(/пошук за ім.ям/i).fill('junior@')
       await expect(page.getByTestId(`user-row-${USERS.junior.id}`)).toBeVisible()
       await expect(page.getByTestId(`user-row-${USERS.senior.id}`)).toHaveCount(0)
     })
 
     test('search by telegram filters list', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await page.getByPlaceholder(/поиск по имени/i).fill('seniordev')
+      await page.getByPlaceholder(/пошук за ім.ям/i).fill('seniordev')
       await expect(page.getByTestId(`user-row-${USERS.senior.id}`)).toBeVisible()
     })
 
     test('filter by role shows only matching users', async ({ asAdmin: page }) => {
       await page.goto('/users')
       // Filter combobox shows "Все роли"
-      await page.getByRole('combobox').filter({ hasText: 'Все роли' }).click()
-      await page.getByRole('option', { name: 'Джун' }).click()
+      await page.getByRole('combobox').filter({ hasText: 'Усі ролі' }).click()
+      await page.getByRole('option', { name: 'Джуніор' }).click()
       await expect(page.getByTestId(`user-row-${USERS.junior.id}`)).toBeVisible()
       await expect(page.getByTestId(`user-row-${USERS.senior.id}`)).toHaveCount(0)
     })
 
     test('clear search shows all users again', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      const search = page.getByPlaceholder(/поиск по имени/i)
+      const search = page.getByPlaceholder(/пошук за ім.ям/i)
       await search.fill('Senior')
       await search.clear()
       await expect(page.getByTestId(`user-row-${USERS.junior.id}`)).toBeVisible()
@@ -189,7 +189,7 @@ test.describe('Users management page', () => {
 
     test('no results shows reduced count', async ({ asAdmin: page }) => {
       await page.goto('/users')
-      await page.getByPlaceholder(/поиск по имени/i).fill('zzznomatch')
+      await page.getByPlaceholder(/пошук за ім.ям/i).fill('zzznomatch')
       await expect(page.getByText(/0 из/)).toBeVisible()
     })
   })
@@ -413,7 +413,7 @@ test.describe('Users management page', () => {
       await page.getByTestId(`user-row-archive-${USERS.senior.id}`).click()
       await page
         .getByTestId('archive-confirm-dialog')
-        .getByRole('button', { name: 'Отмена' })
+        .getByRole('button', { name: 'Скасувати' })
         .click()
       await expect(page.getByTestId('archive-confirm-dialog')).not.toBeVisible()
       expect(deleteCalled).toBe(false)
@@ -438,11 +438,11 @@ test.describe('Users management page', () => {
       await expect(page.getByTestId(`user-row-${USERS.admin.id}`)).toBeVisible()
     })
 
-    test('selecting "По дате добавления" sorts by date', async ({ asAdmin: page }) => {
+    test('selecting "За датою додавання" sorts by date', async ({ asAdmin: page }) => {
       await page.goto('/users')
       const sortKey = page.getByTestId('users-sort-key')
       await sortKey.click()
-      await page.getByRole('option', { name: 'По дате добавления' }).click()
+      await page.getByRole('option', { name: 'За датою додавання' }).click()
       await expect(page.getByTestId(`user-row-${USERS.admin.id}`)).toBeVisible()
     })
   })

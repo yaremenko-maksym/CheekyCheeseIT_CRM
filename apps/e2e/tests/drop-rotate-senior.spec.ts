@@ -46,7 +46,7 @@ test.describe('Drop rotate-senior — AC4', () => {
     const rotateBtn = page.getByTestId('team-rotate-senior-button')
     await expect(rotateBtn).toBeVisible()
     // Active senior exists → label reads «Сменить синьора».
-    await expect(rotateBtn).toContainText(/Сменить синьора/i)
+    await expect(rotateBtn).toContainText(/Змінити сеньйора/i)
   })
 
   test('Senior-team detail page does NOT render the rotate-senior button', async ({
@@ -67,7 +67,7 @@ test.describe('Drop rotate-senior — AC4', () => {
     await page.goto(`/team/${DROP_TEAM_VACANT.id}`)
     const rotateBtn = page.getByTestId('team-rotate-senior-button')
     await expect(rotateBtn).toBeVisible()
-    await expect(rotateBtn).toContainText(/Назначить синьора/i)
+    await expect(rotateBtn).toContainText(/Призначити сеньйора/i)
   })
 
   test('Clicking the rotate button opens a dialog with the vacant-senior dropdown', async ({
@@ -82,7 +82,7 @@ test.describe('Drop rotate-senior — AC4', () => {
     await expect(dialog).toBeVisible()
     // Body copy mentions the current senior — proves we resolved
     // `activeSenior` from the team detail and surfaced it in the dialog.
-    await expect(dialog.getByText(/Текущий синьор/i)).toBeVisible()
+    await expect(dialog.getByText(/Поточний сеньйор/i)).toBeVisible()
     await expect(dialog.getByText(USERS.senior.displayName)).toBeVisible()
   })
 

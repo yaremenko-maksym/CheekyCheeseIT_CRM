@@ -30,6 +30,7 @@ import {
   getTeamAuditLogViaAPI,
   getUserViaAPI,
 } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -72,7 +73,8 @@ test.describe('Drop user archive — real-API (AC2)', () => {
       // surfaces with a name-input gating the destructive submit.
       const dialog = page.getByTestId('archive-confirm-dialog')
       await expect(dialog).toBeVisible({ timeout: 8_000 })
-      await expect(dialog.getByText(/Архивировать пользователя/i)).toBeVisible()
+      const uk = await loadMessages('uk')
+      await expect(dialog.getByText(assertInCatalog(uk, 'Архівувати користувача'))).toBeVisible()
 
       // Confirm-input: name match (per-user variant uses `displayName`).
       await page.getByTestId('archive-confirm-name-input').fill(dropDisplayName)

@@ -141,7 +141,7 @@ test.describe('Drop create — UI regressions', () => {
 
     // Verify the picker actually renders the empty state — without this
     // assertion a passing test would be misleading if HR somehow leaked.
-    await expect(dialog.getByText(/Нет доступных HR/i)).toBeVisible({ timeout: 5_000 })
+    await expect(dialog.getByText(/Немає вільних HR/i)).toBeVisible({ timeout: 5_000 })
 
     // A3-3 (#119) 3-step wizard — CREATE mode's step-1 button is
     // `wizard-next-btn`, not the edit-only `user-dialog-submit` (pre-existing

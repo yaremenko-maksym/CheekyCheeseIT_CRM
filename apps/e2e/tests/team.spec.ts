@@ -1,4 +1,10 @@
 import { test, expect, TEAMS, USERS, mockAuthAs, API_GLOB } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
+
+let uk: Awaited<ReturnType<typeof loadMessages>>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 test.describe('Team page', () => {
   // ---------------------------------------------------------------------------
@@ -62,7 +68,9 @@ test.describe('Team page', () => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
       await page.getByTestId('team-edit-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByRole('heading', { name: 'Редактировать команду' })).toBeVisible()
+      await expect(
+        page.getByRole('heading', { name: assertInCatalog(uk, 'Редагувати команду') }),
+      ).toBeVisible()
     })
 
     test('save button submits PATCH request with new name', async ({ asAdmin: page }) => {
@@ -73,10 +81,10 @@ test.describe('Team page', () => {
       )
 
       await page.getByTestId('team-edit-button').click()
-      const nameInput = page.getByPlaceholder('Название команды')
+      const nameInput = page.getByPlaceholder(assertInCatalog(uk, 'Назва команди'))
       await nameInput.clear()
       await nameInput.fill('Beta Team')
-      await page.getByRole('button', { name: /Сохранить/ }).click()
+      await page.getByRole('button', { name: new RegExp(assertInCatalog(uk, 'Зберегти')) }).click()
 
       const req = await patchReq
       expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ name: 'Beta Team' })
@@ -85,7 +93,7 @@ test.describe('Team page', () => {
     test('validation: empty name shows error on blur', async ({ asAdmin: page }) => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
       await page.getByTestId('team-edit-button').click()
-      const nameInput = page.getByPlaceholder('Название команды')
+      const nameInput = page.getByPlaceholder(assertInCatalog(uk, 'Назва команди'))
       await nameInput.clear()
       await nameInput.blur()
       // Detail-page edit form doesn't (yet) surface "обязательное поле" text —
@@ -97,7 +105,7 @@ test.describe('Team page', () => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
       await page.getByTestId('team-edit-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await page.getByRole('button', { name: 'Отмена' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
     })
   })
@@ -139,7 +147,7 @@ test.describe('Team page', () => {
 
       await page.goto('/team')
       await page.getByTitle('Удалить команду').click()
-      await page.getByRole('button', { name: 'Отмена' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
       expect(deleteCalled).toBe(false)
     })
@@ -153,9 +161,9 @@ test.describe('Team page', () => {
   test.describe('Add member', () => {
     test('opens add member dialog', async ({ asAdmin: page }) => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
-      await page.getByRole('button', { name: 'Добавить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByText(/Добавить участника/)).toBeVisible()
+      await expect(page.getByText(new RegExp(assertInCatalog(uk, 'Додати учасника')))).toBeVisible()
     })
 
     test('clicking a user sends POST to members endpoint', async ({ asAdmin: page }) => {
@@ -165,12 +173,12 @@ test.describe('Team page', () => {
         (req) => req.url().includes('/members') && req.method() === 'POST',
       )
 
-      await page.getByRole('button', { name: 'Добавить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
       // Click first available user in the list
       await page.getByRole('dialog').getByText('Junior Dev').click()
       await page
         .getByRole('dialog')
-        .getByRole('button', { name: /^Добавить/ })
+        .getByRole('button', { name: new RegExp(`^${assertInCatalog(uk, 'Додати')}`) })
         .click()
       expect((await postReq).method()).toBe('POST')
     })
@@ -182,8 +190,8 @@ test.describe('Team page', () => {
       })
 
       await page.goto(`/team/${TEAMS[0]!.id}`)
-      await page.getByRole('button', { name: 'Добавить' }).click()
-      await page.getByRole('button', { name: 'Отмена' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
       expect(postCalled).toBe(false)
     })
@@ -202,7 +210,7 @@ test.describe('Team page', () => {
       )
 
       // Two accountants in team — neither is "last" so both have remove buttons
-      await page.getByTitle('Исключить').first().click()
+      await page.getByTitle(assertInCatalog(uk, 'Виключити')).first().click()
       expect((await deleteReq).method()).toBe('DELETE')
     })
   })
@@ -218,15 +226,19 @@ test.describe('Team page', () => {
       // Header with team name and back button
       await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team')
       await expect(page.locator('a[href="/team"]').first()).toBeVisible()
-      await expect(page.getByText('Создана', { exact: false })).toBeVisible()
+      await expect(page.getByText('Створено', { exact: false })).toBeVisible()
 
       // Main content - team members section
-      await expect(page.getByText('Участники команды')).toBeVisible()
+      await expect(page.getByText(assertInCatalog(uk, 'Учасники команди'))).toBeVisible()
       await expect(page.getByText('HR Manager')).toBeVisible()
       await expect(page.getByText('Senior Dev')).toBeVisible()
 
       // Active Projects section (replaces statistics in redesign)
-      await expect(page.getByRole('heading', { name: /Активные проекты/i })).toBeVisible()
+      await expect(
+        page.getByRole('heading', {
+          name: new RegExp(assertInCatalog(uk, 'Активні проєкти'), 'i'),
+        }),
+      ).toBeVisible()
     })
 
     test('shows members in flat list without role grouping', async ({ asAdmin: page }) => {
@@ -249,12 +261,14 @@ test.describe('Team page', () => {
 
     test('ADMIN sees management buttons on detail page', async ({ asAdmin: page }) => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
-      await expect(page.getByRole('button', { name: 'Добавить' })).toBeVisible()
+      await expect(page.getByRole('button', { name: assertInCatalog(uk, 'Додати') })).toBeVisible()
     })
 
     test('SENIOR does not see management buttons on detail page', async ({ asSenior: page }) => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
-      await expect(page.getByRole('button', { name: 'Добавить' })).not.toBeVisible()
+      await expect(
+        page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }),
+      ).not.toBeVisible()
     })
 
     test('shows error state for non-existent team', async ({ page }) => {
@@ -264,8 +278,8 @@ test.describe('Team page', () => {
       )
 
       await page.goto('/team/non-existent-id')
-      await expect(page.getByText('Команда не найдена')).toBeVisible()
-      await expect(page.getByText('Вернуться к списку')).toBeVisible()
+      await expect(page.getByText(assertInCatalog(uk, 'Команду не знайдено'))).toBeVisible()
+      await expect(page.getByText(assertInCatalog(uk, 'Повернутися до списку'))).toBeVisible()
     })
   })
 
@@ -485,9 +499,9 @@ test.describe('Team page', () => {
 
       await page.goto(`/team/${TEAMS[0]!.id}`)
       await page.getByTestId('team-edit-button').click()
-      const nameInput = page.getByPlaceholder('Название команды')
+      const nameInput = page.getByPlaceholder(assertInCatalog(uk, 'Назва команди'))
       await nameInput.fill('New Name')
-      await page.getByRole('button', { name: /Сохранить/ }).click()
+      await page.getByRole('button', { name: new RegExp(assertInCatalog(uk, 'Зберегти')) }).click()
       // Page h1 still visible — no crash
       await expect(page.locator('main').locator('h1')).toBeVisible()
     })
@@ -527,15 +541,15 @@ test.describe('Team page', () => {
       )
 
       // Open edit dialog
-      await page.getByRole('button', { name: 'Редактировать' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Редагувати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // Fill telegram and notes fields
       await page.getByPlaceholder('https://t.me/team_chat').fill('https://t.me/test_team')
-      await page.getByPlaceholder('Внутренние заметки…').fill('Test team notes')
+      await page.getByPlaceholder(assertInCatalog(uk, 'Внутрішні замітки…')).fill('Test team notes')
 
       // Submit form
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти') }).click()
 
       // Verify request payload includes telegram and notes
       const req = await patchReq
@@ -554,14 +568,14 @@ test.describe('Team page', () => {
       await page.goto('/team')
 
       // Check search input
-      await expect(page.getByPlaceholder('Поиск по названию…')).toBeVisible()
+      await expect(page.getByPlaceholder(assertInCatalog(uk, 'Пошук за назвою…'))).toBeVisible()
 
       // Role filter should NOT be visible (removed in PR #18)
       await expect(page.getByRole('combobox').filter({ hasText: 'Все роли' })).not.toBeVisible()
       await expect(page.getByRole('combobox').filter({ hasText: 'Всі ролі' })).not.toBeVisible()
 
       // Check sort dropdown
-      await expect(page.getByRole('combobox').filter({ hasText: 'Название' })).toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Назва' })).toBeVisible()
     })
 
     test('search filters teams by name', async ({ asAdmin: page }) => {
@@ -581,11 +595,13 @@ test.describe('Team page', () => {
       await expect(page.getByText(firstTeamName)).toBeVisible()
 
       // Search for non-existent team
-      await page.getByPlaceholder('Поиск по названию…').fill('NonExistent')
-      await expect(page.getByText('Ничего не найдено')).toBeVisible()
+      await page.getByPlaceholder(assertInCatalog(uk, 'Пошук за назвою…')).fill('NonExistent')
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Нічого не знайдено — скиньте фільтри')),
+      ).toBeVisible()
 
       // Search for existing team by prefix
-      await page.getByPlaceholder('Поиск по названию…').fill(searchPrefix)
+      await page.getByPlaceholder(assertInCatalog(uk, 'Пошук за назвою…')).fill(searchPrefix)
       await expect(page.getByText(firstTeamName)).toBeVisible()
     })
 
@@ -612,7 +628,7 @@ test.describe('Team page', () => {
 
       // ut-39a: pencil/rename and add-member buttons all removed from list cards.
       await expect(page.getByTitle('Переименовать')).toHaveCount(0)
-      await expect(page.getByTitle('Добавить участника')).toHaveCount(0)
+      await expect(page.getByTitle(assertInCatalog(uk, 'Додати учасника'))).toHaveCount(0)
     })
 
     test('SENIOR does not see pencil button on team rows', async ({ asSenior: page }) => {
@@ -639,25 +655,31 @@ test.describe('Team page', () => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
       // Open edit dialog
-      await page.getByRole('button', { name: 'Редактировать' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Редагувати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // Check all fields are present
-      await expect(page.getByPlaceholder('Название команды')).toBeVisible()
+      await expect(page.getByPlaceholder(assertInCatalog(uk, 'Назва команди'))).toBeVisible()
       await expect(page.getByLabel('Telegram')).toBeVisible()
-      await expect(page.getByLabel('Заметки')).toBeVisible()
+      await expect(page.getByLabel(assertInCatalog(uk, 'Замітки'))).toBeVisible()
 
       // Check placeholders and hints
       await expect(page.getByPlaceholder('https://t.me/team_chat')).toBeVisible()
-      await expect(page.getByText('Ссылка на Telegram-чат команды')).toBeVisible()
-      await expect(page.getByPlaceholder('Внутренние заметки…')).toBeVisible()
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Посилання на Telegram-чат команди')),
+      ).toBeVisible()
+      await expect(page.getByPlaceholder(assertInCatalog(uk, 'Внутрішні замітки…'))).toBeVisible()
     })
 
     test('displays Active Projects section with count badge', async ({ asAdmin: page }) => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
       // Check Active Projects section is present (CardTitle renders as h3)
-      await expect(page.getByRole('heading', { name: /Активные проекты/i })).toBeVisible()
+      await expect(
+        page.getByRole('heading', {
+          name: new RegExp(assertInCatalog(uk, 'Активні проєкти'), 'i'),
+        }),
+      ).toBeVisible()
 
       // Badge may or may not be visible depending on whether team has active projects
       const projectsBadge = page.locator('[data-testid="active-projects-count"]')
@@ -711,7 +733,7 @@ test.describe('Team page', () => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
       // Add member button is on the detail page in redesign
-      await page.getByRole('button', { name: 'Добавить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
     })
 
@@ -736,20 +758,26 @@ test.describe('Team page', () => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
       // The validation happens on backend, frontend should handle error gracefully
-      await page.getByRole('button', { name: 'Добавить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
     })
 
     test('add member dialog shows filtered and sorted user list', async ({ asAdmin: page }) => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
-      await page.getByRole('button', { name: 'Добавить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByRole('heading', { name: /Добавить участника/i })).toBeVisible()
+      await expect(
+        page.getByRole('heading', {
+          name: new RegExp(assertInCatalog(uk, 'Додати учасника'), 'i'),
+        }),
+      ).toBeVisible()
 
       // Should show users that can be added (not already in team, not ADMIN)
       // Exact behavior depends on seed data, but dialog should be functional
-      await expect(page.getByRole('button', { name: 'Отмена' })).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }),
+      ).toBeVisible()
     })
   })
 
@@ -837,8 +865,8 @@ test.describe('Team page', () => {
       await expect(page.getByRole('combobox').filter({ hasText: 'Всі ролі' })).not.toBeVisible()
 
       // Only search and sort should be present
-      await expect(page.getByPlaceholder('Поиск по названию…')).toBeVisible()
-      await expect(page.getByRole('combobox').filter({ hasText: 'Название' })).toBeVisible()
+      await expect(page.getByPlaceholder(assertInCatalog(uk, 'Пошук за назвою…'))).toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Назва' })).toBeVisible()
     })
 
     test('member list shows flat structure without role grouping', async ({ asAdmin: page }) => {
@@ -854,7 +882,7 @@ test.describe('Team page', () => {
         .or(
           page
             .locator('main')
-            .getByText('Участники команды')
+            .getByText(assertInCatalog(uk, 'Учасники команди'))
             .locator('..')
             .locator('..')
             .locator('.grid'),
@@ -865,49 +893,61 @@ test.describe('Team page', () => {
       await expect(page.locator('[class*="bg-"]').first()).toBeVisible() // role badge
     })
 
-    test('all UI text is in Russian (no Ukrainian)', async ({ asAdmin: page }) => {
+    // task-i18n-stage3b (Task 2 / PR2): this test used to guard against
+    // premature Ukrainian leakage before the wave migrated this screen —
+    // now that the screen IS migrated, the assertions are inverted: uk text
+    // visible, raw Russian literal not present (RU sweep guard, not just
+    // "no Ukrainian").
+    test('all UI text is in Ukrainian (no leftover Russian)', async ({ asAdmin: page }) => {
       await page.goto('/team')
 
-      // List page Russian text
-      await expect(page.getByPlaceholder('Поиск по названию…')).toBeVisible()
-      await expect(page.getByText('Ничего не найдено')).not.toBeVisible() // Will be visible only if search yields no results
+      await expect(page.getByPlaceholder(assertInCatalog(uk, 'Пошук за назвою…'))).toBeVisible()
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Нічого не знайдено — скиньте фільтри')),
+      ).not.toBeVisible() // Will be visible only if search yields no results
 
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
-      // Detail page Russian text
-      await expect(page.getByText('Участники команды')).toBeVisible()
-      await expect(page.getByText('Создана', { exact: false })).toBeVisible()
-      await expect(page.getByText('Активные проекты')).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Добавить' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Редактировать' })).toBeVisible()
+      await expect(page.getByText(assertInCatalog(uk, 'Учасники команди'))).toBeVisible()
+      await expect(page.getByText('Створено', { exact: false })).toBeVisible()
+      await expect(page.getByText(assertInCatalog(uk, 'Активні проєкти'))).toBeVisible()
+      await expect(page.getByRole('button', { name: assertInCatalog(uk, 'Додати') })).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: assertInCatalog(uk, 'Редагувати') }),
+      ).toBeVisible()
 
-      // Verify NO Ukrainian text is present
-      await expect(page.getByText('Учасники команди')).not.toBeVisible()
-      await expect(page.getByText('Створена')).not.toBeVisible()
-      await expect(page.getByText('Активні проекти')).not.toBeVisible()
-      await expect(page.getByText('Додати')).not.toBeVisible()
-      await expect(page.getByText('Редагувати')).not.toBeVisible()
+      // No leftover raw Russian literal for the same copy.
+      await expect(page.getByText('Участники команды')).not.toBeVisible()
+      await expect(page.getByText('Создана', { exact: false })).not.toBeVisible()
+      await expect(page.getByText('Активные проекты')).not.toBeVisible()
+      await expect(page.getByRole('button', { name: 'Добавить' })).not.toBeVisible()
+      await expect(page.getByRole('button', { name: 'Редактировать' })).not.toBeVisible()
     })
 
-    test('edit dialog contains updated Russian labels and hints', async ({ asAdmin: page }) => {
+    test('edit dialog contains updated Ukrainian labels and hints', async ({ asAdmin: page }) => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
-      await page.getByRole('button', { name: 'Редактировать' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Редагувати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
-      // Check Russian field labels and placeholders
-      await expect(page.getByPlaceholder('Название команды')).toBeVisible()
-      await expect(page.getByText('Ссылка на Telegram-чат команды')).toBeVisible()
-      await expect(page.getByPlaceholder('Внутренние заметки…')).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Отмена' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Сохранить' })).toBeVisible()
+      await expect(page.getByPlaceholder(assertInCatalog(uk, 'Назва команди'))).toBeVisible()
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Посилання на Telegram-чат команди')),
+      ).toBeVisible()
+      await expect(page.getByPlaceholder(assertInCatalog(uk, 'Внутрішні замітки…'))).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }),
+      ).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти') }),
+      ).toBeVisible()
 
-      // Verify NO Ukrainian text
-      await expect(page.getByText('Назва команди')).not.toBeVisible()
-      await expect(page.getByText('Посилання на Telegram-чат команди')).not.toBeVisible()
-      await expect(page.getByText('Внутрішні нотатки')).not.toBeVisible()
-      await expect(page.getByText('Скасувати')).not.toBeVisible()
-      await expect(page.getByText('Зберегти')).not.toBeVisible()
+      // No leftover raw Russian literal for the same copy.
+      await expect(page.getByPlaceholder('Название команды')).not.toBeVisible()
+      await expect(page.getByText('Ссылка на Telegram-чат команды')).not.toBeVisible()
+      await expect(page.getByPlaceholder('Внутренние заметки…')).not.toBeVisible()
+      await expect(page.getByRole('button', { name: 'Отмена' })).not.toBeVisible()
+      await expect(page.getByRole('button', { name: 'Сохранить' })).not.toBeVisible()
     })
   })
 
@@ -1172,17 +1212,17 @@ test.describe('Team page', () => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
       // Verify hooks-dependent functionality works
-      await page.getByRole('button', { name: 'Редактировать' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Редагувати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // Test useForm hook (moved before early returns) — use placeholder to find name input
-      const nameInput = page.getByPlaceholder('Название команды')
+      const nameInput = page.getByPlaceholder(assertInCatalog(uk, 'Назва команди'))
       await expect(nameInput).toBeVisible()
       await expect(nameInput).toHaveValue('Alpha Team')
 
       // Test form submission (updateMutation hook)
       await nameInput.fill('Updated Team Name')
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти') }).click()
 
       // Form should close without errors
       await expect(page.getByRole('dialog')).not.toBeVisible()
@@ -1194,14 +1234,14 @@ test.describe('Team page', () => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
       // Test hooks-dependent add member functionality
-      await page.getByRole('button', { name: 'Добавить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // Test selectedUserIds state and addMemberMutation hooks
       await page.getByRole('dialog').getByText('Junior Dev').click()
       await page
         .getByRole('dialog')
-        .getByRole('button', { name: /^Добавить/ })
+        .getByRole('button', { name: new RegExp(`^${assertInCatalog(uk, 'Додати')}`) })
         .click()
 
       // Should work without hooks-related errors
@@ -1229,8 +1269,8 @@ test.describe('Team page', () => {
       await page.goto('/team/non-existent-id')
 
       // Even with early return (error state), hooks should be compliant
-      await expect(page.getByText('Команда не найдена')).toBeVisible()
-      await expect(page.getByText('Вернуться к списку')).toBeVisible()
+      await expect(page.getByText(assertInCatalog(uk, 'Команду не знайдено'))).toBeVisible()
+      await expect(page.getByText(assertInCatalog(uk, 'Повернутися до списку'))).toBeVisible()
 
       await page.waitForTimeout(500)
 
@@ -1304,23 +1344,23 @@ test.describe('Team page', () => {
 
       // Trigger multiple re-renders that could expose hooks order issues
       // 1. Open edit dialog (triggers form hooks)
-      await page.getByRole('button', { name: 'Редактировать' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Редагувати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // 2. Change form values (trigger form state updates)
-      await page.getByPlaceholder('Название команды').fill('Test Name')
+      await page.getByPlaceholder(assertInCatalog(uk, 'Назва команди')).fill('Test Name')
       await page.getByLabel('Telegram').fill('https://t.me/test')
 
       // 3. Close without saving
-      await page.getByRole('button', { name: 'Отмена' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
 
       // 4. Open add member dialog (triggers different hooks)
-      await page.getByRole('button', { name: 'Добавить' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // 5. Close add member dialog
-      await page.getByRole('button', { name: 'Отмена' }).click()
+      await page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
 
       await page.waitForTimeout(500)
