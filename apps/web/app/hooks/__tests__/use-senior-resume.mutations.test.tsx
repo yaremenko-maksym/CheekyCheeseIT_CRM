@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT } from '@crm/shared'
 
 vi.mock('@/lib/axios', () => ({
   api: { put: vi.fn(), post: vi.fn(), delete: vi.fn() },
@@ -66,7 +67,10 @@ beforeEach(async () => {
 describe('useSaveResumeLayout', () => {
   it('success toast', async () => {
     ;(api.put as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} })
-    renderProbe(() => useSaveResumeLayout('user-1'), { density: 'compact' })
+    renderProbe(() => useSaveResumeLayout('user-1'), {
+      ...DEFAULT_RESUME_LAYOUT,
+      density: 'compact',
+    })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Оформлення оновлено'))
   })
@@ -75,7 +79,7 @@ describe('useSaveResumeLayout', () => {
 describe('useSaveResumeContent', () => {
   it('success toast', async () => {
     ;(api.put as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} })
-    renderProbe(() => useSaveResumeContent('user-1'), {})
+    renderProbe(() => useSaveResumeContent('user-1'), EMPTY_RESUME_CONTENT)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Резюме збережено'))
   })

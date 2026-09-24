@@ -118,7 +118,7 @@ describe('useDeleteVacancy', () => {
 describe('useUpdateVacancyApplication', () => {
   it('error toast (success path has no toast — list badges only)', async () => {
     ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue({})
-    renderProbe(() => useUpdateVacancyApplication('v-1'), { appId: 'a-1', status: 'APPLIED' })
+    renderProbe(() => useUpdateVacancyApplication('v-1'), { appId: 'a-1', status: 'VIEWED' })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith('Не вдалося змінити статус відгуку'),

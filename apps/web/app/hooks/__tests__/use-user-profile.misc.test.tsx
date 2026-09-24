@@ -92,14 +92,14 @@ describe('useUpdateMe', () => {
 describe('useUpdateMeRequisites', () => {
   it('success toast', async () => {
     ;(api.patch as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} })
-    renderProbe(() => useUpdateMeRequisites(), { paymentMethod: 'USDT_ERC20' })
+    renderProbe(() => useUpdateMeRequisites(), { paymentMethod: 'USDT_ERC20', walletUsdtErc20: '0x0000000000000000000000000000000000dEaD' })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Реквізити оновлено'))
   })
 
   it('error toast', async () => {
     ;(api.patch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
-    renderProbe(() => useUpdateMeRequisites(), { paymentMethod: 'USDT_ERC20' })
+    renderProbe(() => useUpdateMeRequisites(), { paymentMethod: 'USDT_ERC20', walletUsdtErc20: '0x0000000000000000000000000000000000dEaD' })
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith('Не вдалося оновити реквізити: boom'),
