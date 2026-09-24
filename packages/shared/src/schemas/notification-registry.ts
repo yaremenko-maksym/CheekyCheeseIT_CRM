@@ -513,6 +513,7 @@ function t(i18n: I18n, descriptor: MessageDescriptor, params?: Record<string, un
   // unconditionally) keeps this helper correct for every descriptor shape,
   // not just literal-typed ones.
   const message = descriptor.message
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,ObjectLiteral: every call site in this file passes a literal `/* i18n */ { id, message }` object (see MISC_MESSAGES/DETAIL_MESSAGES/ACTION_LABELS/NOTIFICATION_TITLE_MESSAGES/SUBJECT_*_LABELS below) — `message` is never actually undefined through this registry's own descriptors, so this branch is unreachable defensive code for the general `MessageDescriptor` type, not a real decision this file's tests can observe.
   return i18n._(descriptor.id, params, message === undefined ? undefined : { message })
 }
 
@@ -524,8 +525,21 @@ function t(i18n: I18n, descriptor: MessageDescriptor, params?: Record<string, un
  * `const X = /* i18n *\/ {…} satisfies MessageDescriptor` — проверено
  * эмпирически на этом самом файле (10 таких деклараций не извлеклись, пока
  * их не собрали сюда).
+ *
+ * Экспортирован (как и все Record-реестры сообщений ниже) по ВТОРОЙ причине:
+ * гейт мутаций. `createI18n(locale)` рендерит через СКОМПИЛИРОВАННЫЙ каталог
+ * (`pnpm i18n:compile` — прогоняется раньше любого теста, `turbo.json`'s
+ * `test` зависит от `//#i18n:compile`), а он ВСЕГДА побеждает inline-фолбэк
+ * `{ message }` при совпавшем `id` — проверено эмпирически (`i18n._(id,
+ * undefined, { message: 'ЗАВЕДОМО НЕВЕРНЫЙ' })` вернул каталожный текст, не
+ * фолбэк). Значит мутация строки `message:` НЕ видна ни одному тесту, что
+ * рендерит через `describeNotification`/`renderNotification`/
+ * `notificationActions` — путь рендера просто не читает это поле. Экспорт +
+ * прямые ассерты `.message`/`.id` в `notification-registry.spec.ts`
+ * («реестр сообщений — источник для i18n:extract») читают поле НАПРЯМУЮ,
+ * без i18n вообще, поэтому видят ту же мутацию, которую видит Stryker.
  */
-const MISC_MESSAGES = {
+export const MISC_MESSAGES = {
   percentText: /* i18n */ {
     id: 'notification.percentText',
     message: '{value, select, null {не задана} other {{value}%}}',
@@ -592,7 +606,7 @@ function subjectPhrase(
   return t(i18n, MISC_MESSAGES.subjectPhrase, { kind, name })
 }
 
-const DETAIL_MESSAGES = {
+export const DETAIL_MESSAGES = {
   TRANSACTION_ADDED: /* i18n */ {
     id: 'notification.TRANSACTION_ADDED.detail',
     message: '{projectName, select, null {{money}} other {{money} · проєкт {projectName}}}',
@@ -803,7 +817,7 @@ export type NotificationAction = {
  * PROJECT, либо USER, подпись обязана называть то, что реально откроется, и
  * решается в `actionLabelFor`.
  */
-const ACTION_LABELS: Record<
+export const ACTION_LABELS: Record<
   Exclude<NewNotificationType, 'APPROVAL_CONFIRMED' | 'APPROVAL_REJECTED'>,
   MessageDescriptor
 > = {
@@ -883,7 +897,7 @@ function actionLabelFor(
  * (`n.subjectType`), поэтому честность ничего не теряет от того, чтобы
  * назвать объект конкретно.
  */
-const SUBJECT_MISSING_LABELS: Record<NotificationSubjectType, MessageDescriptor> = {
+export const SUBJECT_MISSING_LABELS: Record<NotificationSubjectType, MessageDescriptor> = {
   PROJECT: /* i18n */ { id: 'notification.subjectMissing.PROJECT', message: 'Проєкт видалено' },
   TEAM: /* i18n */ { id: 'notification.subjectMissing.TEAM', message: 'Команду видалено' },
   USER: /* i18n */ { id: 'notification.subjectMissing.USER', message: 'Профіль видалено' },
@@ -909,7 +923,7 @@ function subjectMissingLabel(subjectType: NotificationSubjectType | null, i18n: 
  * см. `loadSubjectStates`), но запись есть у всех пяти видов: `Record` без
  * пропусков — то, что сломает компиляцию на шестом виде объекта.
  */
-const SUBJECT_ARCHIVED_LABELS: Record<NotificationSubjectType, MessageDescriptor> = {
+export const SUBJECT_ARCHIVED_LABELS: Record<NotificationSubjectType, MessageDescriptor> = {
   PROJECT: /* i18n */ { id: 'notification.subjectArchived.PROJECT', message: 'Проєкт в архіві' },
   TEAM: /* i18n */ { id: 'notification.subjectArchived.TEAM', message: 'Команда в архіві' },
   USER: /* i18n */ { id: 'notification.subjectArchived.USER', message: 'Профіль в архіві' },

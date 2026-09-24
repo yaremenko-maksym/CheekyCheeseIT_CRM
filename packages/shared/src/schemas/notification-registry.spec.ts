@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ACTION_LABELS,
   ACTION_REQUIRED_NOTIFICATION_TYPES,
+  DETAIL_MESSAGES,
+  MISC_MESSAGES,
   NOTIFICATION_DETAIL_LINES,
   NOTIFICATION_DETAIL_LINE_CHARS,
   NOTIFICATION_TITLES,
   NOTIFICATION_TITLE_MESSAGES,
+  SUBJECT_ARCHIVED_LABELS,
+  SUBJECT_MISSING_LABELS,
   describeNotification,
   notificationActions,
   notificationDataSchemaFor,
@@ -150,6 +155,215 @@ describe('три замороженных типа — реестр, не зам
     expect(NOTIFICATION_TITLE_MESSAGES.VACANCY_APPLICATION.id).toBe(
       'notification.VACANCY_APPLICATION.title',
     )
+  })
+})
+
+/**
+ * task-i18n-stage4-task6 — «реестр сообщений — источник для i18n:extract».
+ *
+ * `createI18n(locale)` рендерит через СКОМПИЛИРОВАННЫЙ каталог, который
+ * всегда побеждает inline-фолбэк `{ message }` при совпавшем `id` (см.
+ * doc-комментарий на `MISC_MESSAGES` в notification-registry.ts) — значит
+ * ни один тест выше, что рендерит через `describeNotification`/
+ * `renderNotification`/`notificationActions`, не видит мутацию строки
+ * `message:` в самих реестрах (гейт мутаций находит их как «survived»).
+ * Здесь `.message`/`.id` читаются НАПРЯМУЮ, без i18n вообще — та же мутация,
+ * что видит Stryker, видна и тесту.
+ *
+ * Ожидаемый текст = uk-источник (сверено с `packages/shared/src/i18n/
+ * locales/uk/messages.po` в момент написания — оба берутся из ОДНОГО и того
+ * же места в TS-исходнике, так что при полном разборе это была бы
+ * тавтология; проверка ценна ИМЕННО как страж мутаций на самих строках, не
+ * как проверка перевода — перевод проверяет `copy-reviewer`).
+ */
+describe('реестр сообщений — источник для i18n:extract (прямые ассерты на .message/.id)', () => {
+  it('NOTIFICATION_TITLE_MESSAGES — все тринадцать заголовков', () => {
+    const expected: Record<string, string> = {
+      TRANSACTION_ADDED: 'Вам додали транзакцію',
+      TRANSACTION_STATUS_CHANGED: 'Рішення щодо доходу',
+      TEAM_MEMBER_ADDED: 'Вас додали до команди',
+      PROJECT_MEMBER_ADDED: 'Вас додали до проєкту',
+      TEAM_NEW_MEMBER: 'У команді новий учасник',
+      PROJECT_CONFIRM_REQUIRED: 'Проєкт очікує рішення',
+      SHARE_CONFIRM_REQUIRED: 'Пропозиція щодо частки',
+      DOCUMENT_SIGN_REQUIRED: 'Контракт на підпис',
+      APPROVAL_CONFIRMED: 'Пропозицію прийнято',
+      APPROVAL_REJECTED: 'Пропозицію відхилено',
+      INVOICE_SIGNED: 'Рахунок підписано',
+      INVOICE_SIGN_REQUIRED: 'Рахунок очікує підпису',
+      VACANCY_APPLICATION: 'Новий відгук на вакансію',
+    }
+    for (const [type, message] of Object.entries(expected)) {
+      const descriptor =
+        NOTIFICATION_TITLE_MESSAGES[type as keyof typeof NOTIFICATION_TITLE_MESSAGES]
+      expect(descriptor.message, type).toBe(message)
+      expect(descriptor.id, type).toBe(`notification.${type}.title`)
+    }
+  })
+
+  it('DETAIL_MESSAGES — все четырнадцать шаблонов деталей', () => {
+    const expected: Record<string, { id: string; message: string }> = {
+      TRANSACTION_ADDED: {
+        id: 'notification.TRANSACTION_ADDED.detail',
+        message: '{projectName, select, null {{money}} other {{money} · проєкт {projectName}}}',
+      },
+      TRANSACTION_STATUS_CHANGED_VALIDATED: {
+        id: 'notification.TRANSACTION_STATUS_CHANGED.validated',
+        message: 'Валідовано: {money}',
+      },
+      TRANSACTION_STATUS_CHANGED_REJECTED: {
+        id: 'notification.TRANSACTION_STATUS_CHANGED.rejected',
+        message: 'Відхилено: {money}',
+      },
+      TRANSACTION_STATUS_CHANGED_REJECTED_WITH_REASON: {
+        id: 'notification.TRANSACTION_STATUS_CHANGED.rejectedWithReason',
+        message: '{quote}\nВідхилено: {money}',
+      },
+      TEAM_MEMBER_ADDED: {
+        id: 'notification.TEAM_MEMBER_ADDED.detail',
+        message: 'Команда {teamName}',
+      },
+      PROJECT_MEMBER_ADDED: {
+        id: 'notification.PROJECT_MEMBER_ADDED.detail',
+        message: 'Проєкт {projectName}',
+      },
+      TEAM_NEW_MEMBER: {
+        id: 'notification.TEAM_NEW_MEMBER.detail',
+        message: '{memberName} · команда {teamName}',
+      },
+      PROJECT_CONFIRM_REQUIRED: {
+        id: 'notification.PROJECT_CONFIRM_REQUIRED.detail',
+        message: 'Проєкт {projectName}',
+      },
+      SHARE_CONFIRM_REQUIRED_BASE: {
+        id: 'notification.SHARE_CONFIRM_REQUIRED.base',
+        message: 'Частка за замовчуванням: {change}',
+      },
+      SHARE_CONFIRM_REQUIRED_PROJECT: {
+        id: 'notification.SHARE_CONFIRM_REQUIRED.project',
+        message: '{change} · проєкт {projectName, select, null {без назви} other {{projectName}}}',
+      },
+      APPROVAL_CONFIRMED: {
+        id: 'notification.APPROVAL_CONFIRMED.detail',
+        message: '{approverName} — {subjectPhrase}',
+      },
+      APPROVAL_REJECTED_NO_REASON: {
+        id: 'notification.APPROVAL_REJECTED.noReason',
+        message: '{approverName} — {subjectPhrase}',
+      },
+      APPROVAL_REJECTED_WITH_REASON: {
+        id: 'notification.APPROVAL_REJECTED.withReason',
+        message: '{quote}\n{approverName} — {subjectPhrase}',
+      },
+      VACANCY_APPLICATION: {
+        id: 'notification.VACANCY_APPLICATION.detail',
+        message: 'Вакансія «{vacancyTitle}»',
+      },
+    }
+    expect(Object.keys(DETAIL_MESSAGES).sort()).toEqual(Object.keys(expected).sort())
+    for (const [key, exp] of Object.entries(expected)) {
+      const descriptor = DETAIL_MESSAGES[key as keyof typeof DETAIL_MESSAGES]
+      expect(descriptor.message, key).toBe(exp.message)
+      expect(descriptor.id, key).toBe(exp.id)
+    }
+  })
+
+  it('ACTION_LABELS — все одиннадцать подписей кнопок (кроме APPROVAL_*)', () => {
+    const expected: Record<string, string> = {
+      TRANSACTION_ADDED: 'Відкрити фінанси',
+      TRANSACTION_STATUS_CHANGED: 'Відкрити фінанси',
+      TEAM_MEMBER_ADDED: 'Відкрити команду',
+      PROJECT_MEMBER_ADDED: 'Відкрити проєкт',
+      TEAM_NEW_MEMBER: 'Відкрити команду',
+      PROJECT_CONFIRM_REQUIRED: 'Відкрити проєкт',
+      SHARE_CONFIRM_REQUIRED: 'Відкрити пропозицію',
+      DOCUMENT_SIGN_REQUIRED: 'Підписати контракт',
+      INVOICE_SIGNED: 'Відкрити рахунок',
+      INVOICE_SIGN_REQUIRED: 'Підписати рахунок',
+      VACANCY_APPLICATION: 'Відкрити вакансію',
+    }
+    expect(Object.keys(ACTION_LABELS).sort()).toEqual(Object.keys(expected).sort())
+    for (const [type, message] of Object.entries(expected)) {
+      const descriptor = ACTION_LABELS[type as keyof typeof ACTION_LABELS]
+      expect(descriptor.message, type).toBe(message)
+      expect(descriptor.id, type).toBe(`notification.action.${type}`)
+    }
+  })
+
+  it('MISC_MESSAGES — все десять «мелких» сообщений', () => {
+    const expected: Record<string, { id: string; message: string }> = {
+      percentText: {
+        id: 'notification.percentText',
+        message: '{value, select, null {не задана} other {{value}%}}',
+      },
+      subjectPhrase: {
+        id: 'notification.subjectPhrase',
+        message:
+          '{kind, select, PROJECT {проєкт {name, select, null {без назви} other {{name}}}} PROJECT_SHARE {частка за проєктом {name, select, null {без назви} other {{name}}}} other {частка за замовчуванням}}',
+      },
+      actionApprovalProject: {
+        id: 'notification.action.approval.project',
+        message: 'Відкрити проєкт',
+      },
+      actionApprovalProfile: {
+        id: 'notification.action.approval.profile',
+        message: 'Відкрити профіль',
+      },
+      subjectMissingFallback: {
+        id: 'notification.subjectMissing.fallback',
+        message: 'Цього більше немає в CRM',
+      },
+      subjectArchivedFallback: {
+        id: 'notification.subjectArchived.fallback',
+        message: 'Це прибрано в архів',
+      },
+      approvalSuperseded: {
+        id: 'notification.approvalSuperseded',
+        message: 'Рішення більше не потрібне',
+      },
+      approvalDecided: { id: 'notification.approvalDecided', message: 'Рішення вже прийнято' },
+      open: { id: 'notification.action.open', message: 'Відкрити' },
+      documentSignUnavailable: {
+        id: 'notification.action.documentSignUnavailable',
+        message: 'Підпис більше не потрібен',
+      },
+    }
+    expect(Object.keys(MISC_MESSAGES).sort()).toEqual(Object.keys(expected).sort())
+    for (const [key, exp] of Object.entries(expected)) {
+      const descriptor = MISC_MESSAGES[key as keyof typeof MISC_MESSAGES]
+      expect(descriptor.message, key).toBe(exp.message)
+      expect(descriptor.id, key).toBe(exp.id)
+    }
+  })
+
+  it('SUBJECT_MISSING_LABELS — все пять видов объекта', () => {
+    const expected: Record<NotificationSubjectType, string> = {
+      PROJECT: 'Проєкт видалено',
+      TEAM: 'Команду видалено',
+      USER: 'Профіль видалено',
+      TRANSACTION: 'Транзакцію видалено',
+      EMPLOYEE_CONTRACT: 'Контракт видалено',
+    }
+    for (const [type, message] of Object.entries(expected)) {
+      const descriptor = SUBJECT_MISSING_LABELS[type as NotificationSubjectType]
+      expect(descriptor.message, type).toBe(message)
+      expect(descriptor.id, type).toBe(`notification.subjectMissing.${type}`)
+    }
+  })
+
+  it('SUBJECT_ARCHIVED_LABELS — все пять видов объекта', () => {
+    const expected: Record<NotificationSubjectType, string> = {
+      PROJECT: 'Проєкт в архіві',
+      TEAM: 'Команда в архіві',
+      USER: 'Профіль в архіві',
+      TRANSACTION: 'Транзакція в архіві',
+      EMPLOYEE_CONTRACT: 'Контракт в архіві',
+    }
+    for (const [type, message] of Object.entries(expected)) {
+      const descriptor = SUBJECT_ARCHIVED_LABELS[type as NotificationSubjectType]
+      expect(descriptor.message, type).toBe(message)
+      expect(descriptor.id, type).toBe(`notification.subjectArchived.${type}`)
+    }
   })
 })
 
@@ -893,6 +1107,47 @@ function visibleInPopup(detail: string): string {
   }
   return out.join('')
 }
+
+/**
+ * task-i18n-stage4-task6, Step 10: кавычки чужой речи — локаль-зависимая
+ * типографика. `uk` уже покрыт множеством тестов выше (`«…»`) — здесь
+ * отдельно проверяется `en` (закрывающие типографские кавычки `“…”`,
+ * НЕ прямые `"…"`), иначе гейт мутаций не видит ни один символ в
+ * `QUOTE_CHARS.en`.
+ */
+describe('кавычки причины на локали en — типографские, не прямые (Step 10)', () => {
+  it('короткая причина оборачивается в “…”, не в прямые "…"', () => {
+    const detail = describeNotification(
+      'APPROVAL_REJECTED',
+      {
+        approverName: 'Ivan Petrov',
+        subjectKind: 'PROJECT',
+        subjectTitle: 'Acme',
+        reasonPreview: 'Wrong client',
+      },
+      'en',
+    )
+    expect(detail).toBe('“Wrong client”\nIvan Petrov — project Acme')
+    expect(detail).not.toContain('"Wrong client"')
+  })
+
+  it('длинная причина усекается с многоточием ВНУТРИ типографских кавычек', () => {
+    const detail = describeNotification(
+      'APPROVAL_REJECTED',
+      {
+        approverName: 'Ivan Petrov',
+        subjectKind: 'PROJECT',
+        subjectTitle: 'Acme',
+        reasonPreview:
+          'duplicates an existing project for the same client, I have been running one since March',
+      },
+      'en',
+    )
+    const quoteLine = detail!.split('\n')[0]!
+    expect(quoteLine.startsWith('“')).toBe(true)
+    expect(quoteLine.endsWith('…”')).toBe(true)
+  })
+})
 
 describe('цитата причины доезжает до читателя целиком (COPY-M-7 / UX-M-2)', () => {
   const longReason = notificationTextPreview(

@@ -356,11 +356,15 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
   })
 
   it('AC3: старому типу заводится строка SKIPPED/LEGACY_TYPE', async () => {
+    // task-i18n-stage4-task6: `INVOICE_SIGN_REQUIRED` здесь раньше был
+    // примером «старого типа без письма» — реестр его теперь регистрирует
+    // (`NEW_NOTIFICATION_TYPES`), поэтому пример заменён вымышленным именем;
+    // смысл теста (тип вне реестра) не завязан на конкретное имя.
     await db.transaction(async (tx) => {
       await service.createInTx(tx, {
         userId: USER_A,
-        type: 'INVOICE_SIGN_REQUIRED',
-        title: 'Инвойс ждёт подписи',
+        type: 'SOME_TYPE_OUTSIDE_THE_REGISTRY' as never,
+        title: 'Тип вне реестра',
         link: '/finance/invoices/f7a10000-0000-4007-b000-000000000009',
       })
     })
