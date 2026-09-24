@@ -2,11 +2,11 @@ import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Sparkles, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import type { AxiosError } from 'axios'
 import type { TeamDto, TeamMode, UserProfileDto } from '@crm/shared'
 import { rejoinTeamSchema } from '@crm/shared'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
-import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
+import { getApiErrorMessage, translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { Button } from '@/components/ui/button'
 import {
   CrmDialogBody,
@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils'
  * Only SENIORs can land here — the backend rejects other roles with 403.
  */
 export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useLingui()
   const queryClient = useQueryClient()
 
   const { data: allUsers } = useQuery({
@@ -100,11 +101,11 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
-      toast.success('Команда обновлена')
+      toast.success(t`Команду оновлено`)
       handleClose()
     },
-    onError: (err: AxiosError<{ message: string }>) => {
-      toast.error(err?.response?.data?.message ?? 'Не удалось присоединиться к команде')
+    onError: (err: unknown) => {
+      toast.error(getApiErrorMessage(err, t`Не вдалося приєднатися до команди — спробуйте ще раз`))
     },
   })
 
@@ -162,16 +163,22 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <CrmDialogContent data-testid="rejoin-team-dialog">
         <CrmDialogHeader>
-          <DialogTitle>Создать или выбрать команду</DialogTitle>
-          <DialogDescription className="sr-only">Выбор команды</DialogDescription>
+          <DialogTitle>
+            <Trans>Створити або обрати команду</Trans>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            <Trans>Вибір команди</Trans>
+          </DialogDescription>
           <p className="text-xs text-muted-foreground mt-1">
-            У вас нет активной команды. Создайте свою или присоединитесь к команде дропа.
+            <Trans>
+              У вас немає активної команди. Створіть свою або приєднайтеся до команди дропа.
+            </Trans>
           </p>
         </CrmDialogHeader>
         <CrmDialogBody className="space-y-3">
           <form.Field name="teamMode">
             {(field) => (
-              <Field label="Команда" required>
+              <Field label={t`Команда`} required>
                 <RadioGroup
                   value={field.state.value}
                   onValueChange={(v) => field.handleChange(v as TeamMode)}
@@ -194,10 +201,10 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                     <div className="flex-1">
                       <div className="font-medium inline-flex items-center gap-1">
                         <Sparkles className="h-3 w-3" />
-                        Создать свою команду
+                        <Trans>Створити свою команду</Trans>
                       </div>
                       <p className="text-muted-foreground mt-0.5">
-                        Новая команда. Выберите состав ниже.
+                        <Trans>Нова команда. Оберіть склад нижче.</Trans>
                       </p>
                     </div>
                   </label>
@@ -219,16 +226,20 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                     <div className="flex-1">
                       <div className="font-medium inline-flex items-center gap-1">
                         <Users className="h-3 w-3" />
-                        Добавить в команду дропа
+                        <Trans>Додати в команду дропа</Trans>
                       </div>
                       <p className="text-muted-foreground mt-0.5">
-                        {vacantDropTeams.length === 0
-                          ? 'Нет команд дропа без активного синьора.'
-                          : `${vacantDropTeams.length} ${
-                              vacantDropTeams.length === 1
-                                ? 'команда доступна'
-                                : 'команд(ы) доступно'
-                            }.`}
+                        {vacantDropTeams.length === 0 ? (
+                          <Trans>Немає команд дропа без активного сеньйора.</Trans>
+                        ) : (
+                          <Plural
+                            value={vacantDropTeams.length}
+                            one="Доступна # команда."
+                            few="Доступно # команди."
+                            many="Доступно # команд."
+                            other="Доступно # команди."
+                          />
+                        )}
                       </p>
                     </div>
                   </label>
@@ -242,10 +253,10 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
               teamMode === 'JOIN_DROP_TEAM' ? (
                 <form.Field name="dropTeamId">
                   {(field) => (
-                    <Field label="Команда дропа" required>
+                    <Field label={t`Команда дропа`} required>
                       {vacantDropTeams.length === 0 ? (
                         <p className="text-xs text-muted-foreground italic">
-                          Нет доступных команд дропа.
+                          <Trans>Немає доступних команд дропа.</Trans>
                         </p>
                       ) : (
                         <Select
@@ -253,17 +264,19 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                           onValueChange={(v) => field.handleChange(v)}
                         >
                           <SelectTrigger data-testid="rejoin-drop-team-trigger">
-                            <SelectValue placeholder="— выберите команду —" />
+                            <SelectValue placeholder={t`— оберіть команду —`} />
                           </SelectTrigger>
                           <SelectContent>
-                            {vacantDropTeams.map((t) => {
-                              const drop = t.members.find((m) => m.role === 'DROP' && !m.leftAt)
+                            {vacantDropTeams.map((dropTeam) => {
+                              const drop = dropTeam.members.find(
+                                (m) => m.role === 'DROP' && !m.leftAt,
+                              )
                               return (
-                                <SelectItem key={t.id} value={t.id}>
+                                <SelectItem key={dropTeam.id} value={dropTeam.id}>
                                   <div className="flex flex-col items-start">
-                                    <span className="font-medium">{t.name}</span>
+                                    <span className="font-medium">{dropTeam.name}</span>
                                     <span className="text-[10px] text-muted-foreground">
-                                      {drop?.displayName ?? 'Дроп не назначен'}
+                                      {drop?.displayName ?? t`Дроп не призначений`}
                                     </span>
                                   </div>
                                 </SelectItem>
@@ -297,14 +310,14 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
         </CrmDialogBody>
         <CrmDialogFooter>
           <Button variant="ghost" onClick={handleClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             onClick={() => void form.handleSubmit()}
             disabled={mutation.isPending}
             data-testid="rejoin-team-submit"
           >
-            {mutation.isPending ? 'Сохранение...' : 'Готово'}
+            {mutation.isPending ? <Trans>Збереження…</Trans> : <Trans>Зберегти</Trans>}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

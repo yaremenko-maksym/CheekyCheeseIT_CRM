@@ -1,6 +1,7 @@
 import { Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { UserProfileDto } from '@crm/shared'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,12 +13,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getInitials } from './constants'
 import { Field } from './section'
@@ -54,12 +50,14 @@ export function HrChipsField({
    */
   error?: string | undefined
 }) {
+  const { t } = useLingui()
   const [open, setOpen] = useState(false)
 
   const selected = useMemo(
-    () => selectedIds
-      .map((id) => hrUsers.find((u) => u.id === id))
-      .filter((u): u is UserProfileDto => !!u),
+    () =>
+      selectedIds
+        .map((id) => hrUsers.find((u) => u.id === id))
+        .filter((u): u is UserProfileDto => !!u),
     [selectedIds, hrUsers],
   )
   const available = useMemo(
@@ -70,21 +68,25 @@ export function HrChipsField({
   if (hrUsers.length === 0) {
     return (
       <Field label="HR" required={required} error={error}>
-        <p className="text-xs text-muted-foreground italic">Нет доступных HR</p>
+        <p className="text-xs text-muted-foreground italic">
+          <Trans>Немає вільних HR — створіть HR у розділі «Команда»</Trans>
+        </p>
       </Field>
     )
   }
 
   return (
     <Field
-      label={`HR${selected.length > 0 ? ` (${selected.length} выбрано)` : ''}`}
+      label={selected.length > 0 ? t`HR (обрано: ${selected.length})` : 'HR'}
       required={required}
       error={error}
     >
       <div className="space-y-2" data-testid="user-dialog-hr-multiselect">
         <div className="flex flex-wrap gap-1.5">
           {selected.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">Никто не выбран</p>
+            <p className="text-xs text-muted-foreground italic">
+              <Trans>Нікого не обрано</Trans>
+            </p>
           ) : (
             selected.map((u) => {
               const locked = onlyHr
@@ -100,7 +102,9 @@ export function HrChipsField({
                         data-testid={`user-dialog-hr-chip-${u.id}`}
                       >
                         <Avatar className="h-6 w-6">
-                          {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={u.displayName} /> : null}
+                          {u.avatarUrl ? (
+                            <AvatarImage src={u.avatarUrl} alt={u.displayName} />
+                          ) : null}
                           <AvatarFallback className="text-[10px]">
                             {getInitials(u.displayName)}
                           </AvatarFallback>
@@ -110,7 +114,7 @@ export function HrChipsField({
                           <button
                             type="button"
                             onClick={() => onChange(selectedIds.filter((id) => id !== u.id))}
-                            aria-label={`Удалить ${u.displayName}`}
+                            aria-label={t`Видалити ${u.displayName}`}
                             className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                             data-testid={`user-dialog-hr-remove-${u.id}`}
                           >
@@ -120,7 +124,9 @@ export function HrChipsField({
                       </span>
                     </TooltipTrigger>
                     {locked ? (
-                      <TooltipContent>Единственный HR в системе</TooltipContent>
+                      <TooltipContent>
+                        <Trans>Єдиний HR у системі</Trans>
+                      </TooltipContent>
                     ) : null}
                   </Tooltip>
                 </TooltipProvider>
@@ -139,14 +145,16 @@ export function HrChipsField({
                 className="h-7 gap-1 text-xs"
                 data-testid="user-dialog-hr-add-trigger"
               >
-                <Plus className="h-3.5 w-3.5" /> Добавить HR
+                <Plus className="h-3.5 w-3.5" /> <Trans>Додати HR</Trans>
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-72 p-0" align="start">
               <Command>
-                <CommandInput placeholder="Поиск по имени или email…" />
+                <CommandInput placeholder={t`Пошук за ім’ям або email…`} />
                 <CommandList>
-                  <CommandEmpty>Не найдено</CommandEmpty>
+                  <CommandEmpty>
+                    <Trans>Нічого не знайдено</Trans>
+                  </CommandEmpty>
                   <CommandGroup>
                     {available.map((u) => (
                       <CommandItem
@@ -159,7 +167,9 @@ export function HrChipsField({
                         data-testid={`user-dialog-hr-option-${u.id}`}
                       >
                         <Avatar className="h-6 w-6">
-                          {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={u.displayName} /> : null}
+                          {u.avatarUrl ? (
+                            <AvatarImage src={u.avatarUrl} alt={u.displayName} />
+                          ) : null}
                           <AvatarFallback className="text-[10px]">
                             {getInitials(u.displayName)}
                           </AvatarFallback>
