@@ -6,7 +6,11 @@
  *   - updateCustomValuesSchema: same bounds applied to PATCH payload
  */
 import { describe, expect, it } from 'vitest'
-import { boundedCustomValuesSchema, updateCustomValuesSchema } from './employee-contracts'
+import {
+  boundedCustomValuesSchema,
+  updateCustomValuesSchema,
+  updateEmployeeContractSchema,
+} from './employee-contracts'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -29,8 +33,10 @@ describe('boundedCustomValuesSchema', () => {
     expect(() => boundedCustomValuesSchema.parse(makeKeys(50))).not.toThrow()
   })
 
-  it('rejects a record with 51 keys (exceeds max)', () => {
-    expect(() => boundedCustomValuesSchema.parse(makeKeys(51))).toThrow()
+  it('rejects a record with 51 keys (exceeds max), with the TOO_MANY_CUSTOM_VARIABLES code', () => {
+    expect(() => boundedCustomValuesSchema.parse(makeKeys(51))).toThrow(
+      'zod.TOO_MANY_CUSTOM_VARIABLES',
+    )
   })
 
   it('accepts valid key: starts with letter, alphanumeric+underscore, max 50 chars', () => {
@@ -39,8 +45,10 @@ describe('boundedCustomValuesSchema', () => {
     ).not.toThrow()
   })
 
-  it('rejects key starting with digit', () => {
-    expect(() => boundedCustomValuesSchema.parse({ '1badKey': 'value' })).toThrow()
+  it('rejects key starting with digit, with the VARIABLE_KEY_FORMAT code', () => {
+    expect(() => boundedCustomValuesSchema.parse({ '1badKey': 'value' })).toThrow(
+      'zod.VARIABLE_KEY_FORMAT',
+    )
   })
 
   it('rejects key starting with underscore', () => {
@@ -64,8 +72,10 @@ describe('boundedCustomValuesSchema', () => {
     expect(() => boundedCustomValuesSchema.parse({ myKey: 'x'.repeat(2000) })).not.toThrow()
   })
 
-  it('rejects value longer than 2000 chars', () => {
-    expect(() => boundedCustomValuesSchema.parse({ myKey: 'x'.repeat(2001) })).toThrow()
+  it('rejects value longer than 2000 chars, with the VARIABLE_VALUE_TOO_LONG code', () => {
+    expect(() => boundedCustomValuesSchema.parse({ myKey: 'x'.repeat(2001) })).toThrow(
+      'zod.VARIABLE_VALUE_TOO_LONG',
+    )
   })
 
   it('accepts empty string value', () => {
@@ -94,5 +104,25 @@ describe('updateCustomValuesSchema', () => {
     expect(() =>
       updateCustomValuesSchema.parse({ customValues: { myKey: 'x'.repeat(2001) } }),
     ).toThrow()
+  })
+})
+
+// ── updateEmployeeContractSchema (task-i18n-stage4-task5) ─────────────────────
+// Reuses `zod.DOCUMENT_BODY_REQUIRED` — same code as `contracts.ts`'s two
+// bodyMarkdown fields and `tos.ts`'s (identical "must not be empty" rule).
+
+describe('updateEmployeeContractSchema', () => {
+  it('accepts a non-empty body', () => {
+    expect(() =>
+      updateEmployeeContractSchema.parse({ bodyMarkdown: '# Contract\n\n{{employeeName}}' }),
+    ).not.toThrow()
+  })
+
+  it('rejects an empty body, with the DOCUMENT_BODY_REQUIRED code', () => {
+    const result = updateEmployeeContractSchema.safeParse({ bodyMarkdown: '' })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.DOCUMENT_BODY_REQUIRED',
+    )
   })
 })

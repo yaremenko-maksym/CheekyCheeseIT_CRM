@@ -134,19 +134,19 @@ describe('proposeApprovalInputSchema', () => {
     ).not.toThrow()
   })
 
-  it('rejects an empty approverUserIds array with the exact Russian message', () => {
+  it('rejects an empty approverUserIds array with the AT_LEAST_ONE_APPROVER code', () => {
     const result = proposeApprovalInputSchema.safeParse({ ...validInput, approverUserIds: [] })
     expect(result.success).toBe(false)
-    expect(result.error?.issues[0]?.message).toBe('Нужен хотя бы один подтверждающий')
+    expect(result.error?.issues[0]?.message).toBe('zod.AT_LEAST_ONE_APPROVER')
   })
 
-  it('rejects duplicate approverUserIds with the exact Russian message on the right field', () => {
+  it('rejects duplicate approverUserIds with the APPROVER_IDS_NO_DUPLICATES code on the right field', () => {
     const result = proposeApprovalInputSchema.safeParse({
       ...validInput,
       approverUserIds: [uuid1, uuid1],
     })
     expect(result.success).toBe(false)
-    expect(result.error?.issues[0]?.message).toBe('approverUserIds не должен содержать повторов')
+    expect(result.error?.issues[0]?.message).toBe('zod.APPROVER_IDS_NO_DUPLICATES')
     expect(result.error?.issues[0]?.path).toEqual(['approverUserIds'])
   })
 
@@ -187,16 +187,16 @@ describe('rejectApprovalInputSchema', () => {
     expect(() => rejectApprovalInputSchema.parse(validReject)).not.toThrow()
   })
 
-  it('rejects a blank (whitespace-only) reason with the exact Russian message', () => {
+  it('rejects a blank (whitespace-only) reason with the REJECTION_REASON_REQUIRED code', () => {
     const result = rejectApprovalInputSchema.safeParse({ ...validReject, reason: '   ' })
     expect(result.success).toBe(false)
-    expect(result.error?.issues[0]?.message).toBe('Причина отказа обязательна')
+    expect(result.error?.issues[0]?.message).toBe('zod.REJECTION_REASON_REQUIRED')
   })
 
-  it('rejects an empty reason with the exact Russian message', () => {
+  it('rejects an empty reason with the REJECTION_REASON_REQUIRED code', () => {
     const result = rejectApprovalInputSchema.safeParse({ ...validReject, reason: '' })
     expect(result.success).toBe(false)
-    expect(result.error?.issues[0]?.message).toBe('Причина отказа обязательна')
+    expect(result.error?.issues[0]?.message).toBe('zod.REJECTION_REASON_REQUIRED')
   })
 
   it('rejects a missing reason field', () => {
@@ -209,13 +209,11 @@ describe('rejectApprovalInputSchema', () => {
     expect(parsed.reason).toBe('Причина')
   })
 
-  it('SR-L-1 (PR #646 fix-round 1): rejects a reason over 500 characters, with the exact Russian message', () => {
+  it('SR-L-1 (PR #646 fix-round 1): rejects a reason over 500 characters, with the REJECTION_REASON_TOO_LONG code', () => {
     const tooLong = 'а'.repeat(501)
     const result = rejectApprovalInputSchema.safeParse({ ...validReject, reason: tooLong })
     expect(result.success).toBe(false)
-    expect(result.error?.issues[0]?.message).toBe(
-      'Причина отказа слишком длинная (максимум 500 символов)',
-    )
+    expect(result.error?.issues[0]?.message).toBe('zod.REJECTION_REASON_TOO_LONG')
   })
 
   it('SR-L-1: accepts a reason at exactly the 500-character bound', () => {

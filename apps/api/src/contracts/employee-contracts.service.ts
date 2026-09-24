@@ -6,9 +6,15 @@ import type {
   ContractVariableSource,
   ContractVariablesResponse,
   CustomVariable,
+  Locale,
   SessionUser,
 } from '@crm/shared'
-import { CONTRACT_VARIABLE_DESCRIPTIONS, NOTIFICATION_TITLES } from '@crm/shared'
+import {
+  CONTRACT_VARIABLE_DESCRIPTIONS,
+  DEFAULT_LOCALE,
+  NOTIFICATION_TITLES,
+  createI18n,
+} from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { NotificationsService } from '../notifications/notifications.service'
@@ -533,11 +539,23 @@ export class EmployeeContractsService {
    *   custom    — in template's customVariables list
    *   unknown   — found in body but not in any known source
    *
+   * `viewerLocale` — the requesting ADMIN's locale (this endpoint is
+   * `@Roles('ADMIN')` on the whole controller, no override on this handler —
+   * see fix-round 1, COPY-H-3/CR-H-1), NOT the employee whose contract this
+   * is. The reader of `label` is always the admin looking at Screen 2, so the
+   * descriptions render on the admin's own locale. Defaults to
+   * `DEFAULT_LOCALE` ('uk') — the controller always passes the resolved
+   * request locale explicitly; the default only covers call sites (mostly
+   * tests) that do not care about locale.
+   *
    * Returns:
    *   variables         — per-token metadata including resolved value + isEmpty flag
    *   customVariables   — raw template customVariable definitions (for input rendering)
    */
-  async getContractVariables(userId: string): Promise<ContractVariablesResponse> {
+  async getContractVariables(
+    userId: string,
+    viewerLocale: Locale = DEFAULT_LOCALE,
+  ): Promise<ContractVariablesResponse> {
     const contract = await this.getActiveOrThrow(userId)
 
     // Load user row for value resolution
@@ -665,6 +683,15 @@ export class EmployeeContractsService {
     // signed yet; the value is shown as a preview (not stored).
     const resolvedMap = buildContractVariableMap(user, new Date())
 
+    // task-i18n-stage4-task5, fix-round 1 (COPY-H-3/CR-H-1): `CONTRACT_-
+    // VARIABLE_DESCRIPTIONS` values are `MessageDescriptor`s. This endpoint
+    // is `@Roles('ADMIN')` on the whole controller — the reader is always the
+    // admin filling in Screen 2 for an employee's contract, never the
+    // employee themselves — so the labels render on the VIEWER's locale
+    // (`viewerLocale`, resolved by `@RequestLocale()` in the controller),
+    // not `user.locale` (the employee whose contract this is).
+    const labelsI18n = createI18n(viewerLocale)
+
     const variables: ContractVariableInfo[] = orderedKeys.map((key) => {
       let source: ContractVariableSource
       if (USER_KEYS.has(key)) source = 'user'
@@ -675,7 +702,9 @@ export class EmployeeContractsService {
 
       const label =
         key in CONTRACT_VARIABLE_DESCRIPTIONS
-          ? CONTRACT_VARIABLE_DESCRIPTIONS[key as keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS]
+          ? labelsI18n._(
+              CONTRACT_VARIABLE_DESCRIPTIONS[key as keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS],
+            )
           : (templateCustomVars.find((cv) => cv.key === key)?.label ?? key)
 
       let value = ''

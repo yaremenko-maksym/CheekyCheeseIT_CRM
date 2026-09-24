@@ -100,7 +100,7 @@ export const resumeLinkSchema = z.object({
     .string()
     .max(500)
     .refine((raw) => isSafeResumeUrl(raw), {
-      message: 'Ссылка должна начинаться с https:// или mailto:',
+      message: 'zod.RESUME_LINK_PROTOCOL',
     }),
 })
 export type ResumeLink = z.infer<typeof resumeLinkSchema>
@@ -426,7 +426,7 @@ export type UpdateResumeContentInput = z.infer<typeof updateResumeContentSchema>
 export const ingestResumeTextSchema = z.object({
   text: z
     .string()
-    .min(RESUME_LIMITS.minExtractableChars, 'Текст резюме слишком короткий')
+    .min(RESUME_LIMITS.minExtractableChars, 'zod.RESUME_TEXT_TOO_SHORT')
     // Same ceiling the file path truncates to — one number, so pasted text and
     // extracted text can never disagree about how much text may exist.
     .max(RESUME_LIMITS.extractionRawChars),

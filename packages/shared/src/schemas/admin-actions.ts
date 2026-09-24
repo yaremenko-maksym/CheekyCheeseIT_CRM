@@ -19,7 +19,7 @@ export const changeSalarySchema = z
     seniorSharePercent: z.number().int().min(0).max(100).optional(),
   })
   .refine((d) => d.monthlySalary !== undefined || d.seniorSharePercent !== undefined, {
-    message: 'Укажите хотя бы одно из полей: monthlySalary или seniorSharePercent',
+    message: 'zod.SALARY_OR_SHARE_REQUIRED',
   })
 
 export const changeRequisitesSchema = paymentRequisitesSchema

@@ -117,19 +117,19 @@ describe('rejectPendingShareSchema', () => {
     })
   })
 
-  it('rejects an empty reason with the exact required-reason message', () => {
+  it('rejects an empty reason with the REJECTION_REASON_REQUIRED code', () => {
     // `.toThrow(string)` — substring match against the thrown ZodError's own
     // `.message` — is the established convention for this (see
     // finance.salary-month-gap.spec.ts / teams.spec.ts); a `safeParse` +
     // `if (!result.success)` shape trips `vitest/no-conditional-expect`.
     expect(() => rejectPendingShareSchema.parse({ reason: '' })).toThrow(
-      'Причина отказа обязательна',
+      'zod.REJECTION_REASON_REQUIRED',
     )
   })
 
   it('rejects a whitespace-only reason (trimmed before the min-length check)', () => {
     expect(() => rejectPendingShareSchema.parse({ reason: '   ' })).toThrow(
-      'Причина отказа обязательна',
+      'zod.REJECTION_REASON_REQUIRED',
     )
   })
 
@@ -138,10 +138,10 @@ describe('rejectPendingShareSchema', () => {
     expect(rejectPendingShareSchema.parse({ reason }).reason).toHaveLength(500)
   })
 
-  it('rejects a reason of 501 characters with the exact too-long message', () => {
+  it('rejects a reason of 501 characters with the REJECTION_REASON_TOO_LONG code', () => {
     const reason = 'x'.repeat(501)
     expect(() => rejectPendingShareSchema.parse({ reason })).toThrow(
-      'Причина отказа слишком длинная (максимум 500 символов)',
+      'zod.REJECTION_REASON_TOO_LONG',
     )
   })
 })

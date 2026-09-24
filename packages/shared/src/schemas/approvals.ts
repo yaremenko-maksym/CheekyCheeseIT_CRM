@@ -98,11 +98,11 @@ export const proposeApprovalInputSchema = z
   .object({
     subjectType: approvalSubjectTypeSchema,
     subjectId: z.string().uuid(),
-    approverUserIds: z.array(z.string().uuid()).min(1, 'Нужен хотя бы один подтверждающий'),
+    approverUserIds: z.array(z.string().uuid()).min(1, 'zod.AT_LEAST_ONE_APPROVER'),
     proposedByUserId: z.string().uuid(),
   })
   .refine((v) => new Set(v.approverUserIds).size === v.approverUserIds.length, {
-    message: 'approverUserIds не должен содержать повторов',
+    message: 'zod.APPROVER_IDS_NO_DUPLICATES',
     path: ['approverUserIds'],
   })
 export type ProposeApprovalInput = z.infer<typeof proposeApprovalInputSchema>
@@ -138,7 +138,7 @@ export const rejectApprovalInputSchema = z.object({
   reason: z
     .string()
     .trim()
-    .min(1, 'Причина отказа обязательна')
-    .max(500, 'Причина отказа слишком длинная (максимум 500 символов)'),
+    .min(1, 'zod.REJECTION_REASON_REQUIRED')
+    .max(500, 'zod.REJECTION_REASON_TOO_LONG'),
 })
 export type RejectApprovalInput = z.infer<typeof rejectApprovalInputSchema>
