@@ -673,6 +673,67 @@ describe('деградация', () => {
     expect(mail.buttonLabel).toBe('Открыть CRM')
   })
 
+  // Гейт мутаций: `emailAction`'s `subjectType !== null && subjectId !== null`
+  // — ни один из тринадцати зарегистрированных типов не даёт ЧАСТИЧНО
+  // заполненную пару (реальные продюсеры кладут либо оба поля, либо ни
+  // одного), поэтому оба «частичных» случая нужно сконструировать вручную.
+  it('subjectType задан, subjectId — нет: кнопка падает на ссылку, не на маршрут объекта', () => {
+    const mail = renderNotificationEmail(
+      {
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Заголовок',
+        body: null,
+        link: '/some/legacy/path',
+        subjectType: 'PROJECT',
+        subjectId: null,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.buttonHref).toBe(`${FRONTEND}/some/legacy/path`)
+    expect(mail.buttonLabel).toBe('Открыть')
+  })
+
+  it('subjectId задан, subjectType — нет: кнопка падает на ссылку, не на маршрут объекта', () => {
+    const mail = renderNotificationEmail(
+      {
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Заголовок',
+        body: null,
+        link: '/some/legacy/path',
+        subjectType: null,
+        subjectId: SUBJECT_ID,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.buttonHref).toBe(`${FRONTEND}/some/legacy/path`)
+    expect(mail.buttonLabel).toBe('Открыть')
+  })
+
+  // `emailActionLabelFor`'s собственный defensive-fallback (строка «Открыть»
+  // в конце функции) недостижим через ЛЮБОЙ из тринадцати реальных типов —
+  // все пять типов, у которых producer реально задаёт subjectType/subjectId,
+  // либо APPROVAL_*, либо есть в `EMAIL_ACTION_LABELS`. Прямой вызов через
+  // `renderNotificationEmail` с типом ВНЕ реестра, но с заполненным
+  // subjectType/subjectId — единственный способ дойти до этой ветки.
+  it('emailActionLabelFor: тип вне EMAIL_ACTION_LABELS с адресом объекта — защитное «Открыть»', () => {
+    const mail = renderNotificationEmail(
+      {
+        type: 'SOME_FUTURE_TYPE_NOT_IN_EMAIL_ACTION_LABELS',
+        title: 'Заголовок',
+        body: null,
+        link: null,
+        subjectType: 'PROJECT',
+        subjectId: SUBJECT_ID,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.buttonLabel).toBe('Открыть')
+    expect(mail.buttonHref).toBe(`${FRONTEND}/projects/${SUBJECT_ID}`)
+  })
+
   it('адрес берётся из настройки, а не из константы', () => {
     const mail = renderNotificationEmail(sourceFor('PROJECT_MEMBER_ADDED'), {
       frontendUrl: 'https://other.example',

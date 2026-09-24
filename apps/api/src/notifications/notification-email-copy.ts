@@ -333,6 +333,7 @@ function emailAction(source: NotificationEmailSource): { href: string; label: st
       label: emailActionLabelFor(source.type, source.subjectType),
     }
   }
+  // Stryker disable next-line ConditionalExpression: `source.link` at this point is only ever `null` or a string — forcing this branch always-true when `source.link` is null returns `{ href: null, label: 'Открыть' }`, and the caller's own `action?.href ?? '/'` / `action?.href == null ? 'Открыть CRM' : ...` fallbacks make that byte-identical to returning `null` here (see "без ссылки кнопка называется «Открыть CRM»" below) — no observable difference either way.
   if (source.link !== null) {
     return { href: source.link, label: 'Открыть' }
   }
