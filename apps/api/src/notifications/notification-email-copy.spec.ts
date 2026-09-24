@@ -69,6 +69,13 @@ const DATA: Record<NewNotificationType, unknown> = {
     subjectTitle: PROJECT,
     reasonPreview: 'мало',
   },
+  // task-i18n-stage4-task6: три замороженных типа, теперь в NEW_NOTIFICATION_
+  // TYPES — BODIES для них (notification-email-copy.ts) пока минимальные
+  // Ukrainian-заглушки (Track D / Task 7 пишет их по-настоящему); здесь
+  // проверяется только то, что §11's инварианты не нарушены на них тоже.
+  INVOICE_SIGNED: { counterpartyName: PERSON },
+  INVOICE_SIGN_REQUIRED: { amount: '1500.000000', currency: 'USDT' },
+  VACANCY_APPLICATION: { vacancyTitle: 'Senior Frontend Engineer' },
 }
 
 const SUBJECT_TYPE: Record<NewNotificationType, NotificationEmailSource['subjectType']> = {
@@ -82,18 +89,36 @@ const SUBJECT_TYPE: Record<NewNotificationType, NotificationEmailSource['subject
   DOCUMENT_SIGN_REQUIRED: 'EMPLOYEE_CONTRACT',
   APPROVAL_CONFIRMED: 'PROJECT',
   APPROVAL_REJECTED: 'PROJECT',
+  // task-i18n-stage4-task6: реальные производители (invoices.service.ts,
+  // applications.service.ts) не задают `subjectType`/`subjectId` для этих
+  // трёх типов — кнопка идёт по сохранённой `link`, как и раньше.
+  INVOICE_SIGNED: null,
+  INVOICE_SIGN_REQUIRED: null,
+  VACANCY_APPLICATION: null,
 }
 
 const SUBJECT_ID = '33333333-3333-4333-8333-333333333333'
+
+/**
+ * Ссылка, которую реально кладут производители трёх замороженных типов —
+ * без `&`, чтобы не путать этот тест с HTML-экранированием (`mail.html`
+ * несёт `&amp;`, а `mail.buttonHref` — нет; отдельный вопрос, не предмет
+ * этой задачи).
+ */
+const LINK: Partial<Record<NewNotificationType, string>> = {
+  INVOICE_SIGNED: '/documents/tx-1',
+  INVOICE_SIGN_REQUIRED: '/documents/tx-1',
+  VACANCY_APPLICATION: '/vacancies/vac-1',
+}
 
 function sourceFor(type: NewNotificationType): NotificationEmailSource {
   return {
     type,
     title: NOTIFICATION_TITLES[type],
     body: null,
-    link: null,
+    link: LINK[type] ?? null,
     subjectType: SUBJECT_TYPE[type],
-    subjectId: SUBJECT_ID,
+    subjectId: SUBJECT_TYPE[type] === null ? null : SUBJECT_ID,
     data: DATA[type],
   }
 }
@@ -181,33 +206,39 @@ describe('десять писем — страж §11', () => {
  * реализация: иначе проверка была бы тавтологией и прошла бы по построению.
  * Правка формулировки обязана падать здесь — это не хрупкость, а гейт на
  * текст, который читает `copy-reviewer`.
+ *
+ * task-i18n-stage4-task6 (Уточнения оркестратора п.2): кнопка для НЕ-action-
+ * required типов идёт через `notificationActions(..., DEFAULT_LOCALE)` —
+ * временный якорь на `uk` (Task 7 передаёт локаль получателя), поэтому её
+ * подпись здесь уже украинская («Відкрити …»), тогда как тема/тело остаются
+ * русскими (сам этот файл ещё не мигрирован — Track D / Task 7).
  */
 const GOLDEN: Record<NewNotificationType, { subject: string; text: string; button: string }> = {
   TRANSACTION_ADDED: {
     subject: 'Транзакция по проекту «Мобильный банк»',
     text: 'В ваших финансах новая транзакция. Сумма и детали — в CRM.',
-    button: 'Открыть финансы',
+    button: 'Відкрити фінанси',
   },
   TRANSACTION_STATUS_CHANGED: {
     subject: 'Доход отклонён',
     // Актора нет: его нет и в данных, а решает бухгалтер ИЛИ админ (COPY-H-2).
     text: 'Причина отказа — в CRM.',
-    button: 'Открыть финансы',
+    button: 'Відкрити фінанси',
   },
   TEAM_MEMBER_ADDED: {
     subject: 'Вас добавили в команду «Ядро платформы»',
     text: 'Состав команды — в CRM.',
-    button: 'Открыть команду',
+    button: 'Відкрити команду',
   },
   PROJECT_MEMBER_ADDED: {
     subject: 'Вас добавили в проект «Мобильный банк»',
     text: 'Детали проекта и его состав — в CRM.',
-    button: 'Открыть проект',
+    button: 'Відкрити проєкт',
   },
   TEAM_NEW_MEMBER: {
     subject: 'В команде «Ядро платформы» новый участник',
     text: 'Кто именно — в CRM.',
-    button: 'Открыть команду',
+    button: 'Відкрити команду',
   },
   PROJECT_CONFIRM_REQUIRED: {
     subject: 'Запрос на добавление проекта «Мобильный банк»',
@@ -229,12 +260,32 @@ const GOLDEN: Record<NewNotificationType, { subject: string; text: string; butto
   APPROVAL_CONFIRMED: {
     subject: 'Ваше предложение принято',
     text: 'Сотрудник согласился участвовать в проекте «Мобильный банк».',
-    button: 'Открыть проект',
+    button: 'Відкрити проєкт',
   },
   APPROVAL_REJECTED: {
     subject: 'Ваше предложение отклонено',
     text: 'Сотрудник отказался от смены доли по проекту «Мобильный банк».\nПричина — в CRM.',
-    button: 'Открыть проект',
+    button: 'Відкрити проєкт',
+  },
+  // task-i18n-stage4-task6: минимальные BODIES-заглушки (Task 7 пишет их
+  // по-настоящему) — subjectType/subjectId не заданы (реальные производители
+  // их тоже не задают), кнопка идёт по сохранённой `link`, подпись — из
+  // общего `notificationActions` (DEFAULT_LOCALE, временно, см. `notification-
+  // email-copy.ts` doc-комментарий) — «Відкрити», не «Ответить на запрос».
+  INVOICE_SIGNED: {
+    subject: 'Рахунок підписано',
+    text: 'Деталі — в CRM.',
+    button: 'Відкрити',
+  },
+  INVOICE_SIGN_REQUIRED: {
+    subject: 'Рахунок очікує підпису',
+    text: 'Сума та деталі — в CRM.',
+    button: 'Відкрити',
+  },
+  VACANCY_APPLICATION: {
+    subject: 'Новий відгук на вакансію «Senior Frontend Engineer»',
+    text: 'Деталі — в CRM.',
+    button: 'Відкрити',
   },
 }
 
@@ -291,7 +342,7 @@ describe('эталон: ветки, которых в таблице выше б
       { frontendUrl: FRONTEND },
     )
     expect(mail.subject).toBe('Доход валидирован')
-    expect(mail.text).toBe(`Сумма и детали — в CRM.\n\nОткрыть финансы: ${mail.buttonHref}`)
+    expect(mail.text).toBe(`Сумма и детали — в CRM.\n\nВідкрити фінанси: ${mail.buttonHref}`)
   })
 
   it('БАЗОВЫЙ процент с уцелевшим именем проекта — всё равно базовый', () => {
@@ -361,9 +412,9 @@ describe('эталон: ветки, которых в таблице выше б
       { frontendUrl: FRONTEND },
     )
     expect(mail.text).toBe(
-      `Сотрудник согласился на смену доли по умолчанию.\n\nОткрыть профиль: ${mail.buttonHref}`,
+      `Сотрудник согласился на смену доли по умолчанию.\n\nВідкрити профіль: ${mail.buttonHref}`,
     )
-    expect(mail.buttonLabel).toBe('Открыть профиль')
+    expect(mail.buttonLabel).toBe('Відкрити профіль')
   })
 
   it('решение по проекту без названия — «проект» без кавычек', () => {
@@ -524,9 +575,13 @@ describe('деградация', () => {
   })
 
   it('тип, которого шаблон не знает, ведёт по сохранённой ссылке', () => {
+    // task-i18n-stage4-task6: `INVOICE_SIGN_REQUIRED` здесь раньше был
+    // примером «типа, которого шаблон не знает» — реестр его теперь
+    // регистрирует, так что пример заменён вымышленным именем; смысл теста
+    // (тип вне `NEW_NOTIFICATION_TYPES`) не завязан на конкретное имя.
     const mail = renderNotificationEmail(
       {
-        type: 'INVOICE_SIGN_REQUIRED',
+        type: 'SOME_FUTURE_TYPE',
         title: 'Инвойс ждёт подписи',
         body: null,
         link: '/finance/invoices/abc',
@@ -555,7 +610,7 @@ describe('деградация', () => {
   it('старый тип без сохранённого тела тоже зовёт в CRM', () => {
     const mail = renderNotificationEmail(
       {
-        type: 'INVOICE_SIGNED',
+        type: 'SOME_FUTURE_TYPE',
         title: 'Инвойс подписан',
         body: null,
         link: '/finance/invoices/abc',
@@ -565,13 +620,13 @@ describe('деградация', () => {
       },
       { frontendUrl: FRONTEND },
     )
-    expect(mail.text).toBe(`Подробности — в CRM.\n\nОткрыть: ${mail.buttonHref}`)
+    expect(mail.text).toBe(`Подробности — в CRM.\n\nВідкрити: ${mail.buttonHref}`)
   })
 
   it('старый тип с сохранённым телом печатает ЕГО, а не заглушку', () => {
     const mail = renderNotificationEmail(
       {
-        type: 'VACANCY_APPLICATION',
+        type: 'SOME_FUTURE_TYPE',
         title: 'Отклик на вакансию',
         body: 'Пришёл отклик на вакансию React-разработчика',
         link: '/vacancies',
@@ -582,7 +637,7 @@ describe('деградация', () => {
       { frontendUrl: FRONTEND },
     )
     expect(mail.text).toBe(
-      `Пришёл отклик на вакансию React-разработчика\n\nОткрыть: ${mail.buttonHref}`,
+      `Пришёл отклик на вакансию React-разработчика\n\nВідкрити: ${mail.buttonHref}`,
     )
   })
 
