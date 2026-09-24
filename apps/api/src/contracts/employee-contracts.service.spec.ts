@@ -1018,4 +1018,74 @@ describe('EmployeeContractsService', () => {
       expect(v?.isEmpty).toBe(false)
     })
   })
+
+  // ─── getContractVariables — label renders on the VIEWER's locale ─────────────
+  // task-i18n-stage4-task5, fix-round 1 (COPY-H-3/CR-H-1): `CONTRACT_-
+  // VARIABLE_DESCRIPTIONS` became `MessageDescriptor`s — `label` is resolved
+  // through `createI18n(viewerLocale)`, not read as a plain string. The
+  // endpoint is `@Roles('ADMIN')` on the whole controller — the reader is
+  // always the admin filling in Screen 2 for an employee's contract, never
+  // the employee themselves — so `label` follows the VIEWER's (the
+  // requesting admin's) locale, not `user.locale` (the employee's own).
+  describe('getContractVariables — label locale (fix-round 1, COPY-H-3/CR-H-1)', () => {
+    const baseUser = {
+      id: 'user-uuid',
+      role: 'SENIOR' as const,
+      seniorSharePercent: 26,
+      dropSharePercent: null,
+      email: 'test@example.com',
+      displayName: 'Test User',
+      legalFullName: null,
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: null,
+      bankUahIban: null,
+      bankUahRnokpp: null,
+      bankUahBankName: null,
+      paymentMethod: null,
+      monthlySalary: null,
+      salaryCurrency: null,
+      phone: null,
+      registrationAddress: null,
+    }
+
+    function makeLabelService(userOverrides: Record<string, unknown> = {}) {
+      const contract = makeContract({ bodyMarkdown: '{{employeeName}}', customValues: {} })
+      const { service, db } = makeService(
+        {},
+        { id: 'template-uuid', bodyMarkdown: '{{employeeName}}', customVariables: [] },
+      )
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue({ ...baseUser, ...userOverrides })
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([{ customVariables: [] }]),
+          }),
+        }),
+      })
+      return service
+    }
+
+    it('admin viewer=uk + employee.locale=en → uk label (viewer wins, not the employee)', async () => {
+      const service = makeLabelService({ locale: 'en' })
+      const result = await service.getContractVariables('user-uuid', 'uk')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.label).toBe('ПІБ співробітника для контракту (юридичне ім’я)')
+    })
+
+    it('admin viewer=en + employee.locale=uk → en label (the reverse pairing)', async () => {
+      const service = makeLabelService({ locale: 'uk' })
+      const result = await service.getContractVariables('user-uuid', 'en')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.label).toBe("Employee's full legal name for the contract")
+    })
+
+    it('defaults to uk when no viewerLocale argument is passed (defensive default, not the real caller path)', async () => {
+      const service = makeLabelService({ locale: 'en' })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.label).toBe('ПІБ співробітника для контракту (юридичне ім’я)')
+    })
+  })
 })

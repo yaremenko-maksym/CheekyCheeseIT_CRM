@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { Throttle } from '@nestjs/throttler'
-import type { SessionUser } from '@crm/shared'
+import type { Locale, SessionUser } from '@crm/shared'
 import { updateCustomValuesSchema, updateEmployeeContractSchema } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
@@ -21,6 +21,7 @@ import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
 import type { User } from '../database/schema'
+import { RequestLocale } from '../i18n/request-locale'
 import { ContractPdfService } from './contract-pdf.service'
 import { safeContractFilename } from './contract-filename.util'
 import { renderContractTemplate } from './contract-rendering'
@@ -136,10 +137,15 @@ export class EmployeeContractsController {
    * GET /api/users/:id/contract/variables
    * Resolve all {{token}} occurrences in the contract body with metadata.
    * Used by the Screen 2 "fill variables" form before marking ready-to-sign.
+   *
+   * Fix-round 1 (COPY-H-3/CR-H-1): variable descriptions render on the
+   * requesting ADMIN's own locale (`@RequestLocale()`) — this whole
+   * controller is `@Roles('ADMIN')`, so the reader is always the admin, never
+   * the employee whose contract this is.
    */
   @Get(':id/contract/variables')
-  async getVariables(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.getContractVariables(id)
+  async getVariables(@Param('id', ParseUUIDPipe) id: string, @RequestLocale() locale: Locale) {
+    return this.service.getContractVariables(id, locale)
   }
 
   /**

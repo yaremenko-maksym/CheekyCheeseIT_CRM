@@ -221,7 +221,7 @@ export const createDocumentMetadataSchema = z
     ownerId: z.string().uuid().optional(),
   })
   .refine((data) => data.category !== 'CONTRACT' || Boolean(data.projectId), {
-    message: 'projectId is required for CONTRACT documents',
+    message: 'zod.CONTRACT_DOCUMENT_PROJECT_REQUIRED',
     path: ['projectId'],
   })
 export type CreateDocumentMetadata = z.infer<typeof createDocumentMetadataSchema>

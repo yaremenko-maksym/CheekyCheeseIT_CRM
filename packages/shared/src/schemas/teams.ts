@@ -29,7 +29,10 @@ export const teamMemberSchema = z.object({
  */
 export const teamTelegramChannelSchema = z
   .string()
-  .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Некорректный канал (5–32 латинских символов или _, опц. @)')
+  // Reuses `TELEGRAM_CHANNEL_FORMAT` (task-i18n-stage4-task4, registered for
+  // UserDialog's drop-team Telegram CHANNEL field) — same regex, same field
+  // shape, same rule; not a new code (plan Task 5 Step 3 dedup discipline).
+  .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'zod.TELEGRAM_CHANNEL_FORMAT')
   .nullable()
   .optional()
 
@@ -108,10 +111,7 @@ export const updateTeamSchema = z.object({
   telegram: z
     .string()
     .max(500)
-    .refine(
-      (val) => !val || val.startsWith('https://t.me/'),
-      'Ссылка должна начинаться с https://t.me/',
-    )
+    .refine((val) => !val || val.startsWith('https://t.me/'), 'zod.TEAM_TELEGRAM_LINK_FORMAT')
     .nullable()
     .optional(),
   telegramChannel: teamTelegramChannelSchema,

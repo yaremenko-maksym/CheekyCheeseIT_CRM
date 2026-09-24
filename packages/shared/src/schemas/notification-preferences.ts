@@ -36,7 +36,7 @@ import {
  * что человек увидит, если 7b пошлёт устаревший тип из старого бандла.
  */
 export const configurableNotificationTypeSchema = z.enum(NEW_NOTIFICATION_TYPES, {
-  message: 'Неизвестный тип уведомления',
+  message: 'zod.NOTIFICATION_TYPE_UNKNOWN',
 })
 export type ConfigurableNotificationType = z.infer<typeof configurableNotificationTypeSchema>
 
@@ -65,25 +65,21 @@ const preferenceItem = z.object({
 export const updateNotificationPreferencesSchema = z.object({
   items: z
     .array(preferenceItem)
-    // Сообщения РУССКИЕ на обеих границах (COPY-L-6, copy-review PR #673
-    // круг 2) — тот же канал и тот же довод, что у `.refine()` ниже: пустая
-    // пачка или пачка сверх десяти типов — это сломанный/устаревший клиент,
-    // но отвечает на неё всё равно человек, приславший запрос через 7b, а не
-    // разработчик, читающий лог.
-    .min(1, 'Укажите хотя бы одну настройку')
-    .max(NEW_NOTIFICATION_TYPES.length, 'Слишком много настроек в одном запросе')
-    // Тексты РУССКИЕ, и это не вкусовщина: `ZodExceptionFilter` отдаёт
-    // `issues[].message` клиенту дословно на всех маршрутах вне
-    // `FINANCE_CRITICAL_PREFIXES`, а `/api/notifications/preferences` в этом
-    // списке нет. То есть строка ниже — то самое, что человек прочтёт, когда
-    // переключатель не поддастся (§5 задания, `russian-language.md`).
-    // Круг 1 отдавал здесь английскую фразу со ссылкой на «spec §3» — ссылку на
-    // внутренний документ читателю интерфейса сообщать нечего.
+    // Пустая пачка или пачка сверх десяти типов — это сломанный/устаревший
+    // клиент, но отвечает на неё всё равно человек, приславший запрос через
+    // 7b, а не разработчик, читающий лог (COPY-L-6, copy-review PR #673
+    // круг 2) — отсюда коды, а не диагностический английский.
+    .min(1, 'zod.AT_LEAST_ONE_PREFERENCE')
+    .max(NEW_NOTIFICATION_TYPES.length, 'zod.TOO_MANY_PREFERENCES')
+    // task-i18n-stage4-task5: coded keys, resolved through `ZOD_ERROR_MESSAGES`
+    // like every other migrated schema (`ZodExceptionFilter` sends the English
+    // fallback over HTTP, the client renders by locale — same mechanism as the
+    // rest of this registry, not a Russian-literal special case anymore).
     .refine((items) => new Set(items.map((i) => i.type)).size === items.length, {
-      message: 'Каждый тип уведомления можно указать только один раз',
+      message: 'zod.PREFERENCE_TYPE_DUPLICATE',
     })
     .refine((items) => items.every((i) => i.emailEnabled || !isEmailChannelLocked(i.type)), {
-      message: 'Письма о запросах на подтверждение и подпись отключить нельзя',
+      message: 'zod.PREFERENCE_EMAIL_LOCKED',
     }),
 })
 export type UpdateNotificationPreferencesInput = z.infer<typeof updateNotificationPreferencesSchema>

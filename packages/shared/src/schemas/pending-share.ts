@@ -73,7 +73,7 @@ export const rejectPendingShareSchema = z.object({
   reason: z
     .string()
     .trim()
-    .min(1, 'Причина отказа обязательна')
-    .max(500, 'Причина отказа слишком длинная (максимум 500 символов)'),
+    .min(1, 'zod.REJECTION_REASON_REQUIRED')
+    .max(500, 'zod.REJECTION_REASON_TOO_LONG'),
 })
 export type RejectPendingShareDto = z.infer<typeof rejectPendingShareSchema>
